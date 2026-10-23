@@ -5,20 +5,21 @@
 %
 % Differs from menu_presence.tex in exactly one place: Identify is split into
 % IdentifyRead and IdentifyWrite around the store write lock. The shipped
-% facade reads `before = identity.current(scope)` outside the lock, then
-% identify_client, then MenuArming.track(conn, before), which binds the sink
-% and marks only if the identity changed from `before`. A departure that lands
-% between the read and the write makes the re-registration look unchanged.
+% facade read `before = identity.current(scope)` outside the lock, then
+% recorded the identity, then bound the sink and marked only if the identity
+% changed from `before`. A departure that lands between the read and the write
+% makes the re-registration look unchanged.
 % (iphase/ifor/ibefore are the split-window devices, inert in the fixed spec.)
 %
 % Expected: BOTH negations are REACHABLE.
 %   P1: probcli docs/menu_presence_d5_buggy.tex -model_check -nodead \
-%         -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" -p DEFAULT_SETSIZE 3
+%         -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
+%         -p DEFAULT_SETSIZE 2
 %   P2: probcli docs/menu_presence_d5_buggy.tex -model_check -nodead \
 %         -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
-%           or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 3
-% Trace: Attach(c); IdentifyRead(c) [before = earning]; DropGraceful(c); Push;
-% IdentifyWrite(c) leaves earns = {c}, sinks(c) = 0, dirty = fclear,
+%           or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 2
+% Trace: Attach(c); IdentifyRead(c) [before = earning]; DropGraceful(c, {});
+% Push; IdentifyWrite(c) leaves earns = {c}, sinks(c) = 0, dirty = fclear,
 % shown = {}: no entry now, and a ghost when c next departs.
 %
 % The remaining operations are those of menu_presence.tex, whose prose
@@ -48,18 +49,27 @@
 
 \begin{schema}{MenuPres}
   registered : \power CONN \\
+  agents : \power CONN \\
+  cbs : \power CONN \\
   earns : \power CONN \\
   lapsed : \power CONN \\
   open : \power CONN \\
   sinks : CONN \fun 0 \upto 2 \\
   dirty : FSTATE \\
   shown : \power CONN \\
+  sdirty : \power CONN \\
+  stale : \power CONN
+ \\
   iphase : IPHASE \\
   ifor : \power CONN \\
   ibefore : FSTATE
 \where
-  earns \subseteq registered \\
+  agents \subseteq registered \\
+  cbs \subseteq registered \\
+  earns = agents \cup cbs \\
   lapsed \subseteq registered \\
+  sdirty \subseteq registered \\
+  stale \subseteq registered \\
   \# ifor \leq 1
 \end{schema}
 
@@ -67,12 +77,15 @@
   MenuPres'
 \where
   registered' = \emptyset \\
-  earns' = \emptyset \\
+  agents' = \emptyset \\
+  cbs' = \emptyset \\
   lapsed' = \emptyset \\
   open' = \emptyset \\
   sinks' = CONN \cross \{ 0 \} \\
   dirty' = fclear \\
   shown' = \emptyset \\
+  sdirty' = \emptyset \\
+  stale' = \emptyset \\
   iphase' = iidle \\
   ifor' = \emptyset \\
   ibefore' = fclear
@@ -83,12 +96,16 @@
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \cup \{ c? \} \\
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
   (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
     ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
   shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore
@@ -104,17 +121,18 @@
   (c? \in earns \land ibefore' = fset) \lor
     (c? \notin earns \land ibefore' = fclear) \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \\
   open' = open \\
   sinks' = sinks \\
   dirty' = dirty \\
-  shown' = shown
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
 \end{schema}
 
-\texttt{IdentifyRead} is \texttt{Operations.identify}'s
-\texttt{before = identity.current(scope)}, taken outside the store's write
-lock: it snapshots whether the connection already earns presence.
+\texttt{IdentifyRead} is the facade's \texttt{before} snapshot, taken outside the store's write lock.
 
 \begin{schema}{IdentifyWrite}
   \Delta MenuPres \\
@@ -126,20 +144,21 @@ lock: it snapshots whether the connection already earns presence.
   ifor' = \emptyset \\
   ibefore' = fclear \\
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \cup \{ c? \} \\
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (ibefore = fclear \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
     (ibefore = fset \land sinks' = sinks) \\
   (ibefore = fclear \land dirty' = fset) \lor
     (ibefore = fset \land dirty' = dirty) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
-\texttt{IdentifyWrite} is \texttt{identify\_client} followed by
-\texttt{MenuArming.track(conn, before)}, which binds the sink and marks only
-if the identity differs from \texttt{before}. A departure landing between the
-two makes the re-registration look unchanged: the defect.
+\texttt{IdentifyWrite} is the record followed by the comparison against \texttt{before}: a departure landing between the two makes the re-registration look unchanged.
 
 \begin{zed}
   Attach \defs AgentRecord \land [\Delta MenuPres; c? : CONN | open' = open \cup \{ c? \}]
@@ -150,14 +169,13 @@ two makes the re-registration look unchanged: the defect.
     [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
 \end{zed}
 
-
-
 \begin{schema}{Connect}
   \Delta MenuPres \\
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
@@ -165,6 +183,9 @@ two makes the re-registration look unchanged: the defect.
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore
@@ -176,7 +197,8 @@ two makes the re-registration look unchanged: the defect.
 \where
   c? \in registered \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
@@ -184,6 +206,9 @@ two makes the re-registration look unchanged: the defect.
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
   shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore
@@ -196,12 +221,102 @@ two makes the re-registration look unchanged: the defect.
   c? \in registered \\
   c? \notin lapsed \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \cup \{ c? \} \\
   open' = open \\
   sinks' = sinks \\
   dirty' = dirty \\
   shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{AppletAttach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \notin agents \\
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \cup \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \land dirty' = fset) \lor (c? \notin cbs \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{RegisterCallback}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{Detach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \\
+  open' = open \setminus \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \setminus agents \land dirty' = fset) \lor
+    (c? \notin cbs \setminus agents \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore
@@ -209,17 +324,22 @@ two makes the re-registration look unchanged: the defect.
 
 \begin{schema}{Departure}
   \Delta MenuPres \\
-  c? : CONN
+  c? : CONN \\
+  r? : \power CONN
 \where
   c? \in registered \\
+  r? \subseteq registered \setminus \{ c? \} \\
   registered' = registered \setminus \{ c? \} \\
-  earns' = earns \setminus \{ c? \} \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \setminus \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land dirty' = fset) \lor
-    (c? \notin earns \land dirty' = dirty) \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
   shown' = shown \\
+  sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
+  stale' = (stale \setminus \{ c? \}) \cup r? \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore
@@ -233,34 +353,59 @@ two makes the re-registration look unchanged: the defect.
   Sweep \defs Departure \land [MenuPres; c? : CONN | c? \in lapsed]
 \end{zed}
 
-\begin{schema}{Teardown}
-  \Delta MenuPres \\
-  c? : CONN
-\where
-  c? \in open \\
-  registered' = registered \\
-  earns' = earns \\
-  lapsed' = lapsed \\
-  open' = open \setminus \{ c? \} \\
-  sinks' = sinks \\
-  dirty' = dirty \\
-  shown' = shown \\
-  iphase' = iphase \\
-  ifor' = ifor \\
-  ibefore' = ibefore
-\end{schema}
-
 \begin{schema}{Push}
   \Delta MenuPres
 \where
   dirty = fset \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \\
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
   shown' = earns \setminus lapsed \\
+  sdirty' = sdirty \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{ScenesTouched}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = sdirty \cup \{ c? \} \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
+\begin{schema}{PushScenes}
+  \Delta MenuPres
+\where
+  sdirty \neq \emptyset \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = \emptyset \\
+  stale' = (stale \setminus (sdirty \setminus lapsed)) \cup (sdirty \cap lapsed) \\
   iphase' = iphase \\
   ifor' = ifor \\
   ibefore' = ibefore

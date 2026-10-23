@@ -1,16 +1,19 @@
 %
 % menu_presence.tex
 %
-% A Z specification of which sessions earn menu presence -- the agent
-% ("Details") entries in the Display's Clients menu -- and of the two things
-% every change to that set owes the rest of the Hub: a re-push of the menus
-% to the Display, and exactly one bound departure sink for the session.
+% A Z specification of which sessions earn menu presence -- the entries in the
+% Display's Clients menu -- of the two things every change to that set owes the
+% rest of the Hub (a re-push of the menus, and exactly one bound departure
+% sink for the session), and of the third thing a lease lapse can strand: the
+% frame label of a renumbered survivor.
 %
 % WHY THIS MODEL EXISTS. The same defect class recurred in three review
 % rounds of bead lux-ghhf: "a change to which sessions earn menu presence
 % happens without the Display being re-pushed, or a re-push/departure hook is
 % left dangling." Lux CLAUDE.md ("Formal Verification (z-spec)") makes a
-% model-check mandatory at the second recurrence; this is it. The instances:
+% model-check mandatory at the second recurrence; this is it. A fourth round
+% found two more instances, INV-1 and INV-2, which this revision models. The
+% instances:
 %
 %   D1  identify recorded a new agent identity but never marked the menus.
 %   D2  a listen-leg (ws_listen) agent attach never marked the menus.
@@ -26,53 +29,80 @@
 %       the agent's next call renews it; MenuArming.track compares identity
 %       only (unchanged) so nothing marks and the entry stays missing.
 %   D5  Operations.identify reads the "before" identity OUTSIDE the store
-%       write lock; a departure landing between that read and
-%       identify_client makes the re-registration look "unchanged" to track,
-%       so no sink is bound and no mark is raised: a later ghost entry.
+%       write lock; a departure landing between that read and the record makes
+%       the re-registration look "unchanged" to track, so no sink is bound and
+%       no mark is raised: a later ghost entry.
 %   D6  ws_listen binds a fresh lambda as the departure sink on every attach;
 %       DepartureSinks.bind dedups by equality and lambdas never compare
 %       equal, so each reconnect adds one more sink, each pinning a dead
 %       HubListenSession.
+%   INV-1  The callback route. A non-agent session (an applet) earns presence
+%       only by registering a callback. CallbackOperations.register_callback
+%       reached ListenerLegs.register_callback, which writes under the
+%       registry lock only: no store lock, no sink bound, the mark raised by
+%       the caller afterwards. A lapse then departs the session with no sink to
+%       fire, so the entry lingers past the sweep. ListenerLegs.detach is the
+%       same shape in the other direction (ws_listen marks by hand).
+%   INV-2  The label of a renumbered survivor. A departure renumbers the
+%       survivors of its group and marks their scenes. A survivor whose lease
+%       had lapsed (unswept) is resolved to no label (FrameOwnerFacts reads
+%       live sessions only), so the frame keeps, or loses, its label; when the
+%       survivor is later renewed, only the menus are marked and nothing ever
+%       repairs the frame.
 %
-% All six are one violation of one rule, which the model states once: the
-% presence set is a function of registry state, and EVERY registry
-% transition that changes it must, in the same critical section, raise the
-% menu mark and leave exactly one sink bound -- no caller is trusted to
-% remember. The model is stated for the fixed design. The fidelity controls
-% menu_presence_d{1,3,4,5,6}_buggy.tex each alter exactly one operation and
-% make the corresponding invariant's negation reachable.
+% All eight are one violation of one rule, which the model states once: the
+% presence set (and the label of every live session) is a function of registry
+% state, and EVERY registry transition that changes it must, in the same
+% critical section, raise the mark, leave exactly one sink bound, and mark the
+% scenes of a session it revives -- no caller is trusted to remember. The model
+% is stated for the fixed design. The fidelity controls
+% menu_presence_{d1,d3,d4,d5,d6}_buggy.tex, menu_presence_redeclare_buggy.tex,
+% menu_presence_inv1_buggy.tex,
+% menu_presence_inv2_buggy.tex and menu_presence_inv1b_buggy.tex each alter
+% exactly one operation and make the corresponding invariant's negation
+% reachable.
 %
 % THE DESIGN THE MODEL PROVES (see also the Design section below).
 %   (a) Presence is the LEASE-FILTERED set (DES-058, DES-064 s.1, DES-057):
-%       registered, an agent, and its lease live. A lapse is time passing
-%       with no Hub event, so it cannot mark; the entry may linger until the
-%       sweep (<= one sweep interval) or the next push. A renewal that
-%       revives a lapsed session IS a presence transition and marks (D4);
-%       the sweep departs every lapsed session and marks.
+%       registered, earning (an agent, or holding a callback), and its lease
+%       live. A lapse is time passing with no Hub event, so it cannot mark;
+%       the entry may linger until the sweep (<= one sweep interval) or the
+%       next push. A renewal that revives a lapsed session IS a presence
+%       transition and marks (D4); the sweep departs every lapsed session and
+%       marks.
 %   (b) The transitions that do change presence (absent to present, present
 %       to absent) mark and bind/unbind under the Hub store's write lock, in
-%       one step, and are all routed through HubDisplay (the outer lock);
-%       the registry reports the change, it does not call out of its own
-%       lock. menu_presence_locks.tex shows why: a registry that fired the
-%       hook itself would invert the lock order and deadlock.
+%       one step, and are all ClientLifecycle steps (arrive, identify, attach,
+%       renew, register_callback, detach, depart, depart_lapsed). The
+%       registry reports the change; it does not call out of its own lock.
+%       menu_presence_locks.tex shows why: a registry that fired the hook
+%       itself would invert the lock order and deadlock.
 %   (c) The sink is ONE shared object per Hub, so a bind that repeats is a
 %       no-op under DepartureSinks' equality dedup (D6).
+%   (d) A revival is a change to the session's frames too: every step that
+%       brings a lapsed session back to live also marks that session's scenes,
+%       so a label the lapse stranded is repushed (INV-2).
 %
-% Read first: DESIGN.md DES-057 (identity, leases), DES-064 (the Clients
-% menu), DES-067 (grouping), DES-094 (liveness is a heuristic), DES-098
-% (menu dispatch / MenuDepartureSink), docs/connection_lease_reaping.tex
-% (the departure cascade and its three paths; I1, I5, I7) and
-% docs/menu_lifecycle.tex (MO: menuOwner within registered), and the code:
-% src/punt_lux/domain/hub/hub_clients.py (record, attach_listener,
-% reap_lapsed_locked, named_sessions), departure_sinks.py (bind, fire),
-% hub_display.py (identify_client, _depart, _depart_lapsed, write_lock),
-% operations/menu_arming.py (admit, track), operations/facade.py (identify),
-% src/punt_lux/ws_listen.py (_attach_and_register_writer, _read_loop,
+% Read first: DESIGN.md DES-057 (identity, leases), DES-058 (menu entries live
+% on the lease), DES-064 (the Clients menu), DES-067 (grouping), DES-094
+% (liveness is a heuristic), DES-098 (menu dispatch / MenuDepartureSink),
+% DES-099 and DES-100 (the connection rung; frame heading and label),
+% DES-101 (the lifecycle seam), docs/connection_lease_reaping.tex (the
+% departure cascade and its three paths; I1, I5, I7) and docs/menu_lifecycle.tex
+% (MO: menuOwner within registered), and the code:
+% src/punt_lux/domain/hub/client_lifecycle.py (ClientLifecycle.arrive,
+% identify, attach, renew, depart, depart_lapsed), listener_legs.py
+% (ListenerLegs.attach, register_callback, detach), hub_clients.py
+% (HubClientRegistry.record, renew_if_registered, reap_lapsed_locked,
+% named_sessions), menu_presence.py (MenuPresence.announce, scenes_renamed),
+% session_write.py, departure_sinks.py (bind, fire), operations/callbacks.py
+% (CallbackOperations.register_callback), operations/frame_owner_facts.py
+% (FrameOwnerFacts.facts_for), and src/punt_lux/ws_listen.py (_attach, _read_loop,
 % _teardown).
 %
 % Type-check:  fuzz docs/menu_presence.tex
-% Model-check: probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 3
-% The safety goals (P1, P2) are reachability checks of their negations; see
+% Model-check: probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 2
+% The safety goals (P1, P2, P3) are reachability checks of their negations; see
 % the Verification section for the exact -goal predicates.
 %
 
@@ -85,7 +115,8 @@
 
 \title{lux Menu Presence: a Z Specification}
 \author{Formal model of which sessions earn a Clients-menu entry, and of the
-  mark and the departure sink every change to that set owes the Hub}
+  mark, the departure sink and the frame label every change to that set owes
+  the Hub}
 \date{October 2026}
 \maketitle
 
@@ -94,16 +125,18 @@
 % ============================================================
 
 The Display's Clients menu lists the sessions that hold a lease and have
-something to show: a session that registered a command, or an agent (an
-\texttt{mcp-session}), which is kept present on its kind alone
+something to show: a session that registered a command (a \emph{callback}), or
+an agent (an \texttt{mcp-session}), which is kept present on its kind alone
 (\texttt{ClientSession.earns\_menu\_presence}). The Hub does not push the menu
 continuously. It raises a \emph{mark} (\texttt{DirtyMarker.mark\_menus}); the
 replicator, on its next tick, reads the roster and sends the Display the
 whole of it. A session's departure is announced the same way, by a
 \emph{departure sink} bound in the Hub's \texttt{DepartureSinks} and fired
-when the session leaves the registry.
+when the session leaves the registry. A session's \emph{scenes} are marked the
+same way (\texttt{DirtyMarker.mark\_dirty}) and resent with the owner's
+current label.
 
-Two obligations follow, and every defect in this class breaks one of them.
+Three obligations follow, and every defect in this class breaks one of them.
 
 \begin{description}
   \item[P1 --- the Display converges.] When no mark is pending, no live
@@ -111,28 +144,41 @@ Two obligations follow, and every defect in this class breaks one of them.
     Display shows is unregistered; a lapsed entry may linger only until the
     sweep or the next push. A change to the presence set without a mark leaves
     the Display wrong until some unrelated event marks: a missing entry
-    (D1--D5) or, worse, a ghost entry (D3, D5) that outlives its session.
+    (D1--D5) or, worse, a ghost entry (D3, D5, INV-1) that outlives its
+    session.
   \item[P2 --- exactly one sink.] Every registered session that earns
     presence has exactly one departure sink bound, and no departed session
     has any. Zero sinks is the ghost: the departure fires nothing, so
-    nothing marks the entry away. More than one is the leak (D6): each
+    nothing marks the entry away (INV-1). More than one is the leak (D6): each
     surplus sink pins a dead object for the life of the process.
+  \item[P3 --- the label converges.] No live session's frame shows a stale
+    label unless that session's own scenes carry a pending mark. A lapsed survivor's frame may stay
+    stale only until the session is revived, and the revival marks its scenes
+    (INV-2).
 \end{description}
 
-Both are kept out of the state schema, as in
+All three are kept out of the state schema, as in
 \texttt{connection\_lease\_reaping.tex}: a predicate in the state schema is
 enforced as a guard on every successor, which silently disables the
 operation that would violate it. The schema below carries structural
-coherence only; P1 and P2 are checked as the unreachability of their
+coherence only; P1, P2 and P3 are checked as the unreachability of their
 negations.
 
 The model is flat and bounded: a carrier of connections, the registry's
 membership and lease state, the count of bound sinks per connection, the
-pending-mark flag, and the Display's shown set. Identity is abstracted to
-the one fact that matters here: whether the session is an agent, hence earns
-presence. Command-registering sessions earn presence by a second route
-(\texttt{callbacks}); it is the same obligation on a different transition and
-adds no behaviour this model does not already exhibit, so it is elided.
+pending-mark flags, and the Display's shown set. Identity is abstracted to
+the one fact that matters for presence: whether the session is an agent, and
+the second route to presence, \texttt{callbacks}, is a set of its own. This
+revision no longer elides it: that elision is what hid INV-1.
+
+Three guards of the real code are deliberately not modelled because they only
+\emph{restrict} behaviour, so leaving them out makes the model a superset and
+the invariants stronger: \texttt{ListenerLegs.register\_callback} declines an
+anonymous session (one that never identified); the leg it needs must still be
+the one the caller read (``superseded''); and \texttt{ClientSession.registering}
+declines a \emph{lapsed} session. The third cannot be reached in the fixed
+design in any case, because \texttt{register\_callback} renews the lease under
+the store lock before it registers.
 
 % ============================================================
 \section{Basic Types and Free Types}
@@ -163,77 +209,105 @@ consumed by a push. Prefixed constructors, never \fuzz's logical
 
 \begin{schema}{MenuPres}
   registered : \power CONN \\
+  agents : \power CONN \\
+  cbs : \power CONN \\
   earns : \power CONN \\
   lapsed : \power CONN \\
   open : \power CONN \\
   sinks : CONN \fun 0 \upto 2 \\
   dirty : FSTATE \\
-  shown : \power CONN
+  shown : \power CONN \\
+  sdirty : \power CONN \\
+  stale : \power CONN
 \where
-  earns \subseteq registered \\
-  lapsed \subseteq registered
+  agents \subseteq registered \\
+  cbs \subseteq registered \\
+  earns = agents \cup cbs \\
+  lapsed \subseteq registered \\
+  sdirty \subseteq registered \\
+  stale \subseteq registered
 \end{schema}
 
 \texttt{registered} is the registry's membership
-(\texttt{HubClientRegistry.\_sessions}), live or lapsed. \texttt{earns} is
-the registered sessions that earn presence: agents. \texttt{lapsed} is the
-registered sessions whose lease has expired and which no sweep has yet
-removed; it records the passage of time and nothing else. \texttt{open} is
-the connections whose listen socket is still open, which the registry does
-not know and which is why a session can be swept while its socket lingers
-(D3). \texttt{sinks} counts the departure sinks bound per connection,
-saturating at two: two is already the leak, and a larger count would only
-enlarge the state space. \texttt{dirty} is the pending mark. \texttt{shown}
-is the set the Display currently shows.
+(\texttt{HubClientRegistry.\_sessions}), live or lapsed. \texttt{agents} is the
+registered sessions whose declared kind earns presence on its own;
+\texttt{cbs} is those holding at least one callback
+(\texttt{ClientSession.callbacks}); \texttt{earns} is their union, the
+registered sessions that earn presence, kept as a variable only so the goals
+below can name it. \texttt{lapsed} is the registered sessions whose lease has
+expired and which no sweep has yet removed; it records the passage of time and
+nothing else. \texttt{open} is the connections whose listen socket is still
+open, which the registry does not know and which is why a session can be swept
+while its socket lingers (D3). \texttt{sinks} counts the departure sinks bound
+per connection, saturating at two: two is already the leak, and a larger count
+would only enlarge the state space. \texttt{dirty} is the pending menu mark.
+\texttt{shown} is the set the Display currently shows. \texttt{sdirty} is the
+connections whose scenes carry a pending mark, and \texttt{stale} the
+connections whose frame in the Display shows a label that is not the Hub's
+current one.
 
 \begin{schema}{Init}
   MenuPres'
 \where
   registered' = \emptyset \\
-  earns' = \emptyset \\
+  agents' = \emptyset \\
+  cbs' = \emptyset \\
   lapsed' = \emptyset \\
   open' = \emptyset \\
   sinks' = CONN \cross \{ 0 \} \\
   dirty' = fclear \\
-  shown' = \emptyset
+  shown' = \emptyset \\
+  sdirty' = \emptyset \\
+  stale' = \emptyset
 \end{schema}
 
 % ============================================================
 \section{Operations}
 % ============================================================
 
+Throughout, a \emph{revival} is a step after which a session that was lapsed is
+live again. Every revival, in the fixed design, marks the session's scenes
+(\texttt{sdirty' = sdirty $\cup$ \{c?\}}); a session that was unregistered
+before the step has nothing the lapse could have stranded, so only
+$c? \in lapsed$ is a revival in the model.
+
 \subsection{Recording an agent --- one transition, three entry points}
 
 \texttt{AgentRecord} is the single registry transition by which a session
 that is an agent is recorded: the upsert \texttt{HubClientRegistry.record}
-performs for \texttt{identify\_client}, for \texttt{attach\_listener}, and for
-the read loop's per-frame \texttt{record(conn, identity)}. It registers the
-connection if absent, renews its lease, and adds it to the presence set. If
-that changed the presence set (the connection was not already earning, or
-was earning but lapsed, so the record revives it) it raises the mark; in
-every case it leaves exactly one sink bound. Everything
-happens in one step, because the fixed design performs it under the store's
-write lock (Section~\ref{sec:design}); the registry reports whether presence
-changed and the caller of record is not asked to compare anything.
+performs for \texttt{ClientLifecycle.identify}, for
+\texttt{ClientLifecycle.attach} (which seats the leg through
+\texttt{ListenerLegs.attach}), and for the read loop's per-frame
+\texttt{identify}. It registers the connection if absent, renews its lease,
+and adds it to the presence set. If that changed the presence set (the
+connection was not already earning, or was earning but lapsed, so the record
+revives it) it raises the mark; in every case it leaves exactly one sink bound.
+Everything happens in one step, because the fixed design performs it under the
+store's write lock (Section~\ref{sec:design}); the registry reports whether
+presence changed and the caller is not asked to compare anything.
 
 \begin{schema}{AgentRecord}
   \Delta MenuPres \\
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \cup \{ c? \} \\
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
   (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
     ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
 \begin{zed}
   Identify \defs AgentRecord \land [\Delta MenuPres | open' = open]
 \end{zed}
 
-\texttt{Identify} models \texttt{Operations.identify}: the declaration is
+\texttt{Identify} models \texttt{ClientLifecycle.identify}: the declaration is
 recorded and, if it newly earns presence, marked and sunk, in one step.
 This is the D1 and D5 fix: there is no \texttt{before} snapshot to go stale,
 because the comparison that decides the mark is made against the registry's
@@ -243,17 +317,18 @@ own state inside the transition.
   Attach \defs AgentRecord \land [\Delta MenuPres; c? : CONN | open' = open \cup \{ c? \}]
 \end{zed}
 
-\texttt{Attach} models \texttt{HubListenSession.\_attach\_and\_register\_writer}:
-the same transition plus the socket being open. This is the D2 and D6 fix: the
-sink bound is the single shared one, so attaching again leaves \texttt{sinks}
-unchanged (overriding the count with one is idempotent).
+\texttt{Attach} models \texttt{ClientLifecycle.attach} for an agent: the same
+transition plus the socket being open. This is the D2 and D6 fix: the sink
+bound is the single shared one, so attaching again leaves \texttt{sinks}
+unchanged (overriding the count with one is idempotent). The attach of a
+non-agent is \texttt{AppletAttach}, below.
 
 \begin{zed}
   ReadLoopRecord \defs AgentRecord \land
     [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
 \end{zed}
 
-\texttt{ReadLoopRecord} models the per-frame \texttt{record(conn, identity)}
+\texttt{ReadLoopRecord} models the per-frame \texttt{ClientLifecycle.identify}
 in \texttt{HubListenSession.\_read\_loop}, reachable only while the socket is
 open. When the session is registered it is a renewal and changes nothing but
 \texttt{lapsed}. When the session has been swept it is a revival, the D3 path,
@@ -266,20 +341,25 @@ and is by construction the same transition as a first attach: mark and sink.
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
     (c? \notin earns \land sinks' = sinks) \\
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
-A contact that is not an identify (\texttt{register\_client}, a REST call):
-registers and renews. For a session that earns nothing it owes nothing; for
-an earning session whose lease had lapsed it is a revival, hence a presence
-transition: it marks, and leaves the one sink bound.
+A contact that is not an identify (\texttt{ClientLifecycle.arrive}, a REST
+call): registers and renews. For a session that earns nothing it owes the menu
+nothing; for an earning session whose lease had lapsed it is a revival, hence a
+presence transition: it marks, and leaves the one sink bound. Any revival, of
+an earning session or not, marks the session's scenes (INV-2).
 
 \begin{schema}{Renew}
   \Delta MenuPres \\
@@ -287,21 +367,29 @@ transition: it marks, and leaves the one sink bound.
 \where
   c? \in registered \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
     (c? \notin earns \land sinks' = sinks) \\
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
 Any contact from a registered session renews its lease
-(\texttt{renew\_if\_registered}, the \texttt{\_renewed} step of \texttt{record}).
+(\texttt{ClientLifecycle.renew}, the renewal step of \texttt{record}).
 A renewal of a lapsed earning session puts it back in the lease-filtered
 presence set: it marks and re-asserts the one sink (D4). A renewal of a live
-session changes nothing the Display is told about.
+session changes nothing the Display is told about. A renewal of a lapsed
+session of any kind marks its scenes: this is the INV-2 repair, and it must key
+on the lease having lapsed, not on the session earning presence, because the
+label of a session that earns nothing (a command-line client) goes stale in
+the same way.
 
 \begin{schema}{LeaseLapse}
   \Delta MenuPres \\
@@ -310,12 +398,15 @@ session changes nothing the Display is told about.
   c? \in registered \\
   c? \notin lapsed \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \cup \{ c? \} \\
   open' = open \\
   sinks' = sinks \\
   dirty' = dirty \\
-  shown' = shown
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
 \end{schema}
 
 Time passes with nothing to renew the lease. It leaves the presence set
@@ -324,27 +415,162 @@ mark: the Display may keep showing the entry until the sweep departs it or the
 next push re-reads the roster. P1 states exactly how long this may last
 (Section~\ref{sec:inv}).
 
-\subsection{Departure}
+\subsection{The callback route --- INV-1}
 
-\begin{schema}{Departure}
+A session that is not an agent earns presence only by registering a callback,
+and loses it when its callbacks are withdrawn. Both are presence transitions.
+In the code before this revision both were writes to the registry made through
+\texttt{ListenerLegs}, under the registry lock alone, by a caller that then
+marked by hand; the fixed design makes each a \texttt{ClientLifecycle} step like
+every other.
+
+\begin{schema}{AppletAttach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \notin agents \\
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \cup \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \land dirty' = fset) \lor (c? \notin cbs \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\texttt{AppletAttach} is \texttt{ClientLifecycle.attach} for a session that is
+not an agent: it registers and renews, and takes the listener slot, which
+clears the previous occupant's callbacks (\texttt{attached\_over\_callbacks}).
+It earns nothing by itself, so presence is unchanged and no sink is bound: this
+is the step that leaves the applet registered and open, with no callback, for
+the next step to find. If it clears callbacks it withdraws an entry and marks,
+\emph{whether or not the lease had lapsed} (the entry may still be on the
+Display).
+
+\begin{schema}{RegisterCallback}
   \Delta MenuPres \\
   c? : CONN
 \where
   c? \in registered \\
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\texttt{RegisterCallback} is \texttt{ClientLifecycle.register\_callback}, the
+step the implementation will add: under the store lock it renews the lease (the
+renewal \texttt{CallbackOperations.register\_callback} already performs first),
+records the callback while the leg still holds the connection, and settles
+presence exactly as \texttt{AgentRecord} does: the mark when the session newly
+earns, the one shared sink bound, the scenes marked if it revived. The guard
+$c? \in open$ is the leg the callback is delivered on.
+
+\begin{schema}{Detach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \\
+  open' = open \setminus \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \setminus agents \land dirty' = fset) \lor
+    (c? \notin cbs \setminus agents \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\texttt{Detach} is \texttt{ClientLifecycle.detach}, replacing the old
+\texttt{Teardown}: the socket closes (\texttt{HubListenSession.\_teardown}) and
+the callbacks it carried are withdrawn. An agent's presence does not depend on
+its leg, so its session, its identity, its lease and its sink persist; a
+callback-only session loses its entry and the step marks. The mark is owed
+\emph{whenever the withdrawal leaves the earning set}, not only when the
+session was live: a lapsed entry still on the Display must be withdrawn too.
+(Were the session swept, its still-bound sink would mark it away; but a session
+that is renewed instead is live, non-earning and never swept, so the entry
+would stay for good. INV-1b below makes this concrete.)
+
+\subsection{Re-declaring a kind --- M1}
+
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+A session stops being an agent without departing: an \texttt{mcp-session}'s
+connection is the transport's, \texttt{identify} accepts any kind (a
+\texttt{cli}, say), and the new identity replaces the old in place. It is
+\texttt{ClientLifecycle.identify} with a non-agent identity, and it renews the
+lease. If the session holds callbacks it still earns and the step is a revival
+at most; if not, it leaves \texttt{earns}, and the step marks \emph{whether or
+not the lease had lapsed}, and marks the scenes if it revived. Without this
+transition the model let \texttt{agents} shrink only on departure, and so could
+not show the ghost it leaves under a lease-gated rule.
+
+\subsection{Departure}
+
+\begin{schema}{Departure}
+  \Delta MenuPres \\
+  c? : CONN \\
+  r? : \power CONN
+\where
+  c? \in registered \\
+  r? \subseteq registered \setminus \{ c? \} \\
   registered' = registered \setminus \{ c? \} \\
-  earns' = earns \setminus \{ c? \} \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \setminus \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land dirty' = fset) \lor
-    (c? \notin earns \land dirty' = dirty) \\
-  shown' = shown
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
+  stale' = (stale \setminus \{ c? \}) \cup r?
 \end{schema}
 
-The one deregister-and-release step (\texttt{HubDisplay.\_depart}): the
-session leaves the registry, its sinks fire and are unbound, and the sink
-marks the menus. Note \texttt{open'}$=$\texttt{open}: the registry has no
-authority over the socket.
+The one deregister-and-release step (\texttt{ClientLifecycle.depart}, and
+\texttt{depart\_lapsed} for the sweep): the session leaves the registry, its
+sinks fire and are unbound, and the sink marks the menus. The mark is the
+\emph{sink's} work: a bound sink always fires and marks, whether or not the
+session still earns (\texttt{MarkMenusSink} marks unconditionally), and with no
+sink bound nothing marks; this is what makes a missing sink (D3, D5, INV-1) a
+ghost. The survivors $r?$ whose name the
+departure moved (\texttt{Reaped.relabelled}) have their scenes marked and, until
+those scenes are pushed with the new label, show a stale one. Note
+\texttt{open'}$=$\texttt{open}: the registry has no authority over the socket.
 
 \begin{zed}
   DropGraceful \defs Departure
@@ -354,42 +580,27 @@ authority over the socket.
   Sweep \defs Departure \land [MenuPres; c? : CONN | c? \in lapsed]
 \end{zed}
 
-\texttt{DropGraceful} is \texttt{drop\_connection}: no lease condition.
-\texttt{Sweep} is the \texttt{LeaseReapSweep} / \texttt{\_depart\_lapsed}
-path, guarded on a lapsed lease. Both funnel through the same transition,
-which is \texttt{connection\_lease\_reaping.tex}'s I5.
+\texttt{DropGraceful} is the graceful \texttt{ClientLifecycle.depart}: no lease
+condition. \texttt{Sweep} is \texttt{ClientLifecycle.depart\_lapsed}, guarded on
+a lapsed lease. Both funnel through the same transition, which is
+\texttt{connection\_lease\_reaping.tex}'s I5.
 
-\begin{schema}{Teardown}
-  \Delta MenuPres \\
-  c? : CONN
-\where
-  c? \in open \\
-  registered' = registered \\
-  earns' = earns \\
-  lapsed' = lapsed \\
-  open' = open \setminus \{ c? \} \\
-  sinks' = sinks \\
-  dirty' = dirty \\
-  shown' = shown
-\end{schema}
-
-The socket closes (\texttt{HubListenSession.\_teardown}). An agent's presence
-does not depend on its leg, so the session, its identity, its lease and its
-sink persist; a reconnect within the lease finds them.
-
-\subsection{The replicator push}
+\subsection{The replicator pushes}
 
 \begin{schema}{Push}
   \Delta MenuPres
 \where
   dirty = fset \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \\
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns \setminus lapsed
+  shown' = earns \setminus lapsed \\
+  sdirty' = sdirty \\
+  stale' = stale
 \end{schema}
 
 The replicator consumes a pending mark: it clears the flag and sends the
@@ -397,6 +608,49 @@ Display the whole lease-filtered presence set
 (\texttt{NamedSessions.over(\_live\_locked(), ...)}). Atomic here for the reason a standard
 dirty-flag protocol is: the flag is cleared before the roster is read, so a
 mark raised after the read survives for the next tick.
+
+\begin{schema}{ScenesTouched}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = sdirty \cup \{ c? \} \\
+  stale' = stale
+\end{schema}
+
+A scene write of the connection's own, or an empty push evicting its oldest
+scene: the scenes are marked. Nothing about presence changes.
+
+\begin{schema}{PushScenes}
+  \Delta MenuPres
+\where
+  sdirty \neq \emptyset \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = \emptyset \\
+  stale' = (stale \setminus (sdirty \setminus lapsed)) \cup (sdirty \cap lapsed)
+\end{schema}
+
+The replicator resends every marked scene with its owner's label
+(\texttt{FrameOwnerFacts.facts\_for}). A live owner resolves to its current
+label, so the frame is repaired. A lapsed owner resolves to none
+(\texttt{facts\_for} reads live sessions only), so the frame keeps, or is
+blanked of, its label: after the push it is stale. The model takes the worse
+reading of ``keeps or is blanked'' and counts it stale in both cases.
 
 % ============================================================
 \section{Invariants}
@@ -415,16 +669,17 @@ registered earning session, so no ghost. What it may show beyond the live set is
 exactly a \emph{lapsed, unswept} entry that was shown when the lease ran out:
 $shown = (earns \setminus lapsed) \cup (shown \cap lapsed)$. A lapse is time
 passing with no Hub event, so nothing can mark it; the entry lingers until the
-sweep departs it (which marks) or the next push re-reads the roster, never
-longer. The bound is the \emph{sweep obligation}: \texttt{Sweep(c)} is enabled
-for every lapsed registered $c$ and departs it and marks, so the lingering set
-$lapsed$ is emptied by operations the Hub's timer is bound to run
+sweep departs it (which marks, through its sink) or the next push re-reads the
+roster, never longer. The bound is the \emph{sweep obligation}: \texttt{Sweep(c)}
+is enabled for every lapsed registered $c$ and departs it and marks, so the
+lingering set $lapsed$ is emptied by operations the Hub's timer is bound to run
 (\texttt{connection\_lease\_reaping.tex} I1). Every transition that adds to
-$earns \setminus lapsed$ (\texttt{AgentRecord}, and \texttt{Connect} or
-\texttt{Renew} on a lapsed earning session) sets \texttt{dirty} in the same
-step; every transition that removes from \texttt{earns} (\texttt{Departure})
-does too; \texttt{Push} sets \texttt{shown} to the live set while clearing
-the flag. The negation, checked as a goal, is
+$earns \setminus lapsed$ (\texttt{AgentRecord}, \texttt{RegisterCallback}, and
+\texttt{Connect} or \texttt{Renew} on a lapsed earning session) sets
+\texttt{dirty} in the same step; every transition that removes from
+\texttt{earns} (\texttt{Departure}, \texttt{Detach}, \texttt{AppletAttach}
+clearing callbacks) does too; \texttt{Push} sets \texttt{shown} to the live set
+while clearing the flag. The negation, checked as a goal, is
 $dirty = fclear \land (\lnot((earns \setminus lapsed) \subseteq shown) \lor
 \lnot(shown \subseteq earns))$.
 
@@ -435,8 +690,19 @@ $dirty = fclear \land (\lnot((earns \setminus lapsed) \subseteq shown) \lor
   \;\land\; (\forall c : CONN @ c \notin registered \Rightarrow sinks(c) = 0) .
 \]
 An earning session has one sink; no session has more than one; a departed
-session has none. The first conjunct is the ghost (D3, D5), the second the leak
-(D6), the third the dangling hook.
+session has none. The first conjunct is the ghost (D3, D5, INV-1), the second
+the leak (D6), the third the dangling hook.
+
+\paragraph{P3 --- the label converges.}
+\[
+  (stale \cap (registered \setminus lapsed)) \subseteq sdirty .
+\]
+Per connection: a live session's frame shows its current label unless that
+session's own scenes carry a pending mark, in which case the next push repairs
+it. A lapsed session's frame may be stale (until its revival, and the revival
+marks its scenes). The global corollary is that with no scene mark pending at
+all, no live frame is stale. The negation, checked as a goal, is
+$(stale \cap (registered \setminus lapsed)) \setminus sdirty \neq \emptyset$.
 
 \paragraph{Why P1 has this shape.}
 The roster the Display shows is read by
@@ -449,49 +715,91 @@ lapsed entry's lingering is cut off by the sweep. D4 is the renewal that ends
 a lapse without marking: the live set grows, the flag stays clear, and conjunct
 (i) fails \emph{for good}, since no later event is owed to repair it.
 
+\paragraph{A finding the model adds: INV-1b, and its root.}
+\texttt{MenuListing.change\_to} compares \emph{lease-filtered} listings, so a
+withdrawal made during a lapse cannot be seen by it: the session is not listed
+before (it is lapsed) and not listed after (it earns nothing), and the verdict
+is ``unchanged''. Take a lapsed callback-only applet whose entry is still on the
+Display, and withdraw its callbacks (\texttt{Detach}, or a re-attach that clears
+them): no mark is raised. A re-attach renews the lease, so the session is then
+live, non-earning, and still shown; it keeps renewing and is never swept, so the
+entry stays \emph{for good} (the trace
+\texttt{AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)}
+reaches $dirty = fclear$ with $c$ shown, registered, live and not earning). The
+old code avoided this by marking by hand in \texttt{ws\_listen}'s
+\texttt{\_teardown} and through \texttt{Attachment.menu\_change}'s ``revised''
+on \texttt{attached\_over\_callbacks}; a new \texttt{ClientLifecycle.detach}
+that merely announced \texttt{PresenceChange} would lose it. The same root
+makes \texttt{Redeclare} (M1) a ghost: a lapsed agent re-identifying as a
+\texttt{cli}. The fixed model marks on any loss from \texttt{earns}, lapsed or
+not; \texttt{menu\_presence\_inv1b\_buggy.tex} and
+\texttt{menu\_presence\_redeclare\_buggy.tex} show the lease-gated alternative
+violates P1.
+
 % ============================================================
 \section{The Design the Model Proves}
 \label{sec:design}
 % ============================================================
 
 \paragraph{Presence is lease-filtered; a revival is a transition.}
-A session earns presence while it is registered, an agent, and its lease is
-live: DES-058 (``entries live on the session's lease and leave when it
-lapses''), DES-064 \S1 (``an entry exists exactly while its registrant holds a
-lease''), DES-057 (``leases expire state whose owner left''). No ADR is
-amended. The consequences the model makes explicit: a lapse is time, not an
-event, so it cannot mark and the entry may linger until the sweep or the next
-push; a renewal that ends a lapse \emph{is} an event that grows the presence
-set, so it must mark and re-assert the one sink (\texttt{Renew}, \texttt{Connect},
-and \texttt{AgentRecord} on a lapsed session); and the sweep must depart every
+A session earns presence while it is registered, earning (an agent or holding
+a callback), and its lease is live: DES-058 (``entries live on the session's
+lease and leave when it lapses''), DES-064 \S1 (``an entry exists exactly while
+its registrant holds a lease''), DES-057 (``leases expire state whose owner
+left''). No ADR is amended. The consequences the model makes explicit: a lapse
+is time, not an event, so it cannot mark and the entry may linger until the
+sweep or the next push; a renewal that ends a lapse \emph{is} an event that
+grows the presence set, so it must mark and re-assert the one sink
+(\texttt{Renew}, \texttt{Connect}, \texttt{AgentRecord} and
+\texttt{RegisterCallback} on a lapsed session); and the sweep must depart every
 lapsed session and mark. D4 is the middle one forgotten.
 
-\paragraph{The registry owns the transition; the caller owns nothing.}
+\paragraph{The lifecycle owns the transition; the caller owns nothing.}
 \texttt{AgentRecord} is one step, so a caller cannot forget the mark or bind
-a sink twice. In code the step is a \texttt{HubDisplay} method (the outer
-\texttt{StoreLock}) that calls a registry upsert returning whether presence
-changed, then marks and binds the one shared sink. All three entry points
-call it: \texttt{identify}, \texttt{attach}, and the read loop's
-\texttt{record}. The read loop must no longer call
-\texttt{HubClientRegistry.record} directly.
+a sink twice. In code the step is a \texttt{ClientLifecycle} method (under the
+store lock) that calls a registry upsert returning what changed, then marks and
+binds the one shared sink. The entry points are \texttt{identify},
+\texttt{attach}, and the read loop's \texttt{identify}; the callback route adds
+\texttt{register\_callback} and \texttt{detach}, which are \texttt{ClientLifecycle}
+methods too. \texttt{ListenerLegs} stays the registry's own compare-and-write
+for the listener slot, called by \texttt{ClientLifecycle} alone: neither
+\texttt{CallbackOperations} nor \texttt{ws\_listen} is handed it for these
+writes. The read loop and the teardown must no longer reach the registry
+directly.
+
+\paragraph{One rule for withdrawal.}
+The implementation states it once, in \texttt{MenuListing}, where every route
+passes: a session that \emph{earned before, ignoring the lease}, and does not
+earn after, reads ``revised'', whatever the lease says. That single rule covers
+\texttt{detach}, attach-over-callbacks and re-identification as a non-agent
+(\texttt{Detach}, \texttt{AppletAttach} and \texttt{Redeclare} here). A gain
+still reads the lease: not live before and live and earning after is
+``gained''.
+
+\paragraph{A revival marks the scenes (INV-2).}
+The label of a frame is a function of the owner's live session. A lapse leaves
+the registry holding a session the label reader ignores, so a label pushed
+during the lapse is stale and nothing marks it when the lease is renewed. The
+repair is the same shape as D4's: the step that ends the lapse also marks the
+session's scenes. It is keyed on the lapse, not on the session earning
+presence, because a session that earns nothing has a label too.
 
 \paragraph{The registry does not call out of its own lock.}
 The tempting shape is for \texttt{HubClientRegistry} itself to raise the mark
 and bind the sink inside \texttt{record}. It cannot: binding a sink takes the
 store's write lock, and the registry lock is taken \emph{inside} the store
-lock on every existing path (\texttt{HubDisplay.register\_client},
-\texttt{\_depart}). A registry that took the store lock while holding its own
+lock on every existing path (\texttt{ClientLifecycle.arrive},
+\texttt{depart}). A registry that took the store lock while holding its own
 would invert that order. \texttt{menu\_presence\_locks.tex} proves the
-inversion deadlocks (two threads, one in each order) and that the shape above
-does not.
+inversion deadlocks (two threads, one in each order) and that the shape above,
+callback steps included, does not.
 
 \paragraph{One shared sink.}
 The sink is a single object constructed once (the production
-\texttt{MenuDepartureSink} already is; \texttt{ws\_listen} binds a per-attach
-lambda). With one object, \texttt{DepartureSinks.bind}'s equality dedup makes
-the repeated bind a no-op, which is the \texttt{oplus} to one above, and
-\texttt{\_teardown} need not unbind it: the sink belongs to the session, not
-to the socket.
+\texttt{MarkMenusSink}). With one object, \texttt{DepartureSinks.bind}'s equality
+dedup makes the repeated bind a no-op, which is the \texttt{oplus} to one above,
+and \texttt{Detach} need not unbind it: the sink belongs to the session, not to
+the socket.
 
 % ============================================================
 \section{Verification}
@@ -503,70 +811,100 @@ Type-checking is a \texttt{fuzz} pass:
   fuzz docs/menu_presence.tex
 \end{verbatim}
 
-P1 and P2 are checked by asking ProB whether their negation is reachable. A
+P1, P2 and P3 are checked by asking ProB whether their negation is reachable. A
 goal reported \emph{not found} means the invariant holds on every reachable
-state.
+state. Two connections are enough to exhibit every defect below, and the
+exhaustive runs recorded with this model are at \texttt{DEFAULT\_SETSIZE 2},
+as are the commands below (the state count is stated in the coverage audit). A
+third connection was tried and its state space is very much larger; it is not
+part of the recorded evidence.
 
 \begin{verbatim}
   # P1 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # P2 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
-      or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 3
+      or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 2
+
+  # P3 (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_presence.tex -model_check -nodead \
+    -goal "(stale /\ (registered \ lapsed)) \ sdirty /= {}" \
+    -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 The positive outcomes are confirmed reachable, so the invariants are not
-vacuously true of a model that never shows an entry:
+vacuously true of a model that never shows an entry or a stale label:
 
 \begin{verbatim}
   # an entry is shown with no mark pending (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "dirty = fclear & shown /= {}" -p DEFAULT_SETSIZE 3
+    -goal "dirty = fclear & shown /= {}" -p DEFAULT_SETSIZE 2
 
   # the permitted lingering: a lapsed, unswept agent is still shown with no
   # mark pending (FOUND -- the honest cost of a lapse being time, not an event)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & #c.(c : shown & c : lapsed)" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # a live agent is shown, nothing lapsed, no mark pending (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & lapsed = {} & shown /= {} & earns = shown" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
+
+  # a callback-only applet is shown (FOUND)
+  probcli docs/menu_presence.tex -model_check -nodead \
+    -goal "dirty = fclear & #c.(c : shown & c : cbs & c /: agents)" \
+    -p DEFAULT_SETSIZE 2
+
+  # a lapsed survivor is stale with no scene mark pending (FOUND -- the cost
+  # of a label read that ignores lapsed sessions)
+  probcli docs/menu_presence.tex -model_check -nodead \
+    -goal "sdirty = {} & #c.(c : stale & c : lapsed)" -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 Deadlock-freedom and the structural invariant over the full reachable state
 space:
 \begin{verbatim}
-  probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 3
+  probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 The fidelity controls, each differing from this specification in one
-operation:
+operation or, for INV-1b and INV-2, in one rule applied at each of its sites
+(each control's header says which):
 
 \begin{verbatim}
-  menu_presence_d1_buggy.tex   P1 negation FOUND (identify never marks)
-  menu_presence_d3_buggy.tex   P1 and P2 negations FOUND (revival by record)
-  menu_presence_d4_buggy.tex   P1 negation FOUND (renewal of a lapsed
-                               agent does not mark)
-  menu_presence_d5_buggy.tex   P1 and P2 negations FOUND (stale before-read)
-  menu_presence_d6_buggy.tex   P2 negation FOUND (a sink per attach)
+  menu_presence_d1_buggy.tex     P1 negation FOUND (identify never marks)
+  menu_presence_d3_buggy.tex     P1 and P2 negations FOUND (revival by record)
+  menu_presence_d4_buggy.tex     P1 negation FOUND (renewal of a lapsed
+                                 agent does not mark)
+  menu_presence_d5_buggy.tex     P1 and P2 negations FOUND (stale before-read)
+  menu_presence_d6_buggy.tex     P2 negation FOUND (a sink per attach)
+  menu_presence_inv1_buggy.tex   P1 and P2 negations FOUND (register_callback
+                                 under the registry lock only: no sink)
+  menu_presence_inv1b_buggy.tex  P1 negation FOUND (a lease-gated withdrawal
+                                 mark: a lapsed applet is re-attached and
+                                 its entry stays, live and non-earning)
+  menu_presence_redeclare_buggy.tex  P1 negation FOUND (the same gate on
+                                 re-declaring a kind: a lapsed agent becomes
+                                 a cli and its entry stays)
+  menu_presence_inv2_buggy.tex   P3 negation FOUND (a revival marks the menus
+                                 but not the survivor's scenes)
 \end{verbatim}
 
 The lock order is checked in the companion models
-\texttt{menu\_presence\_locks.tex} (deadlock-free) and
+\texttt{menu\_presence\_locks.tex} (deadlock-free, callback steps included) and
 \texttt{menu\_presence\_locks\_inverted\_buggy.tex} (deadlock found).
 
 Re-run \texttt{fuzz} and these goals whenever
-\texttt{hub\_clients.py}'s \texttt{record}/\texttt{attach\_listener}/
+\texttt{client\_lifecycle.py}, \texttt{listener\_legs.py},
+\texttt{hub\_clients.py}'s \texttt{record}/\texttt{renew\_if\_registered}/
 \texttt{reap\_lapsed\_locked}/\texttt{named\_sessions},
-\texttt{departure\_sinks.py}, \texttt{hub\_display.py}'s
-\texttt{identify\_client}/\texttt{\_depart}/\texttt{\_depart\_lapsed},
-\texttt{operations/menu\_arming.py}, \texttt{operations/facade.py}'s
-\texttt{identify}, or \texttt{ws\_listen.py} change.
+\texttt{departure\_sinks.py}, \texttt{menu\_presence.py},
+\texttt{operations/callbacks.py}, \texttt{operations/frame\_owner\_facts.py}, or
+\texttt{ws\_listen.py} change.
 
 \end{document}
