@@ -1,12 +1,12 @@
 """ClientLifecycle — every transition of a connection's registration, one step each.
 
-A connection arrives, declares who it is, takes a listener slot, makes contact that
-renews its lease, and departs. Each is one critical section under the store's write
-lock: the registry write, then what the write owes the rest of the Hub. A departure
-releases the connection's ownership and runs the cascade tail, the sinks included. A
-write that changes who the Clients menu lists marks the menus and binds the one
-shared menu sink, so no caller is trusted to remember either. The registry never
-calls out of its own lock; the store lock is always taken first.
+A connection arrives, declares who it is, takes a listener slot, registers and
+withdraws callbacks, makes contact that renews its lease, and departs. Each is one
+critical section under the store's write lock: the registry write, then what it owes
+the rest of the Hub. A departure releases ownership and runs the cascade tail, the
+sinks included. A write that changes who the Clients menu lists marks the menus and
+binds the one shared sink, so no caller is trusted to remember either. The registry
+never calls out of its own lock; the store lock is always taken first.
 """
 
 from __future__ import annotations
@@ -112,7 +112,7 @@ class ClientLifecycle:
             self._resend_scenes(connection_id, owed=attachment.restated)
 
     def renew(self, connection_id: ConnectionId, host: ClientHost) -> None:
-        """Renew the lease iff registered; reviving a lapsed agent is announced.
+        """Renew the lease iff registered; every revival is announced and retitled.
 
         The contact's ``host`` is recorded on the session it renews.
         """

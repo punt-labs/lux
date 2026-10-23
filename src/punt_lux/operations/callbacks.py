@@ -74,7 +74,7 @@ class CallbackOperations:
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
-        """Register the caller's callback and push the menu, or return why not.
+        """Register the caller's callback and mark the menu, or return why not.
 
         Two preconditions, in the order that tells the caller the most. First the
         connection must be push-reachable — a menu item must launch in the time a
@@ -82,13 +82,11 @@ class CallbackOperations:
         because no identity fixes a caller that could never be told its item was
         clicked. Then the session must have identified, refused with the same
         challenge a scene write returns, so nothing anonymous owns a menu item.
-        A registration that took changes the menu, so the replicator re-pushes it.
-
-        The lifecycle reads the leg and writes the callback under one store hold,
-        committing only if that same leg still holds the connection: this runs on
-        an MCP or REST thread and the leg lives on the loop, so a teardown or a
-        reconnect must not land between the two. It also pays the menu mark and
-        binds the shared sink, so nothing here compares or remembers.
+        A registration that took changes the menu; the lifecycle step marks it in
+        the same hold. That step also reads the leg and writes the callback under
+        one store hold, since this runs on an MCP or REST thread and the leg lives
+        on the loop: a teardown or reconnect must not land between the two. It binds
+        the shared sink too, so nothing here compares or remembers.
         """
         if isinstance(request, OpError):
             return request
@@ -100,7 +98,7 @@ class CallbackOperations:
 
     @staticmethod
     def _registered(outcome: CallbackRegistration) -> Ok | OpError:
-        """Turn a registration outcome into its result, pushing the menu if it took."""
+        """Turn a registration outcome into its result; the lifecycle marked it."""
         if outcome == "superseded":
             return _PUSH_REQUIRED
         if outcome == "declined":
