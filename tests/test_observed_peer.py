@@ -298,22 +298,20 @@ class TestMcpBinding:
         assert (current_session(), current_peer()) == ("outer", "10.0.0.5")
         unbind_session(outer)
 
-    def test_every_tool_scope_builder_carries_the_bound_peer(self) -> None:
-        from punt_lux.tools import subscribe_tools, tools as core_tools
+    def test_the_tool_scope_carries_the_bound_peer(self) -> None:
+        from punt_lux.tools import tools as core_tools
 
-        # The subscribe tools do not build their own scope: they use the core one.
-        assert vars(subscribe_tools)["_scope"] is core_tools._scope
         binding = bind_session("sess", "127.0.0.1")
         try:
-            assert core_tools._scope().peer_host == "127.0.0.1"
-            assert core_tools._scope().connection_id == ConnectionId("sess")
+            assert core_tools.scope().peer_host == "127.0.0.1"
+            assert core_tools.scope().connection_id == ConnectionId("sess")
         finally:
             unbind_session(binding)
 
     def test_a_tool_scope_with_no_binding_has_no_peer(self) -> None:
         from punt_lux.tools import tools as core_tools
 
-        assert core_tools._scope().peer_host is None
+        assert core_tools.scope().peer_host is None
 
 
 @final

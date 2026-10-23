@@ -23,7 +23,7 @@ from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
-from punt_lux.tools.tools import _scope
+from punt_lux.tools.tools import scope
 
 __all__ = [
     "drain_inbox",
@@ -52,7 +52,7 @@ def subscribe(topic: str) -> str:
     scope declares it. Subscriptions never cross sessions.
     """
     return signal(
-        asyncio.run(topic_subscribe_command(_topic_ctx(), topic, scope=_scope()))
+        asyncio.run(topic_subscribe_command(_topic_ctx(), topic, scope=scope()))
     )
 
 
@@ -60,7 +60,7 @@ def subscribe(topic: str) -> str:
 def unsubscribe(topic: str) -> str:
     """Drop the calling session's subscription to ``topic``. No-op if absent."""
     return signal(
-        asyncio.run(topic_unsubscribe_command(_topic_ctx(), topic, scope=_scope()))
+        asyncio.run(topic_unsubscribe_command(_topic_ctx(), topic, scope=scope()))
     )
 
 
@@ -74,7 +74,7 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     """
     request = PublishRequest(payload=payload or {})
     return signal(
-        asyncio.run(topic_publish_command(_topic_ctx(), topic, request, scope=_scope()))
+        asyncio.run(topic_publish_command(_topic_ctx(), topic, request, scope=scope()))
     )
 
 
@@ -91,7 +91,7 @@ def recv() -> str:
     event arrives here with no ``topic_subscribe`` needed. Low-level scene-element
     wire frames (button clicks, slider drags) are still not delivered here.
     """
-    return signal(asyncio.run(topic_recv_command(_topic_ctx(), scope=_scope())))
+    return signal(asyncio.run(topic_recv_command(_topic_ctx(), scope=scope())))
 
 
 @mcp.tool(name="callback_pending")
@@ -104,7 +104,7 @@ def pending_callbacks() -> str:
     ctx: CommandCtx[CallbackPendingOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(callback_pending_command(ctx, scope=_scope()))
+    result = asyncio.run(callback_pending_command(ctx, scope=scope()))
     return signal(result)
 
 
@@ -118,5 +118,5 @@ def register_callback(callback_id: str, label: str) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     request = RegisterCallbackRequest.parse(CallbackFields(callback_id, label))
-    result = asyncio.run(callback_register_command(ctx, request, scope=_scope()))
+    result = asyncio.run(callback_register_command(ctx, request, scope=scope()))
     return signal(result)
