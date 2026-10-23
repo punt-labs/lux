@@ -98,7 +98,6 @@ class DisplayConnection:
             raise ConnectionClosedError(msg)
         return held.sock
 
-    @trace
     def receive(self, timeout: float) -> Message | None:
         """Read one message the display may send, or ``None`` after ``timeout``.
 
@@ -107,6 +106,7 @@ class DisplayConnection:
         """
         return recv_message(self.require(), DISPLAY_VOCABULARY, timeout=timeout)
 
+    @trace
     def send(self, msg: Message) -> None:
         """Write ``msg`` to the open socket, serialized against other writers."""
         sock = self.require()
