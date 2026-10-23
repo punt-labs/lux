@@ -201,7 +201,7 @@ def test_no_read_ever_removes_a_lapsed_session() -> None:
     assert conn in reg.sessions()
 
 
-def test_reap_lapsed_locked_returns_who_lapsed_and_removes_only_them() -> None:
+def test_reap_lapsed_returns_who_lapsed_and_removes_only_them() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
@@ -215,7 +215,7 @@ def test_reap_lapsed_locked_returns_who_lapsed_and_removes_only_them() -> None:
     assert staying in reg.sessions()
 
 
-def test_reap_lapsed_locked_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
+def test_reap_lapsed_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
     _writes(reg).record(conn, _cli(), UNOBSERVED)
@@ -223,7 +223,7 @@ def test_reap_lapsed_locked_is_empty_and_a_no_op_when_nothing_has_lapsed() -> No
     assert conn in reg.sessions()
 
 
-def test_reap_lapsed_locked_honors_its_exclusion() -> None:
+def test_reap_lapsed_honors_its_exclusion() -> None:
     """The exclusion ``apply``'s renewed caller needs, at the registry layer."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
@@ -237,7 +237,7 @@ def test_reap_lapsed_locked_honors_its_exclusion() -> None:
     assert conn not in reg.sessions()
 
 
-def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
+def test_reap_lapsed_cannot_wipe_a_renewal_that_races_it() -> None:
     """The TOCTOU a split compute-then-discard leaves open, closed by one lock.
 
     A round-1-era renewal path (``record``/``renew_if_registered``/
@@ -246,7 +246,7 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
     set in one lock hold and discards each id in a second, separate hold
     leaves a gap: a renewal landing in that gap makes the connection live
     again, and the second hold discards it anyway -- a live client silently
-    wiped under ordinary threaded load. ``reap_lapsed_locked`` closes the
+    wiped under ordinary threaded load. ``reap_lapsed`` closes the
     gap by construction: nothing else can touch the registry while it
     holds the lock, so a concurrent renewal is strictly serialized before
     or after the sweep, never straddling it.
@@ -270,7 +270,7 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
     real_now = reg._clock
 
     def _now_that_races_a_renewal() -> float:
-        # Fires from inside reap_lapsed_locked's one critical section: start
+        # Fires from inside reap_lapsed's one critical section: start
         # the renewal thread and prove it is genuinely locked out (blocked on
         # the same lock, not just "hasn't run yet") before the sweep proceeds.
         if not renewal_attempted.is_set():

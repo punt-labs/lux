@@ -908,9 +908,9 @@ The lock order is checked in the companion models
 \texttt{menu\_presence\_locks\_inverted\_buggy.tex} (deadlock found).
 
 Re-run \texttt{fuzz} and these goals whenever
-\texttt{client\_lifecycle.py}, \texttt{listener\_legs.py},
-\texttt{hub\_clients.py}'s \texttt{record}/\texttt{renew\_if\_registered}/
-\texttt{reap\_lapsed\_locked}/\texttt{named\_sessions},
+\texttt{client\_lifecycle.py}, \texttt{presence\_writes.py}'s
+\texttt{record}/\texttt{renew\_if\_registered}/\texttt{reap\_lapsed},
+\texttt{hub\_clients.py}'s \texttt{named\_sessions},
 \texttt{departure\_sinks.py}, \texttt{menu\_presence.py},
 \texttt{operations/callbacks.py}, \texttt{operations/frame\_owner\_facts.py}, or
 \texttt{ws\_listen.py} change.

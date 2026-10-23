@@ -24,7 +24,7 @@ _TESTS = Path(__file__).resolve().parents[1]
 _WRITES = {
     name
     for name in dict(inspect.getmembers(PresenceWrites, inspect.isfunction))
-    if not name.startswith("_") and name != "listener_for"
+    if not name.startswith("_")
 }
 
 # The registry hands the surface out and the lifecycle takes it.
