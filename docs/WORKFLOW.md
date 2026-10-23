@@ -501,13 +501,15 @@ leader.
    2. **Every appended line passed.** Each new audit line reads
       `"verdict":"pass"`, or `"verdict":"rebaseline-files"` for a leader's
       bless. A `"fail"` line means the ratchet failed and the commit landed
-      anyway. There is one exception, and it is debt, not a pass. The update
-      targets score the whole tree, so they write a `"fail"` line when they
-      refuse a file the commit did not touch, whose regression is already on
-      `main`. That line is acceptable only if no file the commit touched is
-      among the refused ones and `make check` passes at that commit. The
-      refused files are then fixed in the same PR, so `main` stops writing
-      such lines.
+      anyway. A refused update writes a `"fail"` line with empty deltas. That
+      line is acceptable in two cases only. First, a refusal of a touched
+      file that a later `"rebaseline-files"` line in the same commit blesses.
+      Second, a refusal of files the commit did not touch, whose regression
+      is already on `main`, provided `make check` passes at that commit. The
+      second case is debt, not a pass: the refused files are fixed in the
+      same PR, so `main` stops writing such lines. Workers find regressions
+      with `make check` and run the update targets only once it is clean or
+      blessed.
    3. **Baselines match the audit.** Every metric that moved in a baseline
       file appears as a delta in an appended audit line. A baseline change no
       audit line accounts for was not written by the tool.
