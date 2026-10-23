@@ -10,7 +10,7 @@ refusal, never a blank frame.
 
 from __future__ import annotations
 
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
@@ -32,6 +32,12 @@ from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.elements.table import TableElement
+
+if TYPE_CHECKING:
+    import pytest
+
+    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.operations.client_facts import ClientFacts
 
 
 class _Marks:
@@ -458,3 +464,29 @@ class TestAClickThatOutlivedItsClient:
         assert dict(clients.live_sessions()) == {}
         assert marks.marked == []
         assert list(store.live_scene_ids()) == []
+
+
+class TestDetailsAreNotTheOwnersContact:
+    def test_installing_a_clients_details_does_not_renew_its_lease(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        clock = _Clock()
+        factory = HubStoreFactory(clock)
+        clients = factory.clients
+        _named(factory.lifecycle, clients, "c1", _identity())
+        details, _marks = _wired(factory.display, clients, Hub())
+        read_facts = ClientListing.facts
+
+        def lapse_after_the_read(
+            listing: ClientListing, named: NamedSession
+        ) -> ClientFacts:
+            facts = read_facts(listing, named)
+            clock.advance(1_000_000.0)  # the lease lapses between read and install
+            return facts
+
+        monkeypatch.setattr(ClientListing, "facts", lapse_after_the_read)
+
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, SceneShown)
+        assert ConnectionId("c1") not in clients.live_sessions()

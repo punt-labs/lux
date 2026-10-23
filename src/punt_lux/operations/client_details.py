@@ -68,7 +68,7 @@ class ClientDetailsOperations:
     def _shown(self, named: NamedSession) -> SceneShown | OpError:
         """Install this client's details as the scene that client owns."""
         scene = DetailsScene(self._clients.facts(named), named)
-        owner = Scope.in_process(named.connection_id)
+        owner = Scope.on_behalf_of(named.connection_id)
         return self._installer.install(scene.submission(), owner=owner)
 
     @staticmethod

@@ -46,3 +46,18 @@ def test_route_for_an_owned_element_applies_its_removal() -> None:
             RemoveElement(scene_id=_SCENE, element_id=_ELEMENT_ID),
         )
     ]
+
+
+def test_the_removal_is_not_the_owners_contact() -> None:
+    """The Hub removing a forgotten root must not renew the owner's lease."""
+    from punt_lux.domain.hub.owner import Owner
+
+    owners = OwnerTracker()
+    owners.record(_SCENE, _ELEMENT_ID, Owner.from_session(_OWNER, None))
+    calls: list[tuple[Scope, RemoveElement]] = []
+    router = RootRemovalRouter(owners, lambda c, u: calls.append((c, u)))
+
+    router.route(_SCENE, _ELEMENT_ID)
+
+    ((scope, _),) = calls
+    assert scope.is_contact is False

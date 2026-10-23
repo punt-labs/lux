@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_write import SessionWrite
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.domain.scope import Scope
 
 __all__ = ["ClientLifecycle"]
 
@@ -119,6 +120,15 @@ class ClientLifecycle:
             write = self._writes.renew_if_registered(connection_id, host)
             if write is not None:
                 self._settle(connection_id, write)
+
+    def contact(self, scope: Scope) -> None:
+        """Renew the scope's connection if the scope is its own contact.
+
+        A Hub-internal act under an owner's name is not the owner reaching the
+        Hub, so it renews nothing.
+        """
+        if scope.is_contact:
+            self.renew(scope.connection_id, scope.client_host)
 
     def register_callback(
         self,

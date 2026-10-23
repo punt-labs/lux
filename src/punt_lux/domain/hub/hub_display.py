@@ -174,7 +174,7 @@ class HubDisplay:
         through ``apply`` (a field patch): the write is the caller's contact.
         """
         with self._lock.write():
-            self._lifecycle.renew(scope.connection_id, scope.client_host)
+            self._lifecycle.contact(scope)
             yield
 
     @contextmanager
@@ -383,7 +383,7 @@ class HubDisplay:
         go of.
         """
         with self._lock.write():
-            self._lifecycle.renew(scope.connection_id, scope.client_host)
+            self._lifecycle.contact(scope)
             self._lifecycle.depart_lapsed(frozenset({scope.connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):

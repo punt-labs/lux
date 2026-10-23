@@ -49,6 +49,6 @@ class RootRemovalRouter:
         owner = self._owners.get(scene_id, element_id)
         if owner is not None:
             self._apply(
-                Scope.in_process(owner.connection_id),
+                Scope.on_behalf_of(owner.connection_id),
                 RemoveElement(scene_id=scene_id, element_id=element_id),
             )
