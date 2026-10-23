@@ -448,3 +448,24 @@ def test_generic_render_of_composed_json_loses_the_composition_handlers() -> Non
     )
     # The constructed SearchFilterHandler was stripped on decode — dead chrome.
     assert search.handler_count(ValueChanged) < 2
+
+
+def test_list_clients_reports_the_hosts_and_matches_the_library_read() -> None:
+    """DES-087: the REST roster carries the same host fields the library reads.
+
+    One engine read, four surfaces: the route must serialise exactly what the
+    operations facade returns, so a field one surface drops is caught here.
+    """
+    factory = HubStoreFactory()
+    factory.lifecycle.identify(
+        ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"), "127.0.0.1"
+    )
+    client = make_client(factory=factory)
+
+    body = client.get("/clients").json()
+
+    (reported,) = body["clients"]
+    assert reported["client_hosts"] == ["127.0.0.1"]
+    assert isinstance(reported["hub_host"], str)
+    assert reported["hub_host"]
+    assert ClientList.model_validate(body).clients[0].client_hosts == ["127.0.0.1"]

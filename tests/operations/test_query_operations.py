@@ -754,3 +754,45 @@ def test_list_errors_maps_a_down_display_to_op_error() -> None:
     result = ops.list_errors(20)
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
+
+
+def test_list_clients_reports_the_observed_hosts_and_the_hubs_own() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    factory.lifecycle.identify(
+        ConnectionId("c1"),
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        "10.0.0.5",
+    )
+    factory.lifecycle.identify(
+        ConnectionId("c1"),
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        "127.0.0.1",
+    )
+    hub = Hub()
+    ops = QueryOperations(
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
+    )
+
+    (client,) = ops.list_clients().clients
+
+    assert client.client_hosts == ["10.0.0.5", "127.0.0.1"]
+    assert client.hub_host == hub.hostname
+
+
+def test_a_client_no_host_was_observed_for_reports_no_hosts() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    factory.lifecycle.identify(ConnectionId("c1"), ClientIdentity(kind="cli", name="x"))
+    ops = QueryOperations(
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, factory.clients, Hub(), _zero_inbox_depth),
+    )
+
+    (client,) = ops.list_clients().clients
+
+    assert client.client_hosts == []

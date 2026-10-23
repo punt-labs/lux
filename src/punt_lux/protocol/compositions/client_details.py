@@ -36,6 +36,10 @@ __all__ = ["ClientDetails", "ClientDetailsComposition"]
 # What a field with nothing in it reads as, so a row never renders blank.
 _NOTHING = "none"
 
+# What a host the Hub could not observe reads as. Not "none": the host exists,
+# the Hub did not see it, and it is never defaulted to a loopback address.
+_UNKNOWN = "unknown"
+
 
 class ClientDetails(BaseModel):
     """One client's connection state, and the lines a person reads it as.
@@ -57,6 +61,8 @@ class ClientDetails(BaseModel):
     lease: LeaseTerm
     subscribed_topics: tuple[str, ...] = ()
     owned_scenes: tuple[str, ...] = ()
+    client_hosts: tuple[str, ...] = ()  # the hosts the Hub observed, first seen first
+    hub_host: str | None = None  # the Hub's own hostname; None if not reported
 
     def rows(self) -> tuple[tuple[str, str], ...]:
         """Return the field/value pairs, in the order a reader wants them."""
@@ -67,6 +73,8 @@ class ClientDetails(BaseModel):
             ("Repository", self.repo or _NOTHING),
             ("Agent", self.agent or _NOTHING),
             ("Connection", self.connection_id),
+            ("Client host", ", ".join(self.client_hosts) or _UNKNOWN),
+            ("Hub host", self.hub_host or _UNKNOWN),
             ("Connected", Span.of(self.connected_seconds).rendered()),
             ("Lease", self.lease.rendered()),
             ("Topics", self._listed(self.subscribed_topics)),

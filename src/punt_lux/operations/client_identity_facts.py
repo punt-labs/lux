@@ -58,4 +58,6 @@ class ClientIdentityFacts:
             lease=self._client.lease,
             subscribed_topics=tuple(self._client.subscribed_topics),
             owned_scenes=tuple(self._client.owned_scenes),
+            client_hosts=tuple(self._client.client_hosts),
+            hub_host=self._client.hub_host,
         )

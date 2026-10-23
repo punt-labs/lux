@@ -49,6 +49,41 @@ def _identified_scene(
     return scene_id
 
 
+class TestTheHostRowsInThePopup:
+    """The popup and the Details table are one ``ClientDetails.rows()``."""
+
+    def test_the_popup_reports_the_observed_host_and_the_hubs_own(self) -> None:
+        factory = HubStoreFactory()
+        store, lifecycle, clients = factory.display, factory.lifecycle, factory.clients
+        hub = Hub()
+        conn = ConnectionId("c1")
+        lifecycle.identify(conn, ClientIdentity(kind="cli", name="lux"), "127.0.0.1")
+        clients.named_sessions()
+        scene_id = SceneId("c1-scene")
+        store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+
+        rows = _reader(store, clients, hub).facts_for(scene_id).rows
+
+        assert rows is not None
+        fields = dict(rows)
+        assert fields["Client host"] == "127.0.0.1"
+        assert fields["Hub host"] == hub.hostname
+
+    def test_the_host_rows_follow_the_connection_row(self) -> None:
+        factory = HubStoreFactory()
+        store, lifecycle, clients = factory.display, factory.lifecycle, factory.clients
+        scene_id = _identified_scene(store, lifecycle, clients, "c1")
+
+        rows = _reader(store, clients, Hub()).facts_for(scene_id).rows
+
+        assert rows is not None
+        labels = [label for label, _ in rows]
+        assert labels[labels.index("Connection") + 1 :][:2] == [
+            "Client host",
+            "Hub host",
+        ]
+
+
 class TestASceneWithALiveOwner:
     def test_reports_the_owners_rows(self) -> None:
         factory = HubStoreFactory()

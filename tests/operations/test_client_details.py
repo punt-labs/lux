@@ -138,6 +138,57 @@ class TestWhatDetailsReports:
         assert rows["Repository"] == "/Users/someone/lux"
         assert rows["Connection"] == "c1"
 
+    def test_it_reports_the_host_the_hub_observed_and_its_own(self) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        hub = Hub()
+        lifecycle.identify(ConnectionId("c1"), _identity(), "127.0.0.1")
+        clients.named_sessions()
+        details, _marks = _wired(store, clients, hub)
+
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, SceneShown)
+        rows = _rows(store, "c1", result.scene_id)
+        assert rows["Client host"] == "127.0.0.1"
+        assert rows["Hub host"] == hub.hostname
+
+    def test_a_client_no_host_was_observed_for_reads_unknown_never_loopback(
+        self,
+    ) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        _named(lifecycle, clients, "c1", _identity())
+        details, _marks = _wired(store, clients, Hub())
+
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, SceneShown)
+        assert _rows(store, "c1", result.scene_id)["Client host"] == "unknown"
+
+    def test_a_client_seen_from_two_hosts_lists_both_in_first_seen_order(
+        self,
+    ) -> None:
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        store = factory.display
+        lifecycle.identify(ConnectionId("c1"), _identity(), "10.0.0.5")
+        lifecycle.identify(ConnectionId("c1"), _identity(), "127.0.0.1")
+        clients.named_sessions()
+        details, _marks = _wired(store, clients, Hub())
+
+        result = details.show_client_details(ConnectionId("c1"))
+
+        assert isinstance(result, SceneShown)
+        assert _rows(store, "c1", result.scene_id)["Client host"] == (
+            "10.0.0.5, 127.0.0.1"
+        )
+
     def test_it_reports_the_topics_and_scenes_the_client_holds(self) -> None:
         # "board" is installed through the real composition choke point
         # (SceneInstaller.install), so the store holds it under the composed

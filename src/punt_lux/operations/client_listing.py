@@ -103,4 +103,6 @@ class ClientListing:
             ),
             writer_bound=self._hub.has_writer(connection_id),
             inbox_depth=self._inbox_depth(connection_id),
+            client_hosts=list(session.peers),
+            hub_host=self._hub.hostname,
         )
