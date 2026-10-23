@@ -10,7 +10,8 @@
   same applet runs in many repositories by design. The Hub rung keeps DES-089's
   elision. The Hub sends the owner's roster label with each scene
   (`frame_scope_label`); when a departure renumbers the roster (DES-064), the
-  scenes of every survivor whose label moved are re-pushed in the same step, so
+  scenes of every survivor whose label moved are marked for re-push in the same
+  step, and a session that comes back from a lapsed lease is marked again, so
   titles follow by push, never by polling. The Windows menu, dock bar and dock
   pills title a frame through the same `AddressRendering` seam, and the
   window's ImGui id is unchanged, so a relabel never resets its position.
@@ -143,8 +144,9 @@
   arbitrary "senior" process, is gone; the per-frame `i` glyph answers where a
   window came from. A connection that registered no menu command (the agent
   session) now gets one entry of its own, named for the program it runs, and
-  the window it opens carries the same name, which the Display qualifies when
-  more than one Hub is connected. The entry names the frame its scene is
+  the window it opens carries the same name under its session label
+  (`lux :: claude`), with the Hub's name added when more than one Hub is
+  connected. The entry names the frame its scene is
   installed into, through one `DetailsFrame` value shared by the menu and the
   scene, so a closed window reopens on the next click without
   `Windows → Clear All`. Identifying a connection, and its later departure,

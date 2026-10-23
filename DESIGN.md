@@ -7270,7 +7270,7 @@ event self-identifying on the existing `recv` drain. (c) *B3 — enqueue and pus
 when both exist* — double-delivers with no second consumer; the capability-fork
 is the principled hybrid, one item, one leg, chosen by how the owner connects.
 
-## DES-099 (draft): A Hub-Native Menu Command Must Carry the Frame It Opens, or a Second Click Is a Silent No-Op
+## DES-099: A Hub-Native Menu Command Must Carry the Frame It Opens, or a Second Click Is a Silent No-Op
 
 **Status:** Accepted, then narrowed by operator ruling (2026-10-22) — see
 "Ruling" immediately below; it supersedes the per-repo-group Details design
@@ -7429,6 +7429,13 @@ in," read from two call sites instead of typed twice.
 
 **Write set (design-phase output; the implementer owns exact shaping):**
 
+*As built.* The write set below predates the operator's ruling and is kept as
+the design record. The shipped shape differs where the ruling removed
+seniority: there is no `ClientSubmenu._details()`. `MemberEntries` gives each
+callback-less connection one entry of its own, and that entry and the Details
+scene share one `DetailsFrame` value (`domain/hub/details_frame.py`, tested
+in `tests/domain/test_details_frame.py`).
+
 - **New:** `src/punt_lux/domain/hub/details_frame.py` — a small `@final`
   frozen value class (e.g. `DetailsFrame`) wrapping one `ConnectionId`, exposing
   the raw id (`f"lux.client-details.{connection_id}"`) and the store-scoped id
@@ -7482,8 +7489,8 @@ concurrency/departure machinery already modeled in `menu_lifecycle.tex` /
 `menu_lifecycle_delivery.tex`, or the DES-088 visibility state machine modeled
 in `frame-visibility-lifecycle.tex` — it only changes which value is fed into
 inputs those models already treat as arbitrary strings. Per the repo's z-spec
-tripwire rule: if the open question above ("is the applet-callback shape also
-broken live") turns up a genuine new hazard — e.g. a connection-churn race
+tripwire rule: if the applet-callback shape (resolved live above) ever turns
+up a genuine new hazard — e.g. a connection-churn race
 between a lease reap minting a new `connection_id` and a menu click still
 carrying the old one's composed `frame_id` — that would be a *new*, separate
 concurrency question, to be modeled on its own bead once reproduced, not

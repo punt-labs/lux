@@ -1,8 +1,15 @@
 # Connection Rung and Host Facts — Design
 
 **Beads:** `lux-xrli` (the connection rung) and the DES-099 host-facts
-amendment. **Status:** design, for the leader's review before any
-implementation mission.
+amendment. **Status:** delivered (DES-100, DES-099 amendment). The text below
+is the accepted design. As built, it differs in names only: a frame's title
+and label live on one `FrameHeading` (`Frame.heading`, told through
+`adopt`/`relabel`), so there is no `Frame.scope_label` or `Frame.title`
+attribute. The Scope builder is the public `tools.scope()`, and
+`SessionWrite.attached` is `SessionWrite.recorded(...).seated(listener)`. The
+Hub host is `Hub.hostname`, a lazily cached `HubId.current().hostname`, not a
+`HubPorts` field. The observed host is read by one `PeerHost` at every door,
+on every contact the Hub records, not on identification only.
 **Rulings (both settled, not re-opened here):** DES-100 (the connection rung
 is always shown) and the DES-099 amendment of 2026-10-22 (the `i` popup and
 Details report the client host and the Hub host). Both are in `DESIGN.md`.
