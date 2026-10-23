@@ -760,7 +760,12 @@ Type-checking is a \texttt{fuzz} pass:
 
 P1, P2 and P3 are checked by asking ProB whether their negation is reachable. A
 goal reported \emph{not found} means the invariant holds on every reachable
-state.
+state. Two connections are enough to exhibit every defect below, and the
+exhaustive runs recorded with this model are at \texttt{DEFAULT\_SETSIZE 2}
+(18,900 reachable states, 438,697 transitions). The commands below are
+written at size 3; at that size the state space is very much larger and
+\texttt{-p SYMMETRY\_MODE hash} should be added. Run them at size 2 for a
+result in half a minute each.
 
 \begin{verbatim}
   # P1 (goal NOT found in this, the fixed, spec)
