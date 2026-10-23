@@ -7659,16 +7659,21 @@ DES-094, DES-098 (menu lifecycle), DES-099, DES-100 (the label a revival
 re-sends) and this entry. Bead `lux-s9rl` is closed by it.
 
 **Amendment (2026-10-23, review round 2).** The presence write surface is
-named for what it does, and the registry is a read port only. This
+named for what it does, and the registry is a read port for presence. This
 supersedes the names in the Decision and in the callback-steps amendment
-above; their substance is unchanged.
+above, and changes two things in substance: the withdrawal rule now counts a
+session's listed entries (below), and a second take of the write surface is a
+`ValueError`.
 
-- **`PresenceWrites` replaces `ListenerLegs`.** The registry's writes
-  (record, renew, discard, reap the lapsed, attach, register and withdraw a
-  callback) live on `PresenceWrites`. `HubClientRegistry` has no write
-  method. `ClientLifecycle` takes the write surface once with
-  `HubClientRegistry.take_writes()`; a second take raises `ValueError`, and
-  no other module imports `PresenceWrites`.
+- **`PresenceWrites` replaces `ListenerLegs`.** The presence writes (record,
+  renew, discard, reap the lapsed, attach, register and withdraw a callback)
+  live on `PresenceWrites`. `HubClientRegistry` has no method that changes a
+  session; its one remaining side effect is naming, since a read assigns a
+  roster name to a newly identified connection the first time it is listed.
+  `ClientLifecycle` takes the write surface once with
+  `HubClientRegistry.take_writes()`; a second take raises `ValueError`.
+  In `src/`, `PresenceWrites` is imported only by the registry that builds it
+  and the lifecycle that holds it.
 - **`ClientLifecycle.register_callback` takes no expected leg.**
   `PresenceWrites.register_callback` reads its own slot for the connection
   and answers `superseded` when there is none, so the compare-and-set read
@@ -7681,3 +7686,7 @@ above; their substance is unchanged.
   constructor; there is no host default.
 - **The menu departure sink has value equality**, so the two compositions
   luxd builds bind one sink (P2).
+- **The withdrawal rule compares entries.** `MenuListing` compares the
+  callback entries a session lists, not only whether it earns a listing, so
+  any change to them reads `revised`; the per-write overrides that restated
+  this are gone.
