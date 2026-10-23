@@ -250,7 +250,9 @@ class Applet:
         board = BeadsBoard.for_project("lux")
         load = BoardLoad(board, source)  # type: ignore[arg-type]  # structural stand-in
         self._slot = BoardSlot()
-        self._service = BeadsService(AppletBoard(load, self._slot), board.frame_id)
+        self._service = BeadsService(
+            AppletBoard(load, self._slot), load.entry("beads", "Beads")
+        )
         # A click nobody made, against a display nobody is looking at: pushing
         # the slot's state into it is how a test reads what the applet holds.
         self._spare_landings = Landings()

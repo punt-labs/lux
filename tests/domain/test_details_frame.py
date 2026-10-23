@@ -64,10 +64,10 @@ class TestThePresentation:
 
 class TestTableId:
     def test_names_the_table_the_scene_holds(self) -> None:
-        assert DetailsFrame(ConnectionId("c1")).table_id == "lux.client-details.table"
+        assert DetailsFrame(ConnectionId("c1")).TABLE_ID == "lux.client-details.table"
 
     def test_is_the_same_for_every_connection(self) -> None:
         first = DetailsFrame(ConnectionId("c1"))
         second = DetailsFrame(ConnectionId("c2"))
 
-        assert first.table_id == second.table_id
+        assert first.TABLE_ID == second.TABLE_ID

@@ -81,10 +81,11 @@ class WireField:
             raise self._rejected("true or false", value)
         return value
 
-    def require(self, value: object, expected: str, *, holds: bool) -> None:
-        """Reject *value* by name unless the check that was made on it *holds*."""
-        if not holds:
-            raise self._rejected(expected, value)
+    def literal(self, value: object, expected: str) -> str:
+        """Return *value* if it is exactly the string *expected*, or reject it."""
+        if value != expected:
+            raise self._rejected(repr(expected), value)
+        return expected
 
     def _rejected(self, expected: str, value: object) -> ValueError:
         """Return the error that names this place, what it wanted, and what came."""

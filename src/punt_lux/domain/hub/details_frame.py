@@ -27,7 +27,7 @@ class DetailsFrame:
     """The Details frame of one connection, as the client names it and as stored."""
 
     # The id of the one table the Details scene holds, in every frame.
-    table_id: ClassVar[str] = f"{_PREFIX}.table"
+    TABLE_ID: ClassVar[str] = f"{_PREFIX}.table"
 
     _connection_id: ConnectionId
     __slots__ = ("_connection_id",)

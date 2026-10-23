@@ -82,7 +82,7 @@ class TestRegistryWritesNeverWaitOnTheStoreLock:
                 _CONN, UNOBSERVED
             ),
             "attach": lambda: writes.attach(_CONN, _applet(), leg, UNOBSERVED),
-            "register_callback": lambda: writes.register_callback(_CONN, callback, leg),
+            "register_callback": lambda: writes.register_callback(_CONN, callback),
             "detach": lambda: writes.detach(_CONN, leg),
             "reap_lapsed": lambda: writes.reap_lapsed(frozenset()),
             "discard": lambda: writes.discard(_CONN),

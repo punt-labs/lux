@@ -703,7 +703,7 @@ def _beads(source: Gated) -> BeadsService:
     """The real Beads service, over a source a test can hold at the query."""
     board = BeadsBoard.for_project("lux")
     load = BoardLoad(board, source)
-    return BeadsService(AppletBoard(load, BoardSlot()), board.frame_id)
+    return BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
 
 
 def _held_query() -> Gated:

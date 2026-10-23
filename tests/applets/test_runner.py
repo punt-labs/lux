@@ -186,7 +186,7 @@ def _beads_runner(client: object, monkeypatch: pytest.MonkeyPatch) -> ServiceRun
     monkeypatch.setattr("punt_lux.applets.runner.ScopedBoardOps.for_client", recorder)
     board = BeadsBoard.for_project("lux")
     load = BoardLoad(board, BeadsBrowser())
-    service = BeadsService(AppletBoard(load, BoardSlot()), board.frame_id)
+    service = BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
     return _runner(cast("_BdBoundService", service))
 
 

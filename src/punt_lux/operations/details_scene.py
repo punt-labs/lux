@@ -52,7 +52,7 @@ class DetailsScene:
         """Offer the table in its own frame, titled with the program."""
         facts = ClientIdentityFacts(self._facts, self._named.name).build()
         return SceneSubmission.of(
-            ClientDetailsComposition.build(facts, element_id=DetailsFrame.table_id),
+            ClientDetailsComposition.build(facts, element_id=DetailsFrame.TABLE_ID),
             self.scene_id,
             self._frame.presentation(self._named.program),
             None,

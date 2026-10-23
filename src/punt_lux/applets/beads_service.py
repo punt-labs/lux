@@ -50,10 +50,10 @@ class BeadsService:
     _entry: MenuEntry
     __slots__ = ("_board", "_entry")
 
-    def __new__(cls, board: AppletBoard, frame_id: str) -> Self:
+    def __new__(cls, board: AppletBoard, entry: MenuEntry) -> Self:
         self = super().__new__(cls)
         self._board = board
-        self._entry = MenuEntry(_CALLBACK_ID, _LABEL, frame_id)
+        self._entry = entry
         return self
 
     @classmethod
@@ -61,7 +61,7 @@ class BeadsService:
         """Build the service for this repository's one board, loaded from ``bd``."""
         board = BeadsBoard.for_repo()
         load = BoardLoad(board, BeadsBrowser())
-        return cls(AppletBoard(load, BoardSlot()), board.frame_id)
+        return cls(AppletBoard(load, BoardSlot()), load.entry(_CALLBACK_ID, _LABEL))
 
     @property
     def entry(self) -> MenuEntry:

@@ -134,7 +134,7 @@ class AppletLeg:
 
     def _register_now(self) -> Ok | OpError:
         """Register the session's callback over REST — the blocking half."""
-        return self._service.entry.registered_by(self._rest())
+        return self._service.entry.register_with(self._rest())
 
     def _start_prefetch(self) -> None:
         """Warm the service up behind the handshake, never inside it.

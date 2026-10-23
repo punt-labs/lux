@@ -54,12 +54,7 @@ class WireSeparator:
     @classmethod
     def of_payload(cls, entry: Mapping[str, object], *, field: WireField) -> Self:
         """Return the separator *entry* describes, or reject an id-less line."""
-        label = entry.get("label")
-        field.at("label").require(
-            label,
-            f"{SEPARATOR_LABEL!r} — an entry with no id is the separator",
-            holds=label == SEPARATOR_LABEL,
-        )
+        field.at("label").literal(entry.get("label"), SEPARATOR_LABEL)
         return cls()
 
     @property

@@ -31,13 +31,20 @@ class Attachment:
 
     slot: ListenerAttachment
     presence: PresenceChange
-    restated: bool  # whether the write changed who the session is or where from
+    restated: (
+        bool  # whether the write changed who the session is, where from, or revived it
+    )
 
 
 @final
 @dataclass(frozen=True, slots=True)
 class SessionWrite:
-    """The session a write replaced (``None`` if new), the one it stored, and when."""
+    """The session a write replaced (``None`` if new), the one it stored, and when.
+
+    Built by :meth:`recorded` (and :meth:`seated`) for a write that renews, and
+    directly as ``SessionWrite(before, after, now)`` by a write that already holds
+    both sessions: a teardown or a callback registration.
+    """
 
     # None: the connection was unregistered before this write.
     before: ClientSession | None

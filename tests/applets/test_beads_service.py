@@ -53,7 +53,7 @@ _FRESH = ISSUE | {"id": "lux-fresh"}
 def _service(source: Source | ThenFails | Gated) -> BeadsService:
     board = BeadsBoard.for_project("lux")
     load = BoardLoad(board, source)
-    return BeadsService(AppletBoard(load, BoardSlot()), board.frame_id)
+    return BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
 
 
 def _click(service: BeadsService, client: object) -> ClickLatency:
@@ -488,3 +488,11 @@ def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(
     assert journal.steps == ("load", "render", "load", "render")
     assert "Loading issues" in str(client.scenes[0].elements)  # the cold answer
     assert "bd: command not found" in str(client.scenes[1].elements)
+
+
+def test_the_entry_raises_the_frame_of_the_board_it_belongs_to() -> None:
+    board = BeadsBoard.for_repo()
+    load = BoardLoad(board, Source(BeadsRows.of([ISSUE])))
+    service = BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
+
+    assert service.entry.frame_id == board.frame_id

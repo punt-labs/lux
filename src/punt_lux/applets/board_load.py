@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_order import BoardOrder
 from punt_lux.applets.board_read import BoardRead
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.apps.beads_result import BeadsFailure
 from punt_lux.operations import RenderRequest, RenderTableRequest
 
@@ -47,6 +48,10 @@ class BoardLoad:
         self._board = board
         self._source = source
         return self
+
+    def entry(self, callback_id: str, label: str) -> MenuEntry:
+        """The menu entry that raises this board's frame, so the two cannot differ."""
+        return MenuEntry(callback_id, label, self._board.frame_id)
 
     def issues(self) -> BoardRead:
         """Return the run ``bd`` completed, or raise the reason it could not.

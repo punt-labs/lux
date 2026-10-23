@@ -140,18 +140,12 @@ class ClientLifecycle:
 
         Contact first: the registration renews the lease, and reviving a lapsed
         session retitles its scenes. The leg is read and written under the one
-        store hold, so no teardown or reconnect lands between the gate and the
-        write. A connection with no leg is refused as ``superseded``, the same
-        answer as a leg that went between.
+        store hold, so no teardown or reconnect lands between the two. A
+        connection with no leg is refused as ``superseded``.
         """
         with self._lock.write():
             self.renew(connection_id, host)
-            expected = self._writes.listener_for(connection_id)
-            if expected is None:
-                return "superseded"
-            registration = self._writes.register_callback(
-                connection_id, callback, expected
-            )
+            registration = self._writes.register_callback(connection_id, callback)
             self._announce(connection_id, registration.presence)
             return registration.outcome
 

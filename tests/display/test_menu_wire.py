@@ -403,3 +403,12 @@ def _scene(*, frame_id: str) -> SceneMessage:
     return SceneMessage(
         id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id=frame_id
     )
+
+
+class TestAnIdlessLineIsASeparator:
+    def test_the_separator_label_is_a_separator(self) -> None:
+        assert WireSeparator.of_payload({"label": "---"}, field=WireField("m.0")).label
+
+    def test_any_other_idless_label_is_rejected_by_name(self) -> None:
+        with pytest.raises(ValueError, match=r"m\.0\.label: expected '---', got 'x'"):
+            WireSeparator.of_payload({"label": "x"}, field=WireField("m.0"))

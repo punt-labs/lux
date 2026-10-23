@@ -157,41 +157,31 @@ class PresenceWrites:
         with self._lock:
             session = self._sessions.get(connection_id)
             if session is None:
-                return Detachment("released_with_session")
+                return Detachment.nothing("released_with_session")
             released = session.detached(listener)
             if released is None:
-                return Detachment("kept")
+                return Detachment.nothing("kept")
             self._sessions[connection_id] = released
-            write = SessionWrite(session, released, self._clock())
-            if session.callbacks:
-                return Detachment("released_with_callbacks", write)
-            return Detachment("released", write)
+            return Detachment.released(SessionWrite(session, released, self._clock()))
 
     def register_callback(
-        self,
-        connection_id: ConnectionId,
-        callback: SessionCallback,
-        expected: CallbackListener,
+        self, connection_id: ConnectionId, callback: SessionCallback
     ) -> Registration:
-        """Register ``callback`` if ``expected`` still holds the connection's slot.
+        """Register ``callback`` on the connection's own leg, or say why not.
 
-        The gate and the write are one critical section; the session itself
-        decides whether it accepts -- an anonymous or lapsed one declines. A
-        registration that took is returned with the write that made it.
+        The slot is read and written in one critical section, so the entry
+        always belongs to whoever holds the connection. A connection that holds
+        no leg, or no session, is ``superseded``: its entry could never be
+        delivered a click. The session itself decides whether it accepts -- an
+        anonymous or lapsed one declines.
         """
         with self._lock:
             now = self._clock()
             session = self._sessions.get(connection_id)
-            if session is None or not session.held_by(expected):
-                return Registration("superseded")
+            if session is None or session.listener is None:
+                return Registration.refused("superseded")
             updated = session.registering(callback, now)
             if updated is None:
-                return Registration("declined")
+                return Registration.refused("declined")
             self._sessions[connection_id] = updated
-            return Registration("registered", SessionWrite(session, updated, now))
-
-    def listener_for(self, connection_id: ConnectionId) -> CallbackListener | None:
-        """The connection's listen leg, or ``None`` when it holds none."""
-        with self._lock:
-            session = self._sessions.get(connection_id)
-            return session.listener if session is not None else None
+            return Registration.took(SessionWrite(session, updated, now))
