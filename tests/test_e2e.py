@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.domain.hub.callback_key import CallbackKey
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
 
@@ -160,8 +159,7 @@ class TestWalkingSkeleton:
                 if len(events) == 2:
                     done.set()
 
-            client.on_event(CallbackKey("btn-a", "alpha"), _on_click)
-            client.on_event(CallbackKey("btn-b", "beta"), _on_click)
+            client.set_fallback_handler(_on_click)
             try:
                 client.connect()
                 client.start_listener()

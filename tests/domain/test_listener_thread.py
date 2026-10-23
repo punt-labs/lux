@@ -62,7 +62,7 @@ def _listening() -> tuple[
     connection = DisplayConnection(dialer, 1.0)
     connection.open()
     routed: list[Message] = []
-    listener = ListenerThread(connection, routed.append)
+    listener = ListenerThread(connection, routed.append, connection.close)
     return listener, connection, dialer, routed
 
 
@@ -179,7 +179,7 @@ class TestLifecycle:
         def route(_msg: Message) -> None:
             seen.append(holder[0].is_current)
 
-        listener = ListenerThread(connection, route)
+        listener = ListenerThread(connection, route, connection.close)
         holder.append(listener)
         listener.start()
         try:
@@ -375,7 +375,7 @@ class TestAbandonedThread:
                 release.wait(timeout=5)
             routed.append(msg)
 
-        listener = ListenerThread(connection, route)
+        listener = ListenerThread(connection, route, connection.close)
         listener.start()
         assert dialer.peer is not None
         dialer.peer.sendall(encode_message(PongMessage(ts=1.0)))
@@ -422,7 +422,7 @@ class TestARaisingRoute:
                 raise RuntimeError("the handler blew up")
             routed.append(msg)
 
-        listener = ListenerThread(connection, route)
+        listener = ListenerThread(connection, route, connection.close)
         with caplog.at_level(logging.ERROR):
             listener.start()
             assert dialer.peer is not None
@@ -448,7 +448,7 @@ class TestARaisingRoute:
         def route(_msg: Message) -> None:
             raise RuntimeError("always")
 
-        listener = ListenerThread(connection, route)
+        listener = ListenerThread(connection, route, connection.close)
         listener.start()
         try:
             assert dialer.peer is not None
@@ -456,6 +456,109 @@ class TestARaisingRoute:
             time.sleep(0.3)
             assert connection.is_open
             assert listener.alive
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+
+class TestTellingTheLink:
+    def _listening_with(
+        self, told: list[str]
+    ) -> tuple[ListenerThread, DisplayConnection, _PairDialer]:
+        dialer = _PairDialer()
+        connection = DisplayConnection(dialer, 1.0)
+        connection.open()
+
+        def broken() -> None:
+            told.append("broken")
+            connection.close()
+
+        return ListenerThread(connection, lambda _m: None, broken), connection, dialer
+
+    def test_a_display_that_closes_the_stream_is_reported_and_the_link_closes(
+        self,
+    ) -> None:
+        told: list[str] = []
+        listener, connection, dialer = self._listening_with(told)
+        listener.start()
+        assert dialer.peer is not None
+        dialer.peer.close()
+        try:
+            assert _until(lambda: told == ["broken"])
+            assert _until(lambda: not connection.is_open)
+        finally:
+            listener.stop()
+            connection.close()
+
+    def test_a_malformed_frame_is_reported_to_the_link(self) -> None:
+        told: list[str] = []
+        listener, connection, dialer = self._listening_with(told)
+        listener.start()
+        assert dialer.peer is not None
+        bad = b"[1]"
+        dialer.peer.sendall(struct.pack(HEADER_FORMAT, len(bad)) + bad)
+        try:
+            assert _until(lambda: told == ["broken"])
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_a_read_failure_on_an_open_connection_is_a_warning_and_reported(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        told: list[str] = []
+        listener, connection, dialer = self._listening_with(told)
+
+        def fails(_connection: DisplayConnection, _timeout: float) -> bytes | None:
+            raise OSError("the socket fell over")
+
+        monkeypatch.setattr(DisplayConnection, "poll_chunk", fails)
+        with caplog.at_level(logging.WARNING):
+            listener.start()
+            assert _until(lambda: told == ["broken"])
+        try:
+            warned = [r for r in caplog.records if r.levelno == logging.WARNING]
+            assert any("pair" in r.getMessage() for r in warned)
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_a_deliberate_close_is_debug_and_not_reported(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        told: list[str] = []
+        listener, connection, dialer = self._listening_with(told)
+        with caplog.at_level(logging.DEBUG):
+            listener.start()
+            connection.close()
+            assert _until(lambda: not listener.alive)
+        try:
+            assert told == []
+            assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_a_failed_route_logs_a_bounded_repr_of_the_message(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        dialer = _PairDialer()
+        connection = DisplayConnection(dialer, 1.0)
+        connection.open()
+
+        def route(_msg: Message) -> None:
+            raise RuntimeError("no")
+
+        listener = ListenerThread(connection, route, connection.close)
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+            assert dialer.peer is not None
+            dialer.peer.sendall(
+                encode_message(PongMessage(ts=1.0)),
+            )
+            assert _until(lambda: bool(caplog.records))
+        try:
+            assert "ts=1.0" in caplog.text
         finally:
             listener.stop()
             _closed(dialer.peer, connection)

@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 import queue
-from typing import TYPE_CHECKING, Self, final
+import time
+from typing import TYPE_CHECKING, Protocol, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.reply_queues import ReplyQueues, drain_queue
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
@@ -25,12 +27,26 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["InboundRouter"]
+__all__ = ["InboundRouter", "Listening"]
+
+# How often a reply wait looks up from its queue to see whether the listener lives.
+_LISTENER_CHECK_SECONDS = 0.1
+
+
+class Listening(Protocol):
+    """Whatever fills the reply queues: a waiter asks whether it is still alive."""
+
+    @property
+    def alive(self) -> bool:
+        """Whether the thread that fills the queues is running."""
+        ...
 
 
 @final
@@ -56,13 +72,39 @@ class InboundRouter:
         """
         return self._events.get(timeout=timeout)
 
-    def next_ack(self, timeout: float) -> AckMessage | None:
+    def next_ack(self, timeout: float, listener: Listening) -> AckMessage | None:
         """Block up to ``timeout`` for the next ack; ``None`` on timeout."""
-        return self._replies.get_ack(timeout)
+        return self._awaited(self._replies.get_ack, timeout, listener)
 
-    def next_reply[T: Message](self, expected: type[T], timeout: float) -> T | None:
+    def next_reply[T: Message](
+        self, expected: type[T], timeout: float, listener: Listening
+    ) -> T | None:
         """Block up to ``timeout`` for the next ``expected`` reply."""
-        return self._replies.get_typed(expected, timeout)
+        return self._awaited(
+            lambda wait: self._replies.get_typed(expected, wait), timeout, listener
+        )
+
+    @staticmethod
+    def _awaited[T](
+        take: Callable[[float], T | None], timeout: float, listener: Listening
+    ) -> T | None:
+        """Wait up to ``timeout`` on a reply queue, in slices that watch ``listener``.
+
+        A listener that exits while a reply is pending fails the waiter at once,
+        naming the exit, instead of letting it sleep out its whole budget into a
+        silent timeout.
+        """
+        deadline = time.monotonic() + max(timeout, 0.0)
+        while True:
+            remaining = deadline - time.monotonic()
+            reply = take(min(max(remaining, 0.0), _LISTENER_CHECK_SECONDS))
+            if reply is not None:
+                return reply
+            if not listener.alive:
+                msg = "the display listener exited while a reply was pending"
+                raise ConnectionClosedError(msg)
+            if remaining <= _LISTENER_CHECK_SECONDS:
+                return None
 
     def reset(self) -> None:
         """Discard stragglers a dying listener left, on connection close.

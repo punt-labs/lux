@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.domain.hub.callback_key import CallbackKey
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import (
@@ -523,7 +523,7 @@ class TestRecvEvents:
                 received.append(msg)
                 done.set()
 
-            client.on_event(CallbackKey("b1", "click"), _cb)
+            client.set_fallback_handler(_cb)
             try:
                 client.connect()
                 client.start_listener()
@@ -582,13 +582,13 @@ class TestErrorHandling:
     def test_send_without_connect_raises(self) -> None:
         """Calling show() before connect() raises RuntimeError."""
         client = DisplayLink(auto_spawn=False)
-        with pytest.raises(RuntimeError, match="Not connected"):
+        with pytest.raises(ConnectionClosedError, match="Not connected"):
             client.show("s1", elements=[])
 
     def test_poll_event_without_connect_raises(self) -> None:
         """Calling poll_event() before connect() raises RuntimeError."""
         client = DisplayLink(auto_spawn=False)
-        with pytest.raises(RuntimeError, match="Not connected"):
+        with pytest.raises(ConnectionClosedError, match="Not connected"):
             client.poll_event()
 
     def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
@@ -842,9 +842,7 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event(
-                CallbackKey("btn1", "click"), lambda msg: received.append(msg)
-            )
+            client.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
             # Wait for callback to fire
@@ -902,6 +900,42 @@ class TestBackgroundListener:
         finally:
             if server_conn:
                 server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_a_pending_reply_fails_when_the_listener_exits(self) -> None:
+        """A ping the listener can no longer answer fails at once, not at timeout."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            server_conn.recv(4096)  # the ping
+            server_conn.close()  # ... and the display goes away
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            began = time.monotonic()
+            with pytest.raises(ConnectionClosedError, match="listener exited"):
+                client.ping(timeout=4.0)
+            assert time.monotonic() - began < 3.0
+            assert not client.is_connected
+            client.close()
+        finally:
             t.join(timeout=2)
             import shutil
 
@@ -1066,7 +1100,7 @@ class TestBackgroundListener:
                 )
                 callback_done.set()
 
-            client.on_event(CallbackKey("trigger", "click"), on_trigger)
+            client.set_fallback_handler(on_trigger)
             client.connect()
             client.start_listener()
             assert callback_done.wait(timeout=2.0)
@@ -1074,149 +1108,6 @@ class TestBackgroundListener:
             t.join(timeout=2)
             assert len(server_received) == 1
             assert server_received[0].id == "response"
-            client.close()
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_listener_survives_reconnect(self) -> None:
-        """Listener restarts automatically after disconnect + reconnect."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        received: list[RemoteEventHandlerInvocation] = []
-        conns: list[socket.socket] = []
-
-        def serve_two(server: socket.socket, ready: threading.Event) -> None:
-            ready.set()
-            for i in range(2):
-                conn, _ = server.accept()
-                conns.append(conn)
-                send_message(conn, ReadyMessage())
-                if i == 1:
-                    # Second connection: send an interaction
-                    time.sleep(0.1)
-                    send_message(
-                        conn,
-                        RemoteEventHandlerInvocation(
-                            element_id="btn2",
-                            action="click",
-                            ts=time.time(),
-                            value=True,
-                        ),
-                    )
-
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        server.bind(str(sock_path))
-        server.listen(2)
-        ready_event = threading.Event()
-        t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event(
-                CallbackKey("btn2", "click"), lambda msg: received.append(msg)
-            )
-            client.connect()
-            client.start_listener()
-            assert client.listener_active
-
-            # Disconnect
-            client.close()
-            stopped = not client.listener_active
-            assert stopped
-
-            # Reconnect — listener should auto-restart because callbacks exist
-            client.connect()
-            restarted = client.listener_active
-            assert restarted
-
-            # Wait for callback to fire
-            deadline = time.monotonic() + 2.0
-            while not received and time.monotonic() < deadline:
-                time.sleep(0.01)
-            assert len(received) == 1
-            assert received[0].element_id == "btn2"
-            client.close()
-        finally:
-            for c in conns:
-                c.close()
-            server.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_action_mismatch_is_dropped(self) -> None:
-        """Callback keyed on (id, 'click') ignores (id, 'changed') events.
-
-        The unmatched 'changed' event is dropped (no combined queue
-        survives in the new dispatch model); only the matching 'click'
-        runs the registered callback.
-        """
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-        click_received: list[RemoteEventHandlerInvocation] = []
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            time.sleep(0.1)
-            # Send a "changed" event — should NOT match the "click" callback
-            send_message(
-                server_conn,
-                RemoteEventHandlerInvocation(
-                    element_id="slider1",
-                    action="changed",
-                    ts=time.time(),
-                    value=0.5,
-                ),
-            )
-            # Send a "click" event — SHOULD match
-            send_message(
-                server_conn,
-                RemoteEventHandlerInvocation(
-                    element_id="slider1",
-                    action="click",
-                    ts=time.time(),
-                    value=True,
-                ),
-            )
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event(
-                CallbackKey("slider1", "click"), lambda msg: click_received.append(msg)
-            )
-            client.connect()
-            client.start_listener()
-
-            # Wait for callback
-            deadline = time.monotonic() + 2.0
-            while not click_received and time.monotonic() < deadline:
-                time.sleep(0.01)
-            assert len(click_received) == 1
-            assert click_received[0].action == "click"
-
-            # The "changed" event was dropped; no business event is queued.
-            with pytest.raises(TimeoutError):
-                client.poll_event(timeout=0.2)
             client.close()
         finally:
             if server_conn:
@@ -1258,9 +1149,7 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.on_event(
-                CallbackKey("cb1", "changed"), lambda msg: received.append(msg)
-            )
+            client.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
 
@@ -1342,7 +1231,7 @@ class TestBackgroundListener:
                 )
                 callback_fired.set()
 
-            client.on_event(CallbackKey("hello-world", "menu"), on_hello)
+            client.set_fallback_handler(on_hello)
             client.connect()
             client.start_listener()
             # Signal readiness (and trigger the flow) with a real menu write.

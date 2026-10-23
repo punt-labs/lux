@@ -14,6 +14,7 @@ import select
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.protocol import encode_message, recv_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.tracing import trace
@@ -63,7 +64,11 @@ class DisplayConnection:
 
     @property
     def endpoint(self) -> str:
-        """The label of the display this is open to, or ``"not connected"``."""
+        """The label of the display this is open to, for logs only.
+
+        ``"not connected"`` is a placeholder for a closed connection, never a
+        value to compare or parse.
+        """
         held = self._open
         return "not connected" if held is None else held.endpoint
 
@@ -90,7 +95,7 @@ class DisplayConnection:
         held = self._open
         if held is None:
             msg = "Not connected — open() the display connection first"
-            raise RuntimeError(msg)
+            raise ConnectionClosedError(msg)
         return held.sock
 
     @trace
@@ -112,19 +117,21 @@ class DisplayConnection:
     def poll_chunk(self, timeout: float) -> bytes | None:
         """Wait up to ``timeout`` for the display to say something, and read it.
 
-        ``None`` means nothing arrived in time; empty bytes mean the display
-        closed the connection. The socket never leaves the connection: the wait
-        and the read both happen here, the read serialized against writers.
-        ``OSError`` or ``ValueError`` propagate when the connection is, or is
-        closed under the wait, for the listener to report.
+        ``None`` means nothing arrived in time -- the one normal non-answer, so
+        an optional return is its honest type. A display that closed the
+        connection raises :class:`ConnectionClosedError`, as does a connection
+        that is not open; ``OSError`` or ``ValueError`` propagate when the socket
+        fails or is closed under the wait, for the listener to report. The socket
+        never leaves the connection: the wait and the read both happen here, the
+        read serialized against writers.
         """
-        held = self._open
-        if held is None:
-            msg = "the display connection is closed"
-            raise OSError(msg)
-        sock = held.sock
+        sock = self.require()
         readable, _, _ = select.select([sock], [], [], timeout)
         if not readable:
-            return None
+            return None  # a timeout, not an end: the caller waits again
         with self._lock:
-            return sock.recv(_READ_CHUNK)
+            chunk = sock.recv(_READ_CHUNK)
+        if not chunk:
+            msg = f"the display at {self.endpoint} closed the connection"
+            raise ConnectionClosedError(msg)
+        return chunk

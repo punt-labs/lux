@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
@@ -60,6 +61,9 @@ class HubDisplayConnection:
             return DisplayFault(code="display_unavailable")
         try:
             response = self._clients.get().query(method, dict(params))
+        except ConnectionClosedError:
+            self._clients.drop()
+            return DisplayFault(code="display_unavailable")
         except OSError:
             self._clients.drop()
             return DisplayFault(code="timeout")
@@ -84,6 +88,9 @@ class HubDisplayConnection:
         started = time.monotonic()
         try:
             pong = self._clients.get().ping(timeout=wait)
+        except ConnectionClosedError:
+            self._clients.drop()
+            return DisplayFault(code="display_unavailable")
         except OSError:
             self._clients.drop()
             return DisplayFault(code="timeout")

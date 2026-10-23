@@ -39,6 +39,15 @@ class TestCallbacks:
 
         assert seen == ["b2"]
 
+    def test_an_action_mismatch_on_the_same_element_is_dropped(self) -> None:
+        handlers = InteractionHandlers()
+        seen: list[str] = []
+        handlers.register(CallbackKey("b1", "click"), lambda _m: seen.append("ran"))
+
+        handlers.run(_click("b1", "changed"))
+
+        assert seen == []
+
     def test_a_removed_callback_no_longer_runs(self) -> None:
         handlers = InteractionHandlers()
         seen: list[str] = []

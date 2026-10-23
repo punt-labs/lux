@@ -12,16 +12,14 @@ the queues :meth:`show`, :meth:`ping`, and :meth:`query` consume, and
 from __future__ import annotations
 
 import logging
-import queue
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
-from punt_lux.domain.hub.inbound_router import InboundRouter
-from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.domain.hub.listener_thread import ListenerThread
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
@@ -39,10 +37,9 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.callback_key import CallbackKey
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.polled_event import PolledEvent
-    from punt_lux.protocol import Element, Message
+    from punt_lux.protocol import Element
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +63,9 @@ class DisplayLink:
     for the display; ``recv_timeout`` is the default for :meth:`recv`.
     """
 
-    _recv_timeout: float
     _connection: DisplayConnection
     _listener: ListenerThread
-    _handlers: InteractionHandlers
-    _inbound: InboundRouter
+    _replies: DisplayReplies
 
     def __new__(
         cls,
@@ -84,7 +79,6 @@ class DisplayLink:
         dialer: DisplayDialer | None = None,  # None = default AF_UNIX dialer (PY-TS-14)
     ) -> Self:
         self = super().__new__(cls)
-        self._recv_timeout = recv_timeout
         # An injected dialer (a cross-host CrossHostConnector built by
         # CrossHostEndpoint.dial) overrides the default AF_UNIX one.
         self._connection = DisplayConnection(
@@ -94,9 +88,10 @@ class DisplayLink:
             ),
             connect_timeout,
         )
-        self._handlers = InteractionHandlers()
-        self._inbound = InboundRouter(self._handlers)
-        self._listener = ListenerThread(self._connection, self._inbound.route)
+        self._replies = DisplayReplies(self._connection, recv_timeout)
+        self._listener = ListenerThread(
+            self._connection, self._replies.route, self._replies.end
+        )
         return self
 
     # -- context manager ---------------------------------------------------
@@ -132,8 +127,7 @@ class DisplayLink:
         display is running, spawns one first.  Blocks until the
         ``ReadyMessage``/``ConnectMessage`` handshake completes (delegated to
         :class:`HandshakeConnector`, which owns the socket-open and identity
-        concern). If callbacks are registered, starts the background
-        listener after handshake.
+        concern). The caller starts the listener.
 
         Raises
         ------
@@ -143,16 +137,11 @@ class DisplayLink:
         if self._connection.is_open:
             return
         self._connection.open()
-        # Reconnect resilience: restart the listener if callbacks are registered.
-        if self._handlers.any_registered:
-            self.start_listener()
 
     def close(self) -> None:
         """Close the connection to the display server."""
         self.stop_listener()
-        if self._connection.is_open:
-            self._connection.close()
-            self._inbound.reset()
+        self._replies.end()
 
     # -- callback registration ---------------------------------------------
 
@@ -165,30 +154,7 @@ class DisplayLink:
         Called by the Hub to route display-side clicks through Hub-side
         element dispatch when no ``(element_id, action)`` callback matches.
         """
-        self._handlers.set_fallback(handler)
-
-    def on_event(
-        self,
-        key: CallbackKey,
-        callback: Callable[[RemoteEventHandlerInvocation], None],
-    ) -> None:
-        """Register a callback for a ``(element_id, action)`` :class:`CallbackKey`.
-
-        Callbacks are invoked by the background listener thread.  They
-        may call :meth:`send_scene` and other fire-and-forget methods
-        but must not call blocking methods like :meth:`show`.
-
-        If a callback raises an exception, the exception is logged and
-        the event is consumed (not re-queued to pending).  This keeps
-        the listener thread alive at the cost of dropping the event.
-
-        Thread-safe: may be called while the listener is running.
-        """
-        self._handlers.register(key, callback)
-
-    def remove_callback(self, key: CallbackKey) -> None:
-        """Remove the callback for ``key``, if any."""
-        self._handlers.remove(key)
+        self._replies.set_fallback(handler)
 
     # -- background listener -----------------------------------------------
 
@@ -197,8 +163,8 @@ class DisplayLink:
 
         The listener reads incoming messages from the socket and
         dispatches them by kind: ``RemoteEventHandlerInvocation`` runs the
-        registered ``(element_id, action)`` callback (unmatched
-        interactions are dropped); ``ObserverMessage`` payloads queue
+        fallback handler (none installed: it is dropped); ``ObserverMessage``
+        payloads queue
         for :meth:`poll_event`; ``AckMessage``, ``PongMessage``, and
         ``QueryResponse`` route to their per-type queues for
         :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
@@ -243,7 +209,7 @@ class DisplayLink:
             frame_layout=frame_layout,
         )
         self.send_scene(presentation.message(scene_id, elements))
-        return self._recv_ack()
+        return self._replies.ack(self._listener)
 
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack."""
@@ -282,8 +248,7 @@ class DisplayLink:
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._connection.send(PingMessage(ts=time.time()))
-        budget = timeout if timeout is not None else self._recv_timeout
-        return self._await_typed(PongMessage, time.monotonic() + budget)
+        return self._replies.typed(PongMessage, timeout, self._listener)
 
     def query(
         self,
@@ -292,33 +257,8 @@ class DisplayLink:
         timeout: float | None = None,
     ) -> QueryResponse | None:
         """Send a generic query and wait for the response."""
-        budget = timeout if timeout is not None else self._recv_timeout
         self._connection.send(QueryRequest(method=method, params=params or {}))
-        return self._await_typed(QueryResponse, time.monotonic() + budget)
-
-    def _await_typed[T: Message](self, expected: type[T], deadline: float) -> T | None:
-        """Wait for one ``expected`` reply, active listener or inline read.
-
-        Shared by :meth:`ping` and :meth:`query`: both send a request and then
-        wait for exactly one typed reply -- from the background listener's own
-        queue when it is running, or an inline read loop when it is not,
-        dropping any interleaved frame the inline path sees along the way.
-        """
-        if self.listener_active:
-            remaining = deadline - time.monotonic()
-            return self._inbound.next_reply(expected, max(remaining, 0))
-        self._connection.require()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            received = self._connection.receive(remaining)
-            if received is None:
-                return None
-            if isinstance(received, expected):
-                return received
-            kind = type(received).__name__
-            logger.debug("%s: dropping interleaved %s frame", expected.__name__, kind)
+        return self._replies.typed(QueryResponse, timeout, self._listener)
 
     # -- receiving ---------------------------------------------------------
 
@@ -327,56 +267,6 @@ class DisplayLink:
 
         Raises ``TimeoutError`` after ``timeout`` seconds (default
         ``recv_timeout``); requires an active listener (observer messages are
-        push-only). Gates on the listener having started so a listener
-        that started and has since exited surfaces as ``TimeoutError`` naming
-        the exit, not a ``RuntimeError`` claiming it never started.
+        push-only).
         """
-        self._connection.require()
-        if not self._listener.started:
-            err = (
-                "poll_event requires an active listener — "
-                "call start_listener() after connect()"
-            )
-            raise RuntimeError(err)
-        t = timeout if timeout is not None else self._recv_timeout
-        try:
-            return self._inbound.next_event(t)
-        except queue.Empty as exc:
-            if not self._listener.alive:
-                err = (
-                    f"no business event arrived within {t}s "
-                    "and the listener thread has exited"
-                )
-            else:
-                err = f"no business event arrived within {t}s"
-            raise TimeoutError(err) from exc
-
-    def _recv_ack(self) -> AckMessage | None:
-        """Receive expecting an AckMessage.  Drops interleaved frames.
-
-        Thread-safe.  When the listener is active, blocks on the reply
-        queues.  When inactive, reads directly from the socket
-        and drops any non-ack frame that arrives in the meantime —
-        each typed reader (poll_event / ping / query) owns its own
-        path, so there is no shared backlog to push into.
-
-        Raises RuntimeError if called from the listener thread (would
-        deadlock because the listener is the only ack producer).
-        """
-        if self._listener.is_current:
-            err = "Cannot call blocking _recv_ack from the listener thread"
-            raise RuntimeError(err)
-        if self.listener_active:
-            return self._inbound.next_ack(self._recv_timeout)
-        self._connection.require()
-        deadline = time.monotonic() + self._recv_timeout
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            msg = self._connection.receive(remaining)
-            if msg is None:
-                return None
-            if isinstance(msg, AckMessage):
-                return msg
-            logger.debug("_recv_ack: dropping interleaved %s frame", type(msg).__name__)
+        return self._replies.event(timeout, self._listener)

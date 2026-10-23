@@ -9,6 +9,7 @@ import threading
 import pytest
 
 from punt_lux.domain.hub.callback_key import CallbackKey
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.polled_event import PolledEvent
@@ -20,6 +21,22 @@ from punt_lux.protocol import (
     QueryResponse,
     RemoteEventHandlerInvocation,
 )
+
+
+class _Alive:
+    """A listener that is running."""
+
+    @property
+    def alive(self) -> bool:
+        return True
+
+
+class _Dead:
+    """A listener that has exited."""
+
+    @property
+    def alive(self) -> bool:
+        return False
 
 
 def _click(
@@ -76,7 +93,7 @@ class TestReplies:
 
         router.route(ack)
 
-        assert router.next_ack(0.1) == ack
+        assert router.next_ack(0.1, _Alive()) == ack
 
     def test_a_pong_and_a_query_response_are_kept_apart(self) -> None:
         router = InboundRouter(InteractionHandlers())
@@ -86,13 +103,13 @@ class TestReplies:
         router.route(response)
         router.route(pong)
 
-        assert router.next_reply(PongMessage, 0.1) == pong
-        assert router.next_reply(QueryResponse, 0.1) == response
+        assert router.next_reply(PongMessage, 0.1, _Alive()) == pong
+        assert router.next_reply(QueryResponse, 0.1, _Alive()) == response
 
     def test_waiting_for_a_reply_that_never_comes_times_out_as_none(self) -> None:
         router = InboundRouter(InteractionHandlers())
-        assert router.next_ack(0.01) is None
-        assert router.next_reply(PongMessage, 0.01) is None
+        assert router.next_ack(0.01, _Alive()) is None
+        assert router.next_reply(PongMessage, 0.01, _Alive()) is None
 
     def test_reset_discards_replies_a_dying_listener_left(self) -> None:
         router = InboundRouter(InteractionHandlers())
@@ -100,7 +117,7 @@ class TestReplies:
 
         router.reset()
 
-        assert router.next_ack(0.01) is None
+        assert router.next_ack(0.01, _Alive()) is None
 
 
 class TestUnroutableMessages:
@@ -137,3 +154,33 @@ class TestResetKeepsTheEventQueue:
         waiter.join(timeout=5)
 
         assert heard == [PolledEvent(topic="t", payload={"k": "after"})]
+
+
+class TestAWaiterWatchesItsListener:
+    def test_a_listener_that_exited_fails_the_waiter_instead_of_timing_out(
+        self,
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+
+        with pytest.raises(ConnectionClosedError, match="listener exited"):
+            router.next_ack(5.0, _Dead())
+
+    def test_a_reply_already_queued_is_still_delivered_after_the_listener_exited(
+        self,
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        ack = AckMessage(scene_id="s")
+        router.route(ack)
+
+        assert router.next_ack(5.0, _Dead()) == ack
+
+    def test_a_typed_reply_wait_fails_the_same_way(self) -> None:
+        router = InboundRouter(InteractionHandlers())
+
+        with pytest.raises(ConnectionClosedError):
+            router.next_reply(PongMessage, 5.0, _Dead())
+
+    def test_a_live_listener_with_nothing_to_say_times_out_quietly(self) -> None:
+        router = InboundRouter(InteractionHandlers())
+
+        assert router.next_ack(0.05, _Alive()) is None

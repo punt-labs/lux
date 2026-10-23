@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.display_reply import (
     DisplayErrored,
@@ -224,3 +225,19 @@ def test_is_connected_delegates_to_the_registry() -> None:
     disconnected = _conn(_Registry(_Client(), is_connected=False))
     assert connected.is_connected is True
     assert disconnected.is_connected is False
+
+
+def test_query_maps_a_closed_connection_to_unavailable_and_drops() -> None:
+    registry = _Registry(_Client(error=ConnectionClosedError("Not connected")))
+    reply = _conn(registry).query("get_theme", {})
+    assert isinstance(reply, DisplayFault)
+    assert reply.code == "display_unavailable"
+    assert registry.drops == 1
+
+
+def test_ping_maps_a_closed_connection_to_unavailable_and_drops() -> None:
+    registry = _Registry(_Client(error=ConnectionClosedError("listener exited")))
+    reply = _conn(registry).ping(None)
+    assert isinstance(reply, DisplayFault)
+    assert reply.code == "display_unavailable"
+    assert registry.drops == 1

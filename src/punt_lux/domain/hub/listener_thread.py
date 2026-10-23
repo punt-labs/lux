@@ -5,7 +5,10 @@ Extracted from :class:`~punt_lux.domain.hub.display_link.DisplayLink`
 back on a daemon thread, until it is stopped or the socket goes away, is a
 separate concern. The thread reads through the connection, which owns the
 socket (it can change across a reconnect) and serializes a read against a send,
-and hands every decoded message to ``route`` as it is decoded.
+and hands every decoded message to ``route`` as it is decoded. When the stream
+breaks -- the display closed it, a read failed, a frame could not be decoded --
+it tells the link, which runs its own teardown, so the link can redial; a
+connection closed on purpose is not a break and is not reported.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.protocol import FrameReader
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
@@ -32,6 +36,8 @@ _JOIN_TIMEOUT = 2.0
 _POLL_SECONDS = 0.1
 # How much of a malformed frame the log shows.
 _HEAD_BYTES = 64
+# How much of a message that a route failed on the log shows.
+_HEAD_REPR = 200
 
 
 @final
@@ -40,20 +46,25 @@ class ListenerThread:
 
     _connection: DisplayConnection
     _route: Callable[[Message], None]
+    _on_broken: Callable[[], None]
     # None = never started (or stopped and joined); a dead thread is kept so
     # callers can tell "started and has since exited" from "never started".
     _thread: threading.Thread | None
     # One per thread: a thread that outlived stop() keeps its own, set, and
     # exits when its handler returns, whatever a later start() does.
     _stopping: threading.Event
-    __slots__ = ("_connection", "_route", "_stopping", "_thread")
+    __slots__ = ("_connection", "_on_broken", "_route", "_stopping", "_thread")
 
     def __new__(
-        cls, connection: DisplayConnection, route: Callable[[Message], None]
+        cls,
+        connection: DisplayConnection,
+        route: Callable[[Message], None],
+        on_broken: Callable[[], None],
     ) -> Self:
         self = super().__new__(cls)
         self._connection = connection
         self._route = route
+        self._on_broken = on_broken
         self._thread = None
         self._stopping = threading.Event()
         return self
@@ -112,27 +123,33 @@ class ListenerThread:
                 break
             try:
                 data = self._connection.poll_chunk(_POLL_SECONDS)
-            except (OSError, ValueError) as exc:
-                logger.warning("Listener exiting: read failed: %s", exc)
+            except (ConnectionClosedError, OSError, ValueError) as exc:
+                self._read_ended(exc)
                 break
             if data is None:
                 continue
-            if not data:
-                logger.info(
-                    "Listener exiting: display %s closed the connection",
-                    self._connection.endpoint,
-                )
-                break
             reader.feed(data)
             if not self._routed(reader):
                 break
+
+    def _read_ended(self, exc: Exception) -> None:
+        """Say why a read ended, and tell the link unless the close was deliberate."""
+        endpoint = self._connection.endpoint
+        if not self._connection.is_open:
+            logger.debug("Listener exiting: the connection was closed (%s)", exc)
+        elif isinstance(exc, ConnectionClosedError):
+            logger.info("Listener exiting: display %s closed the connection", endpoint)
+            self._on_broken()
+        else:
+            logger.warning("Listener exiting: read from %s failed: %s", endpoint, exc)
+            self._on_broken()
 
     def _routed(self, reader: FrameReader) -> bool:
         """Route every message the reader holds, each as it is decoded.
 
         A frame that cannot be decoded cannot be skipped -- the stream has no
-        way to say where the next one starts -- so the connection is closed on
-        purpose and the reconnect begins on a frame boundary. A frame of a kind
+        way to say where the next one starts -- so the link is told to close the
+        connection and the reconnect begins on a frame boundary. A frame of a kind
         a display never sends (a scene, say) is refused on its raw type before
         any decoding and ends the connection the same way. Returns whether the
         stream is still good.
@@ -147,7 +164,7 @@ class ListenerThread:
                     self._connection.endpoint,
                     reader.head(_HEAD_BYTES),
                 )
-                self._connection.close()
+                self._on_broken()
                 return False
             if msg is None:
                 return True
@@ -163,7 +180,8 @@ class ListenerThread:
             self._route(msg)
         except Exception:
             logger.exception(
-                "Listener route failed on %s from display %s; continuing",
+                "Listener route failed on %s from display %s; continuing: %s",
                 type(msg).__name__,
                 self._connection.endpoint,
+                repr(msg)[:_HEAD_REPR],
             )

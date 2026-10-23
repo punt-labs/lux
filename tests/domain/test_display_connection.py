@@ -7,6 +7,7 @@ from typing import Self, final
 
 import pytest
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -120,7 +121,9 @@ class TestRequire:
             connection.close()
 
     def test_raises_when_never_connected(self) -> None:
-        with pytest.raises(RuntimeError, match="open\\(\\) the display connection"):
+        with pytest.raises(
+            ConnectionClosedError, match="open\\(\\) the display connection"
+        ):
             DisplayConnection(_Dialer(), 1.0).require()
 
 
@@ -140,7 +143,7 @@ class TestSend:
                 dialer.peer.close()
 
     def test_a_send_with_no_connection_raises(self) -> None:
-        with pytest.raises(RuntimeError, match="Not connected"):
+        with pytest.raises(ConnectionClosedError, match="Not connected"):
             DisplayConnection(_Dialer(), 1.0).send(PingMessage())
 
 
@@ -156,12 +159,13 @@ class TestPollChunk:
             if dialer.peer is not None:
                 dialer.peer.close()
 
-    def test_empty_bytes_mean_the_display_closed_the_connection(self) -> None:
+    def test_a_display_that_closed_the_connection_raises_closed(self) -> None:
         connection, dialer = _opened()
         try:
             assert dialer.peer is not None
             dialer.peer.close()
-            assert connection.poll_chunk(1.0) == b""
+            with pytest.raises(ConnectionClosedError, match="closed the connection"):
+                connection.poll_chunk(1.0)
         finally:
             connection.close()
 
@@ -177,8 +181,22 @@ class TestPollChunk:
     def test_a_closed_connection_cannot_be_polled(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        with pytest.raises(OSError, match="closed"):
+        with pytest.raises(ConnectionClosedError, match="Not connected"):
             connection.poll_chunk(0.05)
+
+    def test_a_connection_never_opened_and_one_closed_raise_the_same_error(
+        self,
+    ) -> None:
+        connection, dialer = _opened()
+        connection.close()
+        try:
+            with pytest.raises(ConnectionClosedError):
+                connection.poll_chunk(0.05)
+            with pytest.raises(ConnectionClosedError):
+                connection.send(PingMessage())
+        finally:
+            if dialer.peer is not None:
+                dialer.peer.close()
 
 
 class TestEndpoint:
