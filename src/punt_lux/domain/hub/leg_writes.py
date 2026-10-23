@@ -32,16 +32,9 @@ class Registration:
     write: SessionWrite | None = None
 
     @property
-    def menu_change(self) -> PresenceChange:
-        """What the Clients menu must hear of a registration that took.
-
-        A callback is an entry, so even a session already listed (an agent) has
-        a new one to show: it is never ``unchanged``.
-        """
-        if self.write is None:
-            return "unchanged"
-        change = self.write.presence
-        return "revised" if change == "unchanged" else change
+    def presence(self) -> PresenceChange:
+        """How the write changed who the Clients menu lists; ``unchanged`` if none."""
+        return "unchanged" if self.write is None else self.write.presence
 
 
 @final
@@ -54,15 +47,6 @@ class Detachment:
     write: SessionWrite | None = None
 
     @property
-    def menu_change(self) -> PresenceChange:
-        """What the Clients menu must hear of this teardown.
-
-        Entries that stopped being deliverable revise the menu even when the
-        session stays listed (an agent that held callbacks).
-        """
-        if self.write is None:
-            return "unchanged"
-        change = self.write.presence
-        if change == "unchanged" and self.outcome == "released_with_callbacks":
-            return "revised"
-        return change
+    def presence(self) -> PresenceChange:
+        """How the write changed who the Clients menu lists; ``unchanged`` if none."""
+        return "unchanged" if self.write is None else self.write.presence

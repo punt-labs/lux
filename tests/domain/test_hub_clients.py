@@ -909,7 +909,7 @@ def test_attaching_over_callbacks_revises_the_menu_though_presence_held() -> Non
     attachment = _writes(reg).attach(conn, app, _Leg(), UNOBSERVED)
 
     assert attachment.slot == "attached_over_callbacks"
-    assert attachment.menu_change == "revised"
+    assert attachment.presence == "revised"
 
 
 def _lux(session: str) -> ClientIdentity:

@@ -107,7 +107,7 @@ class ClientLifecycle:
         """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
             attachment = self._writes.attach(connection_id, identity, listener, host)
-            self._announce(connection_id, attachment.menu_change)
+            self._announce(connection_id, attachment.presence)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
     def renew(self, connection_id: ConnectionId, host: ClientHost) -> None:
@@ -142,7 +142,7 @@ class ClientLifecycle:
             registration = self._writes.register_callback(
                 connection_id, callback, expected
             )
-            self._announce(connection_id, registration.menu_change)
+            self._announce(connection_id, registration.presence)
             return registration.outcome
 
     def detach(
@@ -156,7 +156,7 @@ class ClientLifecycle:
         """
         with self._lock.write():
             detachment = self._writes.detach(connection_id, listener)
-            self._announce(connection_id, detachment.menu_change)
+            self._announce(connection_id, detachment.presence)
             return detachment.outcome
 
     def arm(self, connection_id: ConnectionId) -> None:

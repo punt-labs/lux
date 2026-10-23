@@ -63,17 +63,19 @@ def test_attaching_over_callbacks_reports_them_cleared() -> None:
 def test_an_attach_that_clears_callbacks_revises_the_menu_though_presence_held() -> (
     None
 ):
-    assert (
-        Attachment("attached_over_callbacks", "unchanged", restated=False).menu_change
-        == "revised"
-    )
+    seated = ClientSession(0.0).with_identity(_agent()).attached(_Leg())
+    registered = seated.registering(SessionCallback(id="beads", label="Beads"), 0.0)
+    assert registered is not None
+
+    write = SessionWrite.recorded(registered, 1.0, _agent(), UNOBSERVED).seated(_Leg())
+
+    assert write.attachment.presence == "revised"
 
 
 def test_an_attach_that_gains_presence_reports_the_gain() -> None:
-    assert (
-        Attachment("attached_over_callbacks", "gained", restated=True).menu_change
-        == "gained"
-    )
+    write = SessionWrite.recorded(None, 0.0, _agent(), UNOBSERVED).seated(_Leg())
+
+    assert write.attachment.presence == "gained"
 
 
 class TestIdentified:

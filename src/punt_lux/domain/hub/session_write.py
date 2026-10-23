@@ -33,17 +33,6 @@ class Attachment:
     presence: PresenceChange
     restated: bool  # whether the write changed who the session is or where from
 
-    @property
-    def menu_change(self) -> PresenceChange:
-        """What the Clients menu must hear of this attach.
-
-        Taking the slot over a predecessor's callbacks stops those entries being
-        deliverable, which revises the menu even when presence itself held.
-        """
-        if self.presence == "unchanged" and self.slot == "attached_over_callbacks":
-            return "revised"
-        return self.presence
-
 
 @final
 @dataclass(frozen=True, slots=True)
