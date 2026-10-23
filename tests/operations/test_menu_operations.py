@@ -109,7 +109,7 @@ class _Ops:
         self.lifecycle.identify(
             conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
         )
-        return Scope(conn)
+        return Scope.in_process(conn)
 
 
 def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
@@ -131,7 +131,7 @@ def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
 def test_set_menu_refuses_an_anonymous_session() -> None:
     # Nothing anonymous owns a menu item — the same gate the callback path enforces.
     ctx = _Ops()
-    anon = Scope(ConnectionId("anon"))  # never identified
+    anon = Scope.in_process(ConnectionId("anon"))  # never identified
 
     result = ctx.ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=anon
@@ -404,7 +404,8 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     )
 
     result = ops.set_menu(
-        SetMenuRequest.parse([{"label": "File", "items": []}]), scope=Scope(conn)
+        SetMenuRequest.parse([{"label": "File", "items": []}]),
+        scope=Scope.in_process(conn),
     )
 
     assert isinstance(result, Ok)
@@ -447,7 +448,7 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
             write_lock=_WriteLockSpy(events),
         )
     )
-    anon = Scope(ConnectionId("anon"))  # never identified
+    anon = Scope.in_process(ConnectionId("anon"))  # never identified
 
     result = ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=anon

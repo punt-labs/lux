@@ -74,7 +74,7 @@ def test_sweep_reaps_a_lapsed_connection_with_no_other_activity() -> None:
     dead = ConnectionId("dead-conn")
     lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     sweep = LeaseReapSweep(lifecycle)

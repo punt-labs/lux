@@ -20,7 +20,7 @@ from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 
 _CONNECTION = ConnectionId("local")
-_LOCAL = Scope(_CONNECTION)
+_LOCAL = Scope.in_process(_CONNECTION)
 
 
 def _scoped(local_id: str) -> SceneId:

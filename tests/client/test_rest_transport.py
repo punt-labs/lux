@@ -404,7 +404,9 @@ def test_remove_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
     client = _client_over(SurfaceTransport(make_client()))
     assert client.render(_render_request("board")) == SceneShown(scene_id="board")
 
-    result = client.remove_frame("board", scope=Scope(ConnectionId("irrelevant")))
+    result = client.remove_frame(
+        "board", scope=Scope.in_process(ConnectionId("irrelevant"))
+    )
 
     assert result == Ok()
 
@@ -412,7 +414,9 @@ def test_remove_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
 def test_remove_frame_of_an_absent_frame_over_the_real_surface_is_not_found() -> None:
     client = _client_over(SurfaceTransport(make_client()))
 
-    result = client.remove_frame("ghost", scope=Scope(ConnectionId("irrelevant")))
+    result = client.remove_frame(
+        "ghost", scope=Scope.in_process(ConnectionId("irrelevant"))
+    )
 
     assert isinstance(result, OpError)
     assert result.code == "not_found"

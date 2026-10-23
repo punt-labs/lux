@@ -72,7 +72,8 @@ class IsolatedHub:
     ) -> None:
         """Install ``element`` as a root of ``scene_id`` owned by ``owner``."""
         self.display.apply(
-            Scope(owner), AddElement(scene_id=scene_id, element=element, parent_id=None)
+            Scope.in_process(owner),
+            AddElement(scene_id=scene_id, element=element, parent_id=None),
         )
 
     def click(

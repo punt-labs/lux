@@ -62,7 +62,9 @@ def _identified_scene(
     lifecycle.identify(conn, ClientIdentity(kind="cli", name=name), UNOBSERVED)
     clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(
+        Scope.in_process(conn), scene_id, [TextElement(id="t1", content="hi")]
+    )
     return scene_id
 
 
@@ -151,7 +153,9 @@ class TestRowsAndLabelComeFromOneOwner:
         conn = ConnectionId("anon")
         lifecycle.arrive(conn, UNOBSERVED)
         scene_id = SceneId("anon-scene")
-        store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
+        store.replace_scene(
+            Scope.in_process(conn), scene_id, [TextElement(id="t1", content="hi")]
+        )
 
         ownership = _reader(store, clients, hub).facts_for_frame(str(scene_id))
 
@@ -412,7 +416,7 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         store = factory.display
         with _Pipeline(store, clients, hub) as pipe:
             before = [pipe.resend(s1), pipe.resend(s2)]
-            store.replace_scene(Scope(ConnectionId("c1")), s1, [])
+            store.replace_scene(Scope.in_process(ConnectionId("c1")), s1, [])
             after = pipe.resend(s1)
 
         assert (before, after) == (["c1", "c1"], "c2")
@@ -472,7 +476,7 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
                 ScenePresentation(frame_id=frame),
                 None,
             ),
-            owner=Scope(ConnectionId("c1")),
+            owner=Scope.in_process(ConnectionId("c1")),
         )
 
     def _populated(
@@ -485,7 +489,7 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
         # s2's root now belongs to c2; the frame's first scene stays c1's.
         s2 = SceneId(ConnectionScopedId.compose(ConnectionId("c1"), "s2"))
         store.replace_scene(
-            Scope(ConnectionId("c2")), s2, [TextElement(id="t", content="x")]
+            Scope.in_process(ConnectionId("c2")), s2, [TextElement(id="t", content="x")]
         )
         return installer
 

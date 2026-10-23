@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Self
+from typing import Literal, Self
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["Scope"]
+__all__ = ["Provenance", "Scope"]
+
+# Where a scope came from, which settles both what host it carries and whether
+# acting under it is the connection reaching the Hub. ``observed``: a transport
+# reported the peer. ``in_process``: a caller no transport observed (library,
+# stdio). ``on_behalf_of``: the Hub acting under an owner's name. ``client_side``:
+# the key a remote client names its own requests under; the Hub reads the real
+# scope from the transport.
+Provenance = Literal["observed", "in_process", "on_behalf_of", "client_side"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,32 +26,43 @@ class Scope:
     For an MCP tool this is the session's ``ConnectionId``; it scopes owned
     scenes, subscriptions, and the publish sink of any element the tree installs.
 
-    ``client_host`` is the address the Hub observed on the transport that carried
-    this contact, where a door could read one. It is a fact about the contact,
-    not part of the scope's identity, so it is left out of equality and hashing:
-    two scopes for one connection stay equal.
-
-    ``is_contact`` says whether the caller itself reached the Hub. A Hub-internal
-    act under an owner's name (its Details scene, a root the owner forgot) is not
-    the owner's contact, so it never renews the owner's lease.
+    ``client_host`` and ``provenance`` are facts about the contact, not part of
+    the scope's identity, so they are left out of equality and hashing: two scopes
+    for one connection stay equal. Build one through a named constructor, which
+    says where it came from.
     """
 
     connection_id: ConnectionId
-    # UNOBSERVED = the door saw no peer (in-process library, stdio, no ASGI client).
-    client_host: ClientHost = field(default=UNOBSERVED, compare=False)
-    is_contact: bool = field(default=True, compare=False)
+    client_host: ClientHost = field(compare=False)
+    provenance: Provenance = field(compare=False)
 
     @classmethod
     def observed(cls, connection_id: ConnectionId, client_host: ClientHost) -> Self:
-        """The scope of a contact whose transport reported where it came from."""
-        return cls(connection_id, client_host)
+        """The scope of a contact whose transport reported where it came from.
 
-    @classmethod
-    def on_behalf_of(cls, owner: ConnectionId) -> Self:
-        """The scope of a Hub-internal act under ``owner``'s name: no contact."""
-        return cls(owner, is_contact=False)
+        A transport that reported no peer is an in-process caller, whatever the
+        door called it.
+        """
+        if not client_host.observed:
+            return cls.in_process(connection_id)
+        return cls(connection_id, client_host, "observed")
 
     @classmethod
     def in_process(cls, connection_id: ConnectionId) -> Self:
         """The scope of a caller no transport observed: a library or stdio client."""
-        return cls(connection_id)
+        return cls(connection_id, UNOBSERVED, "in_process")
+
+    @classmethod
+    def on_behalf_of(cls, owner: ConnectionId) -> Self:
+        """The scope of a Hub-internal act under ``owner``'s name: no contact."""
+        return cls(owner, UNOBSERVED, "on_behalf_of")
+
+    @classmethod
+    def client_side(cls, connection_id: ConnectionId) -> Self:
+        """The key a remote client names its own requests under; never a contact."""
+        return cls(connection_id, UNOBSERVED, "client_side")
+
+    @property
+    def is_contact(self) -> bool:
+        """Whether the connection itself reached the Hub through this scope."""
+        return self.provenance in ("observed", "in_process")

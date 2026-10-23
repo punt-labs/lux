@@ -47,7 +47,9 @@ def _identified_scene(
     lifecycle.identify(conn, ClientIdentity(kind="cli", name=name), UNOBSERVED)
     clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(
+        Scope.in_process(conn), scene_id, [TextElement(id="t1", content="hi")]
+    )
     return scene_id
 
 
@@ -64,7 +66,9 @@ class TestTheHostRowsInThePopup:
         )
         clients.named_sessions()
         scene_id = SceneId("c1-scene")
-        store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
+        store.replace_scene(
+            Scope.in_process(conn), scene_id, [TextElement(id="t1", content="hi")]
+        )
 
         rows = _reader(store, clients, hub).facts_for(scene_id).rows
 
@@ -152,7 +156,7 @@ class TestASceneWithALiveOwner:
         clients.named_sessions()
         scene_id = SceneId("shared")
         store.apply(
-            Scope(c1),
+            Scope.in_process(c1),
             AddElement(
                 scene_id=scene_id,
                 element=TextElement(id="t1", content="x"),
@@ -160,7 +164,7 @@ class TestASceneWithALiveOwner:
             ),
         )
         store.apply(
-            Scope(c2),
+            Scope.in_process(c2),
             AddElement(
                 scene_id=scene_id,
                 element=TextElement(id="t2", content="y"),

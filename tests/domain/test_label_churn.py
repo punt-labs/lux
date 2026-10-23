@@ -73,7 +73,7 @@ def _wired() -> tuple[HubStoreFactory, _Marker, _Clock]:
 def _show(factory: HubStoreFactory, conn: ConnectionId, scene: str) -> SceneId:
     scene_id = SceneId(f"{conn}-{scene}")
     factory.display.replace_scene(
-        Scope(conn), scene_id, [TextElement(id="t", content="x")]
+        Scope.in_process(conn), scene_id, [TextElement(id="t", content="x")]
     )
     return scene_id
 

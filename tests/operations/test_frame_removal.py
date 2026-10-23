@@ -16,7 +16,7 @@ from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 
 _CONNECTION = ConnectionId("local")
-_LOCAL = Scope(_CONNECTION)
+_LOCAL = Scope.in_process(_CONNECTION)
 
 
 def _scoped(connection: ConnectionId, local_id: str) -> SceneId:
@@ -49,7 +49,7 @@ def _show_framed(
             "frame": {"frame_id": frame_id},
         }
     )
-    SceneOperations(deps).render(request, scope=Scope(connection))
+    SceneOperations(deps).render(request, scope=Scope.in_process(connection))
 
 
 def test_remove_of_a_nonexistent_frame_is_not_found() -> None:

@@ -55,7 +55,7 @@ def test_admits_an_identified_session_and_arms_its_inbox_and_departure() -> None
         conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
     )
 
-    assert arming.admit(Scope(conn)) is True
+    assert arming.admit(Scope.in_process(conn)) is True
     assert writer.armed == [conn]
     # D2: admitting a menu owner also arms the shared menu sink, so every
     # departure trigger (not only the graceful leg) withdraws the bar.
@@ -70,7 +70,7 @@ def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
     conn = ConnectionId("anon")
     lifecycle.arrive(conn, UNOBSERVED)  # registered, but never identified
 
-    assert arming.admit(Scope(conn)) is False
+    assert arming.admit(Scope.in_process(conn)) is False
     lifecycle.depart(conn)
     assert writer.armed == []
     assert departure.armed == []
@@ -80,6 +80,6 @@ def test_refuses_an_unregistered_session() -> None:
     writer, departure = _CallSpy(), _CallSpy()
     _display, arming = _armed(writer, departure)
 
-    assert arming.admit(Scope(ConnectionId("never"))) is False
+    assert arming.admit(Scope.in_process(ConnectionId("never"))) is False
     assert writer.armed == []
     assert departure.armed == []

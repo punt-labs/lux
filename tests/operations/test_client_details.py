@@ -221,7 +221,7 @@ class TestWhatDetailsReports:
                 ScenePresentation(frame_id="f1"),
                 None,
             ),
-            owner=Scope(ConnectionId("c1")),
+            owner=Scope.in_process(ConnectionId("c1")),
         )
         details, _marks = _wired(store, clients, hub)
 

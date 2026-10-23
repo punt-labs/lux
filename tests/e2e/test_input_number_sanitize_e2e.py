@@ -107,7 +107,9 @@ def _install(
     rig_scene: str, hub_roots: Sequence[DomainElement], harness: LoopHarness
 ) -> None:
     """Install the authoritative Hub scene and push its Display replica."""
-    hub_display.replace_scene(Scope(ConnectionId(_CONN)), SceneId(rig_scene), hub_roots)
+    hub_display.replace_scene(
+        Scope.in_process(ConnectionId(_CONN)), SceneId(rig_scene), hub_roots
+    )
     harness.rig.push_scene(rig_scene, hub_roots)
 
 

@@ -42,7 +42,7 @@ def _show(installer: SceneInstaller, marks: _Marks, scene: str, frame: str) -> N
         ScenePresentation(frame_id=frame),
         None,
     )
-    installer.install(submission, owner=Scope(_OWNER))
+    installer.install(submission, owner=Scope.in_process(_OWNER))
 
 
 def _scoped(local: str) -> SceneId:

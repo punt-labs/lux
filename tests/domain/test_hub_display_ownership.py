@@ -79,7 +79,7 @@ def _seed_owner_element() -> HubDisplay:
     lifecycle.arrive(_OWNER, UNOBSERVED)
     lifecycle.arrive(_STRANGER, UNOBSERVED)
     hub_display.apply(
-        Scope(_OWNER),
+        Scope.in_process(_OWNER),
         AddElement(
             scene_id=_SCENE,
             element=_WireLeaf(id=str(_ELEMENT_ID)),
@@ -95,7 +95,7 @@ def test_remove_element_rejects_non_owner() -> None:
 
     with pytest.raises(HubOwnershipError):
         hub_display.apply(
-            Scope(_STRANGER),
+            Scope.in_process(_STRANGER),
             RemoveElement(scene_id=_SCENE, element_id=_ELEMENT_ID),
         )
     # The owner's element survives the rejected removal.
@@ -113,7 +113,7 @@ def test_set_property_rejects_non_owner() -> None:
 
     with pytest.raises(HubOwnershipError):
         hub_display.apply(
-            Scope(_STRANGER),
+            Scope.in_process(_STRANGER),
             SetProperty(
                 scene_id=_SCENE,
                 element_id=_ELEMENT_ID,
@@ -128,7 +128,7 @@ def test_owner_can_still_remove_their_own_element() -> None:
     hub_display = _seed_owner_element()
 
     hub_display.apply(
-        Scope(_OWNER),
+        Scope.in_process(_OWNER),
         RemoveElement(scene_id=_SCENE, element_id=_ELEMENT_ID),
     )
 
@@ -145,7 +145,7 @@ def test_replace_scene_installs_fresh_roots() -> None:
 
     leaf_a = _WireLeaf(id="a")
     leaf_b = _WireLeaf(id="b")
-    hub_display.replace_scene(Scope(_OWNER), _SCENE, [leaf_a, leaf_b])
+    hub_display.replace_scene(Scope.in_process(_OWNER), _SCENE, [leaf_a, leaf_b])
 
     assert hub_display.owner_of(_SCENE, ElementId("a")) == _OWNER
     assert hub_display.owner_of(_SCENE, ElementId("b")) == _OWNER
@@ -162,11 +162,11 @@ def test_replace_scene_removes_old_roots_and_installs_new() -> None:
     lifecycle.arrive(_OWNER, UNOBSERVED)
 
     old = _WireLeaf(id="old")
-    hub_display.replace_scene(Scope(_OWNER), _SCENE, [old])
+    hub_display.replace_scene(Scope.in_process(_OWNER), _SCENE, [old])
     assert hub_display.owner_of(_SCENE, ElementId("old")) == _OWNER
 
     new = _WireLeaf(id="new")
-    hub_display.replace_scene(Scope(_OWNER), _SCENE, [new])
+    hub_display.replace_scene(Scope.in_process(_OWNER), _SCENE, [new])
 
     roots = hub_display.scene_roots(_SCENE)
     root_ids = {e.id for e in roots}
@@ -193,10 +193,10 @@ def test_reshow_from_a_new_connection_replaces_a_departed_sessions_roots() -> No
     fresh = ConnectionId("fresh-session")
 
     lifecycle.arrive(departed, UNOBSERVED)
-    hub_display.replace_scene(Scope(departed), _SCENE, [_WireLeaf(id="old")])
+    hub_display.replace_scene(Scope.in_process(departed), _SCENE, [_WireLeaf(id="old")])
     lifecycle.depart(departed)  # session gone, its root stands orphaned
 
-    hub_display.replace_scene(Scope(fresh), _SCENE, [_WireLeaf(id="new")])
+    hub_display.replace_scene(Scope.in_process(fresh), _SCENE, [_WireLeaf(id="new")])
 
     roots = hub_display.scene_roots(_SCENE)
     assert {e.id for e in roots} == {"new"}  # orphan gone, only the new root
@@ -216,7 +216,7 @@ def test_show_scene_snapshots_the_identity_onto_every_owner() -> None:
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
     lifecycle.identify(_OWNER, identity, UNOBSERVED)  # declared before showing
     hub_display.show_scene(
-        Scope(_OWNER),
+        Scope.in_process(_OWNER),
         _SCENE,
         [_WireLeaf(id="a"), _WireLeaf(id="b")],
         ScenePresentation(frame_id=str(_SCENE)),
@@ -244,7 +244,7 @@ def test_departing_a_connection_releases_ownership_but_keeps_the_content() -> No
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
     lifecycle.identify(_OWNER, identity, UNOBSERVED)
     hub_display.show_scene(
-        Scope(_OWNER),
+        Scope.in_process(_OWNER),
         _SCENE,
         [_WireLeaf(id="a")],
         ScenePresentation(frame_id=str(_SCENE)),
@@ -272,15 +272,15 @@ def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None
     lifecycle.arrive(_OWNER, UNOBSERVED)
     lifecycle.arrive(_STRANGER, UNOBSERVED)
     hub_display.apply(
-        Scope(_OWNER),
+        Scope.in_process(_OWNER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="mine"), parent_id=None),
     )
     hub_display.apply(
-        Scope(_STRANGER),
+        Scope.in_process(_STRANGER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="theirs"), parent_id=None),
     )
 
-    HubSceneWriter(hub_display).clear(Scope(_OWNER))
+    HubSceneWriter(hub_display).clear(Scope.in_process(_OWNER))
 
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"theirs"}
 
@@ -303,7 +303,7 @@ def test_reap_of_a_dead_connection_releases_its_scenes() -> None:
     live = ConnectionId("live-conn")
     lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     hub_display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     assert hub_display.scene_owners(_SCENE) == (Owner(dead, _cli("dead")),)
@@ -312,7 +312,7 @@ def test_reap_of_a_dead_connection_releases_its_scenes() -> None:
     lifecycle.arrive(live, UNOBSERVED)
     other_scene = SceneId("unrelated-scene")
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(scene_id=other_scene, element=_WireLeaf(id="x"), parent_id=None),
     )  # any ownership-gated write triggers the pull-based sweep
 
@@ -335,14 +335,14 @@ def test_a_reconnect_before_reap_is_blocked_from_the_predecessors_scene() -> Non
     successor = ConnectionId("voxd-new")
     lifecycle.identify(predecessor, _cli("voxd"), UNOBSERVED)
     hub_display.apply(
-        Scope(predecessor),
+        Scope.in_process(predecessor),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     lifecycle.identify(successor, _cli("voxd"), UNOBSERVED)
 
     with pytest.raises(HubOwnershipError):
         hub_display.apply(
-            Scope(successor),
+            Scope.in_process(successor),
             SetProperty(
                 scene_id=_SCENE,
                 element_id=ElementId("track"),
@@ -371,7 +371,7 @@ def test_a_reconnect_after_reap_claims_the_released_scene() -> None:
     successor = ConnectionId("voxd-new")
     lifecycle.identify(predecessor, _cli("voxd"), UNOBSERVED)
     hub_display.apply(
-        Scope(predecessor),
+        Scope.in_process(predecessor),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
 
@@ -381,7 +381,7 @@ def test_a_reconnect_after_reap_claims_the_released_scene() -> None:
     # No HubOwnershipError: the reap-and-release ran before this check, so the
     # scene predecessor left behind is unowned by the time successor acts on it.
     hub_display.apply(
-        Scope(successor),
+        Scope.in_process(successor),
         RemoveElement(scene_id=_SCENE, element_id=ElementId("track")),
     )
 
@@ -407,11 +407,11 @@ def test_reaping_one_identitys_connection_never_blocks_an_unrelated_identity() -
     lifecycle.identify(dead, _cli("voxd"), UNOBSERVED)
     lifecycle.identify(live, _mcp("claude"), UNOBSERVED)
     hub_display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(scene_id=other_scene, element=_WireLeaf(id="panel"), parent_id=None),
     )
 
@@ -419,7 +419,7 @@ def test_reaping_one_identitys_connection_never_blocks_an_unrelated_identity() -
     # live's own write is the trigger: it must reap dead without disturbing
     # anything live already owns, including the untouched "panel" root.
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(
             scene_id=other_scene, element=_WireLeaf(id="panel2"), parent_id=None
         ),
@@ -447,7 +447,7 @@ def test_continuous_renewal_keeps_ownership_through_repeated_reap_triggers() -> 
     steady = ConnectionId("steady-conn")
     lifecycle.identify(steady, _cli("steady"), UNOBSERVED)
     hub_display.apply(
-        Scope(steady),
+        Scope.in_process(steady),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="a"), parent_id=None),
     )
 
@@ -457,7 +457,7 @@ def test_continuous_renewal_keeps_ownership_through_repeated_reap_triggers() -> 
         # Each apply is itself a reap opportunity; the write's own content
         # (a fresh element) is incidental — the point is that "a" survives it.
         hub_display.apply(
-            Scope(steady),
+            Scope.in_process(steady),
             AddElement(
                 scene_id=_SCENE, element=_WireLeaf(id=f"extra-{i}"), parent_id=None
             ),
@@ -484,7 +484,7 @@ def test_a_read_alone_never_releases_or_strands_a_lapsed_connection() -> None:
     live = ConnectionId("live-conn")
     lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     hub_display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     clock.advance(91.0)  # past the 90s cli lease; dead never renews again
@@ -499,7 +499,7 @@ def test_a_read_alone_never_releases_or_strands_a_lapsed_connection() -> None:
     # The atomic path: a live connection's own write, and nothing else, departs it.
     lifecycle.arrive(live, UNOBSERVED)
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
     )
 
@@ -526,7 +526,7 @@ def test_a_lapsed_writer_survives_its_own_next_apply() -> None:
     writer = ConnectionId("long-lived-writer")
     lifecycle.identify(writer, _cli("writer"), UNOBSERVED)
     hub_display.apply(
-        Scope(writer),
+        Scope.in_process(writer),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
 
@@ -536,7 +536,7 @@ def test_a_lapsed_writer_survives_its_own_next_apply() -> None:
     # against its own scene, not raise HubOwnershipError against a corpse
     # its own sweep just made of itself.
     hub_display.apply(
-        Scope(writer),
+        Scope.in_process(writer),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track2"), parent_id=None),
     )
     assert clients.session_of(writer) is not None
@@ -568,7 +568,7 @@ def test_a_lapsed_connection_is_reaped_by_the_timer_alone_on_an_idle_hub() -> No
     dead = ConnectionId("dead-conn")
     lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     hub_display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
 
@@ -591,7 +591,7 @@ def test_reap_lapsed_leases_touches_no_scene_when_nothing_has_lapsed() -> None:
     live = ConnectionId("live-conn")
     lifecycle.identify(live, _cli("live"), UNOBSERVED)
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
 
@@ -620,7 +620,7 @@ def test_a_timer_reaped_connection_loses_its_full_cascade_not_just_registry_and_
     conn = ConnectionId("cascade-timer")
     lifecycle.identify(conn, _cli("cascade"), UNOBSERVED)
     hub_display.apply(
-        Scope(conn),
+        Scope.in_process(conn),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     isolated_hub.register_writer(conn, lambda _msg: True)
@@ -652,7 +652,7 @@ def test_apply_clears_a_swept_connections_full_cascade_as_a_side_effect() -> Non
     live = ConnectionId("swept-live")
     lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     hub_display.apply(
-        Scope(dead),
+        Scope.in_process(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     isolated_hub.register_writer(dead, lambda _msg: True)
@@ -668,7 +668,7 @@ def test_apply_clears_a_swept_connections_full_cascade_as_a_side_effect() -> Non
     other_scene = SceneId("swept-other-scene")
     lifecycle.identify(live, _mcp("live"), UNOBSERVED)
     hub_display.apply(
-        Scope(live),
+        Scope.in_process(live),
         AddElement(scene_id=other_scene, element=_WireLeaf(id="x"), parent_id=None),
     )
 

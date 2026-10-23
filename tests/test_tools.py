@@ -939,7 +939,9 @@ def _seed_store(
     # Seeded at the composed key a real show() would produce, so update()/
     # clear()'s own composition (against the default "local" session) finds
     # it (DES-086).
-    store.replace_scene(Scope(ConnectionId("local")), _scoped(scene), [header])
+    store.replace_scene(
+        Scope.in_process(ConnectionId("local")), _scoped(scene), [header]
+    )
     return header
 
 
@@ -1066,7 +1068,7 @@ def _seed_group_with_child(
     # Seeded at the composed key a real show() would produce, so update()'s
     # own composition (against ``connection``) finds it (DES-086).
     store.replace_scene(
-        Scope(ConnectionId(connection)),
+        Scope.in_process(ConnectionId(connection)),
         SceneId(ConnectionScopedId.compose(ConnectionId(connection), scene)),
         [cast("DomainElement", group)],
     )
@@ -1332,7 +1334,7 @@ class TestUpdateTool:
         first = CollapsingHeaderElement(id="a", label="First", open=False)
         second = CollapsingHeaderElement(id="b", label="Second", open=False)
         store.replace_scene(
-            Scope(ConnectionId("local")),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", first), cast("DomainElement", second)],
         )
@@ -1363,7 +1365,7 @@ class TestUpdateTool:
         keep = CollapsingHeaderElement(id="keep", label="Keep", open=False)
         drop = CollapsingHeaderElement(id="drop", label="Drop", open=False)
         store.replace_scene(
-            Scope(ConnectionId("local")),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", keep), cast("DomainElement", drop)],
         )
@@ -1524,7 +1526,7 @@ class TestUpdateTool:
             {"kind": "selectable", "id": "sl1", "label": "opt", "selected": False}
         )
         store.replace_scene(
-            Scope(ConnectionId("local")),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", header), cast("DomainElement", selectable)],
         )
@@ -1632,7 +1634,7 @@ class TestClearTool:
         _seed_store(store, scene="s1", header_id="hdr")  # owned by "local"
         other = CollapsingHeaderElement(id="other", label="Other", open=False)
         store.replace_scene(
-            Scope(ConnectionId("agent-b")),
+            Scope.in_process(ConnectionId("agent-b")),
             SceneId("s-other"),
             [cast("DomainElement", other)],
         )

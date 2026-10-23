@@ -62,7 +62,7 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     return 0
 
 
-_C1 = Scope(ConnectionId("c1"))
+_C1 = Scope.in_process(ConnectionId("c1"))
 
 
 class _ForbiddenPort:
@@ -140,7 +140,7 @@ def _seed_scene(
     store write is attribution, never an arrival, so writing alone would leave
     the scene owned by a connection the Hub holds no session for. Seeded at
     the composed key a real show() would produce, so a caller-scoped
-    inspect_scene(scene, scope=Scope(connection)) finds it (DES-086).
+    inspect_scene(scene, scope=Scope.in_process(connection)) finds it (DES-086).
     """
     lifecycle.arrive(ConnectionId(connection), UNOBSERVED)
     group = agent_element_factory().element_from_dict(
@@ -151,7 +151,7 @@ def _seed_scene(
         }
     )
     store.show_scene(
-        Scope(ConnectionId(connection)),
+        Scope.in_process(ConnectionId(connection)),
         _scoped(connection, scene),
         [cast("DomainElement", group)],
         ScenePresentation(frame_id="frame-a", frame_title="Frame A", layout="single"),
@@ -282,7 +282,7 @@ def test_inspect_scene_cannot_read_another_connections_scene() -> None:
         ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
-    result = ops.inspect_scene("s1", Scope(ConnectionId("a")))
+    result = ops.inspect_scene("s1", Scope.in_process(ConnectionId("a")))
 
     assert isinstance(result, OpError)
     assert result.code == "not_found"
@@ -495,7 +495,7 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
         {"kind": "text", "id": "t2", "content": "from c2"}
     )
     store.apply(
-        Scope(ConnectionId("c2")),
+        Scope.in_process(ConnectionId("c2")),
         AddElement(
             scene_id=_scoped("c1", "s1"),
             parent_id=None,
@@ -663,7 +663,7 @@ def test_list_clients_owned_scenes_round_trips_into_inspect_scene() -> None:
     discovered = client.owned_scenes[0]
     assert discovered == "foo"
 
-    result = ops.inspect_scene(discovered, Scope(ConnectionId("c1")))
+    result = ops.inspect_scene(discovered, Scope.in_process(ConnectionId("c1")))
 
     assert isinstance(result, SceneInspection)
 

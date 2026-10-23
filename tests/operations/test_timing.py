@@ -16,7 +16,7 @@ from tests.rest._fakes import StubPort, make_facade
 if TYPE_CHECKING:
     import pytest
 
-_LOCAL = Scope(ConnectionId("local"))
+_LOCAL = Scope.in_process(ConnectionId("local"))
 _TIMING_LOGGER = "punt_lux.operations.timing"
 
 

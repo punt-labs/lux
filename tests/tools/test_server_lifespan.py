@@ -11,6 +11,7 @@ import anyio
 from mcp.shared.message import SessionMessage
 
 import punt_lux.tools.server as server_module
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.tools.server import bind_session, unbind_session
@@ -39,7 +40,7 @@ def _run_session_to_completion() -> None:
         scoped = SessionScopedServer(
             McpHttpTransport._fastmcp_server(), SessionRegistry()
         )
-        token = bind_session("test")
+        token = bind_session("test", UNOBSERVED)
         try:
             with anyio.fail_after(5):
                 async with McpHttpTransport._fastmcp_lifespan()():

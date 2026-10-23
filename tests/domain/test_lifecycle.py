@@ -29,10 +29,10 @@ def test_disconnect_leaves_the_sessions_scenes_standing() -> None:
     clients = factory.clients
     lifecycle.arrive(_CONN, UNOBSERVED)
     store.replace_scene(
-        Scope(_CONN), SceneId("s1"), [TextElement(id="s1-root", content="x")]
+        Scope.in_process(_CONN), SceneId("s1"), [TextElement(id="s1-root", content="x")]
     )
     store.replace_scene(
-        Scope(_CONN), SceneId("s2"), [TextElement(id="s2-root", content="y")]
+        Scope.in_process(_CONN), SceneId("s2"), [TextElement(id="s2-root", content="y")]
     )
 
     disconnect_connection(_CONN, lifecycle=lifecycle)

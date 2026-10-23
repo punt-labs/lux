@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from punt_lux.operations import Operations
 
 _S1 = ConnectionScopedId.compose(DEFAULT_CONNECTION, "s1")
-_SCOPE = Scope(DEFAULT_CONNECTION)
+_SCOPE = Scope.in_process(DEFAULT_CONNECTION)
 
 _PAYLOAD = {
     "scenes": {_S1: {"checkbox1": True, "count": 3.0}},

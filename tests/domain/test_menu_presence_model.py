@@ -289,7 +289,7 @@ def _touch(world: _World, conn: ConnectionId) -> None:
         return
     scene = SceneId(f"{conn}-s{world.serial % 2}")
     world.factory.display.replace_scene(
-        Scope(conn), scene, [TextElement(id="t", content="x")]
+        Scope.in_process(conn), scene, [TextElement(id="t", content="x")]
     )
     world.scenes.setdefault(conn, set()).add(scene)
     world.drawn_labels[scene] = world.label_of(scene)

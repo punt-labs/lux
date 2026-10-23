@@ -42,7 +42,7 @@ class _ForbiddenPort:
 
 
 def _scope(connection: str) -> Scope:
-    return Scope(ConnectionId(connection))
+    return Scope.in_process(ConnectionId(connection))
 
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:

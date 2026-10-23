@@ -93,7 +93,8 @@ def _seed_tab_bar() -> HubDisplay:
         active_tab="tab-1",
     )
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=bar, parent_id=None),
     )
     return hub_display
 
@@ -109,7 +110,7 @@ def test_update_set_tabs_is_rejected() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_CONN), _SCENE),
+        SceneScope(Scope.in_process(_CONN), _SCENE),
         [
             {
                 "id": str(_TAB_BAR_ID),
@@ -154,7 +155,8 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
         active_tab="tab-1",
     )
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=bar, parent_id=None),
     )
 
     with pytest.raises(StructuralFieldWriteError):
@@ -217,7 +219,8 @@ def test_set_property_non_structural_field_still_applies() -> None:
         active_tab="tab-1",
     )
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=bar, parent_id=None),
     )
 
     hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "active_tab", "tab-2")

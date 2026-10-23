@@ -111,7 +111,7 @@ def _sent_entries(ops: Operations) -> list[str]:
 def test_identifying_a_callbackless_agent_marks_menus_and_it_is_listed() -> None:
     ops, _factory, spy = _rig()
 
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks >= 1
     assert _sent_entries(ops) == ["claude"]
@@ -119,10 +119,10 @@ def test_identifying_a_callbackless_agent_marks_menus_and_it_is_listed() -> None
 
 def test_re_identifying_marks_menus_again() -> None:
     ops, _factory, spy = _rig()
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     before = spy.menu_marks
 
-    ops.identify({**_AGENT, "repo": "/w/other"}, scope=Scope(_CONN))
+    ops.identify({**_AGENT, "repo": "/w/other"}, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks > before
 
@@ -130,7 +130,7 @@ def test_re_identifying_marks_menus_again() -> None:
 def test_its_departure_marks_menus_and_the_entry_is_gone() -> None:
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     before = spy.menu_marks
 
     lifecycle.depart(_CONN)
@@ -144,7 +144,7 @@ def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
     now = [0.0]
     ops, factory, spy = _rig(lambda: now[0])
     lifecycle = factory.lifecycle
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     before = spy.menu_marks
 
     now[0] += 1_000_000.0  # far past any kind's lease; nothing renews
@@ -158,11 +158,11 @@ def test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone() -> None:
 def test_repeating_an_identical_identify_marks_menus_once() -> None:
     """REST re-declares identity on every write; that must not re-push the menu."""
     ops, _factory, spy = _rig()
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     after_first = spy.menu_marks
 
     for _ in range(3):
-        ops.identify(_AGENT, scope=Scope(_CONN))
+        ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks == after_first
 
@@ -173,7 +173,7 @@ def test_a_departure_cannot_interleave_with_binding_the_sink(
     """The record and the bind are one step under the store's write lock."""
     ops, factory, _spy = _rig()
     lifecycle = factory.lifecycle
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     real_bind = DepartureCascade.bind_sink
     intruder = threading.Thread(target=lifecycle.depart, args=(_CONN,))
     overlapped: list[bool] = []
@@ -188,7 +188,7 @@ def test_a_departure_cannot_interleave_with_binding_the_sink(
         real_bind(self, connection_id, sink)
 
     monkeypatch.setattr(DepartureCascade, "bind_sink", _bind)
-    ops.identify({**_AGENT, "repo": "/w/other"}, scope=Scope(_CONN))
+    ops.identify({**_AGENT, "repo": "/w/other"}, scope=Scope.in_process(_CONN))
     intruder.join(timeout=2.0)
 
     assert overlapped == [False]
@@ -215,7 +215,7 @@ def test_identifying_an_anonymous_registered_connection_as_an_agent_marks_menus_
     lifecycle.arrive(_CONN, UNOBSERVED)  # registered, anonymous: the Connect step first
     assert spy.menu_marks == 0
 
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks >= 1
     assert _sent_entries(ops) == ["claude"]
@@ -227,7 +227,7 @@ def test_a_cli_identify_marks_nothing_and_binds_no_sink() -> None:
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
 
-    ops.identify(_CLI, scope=Scope(_CONN))
+    ops.identify(_CLI, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks == 0
     assert _departure_marks(lifecycle, spy, _CONN) == 0
@@ -238,7 +238,7 @@ def test_identify_binds_exactly_one_menu_sink() -> None:
     lifecycle = factory.lifecycle
 
     for _ in range(3):
-        ops.identify(_AGENT, scope=Scope(_CONN))
+        ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     assert _departure_marks(lifecycle, spy, _CONN) == 1
 
@@ -255,9 +255,9 @@ def test_a_departure_landing_before_the_record_still_marks_and_binds() -> None:
     """
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     worker = threading.Thread(
-        target=ops.identify, args=(_AGENT,), kwargs={"scope": Scope(_CONN)}
+        target=ops.identify, args=(_AGENT,), kwargs={"scope": Scope.in_process(_CONN)}
     )
 
     with lifecycle.exclusive():
@@ -277,7 +277,7 @@ def test_a_lease_lapse_alone_marks_nothing() -> None:
     """A lapse is time passing, not a Hub event: it cannot mark."""
     now = [0.0]
     ops, _factory, spy = _rig(lambda: now[0])
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     before = spy.menu_marks
 
     now[0] += _FAR_FUTURE
@@ -290,7 +290,7 @@ def test_another_clients_push_drops_a_lapsed_unswept_agent() -> None:
     now = [0.0]
     ops, factory, _spy = _rig(lambda: now[0])
     clients = factory.clients
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     now[0] += _FAR_FUTURE
 
@@ -303,11 +303,11 @@ def test_a_rest_write_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry
 ):
     now = [0.0]
     ops, _factory, spy = _rig(lambda: now[0])
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     now[0] += _FAR_FUTURE
     before = spy.menu_marks
 
-    ops.clear(scope=Scope(_CONN))  # a write: the lease renews on contact
+    ops.clear(scope=Scope.in_process(_CONN))  # a write: the lease renews on contact
 
     assert spy.menu_marks > before
     assert _sent_entries(ops) == ["claude"]
@@ -319,11 +319,11 @@ def test_an_mcp_call_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry(
     """The D4 test: an identify with an unchanged identity must still mark."""
     now = [0.0]
     ops, _factory, spy = _rig(lambda: now[0])
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     now[0] += _FAR_FUTURE
     before = spy.menu_marks
 
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
 
     assert spy.menu_marks > before
     assert _sent_entries(ops) == ["claude"]
@@ -333,9 +333,9 @@ def test_renewing_a_lapsed_agent_leaves_exactly_one_menu_sink() -> None:
     now = [0.0]
     ops, factory, spy = _rig(lambda: now[0])
     lifecycle = factory.lifecycle
-    ops.identify(_AGENT, scope=Scope(_CONN))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
     now[0] += _FAR_FUTURE
-    ops.clear(scope=Scope(_CONN))
+    ops.clear(scope=Scope.in_process(_CONN))
 
     assert _departure_marks(lifecycle, spy, _CONN) == 1
 
@@ -345,8 +345,8 @@ def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
     ops, factory, spy = _rig(lambda: now[0])
     lifecycle = factory.lifecycle
     other = ConnectionId("c2")
-    ops.identify(_AGENT, scope=Scope(_CONN))
-    ops.identify({**_AGENT, "name": "codex"}, scope=Scope(other))
+    ops.identify(_AGENT, scope=Scope.in_process(_CONN))
+    ops.identify({**_AGENT, "name": "codex"}, scope=Scope.in_process(other))
     before = spy.menu_marks
     now[0] += _FAR_FUTURE
 
@@ -360,7 +360,7 @@ def test_the_sweep_removes_every_lapsed_agent_with_a_mark() -> None:
 def test_a_non_agent_departure_marks_nothing() -> None:
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
-    ops.identify(_CLI, scope=Scope(_CONN))
+    ops.identify(_CLI, scope=Scope.in_process(_CONN))
     lifecycle.arrive(ConnectionId("anon"), UNOBSERVED)
 
     assert _departure_marks(lifecycle, spy, ConnectionId("anon")) == 0

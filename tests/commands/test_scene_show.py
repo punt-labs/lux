@@ -9,7 +9,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, Scope
 from tests.commands._scene_stub import StubSceneOps, identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 _REQUEST = RenderRequest.parse({"scene_id": "s1", "elements": []})
 
 

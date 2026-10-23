@@ -12,7 +12,7 @@ from punt_lux.operations.models.display_state import FramePresentation
 from tests.commands._family_stubs import StubDisplayStateOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("c1"))
+_SCOPE = Scope.in_process(ConnectionId("c1"))
 _SNAPSHOT = DisplayStateSnapshot(
     scenes={},
     frames=[

@@ -107,7 +107,9 @@ def test_text_element_wire_path_through_hub_apply() -> None:
     elem = agent_element_factory().element_from_dict(wire)
     assert isinstance(elem, TextElement)
 
-    display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
+    display.apply(
+        Scope.in_process(client), AddElement(scene_id=SceneId("s1"), element=elem)
+    )
 
     assert display.owner_of(SceneId("s1"), ElementId("t1")) == client
     stored = display.resolve(SceneId("s1"), ElementId("t1"))
@@ -204,7 +206,9 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
         MarkdownElement(id="md1", content="# Hi"),
     ]
     for elem in elements:
-        display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
+        display.apply(
+            Scope.in_process(client), AddElement(scene_id=SceneId("s1"), element=elem)
+        )
 
     roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]

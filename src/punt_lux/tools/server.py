@@ -57,9 +57,7 @@ _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 _client_host: ContextVar[ClientHost] = ContextVar("client_host", default=UNOBSERVED)
 
 
-def bind_session(
-    session_key: str, client_host: ClientHost = UNOBSERVED
-) -> SessionBinding:
+def bind_session(session_key: str, client_host: ClientHost) -> SessionBinding:
     """Bind the calling context to an MCP session; return the binding to release.
 
     luxd's transport leg binds a session before the SDK spawns its task, so the

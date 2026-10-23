@@ -47,7 +47,7 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     button.add_handler(ButtonClicked, _first)
     button.add_handler(ButtonClicked, _second)
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -108,11 +108,11 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
         ButtonClicked, lambda e: seen.__setitem__("genuine", str(e.owner_id))
     )
     isolated_display.apply(
-        Scope(mischievous_owner),
+        Scope.in_process(mischievous_owner),
         AddElement(scene_id=scene_id, element=live_owned, parent_id=None),
     )
     isolated_display.apply(
-        Scope(departed_owner),
+        Scope.in_process(departed_owner),
         AddElement(scene_id=scene_id, element=genuinely_unowned, parent_id=None),
     )
     lifecycle.depart(departed_owner)  # releases it; content stays
@@ -438,7 +438,7 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
     from punt_lux.tools.tools import OPERATIONS
 
     conn = ConnectionId("surface-loop-1")
-    scope = Scope(conn)
+    scope = Scope.in_process(conn)
     hub_lifecycle.identify(
         conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
     )
@@ -546,7 +546,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     lifecycle.arrive(owner, UNOBSERVED)
     wire_leaf = _WireLeaf(id="leaf")
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=wire_leaf, parent_id=None),
     )
 
@@ -589,7 +589,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("ok"))
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -633,7 +633,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
 
     checkbox.add_handler(ValueChanged, _handler)
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=checkbox, parent_id=None),
     )
 
@@ -679,7 +679,7 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -728,7 +728,7 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     frame_id = "f1"
     lifecycle.arrive(owner, UNOBSERVED)
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(
             scene_id=scene_id,
             element=ButtonElement(id="b", label="x"),
@@ -788,7 +788,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     fired: list[str] = []
     cb.add_handler(ValueChanged, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=cb, parent_id=None),
     )
 
@@ -831,7 +831,7 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -882,7 +882,7 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     dialog = GroupElement(id="dialog", children=[button])
     root = GroupElement(id="root", children=[dialog])
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=root, parent_id=None),
     )
 
@@ -942,7 +942,7 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     root = GroupElement(id="root", children=[button])
     isolated_display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=root, parent_id=None),
     )
 

@@ -56,7 +56,8 @@ def _seed_one_text() -> HubStoreFactory:
     lifecycle.arrive(_OWNER, UNOBSERVED)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(
-        Scope(_OWNER), AddElement(scene_id=_SCENE, element=text, parent_id=None)
+        Scope.in_process(_OWNER),
+        AddElement(scene_id=_SCENE, element=text, parent_id=None),
     )
     return factory
 
@@ -67,7 +68,8 @@ def _seed_two_texts() -> HubStoreFactory:
     hub_display = factory.display
     second = TextElement(id=str(_SECOND_ID), content="world")
     hub_display.apply(
-        Scope(_OWNER), AddElement(scene_id=_SCENE, element=second, parent_id=None)
+        Scope.in_process(_OWNER),
+        AddElement(scene_id=_SCENE, element=second, parent_id=None),
     )
     return factory
 
@@ -84,7 +86,8 @@ def test_remove_present_owned_element_evicts_it() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_OWNER), _SCENE), [{"id": str(_ELEM_ID), "remove": True}]
+        SceneScope(Scope.in_process(_OWNER), _SCENE),
+        [{"id": str(_ELEM_ID), "remove": True}],
     )
 
     assert isinstance(result, WriteAccepted)
@@ -106,7 +109,8 @@ def test_absent_removal_skip_is_logged(
 
     with caplog.at_level(logging.DEBUG, logger="punt_lux.domain.hub.scene_writer"):
         writer.apply(
-            SceneScope(Scope(_OWNER), _SCENE), [{"id": "submit-buton", "remove": True}]
+            SceneScope(Scope.in_process(_OWNER), _SCENE),
+            [{"id": "submit-buton", "remove": True}],
         )
 
     assert any(
@@ -130,7 +134,7 @@ def test_remove_absent_by_non_owner_is_accepted() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_OTHER), _SCENE), [{"id": "ghost", "remove": True}]
+        SceneScope(Scope.in_process(_OTHER), _SCENE), [{"id": "ghost", "remove": True}]
     )
 
     assert isinstance(result, WriteAccepted)
@@ -149,7 +153,7 @@ def test_mixed_batch_absent_skip_does_not_abort_field_or_present_removal() -> No
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_OWNER), _SCENE),
+        SceneScope(Scope.in_process(_OWNER), _SCENE),
         [
             {"id": str(_ELEM_ID), "set": {"content": "patched"}},
             {"id": "ghost", "remove": True},
@@ -174,7 +178,7 @@ def test_remove_absent_element_is_idempotent_no_op() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_OWNER), _SCENE), [{"id": "ghost", "remove": True}]
+        SceneScope(Scope.in_process(_OWNER), _SCENE), [{"id": "ghost", "remove": True}]
     )
 
     assert isinstance(result, WriteAccepted)
@@ -205,14 +209,15 @@ def test_a_patch_only_client_keeps_its_lease_and_ownership_past_its_ttl() -> Non
     lifecycle.arrive(_OWNER, UNOBSERVED)
     text = TextElement(id=str(_ELEM_ID), content="hello")
     hub_display.apply(
-        Scope(_OWNER), AddElement(scene_id=_SCENE, element=text, parent_id=None)
+        Scope.in_process(_OWNER),
+        AddElement(scene_id=_SCENE, element=text, parent_id=None),
     )
     writer = HubSceneWriter(hub_display)
 
     for i in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
         result = writer.apply(
-            SceneScope(Scope(_OWNER), _SCENE),
+            SceneScope(Scope.in_process(_OWNER), _SCENE),
             [{"id": str(_ELEM_ID), "set": {"content": f"patch-{i}"}}],
         )
         assert isinstance(result, WriteAccepted)
@@ -233,7 +238,8 @@ def test_remove_owned_by_another_connection_is_rejected() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(Scope(_OTHER), _SCENE), [{"id": str(_ELEM_ID), "remove": True}]
+        SceneScope(Scope.in_process(_OTHER), _SCENE),
+        [{"id": str(_ELEM_ID), "remove": True}],
     )
 
     assert isinstance(result, WriteRejected)

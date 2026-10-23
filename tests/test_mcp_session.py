@@ -119,7 +119,7 @@ class TestUncleanDisconnect:
             send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
                 0
             )
-            token = bind_session("unclean")
+            token = bind_session("unclean", UNOBSERVED)
             try:
                 await scoped.run(
                     recv_read, send_write, scoped.create_initialization_options()
@@ -187,7 +187,7 @@ class TestSharedKeyCleanup:
             send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
                 0
             )
-            token = bind_session("sess-a")
+            token = bind_session("sess-a", UNOBSERVED)
             try:
                 await server.run(
                     recv_read, send_write, server.create_initialization_options()
@@ -279,7 +279,7 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
             send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
                 0
             )
-            token = bind_session("sess-shared")
+            token = bind_session("sess-shared", UNOBSERVED)
             try:
                 await server.run(
                     recv_read, send_write, server.create_initialization_options()

@@ -912,7 +912,7 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
         ws.receive_json()  # ready
         scene = SceneId("claude-scene")
         factory.display.replace_scene(
-            Scope(_AGENT_CONN), scene, [TextElement(id="t", content="x")]
+            Scope.in_process(_AGENT_CONN), scene, [TextElement(id="t", content="x")]
         )
         clock.advance(_FAR_FUTURE)  # lapsed, unswept
         marker.scenes.clear()

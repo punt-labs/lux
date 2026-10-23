@@ -36,7 +36,7 @@ from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 
-_C1 = Scope(ConnectionId("c1"))
+_C1 = Scope.in_process(ConnectionId("c1"))
 
 
 class _StubPort:
@@ -75,7 +75,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        Scope(ConnectionId("c1")),
+        Scope.in_process(ConnectionId("c1")),
         _scoped("s1"),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),

@@ -69,7 +69,7 @@ def _ops() -> PubSubOperations:
 @pytest.fixture
 def scope() -> Iterator[Scope]:
     connection = ConnectionId("anchor-pubsub")
-    yield Scope(connection)
+    yield Scope.in_process(connection)
     hub.on_disconnect(connection)
     drop_session(connection)
 
@@ -156,7 +156,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     lifecycle.arrive(owner, UNOBSERVED)
     scene_id = SceneId("pubsub-scene")
     display.apply(
-        Scope(owner),
+        Scope.in_process(owner),
         AddElement(
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
@@ -165,7 +165,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
-        ops.unsubscribe("some.topic", scope=Scope(owner))
+        ops.unsubscribe("some.topic", scope=Scope.in_process(owner))
         assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
     assert clients.session_of(owner) is not None

@@ -30,7 +30,7 @@ from punt_lux.protocol import CollapsingHeaderElement
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 _CONNECTION = ConnectionId("local")
-_LOCAL = Scope(_CONNECTION)
+_LOCAL = Scope.in_process(_CONNECTION)
 
 
 def _scoped(local_id: str) -> SceneId:
@@ -72,7 +72,7 @@ def _seed_header(store: HubDisplay, *, is_open: bool = False) -> None:
     # Seeded at the composed key a real show() would produce, so update()/
     # clear()'s own composition (against _LOCAL's connection) finds it.
     store.replace_scene(
-        Scope(ConnectionId("local")),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s1"),
         [CollapsingHeaderElement(id="hdr", label="Details", open=is_open)],
     )
@@ -301,7 +301,7 @@ def test_update_rejection_from_another_owners_element_names_the_raw_scene_id() -
     _seed_header(store, is_open=False)
     stranger = ConnectionId("stranger")
     store.apply(
-        Scope(stranger),
+        Scope.in_process(stranger),
         AddElement(
             scene_id=_scoped("s1"),
             element=CollapsingHeaderElement(id="theirs", label="Theirs", open=False),
@@ -356,7 +356,7 @@ def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
     recorder = _Recorder()
     _seed_header(store)
     store.replace_scene(
-        Scope(ConnectionId("local")),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s2"),
         [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
     )
@@ -374,7 +374,7 @@ def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
     recorder = _Recorder()
     _seed_header(store)
     store.replace_scene(
-        Scope(ConnectionId("local")),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s2"),
         [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
     )
@@ -409,7 +409,7 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
     store = factory.display
     recorder = _Recorder()
     store.replace_scene(
-        Scope(ConnectionId("agent-b")),
+        Scope.in_process(ConnectionId("agent-b")),
         _scoped("theirs"),
         [CollapsingHeaderElement(id="x", label="X", open=False)],
     )
@@ -479,7 +479,7 @@ class TestWhoAnInstallRegisters:
         lifecycle.depart(departed)
 
         result = SceneInstaller(store, recorder).install(
-            _submitted("lux.client-details.gone"), owner=Scope(departed)
+            _submitted("lux.client-details.gone"), owner=Scope.in_process(departed)
         )
 
         assert isinstance(result, SceneShown)
@@ -493,7 +493,8 @@ class TestWhoAnInstallRegisters:
         clients = factory.clients
         recorder = _Recorder()
         SceneInstaller(store, recorder).install(
-            _submitted("lux.client-details.never"), owner=Scope(ConnectionId("never"))
+            _submitted("lux.client-details.never"),
+            owner=Scope.in_process(ConnectionId("never")),
         )
         assert dict(clients.live_sessions()) == {}
 
@@ -506,7 +507,7 @@ def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
     store = factory.display
     recorder = _Recorder()
     store.show_scene(
-        Scope(ConnectionId("local")),
+        Scope.in_process(ConnectionId("local")),
         _scoped("board"),
         [CollapsingHeaderElement(id="hdr", label="Board", open=False)],
         ScenePresentation(frame_id="beads-lux"),
@@ -599,7 +600,7 @@ class TestQuarantinedScenes:
         store = factory.display
         recorder = _Recorder()
         store.replace_scene(
-            Scope(_CONNECTION),
+            Scope.in_process(_CONNECTION),
             _scoped("s1"),
             [CollapsingHeaderElement(id="hdr", label="Details", open=False)],
         )

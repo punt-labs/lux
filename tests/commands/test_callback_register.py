@@ -12,7 +12,7 @@ from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from tests.commands._family_stubs import StubCallbackOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def _request() -> RegisterCallbackRequest | OpError:

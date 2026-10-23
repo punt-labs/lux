@@ -191,7 +191,7 @@ class SimulatedAgent:
         report = ElementTreeValidator().validate_tree(roots)
         assert report.ok, report.describe()
         hub_display.replace_scene(
-            Scope(self._connection_id),
+            Scope.in_process(self._connection_id),
             SceneId(scenario.scene_id),
             cast("Sequence[DomainElement]", roots),
         )
@@ -237,7 +237,7 @@ class SimulatedAgent:
         for patch in react:
             assert isinstance(patch, ReactPatch)
             hub_display.apply(
-                Scope(self._connection_id),
+                Scope.in_process(self._connection_id),
                 SetProperty(
                     scene_id=SceneId(scene_id),
                     element_id=ElementId(patch.element_id),
@@ -263,7 +263,7 @@ class SimulatedAgent:
         factory = hub_element_factory(self._connection_id)
         elem = cast("DomainElement", factory.element_from_dict(dict(wire)))
         hub_display.apply(
-            Scope(self._connection_id),
+            Scope.in_process(self._connection_id),
             AddElement(scene_id=SceneId(scene_id), element=elem, parent_id=None),
         )
 

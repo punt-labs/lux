@@ -46,8 +46,8 @@ pytestmark = pytest.mark.integration
 
 _A = ConnectionId("session-a")
 _B = ConnectionId("session-b")
-_SCOPE_A = Scope(_A)
-_SCOPE_B = Scope(_B)
+_SCOPE_A = Scope.in_process(_A)
+_SCOPE_B = Scope.in_process(_B)
 _MUSIC_PLAYER = "music-player"
 
 

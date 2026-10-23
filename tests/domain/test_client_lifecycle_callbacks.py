@@ -194,7 +194,7 @@ class TestRegistering:
         from punt_lux.protocol.elements.text import TextElement
 
         factory.display.replace_scene(
-            Scope(_CONN), scene, [TextElement(id="t", content="x")]
+            Scope.in_process(_CONN), scene, [TextElement(id="t", content="x")]
         )
         clock.now = _PAST_AN_APPLET_LEASE
         marker.scenes.clear()

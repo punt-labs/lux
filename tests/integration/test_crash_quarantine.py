@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 _CONN = ConnectionId("crash-quarantine-caller")
-_SCOPE = Scope(_CONN)
+_SCOPE = Scope.in_process(_CONN)
 
 
 def _scoped(local_id: str) -> SceneId:
@@ -241,7 +241,7 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
 def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> None:
     store, _repl, _sender, ops = _stack()
     store.replace_scene(
-        Scope(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+        Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
     )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
@@ -261,7 +261,7 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> 
 def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     store, _repl, _sender, ops = _stack()
     store.replace_scene(
-        Scope(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+        Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
     )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)

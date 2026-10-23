@@ -162,7 +162,7 @@ class _Wired:
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))
-        return self._ops.register_callback(request, scope=Scope(conn))
+        return self._ops.register_callback(request, scope=Scope.in_process(conn))
 
 
 def _identity(name: str = "claude", repo: str = "/w/lux") -> ClientIdentity:

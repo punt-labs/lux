@@ -44,7 +44,7 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
     try:
         # Hub tier: show the framed scene with a short TTL — real install + arm.
         hub_display.show_scene(
-            Scope(conn),
+            Scope.in_process(conn),
             scene,
             [leaf],
             ScenePresentation(frame_id=_FRAME),

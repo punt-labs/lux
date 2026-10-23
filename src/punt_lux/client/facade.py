@@ -60,7 +60,7 @@ class LuxClient:
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
-        self._scope = Scope.in_process(identity.connection_id)
+        self._scope = Scope.client_side(identity.connection_id)
         return self
 
     @classmethod

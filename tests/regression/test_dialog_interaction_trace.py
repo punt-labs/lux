@@ -175,7 +175,7 @@ class _Panel(AbcElement):
         self._children_tuple = tuple(c for c in self._children_tuple if c is not child)
         child_id = ElementId(_element_id_of(child))
         self._hub_display.apply(
-            Scope(self._owner_connection_id),
+            Scope.in_process(self._owner_connection_id),
             RemoveElement(scene_id=self._scene_id, element_id=child_id),
         )
 

@@ -129,7 +129,7 @@ class TestClientSessionHosts:
 
 class TestScopeClientHost:
     def test_defaults_to_no_peer(self) -> None:
-        assert Scope(_CONN).client_host == UNOBSERVED
+        assert Scope.in_process(_CONN).client_host == UNOBSERVED
 
     def test_carries_the_peer_it_is_given(self) -> None:
         assert Scope.observed(_CONN, ClientHost("127.0.0.1")).client_host == ClientHost(
@@ -238,7 +238,7 @@ class TestAHostFlowsToTheFacts:
         factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         scene = SceneId("s1")
         factory.display.replace_scene(
-            Scope(_CONN), scene, [TextElement(id="t", content="x")]
+            Scope.in_process(_CONN), scene, [TextElement(id="t", content="x")]
         )
         marker.scenes.clear()
 
@@ -252,7 +252,7 @@ class TestAHostFlowsToTheFacts:
         factory.lifecycle.present_as(marker, MarkMenusSink(marker))
         factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         factory.display.replace_scene(
-            Scope(_CONN), SceneId("s1"), [TextElement(id="t", content="x")]
+            Scope.in_process(_CONN), SceneId("s1"), [TextElement(id="t", content="x")]
         )
         marker.scenes.clear()
 
@@ -279,7 +279,7 @@ class TestIdentityOperationsPassesThePeer:
         factory = HubStoreFactory(hub=Hub())
         ops = IdentityOperations(factory.lifecycle, factory.clients)
 
-        ops.identify({"kind": "cli", "name": "x"}, scope=Scope(_CONN))
+        ops.identify({"kind": "cli", "name": "x"}, scope=Scope.in_process(_CONN))
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
@@ -303,7 +303,7 @@ class TestMcpBinding:
         assert (current_session(), current_client_host()) == ("local", UNOBSERVED)
 
     def test_a_binding_without_a_peer_leaves_it_unknown(self) -> None:
-        binding = bind_session("sess")
+        binding = bind_session("sess", UNOBSERVED)
         try:
             assert current_client_host() == UNOBSERVED
         finally:

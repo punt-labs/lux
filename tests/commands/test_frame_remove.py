@@ -14,7 +14,7 @@ from punt_lux.operations import Ok, OpError, Scope
 from ._family_stubs import StubFrameOps
 
 _WHO = ClientIdentity(kind="cli", name="test")
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def _stub(result: object) -> StubFrameOps:

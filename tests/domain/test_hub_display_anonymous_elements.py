@@ -80,7 +80,7 @@ def test_anonymous_children_get_distinct_keys() -> None:
 
 def _show(hub: HubDisplay, *roots: SeparatorElement | TextElement) -> None:
     """Replace the scene with ``roots`` through the authoritative Hub path."""
-    hub.replace_scene(Scope(_CONN), _SCENE, roots)
+    hub.replace_scene(Scope.in_process(_CONN), _SCENE, roots)
 
 
 def test_multiple_separators_survive_install() -> None:
@@ -146,7 +146,10 @@ def test_named_lookup_and_removal_unaffected_by_anonymous_repeats() -> None:
 
     assert hub.resolve(_SCENE, ElementId("a")).id == "a"
 
-    hub.apply(Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=ElementId("a")))
+    hub.apply(
+        Scope.in_process(_CONN),
+        RemoveElement(scene_id=_SCENE, element_id=ElementId("a")),
+    )
 
     with pytest.raises(UnknownElementError):
         hub.resolve(_SCENE, ElementId("a"))

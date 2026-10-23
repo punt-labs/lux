@@ -15,8 +15,8 @@ from punt_lux.operations.models.common import OpError
 
 _C1 = ConnectionId("c1")
 _C2 = ConnectionId("c2")
-_SCOPE_1 = Scope(_C1)
-_SCOPE_2 = Scope(_C2)
+_SCOPE_1 = Scope.in_process(_C1)
+_SCOPE_2 = Scope.in_process(_C2)
 
 
 @final

@@ -27,7 +27,9 @@ def test_remove_frame_takes_a_plain_frame_id_not_a_value_object() -> None:
     # Finding 7 (PR #464): the public Protocol takes a caller-facing string,
     # never the internal FrameTarget bundle -- proving it can be called with
     # a bare frame_id + scope, matching every sibling Ops Protocol's shape.
-    result = _Implementer().remove_frame("board", scope=Scope(ConnectionId("c1")))
+    result = _Implementer().remove_frame(
+        "board", scope=Scope.in_process(ConnectionId("c1"))
+    )
     assert result == Ok()
 
 

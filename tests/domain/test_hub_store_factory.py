@@ -57,7 +57,7 @@ def test_a_departure_empties_the_registry_and_releases_ownership() -> None:
     clients = factory.clients
     lifecycle.arrive(_ALICE, UNOBSERVED)
     display.apply(
-        Scope(_ALICE),
+        Scope.in_process(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -82,7 +82,7 @@ def test_a_write_by_a_registered_caller_renews_its_lease() -> None:
 
     clock.now = _LEASE_SECONDS - 10.0
     display.apply(
-        Scope(_ALICE),
+        Scope.in_process(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -105,7 +105,7 @@ def test_a_write_sweeps_other_lapsed_connections_but_never_its_own_caller() -> N
 
     clock.now = _LEASE_SECONDS + 1.0  # both leases lapsed, nobody swept yet
     display.apply(
-        Scope(_ALICE),
+        Scope.in_process(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -131,7 +131,7 @@ def test_writing_as_renews_the_caller_and_holds_the_store_lock() -> None:
     contender_in = threading.Event()
 
     def _hold() -> None:
-        with display.writing_as(Scope(_ALICE)):
+        with display.writing_as(Scope.in_process(_ALICE)):
             entered.set()
             release.wait(timeout=5.0)
 
@@ -194,7 +194,7 @@ def test_arriving_as_registers_the_caller_and_holds_the_store_lock() -> None:
     contender_in = threading.Event()
 
     def _hold() -> None:
-        with display.arriving_as(Scope(_ALICE)):
+        with display.arriving_as(Scope.in_process(_ALICE)):
             entered.set()
             release.wait(timeout=5.0)
 
@@ -222,7 +222,7 @@ def test_a_write_through_apply_registers_nobody() -> None:
     clients = factory.clients
 
     display.apply(
-        Scope(_ALICE),
+        Scope.in_process(_ALICE),
         AddElement(
             scene_id=_SCENE, element=TextElement(id="t", content="x"), parent_id=None
         ),

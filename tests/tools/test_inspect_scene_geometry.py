@@ -107,7 +107,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        Scope(ConnectionId("local")),
+        Scope.in_process(ConnectionId("local")),
         SceneId(ConnectionScopedId.compose(ConnectionId("local"), "s1")),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),

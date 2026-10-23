@@ -241,7 +241,9 @@ def test_every_inputs_kind_flows_through_hub_apply() -> None:
         SelectableElement(id="sel1", label="Item"),
     ]
     for elem in elements:
-        display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
+        display.apply(
+            Scope.in_process(client), AddElement(scene_id=SceneId("s1"), element=elem)
+        )
 
     roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]

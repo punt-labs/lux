@@ -90,7 +90,7 @@ def test_apply_add_element_installs_every_composite_descendant() -> None:
     )
 
     hub_display.apply(
-        Scope(_CONN),
+        Scope.in_process(_CONN),
         AddElement(scene_id=_SCENE, element=root, parent_id=None),
     )
 
@@ -113,9 +113,12 @@ def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
     root = _Composite(id=str(_ROOT_ID), children=(inner,))
 
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=root, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=root, parent_id=None),
     )
-    hub_display.apply(Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=_ROOT_ID))
+    hub_display.apply(
+        Scope.in_process(_CONN), RemoveElement(scene_id=_SCENE, element_id=_ROOT_ID)
+    )
 
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, _GRANDCHILD_ID)
@@ -147,7 +150,8 @@ def _install_tab_bar_scene() -> HubDisplay:
         active_tab="tab-1",
     )
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=bar, parent_id=None),
     )
     return hub_display
 
@@ -178,7 +182,7 @@ def test_tab_change_repush_keeps_single_root_no_duplication() -> None:
     initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
 
     hub_display.apply(
-        Scope(_CONN),
+        Scope.in_process(_CONN),
         SetProperty(
             scene_id=_SCENE,
             element_id=ElementId("tb"),
@@ -210,12 +214,13 @@ def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
         ),
     )
     hub_display.apply(
-        Scope(_CONN), AddElement(scene_id=_SCENE, element=header, parent_id=None)
+        Scope.in_process(_CONN),
+        AddElement(scene_id=_SCENE, element=header, parent_id=None),
     )
     initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
 
     hub_display.apply(
-        Scope(_CONN),
+        Scope.in_process(_CONN),
         SetProperty(
             scene_id=_SCENE,
             element_id=ElementId("ch"),

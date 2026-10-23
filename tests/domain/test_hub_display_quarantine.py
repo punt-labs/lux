@@ -29,7 +29,9 @@ def _seeded_with_quarantine(record: QuarantineRecord) -> HubDisplay:
     store = factory.display
     lifecycle = factory.lifecycle
     lifecycle.arrive(_CONN, UNOBSERVED)
-    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t1", content="x")])
+    store.replace_scene(
+        Scope.in_process(_CONN), _SCENE, [TextElement(id="t1", content="x")]
+    )
     store.quarantine(_SCENE, record)
     return store
 
@@ -43,7 +45,9 @@ def test_replace_scene_fires_the_quarantine_cleared_observers() -> None:
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)
 
-    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t2", content="fixed")])
+    store.replace_scene(
+        Scope.in_process(_CONN), _SCENE, [TextElement(id="t2", content="fixed")]
+    )
 
     assert observed == [_SCENE]
     assert not store.is_quarantined(_SCENE)
@@ -55,7 +59,8 @@ def test_remove_element_that_empties_scene_fires_observers() -> None:
     store.add_quarantine_cleared_observer(observed.append)
 
     store.apply(
-        Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=ElementId("t1"))
+        Scope.in_process(_CONN),
+        RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")),
     )
 
     assert observed == [_SCENE]
@@ -74,7 +79,7 @@ def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
     lifecycle = factory.lifecycle
     lifecycle.arrive(_CONN, UNOBSERVED)
     store.show_scene(
-        Scope(_CONN),
+        Scope.in_process(_CONN),
         _SCENE,
         [TextElement(id="t1", content="x")],
         ScenePresentation(frame_id="ttl-frame"),
@@ -100,12 +105,15 @@ def test_observers_are_not_fired_on_a_clean_scene() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     lifecycle.arrive(_CONN, UNOBSERVED)
-    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t1", content="x")])
+    store.replace_scene(
+        Scope.in_process(_CONN), _SCENE, [TextElement(id="t1", content="x")]
+    )
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)
 
     store.apply(
-        Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=ElementId("t1"))
+        Scope.in_process(_CONN),
+        RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")),
     )
 
     assert observed == []
@@ -128,6 +136,8 @@ def test_a_reshow_after_quarantine_needs_full_threshold_before_re_quarantine() -
     store = _seeded_with_quarantine(_record())
     calls: list[SceneId] = []
     store.add_quarantine_cleared_observer(calls.append)
-    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t2", content="fixed")])
+    store.replace_scene(
+        Scope.in_process(_CONN), _SCENE, [TextElement(id="t2", content="fixed")]
+    )
     assert not store.is_quarantined(_SCENE)
     assert calls == [_SCENE]
