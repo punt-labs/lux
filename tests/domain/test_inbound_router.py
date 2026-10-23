@@ -8,7 +8,6 @@ import threading
 
 import pytest
 
-from punt_lux.domain.hub.callback_key import CallbackKey
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
@@ -49,7 +48,7 @@ class TestInteractions:
     def test_an_interaction_is_answered_by_the_handlers_it_was_given(self) -> None:
         handlers = InteractionHandlers()
         seen: list[str] = []
-        handlers.register(CallbackKey("b1", "click"), lambda m: seen.append(m.action))
+        handlers.set_fallback(lambda m: seen.append(m.action))
 
         InboundRouter(handlers).route(_click())
 

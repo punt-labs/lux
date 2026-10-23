@@ -2,8 +2,8 @@
 
 :class:`DisplayLink` is a context manager over a Unix socket that performs
 the ``ReadyMessage`` handshake and exposes typed methods for scenes, pings,
-and queries. :meth:`on_event` + :meth:`start_listener` enable push-based
-dispatch on the listener thread; acks, pongs, and query responses route to
+and queries. :meth:`set_fallback_handler` + :meth:`start_listener` enable
+push-based dispatch on the listener thread; acks, pongs, and query responses route to
 the queues :meth:`show`, :meth:`ping`, and :meth:`query` consume, and
 :class:`ObserverMessage` frames queue as :class:`PolledEvent` for
 :meth:`poll_event`.
@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
-from punt_lux.domain.hub.listener_thread import ListenerThread
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
@@ -64,7 +63,6 @@ class DisplayLink:
     """
 
     _connection: DisplayConnection
-    _listener: ListenerThread
     _replies: DisplayReplies
 
     def __new__(
@@ -89,9 +87,6 @@ class DisplayLink:
             connect_timeout,
         )
         self._replies = DisplayReplies(self._connection, recv_timeout)
-        self._listener = ListenerThread(
-            self._connection, self._replies.route, self._replies.end
-        )
         return self
 
     # -- context manager ---------------------------------------------------
@@ -113,7 +108,7 @@ class DisplayLink:
     @property
     def listener_active(self) -> bool:
         """Whether the background listener thread is running."""
-        return self._listener.alive
+        return self._replies.listening
 
     @property
     def ready_message(self) -> ReadyMessage | None:
@@ -172,11 +167,11 @@ class DisplayLink:
 
         Safe to call multiple times — no-ops if already running.
         """
-        self._listener.start()
+        self._replies.start()
 
     def stop_listener(self) -> None:
         """Stop the background listener thread, if running."""
-        self._listener.stop()
+        self._replies.stop()
 
     # -- sending -----------------------------------------------------------
 
@@ -209,7 +204,7 @@ class DisplayLink:
             frame_layout=frame_layout,
         )
         self.send_scene(presentation.message(scene_id, elements))
-        return self._replies.ack(self._listener)
+        return self._replies.ack()
 
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack."""
@@ -248,7 +243,7 @@ class DisplayLink:
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._connection.send(PingMessage(ts=time.time()))
-        return self._replies.typed(PongMessage, timeout, self._listener)
+        return self._replies.typed(PongMessage, timeout)
 
     def query(
         self,
@@ -258,7 +253,7 @@ class DisplayLink:
     ) -> QueryResponse | None:
         """Send a generic query and wait for the response."""
         self._connection.send(QueryRequest(method=method, params=params or {}))
-        return self._replies.typed(QueryResponse, timeout, self._listener)
+        return self._replies.typed(QueryResponse, timeout)
 
     # -- receiving ---------------------------------------------------------
 
@@ -269,4 +264,4 @@ class DisplayLink:
         ``recv_timeout``); requires an active listener (observer messages are
         push-only).
         """
-        return self._replies.event(timeout, self._listener)
+        return self._replies.event(timeout)

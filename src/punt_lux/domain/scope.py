@@ -36,6 +36,14 @@ class Scope:
     client_host: ClientHost = field(compare=False)
     provenance: Provenance = field(compare=False)
 
+    def __post_init__(self) -> None:
+        if (self.provenance == "observed") != self.client_host.observed:
+            msg = (
+                f"a {self.provenance!r} scope cannot carry host "
+                f"{self.client_host!r}: only an observed scope has one"
+            )
+            raise ValueError(msg)
+
     @classmethod
     def observed(cls, connection_id: ConnectionId, client_host: ClientHost) -> Self:
         """The scope of a contact whose transport reported where it came from.

@@ -6,7 +6,7 @@ import pytest
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.domain.scope import Scope
+from punt_lux.domain.scope import Provenance, Scope
 
 _CONN = ConnectionId("c1")
 _PEER = ClientHost("10.0.0.5")
@@ -49,3 +49,14 @@ def test_a_scope_cannot_be_built_without_saying_where_it_came_from() -> None:
 
 def test_provenance_and_host_are_not_part_of_a_scopes_identity() -> None:
     assert Scope.observed(_CONN, _PEER) == Scope.on_behalf_of(_CONN)
+
+
+@pytest.mark.parametrize("provenance", ["in_process", "on_behalf_of", "client_side"])
+def test_a_scope_that_is_not_observed_refuses_a_host(provenance: Provenance) -> None:
+    with pytest.raises(ValueError, match="only an observed scope"):
+        Scope(_CONN, _PEER, provenance)
+
+
+def test_an_observed_scope_refuses_no_host() -> None:
+    with pytest.raises(ValueError, match="only an observed scope"):
+        Scope(_CONN, UNOBSERVED, "observed")

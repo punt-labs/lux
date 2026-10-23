@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
+from punt_lux.domain.hub.listener_thread import ListenerThread
 from punt_lux.protocol import AckMessage
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.hub.display_connection import DisplayConnection
-    from punt_lux.domain.hub.listener_thread import ListenerThread
     from punt_lux.polled_event import PolledEvent
     from punt_lux.protocol import Message, RemoteEventHandlerInvocation
 
@@ -39,8 +39,9 @@ class DisplayReplies:
     _connection: DisplayConnection
     _handlers: InteractionHandlers
     _inbound: InboundRouter
+    _listener: ListenerThread
     _budget: float
-    __slots__ = ("_budget", "_connection", "_handlers", "_inbound")
+    __slots__ = ("_budget", "_connection", "_handlers", "_inbound", "_listener")
 
     def __new__(
         cls,
@@ -51,8 +52,22 @@ class DisplayReplies:
         self._connection = connection
         self._handlers = InteractionHandlers()
         self._inbound = InboundRouter(self._handlers)
+        self._listener = ListenerThread(connection, self.route, self.end)
         self._budget = budget
         return self
+
+    @property
+    def listening(self) -> bool:
+        """Whether the listener thread is running."""
+        return self._listener.alive
+
+    def start(self) -> None:
+        """Start the listener thread; a no-op if it is already running."""
+        self._listener.start()
+
+    def stop(self) -> None:
+        """Stop the listener thread, if running."""
+        self._listener.stop()
 
     def route(self, msg: Message) -> None:
         """Send a message the display sent to where it is waited for."""
@@ -70,9 +85,7 @@ class DisplayReplies:
             self._connection.close()
             self._inbound.reset()
 
-    def typed[T: Message](
-        self, expected: type[T], wait: float | None, listener: ListenerThread
-    ) -> T | None:
+    def typed[T: Message](self, expected: type[T], wait: float | None) -> T | None:
         """Wait for one ``expected`` reply, active listener or inline read.
 
         Both a ping and a query send a request and then wait for exactly one typed
@@ -81,9 +94,9 @@ class DisplayReplies:
         path sees along the way. ``wait`` of ``None`` is the standing budget.
         """
         deadline = time.monotonic() + (self._budget if wait is None else wait)
-        if listener.alive:
+        if self._listener.alive:
             remaining = deadline - time.monotonic()
-            return self._inbound.next_reply(expected, remaining, listener)
+            return self._inbound.next_reply(expected, remaining, self._listener)
         self._connection.require()
         while True:
             remaining = deadline - time.monotonic()
@@ -97,7 +110,7 @@ class DisplayReplies:
             kind = type(received).__name__
             logger.debug("%s: dropping interleaved %s frame", expected.__name__, kind)
 
-    def ack(self, listener: ListenerThread) -> AckMessage | None:
+    def ack(self) -> AckMessage | None:
         """Receive expecting an AckMessage.  Drops interleaved frames.
 
         Thread-safe.  When the listener is active, blocks on the reply queues.
@@ -107,11 +120,11 @@ class DisplayReplies:
         Raises RuntimeError if called from the listener thread (would deadlock
         because the listener is the only ack producer).
         """
-        if listener.is_current:
+        if self._listener.is_current:
             err = "Cannot call blocking _recv_ack from the listener thread"
             raise RuntimeError(err)
-        if listener.alive:
-            return self._inbound.next_ack(self._budget, listener)
+        if self._listener.alive:
+            return self._inbound.next_ack(self._budget, self._listener)
         self._connection.require()
         deadline = time.monotonic() + self._budget
         while True:
@@ -125,7 +138,7 @@ class DisplayReplies:
                 return msg
             logger.debug("_recv_ack: dropping interleaved %s frame", type(msg).__name__)
 
-    def event(self, wait: float | None, listener: ListenerThread) -> PolledEvent:
+    def event(self, wait: float | None) -> PolledEvent:
         """Block for the next subscribed business event (a :class:`PolledEvent`).
 
         Raises ``TimeoutError`` after ``wait`` seconds (default the standing
@@ -135,7 +148,7 @@ class DisplayReplies:
         not a ``RuntimeError`` claiming it never started.
         """
         self._connection.require()
-        if not listener.started:
+        if not self._listener.started:
             err = (
                 "poll_event requires an active listener — "
                 "call start_listener() after connect()"
@@ -145,7 +158,7 @@ class DisplayReplies:
         try:
             return self._inbound.next_event(t)
         except queue.Empty as exc:
-            if not listener.alive:
+            if not self._listener.alive:
                 err = (
                     f"no business event arrived within {t}s "
                     "and the listener thread has exited"

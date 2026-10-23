@@ -1,11 +1,10 @@
 """``ClientRegistry`` — reconnect listener restart and the DES-068 connect hook.
 
 The original ``with_reconnect`` reconnected the socket but never
-restarted the background listener. Push-mode callers (callbacks
-registered via ``on_event``, ``poll_event`` blocked on
-``_event_queue``) silently stopped receiving frames after the first
-``OSError`` recovered by the registry — the socket was healthy, the
-listener thread was dead.
+restarted the background listener. Push-mode callers (the fallback handler,
+``poll_event`` blocked on ``_event_queue``) silently stopped receiving frames
+after the first ``OSError`` recovered by the registry — the socket was healthy,
+the listener thread was dead.
 
 ``_connect_and_reconcile`` is the one choke point every fresh low-level
 connect passes through (DES-068): it sends the manifest and marks the
