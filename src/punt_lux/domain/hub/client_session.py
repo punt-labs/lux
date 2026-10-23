@@ -44,7 +44,8 @@ class ClientSession:
     _identity: ClientIdentity | None
     _lease: SessionLease
     _slot: ListenerSlot
-    __slots__ = ("_connected_at", "_identity", "_lease", "_slot")
+    _peers: tuple[str, ...]
+    __slots__ = ("_connected_at", "_identity", "_lease", "_peers", "_slot")
 
     def __new__(
         cls,
@@ -52,6 +53,7 @@ class ClientSession:
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
         slot: ListenerSlot | None = None,
+        peers: tuple[str, ...] = (),
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -61,6 +63,7 @@ class ClientSession:
         )
         # Absent means the empty slot — the default for a session with no leg yet.
         self._slot = slot if slot is not None else ListenerSlot()
+        self._peers = peers
         return self
 
     @property
@@ -72,6 +75,31 @@ class ClientSession:
     def identity(self) -> ClientIdentity | None:
         """The declared identity, or ``None`` while the session is unidentified."""
         return self._identity
+
+    @property
+    def peers(self) -> tuple[str, ...]:
+        """The distinct hosts the Hub observed this session connecting from.
+
+        First-seen order. Observed on the transport, never declared: the identity
+        carries no host field, and no header is read (DES-099).
+        """
+        return self._peers
+
+    def observed_from(self, host: str | None) -> ClientSession:
+        """Return this session also known to have been reached from ``host``.
+
+        ``None`` is a transport that reported no peer, and records nothing; a host
+        already seen is not repeated.
+        """
+        if host is None or host in self._peers:
+            return self
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot,
+            (*self._peers, host),
+        )
 
     @property
     def callbacks(self) -> tuple[SessionCallback, ...]:
@@ -126,7 +154,9 @@ class ClientSession:
     def renewed(self, now: float) -> ClientSession:
         """Return this session with its lease renewed at ``now``; any contact renews."""
         lease = self._lease.renewed(now)
-        return ClientSession(self._connected_at, self._identity, lease, self._slot)
+        return ClientSession(
+            self._connected_at, self._identity, lease, self._slot, self._peers
+        )
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
         """Return this session carrying ``identity`` and the lease it declared.
@@ -140,7 +170,9 @@ class ClientSession:
         lease = SessionLease.for_declared(
             identity.kind, identity.lease_ttl, self._lease.renewed_at
         )
-        return ClientSession(self._connected_at, identity, lease, self._slot)
+        return ClientSession(
+            self._connected_at, identity, lease, self._slot, self._peers
+        )
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:
         """Return this session also owning ``callback``, last write winning by id.
@@ -152,6 +184,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.with_callback(callback),
+            self._peers,
         )
 
     def attached(self, listener: CallbackListener) -> ClientSession:
@@ -168,6 +201,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.occupied_by(listener),
+            self._peers,
         )
 
     # None == stale: not this listener's session; a normal decline, not a failure.
@@ -185,7 +219,11 @@ class ClientSession:
         """
         return (
             ClientSession(
-                self._connected_at, self._identity, self._lease, self._slot.released()
+                self._connected_at,
+                self._identity,
+                self._lease,
+                self._slot.released(),
+                self._peers,
             )
             if self._slot.held_by(listener)
             else None

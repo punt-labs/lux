@@ -22,7 +22,7 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
-from punt_lux.tools.server import _session_key
+from punt_lux.tools.server import _session_key, current_peer
 
 __all__ = [
     "OPERATIONS",
@@ -47,8 +47,12 @@ def _connection_id() -> ConnectionId:
 
 
 def _scope() -> Scope:
-    """Resolve the calling MCP session's operation scope."""
-    return Scope(_connection_id())
+    """Resolve the calling MCP session's operation scope, peer included.
+
+    The one place a tool's scope is built: ``identify`` is reachable only through
+    here, and the peer it records is the host observed when the session connected.
+    """
+    return Scope(_connection_id(), current_peer())
 
 
 def _identity() -> ClientIdentity:

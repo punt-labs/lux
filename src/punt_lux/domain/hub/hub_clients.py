@@ -67,7 +67,10 @@ class HubClientRegistry:
         return ListenerLegs(self._sessions, self._lock, self._clock)
 
     def record(
-        self, connection_id: ConnectionId, identity: ClientIdentity | None = None
+        self,
+        connection_id: ConnectionId,
+        identity: ClientIdentity | None = None,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
     ) -> SessionWrite:
         """Upsert the connection's session, renewing its lease and any identity.
 
@@ -78,7 +81,7 @@ class HubClientRegistry:
         """
         with self._lock:
             write = SessionWrite.recorded(
-                self._sessions.get(connection_id), self._clock(), identity
+                self._sessions.get(connection_id), self._clock(), identity, peer
             )
             self._sessions[connection_id] = write.after
             return write

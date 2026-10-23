@@ -298,3 +298,27 @@ class TestPeriodicSweepLifespan:
             assert task.cancelled()
 
         asyncio.run(drive())  # exits cleanly — no exception escaped the block
+
+
+class TestServerConfig:
+    """The uvicorn config luxd serves with is the one the observed peer relies on."""
+
+    def test_forwarding_headers_are_not_trusted(self) -> None:
+        # TestClient never installs uvicorn's proxy middleware, so a request with
+        # X-Forwarded-For proves nothing about it; the setting itself is the
+        # contract. With it on, any loopback caller could name its own "observed"
+        # host.
+        from punt_lux.luxd import _ServerConfig
+
+        config = _ServerConfig(FastAPI(), "127.0.0.1", 0).config()
+
+        assert config.proxy_headers is False
+
+    def test_the_bind_and_shutdown_bound_are_kept(self) -> None:
+        from punt_lux.luxd import _ServerConfig
+
+        config = _ServerConfig(FastAPI(), "127.0.0.1", 8123).config()
+
+        assert (config.host, config.port) == ("127.0.0.1", 8123)
+        assert config.timeout_graceful_shutdown == 10
+        assert config.access_log is False

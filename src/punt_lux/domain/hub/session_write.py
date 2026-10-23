@@ -56,12 +56,22 @@ class SessionWrite:
 
     @classmethod
     def recorded(
-        cls, before: ClientSession | None, now: float, identity: ClientIdentity | None
+        cls,
+        before: ClientSession | None,
+        now: float,
+        identity: ClientIdentity | None,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
     ) -> Self:
-        """Renew ``before`` at ``now`` (or start a session), declaring ``identity``."""
+        """Renew ``before`` at ``now`` (or start a session), declaring ``identity``.
+
+        ``peer`` is the host the transport observed; it is recorded beside the
+        identity, in the same write, so a resend triggered by identification
+        already carries it.
+        """
         base = before.renewed(now) if before is not None else ClientSession(now)
+        seen = base.observed_from(peer)
         return cls(
-            before, base if identity is None else base.with_identity(identity), now
+            before, seen if identity is None else seen.with_identity(identity), now
         )
 
     @classmethod
@@ -71,21 +81,25 @@ class SessionWrite:
         now: float,
         identity: ClientIdentity,
         listener: CallbackListener,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
     ) -> Self:
         """Record ``identity`` as in :meth:`recorded`, and seat ``listener``."""
-        declared = cls.recorded(before, now, identity)
+        declared = cls.recorded(before, now, identity, peer)
         return cls(before, declared.after.attached(listener), now)
 
     @property
     def identified(self) -> bool:
-        """Whether the write changed who the session says it is.
+        """Whether the write changed who the session is, or where it was seen from.
 
         A repository-kind client may register no callback, so presence can hold
-        while the connection has just been named; this is the signal that its
-        windows are owed a retitle.
+        while the connection has just been named; this is the signal that what
+        the Hub shows of it -- its title and its host -- is owed a resend. A
+        new distinct peer counts: the popup's host row would otherwise stay stale.
         """
-        prior = None if self.before is None else self.before.identity
-        return prior != self.after.identity
+        before = self.before
+        prior_identity = None if before is None else before.identity
+        prior_peers = () if before is None else before.peers
+        return prior_identity != self.after.identity or prior_peers != self.after.peers
 
     @property
     def presence(self) -> PresenceChange:

@@ -9,9 +9,11 @@ session's task is spawned; absent that binding it stays at the default.
 from __future__ import annotations
 
 import logging
-from contextvars import ContextVar, Token
+from contextvars import ContextVar
 
 from fastmcp import FastMCP
+
+from punt_lux.tools.session_binding import SessionBinding
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +47,33 @@ mcp = FastMCP(
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
-def bind_session(session_key: str) -> Token[str]:
-    """Bind the calling context to an MCP session identity; return the reset token.
+# The host the transport observed when the session's task was spawned. None on
+# stdio and in-process calls, which have no peer; the row then reads "unknown".
+_peer_host: ContextVar[str | None] = ContextVar("peer_host", default=None)
+
+
+def bind_session(session_key: str, peer: str | None = None) -> SessionBinding:
+    """Bind the calling context to an MCP session; return the binding to release.
 
     luxd's transport leg binds a session before the SDK spawns its task, so the
-    copied task context carries the identity to every tool and the cleanup
-    cascade. The returned token releases the binding via :func:`unbind_session`.
+    copied task context carries the identity -- and the peer observed at connect
+    -- to every tool and the cleanup cascade. The returned binding releases both
+    via :func:`unbind_session`.
     """
-    return _session_key.set(session_key)
+    return SessionBinding(_session_key.set(session_key), _peer_host.set(peer))
 
 
-def unbind_session(token: Token[str]) -> None:
+def unbind_session(binding: SessionBinding) -> None:
     """Release a session binding created by :func:`bind_session`."""
-    _session_key.reset(token)
+    _peer_host.reset(binding.peer)
+    _session_key.reset(binding.key)
 
 
 def current_session() -> str:
     """The MCP session identity bound to the calling context."""
     return _session_key.get()
+
+
+def current_peer() -> str | None:
+    """The host observed when the calling context's session connected, if any."""
+    return _peer_host.get()

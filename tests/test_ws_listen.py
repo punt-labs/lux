@@ -270,6 +270,9 @@ def test_an_unknown_frame_kind_closes_the_connection_as_a_protocol_error() -> No
 class _GoneWebSocket:
     """A WebSocket whose send raises, standing in for a peer that has gone away."""
 
+    # A socket that has gone reports no peer, as Starlette's ``client`` may.
+    client = None
+
     def __init__(self, send_error: Exception) -> None:
         self._send_error = send_error
 

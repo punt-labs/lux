@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from starlette.requests import Request
 
+from punt_lux.peer_host import PeerHost
 from punt_lux.session_key import SessionKey
 from punt_lux.tools.server import bind_session, unbind_session
 
@@ -22,7 +23,8 @@ class McpAsgiApp:
 
     A ``?session_key=`` value becomes the session's :class:`ConnectionId`, bound to
     the calling context before the manager spawns the session's task, so the copied
-    task context carries it to the tools and the cleanup cascade.
+    task context carries it -- and the socket peer observed here -- to the tools and
+    the cleanup cascade.
     """
 
     _manager: StreamableHTTPSessionManager
@@ -34,11 +36,10 @@ class McpAsgiApp:
         return self
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        session = SessionKey.from_request(
-            Request(scope).query_params.get("session_key", "")
-        )
-        token = bind_session(session.value)
+        request = Request(scope)
+        session = SessionKey.from_request(request.query_params.get("session_key", ""))
+        binding = bind_session(session.value, PeerHost(request).host)
         try:
             await self._manager.handle_request(scope, receive, send)
         finally:
-            unbind_session(token)
+            unbind_session(binding)

@@ -78,20 +78,30 @@ class ClientLifecycle:
         with self._lock.write():
             self._settle(connection_id, self._clients.record(connection_id))
 
-    def identify(self, connection_id: ConnectionId, identity: ClientIdentity) -> None:
-        """Record the identity the connection declared, registering it if new."""
+    def identify(
+        self,
+        connection_id: ConnectionId,
+        identity: ClientIdentity,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+    ) -> None:
+        """Record the identity the connection declared, and the host it came from."""
         with self._lock.write():
-            self._settle(connection_id, self._clients.record(connection_id, identity))
+            self._settle(
+                connection_id, self._clients.record(connection_id, identity, peer)
+            )
 
     def attach(
         self,
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
     ) -> None:
-        """Take the connection's listener slot, recording ``identity``."""
+        """Take the connection's listener slot, recording ``identity`` and ``peer``."""
         with self._lock.write():
-            attachment = self._clients.legs.attach(connection_id, identity, listener)
+            attachment = self._clients.legs.attach(
+                connection_id, identity, listener, peer
+            )
             self._announce(connection_id, attachment.menu_change)
             self._retitle(connection_id, named=attachment.identified)
 

@@ -37,6 +37,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import Topic
+from punt_lux.peer_host import PeerHost
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     ClientFrames,
@@ -160,7 +161,9 @@ class HubListenSession:
         for an agent that newly appears, so nothing here is bound per attach.
         """
         with self._lifecycle.exclusive():
-            self._lifecycle.attach(self._conn, self._identity, self)
+            self._lifecycle.attach(
+                self._conn, self._identity, self, PeerHost(self._ws).host
+            )
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
@@ -201,7 +204,9 @@ class HubListenSession:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._lifecycle.identify(self._conn, self._identity)
+            self._lifecycle.identify(
+                self._conn, self._identity, PeerHost(self._ws).host
+            )
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:

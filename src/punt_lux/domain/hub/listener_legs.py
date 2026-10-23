@@ -58,6 +58,7 @@ class ListenerLegs:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
+        peer: str | None = None,  # PY-TS-14: a transport may report no peer
     ) -> Attachment:
         """Install ``listener`` as the connection's leg, recording ``identity``.
 
@@ -67,7 +68,11 @@ class ListenerLegs:
         """
         with self._lock:
             write = SessionWrite.attached(
-                self._sessions.get(connection_id), self._clock(), identity, listener
+                self._sessions.get(connection_id),
+                self._clock(),
+                identity,
+                listener,
+                peer,
             )
             self._sessions[connection_id] = write.after
             return write.attachment
