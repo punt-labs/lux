@@ -9,7 +9,7 @@ at the end. Audited against the tests as they stand on `fix/lux-ghhf-details-fra
 (the model mission writes none).
 
 The model proves three invariants for the fixed design over a bounded carrier
-(`DEFAULT_SETSIZE 2`, 18,900 states, 438,697 transitions, no deadlock, no
+(`DEFAULT_SETSIZE 2`, 18,900 states, 453,277 transitions, no deadlock, no
 counter-example; see the size-3 note under "Fidelity of the model"):
 
 - **P1** with no mark pending, no live session that earns menu presence is
@@ -17,9 +17,10 @@ counter-example; see the size-3 note under "Fidelity of the model"):
   entry may linger, but only until the sweep or the next push.
 - **P2** every registered session that earns presence has exactly one bound
   menu sink; none has more; a departed session has none.
-- **P3** with no scene mark pending, no live session's frame shows a stale
-  label. A lapsed survivor's frame may stay stale only until its revival, and
-  the revival marks its scenes.
+- **P3** per connection: a live session's frame shows its current label unless
+  that session's own scenes carry a pending mark. A lapsed survivor's frame may
+  stay stale only until its revival, and the revival marks its scenes. (With no
+  scene mark pending at all, no live frame is stale: the global corollary.)
 
 A session earns presence two ways: it is an agent (kind alone), or it holds a
 callback. The callback route is what the earlier revision of the model elided
@@ -32,19 +33,32 @@ and what hid the first of the two defects below.
 | INV-1 | `ListenerLegs.register_callback` (and `detach`) write presence under the registry lock only, from `CallbackOperations` and `ws_listen`, with no store lock, no sink bound, the mark raised by hand. A lapse then departs the session with no sink to fire: the entry lingers past the sweep (P1, P2). | `RegisterCallback` and `Detach` are `ClientLifecycle` steps: store lock, then registry lock, then mark and bind the one shared sink. |
 | INV-2 | A survivor renumbered while its lease is lapsed-but-unswept is resolved to no label (`FrameOwnerFacts.facts_for` reads live sessions only); a later renewal marks the menus and never the survivor's scenes. | Every step that ends a lapse (`Renew`, `Connect`, `AgentRecord`, `AppletAttach`, `RegisterCallback`) also marks the connection's scenes. |
 
-## What the model adds that the findings do not say (INV-1b)
+## What the model adds that the findings do not say (INV-1b, M1)
 
-Marking on withdrawal must not be gated on the lease. A lapsed callback-only
-applet whose entry is still on the Display, and whose callbacks are then
-withdrawn (`detach`, or a re-attach that clears them), is neither listed before
-nor after: `MenuListing.change_to` reads `unchanged`, so a `detach` that merely
-announces a `PresenceChange` raises no mark. The entry then stays, and the sweep
-that departs the now non-earning session fires nothing worth the name.
-Today's code is right by accident: `ws_listen._teardown` marks by hand and
-`Attachment.menu_change` turns `attached_over_callbacks` into `revised`.
-`ClientLifecycle.detach` and the callback-clearing path of `attach` must mark
-on *any* loss from the earning set, live or lapsed. The control
-`menu_presence_inv1b_buggy.tex` reproduces the lease-gated alternative.
+`MenuListing.change_to` compares *lease-filtered* listings, so a withdrawal made
+during a lapse is invisible to it. A lapsed callback-only applet whose entry is
+still on the Display, and whose callbacks are then withdrawn (`detach`, or a
+re-attach that clears them), is neither listed before nor after: it reads
+`unchanged` and no mark is raised. A re-attach renews the lease, so the session
+is then live, non-earning and still shown; it keeps renewing, is never swept, and
+the entry stays for good. Witness (`menu_presence_inv1b_buggy.tex`):
+`AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)`,
+reaching the goal "no mark pending and a registered, live, non-earning session
+is shown". The same root makes **M1** a ghost: a lapsed agent that re-identifies
+as a non-agent (a `cli`) reads `unchanged` and is renewed; witness
+(`menu_presence_redeclare_buggy.tex`): `Identify(c); Push; LeaseLapse(c);
+Redeclare(c)`.
+
+Today's code is right by accident for `detach`: `ws_listen._teardown` marks by
+hand and `Attachment.menu_change` turns `attached_over_callbacks` into
+`revised`. It is not right for re-identification.
+
+**The rule, stated once, in `MenuListing`:** a session that *earned before,
+ignoring the lease*, and does not earn after, reads `revised`, whatever the lease
+says. That single rule covers `detach`, attach-over-callbacks and re-identify as
+a non-agent together; a gain still reads the lease (not live before, live and
+earning after, is `gained`). The implementer puts it where every route passes
+rather than adding a mark per step.
 
 Likewise the INV-2 repair must key on the lapse ending (the session was not
 live, now is), not on `PresenceChange == "gained"`: a session that earns
@@ -92,14 +106,15 @@ counter-example. Every file carries its own commands in its header.
 | D5 before-snapshot outside the lock | `menu_presence_d5_buggy.tex` | P1 and P2 | `Attach(c); IdentifyRead(c); DropGraceful(c, {}); Push; IdentifyWrite(c)` |
 | D6 a sink bound per attach | `menu_presence_d6_buggy.tex` | P2 | `Identify(c); Attach(c)` |
 | INV-1 callback written under the registry lock only, no sink | `menu_presence_inv1_buggy.tex` | P2 and P1 | P2: `AppletAttach(c); RegisterCallback(c)`; P1: the same, then `Push; DropGraceful(c, {})` |
-| INV-1b withdrawal mark gated on the lease | `menu_presence_inv1b_buggy.tex` | P1 | `AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); Detach(c)` |
-| INV-2 a revival marks the menus, not the scenes | `menu_presence_inv2_buggy.tex` | P3 | `Connect(c1); Connect(c2); LeaseLapse(c1); DropGraceful(c2, {c1}); PushScenes; Renew(c1)` |
+| INV-1b withdrawal mark gated on the lease | `menu_presence_inv1b_buggy.tex` | P1 | `AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)` (live ghost; `Detach(c)` last leaves the lapsed variant) |
+| INV-2 a revival marks the menus, not the scenes | `menu_presence_inv2_buggy.tex` | P3 (per connection) | `Connect(c1); Connect(c2); LeaseLapse(c1); DropGraceful(c2, {c1}); PushScenes; Renew(c1)` |
+| M1 withdrawal mark gated on the lease, on re-identify as a non-agent | `menu_presence_redeclare_buggy.tex` | P1 | `Identify(c); Push; LeaseLapse(c); Redeclare(c)` |
 | registry-owned hook | `menu_presence_locks_inverted_buggy.tex` | deadlock | `BeginRegistryWrite(t2); BeginCallbackWrite(t1)` (also `BeginWrite(t1); BeginRegistryWrite(t2)`) |
 
-All eight state-model controls and the lock control were run at `DEFAULT_SETSIZE 2`
-and found their negation. The five earlier controls were regenerated on the
-extended base, so each differs from the fixed model in the one operation it
-always did.
+All nine state-model controls and the lock control were run at `DEFAULT_SETSIZE 2`
+and found their negation. The controls are generated from the fixed model, so
+each differs from it in its one defect (INV-1b and INV-2 apply one rule at each
+of its sites). In particular d3, d5 and d6 keep the revival's scene mark.
 
 ## Partitions
 
@@ -124,6 +139,7 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | A9 | departure lands just before the record | marks; one sink; later departure marks | `test_identity_menu.py::test_a_departure_landing_before_the_record_still_marks_and_binds` (the before-snapshot window itself no longer exists; the test pins the end state under the lock) | covered |
 | A10 | non-agent identify (a cli) | no mark; no sink | `test_identity_menu.py::test_a_cli_identify_marks_nothing_and_binds_no_sink` | covered |
 | A11 | the record and the bind are one step | a departure cannot interleave | `test_identity_menu.py::test_a_departure_cannot_interleave_with_binding_the_sink` | covered |
+| A12 | a lapsed agent re-identifies as a non-agent (a `cli`) | marks; its entry is gone; scenes marked; no ghost after the lease renews | none | **MISSING** (M1) |
 
 ### C: the callback route (INV-1)
 
@@ -234,6 +250,9 @@ constructor takes no `ListenerLegs`)
 
 `tests/domain/test_client_lifecycle_callbacks.py` (new; mirrors `client_lifecycle.py`)
 
+- `test_a_lapsed_agent_that_re_identifies_as_a_cli_marks_menus_and_its_entry_is_gone` (A12, M1, fail first: identify as an `mcp-session`, push, advance the clock past the lease, identify the same connection as a `cli`, assert the menu mark and an empty roster; then assert the entry stays gone after further renewals)
+- `test_a_live_agent_that_re_identifies_as_a_cli_marks_menus` (A12, the live half)
+- `test_withdrawal_reads_revised_whatever_the_lease_says` (the single `MenuListing` rule: unit test of `change_to` for earned-before-unfiltered and not-earning-after, lapsed and live)
 - `test_register_callback_writes_under_the_store_lock` (C4)
 - `test_detach_of_a_callback_only_applet_marks_menus_and_keeps_the_session_and_its_sink` (C6)
 - `test_detach_of_a_lapsed_callback_only_applet_still_marks_menus` (C7, INV-1b, fail first against a lease-gated announce)
@@ -267,9 +286,9 @@ constructor takes no `ListenerLegs`)
 ## Definition of done for the implementation mission
 
 1. Every **MISSING** and **partial** partition above has a test, each failing
-   before the fix and passing after it (C3, C7, B6 first: they are the open
+   before the fix and passing after it (C3, C7, A12, B6 first: they are the open
    defects).
-2. `menu_presence.tex` and the eight state-model controls re-run unchanged: the
+2. `menu_presence.tex` and the nine state-model controls re-run unchanged: the
    fixed spec reports no P1, P2 or P3 counter-example and no deadlock; each
    control reports its negation found; the lock model reports no deadlock and its
    inverted control a deadlock.
