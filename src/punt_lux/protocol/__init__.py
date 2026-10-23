@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import socket
 import struct
-from typing import Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -70,6 +70,9 @@ from punt_lux.protocol.messages import (
     message_from_dict,
     message_to_dict,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 __all__ = [
     "HEADER_FORMAT",
@@ -208,31 +211,52 @@ class FrameReader:
         """Append raw bytes received from the socket."""
         self._buf.extend(data)
 
+    def head(self, count: int) -> bytes:
+        """The first ``count`` buffered bytes -- what a malformed frame starts with."""
+        return bytes(self._buf[:count])
+
     def drain(self) -> list[dict[str, Any]]:
         """Extract all complete messages from the buffer as raw dicts."""
         messages: list[dict[str, Any]] = []
-        while len(self._buf) >= HEADER_SIZE:
-            (payload_len,) = struct.unpack_from(HEADER_FORMAT, self._buf, 0)
-            if payload_len > MAX_MESSAGE_SIZE:
-                err = (
-                    f"Message exceeds maximum size: {payload_len} > {MAX_MESSAGE_SIZE}"
-                )
-                raise ValueError(err)
-            total = HEADER_SIZE + payload_len
-            if len(self._buf) < total:
-                break
-            payload_bytes = bytes(self._buf[HEADER_SIZE:total])
-            raw = json.loads(payload_bytes)
-            if not isinstance(raw, dict):
-                msg = f"Expected JSON object, got {type(raw).__name__}"
-                raise ValueError(msg)
+        while (framed := self._next_frame()) is not None:
+            raw, total = framed
             del self._buf[:total]
-            messages.append(cast("dict[str, Any]", raw))
+            messages.append(raw)
         return messages
 
     def drain_typed(self) -> list[Message]:
         """Like drain(), but returns typed Message dataclasses."""
         return [message_from_dict(d) for d in self.drain()]
+
+    def iter_typed(self) -> Iterator[Message]:
+        """Yield each complete message as it is decoded, one frame at a time.
+
+        A frame that cannot be decoded raises and stays at the head of the
+        buffer, so everything before it has already been yielded and
+        :meth:`head` still shows what the bad frame began with.
+        """
+        while (framed := self._next_frame()) is not None:
+            raw, total = framed
+            message = message_from_dict(raw)
+            del self._buf[:total]
+            yield message
+
+    def _next_frame(self) -> tuple[dict[str, Any], int] | None:
+        """Parse the first complete frame without consuming it; ``None`` if partial."""
+        if len(self._buf) < HEADER_SIZE:
+            return None
+        (payload_len,) = struct.unpack_from(HEADER_FORMAT, self._buf, 0)
+        if payload_len > MAX_MESSAGE_SIZE:
+            err = f"Message exceeds maximum size: {payload_len} > {MAX_MESSAGE_SIZE}"
+            raise ValueError(err)
+        total = HEADER_SIZE + payload_len
+        if len(self._buf) < total:
+            return None
+        raw = json.loads(bytes(self._buf[HEADER_SIZE:total]))
+        if not isinstance(raw, dict):
+            msg = f"Expected JSON object, got {type(raw).__name__}"
+            raise ValueError(msg)
+        return cast("dict[str, Any]", raw), total
 
 
 # ---------------------------------------------------------------------------

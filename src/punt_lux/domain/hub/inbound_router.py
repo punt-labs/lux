@@ -14,7 +14,7 @@ import logging
 import queue
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.reply_queues import ReplyQueues
+from punt_lux.domain.hub.reply_queues import ReplyQueues, drain_queue
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
     AckMessage,
@@ -40,6 +40,7 @@ class InboundRouter:
     _handlers: InteractionHandlers
     _replies: ReplyQueues
     _events: queue.SimpleQueue[PolledEvent]
+    __slots__ = ("_events", "_handlers", "_replies")
 
     def __new__(cls, handlers: InteractionHandlers) -> Self:
         self = super().__new__(cls)
@@ -66,12 +67,12 @@ class InboundRouter:
     def reset(self) -> None:
         """Discard stragglers a dying listener left, on connection close.
 
-        A dying listener may still be mid-put; replacing the event queue
-        outright (rather than draining it) can never race that put, and any
-        straggler it lands in is simply collected with the old queue.
+        The queue is drained in place and never rebound: a caller blocked in
+        :meth:`next_event` holds that queue, and a replacement would leave it
+        waiting on one nothing will ever put to.
         """
         self._replies.drain()
-        self._events = queue.SimpleQueue()
+        drain_queue(self._events)
 
     def route(self, msg: Message) -> None:
         """Send ``msg`` to its destination by kind; unknown kinds are dropped."""

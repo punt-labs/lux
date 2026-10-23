@@ -10,6 +10,7 @@ thread are clients of it and share no socket state of their own.
 from __future__ import annotations
 
 import contextlib
+import select
 import threading
 from typing import TYPE_CHECKING, Self, final
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     import socket
 
     from punt_lux.domain.hub.display_dialer import DisplayDialer
+    from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.protocol import Message, ReadyMessage
 
 __all__ = ["DisplayConnection"]
@@ -33,34 +35,36 @@ class DisplayConnection:
 
     _dialer: DisplayDialer
     _connect_timeout: float
-    # None = not connected; the socket and its ready message come and go together.
-    _sock: socket.socket | None
-    _ready: ReadyMessage | None
+    # None = not connected; the socket, its endpoint and its ready message are one
+    # handshake's result and come and go together.
+    _open: HandshakeResult | None
     _lock: threading.Lock
+    __slots__ = ("_connect_timeout", "_dialer", "_lock", "_open")
 
     def __new__(cls, dialer: DisplayDialer, connect_timeout: float) -> Self:
         self = super().__new__(cls)
         self._dialer = dialer
         self._connect_timeout = connect_timeout
-        self._sock = None
-        self._ready = None
+        self._open = None
         self._lock = threading.Lock()
         return self
 
     @property
     def is_open(self) -> bool:
         """Whether a socket is currently held."""
-        return self._sock is not None
+        return self._open is not None
 
     @property
     def ready(self) -> ReadyMessage | None:
         """The ``ReadyMessage`` the handshake received, or ``None`` if not open."""
-        return self._ready
+        held = self._open
+        return None if held is None else held.ready
 
     @property
-    def current(self) -> socket.socket | None:
-        """The socket held right now, or ``None`` -- it can change on reconnect."""
-        return self._sock
+    def endpoint(self) -> str:
+        """The label of the display this is open to, or ``"not connected"``."""
+        held = self._open
+        return "not connected" if held is None else held.endpoint
 
     def open(self) -> None:
         """Dial the display and complete the handshake; a no-op if already open.
@@ -68,26 +72,25 @@ class DisplayConnection:
         Raises :class:`DisplayNotConnectedError` if the display cannot be
         reached or the handshake fails.
         """
-        if self._sock is not None:
+        if self._open is not None:
             return
-        result = self._dialer.dial(self._connect_timeout)
-        self._sock = result.sock
-        self._ready = result.ready
+        self._open = self._dialer.dial(self._connect_timeout)
 
     def close(self) -> None:
         """Close the socket, if open."""
-        if self._sock is not None:
+        held = self._open
+        if held is not None:
             with contextlib.suppress(OSError):
-                self._sock.close()
-            self._sock = None
-            self._ready = None
+                held.sock.close()
+            self._open = None
 
     def require(self) -> socket.socket:
-        """Return the open socket, or raise if the link was never connected."""
-        if self._sock is None:
-            msg = "Not connected — call connect() or use as context manager"
+        """Return the open socket, or raise if the connection is not open."""
+        held = self._open
+        if held is None:
+            msg = "Not connected — open() the display connection first"
             raise RuntimeError(msg)
-        return self._sock
+        return held.sock
 
     @trace
     def send(self, msg: Message) -> None:
@@ -97,11 +100,22 @@ class DisplayConnection:
         with self._lock:
             sock.sendall(wire)
 
-    def read_chunk(self, sock: socket.socket) -> bytes:
-        """Read what ``sock`` has available, serialized against writers.
+    def poll_chunk(self, timeout: float) -> bytes | None:
+        """Wait up to ``timeout`` for the display to say something, and read it.
 
-        Empty bytes mean the display closed the connection; ``OSError``
-        propagates for the listener to report.
+        ``None`` means nothing arrived in time; empty bytes mean the display
+        closed the connection. The socket never leaves the connection: the wait
+        and the read both happen here, the read serialized against writers.
+        ``OSError`` or ``ValueError`` propagate when the connection is, or is
+        closed under the wait, for the listener to report.
         """
+        held = self._open
+        if held is None:
+            msg = "the display connection is closed"
+            raise OSError(msg)
+        sock = held.sock
+        readable, _, _ = select.select([sock], [], [], timeout)
+        if not readable:
+            return None
         with self._lock:
             return sock.recv(_READ_CHUNK)

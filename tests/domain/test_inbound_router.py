@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import threading
 
 import pytest
 
@@ -114,3 +115,25 @@ class TestUnroutableMessages:
         assert "Dropping unhandled message: HubManifestMessage" in caplog.text
         with pytest.raises(queue.Empty):
             router.next_event(0.01)
+
+
+class TestResetKeepsTheEventQueue:
+    def test_a_waiter_blocked_across_a_reset_still_hears_the_next_event(self) -> None:
+        router = InboundRouter(InteractionHandlers())
+        heard: list[PolledEvent] = []
+        waiting = threading.Event()
+
+        def wait() -> None:
+            waiting.set()
+            heard.append(router.next_event(5.0))
+
+        waiter = threading.Thread(target=wait)
+        waiter.start()
+        waiting.wait(timeout=3)
+        threading.Event().wait(0.1)
+
+        router.reset()
+        router.route(ObserverMessage(topic="t", payload={"k": "after"}))
+        waiter.join(timeout=5)
+
+        assert heard == [PolledEvent(topic="t", payload={"k": "after"})]

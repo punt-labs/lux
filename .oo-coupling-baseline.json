@@ -2495,8 +2495,8 @@
     "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.417,
-    "avg_lcom": 0.417
+    "max_lcom": 0.167,
+    "avg_lcom": 0.167
   },
   "src/punt_lux/domain/hub/display_dialer.py": {
     "efferent_coupling": 0.0,
@@ -2733,8 +2733,8 @@
     "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.143,
-    "avg_lcom": 0.143
+    "max_lcom": 0.357,
+    "avg_lcom": 0.357
   },
   "src/punt_lux/domain/hub/liveness.py": {
     "efferent_coupling": 2.0,
@@ -2920,7 +2920,7 @@
   },
   "src/punt_lux/domain/hub/reply_queues.py": {
     "efferent_coupling": 1.0,
-    "public_names": 1.0,
+    "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.1,
     "avg_lcom": 0.1
@@ -3867,8 +3867,8 @@
     "efferent_coupling": 2.0,
     "public_names": 62.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.4,
-    "avg_lcom": 0.4
+    "max_lcom": 0.25,
+    "avg_lcom": 0.25
   },
   "src/punt_lux/protocol/agent_factory.py": {
     "efferent_coupling": 3.0,

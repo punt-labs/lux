@@ -3,15 +3,14 @@
 Extracted from :class:`~punt_lux.domain.hub.display_link.DisplayLink`
 (PY-IC-6): the link owns the connection and what it sends; reading what comes
 back on a daemon thread, until it is stopped or the socket goes away, is a
-separate concern. The thread reads whatever socket the link currently holds
-(it can change across a reconnect), reads through the connection so a read is
-never interleaved with a send, and hands every decoded message to ``route``.
+separate concern. The thread reads through the connection, which owns the
+socket (it can change across a reconnect) and serializes a read against a send,
+and hands every decoded message to ``route`` as it is decoded.
 """
 
 from __future__ import annotations
 
 import logging
-import select
 import threading
 from typing import TYPE_CHECKING, Self, final
 
@@ -28,18 +27,25 @@ logger = logging.getLogger(__name__)
 __all__ = ["ListenerThread"]
 
 _JOIN_TIMEOUT = 2.0
+# How long one wait for the display runs before the loop re-checks its stop flag.
+_POLL_SECONDS = 0.1
+# How much of a malformed frame the log shows.
+_HEAD_BYTES = 64
 
 
 @final
 class ListenerThread:
-    """Start, stop and run the read loop over the link's current socket."""
+    """Start, stop and run the read loop over the link's current connection."""
 
     _connection: DisplayConnection
     _route: Callable[[Message], None]
     # None = never started (or stopped and joined); a dead thread is kept so
     # callers can tell "started and has since exited" from "never started".
     _thread: threading.Thread | None
+    # One per thread: a thread that outlived stop() keeps its own, set, and
+    # exits when its handler returns, whatever a later start() does.
     _stopping: threading.Event
+    __slots__ = ("_connection", "_route", "_stopping", "_thread")
 
     def __new__(
         cls, connection: DisplayConnection, route: Callable[[Message], None]
@@ -67,12 +73,20 @@ class ListenerThread:
         return self._thread is threading.current_thread()
 
     def start(self) -> None:
-        """Start the thread; a no-op if it is already running."""
+        """Start the thread; a no-op if it is already running.
+
+        A thread that :meth:`stop` could not join is told to stop and is no
+        longer the listener: it is abandoned, loudly, and a new one started.
+        """
         if self.alive:
-            return
-        self._stopping.clear()
+            if not self._stopping.is_set():
+                return
+            logger.error(
+                "Abandoning a listener thread that did not stop; starting a new one"
+            )
+        self._stopping = threading.Event()
         self._thread = threading.Thread(
-            target=self._run, name="lux-listener", daemon=True
+            target=self._run, args=(self._stopping,), name="lux-listener", daemon=True
         )
         self._thread.start()
 
@@ -88,29 +102,51 @@ class ListenerThread:
         else:
             self._thread = None
 
-    def _run(self) -> None:
-        """Read messages from the socket and route them until told to stop."""
+    def _run(self, stopping: threading.Event) -> None:
+        """Read messages from the connection and route them until told to stop."""
         reader = FrameReader()
-        while not self._stopping.is_set():
-            sock = self._connection.current
-            if sock is None:
-                logger.debug("Listener exiting: socket is None")
+        while not stopping.is_set():
+            if not self._connection.is_open:
+                logger.debug("Listener exiting: connection is closed")
                 break
             try:
-                readable, _, _ = select.select([sock], [], [], 0.1)
+                data = self._connection.poll_chunk(_POLL_SECONDS)
             except (OSError, ValueError) as exc:
-                logger.warning("Listener exiting: select failed: %s", exc)
+                logger.warning("Listener exiting: read failed: %s", exc)
                 break
-            if not readable:
+            if data is None:
                 continue
-            try:
-                data = self._connection.read_chunk(sock)
-            except OSError as exc:
-                logger.warning("Listener exiting: recv failed: %s", exc)
-                break
             if not data:
-                logger.debug("Listener exiting: server closed connection")
+                logger.info(
+                    "Listener exiting: display %s closed the connection",
+                    self._connection.endpoint,
+                )
                 break
             reader.feed(data)
-            for msg in reader.drain_typed():
-                self._route(msg)
+            if not self._routed(reader):
+                break
+
+    def _routed(self, reader: FrameReader) -> bool:
+        """Route every message the reader holds, each as it is decoded.
+
+        A frame that cannot be decoded cannot be skipped -- the stream has no
+        way to say where the next one starts -- so the connection is closed on
+        purpose and the reconnect begins on a frame boundary. Returns whether
+        the stream is still good.
+        """
+        messages = reader.iter_typed()
+        while True:
+            try:
+                msg = next(messages, None)
+            except (ValueError, KeyError, TypeError) as exc:
+                logger.error(
+                    "Listener closing: display %s sent a malformed frame (%s): %r",
+                    self._connection.endpoint,
+                    exc,
+                    reader.head(_HEAD_BYTES),
+                )
+                self._connection.close()
+                return False
+            if msg is None:
+                return True
+            self._route(msg)

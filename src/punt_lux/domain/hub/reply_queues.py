@@ -15,10 +15,10 @@ from typing import Any, Self, cast, final
 
 from punt_lux.protocol import AckMessage, Message, PongMessage, QueryResponse
 
-__all__ = ["ReplyQueues"]
+__all__ = ["ReplyQueues", "drain_queue"]
 
 
-def _drain(q: queue.SimpleQueue[Any]) -> None:
+def drain_queue(q: queue.SimpleQueue[Any]) -> None:
     """Discard all items from a :class:`queue.SimpleQueue`."""
     while True:
         try:
@@ -72,6 +72,6 @@ class ReplyQueues:
 
     def drain(self) -> None:
         """Discard every queued reply -- stragglers from a dying listener."""
-        _drain(self._ack)
-        _drain(self._pong)
-        _drain(self._query)
+        drain_queue(self._ack)
+        drain_queue(self._pong)
+        drain_queue(self._query)

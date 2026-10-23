@@ -36,6 +36,7 @@ class InteractionHandlers:
     _callbacks: dict[CallbackKey, InteractionHandler]
     # None = no fallback installed; an unmatched interaction is then dropped.
     _fallback: InteractionHandler | None
+    __slots__ = ("_callbacks", "_fallback", "_lock")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)

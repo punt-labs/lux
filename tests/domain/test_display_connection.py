@@ -55,7 +55,6 @@ class TestOpen:
         connection, dialer = _opened()
         try:
             assert connection.is_open
-            assert connection.current is not None
             assert connection.ready is dialer.ready
         finally:
             connection.close()
@@ -81,7 +80,7 @@ class TestOpen:
         connection = DisplayConnection(_Dialer(), 1.0)
 
         assert not connection.is_open
-        assert connection.current is None
+        assert not connection.is_open
         assert connection.ready is None
 
 
@@ -92,7 +91,7 @@ class TestClose:
         connection.close()
 
         assert not connection.is_open
-        assert connection.current is None
+        assert not connection.is_open
         assert connection.ready is None
 
     def test_closing_a_closed_connection_is_not_an_error(self) -> None:
@@ -115,12 +114,12 @@ class TestRequire:
     def test_returns_the_open_socket(self) -> None:
         connection, _ = _opened()
         try:
-            assert connection.require() is connection.current
+            assert connection.require() is not None
         finally:
             connection.close()
 
     def test_raises_when_never_connected(self) -> None:
-        with pytest.raises(RuntimeError, match="Not connected"):
+        with pytest.raises(RuntimeError, match="open\\(\\) the display connection"):
             DisplayConnection(_Dialer(), 1.0).require()
 
 
@@ -144,14 +143,13 @@ class TestSend:
             DisplayConnection(_Dialer(), 1.0).send(PingMessage())
 
 
-class TestReadChunk:
+class TestPollChunk:
     def test_returns_what_the_peer_sent(self) -> None:
         connection, dialer = _opened()
         try:
             assert dialer.peer is not None
             dialer.peer.sendall(encode_message(PingMessage(ts=2.0)))
-            sock = connection.require()
-            assert connection.read_chunk(sock) == encode_message(PingMessage(ts=2.0))
+            assert connection.poll_chunk(1.0) == encode_message(PingMessage(ts=2.0))
         finally:
             connection.close()
             if dialer.peer is not None:
@@ -162,6 +160,35 @@ class TestReadChunk:
         try:
             assert dialer.peer is not None
             dialer.peer.close()
-            assert connection.read_chunk(connection.require()) == b""
+            assert connection.poll_chunk(1.0) == b""
         finally:
             connection.close()
+
+    def test_nothing_in_time_is_none_not_a_close(self) -> None:
+        connection, dialer = _opened()
+        try:
+            assert connection.poll_chunk(0.05) is None
+        finally:
+            connection.close()
+            if dialer.peer is not None:
+                dialer.peer.close()
+
+    def test_a_closed_connection_cannot_be_polled(self) -> None:
+        connection = DisplayConnection(_Dialer(), 1.0)
+
+        with pytest.raises(OSError, match="closed"):
+            connection.poll_chunk(0.05)
+
+
+class TestEndpoint:
+    def test_names_the_display_it_is_open_to(self) -> None:
+        connection, dialer = _opened()
+        try:
+            assert connection.endpoint == "pair"
+        finally:
+            connection.close()
+            if dialer.peer is not None:
+                dialer.peer.close()
+
+    def test_says_so_when_not_open(self) -> None:
+        assert DisplayConnection(_Dialer(), 1.0).endpoint == "not connected"

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import socket
+import struct
 import threading
 import time
 from typing import TYPE_CHECKING, Self, final
@@ -10,10 +12,18 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.listener_thread import ListenerThread
-from punt_lux.protocol import PingMessage, ReadyMessage, encode_message
+from punt_lux.protocol import (
+    HEADER_FORMAT,
+    PingMessage,
+    ReadyMessage,
+    encode_frame,
+    encode_message,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import pytest
 
     from punt_lux.protocol import Message
 
@@ -181,3 +191,142 @@ class TestLifecycle:
             connection.close()
             if dialer.peer is not None:
                 dialer.peer.close()
+
+
+def _closed(peer: socket.socket | None, connection: DisplayConnection) -> None:
+    connection.close()
+    if peer is not None:
+        peer.close()
+
+
+class TestMalformedFrames:
+    def test_messages_decoded_before_a_bad_frame_are_still_routed(self) -> None:
+        listener, connection, dialer, routed = _listening()
+        listener.start()
+        try:
+            assert dialer.peer is not None
+            bad = b"{not json"
+            dialer.peer.sendall(
+                encode_message(PingMessage(ts=1.0))
+                + struct.pack(HEADER_FORMAT, len(bad))
+                + bad
+            )
+            assert _until(lambda: not listener.alive)
+            assert routed == [PingMessage(ts=1.0)]
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_the_failure_is_logged_with_the_display_and_the_frames_first_bytes(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        listener, connection, dialer, _ = _listening()
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+            assert dialer.peer is not None
+            bad = b"{not json"
+            dialer.peer.sendall(struct.pack(HEADER_FORMAT, len(bad)) + bad)
+            assert _until(lambda: not listener.alive)
+        try:
+            (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
+            assert "pair" in record.getMessage()
+            assert "not json" in record.getMessage()
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_the_connection_is_closed_so_a_reconnect_starts_on_a_boundary(
+        self,
+    ) -> None:
+        listener, connection, dialer, _ = _listening()
+        listener.start()
+        try:
+            assert dialer.peer is not None
+            bad = b"[1, 2]"
+            dialer.peer.sendall(struct.pack(HEADER_FORMAT, len(bad)) + bad)
+            assert _until(lambda: not connection.is_open)
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_a_frame_that_decodes_to_no_message_is_a_malformed_frame_too(self) -> None:
+        listener, connection, dialer, routed = _listening()
+        listener.start()
+        try:
+            assert dialer.peer is not None
+            dialer.peer.sendall(encode_frame({"type": "ack"}))
+            assert _until(lambda: not listener.alive)
+            assert routed == []
+            assert not connection.is_open
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_a_clean_close_is_logged_at_info(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        listener, connection, dialer, _ = _listening()
+        with caplog.at_level(logging.INFO):
+            listener.start()
+            assert dialer.peer is not None
+            dialer.peer.close()
+            assert _until(lambda: not listener.alive)
+        try:
+            assert any(
+                r.levelno == logging.INFO and "closed the connection" in r.getMessage()
+                for r in caplog.records
+            )
+        finally:
+            listener.stop()
+            connection.close()
+
+
+class TestAbandonedThread:
+    def test_start_replaces_a_thread_stop_could_not_join(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr("punt_lux.domain.hub.listener_thread._JOIN_TIMEOUT", 0.1)
+        dialer = _PairDialer()
+        connection = DisplayConnection(dialer, 1.0)
+        connection.open()
+        routed: list[Message] = []
+        in_handler = threading.Event()
+        release = threading.Event()
+
+        def route(msg: Message) -> None:
+            if not in_handler.is_set():
+                in_handler.set()
+                release.wait(timeout=5)
+            routed.append(msg)
+
+        listener = ListenerThread(connection, route)
+        listener.start()
+        assert dialer.peer is not None
+        dialer.peer.sendall(encode_message(PingMessage(ts=1.0)))
+        assert in_handler.wait(timeout=3)
+        listener.stop()
+        assert listener.alive  # stuck in its handler, told to stop
+
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+        release.set()
+        dialer.peer.sendall(encode_message(PingMessage(ts=2.0)))
+        try:
+            assert _until(lambda: PingMessage(ts=2.0) in routed)
+            assert "Abandoning" in caplog.text
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_start_while_running_and_not_stopping_changes_nothing(self) -> None:
+        listener, connection, dialer, _ = _listening()
+        try:
+            listener.start()
+            threads = {t for t in threading.enumerate() if t.name == "lux-listener"}
+            listener.start()
+            assert {
+                t for t in threading.enumerate() if t.name == "lux-listener"
+            } == threads
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)

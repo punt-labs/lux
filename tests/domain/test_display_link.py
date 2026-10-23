@@ -130,7 +130,7 @@ class TestConnect:
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
             assert (
-                applied_to is client._connection.current
+                applied_to is client._connection.require()
             )  # its own connected fd, not any socket
             client.close()
         finally:
