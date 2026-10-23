@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
@@ -60,3 +62,17 @@ def test_a_scope_that_is_not_observed_refuses_a_host(provenance: Provenance) -> 
 def test_an_observed_scope_refuses_no_host() -> None:
     with pytest.raises(ValueError, match="only an observed scope"):
         Scope(_CONN, UNOBSERVED, "observed")
+
+
+def test_a_scope_refuses_a_provenance_it_does_not_know() -> None:
+    with pytest.raises(ValueError, match="unknown scope provenance"):
+        Scope(_CONN, UNOBSERVED, "bogus")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("provenance", get_args(Provenance))
+def test_every_provenance_says_whether_it_is_a_contact(provenance: Provenance) -> None:
+    host = _PEER if provenance == "observed" else UNOBSERVED
+
+    scope = Scope(_CONN, host, provenance)
+
+    assert scope.is_contact == (provenance in ("observed", "in_process"))

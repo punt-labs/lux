@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.ids import ConnectionId
@@ -37,6 +37,9 @@ class Scope:
     provenance: Provenance = field(compare=False)
 
     def __post_init__(self) -> None:
+        if self.provenance not in get_args(Provenance):
+            msg = f"unknown scope provenance {self.provenance!r}"
+            raise ValueError(msg)
         if (self.provenance == "observed") != self.client_host.observed:
             msg = (
                 f"a {self.provenance!r} scope cannot carry host "
