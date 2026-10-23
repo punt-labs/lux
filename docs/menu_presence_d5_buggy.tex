@@ -153,7 +153,8 @@
   (ibefore = fclear \land dirty' = fset) \lor
     (ibefore = fset \land dirty' = dirty) \\
   shown' = shown \\
-  sdirty' = sdirty \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
   stale' = stale
 \end{schema}
 
@@ -299,6 +300,28 @@
   ibefore' = ibefore
 \end{schema}
 
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale \\
+  iphase' = iphase \\
+  ifor' = ifor \\
+  ibefore' = ibefore
+\end{schema}
+
 \begin{schema}{Departure}
   \Delta MenuPres \\
   c? : CONN \\
@@ -312,8 +335,8 @@
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land sinks~c? \geq 1 \land dirty' = fset) \lor
-    (\lnot (c? \in earns \land sinks~c? \geq 1) \land dirty' = dirty) \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
   shown' = shown \\
   sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
   stale' = (stale \setminus \{ c? \}) \cup r? \\

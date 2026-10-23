@@ -15,8 +15,12 @@
 %   probcli docs/menu_presence_inv1b_buggy.tex -model_check -nodead \
 %     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
 %     -p DEFAULT_SETSIZE 2
-% Trace: AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); Detach(c)
-% leaves earns = {}, shown = {c}, lapsed = {c}, dirty = fclear.
+% Trace: AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)
+% leaves earns = {}, shown = {c}, c registered and LIVE, dirty = fclear: the
+% session keeps renewing, is never swept, and the entry stays for good. The
+% stronger goal reaches it directly:
+%   -goal "dirty = fclear & #c.(c : shown & c : registered & c /: lapsed & c /: earns)"
+% (Detach(c) in place of the last step leaves the lapsed variant.)
 %
 % The remaining operations are those of menu_presence.tex, whose prose
 % describes them.
@@ -219,6 +223,25 @@
   stale' = stale
 \end{schema}
 
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
 \begin{schema}{Departure}
   \Delta MenuPres \\
   c? : CONN \\
@@ -232,8 +255,8 @@
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land sinks~c? \geq 1 \land dirty' = fset) \lor
-    (\lnot (c? \in earns \land sinks~c? \geq 1) \land dirty' = dirty) \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
   shown' = shown \\
   sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
   stale' = (stale \setminus \{ c? \}) \cup r?

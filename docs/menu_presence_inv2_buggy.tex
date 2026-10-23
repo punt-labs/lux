@@ -5,14 +5,14 @@
 %
 % Differs from menu_presence.tex in one rule: a step that revives a lapsed
 % session (Connect, Renew, AgentRecord and so Identify/Attach/ReadLoopRecord,
-% RegisterCallback, AppletAttach) marks the menus where it owes them (as in D4's
+% RegisterCallback, AppletAttach, Redeclare) marks the menus where it owes them (as in D4's
 % fix) but never marks the session's scenes. A survivor that was lapsed when its
 % departure-relabel was pushed shows the stale label, and the renewal that makes
 % it live again repairs nothing: nobody marks its scenes.
 %
 % Expected: the P3 negation is REACHABLE.
 %   probcli docs/menu_presence_inv2_buggy.tex -model_check -nodead \
-%     -goal "sdirty = {} & stale /\ (registered \ lapsed) /= {}" \
+%     -goal "(stale /\ (registered \ lapsed)) \ sdirty /= {}" \
 %     -p DEFAULT_SETSIZE 2
 % Trace: Connect(c1); Connect(c2); LeaseLapse(c1); DropGraceful(c2, {c1});
 %        PushScenes; Renew(c1) -- c1 is live, its frame stale, no scene mark.
@@ -212,6 +212,24 @@
   stale' = stale
 \end{schema}
 
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
 \begin{schema}{Departure}
   \Delta MenuPres \\
   c? : CONN \\
@@ -225,8 +243,8 @@
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land sinks~c? \geq 1 \land dirty' = fset) \lor
-    (\lnot (c? \in earns \land sinks~c? \geq 1) \land dirty' = dirty) \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
   shown' = shown \\
   sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
   stale' = (stale \setminus \{ c? \}) \cup r?
