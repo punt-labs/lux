@@ -375,7 +375,7 @@ class _Pipeline:
         """Replay the next ``sends`` pushes; return ``frame``'s owner connection."""
         target = self._cursor + sends
         deadline = time.monotonic() + 3.0
-        while len(self._sender.shows) < target:
+        while self._sender.sent_count() < target:
             assert time.monotonic() < deadline, "the replicator never sent"
             time.sleep(0.005)
         for index in range(self._cursor, target):

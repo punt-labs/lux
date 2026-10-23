@@ -219,6 +219,17 @@ class _FakeSender:
             self._defer_after = None
         self._sent.set()
 
+    def sent_count(self) -> int:
+        """How many scenes have been sent, every record of the last one included.
+
+        The parallel lists grow one after another under ``_lock``; a reader that
+        measured ``shows`` without it could see a send whose ``roots`` and
+        ``owner_facts`` are not there yet. Taking the lock waits out a send in
+        progress, so every index below the count is complete in all of them.
+        """
+        with self._lock:
+            return len(self.shows)
+
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         self._guard()
         with self._lock:
@@ -1608,3 +1619,25 @@ def test_isolation_exits_after_stable_interval_without_new_writes(
         assert called.wait(timeout=3.0), "idle tick never fired stability check"
     finally:
         repl.stop()
+
+
+def test_a_send_in_progress_is_waited_out_by_the_sent_count() -> None:
+    """The count never reveals a send whose records are only partly written.
+
+    ``send_scene`` appends to several lists under the sender's lock. A reader that
+    indexes them all after seeing the first grow can read past the end of the
+    others, so the count takes the same lock.
+    """
+    sender = _FakeSender()
+    counted: list[int] = []
+
+    with sender._lock:  # stand in for a send mid-append
+        sender.shows.append("s1")
+        reader = threading.Thread(target=lambda: counted.append(sender.sent_count()))
+        reader.start()
+        reader.join(timeout=0.2)
+        assert reader.is_alive(), "the count did not wait for the send in progress"
+        sender.frames.append("f")
+    reader.join(timeout=2.0)
+
+    assert counted == [1]
