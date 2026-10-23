@@ -27,6 +27,7 @@ from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 
@@ -50,8 +51,9 @@ _FRESH = ISSUE | {"id": "lux-fresh"}
 
 
 def _service(source: Source | ThenFails | Gated) -> BeadsService:
-    load = BoardLoad(BeadsBoard.for_project("lux"), source)
-    return BeadsService(AppletBoard(load, BoardSlot()))
+    board = BeadsBoard.for_project("lux")
+    load = BoardLoad(board, source)
+    return BeadsService(AppletBoard(load, BoardSlot()), board.frame_id)
 
 
 def _click(service: BeadsService, client: object) -> ClickLatency:
@@ -115,9 +117,7 @@ def test_the_entry_is_named_for_what_it_shows(
 
     service = BeadsService.for_repo()
 
-    assert service.callback_id == "beads"
-    assert service.label == "Beads"
-    assert service.frame_id == "beads-lux"
+    assert service.entry == MenuEntry("beads", "Beads", "beads-lux")
 
 
 def test_issues_are_pushed_through_the_table_route() -> None:

@@ -31,6 +31,7 @@ from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.leg import AppletLeg
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
@@ -98,16 +99,8 @@ class _SlowService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the click."""
@@ -142,16 +135,8 @@ class _WarmingService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         self._started.set()
@@ -176,16 +161,8 @@ class _ExplodingWarmUp:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         raise RuntimeError("something nobody modelled")
@@ -421,16 +398,8 @@ class _PushingService:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the push."""
@@ -449,16 +418,8 @@ class _ExplodingService:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: the failure under test is in the click's work."""
@@ -538,16 +499,8 @@ class _OrderedService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         self._steps.append("prefetch")
@@ -640,16 +593,8 @@ class _ParkedService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise two clicks at once."""
@@ -756,8 +701,9 @@ def test_a_click_does_not_hold_the_click_behind_it(
 
 def _beads(source: Gated) -> BeadsService:
     """The real Beads service, over a source a test can hold at the query."""
-    load = BoardLoad(BeadsBoard.for_project("lux"), source)
-    return BeadsService(AppletBoard(load, BoardSlot()))
+    board = BeadsBoard.for_project("lux")
+    load = BoardLoad(board, source)
+    return BeadsService(AppletBoard(load, BoardSlot()), board.frame_id)
 
 
 def _held_query() -> Gated:

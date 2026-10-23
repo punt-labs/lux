@@ -134,9 +134,7 @@ class AppletLeg:
 
     def _register_now(self) -> Ok | OpError:
         """Register the session's callback over REST — the blocking half."""
-        return self._rest().register_callback(
-            self._service.callback_id, self._service.label, self._service.frame_id
-        )
+        return self._service.entry.registered_by(self._rest())
 
     def _start_prefetch(self) -> None:
         """Warm the service up behind the handshake, never inside it.
@@ -156,7 +154,7 @@ class AppletLeg:
         is started rather than awaited, so the frame behind it — the next click —
         is read while this one is served, off the loop that renews the lease.
         """
-        if callback_id != self._service.callback_id:
+        if not self._service.entry.owns(callback_id):
             logger.warning("no service for callback %r in this session", callback_id)
             return
         self._underway.start(self._runner.clicked(ClickLatency(callback_id)))

@@ -49,19 +49,14 @@ class BoardChannel:
         the board it has just spent seconds loading.
         """
         try:
-            self._reported(self._installed(request))
+            # A table goes through the table route so the Hub *constructs* its
+            # live chrome; a message is a plain scene.
+            if isinstance(request, RenderTableRequest):
+                self._reported(self._client.render_table(request))
+            else:
+                self._reported(self._client.render(request))
         except HubUnavailableError as exc:
             logger.warning("beads board not shown — luxd unreachable: %s", exc)
-
-    def _installed(self, request: BoardRequest) -> SceneShown | OpError:
-        """Send the board down whichever route its kind belongs to.
-
-        A table goes through the table route so the Hub *constructs* its live
-        chrome; a message is a plain scene.
-        """
-        if isinstance(request, RenderTableRequest):
-            return self._client.render_table(request)
-        return self._client.render(request)
 
     @staticmethod
     def _reported(result: SceneShown | OpError) -> None:

@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
-from punt_lux.applets.board_channel import BoardChannel
 from punt_lux.applets.board_order import BoardOrder
 from punt_lux.applets.board_read import BoardRead
 from punt_lux.apps.beads_result import BeadsFailure
@@ -25,7 +24,6 @@ from punt_lux.operations import RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
     from punt_lux.applets.beads_source import BeadsSource
-    from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.built_board import BuiltBoard
     from punt_lux.apps.beads_board import BeadsBoard
 
@@ -49,11 +47,6 @@ class BoardLoad:
         self._board = board
         self._source = source
         return self
-
-    @property
-    def frame_id(self) -> str:
-        """The frame this board's issues render into."""
-        return self._board.frame_id
 
     def issues(self) -> BoardRead:
         """Return the run ``bd`` completed, or raise the reason it could not.
@@ -88,7 +81,3 @@ class BoardLoad:
     def unavailable(self, reason: str) -> BoardRequest:
         """The red message that says why there is no board to show."""
         return self._board.failure(reason)
-
-    def push(self, client: BoardOps, request: BoardRequest) -> None:
-        """Install a board through *client*, which logs whatever kept it off screen."""
-        BoardChannel(client).send(request)

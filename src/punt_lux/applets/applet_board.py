@@ -11,18 +11,22 @@ is shown is read from the slot inside the region that writes it.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_glass import BoardGlass
 from punt_lux.applets.board_work import BoardWork
+from punt_lux.applets.held_board import HeldBoard
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_cache import CachedBoard
     from punt_lux.applets.board_load import BoardLoad
     from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.board_slot import BoardSlot
-    from punt_lux.applets.built_board import BuiltBoard
     from punt_lux.applets.latency import ClickLatency
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["AppletBoard"]
 
@@ -48,14 +52,16 @@ class AppletBoard:
         """The state a click answers from, as it stands now."""
         return self._slot.held
 
-    @property
-    def frame_id(self) -> str:
-        """The frame this board renders into."""
-        return self._load.frame_id
+    def prefetch(self) -> None:
+        """Load a board before anyone clicks and keep it, so the first click has one.
 
-    def fresh(self) -> BuiltBoard:
-        """Read the issues and build the board they make — the warm-up's load."""
-        return self._load.fresh()
+        A ``bd`` that would not run means only that the first click pays that
+        wait, as it did before there was a prefetch, so it is a log line.
+        """
+        try:
+            self.kept(HeldBoard(self._load.fresh()))
+        except BoardUnavailableError as exc:
+            logger.warning("no board could be loaded ahead of the first click: %s", exc)
 
     def kept(self, loaded: CachedBoard) -> None:
         """Keep *loaded*, unless a later-started load is already here."""

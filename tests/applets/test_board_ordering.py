@@ -247,9 +247,10 @@ class Applet:
 
     def __new__(cls, source: object) -> Self:
         self = super().__new__(cls)
-        load = BoardLoad(BeadsBoard.for_project("lux"), source)  # type: ignore[arg-type]  # structural stand-in
+        board = BeadsBoard.for_project("lux")
+        load = BoardLoad(board, source)  # type: ignore[arg-type]  # structural stand-in
         self._slot = BoardSlot()
-        self._service = BeadsService(AppletBoard(load, self._slot))
+        self._service = BeadsService(AppletBoard(load, self._slot), board.frame_id)
         # A click nobody made, against a display nobody is looking at: pushing
         # the slot's state into it is how a test reads what the applet holds.
         self._spare_landings = Landings()
@@ -317,7 +318,11 @@ def _applet_sources() -> dict[str, str]:
 
 
 def _writers(source: str) -> set[str]:
-    """The methods of this module that write the display through a click's work."""
+    """The methods of this module that write the display through a click's work.
+
+    A write is a ``push`` on the work, or the ``send`` on the channel the work
+    pushes through -- the one place a board leaves for the Hub.
+    """
     return {
         method.name
         for method in ast.walk(ast.parse(source))
@@ -325,7 +330,7 @@ def _writers(source: str) -> set[str]:
         and any(
             isinstance(call, ast.Call)
             and isinstance(call.func, ast.Attribute)
-            and call.func.attr == "push"
+            and call.func.attr in {"push", "send"}
             for call in ast.walk(method)
         )
     }
