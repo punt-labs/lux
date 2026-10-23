@@ -321,21 +321,29 @@ class _CapturingManager:
     """Stands in for the SDK's session manager: records what the context holds."""
 
     seen: list[tuple[str, str | None]]
-    __slots__ = ("seen",)
+    # None = the request is served; an exception = the SDK raises after the
+    # context was read, as a failing session would.
+    _failure: Exception | None
+    __slots__ = ("_failure", "seen")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, failure: Exception | None = None) -> Self:
         self = super().__new__(cls)
         self.seen = []
+        self._failure = failure
         return self
 
     async def handle_request(self, scope: Any, receive: Any, send: Any) -> None:
         self.seen.append((current_session(), current_peer()))
+        if self._failure is not None:
+            raise self._failure
 
 
 async def _drive(
-    client: tuple[str, int] | None, query: bytes = b"session_key=abc"
+    client: tuple[str, int] | None,
+    query: bytes = b"session_key=abc",
+    manager: _CapturingManager | None = None,
 ) -> _CapturingManager:
-    manager = _CapturingManager()
+    manager = manager if manager is not None else _CapturingManager()
     app = McpAsgiApp(manager)  # type: ignore[arg-type]  # a capturing double
     scope: dict[str, Any] = {
         "type": "http",
@@ -362,6 +370,27 @@ class TestMcpDoor:
         manager = await _drive(("127.0.0.1", 5000))
 
         assert manager.seen == [("abc", "127.0.0.1")]
+        assert (current_session(), current_peer()) == ("local", None)
+
+    @pytest.mark.anyio
+    async def test_a_raising_manager_still_releases_both_bindings(self) -> None:
+        manager = _CapturingManager(RuntimeError("the session failed"))
+
+        with pytest.raises(RuntimeError, match="the session failed"):
+            await _drive(("127.0.0.1", 5000), manager=manager)
+
+        # The body saw both bindings, and neither outlives it.
+        assert manager.seen == [("abc", "127.0.0.1")]
+        assert (current_session(), current_peer()) == ("local", None)
+
+    @pytest.mark.anyio
+    async def test_a_raising_manager_releases_a_peerless_binding_too(self) -> None:
+        manager = _CapturingManager(RuntimeError("the session failed"))
+
+        with pytest.raises(RuntimeError, match="the session failed"):
+            await _drive(None, manager=manager)
+
+        assert manager.seen == [("abc", None)]
         assert (current_session(), current_peer()) == ("local", None)
 
     @pytest.mark.anyio
