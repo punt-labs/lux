@@ -4,7 +4,7 @@
 % FIDELITY CONTROL for docs/menu_presence.tex, defect D6.
 %
 % Differs from menu_presence.tex in exactly one place: Attach binds a NEW sink
-% each time (ws_listen binds `lambda _: self._menus.mark_menus()`, a fresh
+% each time (ws_listen bound `lambda _: self._menus.mark_menus()`, a fresh
 % object per attach, and DepartureSinks.bind dedups by equality, which two
 % lambdas never satisfy). The count saturates at two, where the leak is
 % already established; the guard keeps the state space finite.
@@ -12,7 +12,7 @@
 % Expected: P2's negation is REACHABLE (the "no more than one sink" conjunct).
 %   probcli docs/menu_presence_d6_buggy.tex -model_check -nodead \
 %     -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
-%       or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 3
+%       or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 2
 % Trace: Attach(c); Attach(c) -- a reconnect of the same identity -- leaves
 % sinks(c) = 2. P1 is untouched: the leak is silent, which is why no
 % behavioural test of the menu finds it.
@@ -40,27 +40,38 @@
 
 \begin{schema}{MenuPres}
   registered : \power CONN \\
+  agents : \power CONN \\
+  cbs : \power CONN \\
   earns : \power CONN \\
   lapsed : \power CONN \\
   open : \power CONN \\
   sinks : CONN \fun 0 \upto 2 \\
   dirty : FSTATE \\
-  shown : \power CONN
+  shown : \power CONN \\
+  sdirty : \power CONN \\
+  stale : \power CONN
 \where
-  earns \subseteq registered \\
-  lapsed \subseteq registered
+  agents \subseteq registered \\
+  cbs \subseteq registered \\
+  earns = agents \cup cbs \\
+  lapsed \subseteq registered \\
+  sdirty \subseteq registered \\
+  stale \subseteq registered
 \end{schema}
 
 \begin{schema}{Init}
   MenuPres'
 \where
   registered' = \emptyset \\
-  earns' = \emptyset \\
+  agents' = \emptyset \\
+  cbs' = \emptyset \\
   lapsed' = \emptyset \\
   open' = \emptyset \\
   sinks' = CONN \cross \{ 0 \} \\
   dirty' = fclear \\
-  shown' = \emptyset
+  shown' = \emptyset \\
+  sdirty' = \emptyset \\
+  stale' = \emptyset
 \end{schema}
 
 \begin{schema}{AgentRecord}
@@ -68,31 +79,37 @@
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \cup \{ c? \} \\
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
   (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
     ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
 \begin{schema}{LeakyRecord}
   \Delta MenuPres \\
   c? : CONN
 \where
-  sinks(c?) < 2 \\
+  sinks~c? < 2 \\
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \cup \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \cup \{ c? \} \\
-  sinks' = sinks \oplus \{ c? \mapsto sinks(c?) + 1 \} \\
+  sinks' = sinks \oplus \{ c? \mapsto sinks~c? + 1 \} \\
   (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
     ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
-  shown' = shown
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
 \end{schema}
 
-\texttt{LeakyRecord} is the defect: the bind adds a sink instead of being
-idempotent.
+\texttt{LeakyRecord} is the defect: the bind adds a sink instead of being idempotent.
 
 \begin{zed}
   Identify \defs AgentRecord \land [\Delta MenuPres | open' = open]
@@ -107,21 +124,23 @@ idempotent.
     [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
 \end{zed}
 
-
-
 \begin{schema}{Connect}
   \Delta MenuPres \\
   c? : CONN
 \where
   registered' = registered \cup \{ c? \} \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
     (c? \notin earns \land sinks' = sinks) \\
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
 \begin{schema}{Renew}
@@ -130,14 +149,18 @@ idempotent.
 \where
   c? \in registered \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
     (c? \notin earns \land sinks' = sinks) \\
   (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
     (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
-  shown' = shown
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
 \end{schema}
 
 \begin{schema}{LeaseLapse}
@@ -147,27 +170,91 @@ idempotent.
   c? \in registered \\
   c? \notin lapsed \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \cup \{ c? \} \\
   open' = open \\
   sinks' = sinks \\
   dirty' = dirty \\
-  shown' = shown
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
 \end{schema}
 
-\begin{schema}{Departure}
+\begin{schema}{AppletAttach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \notin agents \\
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \cup \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \land dirty' = fset) \lor (c? \notin cbs \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{RegisterCallback}
   \Delta MenuPres \\
   c? : CONN
 \where
   c? \in registered \\
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Detach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \\
+  open' = open \setminus \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \setminus agents \land dirty' = fset) \lor
+    (c? \notin cbs \setminus agents \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Departure}
+  \Delta MenuPres \\
+  c? : CONN \\
+  r? : \power CONN
+\where
+  c? \in registered \\
+  r? \subseteq registered \setminus \{ c? \} \\
   registered' = registered \setminus \{ c? \} \\
-  earns' = earns \setminus \{ c? \} \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \setminus \{ c? \} \\
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land dirty' = fset) \lor
-    (c? \notin earns \land dirty' = dirty) \\
-  shown' = shown
+  (c? \in earns \land sinks~c? \geq 1 \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land sinks~c? \geq 1) \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
+  stale' = (stale \setminus \{ c? \}) \cup r?
 \end{schema}
 
 \begin{zed}
@@ -178,31 +265,53 @@ idempotent.
   Sweep \defs Departure \land [MenuPres; c? : CONN | c? \in lapsed]
 \end{zed}
 
-\begin{schema}{Teardown}
-  \Delta MenuPres \\
-  c? : CONN
-\where
-  c? \in open \\
-  registered' = registered \\
-  earns' = earns \\
-  lapsed' = lapsed \\
-  open' = open \setminus \{ c? \} \\
-  sinks' = sinks \\
-  dirty' = dirty \\
-  shown' = shown
-\end{schema}
-
 \begin{schema}{Push}
   \Delta MenuPres
 \where
   dirty = fset \\
   registered' = registered \\
-  earns' = earns \\
+  agents' = agents \\
+  cbs' = cbs \\
   lapsed' = lapsed \\
   open' = open \\
   sinks' = sinks \\
   dirty' = fclear \\
-  shown' = earns \setminus lapsed
+  shown' = earns \setminus lapsed \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{ScenesTouched}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = sdirty \cup \{ c? \} \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{PushScenes}
+  \Delta MenuPres
+\where
+  sdirty \neq \emptyset \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = \emptyset \\
+  stale' = (stale \setminus (sdirty \setminus lapsed)) \cup (sdirty \cap lapsed)
 \end{schema}
 
 \end{document}
