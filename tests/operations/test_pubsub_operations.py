@@ -172,6 +172,20 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     assert display.owner_of(scene_id, ElementId("t")) == owner
 
 
+def test_unsubscribing_on_behalf_of_a_lapsed_owner_does_not_revive_it() -> None:
+    """Only the owner reaching the Hub renews its lease, whichever verb it is."""
+    clock = _Clock()
+    factory = HubStoreFactory(clock=clock)
+    owner = ConnectionId("quiet")
+    factory.lifecycle.arrive(owner, UNOBSERVED)
+    ops = PubSubOperations(Hub(), factory.lifecycle, _ports(lambda _c, _h: None))
+    clock.advance(1801.0)  # past the 1800s unidentified-session lease
+
+    ops.unsubscribe("some.topic", scope=Scope.on_behalf_of(owner))
+
+    assert owner not in factory.clients.live_sessions()
+
+
 def test_subscribe_to_reserved_topic_is_refused(scope: Scope) -> None:
     result = _ops().subscribe(MENU_TOPIC, scope=scope)
     assert isinstance(result, OpError)

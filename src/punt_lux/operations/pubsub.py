@@ -54,7 +54,7 @@ class PubSubOperations:
         """
         if RESERVED_TOPICS.covers(topic):
             return RESERVED_TOPICS.rejection(topic)
-        self._lifecycle.renew(scope.connection_id, scope.client_host)
+        self._lifecycle.contact(scope)
         if self._hub.has_writer(scope.connection_id):
             self._hub.unsubscribe(scope.connection_id, Topic(topic))
         return Unsubscribed(topic=topic)
@@ -84,5 +84,5 @@ class PubSubOperations:
 
     def _contact(self, scope: Scope) -> None:
         """Renew the caller's lease and ensure its writer: authenticated contact."""
-        self._lifecycle.renew(scope.connection_id, scope.client_host)
+        self._lifecycle.contact(scope)
         self._ports.ensure_writer(scope.connection_id, scope.client_host)

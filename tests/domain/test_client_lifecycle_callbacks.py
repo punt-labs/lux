@@ -307,7 +307,7 @@ class TestReDeclaring:
 
         assert marker.menus > before
         after = marker.menus
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
         session = factory.clients.session_of(_CONN)
         assert session is not None
         assert not MenuListing(session, clock.now).holds()
@@ -376,7 +376,7 @@ class TestARenewingAgent:
 
         for _ in range(3):
             clock.now += 1000.0  # inside the 1800 s agent lease if renewed each time
-            factory.lifecycle.renew(_CONN, UNOBSERVED)
+            factory.lifecycle.contact(Scope.in_process(_CONN))
             assert factory.lifecycle.depart_lapsed(frozenset()) == frozenset()
 
         session = factory.clients.session_of(_CONN)

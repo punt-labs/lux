@@ -109,7 +109,7 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
     def test_renew(self) -> None:
         factory, marker, _, scene = _lapsed_agent()
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert marker.scenes == [scene]
 
@@ -155,7 +155,7 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
         clock.now = _PAST_A_CLI_LEASE
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert marker.scenes == [scene]
 
@@ -166,7 +166,7 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
         clock.now = 10.0  # well inside the lease
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert marker.scenes == []
 
@@ -177,19 +177,19 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
         mine = _show(factory, _CONN, "vox")
         _show(factory, _OTHER, "vox")
         clock.now = _PAST_AN_AGENT_LEASE
-        factory.lifecycle.renew(_OTHER, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_OTHER))
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert marker.scenes == [mine]
 
     def test_the_second_renewal_marks_nothing_more(self) -> None:
         factory, marker, _, _ = _lapsed_agent()
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert marker.scenes == []
 
@@ -222,7 +222,7 @@ class TestTheLabelFollowsTheRevival:
         blanked = _facts(factory).facts_for(scene).scope_label  # relabel(None) time
         assert blanked is None
 
-        factory.lifecycle.renew(_CONN, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_CONN))
 
         assert scene in marker.scenes
         assert _facts(factory).facts_for(scene).scope_label == "lux"
@@ -238,12 +238,12 @@ class TestTheLabelFollowsTheRevival:
         factory.clients.named_sessions()  # lux, lux (2)
         assert _facts(factory).facts_for(survivor).scope_label == "lux (2)"
         clock.now = _PAST_AN_AGENT_LEASE
-        factory.lifecycle.renew(_CONN, UNOBSERVED)  # the senior stays live...
+        factory.lifecycle.contact(Scope.in_process(_CONN))  # the senior stays live...
         factory.lifecycle.depart(_CONN)  # ...then leaves; the survivor is lapsed
         assert _facts(factory).facts_for(survivor).scope_label is None
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_OTHER, UNOBSERVED)
+        factory.lifecycle.contact(Scope.in_process(_OTHER))
 
         assert survivor in marker.scenes
         assert _facts(factory).facts_for(survivor).scope_label == "lux"

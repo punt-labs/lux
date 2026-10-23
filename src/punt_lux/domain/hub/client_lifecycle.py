@@ -111,7 +111,7 @@ class ClientLifecycle:
             self._announce(connection_id, attachment.presence)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
-    def renew(self, connection_id: ConnectionId, host: ClientHost) -> None:
+    def _renew(self, connection_id: ConnectionId, host: ClientHost) -> None:
         """Renew the lease iff registered; every revival is announced and retitled.
 
         The contact's ``host`` is recorded on the session it renews.
@@ -128,7 +128,7 @@ class ClientLifecycle:
         Hub, so it renews nothing.
         """
         if scope.is_contact:
-            self.renew(scope.connection_id, scope.client_host)
+            self._renew(scope.connection_id, scope.client_host)
 
     def register_callback(
         self,
@@ -144,7 +144,7 @@ class ClientLifecycle:
         connection with no leg is refused as ``superseded``.
         """
         with self._lock.write():
-            self.renew(connection_id, host)
+            self._renew(connection_id, host)
             registration = self._writes.register_callback(connection_id, callback)
             self._announce(connection_id, registration.presence)
             return registration.outcome

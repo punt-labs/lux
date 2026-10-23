@@ -46,7 +46,7 @@ class MenuArming:
         """
         deps = self._deps
         connection_id = scope.connection_id
-        deps.lifecycle.renew(connection_id, scope.client_host)
+        deps.lifecycle.contact(scope)
         if deps.clients.identity_of(connection_id) is None:
             return False
         deps.ensure_writer(connection_id, scope.client_host)

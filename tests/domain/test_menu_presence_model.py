@@ -197,7 +197,7 @@ def _lapse(world: _World, _conn: ConnectionId, rng: _Dice) -> None:
 
 
 def _renew(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
-    world.factory.lifecycle.renew(conn, UNOBSERVED)
+    world.factory.lifecycle.contact(Scope.in_process(conn))
 
 
 def _arrive(world: _World, conn: ConnectionId, _rng: _Dice) -> None:

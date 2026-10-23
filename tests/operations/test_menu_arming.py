@@ -11,6 +11,7 @@ from typing import Self, final
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.ids import ConnectionId
@@ -83,3 +84,41 @@ def test_refuses_an_unregistered_session() -> None:
     assert arming.admit(Scope.in_process(ConnectionId("never"))) is False
     assert writer.armed == []
     assert departure.armed == []
+
+
+def test_admitting_on_behalf_of_a_lapsed_owner_does_not_revive_it() -> None:
+    clock = _Clock()
+    factory = HubStoreFactory(clock)
+    arming = MenuArming(MenuArmingDeps(factory.lifecycle, factory.clients, _CallSpy()))
+    conn = ConnectionId("quiet")
+    factory.lifecycle.identify(
+        conn, ClientIdentity(kind="mcp-session", name="quiet"), UNOBSERVED
+    )
+    clock.advance(1_000_000.0)
+
+    arming.admit(Scope.on_behalf_of(conn))
+
+    assert conn not in factory.clients.live_sessions()
+
+
+def test_no_lease_is_renewed_except_through_a_scope() -> None:
+    assert not hasattr(ClientLifecycle, "renew")
+
+
+@final
+class _Clock:
+    """A hand-advanced clock, so a lease lapses on cue."""
+
+    _now: float
+    __slots__ = ("_now",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._now = 0.0
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
