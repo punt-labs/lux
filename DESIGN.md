@@ -7657,3 +7657,27 @@ it.
 Builds on DES-057 and DES-058 (leases), DES-064 and DES-067 (roster naming),
 DES-094, DES-098 (menu lifecycle), DES-099, DES-100 (the label a revival
 re-sends) and this entry. Bead `lux-s9rl` is closed by it.
+
+**Amendment (2026-10-23, review round 2).** The presence write surface is
+named for what it does, and the registry is a read port only. This
+supersedes the names in the Decision and in the callback-steps amendment
+above; their substance is unchanged.
+
+- **`PresenceWrites` replaces `ListenerLegs`.** The registry's writes
+  (record, renew, discard, reap the lapsed, attach, register and withdraw a
+  callback) live on `PresenceWrites`. `HubClientRegistry` has no write
+  method. `ClientLifecycle` takes the write surface once with
+  `HubClientRegistry.take_writes()`; a second take raises `ValueError`, and
+  no other module imports `PresenceWrites`.
+- **`ClientLifecycle.register_callback` takes no expected leg.**
+  `PresenceWrites.register_callback` reads its own slot for the connection
+  and answers `superseded` when there is none, so the compare-and-set read
+  of `listener_for` is gone.
+- **A Hub-internal act under an owner's name is not contact.**
+  `Scope.on_behalf_of` names it; `ClientLifecycle.contact(scope)` renews only
+  a real contact, so the Details install and a root self-removal no longer
+  revive a lapsed client. Every `Scope` carries one closed `Provenance`
+  (observed, in process, on behalf of, client side), set by a named
+  constructor; there is no host default.
+- **The menu departure sink has value equality**, so the two compositions
+  luxd builds bind one sink (P2).
