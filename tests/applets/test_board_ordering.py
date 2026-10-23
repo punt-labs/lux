@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, Self, final
 
+import pytest
+
 import punt_lux.applets as applets_package
 from punt_lux.applets.applet_board import AppletBoard
 from punt_lux.applets.beads_service import BeadsService
@@ -32,6 +34,7 @@ from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 from punt_lux.operations.models.scene_results import SceneShown
+from tests.source_imports import module_name, resolved_imports
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
 
@@ -341,6 +344,49 @@ def _calls(source: str, *names: str) -> bool:
     )
 
 
+# What it takes to name the board's frame: its own request builder or the surface
+# a board push goes through (found by import, in any spelling), the class that
+# defines that surface, or the scene id the board is installed under, which is
+# always ``beads-<project>``.
+_BOARD_MODULES = frozenset(
+    {
+        "punt_lux.apps.beads_board",
+        "punt_lux.applets.board_ops",
+        "punt_lux.applets.board_channel",
+    }
+)
+_BOARD_SURFACES = frozenset({"BoardOps", "ScopedBoardOps"})
+_BOARD_SCENE_PREFIX = "beads-"
+
+
+def _module_of(name: str) -> str:
+    """The dotted module for a path relative to ``src/punt_lux``."""
+    return module_name(f"src/punt_lux/{name}")
+
+
+def _names_the_board(source: str, module: str) -> bool:
+    """Whether this module's code names the board's frame, however it spells it.
+
+    Found in the syntax, never in the prose: an import that resolves to a board
+    module, a definition of the board's write surface, or a string that is the
+    board's scene id (including the head of an f-string such as
+    ``f"beads-{project}"``). A module that does none of these cannot be sending
+    a board, whatever its docstring says.
+    """
+    if resolved_imports(source, module) & _BOARD_MODULES:
+        return True
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ClassDef) and node.name in _BOARD_SURFACES:
+            return True
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith(_BOARD_SCENE_PREFIX)
+        ):
+            return True
+    return False
+
+
 def _writers(source: str) -> set[str]:
     """The methods of this module that write the display through a click's work.
 
@@ -644,7 +690,8 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
     on_board_ops = {
         name
         for name, text in package.items()
-        if "BoardOps" in text and _calls(text, "render", "render_table")
+        if _names_the_board(text, _module_of(name))
+        and _calls(text, "render", "render_table")
     }
     assert on_board_ops == {
         "applets/board_channel.py",
@@ -671,6 +718,47 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
         "the slot can reach the region's lock"
     )
     assert slot.count("threading.Lock()") == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "module"),
+    [
+        ('client.sync.render(RenderRequest(scene_id="beads-lux"))', "punt_lux.x"),
+        ('client.sync.render(RenderRequest(scene_id=f"beads-{p}"))', "punt_lux.x"),
+        (
+            "from punt_lux.apps.beads_board import BeadsBoard\nc.sync.render(1)",
+            "punt_lux.x",
+        ),
+        ("from punt_lux.apps import beads_board\nc.sync.render(1)", "punt_lux.x"),
+        ("import punt_lux.apps.beads_board as b\nc.sync.render(1)", "punt_lux.x"),
+        ("from ..apps.beads_board import BeadsBoard\nc.sync.render(1)", "punt_lux.a.x"),
+        ("from .board_ops import BoardOps\nc.sync.render(1)", "punt_lux.applets.x"),
+        (
+            "class ScopedBoardOps:\n    def render(self): return self._ops.render(1)",
+            "punt_lux.x",
+        ),
+    ],
+)
+def test_a_writer_of_the_boards_frame_is_found_however_it_names_it(
+    source: str, module: str
+) -> None:
+    """The writer guard has to be able to fail: each of these sends the board."""
+    assert _names_the_board(source, module)
+    assert _calls(source, "render", "render_table")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Prose about BoardOps and beads-lux."""\nc.sync.render(request)',
+        "from punt_lux.operations import RenderRequest\nc.sync.render(request)",
+        'name = "tabs-lux"\nc.sync.render(request)',
+    ],
+)
+def test_a_module_that_never_names_the_board_is_not_one_of_its_writers(
+    source: str,
+) -> None:
+    assert not _names_the_board(source, "punt_lux.x")
 
 
 # --- P12 ------------------------------------------------------------------
