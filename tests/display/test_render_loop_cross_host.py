@@ -16,6 +16,7 @@ from typing import Self, final
 
 from punt_lux.display import RenderLoop
 from punt_lux.protocol import ReadyMessage, recv_message
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 
 def _sock_path() -> str:
@@ -63,7 +64,9 @@ class TestCrossHostPump:
             loop._pump_cross_host()
             assert left in loop.socket_listener.clients
             # promoted exactly as an AF_UNIX peer: greeted with ReadyMessage...
-            assert isinstance(recv_message(right, timeout=2.0), ReadyMessage)
+            assert isinstance(
+                recv_message(right, DISPLAY_VOCABULARY, timeout=2.0), ReadyMessage
+            )
             # ...but NOT identified -- the content gate turns away any scene
             # until its own ConnectMessage arrives (Invariant 1).
             assert loop.socket_listener.kind_of(left.fileno()) is None

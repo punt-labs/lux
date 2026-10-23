@@ -36,7 +36,6 @@ from punt_lux.protocol import (
     ReadyMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
-    recv_message,
 )
 
 if TYPE_CHECKING:
@@ -308,12 +307,12 @@ class DisplayLink:
         if self.listener_active:
             remaining = deadline - time.monotonic()
             return self._inbound.next_reply(expected, max(remaining, 0))
-        sock = self._connection.require()
+        self._connection.require()
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
-            received = recv_message(sock, timeout=remaining)
+            received = self._connection.receive(remaining)
             if received is None:
                 return None
             if isinstance(received, expected):
@@ -369,13 +368,13 @@ class DisplayLink:
             raise RuntimeError(err)
         if self.listener_active:
             return self._inbound.next_ack(self._recv_timeout)
-        sock = self._connection.require()
+        self._connection.require()
         deadline = time.monotonic() + self._recv_timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
-            msg = recv_message(sock, timeout=remaining)
+            msg = self._connection.receive(remaining)
             if msg is None:
                 return None
             if isinstance(msg, AckMessage):

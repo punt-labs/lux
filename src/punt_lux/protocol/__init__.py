@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import socket
 import struct
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -41,6 +41,7 @@ from punt_lux.protocol.elements import (
     WindowElement,
     element_to_dict,
 )
+from punt_lux.protocol.json_payload import JsonPayload
 from punt_lux.protocol.messages import (
     PROTOCOL_VERSION,
     AckMessage,
@@ -183,11 +184,8 @@ def decode_frame(data: bytes) -> tuple[dict[str, Any], bytes]:
     if len(data) < HEADER_SIZE + length:
         msg = "Incomplete frame payload"
         raise ValueError(msg)
-    raw = json.loads(data[HEADER_SIZE : HEADER_SIZE + length])
-    if not isinstance(raw, dict):
-        msg = f"Expected JSON object, got {type(raw).__name__}"
-        raise ValueError(msg)
-    return cast("dict[str, Any]", raw), data[HEADER_SIZE + length :]
+    raw = JsonPayload(data[HEADER_SIZE : HEADER_SIZE + length]).as_object()
+    return raw, data[HEADER_SIZE + length :]
 
 
 class FrameReader:
@@ -226,9 +224,13 @@ class FrameReader:
             messages.append(raw)
         return messages
 
-    def drain_typed(self) -> list[Message]:
-        """Like drain(), but returns typed Message dataclasses."""
-        return [message_from_dict(d) for d in self.drain()]
+    def drain_typed(self, vocabulary: WireVocabulary) -> list[Message]:
+        """Like drain(), but decodes only the kinds ``vocabulary`` admits.
+
+        A frame of any other kind is skipped undecoded, so a newer peer's new
+        message never breaks an older reader.
+        """
+        return [message_from_dict(d) for d in vocabulary.admitted(self.drain())]
 
     def iter_typed(self, vocabulary: WireVocabulary) -> Iterator[Message]:
         """Yield each complete message as it is decoded, one frame at a time.
@@ -256,11 +258,8 @@ class FrameReader:
         total = HEADER_SIZE + payload_len
         if len(self._buf) < total:
             return None
-        raw = json.loads(bytes(self._buf[HEADER_SIZE:total]))
-        if not isinstance(raw, dict):
-            msg = f"Expected JSON object, got {type(raw).__name__}"
-            raise ValueError(msg)
-        return cast("dict[str, Any]", raw), total
+        raw = JsonPayload(bytes(self._buf[HEADER_SIZE:total])).as_object()
+        return raw, total
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +272,14 @@ def send_message(sock: socket.socket, msg: Message) -> None:
     sock.sendall(encode_message(msg))
 
 
-def recv_message(sock: socket.socket, timeout: float = 5.0) -> Message | None:
-    """Receive a single framed message. Returns None on timeout."""
+def recv_message(
+    sock: socket.socket, vocabulary: WireVocabulary, timeout: float = 5.0
+) -> Message | None:
+    """Receive a single framed message of a kind ``vocabulary`` admits.
+
+    Returns None on timeout. A frame of any other kind raises ``ValueError``
+    before it is decoded.
+    """
     prev_timeout = sock.gettimeout()
     sock.settimeout(timeout)
     try:
@@ -288,7 +293,9 @@ def recv_message(sock: socket.socket, timeout: float = 5.0) -> Message | None:
         payload = _recv_exact(sock, payload_len)
         if payload is None:
             return None
-        return message_from_dict(json.loads(payload))
+        raw = JsonPayload(payload).as_object()
+        vocabulary.require(raw.get("type"))
+        return message_from_dict(raw)
     except TimeoutError:
         return None
     finally:

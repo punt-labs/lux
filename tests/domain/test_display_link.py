@@ -28,6 +28,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Helpers — mini display server for testing
@@ -229,7 +230,7 @@ class TestPostHandshakeHubId:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, ConnectMessage)
             received.append(msg)
 
@@ -272,7 +273,7 @@ class TestPostHandshakeHubId:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, ConnectMessage)
             received.append(msg)
 
@@ -322,7 +323,7 @@ class TestSendMessages:
             server_conn = _mini_display(sock_path, ready_event)
             # Read the scene, send ack
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, SceneMessage)
             assert msg.id == "s1"
             assert len(msg.elements) == 1
@@ -364,7 +365,7 @@ class TestSendMessages:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, SceneMessage)
             # Send an interaction *before* the ack; without an active
             # listener and no registered callback there is no consumer,
@@ -412,7 +413,7 @@ class TestSendMessages:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, PingMessage)
             send_message(server_conn, PongMessage(ts=msg.ts, display_ts=time.time()))
 
@@ -460,13 +461,15 @@ class TestSendMessages:
 
         reads: list[float | None] = []
 
-        def _record(_sock: object, timeout: float | None = None) -> None:
+        def _record(
+            _sock: object, _vocabulary: object, timeout: float | None = None
+        ) -> None:
             reads.append(timeout)
 
         try:
             with (
                 DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0) as client,
-                patch("punt_lux.domain.hub.display_link.recv_message", _record),
+                patch("punt_lux.domain.hub.display_connection.recv_message", _record),
             ):
                 pong = client.ping(timeout=0.0)
             assert pong is None
@@ -995,7 +998,7 @@ class TestBackgroundListener:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(msg, SceneMessage)
             send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
 
@@ -1042,7 +1045,7 @@ class TestBackgroundListener:
                 ),
             )
             # Read the scene sent by the callback
-            msg = recv_message(server_conn, timeout=5)
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             if isinstance(msg, SceneMessage):
                 server_received.append(msg)
 
@@ -1302,7 +1305,7 @@ class TestBackgroundListener:
             assert server_conn is not None
             # The client's set_menu is the readiness signal: once it arrives, the
             # listener is up and a click will be dispatched.
-            signal = recv_message(server_conn, timeout=5)
+            signal = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             assert isinstance(signal, MenuMessage)
             # Simulate user clicking the "Hello" menu item
             send_message(
@@ -1315,7 +1318,7 @@ class TestBackgroundListener:
                 ),
             )
             # Read the SceneMessage sent by the callback
-            scene = recv_message(server_conn, timeout=5)
+            scene = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
             if isinstance(scene, SceneMessage):
                 server_received.append(scene)
 

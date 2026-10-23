@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 from punt_lux.trust import CertificateAuthority
 
 
@@ -112,7 +113,7 @@ class TestTlsDrain:
 
             ClientReader._drain_tls_backlog(srv, reader)
 
-            drained = list(reader.drain_typed())
+            drained = reader.drain_typed(CLIENT_VOCABULARY)
             assert [m.id for m in drained if isinstance(m, SceneMessage)] == ["s"]
         finally:
             client.close()

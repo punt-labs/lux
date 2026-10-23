@@ -14,7 +14,8 @@ import select
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.protocol import encode_message
+from punt_lux.protocol import encode_message, recv_message
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -93,6 +94,14 @@ class DisplayConnection:
         return held.sock
 
     @trace
+    def receive(self, timeout: float) -> Message | None:
+        """Read one message the display may send, or ``None`` after ``timeout``.
+
+        A frame of any kind a display never sends raises ``ValueError`` before it
+        is decoded.
+        """
+        return recv_message(self.require(), DISPLAY_VOCABULARY, timeout=timeout)
+
     def send(self, msg: Message) -> None:
         """Write ``msg`` to the open socket, serialized against other writers."""
         sock = self.require()

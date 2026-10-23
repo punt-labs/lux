@@ -141,11 +141,10 @@ class ListenerThread:
         while True:
             try:
                 msg = next(messages, None)
-            except (ValueError, KeyError, TypeError) as exc:
-                logger.error(
-                    "Listener closing: display %s sent a malformed frame (%s): %r",
+            except Exception:  # wire boundary: any decoder failure ends the stream
+                logger.exception(
+                    "Listener closing: display %s sent a malformed frame: %r",
                     self._connection.endpoint,
-                    exc,
                     reader.head(_HEAD_BYTES),
                 )
                 self._connection.close()

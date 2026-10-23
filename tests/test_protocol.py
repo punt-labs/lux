@@ -59,6 +59,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Element construction
@@ -1403,7 +1404,7 @@ class TestFrameReader:
     def test_drain_typed(self):
         reader = FrameReader()
         reader.feed(encode_frame({"type": "ping", "ts": 42.0}))
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 1
         assert isinstance(messages[0], PingMessage)
         assert messages[0].ts == 42.0

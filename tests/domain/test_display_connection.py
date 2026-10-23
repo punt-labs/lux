@@ -16,6 +16,7 @@ from punt_lux.protocol import (
     ReadyMessage,
     encode_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 
 @final
@@ -131,7 +132,7 @@ class TestSend:
             assert dialer.peer is not None
             reader = FrameReader()
             reader.feed(dialer.peer.recv(4096))
-            (received,) = reader.drain_typed()
+            (received,) = reader.drain_typed(CLIENT_VOCABULARY)
             assert received == PingMessage(ts=1.5)
         finally:
             connection.close()

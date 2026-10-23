@@ -17,6 +17,7 @@ import ssl
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.protocol import HEADER_SIZE, MAX_MESSAGE_SIZE
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 if TYPE_CHECKING:
     from punt_lux.display.client_registry import ClientRegistry
@@ -142,9 +143,9 @@ class ClientReader:
             self._host.remove_client(sock)
             return
         try:
-            messages = reader.drain_typed()
-        except (ValueError, KeyError, TypeError) as exc:  # malformed wire data
-            logger.warning("Malformed message from fd %d", fd)
+            messages = reader.drain_typed(CLIENT_VOCABULARY)
+        except Exception as exc:  # wire boundary: any decoder failure drops the peer
+            logger.exception("Malformed message from fd %d", fd)
             self._callbacks.on_error("error", str(exc), "message_parse")
             self._host.remove_client(sock)
             return

@@ -31,6 +31,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.trust import CertificateAuthority
 
 if TYPE_CHECKING:
@@ -185,8 +186,14 @@ class TestCoexistence:
 
                 # -- both legs, in one client set, both got ReadyMessage --
                 assert len(unix_listener.clients) == 2
-                assert isinstance(recv_message(unix_client, timeout=2.0), ReadyMessage)
-                assert isinstance(recv_message(tls_client, timeout=2.0), ReadyMessage)
+                assert isinstance(
+                    recv_message(unix_client, DISPLAY_VOCABULARY, timeout=2.0),
+                    ReadyMessage,
+                )
+                assert isinstance(
+                    recv_message(tls_client, DISPLAY_VOCABULARY, timeout=2.0),
+                    ReadyMessage,
+                )
 
                 # -- one poll_clients() cycle dispatches both legs' messages --
                 unix_scene = SceneMessage(

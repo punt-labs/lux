@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Protocol round-trip tests
@@ -195,7 +196,7 @@ def _serve_queries(
     for _ in range(count):
         if stop.is_set():
             break
-        msg = recv_message(conn, timeout=5)
+        msg = recv_message(conn, CLIENT_VOCABULARY, timeout=5)
         if msg is None:
             break
         if isinstance(msg, QueryRequest):

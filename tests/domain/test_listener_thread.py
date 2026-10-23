@@ -240,6 +240,42 @@ class TestForeignMessages:
 
 
 class TestMalformedFrames:
+    def test_a_deeply_nested_frame_closes_the_connection_and_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        listener, connection, dialer, routed = _listening()
+        depth = 200_000
+        bomb = b"[" * depth + b"]" * depth
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+            assert dialer.peer is not None
+            dialer.peer.sendall(struct.pack(HEADER_FORMAT, len(bomb)) + bomb)
+            assert _until(lambda: not connection.is_open)
+        try:
+            assert routed == []
+            assert any("malformed frame" in r.getMessage() for r in caplog.records)
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_any_decoder_failure_is_a_malformed_frame_not_a_dead_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def explode(_raw: dict[str, object]) -> Message:
+            raise IndexError("a decoder bug")
+
+        monkeypatch.setattr("punt_lux.protocol.message_from_dict", explode)
+        listener, connection, dialer, routed = _listening()
+        listener.start()
+        try:
+            assert dialer.peer is not None
+            dialer.peer.sendall(encode_message(PongMessage(ts=1.0)))
+            assert _until(lambda: not connection.is_open)
+            assert routed == []
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
     def test_messages_decoded_before_a_bad_frame_are_still_routed(self) -> None:
         listener, connection, dialer, routed = _listening()
         listener.start()

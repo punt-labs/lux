@@ -10,11 +10,17 @@ import pytest
 from punt_lux.protocol import (
     HEADER_FORMAT,
     FrameReader,
+    Message,
+    PingMessage,
     PongMessage,
     SceneMessage,
     encode_message,
+    message_from_dict,
 )
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.protocol.messages.wire_vocabulary import (
+    CLIENT_VOCABULARY,
+    DISPLAY_VOCABULARY,
+)
 
 
 def _frame(payload: bytes) -> bytes:
@@ -120,3 +126,30 @@ class TestAcceptedVocabulary:
             "screenshot_response",
             "query_response",
         }
+
+
+class TestDrainTypedSkipsUnknownKinds:
+    def test_an_unknown_kind_is_skipped_undecoded_and_the_rest_decoded(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        decoded: list[str] = []
+        real = message_from_dict
+
+        def spy(raw: dict[str, Any]) -> Message:
+            decoded.append(raw["type"])
+            return real(raw)
+
+        monkeypatch.setattr("punt_lux.protocol.message_from_dict", spy)
+        reader = FrameReader()
+        reader.feed(
+            encode_message(PingMessage(ts=1.0))
+            + _frame(b'{"type": "from_the_future"}')
+            + encode_message(PingMessage(ts=2.0))
+        )
+
+        with caplog.at_level("WARNING"):
+            messages = reader.drain_typed(CLIENT_VOCABULARY)
+
+        assert messages == [PingMessage(ts=1.0), PingMessage(ts=2.0)]
+        assert decoded == ["ping", "ping"]
+        assert "from_the_future" in caplog.text

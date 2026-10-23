@@ -25,6 +25,10 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import (
+    CLIENT_VOCABULARY,
+    DISPLAY_VOCABULARY,
+)
 
 if TYPE_CHECKING:
     from punt_lux.protocol.messages import Message
@@ -121,7 +125,7 @@ class TestAcceptAndPoll:
                 assert server.clients[0].fileno() in server.fd_to_client
 
                 # Client receives ReadyMessage on connect
-                ready = recv_message(client, timeout=2.0)
+                ready = recv_message(client, DISPLAY_VOCABULARY, timeout=2.0)
                 assert isinstance(ready, ReadyMessage)
 
                 # Send a scene message from client to server
@@ -379,7 +383,7 @@ class TestSendToClient:
                 server.accept_connections()
 
                 # Drain the ReadyMessage that accept sends automatically
-                ready = recv_message(client, timeout=2.0)
+                ready = recv_message(client, DISPLAY_VOCABULARY, timeout=2.0)
                 assert isinstance(ready, ReadyMessage)
 
                 # Now send a custom message
@@ -391,7 +395,7 @@ class TestSendToClient:
                 )
                 server.send_to_client(conn, scene)
 
-                msg = recv_message(client, timeout=2.0)
+                msg = recv_message(client, CLIENT_VOCABULARY, timeout=2.0)
                 assert isinstance(msg, SceneMessage)
                 assert msg.id == "s2"
                 assert len(msg.elements) == 1

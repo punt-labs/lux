@@ -26,6 +26,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 from .display_abstraction import (
     abstract,
@@ -510,7 +511,7 @@ class TestRefinementDrainMessages:
         buf_before = len(reader._buf)
         assert buf_before == len(frame)
 
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
 
         assert len(messages) == 1
         assert len(reader._buf) == 0  # all bytes consumed
@@ -525,7 +526,7 @@ class TestRefinementDrainMessages:
         half = len(frame) // 2
         reader.feed(frame[:half])
 
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
 
         assert len(messages) == 0
         assert len(reader._buf) == half  # nothing consumed
@@ -536,7 +537,7 @@ class TestRefinementDrainMessages:
         msg2 = PingMessage(ts=2.0)
         reader.feed(encode_message(msg1) + encode_message(msg2))
 
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
 
         assert len(messages) == 2
         assert len(reader._buf) == 0

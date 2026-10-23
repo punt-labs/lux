@@ -24,6 +24,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 NUM_RAPID_SCENES = 100
 
@@ -162,7 +163,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=5)
+                msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -210,7 +211,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=5)
+                msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -346,7 +347,7 @@ class TestReconnection:
                 nonlocal server_conn_1
                 server_conn_1 = _mini_display_server(sock_path, ready1)
                 assert server_conn_1 is not None
-                msg = recv_message(server_conn_1, timeout=5)
+                msg = recv_message(server_conn_1, CLIENT_VOCABULARY, timeout=5)
                 assert isinstance(msg, SceneMessage)
                 send_message(
                     server_conn_1,
@@ -381,7 +382,7 @@ class TestReconnection:
                 nonlocal server_conn_2
                 server_conn_2 = _mini_display_server(sock_path, ready2)
                 assert server_conn_2 is not None
-                msg = recv_message(server_conn_2, timeout=5)
+                msg = recv_message(server_conn_2, CLIENT_VOCABULARY, timeout=5)
                 assert isinstance(msg, SceneMessage)
                 send_message(
                     server_conn_2,
