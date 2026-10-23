@@ -4,6 +4,26 @@
 
 ### Added
 
+- **Every owned frame names its session (`lux-xrli`, DES-100).** A frame whose
+  scene has an owning session reads `label :: title` (`lux :: Board`,
+  `lux (2) :: Board`) whether one session or many are connected, because the
+  same applet runs in many repositories by design. The Hub rung keeps DES-089's
+  elision. The Hub sends the owner's roster label with each scene
+  (`frame_scope_label`); when a departure renumbers the roster (DES-064), the
+  scenes of every survivor whose label moved are re-pushed in the same step, so
+  titles follow by push, never by polling. The Windows menu, dock bar and dock
+  pills title a frame through the same `AddressRendering` seam, and the
+  window's ImGui id is unchanged, so a relabel never resets its position.
+- **The `i` popup and Details report the client and Hub hosts (DES-099
+  amendment).** Two rows follow `Connection`: **Client host**, the address the
+  Hub observed on the connection's transport (REST, the WebSocket listen leg,
+  MCP), and **Hub host**, the Hub's own hostname. The client host is observed,
+  never declared (DES-090): luxd turns uvicorn's `proxy_headers` off so a
+  forwarding header cannot stand in for the socket peer, and the identity
+  model carries no host field. A client seen from several hosts under one
+  identity lists them in first-seen order; a host the Hub did not observe
+  reads `unknown`. `list_clients` and REST `/clients` report the same
+  `client_hosts` and `hub_host`.
 - **Frame title-bar connection-info affordance (`lux-c7xi`).** Every frame's
   title bar carries a small **i** glyph; clicking it opens a popup showing
   the frame's owning-connection details (Client/Kind/Declared name/
@@ -112,6 +132,12 @@
 
 ### Fixed
 
+- **The beads applet leaves when its session does.** An applet whose session
+  ended mid-query stayed alive until `bd` answered (up to 60s), because
+  shutdown joined a worker thread blocked on the `bd` child. Each call now owns
+  its child, and cancelling the call kills only that call's `bd`. The
+  trust-anchor test now asserts the server's rejection of an unenrolled client
+  rather than one client-side error form, which removes its flake.
 - **The Clients menu entry for a connection with no commands reopens after you
   close it (`lux-ghhf`).** The per-group `Details` item, which described an
   arbitrary "senior" process, is gone; the per-frame `i` glyph answers where a
