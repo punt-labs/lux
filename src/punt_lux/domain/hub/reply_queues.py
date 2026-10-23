@@ -51,16 +51,10 @@ class ReplyQueues:
         else:
             self._query.put(msg)
 
-    def get_ack(self, timeout: float) -> AckMessage | None:
-        """Block up to ``timeout`` for the next :class:`AckMessage`."""
-        try:
-            return self._ack.get(timeout=timeout)
-        except queue.Empty:
-            return None
-
     def get_typed[T: Message](self, expected: type[T], timeout: float) -> T | None:
-        """Block up to ``timeout`` for the next reply of ``expected`` type."""
+        """Block up to ``timeout`` for the next ack, pong or query response."""
         by_type: dict[type[Message], queue.SimpleQueue[Any]] = {
+            AckMessage: self._ack,
             PongMessage: self._pong,
             QueryResponse: self._query,
         }

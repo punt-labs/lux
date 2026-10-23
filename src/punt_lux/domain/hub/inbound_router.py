@@ -72,14 +72,10 @@ class InboundRouter:
         """
         return self._events.get(timeout=timeout)
 
-    def next_ack(self, timeout: float, listener: Listening) -> AckMessage | None:
-        """Block up to ``timeout`` for the next ack; ``None`` on timeout."""
-        return self._awaited(self._replies.get_ack, timeout, listener)
-
     def next_reply[T: Message](
         self, expected: type[T], timeout: float, listener: Listening
     ) -> T | None:
-        """Block up to ``timeout`` for the next ``expected`` reply."""
+        """Block up to ``timeout`` for the next ``expected`` reply, or ``None``."""
         return self._awaited(
             lambda wait: self._replies.get_typed(expected, wait), timeout, listener
         )

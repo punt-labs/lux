@@ -172,6 +172,7 @@ class TestScenesFromADisplay:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
                 link.ping(timeout=2.0)
+            assert not link.is_connected
         assert unpickled == []
 
     def test_an_inline_ack_wait_refuses_a_scene_reply(
@@ -184,6 +185,7 @@ class TestScenesFromADisplay:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
                 link.show("s", [])
+            assert not link.is_connected
         assert unpickled == []
 
     def test_the_liveness_probe_never_unpickles_a_squatters_scene(
@@ -227,8 +229,6 @@ class TestDeepFrames:
 
         assert JsonPayload(payload).as_object() == {"text": "[" * 500}
 
-    def test_recursion_error_from_the_decoder_becomes_a_value_error(
-        self, monkeypatch: pytest.MonkeyPatch
     def test_an_escaped_quote_does_not_end_a_string(self) -> None:
         payload = b'{"text": "\\"' + b"[" * 500 + b'\\""}'
 
@@ -256,6 +256,8 @@ class TestDeepFrames:
         with pytest.raises(ValueError):
             JsonPayload(payload).as_object()
 
+    def test_recursion_error_from_the_decoder_becomes_a_value_error(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         def boom(_raw: bytes) -> object:
             raise RecursionError

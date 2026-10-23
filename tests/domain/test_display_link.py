@@ -1117,6 +1117,61 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
+    def test_ping_and_query_from_a_callback_refuse_to_wait(self) -> None:
+        """A handler on the listener thread cannot wait for a reply it would produce."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        refusals: list[BaseException] = []
+        done = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="trigger", action="click", ts=time.time(), value=True
+                ),
+            )
+            done.wait(timeout=5)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+
+            def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
+                for call in (client.ping, lambda: client.query("scenes")):
+                    try:
+                        call()
+                    except RuntimeError as exc:
+                        refusals.append(exc)
+                done.set()
+
+            client.set_fallback_handler(on_trigger)
+            client.connect()
+            client.start_listener()
+            assert done.wait(timeout=5)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+        assert len(refusals) == 2, "ping and query must both raise RuntimeError"
+        assert all("listener thread" in str(exc) for exc in refusals)
+
     def test_checkbox_changed_callback_receives_value_changed_event(self) -> None:
         """Checkbox events route to ``(element_id, "changed")`` callbacks."""
         import tempfile

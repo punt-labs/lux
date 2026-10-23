@@ -144,10 +144,10 @@ class DisplayLink:
         self,
         handler: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Install a fallback handler for unmatched interaction events.
+        """Install the handler every interaction the display reports is given to.
 
-        Called by the Hub to route display-side clicks through Hub-side
-        element dispatch when no ``(element_id, action)`` callback matches.
+        Called by the Hub to route display-side clicks through Hub-side element
+        dispatch; with none installed an interaction is dropped.
         """
         self._replies.set_fallback(handler)
 
@@ -204,7 +204,7 @@ class DisplayLink:
             frame_layout=frame_layout,
         )
         self.send_scene(presentation.message(scene_id, elements))
-        return self._replies.ack()
+        return self._replies.typed(AckMessage, None)
 
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack."""

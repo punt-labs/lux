@@ -92,7 +92,7 @@ class TestReplies:
 
         router.route(ack)
 
-        assert router.next_ack(0.1, _Alive()) == ack
+        assert router.next_reply(AckMessage, 0.1, _Alive()) == ack
 
     def test_a_pong_and_a_query_response_are_kept_apart(self) -> None:
         router = InboundRouter(InteractionHandlers())
@@ -107,7 +107,7 @@ class TestReplies:
 
     def test_waiting_for_a_reply_that_never_comes_times_out_as_none(self) -> None:
         router = InboundRouter(InteractionHandlers())
-        assert router.next_ack(0.01, _Alive()) is None
+        assert router.next_reply(AckMessage, 0.01, _Alive()) is None
         assert router.next_reply(PongMessage, 0.01, _Alive()) is None
 
     def test_reset_discards_replies_a_dying_listener_left(self) -> None:
@@ -116,7 +116,7 @@ class TestReplies:
 
         router.reset()
 
-        assert router.next_ack(0.01, _Alive()) is None
+        assert router.next_reply(AckMessage, 0.01, _Alive()) is None
 
 
 class TestUnroutableMessages:
@@ -162,7 +162,7 @@ class TestAWaiterWatchesItsListener:
         router = InboundRouter(InteractionHandlers())
 
         with pytest.raises(ConnectionClosedError, match="listener exited"):
-            router.next_ack(5.0, _Dead())
+            router.next_reply(AckMessage, 5.0, _Dead())
 
     def test_a_reply_already_queued_is_still_delivered_after_the_listener_exited(
         self,
@@ -171,7 +171,7 @@ class TestAWaiterWatchesItsListener:
         ack = AckMessage(scene_id="s")
         router.route(ack)
 
-        assert router.next_ack(5.0, _Dead()) == ack
+        assert router.next_reply(AckMessage, 5.0, _Dead()) == ack
 
     def test_a_typed_reply_wait_fails_the_same_way(self) -> None:
         router = InboundRouter(InteractionHandlers())
@@ -182,4 +182,4 @@ class TestAWaiterWatchesItsListener:
     def test_a_live_listener_with_nothing_to_say_times_out_quietly(self) -> None:
         router = InboundRouter(InteractionHandlers())
 
-        assert router.next_ack(0.05, _Alive()) is None
+        assert router.next_reply(AckMessage, 0.05, _Alive()) is None

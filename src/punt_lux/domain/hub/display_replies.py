@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.domain.hub.listener_thread import ListenerThread
-from punt_lux.protocol import AckMessage
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -76,7 +75,7 @@ class DisplayReplies:
     def set_fallback(
         self, handler: Callable[[RemoteEventHandlerInvocation], None]
     ) -> None:
-        """Answer interactions with no callback registered for them with ``handler``."""
+        """Answer every interaction the display reports with ``handler``."""
         self._handlers.set_fallback(handler)
 
     def end(self) -> None:
@@ -88,11 +87,20 @@ class DisplayReplies:
     def typed[T: Message](self, expected: type[T], wait: float | None) -> T | None:
         """Wait for one ``expected`` reply, active listener or inline read.
 
-        Both a ping and a query send a request and then wait for exactly one typed
-        reply -- from the background listener's own queue when it is running, or an
-        inline read loop when it is not, dropping any interleaved frame the inline
-        path sees along the way. ``wait`` of ``None`` is the standing budget.
+        A ping, a query and a scene each send a request and then wait for exactly
+        one typed reply -- from the background listener's own queue when it is
+        running, or an inline read loop when it is not, dropping any interleaved
+        frame the inline path sees along the way. ``wait`` of ``None`` is the
+        standing budget. A frame the display may not send ends the connection and
+        raises ``ValueError``: a peer that sent one cannot be trusted with the
+        rest of the stream.
+
+        Raises ``RuntimeError`` if called from the listener thread (it is the only
+        producer of the replies this would wait for, so the wait could never end).
         """
+        if self._listener.is_current:
+            err = f"Cannot wait for {expected.__name__} from the listener thread"
+            raise RuntimeError(err)
         deadline = time.monotonic() + (self._budget if wait is None else wait)
         if self._listener.alive:
             remaining = deadline - time.monotonic()
@@ -102,41 +110,17 @@ class DisplayReplies:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
-            received = self._connection.receive(remaining)
+            try:
+                received = self._connection.receive(remaining)
+            except ValueError:
+                self.end()
+                raise
             if received is None:
                 return None
             if isinstance(received, expected):
                 return received
             kind = type(received).__name__
             logger.debug("%s: dropping interleaved %s frame", expected.__name__, kind)
-
-    def ack(self) -> AckMessage | None:
-        """Receive expecting an AckMessage.  Drops interleaved frames.
-
-        Thread-safe.  When the listener is active, blocks on the reply queues.
-        When inactive, reads directly from the socket and drops any non-ack frame
-        that arrives in the meantime.
-
-        Raises RuntimeError if called from the listener thread (would deadlock
-        because the listener is the only ack producer).
-        """
-        if self._listener.is_current:
-            err = "Cannot call blocking _recv_ack from the listener thread"
-            raise RuntimeError(err)
-        if self._listener.alive:
-            return self._inbound.next_ack(self._budget, self._listener)
-        self._connection.require()
-        deadline = time.monotonic() + self._budget
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            msg = self._connection.receive(remaining)
-            if msg is None:
-                return None
-            if isinstance(msg, AckMessage):
-                return msg
-            logger.debug("_recv_ack: dropping interleaved %s frame", type(msg).__name__)
 
     def event(self, wait: float | None) -> PolledEvent:
         """Block for the next subscribed business event (a :class:`PolledEvent`).
