@@ -229,6 +229,33 @@ class TestDeepFrames:
 
     def test_recursion_error_from_the_decoder_becomes_a_value_error(
         self, monkeypatch: pytest.MonkeyPatch
+    def test_an_escaped_quote_does_not_end_a_string(self) -> None:
+        payload = b'{"text": "\\"' + b"[" * 500 + b'\\""}'
+
+        assert JsonPayload(payload).as_object() == {"text": '"' + "[" * 500 + '"'}
+
+    def test_an_escaped_backslash_before_the_closing_quote_ends_the_string(
+        self,
+    ) -> None:
+        deep = b"[" * MAX_NESTING + b"]" * MAX_NESTING
+        payload = b'{"text": "\\\\", "k": ' + deep + b"}"
+
+        with pytest.raises(ValueError, match="nests deeper"):
+            JsonPayload(payload).as_object()
+
+    @pytest.mark.parametrize(
+        "unit",
+        [b'"', b'\\"', b'"\\', b'{"', b'"[{'],
+        ids=["quotes", "escaped-quotes", "quote-backslash", "object-quote", "mixed"],
+    )
+    def test_unterminated_strings_cost_linear_work(self, unit: bytes) -> None:
+        # A quote-matching regex retried from every quote is quadratic in the
+        # payload: this size would not finish, so completing is the bound.
+        payload = b'{"k": "' + unit * (4 * 1024 * 1024 // len(unit))
+
+        with pytest.raises(ValueError):
+            JsonPayload(payload).as_object()
+
     ) -> None:
         def boom(_raw: bytes) -> object:
             raise RecursionError

@@ -8,10 +8,10 @@ from typing import Any, Self, cast, final
 
 __all__ = ["MAX_NESTING", "JsonPayload"]
 
-# Allowed messages nest well under ten levels; the bound only has to keep a
-# hostile frame from reaching the interpreter's recursion limit.
+# Messages nest under ten levels; the bound only keeps frames off the recursion limit.
 MAX_NESTING = 32
-_STRINGS = re.compile(rb'"(?:[^"\\]|\\.)*"')
+# Unterminated strings run to the end; possessive repetition keeps the scan linear.
+_STRINGS = re.compile(rb'"(?:[^"\\]++|\\.)*+(?:"|\\?\Z)', re.DOTALL)
 _BRACKETS = re.compile(rb"[\[\]{}]")
 _OPENERS = b"[{"
 
