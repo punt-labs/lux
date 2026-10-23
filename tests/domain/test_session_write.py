@@ -135,7 +135,7 @@ class TestSeated:
 
         seated = recorded.seated(_Leg())
 
-        assert seated.after.client_hosts == ("127.0.0.1",)
+        assert seated.after.client_hosts.names == ("127.0.0.1",)
 
     def test_reports_a_new_host_as_restated_though_the_identity_held(self) -> None:
         held = (

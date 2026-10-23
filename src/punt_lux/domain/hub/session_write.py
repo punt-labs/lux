@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import NO_HOSTS, ClientHost
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.menu_listing import MenuListing
 
@@ -84,7 +84,7 @@ class SessionWrite:
         """
         before = self.before
         prior_identity = None if before is None else before.identity
-        prior_hosts = () if before is None else before.client_hosts
+        prior_hosts = NO_HOSTS if before is None else before.client_hosts
         return (
             prior_identity != self.after.identity
             or prior_hosts != self.after.client_hosts

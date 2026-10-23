@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from starlette.requests import HTTPConnection
 
-__all__ = ["UNOBSERVED", "ClientHost", "ClientHosts"]
+__all__ = ["NO_HOSTS", "UNOBSERVED", "ClientHost", "ClientHosts"]
 
 
 @final
@@ -30,17 +30,27 @@ class ClientHost:
     __slots__ = ("_host",)
 
     def __new__(cls, host: str) -> Self:
+        if not host:
+            msg = "a reported host is never blank; an unreported one is UNOBSERVED"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._host = host
         return self
 
     @classmethod
-    def of(cls, host: str | None) -> Self:
-        """A reported address; ``None`` -- no peer reported -- is :data:`UNOBSERVED`."""
-        return cls("" if host is None else host)
+    def unreported(cls) -> Self:
+        """The host of a contact no transport reported one for: blank, unobserved."""
+        self = super().__new__(cls)
+        self._host = ""
+        return self
 
     @classmethod
-    def of_connection(cls, connection: HTTPConnection) -> Self:
+    def of(cls, host: str | None) -> ClientHost:
+        """A reported address; ``None`` -- no peer reported -- is :data:`UNOBSERVED`."""
+        return UNOBSERVED if not host else cls(host)
+
+    @classmethod
+    def of_connection(cls, connection: HTTPConnection) -> ClientHost:
         """The host the connection's transport reported, read at the door."""
         client = connection.client
         return cls.of(None if client is None else client.host)
@@ -79,9 +89,26 @@ class ClientHosts:
     __slots__ = ("_names",)
 
     def __new__(cls, names: tuple[str, ...] = ()) -> Self:
+        if not all(names):
+            msg = f"a host list holds no blank name: {names!r}"
+            raise ValueError(msg)
+        if len(set(names)) != len(names):
+            msg = f"a host list holds no duplicate: {names!r}"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._names = names
         return self
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ClientHosts):
+            return NotImplemented
+        return self._names == other._names
+
+    def __hash__(self) -> int:
+        return hash((ClientHosts, self._names))
+
+    def __repr__(self) -> str:
+        return f"ClientHosts({self._names!r})"
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -96,4 +123,6 @@ class ClientHosts:
 
 
 # The contact of a caller no transport observed: in-process, stdio, no peer reported.
-UNOBSERVED = ClientHost("")
+UNOBSERVED = ClientHost.unreported()
+# A session no host has been observed for.
+NO_HOSTS = ClientHosts()

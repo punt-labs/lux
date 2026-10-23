@@ -663,7 +663,7 @@ def test_an_unidentified_session_that_only_shows_lists_the_host_it_showed_from()
 
     session = factory.clients.session_of(_CONNECTION)
     assert session is not None
-    assert session.client_hosts == ("10.0.0.5",)
+    assert session.client_hosts.names == ("10.0.0.5",)
 
 
 def test_a_show_from_an_in_process_caller_records_no_host() -> None:
@@ -676,4 +676,4 @@ def test_a_show_from_an_in_process_caller_records_no_host() -> None:
 
     session = factory.clients.session_of(_CONNECTION)
     assert session is not None
-    assert session.client_hosts == ()
+    assert session.client_hosts.names == ()

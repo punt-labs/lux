@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import ClientHosts
+from punt_lux.client_host import NO_HOSTS, ClientHosts
 from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
@@ -55,7 +55,7 @@ class ClientSession:
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
         slot: ListenerSlot | None = None,
-        client_hosts: ClientHosts | None = None,  # None = no host observed yet
+        client_hosts: ClientHosts = NO_HOSTS,
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -65,7 +65,7 @@ class ClientSession:
         )
         # Absent means the empty slot — the default for a session with no leg yet.
         self._slot = slot if slot is not None else ListenerSlot()
-        self._hosts = ClientHosts() if client_hosts is None else client_hosts
+        self._hosts = client_hosts
         return self
 
     @property
@@ -79,13 +79,13 @@ class ClientSession:
         return self._identity
 
     @property
-    def client_hosts(self) -> tuple[str, ...]:
+    def client_hosts(self) -> ClientHosts:
         """The distinct hosts the Hub observed this session connecting from.
 
         First-seen order. Observed on the transport, never declared: the identity
         carries no host field, and no header is read (DES-099).
         """
-        return self._hosts.names
+        return self._hosts
 
     def observed_from(self, host: ClientHost) -> ClientSession:
         """Return this session also known to have been reached from ``host``.

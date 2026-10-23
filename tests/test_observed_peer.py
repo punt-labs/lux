@@ -65,17 +65,17 @@ def _request(
 
 class TestClientSessionHosts:
     def test_a_new_session_has_seen_no_host(self) -> None:
-        assert ClientSession(0.0).client_hosts == ()
+        assert ClientSession(0.0).client_hosts.names == ()
 
     def test_a_host_is_recorded(self) -> None:
         assert ClientSession(0.0).observed_from(
             ClientHost("127.0.0.1")
-        ).client_hosts == ("127.0.0.1",)
+        ).client_hosts.names == ("127.0.0.1",)
 
     def test_an_ipv6_loopback_is_recorded_as_reported(self) -> None:
-        assert ClientSession(0.0).observed_from(ClientHost("::1")).client_hosts == (
-            "::1",
-        )
+        assert ClientSession(0.0).observed_from(
+            ClientHost("::1")
+        ).client_hosts.names == ("::1",)
 
     def test_no_peer_records_nothing(self) -> None:
         session = ClientSession(0.0)
@@ -85,7 +85,7 @@ class TestClientSessionHosts:
     def test_a_repeated_host_is_not_duplicated(self) -> None:
         once = ClientSession(0.0).observed_from(ClientHost("127.0.0.1"))
 
-        assert once.observed_from(ClientHost("127.0.0.1")).client_hosts == (
+        assert once.observed_from(ClientHost("127.0.0.1")).client_hosts.names == (
             "127.0.0.1",
         )
 
@@ -97,7 +97,7 @@ class TestClientSessionHosts:
             .observed_from(ClientHost("10.0.0.5"))
         )
 
-        assert session.client_hosts == ("10.0.0.5", "127.0.0.1")
+        assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")
 
     def test_every_rebuild_carries_the_hosts_forward(self) -> None:
         seen = ClientSession(0.0).observed_from(ClientHost("127.0.0.1"))
@@ -120,11 +120,11 @@ class TestClientSessionHosts:
         )
 
         assert all(session is not None for session in rebuilt)
-        assert [s.client_hosts for s in rebuilt if s is not None] == [
+        assert [s.client_hosts.names for s in rebuilt if s is not None] == [
             ("127.0.0.1",)
         ] * 4
         assert callback is not None
-        assert callback.client_hosts == ("127.0.0.1",)
+        assert callback.client_hosts.names == ("127.0.0.1",)
 
 
 class TestScopeClientHost:
@@ -169,7 +169,7 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ("127.0.0.1",)
+        assert session.client_hosts.names == ("127.0.0.1",)
 
     def test_a_contact_that_reports_no_peer_records_none(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -178,7 +178,7 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ()
+        assert session.client_hosts.names == ()
 
     def test_rest_then_websocket_from_one_host_reports_one_host(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -192,7 +192,7 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ("127.0.0.1",)
+        assert session.client_hosts.names == ("127.0.0.1",)
 
     def test_a_second_distinct_host_appends_in_first_seen_order(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -202,7 +202,7 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ("10.0.0.5", "127.0.0.1")
+        assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")
 
     def test_a_declared_host_is_not_a_field_of_an_identity(self) -> None:
         with pytest.raises(ValidationError):
@@ -273,7 +273,7 @@ class TestIdentityOperationsPassesThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ("10.0.0.5",)
+        assert session.client_hosts.names == ("10.0.0.5",)
 
     def test_a_scope_without_a_peer_records_none(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -283,7 +283,7 @@ class TestIdentityOperationsPassesThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.client_hosts == ()
+        assert session.client_hosts.names == ()
 
 
 class TestMcpBinding:
@@ -444,7 +444,7 @@ class TestRestDoor:
         assert scope.client_host == ClientHost("127.0.0.1")
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.client_hosts == ("127.0.0.1",)
+        assert session.client_hosts.names == ("127.0.0.1",)
 
     def test_an_ipv6_peer_is_recorded(self) -> None:
         caller, factory = self._caller()
@@ -453,7 +453,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.client_hosts == ("::1",)
+        assert session.client_hosts.names == ("::1",)
 
     def test_a_forwarding_header_is_not_the_recorded_host(self) -> None:
         caller, factory = self._caller()
@@ -463,7 +463,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.client_hosts == ("127.0.0.1",)
+        assert session.client_hosts.names == ("127.0.0.1",)
 
     def test_a_request_with_no_peer_records_none(self) -> None:
         caller, factory = self._caller()
@@ -472,7 +472,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.client_hosts == ()
+        assert session.client_hosts.names == ()
 
     def test_an_unidentified_request_is_still_refused(self) -> None:
         caller, _ = self._caller()
@@ -529,7 +529,7 @@ class TestWebSocketDoor:
             session = factory.clients.session_of(conn)
             assert session is not None
             # Starlette's TestClient reports the peer host it simulates.
-            assert session.client_hosts == ("testclient",)
+            assert session.client_hosts.names == ("testclient",)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -544,7 +544,31 @@ def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
 class TestAnEmptyAddressIsNoAddress:
     def test_an_empty_host_is_unobserved(self) -> None:
         assert ClientHost.of("") == UNOBSERVED
-        assert not ClientHost("").observed
+        assert not UNOBSERVED.observed
+
+    def test_a_blank_host_cannot_be_built_as_a_reported_one(self) -> None:
+        with pytest.raises(ValueError, match="UNOBSERVED"):
+            ClientHost("")
+
+    def test_hosts_refuse_a_blank_name_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="blank"):
+            ClientHosts(("10.0.0.5", ""))
+
+    def test_hosts_refuse_a_duplicate_at_construction(self) -> None:
+        with pytest.raises(ValueError, match="duplicate"):
+            ClientHosts(("a", "b", "a"))
+
+    def test_hosts_are_values_equal_hashable_and_readable(self) -> None:
+        assert ClientHosts(("a", "b")) == ClientHosts(("a", "b"))
+        assert ClientHosts(("a", "b")) != ClientHosts(("b", "a"))
+        assert hash(ClientHosts(("a",))) == hash(ClientHosts(("a",)))
+        assert repr(ClientHosts(("a",))) == "ClientHosts(('a',))"
+
+    def test_a_session_exposes_its_hosts_as_a_value(self) -> None:
+        session = ClientSession(0.0).observed_from(ClientHost("a"))
+
+        assert session.client_hosts == ClientHosts(("a",))
+        assert ClientSession(0.0).client_hosts == ClientHosts()
 
     def test_a_real_host_is_observed(self) -> None:
         assert ClientHost.of("10.0.0.5").observed
@@ -552,8 +576,8 @@ class TestAnEmptyAddressIsNoAddress:
     def test_an_empty_host_joins_no_list(self) -> None:
         hosts = ClientHosts(("10.0.0.5",))
 
-        assert hosts.with_host(ClientHost("")) is hosts
-        assert ClientHosts().with_host(ClientHost("")).names == ()
+        assert hosts.with_host(UNOBSERVED) is hosts
+        assert ClientHosts().with_host(UNOBSERVED).names == ()
 
     def test_a_new_host_joins_last_and_a_known_one_not_again(self) -> None:
         hosts = ClientHosts().with_host(ClientHost("a")).with_host(ClientHost("b"))
@@ -562,9 +586,9 @@ class TestAnEmptyAddressIsNoAddress:
         assert hosts.with_host(ClientHost("a")) is hosts
 
     def test_an_empty_host_is_never_recorded_on_a_session(self) -> None:
-        session = ClientSession(0.0).observed_from(ClientHost(""))
+        session = ClientSession(0.0).observed_from(UNOBSERVED)
 
-        assert session.client_hosts == ()
+        assert session.client_hosts.names == ()
 
     def test_a_server_reporting_an_empty_peer_is_unobserved(self) -> None:
         assert ClientHost.of_connection(_request(("", 5000))) == UNOBSERVED

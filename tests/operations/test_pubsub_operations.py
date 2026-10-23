@@ -239,7 +239,7 @@ def test_an_unidentified_session_that_only_subscribes_lists_its_host(
 
     session = hub_clients.session_of(scope.connection_id)
     assert session is not None
-    assert session.client_hosts == ("10.0.0.5",)
+    assert session.client_hosts.names == ("10.0.0.5",)
 
 
 def test_a_later_contact_from_a_second_host_is_listed_after_the_first(
@@ -254,4 +254,4 @@ def test_a_later_contact_from_a_second_host_is_listed_after_the_first(
 
     session = hub_clients.session_of(scope.connection_id)
     assert session is not None
-    assert session.client_hosts == ("10.0.0.5", "127.0.0.1")
+    assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")
