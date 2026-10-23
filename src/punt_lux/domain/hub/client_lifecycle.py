@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.menu_presence import MenuPresence
 
 if TYPE_CHECKING:
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.departure_cascade import DepartureCascade
     from punt_lux.domain.hub.departure_sinks import DepartureSink
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.registry_outcomes import (
@@ -45,21 +45,24 @@ class ClientLifecycle:
     """Arrival, contact, and departure of the Hub's clients, under the store lock."""
 
     _clients: HubClientRegistry
+    _legs: ListenerLegs
     _owners: OwnerTracker
     _cascade: DepartureCascade
     _lock: StoreLock
     _presence: MenuPresence
-    __slots__ = ("_cascade", "_clients", "_lock", "_owners", "_presence")
+    __slots__ = ("_cascade", "_clients", "_legs", "_lock", "_owners", "_presence")
 
     def __new__(
         cls,
         clients: HubClientRegistry,
+        legs: ListenerLegs,
         owners: OwnerTracker,
         cascade: DepartureCascade,
         lock: StoreLock,
     ) -> Self:
         self = super().__new__(cls)
         self._clients = clients
+        self._legs = legs
         self._owners = owners
         self._cascade = cascade
         self._lock = lock
@@ -80,9 +83,7 @@ class ClientLifecycle:
         with self._lock.write():
             self._presence = MenuPresence(marker, sink)
 
-    def arrive(
-        self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED
-    ) -> None:
+    def arrive(self, connection_id: ConnectionId, host: ClientHost) -> None:
         """Record the connection's own arrival, and the host it came from."""
         with self._lock.write():
             self._settle(connection_id, self._clients.record(connection_id, None, host))
@@ -91,7 +92,7 @@ class ClientLifecycle:
         self,
         connection_id: ConnectionId,
         identity: ClientIdentity,
-        host: ClientHost = UNOBSERVED,
+        host: ClientHost,
     ) -> None:
         """Record the identity the connection declared, and the host it came from."""
         with self._lock.write():
@@ -104,17 +105,15 @@ class ClientLifecycle:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
-        host: ClientHost = UNOBSERVED,
+        host: ClientHost,
     ) -> None:
         """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
-            attachment = self._clients.legs.attach(
-                connection_id, identity, listener, host
-            )
+            attachment = self._legs.attach(connection_id, identity, listener, host)
             self._announce(connection_id, attachment.menu_change)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
-    def renew(self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED) -> None:
+    def renew(self, connection_id: ConnectionId, host: ClientHost) -> None:
         """Renew the lease iff registered; reviving a lapsed agent is announced.
 
         The contact's ``host`` is recorded on the session it renews.
@@ -128,7 +127,7 @@ class ClientLifecycle:
         self,
         connection_id: ConnectionId,
         callback: SessionCallback,
-        host: ClientHost = UNOBSERVED,
+        host: ClientHost,
     ) -> CallbackRegistration:
         """Register ``callback`` on the connection's own leg, and pay what it owes.
 
@@ -140,10 +139,10 @@ class ClientLifecycle:
         """
         with self._lock.write():
             self.renew(connection_id, host)
-            expected = self._clients.legs.listener_for(connection_id)
+            expected = self._legs.listener_for(connection_id)
             if expected is None:
                 return "superseded"
-            registration = self._clients.legs.register_callback(
+            registration = self._legs.register_callback(
                 connection_id, callback, expected
             )
             self._announce(connection_id, registration.menu_change)
@@ -159,7 +158,7 @@ class ClientLifecycle:
         entry a lapse left on the Display is still on it.
         """
         with self._lock.write():
-            detachment = self._clients.legs.detach(connection_id, listener)
+            detachment = self._legs.detach(connection_id, listener)
             self._announce(connection_id, detachment.menu_change)
             return detachment.outcome
 

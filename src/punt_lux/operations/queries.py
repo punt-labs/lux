@@ -25,9 +25,9 @@ from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
-    from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]

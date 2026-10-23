@@ -20,7 +20,7 @@ from punt_lux.operations.models.scene_results import SceneShown
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scene_submission import SceneSubmission
 
@@ -42,7 +42,7 @@ class SceneInstaller:
         return self
 
     def install(
-        self, submission: SceneSubmission, *, owner: ConnectionId
+        self, submission: SceneSubmission, *, owner: Scope
     ) -> SceneShown | OpError:
         """Install ``submission`` as ``owner``'s scene, or return why it was refused.
 
@@ -56,7 +56,9 @@ class SceneInstaller:
         )
         if rejection is not None:
             return OpError(code="rejected", reason=rejection)
-        scoped = CompositionBoundary.compose_or_reject(lambda: submission.scoped(owner))
+        scoped = CompositionBoundary.compose_or_reject(
+            lambda: submission.scoped(owner.connection_id)
+        )
         if isinstance(scoped, OpError):
             return scoped
         left = self._display.frames.presentation_for(scoped.scene_id).frame_id

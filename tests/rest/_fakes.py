@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -189,8 +189,8 @@ def make_client(
     built = factory if factory is not None else HubStoreFactory()
     router = CallbackRouter(built.clients)
     if listening:
-        built.clients.legs.attach(
-            DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener()
+        built.lifecycle.attach(
+            DEFAULT_CONNECTION, DEFAULT_IDENTITY_MODEL, SilentListener(), UNOBSERVED
         )
     facade = make_facade(display_port=port, factory=built, router=router)
     RestSurface(facade).mount(app)

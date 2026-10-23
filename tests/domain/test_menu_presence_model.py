@@ -23,11 +23,13 @@ from typing import Self, final
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.protocol.elements.text import TextElement
@@ -165,7 +167,7 @@ class _Walk:
 
 def _identify(kind: str) -> Callable[[_World, ConnectionId, _Dice], None]:
     def step(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
-        world.factory.lifecycle.identify(conn, _identity(conn, kind))
+        world.factory.lifecycle.identify(conn, _identity(conn, kind), UNOBSERVED)
 
     return step
 
@@ -173,14 +175,16 @@ def _identify(kind: str) -> Callable[[_World, ConnectionId, _Dice], None]:
 def _attach(kind: str) -> Callable[[_World, ConnectionId, _Dice], None]:
     def step(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
         world.legs[conn] = _Leg()
-        world.factory.lifecycle.attach(conn, _identity(conn, kind), world.legs[conn])
+        world.factory.lifecycle.attach(
+            conn, _identity(conn, kind), world.legs[conn], UNOBSERVED
+        )
 
     return step
 
 
 def _register(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
     callback = SessionCallback(id=f"cb{world.serial}", label="Run")
-    world.factory.lifecycle.register_callback(conn, callback)
+    world.factory.lifecycle.register_callback(conn, callback, UNOBSERVED)
 
 
 def _detach(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
@@ -193,11 +197,11 @@ def _lapse(world: _World, _conn: ConnectionId, rng: _Dice) -> None:
 
 
 def _renew(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
-    world.factory.lifecycle.renew(conn)
+    world.factory.lifecycle.renew(conn, UNOBSERVED)
 
 
 def _arrive(world: _World, conn: ConnectionId, _rng: _Dice) -> None:
-    world.factory.lifecycle.arrive(conn)
+    world.factory.lifecycle.arrive(conn, UNOBSERVED)
 
 
 def _sweep(world: _World, _conn: ConnectionId, _rng: _Dice) -> None:
@@ -284,7 +288,9 @@ def _touch(world: _World, conn: ConnectionId) -> None:
     if conn not in world.factory.clients.sessions():
         return
     scene = SceneId(f"{conn}-s{world.serial % 2}")
-    world.factory.display.replace_scene(conn, scene, [TextElement(id="t", content="x")])
+    world.factory.display.replace_scene(
+        Scope(conn), scene, [TextElement(id="t", content="x")]
+    )
     world.scenes.setdefault(conn, set()).add(scene)
     world.drawn_labels[scene] = world.label_of(scene)
 

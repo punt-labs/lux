@@ -22,9 +22,11 @@ from typing import Self
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.ids import SceneId
+from punt_lux.domain.scope import Scope
 
 
 class _FakeClient:
@@ -308,9 +310,9 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         raise AssertionError(msg)
 
     monkeypatch.setattr(hub_display, "all_scene_ids", raise_if_called)
-    hub_lifecycle.arrive(conn)
-    hub_display.replace_scene(conn, kept, [TextElement(id="k", content="ok")])
-    hub_display.replace_scene(conn, poison, [TextElement(id="p", content="ok")])
+    hub_lifecycle.arrive(conn, UNOBSERVED)
+    hub_display.replace_scene(Scope(conn), kept, [TextElement(id="k", content="ok")])
+    hub_display.replace_scene(Scope(conn), poison, [TextElement(id="p", content="ok")])
     hub_display.quarantine(poison, QuarantineRecord(death_count=2, last_death_at=1.0))
 
     registry = ClientRegistry()
@@ -326,8 +328,8 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         assert poison not in fake.manifests_sent[0]
     finally:
         monkeypatch.setattr(hub_display, "all_scene_ids", original_all)
-        hub_display.replace_scene(conn, kept, ())  # cleanup
-        hub_display.replace_scene(conn, poison, ())
+        hub_display.replace_scene(Scope(conn), kept, ())  # cleanup
+        hub_display.replace_scene(Scope(conn), poison, ())
         hub_lifecycle.depart(conn)
 
 

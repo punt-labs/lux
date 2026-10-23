@@ -9,7 +9,8 @@ hold that finds and removes the lapsed set together, so a renewal racing in
 between can't be evicted anyway. The clock is injected for deterministic tests.
 
 The registry also holds each connection's listen leg, so the leg and its
-callbacks are written under this same lock, through :attr:`legs`.
+callbacks are written under this same lock, through the legs that
+:meth:`take_legs` hands to the lifecycle.
 
 The menu names live here too, reached only under this lock, so a name is
 assigned only to a session live at that instant and released only by the
@@ -23,7 +24,6 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.listener_legs import ListenerLegs
@@ -49,7 +49,8 @@ class HubClientRegistry:
     _roster: ClientRoster
     _lock: threading.Lock
     _clock: Callable[[], float]
-    __slots__ = ("_clock", "_lock", "_roster", "_sessions")
+    _legs_taken: bool
+    __slots__ = ("_clock", "_legs_taken", "_lock", "_roster", "_sessions")
 
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
@@ -57,18 +58,28 @@ class HubClientRegistry:
         self._roster = ClientRoster()
         self._lock = threading.Lock()
         self._clock = clock
+        self._legs_taken = False
         return self
 
-    @property
-    def legs(self) -> ListenerLegs:
-        """A view of the connections' listener slots, under this registry's lock."""
+    def take_legs(self) -> ListenerLegs:
+        """Hand over the listener slots' write surface, once, to the lifecycle.
+
+        The slots and the callbacks on them are presence: every write to them owes
+        the Hub a mark and a sink, which only ``ClientLifecycle`` pays. So the
+        surface is given away exactly once, to it; no one else can reach it
+        through the registry.
+        """
+        if self._legs_taken:
+            msg = "the listener legs were already handed to a lifecycle"
+            raise RuntimeError(msg)
+        self._legs_taken = True
         return ListenerLegs(self._sessions, self._lock, self._clock)
 
     def record(
         self,
         connection_id: ConnectionId,
-        identity: ClientIdentity | None = None,
-        host: ClientHost = UNOBSERVED,
+        identity: ClientIdentity | None,
+        host: ClientHost,
     ) -> SessionWrite:
         """Upsert the connection's session, renewing its lease and any identity.
 
@@ -85,7 +96,7 @@ class HubClientRegistry:
             return write
 
     def renew_if_registered(
-        self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED
+        self, connection_id: ConnectionId, host: ClientHost
     ) -> SessionWrite | None:
         """Renew the lease iff already registered; a write must never register.
 

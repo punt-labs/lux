@@ -17,11 +17,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from punt_lux.domain.element import Element as DomainElement
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.dashboard import RenderDashboardRequest
     from punt_lux.operations.models.scene_results import SceneShown
     from punt_lux.operations.models.table import RenderTableRequest
     from punt_lux.operations.scenes import SceneOperations
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["ConvenienceOperations"]
 

@@ -8,6 +8,7 @@ import anyio
 import pytest
 from mcp.shared.message import SessionMessage
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import disconnect_connection
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
@@ -245,7 +246,7 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
             """The shared connection's one Hub-side outbound writer."""
             return True
 
-        lifecycle.arrive(conn)
+        lifecycle.arrive(conn, UNOBSERVED)
         hub.register_writer(conn, _writer)
         hub.subscribe(conn, Topic("work.saved"))
 

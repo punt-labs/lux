@@ -21,7 +21,7 @@ from punt_lux.operations.models.identity import Identified
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.operations.scope import Scope
+    from punt_lux.domain.scope import Scope
 
 __all__ = ["IdentityOperations"]
 

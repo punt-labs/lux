@@ -11,10 +11,12 @@ user closing the frame, an agent clearing, or a frame TTL expiring.
 
 from __future__ import annotations
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lifecycle import disconnect_connection
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 
 _CONN = ConnectionId("c1")
@@ -25,9 +27,13 @@ def test_disconnect_leaves_the_sessions_scenes_standing() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, SceneId("s1"), [TextElement(id="s1-root", content="x")])
-    store.replace_scene(_CONN, SceneId("s2"), [TextElement(id="s2-root", content="y")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(
+        Scope(_CONN), SceneId("s1"), [TextElement(id="s1-root", content="x")]
+    )
+    store.replace_scene(
+        Scope(_CONN), SceneId("s2"), [TextElement(id="s2-root", content="y")]
+    )
 
     disconnect_connection(_CONN, lifecycle=lifecycle)
 
@@ -54,7 +60,7 @@ def test_disconnect_fires_the_connections_registered_transport_sink() -> None:
     """The cascade's transport-sink leg still fires, now via HubDisplay itself."""
     factory = HubStoreFactory(hub=Hub())
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     released: list[ConnectionId] = []
 
     def _sink(connection_id: ConnectionId) -> None:

@@ -15,10 +15,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 
 _SCENE = SceneId("sweep-scene")
@@ -70,9 +72,9 @@ def test_sweep_reaps_a_lapsed_connection_with_no_other_activity() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
     dead = ConnectionId("dead-conn")
-    lifecycle.identify(dead, _cli("dead"))
+    lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     display.apply(
-        dead,
+        Scope(dead),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="track"), parent_id=None),
     )
     sweep = LeaseReapSweep(lifecycle)
@@ -91,7 +93,7 @@ def test_sweep_is_empty_when_nothing_has_lapsed() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
     live = ConnectionId("live-conn")
-    lifecycle.identify(live, _cli("live"))
+    lifecycle.identify(live, _cli("live"), UNOBSERVED)
     sweep = LeaseReapSweep(lifecycle)
 
     assert sweep.sweep() == frozenset()
@@ -104,7 +106,7 @@ def test_run_sweeps_until_cancelled() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
     dead = ConnectionId("dead-conn")
-    lifecycle.identify(dead, _cli("dead"))
+    lifecycle.identify(dead, _cli("dead"), UNOBSERVED)
     clock.advance(91.0)  # already lapsed when the loop starts
     sweep = LeaseReapSweep(lifecycle, interval_seconds=0.01)
 

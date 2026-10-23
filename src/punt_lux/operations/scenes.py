@@ -38,11 +38,11 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scene_deps import SceneOperationsDeps
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["SceneOperations"]
 
@@ -107,7 +107,7 @@ class SceneOperations:
         as long as it keeps showing.
         """
         with self._display.arriving_as(scope):
-            return self._installer.install(submission, owner=scope.connection_id)
+            return self._installer.install(submission, owner=scope)
 
     def update(
         self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope
@@ -147,7 +147,7 @@ class SceneOperations:
             record = self._display.quarantine_record(sid)
             if record is None:
                 writer = HubSceneWriter(self._display)
-                target = SceneScope(scope.connection_id, sid)
+                target = SceneScope(scope, sid)
                 result = writer.apply(target, request.to_wire())
                 if isinstance(result, WriteRejected):
                     # The writer's own rejection message names the composed
@@ -175,4 +175,4 @@ class SceneOperations:
         connection owns and reports a scene-scoped miss rather than a false
         ``cleared``.
         """
-        return self._clearer.clear(scope.connection_id, scene_id)
+        return self._clearer.clear(scope, scene_id)

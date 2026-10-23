@@ -12,16 +12,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 
 
 class _ForbiddenPort:
@@ -124,7 +125,7 @@ def test_list_clients_shows_the_record_only_for_identified_sessions() -> None:
     IdentityOperations(lifecycle, clients).identify(
         {"kind": "cli", "name": "lux", "repo": "/w/lux"}, scope=_scope("identified")
     )
-    lifecycle.arrive(ConnectionId("anonymous"))
+    lifecycle.arrive(ConnectionId("anonymous"), UNOBSERVED)
     reader = QueryOperations(
         store,
         _ForbiddenPort(),

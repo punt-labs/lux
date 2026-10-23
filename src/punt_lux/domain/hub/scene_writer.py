@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+    from punt_lux.domain.scope import Scope
 
 __all__ = ["HubSceneWriter", "SceneScope"]
 
@@ -43,8 +44,13 @@ _log = logging.getLogger(__name__)
 class SceneScope:
     """The ``(connection, scene)`` pair an ``update`` mutation is scoped to."""
 
-    connection_id: ConnectionId
+    caller: Scope
     scene_id: SceneId
+
+    @property
+    def connection_id(self) -> ConnectionId:
+        """The connection the mutation acts for."""
+        return self.caller.connection_id
 
     def removal(self, element_id: ElementId) -> RemoveElement:
         """Return the ``RemoveElement`` for ``element_id`` scoped to this scene."""
@@ -81,7 +87,7 @@ class HubSceneWriter:
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
-        with self._display.writing_as(scope.connection_id):
+        with self._display.writing_as(scope.caller):
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -104,7 +110,7 @@ class HubSceneWriter:
             return WriteAccepted()
 
     def clear(
-        self, connection_id: ConnectionId, scene_id: SceneId | None = None
+        self, caller: Scope, scene_id: SceneId | None = None
     ) -> frozenset[SceneId]:
         """Remove the connection's roots and return the scenes they were removed from.
 
@@ -113,15 +119,15 @@ class HubSceneWriter:
         its real frame and reclaims it after (deferred so the blank keeps its frame).
         """
         touched: set[SceneId] = set()
-        with self._display.writing_as(connection_id):
+        with self._display.writing_as(caller):
             for owned_scene, element_id in self._display.elements_owned_by(
-                connection_id
+                caller.connection_id
             ):
                 if scene_id is not None and owned_scene != scene_id:
                     continue
                 touched.add(owned_scene)
                 removal = RemoveElement(scene_id=owned_scene, element_id=element_id)
-                self._display.apply(connection_id, removal)
+                self._display.apply(caller, removal)
         return frozenset(touched)
 
     def _field_realizations(
@@ -182,7 +188,7 @@ class HubSceneWriter:
         scene; its presentation is kept so a later resend blanks it into its frame.
         """
         for element_id in removals:
-            self._display.apply(scope.connection_id, scope.removal(element_id))
+            self._display.apply(scope.caller, scope.removal(element_id))
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection may write an installed ``element_id``.

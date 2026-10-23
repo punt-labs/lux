@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -307,7 +307,9 @@ def test_a_permanent_lease_survives_the_json_round_trip() -> None:
     """
     factory = HubStoreFactory()
     lifecycle = factory.lifecycle
-    lifecycle.identify(ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"))
+    lifecycle.identify(
+        ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"), UNOBSERVED
+    )
     client = make_client(factory=factory)
 
     resp = client.get("/clients")
@@ -327,6 +329,7 @@ def test_an_expiring_lease_round_trips_with_its_length() -> None:
         ClientIdentity(
             kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         ),
+        UNOBSERVED,
     )
     client = make_client(factory=factory)
 

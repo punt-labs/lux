@@ -13,7 +13,6 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.leg_writes import Detachment, Registration
 from punt_lux.domain.hub.session_write import SessionWrite
 
@@ -57,7 +56,7 @@ class ListenerLegs:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
-        host: ClientHost = UNOBSERVED,
+        host: ClientHost,
     ) -> Attachment:
         """Install ``listener`` as the connection's leg, recording ``identity``.
 

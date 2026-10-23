@@ -17,9 +17,11 @@ from typing import Literal, Self
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.protocol.elements import (
     ButtonElement,
@@ -75,7 +77,7 @@ def test_apply_add_element_installs_every_composite_descendant() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     root = _Composite(
         id=str(_ROOT_ID),
         children=(
@@ -88,7 +90,7 @@ def test_apply_add_element_installs_every_composite_descendant() -> None:
     )
 
     hub_display.apply(
-        _CONN,
+        Scope(_CONN),
         AddElement(scene_id=_SCENE, element=root, parent_id=None),
     )
 
@@ -103,15 +105,17 @@ def test_remove_element_walks_subtree_recorded_by_install_recursion() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     inner = _Composite(
         id=str(_CHILD_B_ID),
         children=(_Leaf(id=str(_GRANDCHILD_ID)),),
     )
     root = _Composite(id=str(_ROOT_ID), children=(inner,))
 
-    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=root, parent_id=None))
-    hub_display.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=_ROOT_ID))
+    hub_display.apply(
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=root, parent_id=None)
+    )
+    hub_display.apply(Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=_ROOT_ID))
 
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, _GRANDCHILD_ID)
@@ -125,7 +129,7 @@ def _install_tab_bar_scene() -> HubDisplay:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     bar = TabBarElement(
         id="tb",
         tabs=(
@@ -142,7 +146,9 @@ def _install_tab_bar_scene() -> HubDisplay:
         ),
         active_tab="tab-1",
     )
-    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
+    hub_display.apply(
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+    )
     return hub_display
 
 
@@ -172,7 +178,7 @@ def test_tab_change_repush_keeps_single_root_no_duplication() -> None:
     initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
 
     hub_display.apply(
-        _CONN,
+        Scope(_CONN),
         SetProperty(
             scene_id=_SCENE,
             element_id=ElementId("tb"),
@@ -193,7 +199,7 @@ def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     header = CollapsingHeaderElement(
         id="ch",
         label="Section",
@@ -204,12 +210,12 @@ def test_header_toggle_repush_keeps_single_root_no_duplication() -> None:
         ),
     )
     hub_display.apply(
-        _CONN, AddElement(scene_id=_SCENE, element=header, parent_id=None)
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=header, parent_id=None)
     )
     initial_roots = [r.id for r in hub_display.scene_roots(_SCENE)]
 
     hub_display.apply(
-        _CONN,
+        Scope(_CONN),
         SetProperty(
             scene_id=_SCENE,
             element_id=ElementId("ch"),

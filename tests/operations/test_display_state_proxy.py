@@ -8,10 +8,10 @@ from typing import Self, final
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.display_state_proxy import DisplayStateProxy
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.scope import Scope
 
 _C1 = ConnectionId("c1")
 _C2 = ConnectionId("c2")

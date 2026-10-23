@@ -50,7 +50,7 @@ from typing import Any, ClassVar
 from fastmcp.exceptions import ToolError
 
 from punt_lux import tools as tools_pkg
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -330,7 +330,9 @@ class ToolExerciser:
             # the scenario declares this so the exercised session can own the bar.
             key = str(setup.get("session_key", "local"))
             lifecycle.identify(
-                ConnectionId(key), ClientIdentity(kind="mcp-session", name="corpus")
+                ConnectionId(key),
+                ClientIdentity(kind="mcp-session", name="corpus"),
+                UNOBSERVED,
             )
         test_ops = Operations.for_store(
             display,

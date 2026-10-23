@@ -13,9 +13,9 @@ from punt_lux.operations.reserved_topics import RESERVED_TOPICS
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.pubsub import PublishRequest
     from punt_lux.operations.ports import HubPorts
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["PubSubOperations"]
 

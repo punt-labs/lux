@@ -21,6 +21,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.inspect_scope import InspectScope
@@ -31,7 +32,6 @@ from punt_lux.operations.models.query_geometry import (
 )
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
@@ -75,7 +75,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        ConnectionId("c1"),
+        Scope(ConnectionId("c1")),
         _scoped("s1"),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),

@@ -31,10 +31,10 @@ from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 
@@ -240,7 +240,9 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
 
 def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> None:
     store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
+    store.replace_scene(
+        Scope(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+    )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
@@ -258,7 +260,9 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> 
 
 def test_quarantine_clears_on_a_wholesale_re_show() -> None:
     store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
+    store.replace_scene(
+        Scope(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+    )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )

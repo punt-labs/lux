@@ -11,13 +11,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import RemoveElement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
-    from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+    from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["RootRemovalRouter"]
 
@@ -27,13 +28,13 @@ class RootRemovalRouter:
     """Route an ABC root's self-removal back through the authoritative apply."""
 
     _owners: OwnerTracker
-    _apply: Callable[[ConnectionId, RemoveElement], None]
+    _apply: Callable[[Scope, RemoveElement], None]
     __slots__ = ("_apply", "_owners")
 
     def __new__(
         cls,
         owners: OwnerTracker,
-        apply: Callable[[ConnectionId, RemoveElement], None],
+        apply: Callable[[Scope, RemoveElement], None],
     ) -> Self:
         self = super().__new__(cls)
         self._owners = owners
@@ -48,6 +49,6 @@ class RootRemovalRouter:
         owner = self._owners.get(scene_id, element_id)
         if owner is not None:
             self._apply(
-                owner.connection_id,
+                Scope.in_process(owner.connection_id),
                 RemoveElement(scene_id=scene_id, element_id=element_id),
             )

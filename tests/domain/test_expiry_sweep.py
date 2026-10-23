@@ -27,6 +27,7 @@ from punt_lux.domain.hub.scene_presentation import (
 )
 from punt_lux.domain.hub.store_lock import StoreLock
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 
 _OWNER = ConnectionId("sweep-owner")
 
@@ -111,7 +112,7 @@ class _StubFrames:
 
 def _seed(display: HubDisplay, scene: SceneId, *, ttl_seconds: float) -> None:
     display.show_scene(
-        _OWNER,
+        Scope(_OWNER),
         scene,
         [_WireLeaf(id=f"root-{scene}")],
         ScenePresentation(frame_id=str(scene)),
@@ -340,7 +341,7 @@ def test_run_expires_a_real_frame_end_to_end() -> None:
     display = HubStoreFactory().display  # real monotonic clock
     scene = SceneId("real")
     display.show_scene(
-        _OWNER,
+        Scope(_OWNER),
         scene,
         [_WireLeaf(id="r")],
         ScenePresentation(frame_id="real"),
@@ -377,7 +378,7 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
     far = SceneId("far")
     near = SceneId("near")
     display.show_scene(
-        _OWNER,
+        Scope(_OWNER),
         far,
         [_WireLeaf(id="f")],
         ScenePresentation(frame_id="far"),
@@ -390,7 +391,7 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
         task = asyncio.create_task(sweep.run())
         await asyncio.sleep(0.02)  # let the loop enter its (capped) first wait
         display.show_scene(
-            _OWNER,
+            Scope(_OWNER),
             near,
             [_WireLeaf(id="n")],
             ScenePresentation(frame_id="near"),

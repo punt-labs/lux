@@ -31,6 +31,7 @@ from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.hub import hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol.elements.input_number import InputNumberElement
 
 from .inspection_view import InspectionView
@@ -106,7 +107,7 @@ def _install(
     rig_scene: str, hub_roots: Sequence[DomainElement], harness: LoopHarness
 ) -> None:
     """Install the authoritative Hub scene and push its Display replica."""
-    hub_display.replace_scene(ConnectionId(_CONN), SceneId(rig_scene), hub_roots)
+    hub_display.replace_scene(Scope(ConnectionId(_CONN)), SceneId(rig_scene), hub_roots)
     harness.rig.push_scene(rig_scene, hub_roots)
 
 

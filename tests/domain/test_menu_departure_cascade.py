@@ -15,15 +15,16 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuDepartureSink
-from punt_lux.operations.scope import Scope
 
 
 class _Clock:
@@ -100,7 +101,7 @@ def test_a_lease_lapse_departure_withdraws_the_sessions_menu() -> None:
     arming = _armed(factory, registry, _MarkerSpy())
 
     conn = ConnectionId("agent")
-    lifecycle.identify(conn, _cli("agent"))
+    lifecycle.identify(conn, _cli("agent"), UNOBSERVED)
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert (
         arming.admit(Scope(conn)) is True
@@ -133,7 +134,7 @@ def test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push() -> None:
     arming = _armed(factory, registry, marker)
 
     conn = ConnectionId("agent")
-    lifecycle.identify(conn, _cli("agent"))
+    lifecycle.identify(conn, _cli("agent"), UNOBSERVED)
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(Scope(conn)) is True
 
@@ -156,13 +157,13 @@ def test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities() -> None
     arming = _armed(factory, registry, marker)
 
     conn = ConnectionId("steady")
-    lifecycle.identify(conn, _cli("steady"))
+    lifecycle.identify(conn, _cli("steady"), UNOBSERVED)
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
     assert arming.admit(Scope(conn)) is True
 
     for _ in range(3):
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time
-        lifecycle.arrive(conn)  # a bare contact renews the lease
+        lifecycle.arrive(conn, UNOBSERVED)  # a bare contact renews the lease
         assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
     assert [menu.label for menu in registry.menu_bar()] == ["Tools"]

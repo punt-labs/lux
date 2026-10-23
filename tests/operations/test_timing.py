@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import Cleared, OpError, RenderRequest, SceneShown
 from punt_lux.operations.display_reply import DisplayReplied
-from punt_lux.operations.scope import Scope
 from punt_lux.operations.timing import OperationSubject, Timed
 from tests.rest._fakes import StubPort, make_facade
 

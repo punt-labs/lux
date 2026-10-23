@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -24,6 +24,7 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
@@ -41,7 +42,6 @@ from punt_lux.operations.models.query_visibility import (
     VisibilityUnavailable,
 )
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
 
 if TYPE_CHECKING:
@@ -142,7 +142,7 @@ def _seed_scene(
     the composed key a real show() would produce, so a caller-scoped
     inspect_scene(scene, scope=Scope(connection)) finds it (DES-086).
     """
-    lifecycle.arrive(ConnectionId(connection))
+    lifecycle.arrive(ConnectionId(connection), UNOBSERVED)
     group = agent_element_factory().element_from_dict(
         {
             "kind": "group",
@@ -151,7 +151,7 @@ def _seed_scene(
         }
     )
     store.show_scene(
-        ConnectionId(connection),
+        Scope(ConnectionId(connection)),
         _scoped(connection, scene),
         [cast("DomainElement", group)],
         ScenePresentation(frame_id="frame-a", frame_title="Frame A", layout="single"),
@@ -495,7 +495,7 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
         {"kind": "text", "id": "t2", "content": "from c2"}
     )
     store.apply(
-        ConnectionId("c2"),
+        Scope(ConnectionId("c2")),
         AddElement(
             scene_id=_scoped("c1", "s1"),
             parent_id=None,
@@ -521,7 +521,7 @@ def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
-    lifecycle.identify(ConnectionId("c1"), identity)
+    lifecycle.identify(ConnectionId("c1"), identity, UNOBSERVED)
     _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
         store,
@@ -787,7 +787,9 @@ def test_list_clients_reports_the_observed_hosts_and_the_hubs_own() -> None:
 def test_a_client_no_host_was_observed_for_reports_no_hosts() -> None:
     factory = HubStoreFactory()
     store = factory.display
-    factory.lifecycle.identify(ConnectionId("c1"), ClientIdentity(kind="cli", name="x"))
+    factory.lifecycle.identify(
+        ConnectionId("c1"), ClientIdentity(kind="cli", name="x"), UNOBSERVED
+    )
     ops = QueryOperations(
         store,
         _ForbiddenPort(),

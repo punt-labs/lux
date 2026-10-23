@@ -22,6 +22,7 @@ from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.models.query_geometry import GeometryPresent
@@ -106,7 +107,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        ConnectionId("local"),
+        Scope(ConnectionId("local")),
         SceneId(ConnectionScopedId.compose(ConnectionId("local"), "s1")),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),

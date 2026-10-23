@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["CallbackOperations"]
 

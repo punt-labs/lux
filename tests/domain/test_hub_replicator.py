@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
@@ -34,6 +35,7 @@ from punt_lux.domain.hub.replicator import (
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 
@@ -55,9 +57,9 @@ def _seed(
 ) -> SceneId:
     """Install one owned root in ``scene`` and record a framed presentation."""
     scene_id = SceneId(scene)
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     store.replace_scene(
-        _CONN, scene_id, [TextElement(id=f"{scene}-root", content=content)]
+        Scope(_CONN), scene_id, [TextElement(id=f"{scene}-root", content=content)]
     )
     store.frames.record(scene_id, ScenePresentation(frame_id=scene))
     return scene_id
@@ -454,7 +456,7 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     registry = HubMenuRegistry(clients)
     registry.set_menus(
         _CONN, [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
@@ -508,7 +510,7 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="v1", items=[])])
     repl, sender, _provider, _lifecycle = _replicator(store, clients, registry)
@@ -572,7 +574,7 @@ def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="File", items=[])])
     repl, sender, provider, lifecycle_spy = _replicator(store, clients, registry)
@@ -601,7 +603,7 @@ def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     registry = HubMenuRegistry(clients)
     registry.set_menus(_CONN, [Menu(label="File", items=[])])
     repl, sender, provider, lifecycle_spy = _replicator(store, clients, registry)
@@ -689,8 +691,8 @@ def test_the_resend_carries_the_recorded_frame() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     repl.start()
@@ -710,7 +712,9 @@ def test_the_resend_carries_the_stores_current_value() -> None:
     clients = factory.clients
     store = factory.display
     scene = _seed(store, lifecycle, "s1", content="first")
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="second")])
+    store.replace_scene(
+        Scope(_CONN), scene, [TextElement(id="s1-root", content="second")]
+    )
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     repl.start()
     try:
@@ -803,10 +807,10 @@ def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
-    store.replace_scene(_CONN, scene, ())  # empty the scene
+    store.replace_scene(Scope(_CONN), scene, ())  # empty the scene
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     repl.start()
     try:
@@ -831,10 +835,10 @@ def test_blanking_an_emptied_scene_reclaims_its_presentation() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
-    store.replace_scene(_CONN, scene, ())  # empty the scene
+    store.replace_scene(Scope(_CONN), scene, ())  # empty the scene
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     repl.start()
     try:
@@ -861,10 +865,10 @@ def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> N
     store = factory.display
     lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
-    store.replace_scene(_CONN, scene, ())  # empty the scene
+    store.replace_scene(Scope(_CONN), scene, ())  # empty the scene
     repl, sender, provider, _lifecycle = _replicator(store, clients)
     gate = threading.Event()
     sender.block_next(gate)  # park the worker in the first blank send
@@ -902,10 +906,12 @@ def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     scene = SceneId("s1")
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), scene, [TextElement(id="s1-root", content="x")])
     store.frames.record(scene, ScenePresentation(frame_id="old-frame"))
-    store.replace_scene(_CONN, scene, ())  # empty it, so the worker will blank it
+    store.replace_scene(
+        Scope(_CONN), scene, ()
+    )  # empty it, so the worker will blank it
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     gate = threading.Event()
     sender.block_next(gate)  # park the worker inside the blank send
@@ -915,7 +921,7 @@ def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
         assert sender.wait_entered(2.0)  # the worker is inside the blank send
         # A re-show lands mid-send: new roots and a new frame.
         store.show_scene(
-            _CONN,
+            Scope(_CONN),
             scene,
             [TextElement(id="s1-root", content="y")],
             ScenePresentation(frame_id="new-frame"),
@@ -943,11 +949,13 @@ def test_a_requeued_blank_targets_the_recorded_frame() -> None:
     store = factory.display
     lifecycle = factory.lifecycle
     a, b = SceneId("s1"), SceneId("s2")
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     for sid, frame in ((a, "frame-a"), (b, "frame-b")):
-        store.replace_scene(_CONN, sid, [TextElement(id=f"{sid}-root", content="x")])
+        store.replace_scene(
+            Scope(_CONN), sid, [TextElement(id=f"{sid}-root", content="x")]
+        )
         store.frames.record(sid, ScenePresentation(frame_id=frame))
-        store.replace_scene(_CONN, sid, ())  # empty it
+        store.replace_scene(Scope(_CONN), sid, ())  # empty it
     repl, sender, provider, _lifecycle = _replicator(store, clients)
     sender.fail_on_scene("s2", OSError())  # scene B's blank fails once
     repl.start()
@@ -1168,7 +1176,7 @@ def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
     try:
         repl.mark_dirty(scene)
         assert sender.wait_entered(2.0)  # the worker is provably inside the send
-        store.replace_scene(_CONN, scene, ())  # empty the store before recovery
+        store.replace_scene(Scope(_CONN), scene, ())  # empty the store before recovery
         gate.set()  # release the send → it raises → recovery runs
         for _ in range(100):
             if provider.drops:
@@ -1204,8 +1212,10 @@ def test_a_mutator_makes_progress_while_the_worker_is_stuck_sending() -> None:
         done = threading.Event()
 
         def mutate() -> None:
-            lifecycle.arrive(_CONN)
-            store.replace_scene(_CONN, other, [TextElement(id="s2-root", content="y")])
+            lifecycle.arrive(_CONN, UNOBSERVED)
+            store.replace_scene(
+                Scope(_CONN), other, [TextElement(id="s2-root", content="y")]
+            )
             done.set()
 
         t = threading.Thread(target=mutate)
@@ -1237,8 +1247,10 @@ def test_a_mutation_during_recovery_is_repainted_after_respawn() -> None:
         assert sender.wait_entered(2.0)  # worker parked in the send to "s1"
         # A new scene is installed while the worker is stuck; the send then
         # fails and recovery re-marks every live scene, both of them.
-        lifecycle.arrive(_CONN)
-        store.replace_scene(_CONN, other, [TextElement(id="s2-root", content="y")])
+        lifecycle.arrive(_CONN, UNOBSERVED)
+        store.replace_scene(
+            Scope(_CONN), other, [TextElement(id="s2-root", content="y")]
+        )
         gate.set()  # release → send raises → reap/ensure/re-mark
         for _ in range(300):
             if set(sender.shows) >= {"s1", "s2"}:
@@ -1269,7 +1281,7 @@ def test_the_worker_snapshot_waits_for_a_mutation_to_commit() -> None:
             # Replace the scene with a new value while the lock is held. The
             # worker woke and drained but cannot snapshot, so nothing is sent.
             store.replace_scene(
-                _CONN, scene, [TextElement(id="s1-root", content="after")]
+                Scope(_CONN), scene, [TextElement(id="s1-root", content="after")]
             )
             assert not sender.wait_sent(0.3)
         # The write lock released; the worker snapshots the committed value.

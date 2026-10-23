@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.menu_listing import MenuListing
 
@@ -61,7 +61,7 @@ class SessionWrite:
         before: ClientSession | None,
         now: float,
         identity: ClientIdentity | None,
-        host: ClientHost = UNOBSERVED,
+        host: ClientHost,
     ) -> Self:
         """Renew ``before`` at ``now`` (or start a session), declaring ``identity``.
 

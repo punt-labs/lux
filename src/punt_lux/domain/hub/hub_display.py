@@ -69,7 +69,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.operations.scope import Scope
+    from punt_lux.domain.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]
 
@@ -167,14 +167,14 @@ class HubDisplay:
         return self._lock.write()
 
     @contextmanager
-    def writing_as(self, connection_id: ConnectionId) -> Generator[None]:
-        """Hold the store lock as ``connection_id``, its lease renewed first.
+    def writing_as(self, scope: Scope) -> Generator[None]:
+        """Hold the store lock as the scope's connection, its contact recorded first.
 
         The contact half of ``apply``'s prologue for a write that does not go
         through ``apply`` (a field patch): the write is the caller's contact.
         """
         with self._lock.write():
-            self._lifecycle.renew(connection_id)
+            self._lifecycle.renew(scope.connection_id, scope.client_host)
             yield
 
     @contextmanager
@@ -309,11 +309,11 @@ class HubDisplay:
     @trace
     def replace_scene(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         scene_id: SceneId,
         roots: Sequence[WireElement],
     ) -> None:
-        """Replace ``scene_id`` wholesale with ``roots`` owned by ``connection_id``.
+        """Replace ``scene_id`` wholesale with ``roots`` owned by ``scope``.
 
         The scene is the unit of replacement: a re-show tears down every root the
         scene holds — whatever connection owns it — then re-installs through the
@@ -334,13 +334,13 @@ class HubDisplay:
             self._eviction.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(
-                    connection_id,
+                    scope,
                     AddElement(scene_id=scene_id, element=root, parent_id=None),
                 )
 
     def show_scene(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         scene_id: SceneId,
         roots: Sequence[WireElement],
         presentation: ScenePresentation,
@@ -354,14 +354,14 @@ class HubDisplay:
         ``ttl_seconds`` of None clears any prior deadline, making a re-show permanent.
         """
         with self._lock.write():
-            self.replace_scene(connection_id, scene_id, roots)
+            self.replace_scene(scope, scene_id, roots)
             self._frame_lifecycle.present(scene_id, presentation, ttl_seconds)
 
     # -- apply -------------------------------------------------------------
 
     def apply(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         update: AddElement | SetProperty | RemoveElement,
     ) -> None:
         """Commit a state change to the index. Owner is the caller.
@@ -383,20 +383,20 @@ class HubDisplay:
         go of.
         """
         with self._lock.write():
-            self._lifecycle.renew(connection_id)
-            self._lifecycle.depart_lapsed(frozenset({connection_id}))
+            self._lifecycle.renew(scope.connection_id, scope.client_host)
+            self._lifecycle.depart_lapsed(frozenset({scope.connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
-                    session = self._clients.session_of(connection_id)
-                    owner = Owner.from_session(connection_id, session)
+                    session = self._clients.session_of(scope.connection_id)
+                    owner = Owner.from_session(scope.connection_id, session)
                     self._installer.install(sid, elem, parent_id=pid, owner=owner)
                 case SetProperty(
                     scene_id=sid, element_id=eid, field=field, value=value
                 ):
-                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._owners.require_ownership(sid, eid, scope.connection_id)
                     self._seam.set_property(sid, eid, field, value)
                 case RemoveElement(scene_id=sid, element_id=eid):
-                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._owners.require_ownership(sid, eid, scope.connection_id)
                     self._remover.remove_subtree(sid, eid)
                     if not self._index.scene_roots(sid):
                         # An explicit clear (or any removal) that empties the

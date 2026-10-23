@@ -11,12 +11,14 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.protocol.elements.text import TextElement
@@ -88,13 +90,15 @@ def _wired() -> tuple[HubStoreFactory, _Marker, _Clock]:
 
 def _show(factory: HubStoreFactory, conn: ConnectionId, name: str) -> SceneId:
     scene = SceneId(f"{conn}-{name}")
-    factory.display.replace_scene(conn, scene, [TextElement(id="t", content="x")])
+    factory.display.replace_scene(
+        Scope(conn), scene, [TextElement(id="t", content="x")]
+    )
     return scene
 
 
 def _lapsed_agent() -> tuple[HubStoreFactory, _Marker, _Clock, SceneId]:
     factory, marker, clock = _wired()
-    factory.lifecycle.identify(_CONN, _agent())
+    factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
     scene = _show(factory, _CONN, "vox")
     clock.now = _PAST_AN_AGENT_LEASE
     marker.scenes.clear()
@@ -105,40 +109,40 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
     def test_renew(self) -> None:
         factory, marker, _, scene = _lapsed_agent()
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert marker.scenes == [scene]
 
     def test_arrive(self) -> None:
         factory, marker, _, scene = _lapsed_agent()
 
-        factory.lifecycle.arrive(_CONN)
+        factory.lifecycle.arrive(_CONN, UNOBSERVED)
 
         assert marker.scenes == [scene]
 
     def test_identify_with_the_same_declaration(self) -> None:
         factory, marker, _, scene = _lapsed_agent()
 
-        factory.lifecycle.identify(_CONN, _agent())
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
 
         assert marker.scenes == [scene]
 
     def test_attach(self) -> None:
         factory, marker, _, scene = _lapsed_agent()
 
-        factory.lifecycle.attach(_CONN, _agent(), _Leg())
+        factory.lifecycle.attach(_CONN, _agent(), _Leg(), UNOBSERVED)
 
         assert marker.scenes == [scene]
 
     def test_register_callback(self) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
         scene = _show(factory, _CONN, "vox")
         clock.now = 100.0  # past an applet's 60 s lease
         marker.scenes.clear()
 
         factory.lifecycle.register_callback(
-            _CONN, SessionCallback(id="run", label="Run")
+            _CONN, SessionCallback(id="run", label="Run"), UNOBSERVED
         )
 
         assert scene in marker.scenes
@@ -146,46 +150,46 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
     def test_a_session_that_earns_nothing_is_revived_too(self) -> None:
         # The lapse ending is the trigger, not a change to who the menu lists.
         factory, marker, clock = _wired()
-        factory.lifecycle.identify(_CONN, _cli())
+        factory.lifecycle.identify(_CONN, _cli(), UNOBSERVED)
         scene = _show(factory, _CONN, "vox")
         clock.now = _PAST_A_CLI_LEASE
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert marker.scenes == [scene]
 
     def test_a_live_renewal_marks_no_scenes(self) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.identify(_CONN, _agent())
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
         _show(factory, _CONN, "vox")
         clock.now = 10.0  # well inside the lease
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert marker.scenes == []
 
     def test_a_renewal_marks_only_the_revived_connections_scenes(self) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.identify(_CONN, _agent())
-        factory.lifecycle.identify(_OTHER, _agent("/w/other"))
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
+        factory.lifecycle.identify(_OTHER, _agent("/w/other"), UNOBSERVED)
         mine = _show(factory, _CONN, "vox")
         _show(factory, _OTHER, "vox")
         clock.now = _PAST_AN_AGENT_LEASE
-        factory.lifecycle.renew(_OTHER)
+        factory.lifecycle.renew(_OTHER, UNOBSERVED)
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert marker.scenes == [mine]
 
     def test_the_second_renewal_marks_nothing_more(self) -> None:
         factory, marker, _, _ = _lapsed_agent()
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert marker.scenes == []
 
@@ -194,7 +198,7 @@ class TestEveryStepThatEndsALapseMarksTheScenes:
         factory.lifecycle.depart_lapsed(frozenset())
         marker.scenes.clear()
 
-        factory.lifecycle.arrive(_CONN)
+        factory.lifecycle.arrive(_CONN, UNOBSERVED)
 
         assert marker.scenes == []
 
@@ -218,7 +222,7 @@ class TestTheLabelFollowsTheRevival:
         blanked = _facts(factory).facts_for(scene).scope_label  # relabel(None) time
         assert blanked is None
 
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
 
         assert scene in marker.scenes
         assert _facts(factory).facts_for(scene).scope_label == "lux"
@@ -227,19 +231,19 @@ class TestTheLabelFollowsTheRevival:
         self,
     ) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.identify(_CONN, _agent())
-        factory.lifecycle.identify(_OTHER, _agent())
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
+        factory.lifecycle.identify(_OTHER, _agent(), UNOBSERVED)
         _show(factory, _CONN, "vox")
         survivor = _show(factory, _OTHER, "vox")
         factory.clients.named_sessions()  # lux, lux (2)
         assert _facts(factory).facts_for(survivor).scope_label == "lux (2)"
         clock.now = _PAST_AN_AGENT_LEASE
-        factory.lifecycle.renew(_CONN)  # the senior stays live...
+        factory.lifecycle.renew(_CONN, UNOBSERVED)  # the senior stays live...
         factory.lifecycle.depart(_CONN)  # ...then leaves; the survivor is lapsed
         assert _facts(factory).facts_for(survivor).scope_label is None
         marker.scenes.clear()
 
-        factory.lifecycle.renew(_OTHER)
+        factory.lifecycle.renew(_OTHER, UNOBSERVED)
 
         assert survivor in marker.scenes
         assert _facts(factory).facts_for(survivor).scope_label == "lux"

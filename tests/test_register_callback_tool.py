@@ -19,6 +19,7 @@ from unittest import mock
 import pytest
 from fastmcp.exceptions import ToolError
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -123,7 +124,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     router = CallbackRouter(clients)
     listener = _Listener()
     if listening:
-        clients.legs.attach(ConnectionId(_SESSION), _tool_identity(), listener)
+        lifecycle.attach(ConnectionId(_SESSION), _tool_identity(), listener, UNOBSERVED)
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,

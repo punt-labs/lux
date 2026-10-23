@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.named_sessions import NamedSession
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.details_scene import DetailsScene
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.timing import Timed
@@ -67,7 +68,8 @@ class ClientDetailsOperations:
     def _shown(self, named: NamedSession) -> SceneShown | OpError:
         """Install this client's details as the scene that client owns."""
         scene = DetailsScene(self._clients.facts(named), named)
-        return self._installer.install(scene.submission(), owner=named.connection_id)
+        owner = Scope.in_process(named.connection_id)
+        return self._installer.install(scene.submission(), owner=owner)
 
     @staticmethod
     def _no_client(connection_id: ConnectionId) -> OpError:

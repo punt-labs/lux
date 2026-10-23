@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Literal, Self
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub_display import (
@@ -34,6 +35,7 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_snapshot import SceneSnapshot
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
@@ -75,7 +77,7 @@ def _store(*connections: str) -> tuple[HubStoreFactory, tuple[ConnectionId, ...]
     lifecycle = factory.lifecycle
     ids = tuple(ConnectionId(name) for name in connections)
     for connection_id in ids:
-        lifecycle.arrive(connection_id)
+        lifecycle.arrive(connection_id, UNOBSERVED)
     return factory, ids
 
 
@@ -87,7 +89,9 @@ def _install(
     scene_id: SceneId = _SCENE,
 ) -> None:
     """Install ``element`` as a root of ``scene_id``."""
-    display.apply(owner, AddElement(scene_id=scene_id, element=element, parent_id=None))
+    display.apply(
+        Scope(owner), AddElement(scene_id=scene_id, element=element, parent_id=None)
+    )
 
 
 def _button(display: HubDisplay, element_id: str) -> ButtonElement:
@@ -184,7 +188,9 @@ def test_remove_element_drops_it_from_the_index() -> None:
     display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
-    display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
+    display.apply(
+        Scope(alice), RemoveElement(scene_id=_SCENE, element_id=ElementId("b1"))
+    )
 
     with pytest.raises(UnknownElementError):
         display.resolve(_SCENE, ElementId("b1"))
@@ -197,7 +203,9 @@ def test_removing_an_unknown_element_is_a_no_op() -> None:
     display = factory.display
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
-    display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("ghost")))
+    display.apply(
+        Scope(alice), RemoveElement(scene_id=_SCENE, element_id=ElementId("ghost"))
+    )
 
     assert display.element_count(_SCENE) == 1
 
@@ -211,7 +219,7 @@ def test_set_property_patches_the_element_in_place() -> None:
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(
-        alice,
+        Scope(alice),
         SetProperty(
             scene_id=_SCENE, element_id=ElementId("b1"), field="label", value="hello"
         ),
@@ -228,7 +236,7 @@ def test_set_property_with_wrong_type_raises_and_leaves_the_value() -> None:
 
     with pytest.raises(TypeError, match="label must be str"):
         display.apply(
-            alice,
+            Scope(alice),
             SetProperty(
                 scene_id=_SCENE, element_id=ElementId("b1"), field="label", value=42
             ),
@@ -244,7 +252,7 @@ def test_set_property_on_an_undeclared_field_raises() -> None:
 
     with pytest.raises(AttributeError):
         display.apply(
-            alice,
+            Scope(alice),
             SetProperty(
                 scene_id=_SCENE,
                 element_id=ElementId("b1"),
@@ -260,7 +268,7 @@ def test_set_property_on_bool_field_accepts_bool() -> None:
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     display.apply(
-        alice,
+        Scope(alice),
         SetProperty(
             scene_id=_SCENE, element_id=ElementId("b1"), field="disabled", value=True
         ),
@@ -282,7 +290,7 @@ def test_set_property_on_float_field_accepts_int() -> None:
     _install(display, alice, ProgressElement(id="p1", fraction=0.0))
 
     display.apply(
-        alice,
+        Scope(alice),
         SetProperty(
             scene_id=_SCENE, element_id=ElementId("p1"), field="fraction", value=1
         ),
@@ -304,7 +312,7 @@ def test_set_property_on_int_field_refuses_float() -> None:
 
     with pytest.raises(TypeError, match="selected must be an int"):
         display.apply(
-            alice,
+            Scope(alice),
             SetProperty(
                 scene_id=_SCENE, element_id=ElementId("c1"), field="selected", value=1.0
             ),
@@ -321,7 +329,7 @@ def test_set_property_on_float_field_still_refuses_bool() -> None:
 
     with pytest.raises(TypeError, match="fraction must be a number"):
         display.apply(
-            alice,
+            Scope(alice),
             SetProperty(
                 scene_id=_SCENE,
                 element_id=ElementId("p1"),
@@ -343,7 +351,7 @@ def test_cross_connection_set_property_is_refused() -> None:
 
     with pytest.raises(HubOwnershipError) as exc_info:
         display.apply(
-            bob,
+            Scope(bob),
             SetProperty(
                 scene_id=_SCENE, element_id=ElementId("b1"), field="label", value="evil"
             ),
@@ -361,7 +369,9 @@ def test_cross_connection_remove_is_refused() -> None:
     _install(display, alice, ButtonElement(id="b1", label="hi"))
 
     with pytest.raises(HubOwnershipError):
-        display.apply(bob, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
+        display.apply(
+            Scope(bob), RemoveElement(scene_id=_SCENE, element_id=ElementId("b1"))
+        )
 
     assert display.resolve(_SCENE, ElementId("b1")).id == "b1"
 
@@ -383,7 +393,9 @@ def test_an_unregistered_connection_still_owns_what_it_installs() -> None:
     assert display.owner_of(_SCENE, ElementId("b1")) == ghost
     assert not (clients.session_of(ghost) is not None)
     with pytest.raises(HubOwnershipError):
-        display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
+        display.apply(
+            Scope(alice), RemoveElement(scene_id=_SCENE, element_id=ElementId("b1"))
+        )
 
 
 # -- Disconnect -------------------------------------------------------------
@@ -445,7 +457,7 @@ def test_a_refused_write_notifies_nothing() -> None:
 
     with pytest.raises(HubOwnershipError):
         display.apply(
-            bob,
+            Scope(bob),
             SetProperty(
                 scene_id=_SCENE, element_id=ElementId("b1"), field="label", value="evil"
             ),
@@ -465,7 +477,7 @@ def test_a_snapshot_is_decoupled_from_later_mutation() -> None:
     before = display.reader.snapshot(_SCENE)
 
     display.apply(
-        alice,
+        Scope(alice),
         SetProperty(
             scene_id=_SCENE, element_id=ElementId("b1"), field="label", value="hello"
         ),
@@ -511,7 +523,9 @@ def test_scene_roots_forgets_a_removed_root() -> None:
     _install(display, alice, ButtonElement(id="b1", label="hi"))
     _install(display, alice, ButtonElement(id="b2", label="bye"))
 
-    display.apply(alice, RemoveElement(scene_id=_SCENE, element_id=ElementId("b1")))
+    display.apply(
+        Scope(alice), RemoveElement(scene_id=_SCENE, element_id=ElementId("b1"))
+    )
 
     assert [e.id for e in display.scene_roots(_SCENE)] == ["b2"]
 

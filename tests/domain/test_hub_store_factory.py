@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import threading
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 
 _ALICE = ConnectionId("alice")
@@ -43,7 +44,7 @@ def test_the_door_and_the_registry_share_one_registration() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
 
-    lifecycle.arrive(_ALICE)
+    lifecycle.arrive(_ALICE, UNOBSERVED)
 
     assert clients.session_of(_ALICE) is not None
     assert set(clients.live_sessions()) == {_ALICE}
@@ -54,9 +55,9 @@ def test_a_departure_empties_the_registry_and_releases_ownership() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.arrive(_ALICE)
+    lifecycle.arrive(_ALICE, UNOBSERVED)
     display.apply(
-        _ALICE,
+        Scope(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -77,11 +78,11 @@ def test_a_write_by_a_registered_caller_renews_its_lease() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.identify(_ALICE, _cli("alice"))
+    lifecycle.identify(_ALICE, _cli("alice"), UNOBSERVED)
 
     clock.now = _LEASE_SECONDS - 10.0
     display.apply(
-        _ALICE,
+        Scope(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -99,12 +100,12 @@ def test_a_write_sweeps_other_lapsed_connections_but_never_its_own_caller() -> N
     display = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.identify(_ALICE, _cli("alice"))
-    lifecycle.identify(_BOB, _cli("bob"))
+    lifecycle.identify(_ALICE, _cli("alice"), UNOBSERVED)
+    lifecycle.identify(_BOB, _cli("bob"), UNOBSERVED)
 
     clock.now = _LEASE_SECONDS + 1.0  # both leases lapsed, nobody swept yet
     display.apply(
-        _ALICE,
+        Scope(_ALICE),
         AddElement(
             scene_id=_SCENE,
             element=TextElement(id="t", content="x"),
@@ -122,7 +123,7 @@ def test_writing_as_renews_the_caller_and_holds_the_store_lock() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     clients = factory.clients
-    lifecycle.identify(_ALICE, _cli("alice"))
+    lifecycle.identify(_ALICE, _cli("alice"), UNOBSERVED)
     clock.now = _LEASE_SECONDS - 10.0
 
     entered = threading.Event()
@@ -130,7 +131,7 @@ def test_writing_as_renews_the_caller_and_holds_the_store_lock() -> None:
     contender_in = threading.Event()
 
     def _hold() -> None:
-        with display.writing_as(_ALICE):
+        with display.writing_as(Scope(_ALICE)):
             entered.set()
             release.wait(timeout=5.0)
 
@@ -221,7 +222,7 @@ def test_a_write_through_apply_registers_nobody() -> None:
     clients = factory.clients
 
     display.apply(
-        _ALICE,
+        Scope(_ALICE),
         AddElement(
             scene_id=_SCENE, element=TextElement(id="t", content="x"), parent_id=None
         ),

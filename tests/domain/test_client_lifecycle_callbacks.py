@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.hub import Hub
@@ -21,6 +22,7 @@ from punt_lux.domain.hub.menu_listing import MenuListing
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 
 _CONN = ConnectionId("c1")
 _CALLBACK = SessionCallback(id="run", label="Run")
@@ -93,8 +95,11 @@ def _wired() -> tuple[HubStoreFactory, _Marker, _Clock]:
 def _registered_applet() -> tuple[HubStoreFactory, _Marker, _Clock, _Leg]:
     factory, marker, clock = _wired()
     leg = _Leg()
-    factory.lifecycle.attach(_CONN, _applet(), leg)
-    assert factory.lifecycle.register_callback(_CONN, _CALLBACK) == "registered"
+    factory.lifecycle.attach(_CONN, _applet(), leg, UNOBSERVED)
+    assert (
+        factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
+        == "registered"
+    )
     return factory, marker, clock, leg
 
 
@@ -108,10 +113,10 @@ def _departure_marks(factory: HubStoreFactory, marker: _Marker) -> int:
 class TestRegistering:
     def test_marks_the_menus_and_binds_exactly_one_sink(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
         before = marker.menus
 
-        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK)
+        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
 
         assert outcome == "registered"
         assert marker.menus > before
@@ -121,7 +126,7 @@ class TestRegistering:
         factory, marker, _, _ = _registered_applet()
 
         factory.lifecycle.register_callback(
-            _CONN, SessionCallback(id="more", label="More")
+            _CONN, SessionCallback(id="more", label="More"), UNOBSERVED
         )
 
         assert _departure_marks(factory, marker) == 1
@@ -145,11 +150,11 @@ class TestRegistering:
 
     def test_is_one_step_under_the_store_lock(self) -> None:
         factory, _, _ = _wired()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
         done = threading.Event()
 
         def register() -> None:
-            factory.lifecycle.register_callback(_CONN, _CALLBACK)
+            factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
             done.set()
 
         with factory.lifecycle.exclusive():
@@ -162,9 +167,9 @@ class TestRegistering:
 
     def test_is_refused_with_no_leg_and_marks_and_binds_nothing(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.arrive(_CONN)  # registered, anonymous, no leg
+        factory.lifecycle.arrive(_CONN, UNOBSERVED)  # registered, anonymous, no leg
 
-        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK)
+        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
 
         assert outcome == "superseded"
         assert marker.menus == 0
@@ -173,7 +178,9 @@ class TestRegistering:
     def test_is_refused_for_an_unknown_connection(self) -> None:
         factory, marker, _ = _wired()
 
-        outcome = factory.lifecycle.register_callback(ConnectionId("ghost"), _CALLBACK)
+        outcome = factory.lifecycle.register_callback(
+            ConnectionId("ghost"), _CALLBACK, UNOBSERVED
+        )
 
         assert outcome == "superseded"
         assert marker.menus == 0
@@ -182,16 +189,18 @@ class TestRegistering:
         self,
     ) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
         scene = SceneId("s1")
         from punt_lux.protocol.elements.text import TextElement
 
-        factory.display.replace_scene(_CONN, scene, [TextElement(id="t", content="x")])
+        factory.display.replace_scene(
+            Scope(_CONN), scene, [TextElement(id="t", content="x")]
+        )
         clock.now = _PAST_AN_APPLET_LEASE
         marker.scenes.clear()
         before = marker.menus
 
-        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK)
+        outcome = factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
 
         assert outcome == "registered"
         assert marker.menus > before
@@ -228,8 +237,8 @@ class TestDetaching:
     def test_an_agent_holding_callbacks_stays_listed_and_keeps_its_sink(self) -> None:
         factory, marker, clock = _wired()
         leg = _Leg()
-        factory.lifecycle.attach(_CONN, _agent(), leg)
-        factory.lifecycle.register_callback(_CONN, _CALLBACK)
+        factory.lifecycle.attach(_CONN, _agent(), leg, UNOBSERVED)
+        factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
 
         factory.lifecycle.detach(_CONN, leg)
 
@@ -242,8 +251,8 @@ class TestDetaching:
         self,
     ) -> None:
         factory, marker, _, old = _registered_applet()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
-        factory.lifecycle.register_callback(_CONN, _CALLBACK)
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
+        factory.lifecycle.register_callback(_CONN, _CALLBACK, UNOBSERVED)
         before = marker.menus
 
         outcome = factory.lifecycle.detach(_CONN, old)
@@ -282,7 +291,7 @@ class TestAttachingOverCallbacks:
         clock.now = _PAST_AN_APPLET_LEASE
         before = marker.menus
 
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
 
         assert marker.menus > before
 
@@ -290,15 +299,15 @@ class TestAttachingOverCallbacks:
 class TestReDeclaring:
     def test_a_lapsed_agent_re_identifying_as_a_cli_marks_and_stays_gone(self) -> None:
         factory, marker, clock = _wired()
-        factory.lifecycle.identify(_CONN, _agent())
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
         clock.now = _PAST_AN_AGENT_LEASE
         before = marker.menus
 
-        factory.lifecycle.identify(_CONN, _cli())
+        factory.lifecycle.identify(_CONN, _cli(), UNOBSERVED)
 
         assert marker.menus > before
         after = marker.menus
-        factory.lifecycle.renew(_CONN)
+        factory.lifecycle.renew(_CONN, UNOBSERVED)
         session = factory.clients.session_of(_CONN)
         assert session is not None
         assert not MenuListing(session, clock.now).holds()
@@ -306,10 +315,10 @@ class TestReDeclaring:
 
     def test_a_live_agent_re_identifying_as_a_cli_marks(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.identify(_CONN, _agent())
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
         before = marker.menus
 
-        factory.lifecycle.identify(_CONN, _cli())
+        factory.lifecycle.identify(_CONN, _cli(), UNOBSERVED)
 
         assert marker.menus > before
 
@@ -347,3 +356,30 @@ class TestTheWithdrawalRule:
         before = MenuListing(self._withdrawn(), 2.0)
 
         assert before.change_to(MenuListing(self._earning(), 2.0)) == "gained"
+
+
+class TestAnAppletAttachingWithNoCallback:
+    def test_marks_nothing_and_binds_no_sink(self) -> None:
+        factory, marker, _ = _wired()
+
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
+
+        assert marker.menus == 0
+        assert _departure_marks(factory, marker) == 0
+
+
+class TestARenewingAgent:
+    def test_keeps_its_entry_across_reap_opportunities(self) -> None:
+        factory, marker, clock = _wired()
+        factory.lifecycle.identify(_CONN, _agent(), UNOBSERVED)
+        before = marker.menus
+
+        for _ in range(3):
+            clock.now += 1000.0  # inside the 1800 s agent lease if renewed each time
+            factory.lifecycle.renew(_CONN, UNOBSERVED)
+            assert factory.lifecycle.depart_lapsed(frozenset()) == frozenset()
+
+        session = factory.clients.session_of(_CONN)
+        assert session is not None
+        assert MenuListing(session, clock.now).holds()
+        assert marker.menus == before  # a renewed agent is never swept or re-marked

@@ -7,6 +7,7 @@ from typing import Self, final
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.elements.text import TextElement
@@ -41,7 +42,7 @@ def _show(installer: SceneInstaller, marks: _Marks, scene: str, frame: str) -> N
         ScenePresentation(frame_id=frame),
         None,
     )
-    installer.install(submission, owner=_OWNER)
+    installer.install(submission, owner=Scope(_OWNER))
 
 
 def _scoped(local: str) -> SceneId:

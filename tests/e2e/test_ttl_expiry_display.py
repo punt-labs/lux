@@ -22,6 +22,7 @@ from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub import hub, hub_display, hub_lifecycle
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage, TextElement
 
 _OWNER_FD = 1
@@ -43,7 +44,11 @@ def test_ttl_expiry_removes_the_frame_from_the_display_tier() -> None:
     try:
         # Hub tier: show the framed scene with a short TTL — real install + arm.
         hub_display.show_scene(
-            conn, scene, [leaf], ScenePresentation(frame_id=_FRAME), ttl_seconds=0.05
+            Scope(conn),
+            scene,
+            [leaf],
+            ScenePresentation(frame_id=_FRAME),
+            ttl_seconds=0.05,
         )
         # Display tier: the frame arrives and the SceneReplica holds it.
         display.handle_framed_scene(_framed([leaf]), owner_fd=_OWNER_FD)

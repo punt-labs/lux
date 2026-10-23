@@ -236,3 +236,7 @@ def test_a_warm_up_cancelled_mid_query_warns_nothing(
         asyncio.run(leave_mid_warm_up())
 
     assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert any(
+        r.levelno == logging.DEBUG and "was cancelled" in r.getMessage()
+        for r in caplog.records
+    )

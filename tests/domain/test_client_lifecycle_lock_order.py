@@ -14,8 +14,10 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import SessionCallback
@@ -71,13 +73,16 @@ def _completes(step: Callable[[], object]) -> bool:
 class TestRegistryWritesNeverWaitOnTheStoreLock:
     def test_every_registry_write_completes_while_the_store_lock_is_held(self) -> None:
         factory = _wired()
-        clients, legs = factory.clients, factory.clients.legs
+        clients = factory.clients
+        legs = HubClientRegistry().take_legs()
         leg = _Leg()
         callback = SessionCallback(id="run", label="Run")
         writes: dict[str, Callable[[], object]] = {
-            "record": lambda: clients.record(_CONN, _applet()),
-            "renew_if_registered": lambda: clients.renew_if_registered(_CONN),
-            "attach": lambda: legs.attach(_CONN, _applet(), leg),
+            "record": lambda: clients.record(_CONN, _applet(), UNOBSERVED),
+            "renew_if_registered": lambda: clients.renew_if_registered(
+                _CONN, UNOBSERVED
+            ),
+            "attach": lambda: legs.attach(_CONN, _applet(), leg, UNOBSERVED),
             "register_callback": lambda: legs.register_callback(_CONN, callback, leg),
             "detach": lambda: legs.detach(_CONN, leg),
             "reap_lapsed_locked": lambda: clients.reap_lapsed_locked(frozenset()),
@@ -118,15 +123,17 @@ class TestLifecycleStepsNeverWaitOnAReader:
         leg = _Leg()
         callback = SessionCallback(id="run", label="Run")
         return {
-            "identify": lambda: lifecycle.identify(_OTHER, _agent()),
-            "register_callback": lambda: lifecycle.register_callback(_CONN, callback),
+            "identify": lambda: lifecycle.identify(_OTHER, _agent(), UNOBSERVED),
+            "register_callback": lambda: lifecycle.register_callback(
+                _CONN, callback, UNOBSERVED
+            ),
             "detach": lambda: lifecycle.detach(_CONN, leg),
             "depart_lapsed": lambda: lifecycle.depart_lapsed(frozenset()),
         }
 
     def test_every_step_completes_once_the_reader_lets_go(self) -> None:
         factory = _wired()
-        factory.lifecycle.attach(_CONN, _applet(), _Leg())
+        factory.lifecycle.attach(_CONN, _applet(), _Leg(), UNOBSERVED)
         release = self._held_registry(factory)
         finished = {}
         workers = {}

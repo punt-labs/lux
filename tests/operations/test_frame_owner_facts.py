@@ -7,7 +7,7 @@ record of a connection always agree.
 
 from __future__ import annotations
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.frame_ownership import FrameOwnership
@@ -17,6 +17,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
@@ -43,10 +44,10 @@ def _identified_scene(
 ) -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name), UNOBSERVED)
     clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
 
 
@@ -63,7 +64,7 @@ class TestTheHostRowsInThePopup:
         )
         clients.named_sessions()
         scene_id = SceneId("c1-scene")
-        store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+        store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
 
         rows = _reader(store, clients, hub).facts_for(scene_id).rows
 
@@ -144,14 +145,14 @@ class TestASceneWithALiveOwner:
         clients = factory.clients
         hub = Hub()
         c1, c2 = ConnectionId("c1"), ConnectionId("c2")
-        lifecycle.arrive(c1)
-        lifecycle.arrive(c2)
-        lifecycle.identify(c1, ClientIdentity(kind="app", name="a"))
-        lifecycle.identify(c2, ClientIdentity(kind="app", name="b"))
+        lifecycle.arrive(c1, UNOBSERVED)
+        lifecycle.arrive(c2, UNOBSERVED)
+        lifecycle.identify(c1, ClientIdentity(kind="app", name="a"), UNOBSERVED)
+        lifecycle.identify(c2, ClientIdentity(kind="app", name="b"), UNOBSERVED)
         clients.named_sessions()
         scene_id = SceneId("shared")
         store.apply(
-            c1,
+            Scope(c1),
             AddElement(
                 scene_id=scene_id,
                 element=TextElement(id="t1", content="x"),
@@ -159,7 +160,7 @@ class TestASceneWithALiveOwner:
             ),
         )
         store.apply(
-            c2,
+            Scope(c2),
             AddElement(
                 scene_id=scene_id,
                 element=TextElement(id="t2", content="y"),

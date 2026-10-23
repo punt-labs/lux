@@ -23,12 +23,14 @@ from pathlib import Path
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
 from punt_lux.domain.event_protocol import Event as DomainEvent
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ClientId, ConnectionId
 from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
     ButtonElement,
@@ -225,7 +227,7 @@ def test_every_inputs_kind_flows_through_hub_apply() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     client = ConnectionId("alice")
-    lifecycle.arrive(client)
+    lifecycle.arrive(client, UNOBSERVED)
 
     elements: list[Element] = [
         ButtonElement(id="b1", label="OK"),
@@ -239,7 +241,7 @@ def test_every_inputs_kind_flows_through_hub_apply() -> None:
         SelectableElement(id="sel1", label="Item"),
     ]
     for elem in elements:
-        display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
+        display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
 
     roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]

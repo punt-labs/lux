@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast, final
 
 import pytest
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub import hub, hub_lifecycle
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -21,13 +21,13 @@ from punt_lux.domain.hub.inbox import (
 )
 from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuSelection
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.models import OpError
 from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubscribed
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.pubsub import PubSubOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -153,10 +153,10 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     lifecycle = factory.lifecycle
     clients = factory.clients
     owner = ConnectionId("pubsub-only")
-    lifecycle.arrive(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
     scene_id = SceneId("pubsub-scene")
     display.apply(
-        owner,
+        Scope(owner),
         AddElement(
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
@@ -185,7 +185,7 @@ def test_publish_to_reserved_topic_is_refused_and_delivers_nothing(
     scope: Scope,
 ) -> None:
     # A listener is armed on the reserved topic so a leaked publish would land.
-    ensure_writer(scope.connection_id)
+    ensure_writer(scope.connection_id, UNOBSERVED)
     result = _ops().publish(
         MENU_TOPIC, PublishRequest(payload={"spoof": 1}), scope=scope
     )
@@ -205,7 +205,7 @@ def test_genuine_hub_menu_click_still_lands_on_recv(scope: Scope) -> None:
     # The reserved gate closes only the public publish/subscribe path. A genuine
     # menu selection is enqueued by the Hub directly on the inbox and must still
     # be drained by recv() under the reserved lux.menu topic.
-    ensure_writer(scope.connection_id)
+    ensure_writer(scope.connection_id, UNOBSERVED)
     delivered = offer(
         scope.connection_id,
         MenuSelection.of("save", {"menu": "File"}).observer_message(),

@@ -16,11 +16,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteAccepted
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.elements.text import TextElement
 
@@ -69,9 +71,9 @@ def _seed_framed_scene() -> HubStoreFactory:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OWNER)
+    lifecycle.arrive(_OWNER, UNOBSERVED)
     hub_display.apply(
-        _OWNER,
+        Scope(_OWNER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
     hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
@@ -89,7 +91,7 @@ def test_frame_persists_after_an_empty_replace() -> None:
     hub_display = factory.display
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
-    hub_display.replace_scene(_OWNER, _SCENE, ())
+    hub_display.replace_scene(Scope(_OWNER), _SCENE, ())
 
     # The scene is empty but its frame is kept, so a blank push lands in it.
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
@@ -109,7 +111,7 @@ def test_clear_keeps_each_emptied_scenes_frame_for_the_replicator_to_blank() -> 
     hub_display = factory.display
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
-    touched = HubSceneWriter(hub_display).clear(_OWNER)
+    touched = HubSceneWriter(hub_display).clear(Scope(_OWNER))
 
     assert touched == frozenset({_SCENE})
     assert not hub_display.scene_roots(_SCENE)  # emptied
@@ -129,13 +131,13 @@ def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
     factory = _seed_framed_scene()  # _OWNER holds root "root", frame _FRAME
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OTHER)
+    lifecycle.arrive(_OTHER, UNOBSERVED)
     hub_display.apply(
-        _OTHER,
+        Scope(_OTHER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
     )
 
-    HubSceneWriter(hub_display).clear(_OWNER)
+    HubSceneWriter(hub_display).clear(Scope(_OWNER))
 
     # _OWNER's root is gone, _OTHER's survives, so the scene keeps its frame.
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
@@ -186,9 +188,9 @@ def test_the_ttl_sweep_tears_down_a_scene_whose_owner_departed() -> None:
     factory = HubStoreFactory(clock=clock)
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OWNER)
+    lifecycle.arrive(_OWNER, UNOBSERVED)
     hub_display.apply(
-        _OWNER,
+        Scope(_OWNER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
     hub_display.frames.present(
@@ -213,7 +215,7 @@ def test_non_empty_replace_keeps_the_frame() -> None:
     factory = _seed_framed_scene()
     hub_display = factory.display
 
-    hub_display.replace_scene(_OWNER, _SCENE, [_WireLeaf(id="fresh")])
+    hub_display.replace_scene(Scope(_OWNER), _SCENE, [_WireLeaf(id="fresh")])
 
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
@@ -228,9 +230,9 @@ def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
     factory = _seed_framed_scene()  # _OWNER holds root "root"
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OTHER)
+    lifecycle.arrive(_OTHER, UNOBSERVED)
     hub_display.apply(
-        _OTHER,
+        Scope(_OTHER),
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
     )
 
@@ -250,9 +252,9 @@ def test_dropping_a_child_only_owner_keeps_frame() -> None:
     factory = _seed_framed_scene()  # _OWNER holds root "root"
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OTHER)
+    lifecycle.arrive(_OTHER, UNOBSERVED)
     hub_display.apply(
-        _OTHER,
+        Scope(_OTHER),
         AddElement(
             scene_id=_SCENE,
             element=_WireLeaf(id="child"),
@@ -276,14 +278,16 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_OWNER)
+    lifecycle.arrive(_OWNER, UNOBSERVED)
     text = TextElement(id="t1", content="hello")
-    hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
+    hub_display.apply(
+        Scope(_OWNER), AddElement(scene_id=_SCENE, element=text, parent_id=None)
+    )
     hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
     assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     result = HubSceneWriter(hub_display).apply(
-        SceneScope(_OWNER, _SCENE), [{"id": "t1", "remove": True}]
+        SceneScope(Scope(_OWNER), _SCENE), [{"id": "t1", "remove": True}]
     )
 
     assert isinstance(result, WriteAccepted)
@@ -304,7 +308,7 @@ def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
 
     def reshow() -> None:
         hub_display.show_scene(
-            _OWNER,
+            Scope(_OWNER),
             _SCENE,
             [_WireLeaf(id="fresh")],
             ScenePresentation(frame_id="new-frame"),

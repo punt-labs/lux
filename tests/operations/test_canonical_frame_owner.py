@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -20,6 +21,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
@@ -57,10 +59,10 @@ def _identified_scene(
 ) -> SceneId:
     """Register a named client and install one root it owns, returning its scene id."""
     conn = ConnectionId(connection)
-    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name))
+    lifecycle.identify(conn, ClientIdentity(kind="cli", name=name), UNOBSERVED)
     clients.named_sessions()  # the read that names it, as the menu build does
     scene_id = SceneId(f"{connection}-scene")
-    store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+    store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
     return scene_id
 
 
@@ -147,9 +149,9 @@ class TestRowsAndLabelComeFromOneOwner:
         store = factory.display
         hub = Hub()
         conn = ConnectionId("anon")
-        lifecycle.arrive(conn)
+        lifecycle.arrive(conn, UNOBSERVED)
         scene_id = SceneId("anon-scene")
-        store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
+        store.replace_scene(Scope(conn), scene_id, [TextElement(id="t1", content="hi")])
 
         ownership = _reader(store, clients, hub).facts_for_frame(str(scene_id))
 
@@ -410,7 +412,7 @@ class TestTheDisplayAdoptsTheNextCanonicalOwnerWhenTheCanonicalSceneLeaves:
         store = factory.display
         with _Pipeline(store, clients, hub) as pipe:
             before = [pipe.resend(s1), pipe.resend(s2)]
-            store.replace_scene(ConnectionId("c1"), s1, [])
+            store.replace_scene(Scope(ConnectionId("c1")), s1, [])
             after = pipe.resend(s1)
 
         assert (before, after) == (["c1", "c1"], "c2")
@@ -454,7 +456,9 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
         hub = Hub()
         for connection, name in (("c1", "alpha"), ("c2", "beta")):
             lifecycle.identify(
-                ConnectionId(connection), ClientIdentity(kind="cli", name=name)
+                ConnectionId(connection),
+                ClientIdentity(kind="cli", name=name),
+                UNOBSERVED,
             )
         clients.named_sessions()
         return factory, hub, ConnectionScopedId.compose(ConnectionId("c1"), "shared")
@@ -468,7 +472,7 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
                 ScenePresentation(frame_id=frame),
                 None,
             ),
-            owner=ConnectionId("c1"),
+            owner=Scope(ConnectionId("c1")),
         )
 
     def _populated(
@@ -480,7 +484,9 @@ class TestAMoveOutOfAFrameNeedsNoManualResend:
         pipe.collect(2, frame)
         # s2's root now belongs to c2; the frame's first scene stays c1's.
         s2 = SceneId(ConnectionScopedId.compose(ConnectionId("c1"), "s2"))
-        store.replace_scene(ConnectionId("c2"), s2, [TextElement(id="t", content="x")])
+        store.replace_scene(
+            Scope(ConnectionId("c2")), s2, [TextElement(id="t", content="x")]
+        )
         return installer
 
     def test_the_canonical_scene_moving_out_hands_the_frame_to_the_next(self) -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.callback_menu import CallbackMenu, CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
@@ -20,6 +21,7 @@ from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
@@ -545,15 +547,16 @@ class TestTheReplica:
 
     def test_replica_nests_a_client_under_clients(self) -> None:
 
-        registry = HubClientRegistry()
+        factory = HubStoreFactory()
+        registry = factory.clients
         conn = ConnectionId("lux")
         leg = _SilentLeg()
         identity = ClientIdentity(
             kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         )
-        registry.legs.attach(conn, identity, leg)
-        registry.legs.register_callback(
-            conn, SessionCallback(id="beads", label="Beads"), leg
+        factory.lifecycle.attach(conn, identity, leg, UNOBSERVED)
+        factory.lifecycle.register_callback(
+            conn, SessionCallback(id="beads", label="Beads"), UNOBSERVED
         )
 
         wire = CallbackMenuReplica(registry).callback_menu_wire()
@@ -578,14 +581,18 @@ class TestTheReplica:
     def test_the_replica_and_the_hub_read_name_a_client_the_same(self) -> None:
         """One roster: what the display shows and what list_menus reports agree."""
 
-        registry = HubClientRegistry()
+        factory = HubStoreFactory()
+        registry = factory.clients
         beads = SessionCallback(id="beads", label="Beads")
         for name in ("first", "second"):
             conn, leg = ConnectionId(name), _SilentLeg()
-            registry.legs.attach(
-                conn, ClientIdentity(kind="mcp-session", name=name, repo="/w/lux"), leg
+            factory.lifecycle.attach(
+                conn,
+                ClientIdentity(kind="mcp-session", name=name, repo="/w/lux"),
+                leg,
+                UNOBSERVED,
             )
-            registry.legs.register_callback(conn, beads, leg)
+            factory.lifecycle.register_callback(conn, beads, UNOBSERVED)
 
         wire = CallbackMenuReplica(registry).callback_menu_wire()
         read = CallbackMenu.from_named(registry.named_sessions())
@@ -606,24 +613,27 @@ class TestTheReplica:
         the ghost is let go the newcomer holds the base, and the next send says so.
         """
 
-        registry = HubClientRegistry()
+        factory = HubStoreFactory()
+        registry = factory.clients
         ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
         registry.record(
             ghost,
             ClientIdentity(
                 kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
             ),
+            UNOBSERVED,
         )
         leg = _SilentLeg()
-        registry.legs.attach(
+        factory.lifecycle.attach(
             arriving,
             ClientIdentity(
                 kind="applet", name="lux · lux · #f00d · lux-beads", repo="/w/lux"
             ),
             leg,
+            UNOBSERVED,
         )
-        registry.legs.register_callback(
-            arriving, SessionCallback(id="beads", label="Beads"), leg
+        factory.lifecycle.register_callback(
+            arriving, SessionCallback(id="beads", label="Beads"), UNOBSERVED
         )
         replica = CallbackMenuReplica(registry)
         assert _labels_under(
@@ -638,9 +648,12 @@ class TestTheReplica:
 
     def test_replica_is_empty_when_only_a_non_agent_holds_no_callback(self) -> None:
 
-        registry = HubClientRegistry()
+        factory = HubStoreFactory()
+        registry = factory.clients
         # A cli is not the agent, so with no callback it earns no submenu.
-        registry.record(ConnectionId("cli"), ClientIdentity(kind="cli", name="lux-cli"))
+        registry.record(
+            ConnectionId("cli"), ClientIdentity(kind="cli", name="lux-cli"), UNOBSERVED
+        )
 
         assert CallbackMenuReplica(registry).callback_menu_wire() == []
 
@@ -653,7 +666,7 @@ class TestTheReplicasMenuRead:
         clients = HubClientRegistry()
         conn = ConnectionId("a")
         identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
-        clients.record(conn, identity)
+        clients.record(conn, identity, UNOBSERVED)
         replica = CallbackMenuReplica(clients)
 
         menus = replica.callback_menus()

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.menus import Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.wire import WireMenu
@@ -27,6 +28,7 @@ from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_binding import DetailsBinding
 from punt_lux.domain.hub.hub import Hub
@@ -97,11 +99,20 @@ class _Wired:
 
     _store: HubDisplay
     _clients: HubClientRegistry
+    _lifecycle: ClientLifecycle
     _details: ClientDetailsPort
     _router: CallbackRouter
     _legs: dict[ConnectionId, _Leg]
     _sent: list[RemoteEventHandlerInvocation]
-    __slots__ = ("_clients", "_details", "_legs", "_router", "_sent", "_store")
+    __slots__ = (
+        "_clients",
+        "_details",
+        "_legs",
+        "_lifecycle",
+        "_router",
+        "_sent",
+        "_store",
+    )
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -109,6 +120,7 @@ class _Wired:
         display = factory.display
         self._store = display
         self._clients = factory.clients
+        self._lifecycle = factory.lifecycle
         marks = _Marks()
         listing = ClientListing(display, self._clients, Hub(), _zero_inbox_depth)
         self._details = ClientDetailsPort(
@@ -125,19 +137,19 @@ class _Wired:
         """Bring up an agent session that registered no command at all."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._clients.legs.attach(connection_id, identity, leg)
+        self._lifecycle.attach(connection_id, identity, leg, UNOBSERVED)
 
     def connect(self, connection_id: ConnectionId, identity: ClientIdentity) -> None:
         """Bring a client up the way the listen route does, and register a command."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._clients.legs.attach(connection_id, identity, leg)
+        self._lifecycle.attach(connection_id, identity, leg, UNOBSERVED)
         command = (
             SessionCallback(id="music", label="Music")
             if connection_id == _VOXD
             else SessionCallback(id="beads", label="Beads")
         )
-        self._clients.legs.register_callback(connection_id, command, leg)
+        self._lifecycle.register_callback(connection_id, command, UNOBSERVED)
 
     def draw(self, *clicks: str) -> FakeImGui:
         """Decode the wire the Hub would send and draw it, clicking what is named.

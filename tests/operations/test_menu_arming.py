@@ -14,9 +14,9 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -51,7 +51,9 @@ def test_admits_an_identified_session_and_arms_its_inbox_and_departure() -> None
     factory, arming = _armed(writer, departure)
     lifecycle = factory.lifecycle
     conn = ConnectionId("agent")
-    lifecycle.identify(conn, ClientIdentity(kind="mcp-session", name="agent"))
+    lifecycle.identify(
+        conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+    )
 
     assert arming.admit(Scope(conn)) is True
     assert writer.armed == [conn]
@@ -66,7 +68,7 @@ def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
     factory, arming = _armed(writer, departure)
     lifecycle = factory.lifecycle
     conn = ConnectionId("anon")
-    lifecycle.arrive(conn)  # registered, but never identified
+    lifecycle.arrive(conn, UNOBSERVED)  # registered, but never identified
 
     assert arming.admit(Scope(conn)) is False
     lifecycle.depart(conn)

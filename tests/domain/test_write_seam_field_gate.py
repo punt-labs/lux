@@ -17,6 +17,7 @@ import textwrap
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
@@ -25,6 +26,7 @@ from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_errors import ImmutableFieldError
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.elements import Tab, TabBarElement, TextElement
 
@@ -78,7 +80,7 @@ def _seed_tab_bar() -> HubDisplay:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(
@@ -90,7 +92,9 @@ def _seed_tab_bar() -> HubDisplay:
         ),
         active_tab="tab-1",
     )
-    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
+    hub_display.apply(
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+    )
     return hub_display
 
 
@@ -105,7 +109,7 @@ def test_update_set_tabs_is_rejected() -> None:
     writer = HubSceneWriter(hub_display)
 
     result = writer.apply(
-        SceneScope(_CONN, _SCENE),
+        SceneScope(Scope(_CONN), _SCENE),
         [
             {
                 "id": str(_TAB_BAR_ID),
@@ -143,13 +147,15 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(Tab(tab_id="tab-1", label="One", children=()),),
         active_tab="tab-1",
     )
-    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
+    hub_display.apply(
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+    )
 
     with pytest.raises(StructuralFieldWriteError):
         hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "tabs", [])
@@ -201,7 +207,7 @@ def test_set_property_non_structural_field_still_applies() -> None:
     factory = HubStoreFactory()
     hub_display = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     bar = TabBarElement(
         id=str(_TAB_BAR_ID),
         tabs=(
@@ -210,7 +216,9 @@ def test_set_property_non_structural_field_still_applies() -> None:
         ),
         active_tab="tab-1",
     )
-    hub_display.apply(_CONN, AddElement(scene_id=_SCENE, element=bar, parent_id=None))
+    hub_display.apply(
+        Scope(_CONN), AddElement(scene_id=_SCENE, element=bar, parent_id=None)
+    )
 
     hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "active_tab", "tab-2")
 

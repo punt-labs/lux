@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -22,12 +23,12 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -142,19 +143,19 @@ class _Wired:
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> None:
         """Bind the connection and its declared identity, with no listen leg."""
-        self._clients.record(conn, identity)
+        self._clients.record(conn, identity, UNOBSERVED)
 
     def connect(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> _Listener:
         """Bring a session up as a live listen leg does: one call, identity and leg."""
         listener = _Listener()
-        self._clients.legs.attach(conn, identity or _identity(), listener)
+        self._lifecycle.attach(conn, identity or _identity(), listener, UNOBSERVED)
         return listener
 
     def drop_leg(self, conn: ConnectionId, listener: _Listener) -> None:
         """Tear the session's leg down the way its own teardown does."""
-        self._clients.legs.detach(conn, listener)
+        self._lifecycle.detach(conn, listener)
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))
@@ -215,9 +216,10 @@ def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> N
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
+    connected = wired.pushed  # an agent attaching is itself listed
 
     assert isinstance(wired.register(conn), Ok)
-    assert wired.pushed == 1
+    assert wired.pushed > connected
     menus = wired.callback_menus()
     assert [menu.label for menu in menus] == ["Clients"]
     # The client is named for the repository it works in, not for its wire name.
@@ -230,11 +232,12 @@ def test_a_malformed_request_passes_through_without_pushing() -> None:
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
+    connected = wired.pushed
 
     result = wired.register(conn, "")  # empty id
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
-    assert wired.pushed == 0
+    assert wired.pushed == connected
 
 
 def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:

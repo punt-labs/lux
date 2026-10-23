@@ -149,4 +149,19 @@ class ListenerThread:
                 return False
             if msg is None:
                 return True
+            self._routed_one(msg)
+
+    def _routed_one(self, msg: Message) -> None:
+        """Hand one decoded message to its route; a raising route costs that message.
+
+        The stream is sound and the next frame is waiting, so a handler's failure
+        is logged with the message it failed on and the listener keeps serving.
+        """
+        try:
             self._route(msg)
+        except Exception:
+            logger.exception(
+                "Listener route failed on %s from display %s; continuing",
+                type(msg).__name__,
+                self._connection.endpoint,
+            )

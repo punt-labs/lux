@@ -95,23 +95,34 @@ class BdLeash:
         call started and the thread returns with them; another call is untouched.
         The job that was waiting on one of them ends with
         :class:`BdCancelledError` -- a ``BaseException``, so no failure boundary
-        on the thread reports it -- and nobody awaits that thread any more.
+        on the thread reports it -- which is logged here at DEBUG, being an ending
+        and not a failure, since nobody awaits that thread any more.
         """
+
+        def run() -> None:
+            try:
+                job()
+            except BdCancelledError:
+                logger.debug("the call was cancelled; its bd was ended")
+
         with self.bound():
             try:
-                await asyncio.to_thread(job)
+                await asyncio.to_thread(run)
             except asyncio.CancelledError:
                 self.cancel()
                 raise
 
-    def attach(self, child: BdChild) -> bool:
-        """Hold *child* as one of this call's; end it and say no if cancelled."""
+    def attach(self, child: BdChild) -> None:
+        """Hold *child* as one of this call's; end it at once if the call is cancelled.
+
+        A child ended here reads as cancelled when its caller waits on it, so no
+        answer needs to come back.
+        """
         with self._lock:
             if not self._cancelled:
                 self._children.add(child)
-                return True
+                return
         child.end()
-        return False
 
     def detach(self, child: BdChild) -> None:
         """Let go of *child*, which has finished and needs ending by no one."""

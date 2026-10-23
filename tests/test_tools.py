@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -24,6 +24,7 @@ from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import (
     Operations,
     OpError,
@@ -455,7 +456,9 @@ class TestSetMenuTool:
         from punt_lux.tools import list_menus
 
         conn = ConnectionId("local")  # the default MCP session key
-        hub_lifecycle.identify(conn, ClientIdentity(kind="mcp-session", name="a"))
+        hub_lifecycle.identify(
+            conn, ClientIdentity(kind="mcp-session", name="a"), UNOBSERVED
+        )
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
         try:
             result = set_menu(menus)
@@ -936,7 +939,7 @@ def _seed_store(
     # Seeded at the composed key a real show() would produce, so update()/
     # clear()'s own composition (against the default "local" session) finds
     # it (DES-086).
-    store.replace_scene(ConnectionId("local"), _scoped(scene), [header])
+    store.replace_scene(Scope(ConnectionId("local")), _scoped(scene), [header])
     return header
 
 
@@ -1063,7 +1066,7 @@ def _seed_group_with_child(
     # Seeded at the composed key a real show() would produce, so update()'s
     # own composition (against ``connection``) finds it (DES-086).
     store.replace_scene(
-        ConnectionId(connection),
+        Scope(ConnectionId(connection)),
         SceneId(ConnectionScopedId.compose(ConnectionId(connection), scene)),
         [cast("DomainElement", group)],
     )
@@ -1329,7 +1332,7 @@ class TestUpdateTool:
         first = CollapsingHeaderElement(id="a", label="First", open=False)
         second = CollapsingHeaderElement(id="b", label="Second", open=False)
         store.replace_scene(
-            ConnectionId("local"),
+            Scope(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", first), cast("DomainElement", second)],
         )
@@ -1360,7 +1363,7 @@ class TestUpdateTool:
         keep = CollapsingHeaderElement(id="keep", label="Keep", open=False)
         drop = CollapsingHeaderElement(id="drop", label="Drop", open=False)
         store.replace_scene(
-            ConnectionId("local"),
+            Scope(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", keep), cast("DomainElement", drop)],
         )
@@ -1521,7 +1524,7 @@ class TestUpdateTool:
             {"kind": "selectable", "id": "sl1", "label": "opt", "selected": False}
         )
         store.replace_scene(
-            ConnectionId("local"),
+            Scope(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", header), cast("DomainElement", selectable)],
         )
@@ -1629,7 +1632,7 @@ class TestClearTool:
         _seed_store(store, scene="s1", header_id="hdr")  # owned by "local"
         other = CollapsingHeaderElement(id="other", label="Other", open=False)
         store.replace_scene(
-            ConnectionId("agent-b"),
+            Scope(ConnectionId("agent-b")),
             SceneId("s-other"),
             [cast("DomainElement", other)],
         )

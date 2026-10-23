@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.menu_arming_deps import MenuArmingDeps
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["MenuArming"]
 

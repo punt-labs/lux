@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -25,10 +26,10 @@ from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
-from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
     import pytest
@@ -211,7 +212,7 @@ def test_identifying_an_anonymous_registered_connection_as_an_agent_marks_menus_
 ):
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)  # registered, anonymous: the Connect step first
+    lifecycle.arrive(_CONN, UNOBSERVED)  # registered, anonymous: the Connect step first
     assert spy.menu_marks == 0
 
     ops.identify(_AGENT, scope=Scope(_CONN))
@@ -360,7 +361,7 @@ def test_a_non_agent_departure_marks_nothing() -> None:
     ops, factory, spy = _rig()
     lifecycle = factory.lifecycle
     ops.identify(_CLI, scope=Scope(_CONN))
-    lifecycle.arrive(ConnectionId("anon"))
+    lifecycle.arrive(ConnectionId("anon"), UNOBSERVED)
 
     assert _departure_marks(lifecycle, spy, ConnectionId("anon")) == 0
     assert _departure_marks(lifecycle, spy, _CONN) == 0

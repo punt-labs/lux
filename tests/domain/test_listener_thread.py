@@ -330,3 +330,56 @@ class TestAbandonedThread:
         finally:
             listener.stop()
             _closed(dialer.peer, connection)
+
+
+class TestARaisingRoute:
+    def test_a_handler_that_raises_costs_its_message_not_the_listener(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        dialer = _PairDialer()
+        connection = DisplayConnection(dialer, 1.0)
+        connection.open()
+        routed: list[Message] = []
+
+        def route(msg: Message) -> None:
+            if msg == PingMessage(ts=1.0):
+                raise RuntimeError("the handler blew up")
+            routed.append(msg)
+
+        listener = ListenerThread(connection, route)
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+            assert dialer.peer is not None
+            dialer.peer.sendall(
+                encode_message(PingMessage(ts=1.0))
+                + encode_message(PingMessage(ts=2.0))
+            )
+            assert _until(lambda: routed == [PingMessage(ts=2.0)])
+        try:
+            assert listener.alive
+            (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
+            assert "PingMessage" in record.getMessage()
+            assert "pair" in record.getMessage()
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+    def test_the_connection_stays_open_after_a_failed_route(self) -> None:
+        dialer = _PairDialer()
+        connection = DisplayConnection(dialer, 1.0)
+        connection.open()
+
+        def route(_msg: Message) -> None:
+            raise RuntimeError("always")
+
+        listener = ListenerThread(connection, route)
+        listener.start()
+        try:
+            assert dialer.peer is not None
+            dialer.peer.sendall(encode_message(PingMessage(ts=1.0)))
+            time.sleep(0.3)
+            assert connection.is_open
+            assert listener.alive
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)

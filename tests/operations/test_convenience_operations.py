@@ -8,6 +8,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import (
     OpError,
     RenderDashboardRequest,
@@ -17,7 +18,6 @@ from punt_lux.operations import (
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.operations.scope import Scope
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope(_CONNECTION)

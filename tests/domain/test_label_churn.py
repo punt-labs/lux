@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 
 _FIRST = ConnectionId("first")
@@ -70,7 +72,9 @@ def _wired() -> tuple[HubStoreFactory, _Marker, _Clock]:
 
 def _show(factory: HubStoreFactory, conn: ConnectionId, scene: str) -> SceneId:
     scene_id = SceneId(f"{conn}-{scene}")
-    factory.display.replace_scene(conn, scene_id, [TextElement(id="t", content="x")])
+    factory.display.replace_scene(
+        Scope(conn), scene_id, [TextElement(id="t", content="x")]
+    )
     return scene_id
 
 
@@ -78,8 +82,8 @@ def _two_sessions_of_one_repo() -> tuple[
     HubStoreFactory, _Marker, _Clock, SceneId, SceneId
 ]:
     factory, marker, clock = _wired()
-    factory.lifecycle.identify(_FIRST, _repo("a"))
-    factory.lifecycle.identify(_SECOND, _repo("b"))
+    factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
+    factory.lifecycle.identify(_SECOND, _repo("b"), UNOBSERVED)
     first = _show(factory, _FIRST, "vox")
     second = _show(factory, _SECOND, "vox")
     factory.clients.named_sessions()  # the read that names them: lux, lux (2)
@@ -121,7 +125,9 @@ class TestDeparture:
     def test_a_lease_sweep_marks_the_survivor_the_same_way(self) -> None:
         factory, marker, clock, first, second = _two_sessions_of_one_repo()
         clock.now = 2_000.0  # past both mcp leases...
-        factory.lifecycle.arrive(_SECOND)  # ...then the survivor makes contact
+        factory.lifecycle.arrive(
+            _SECOND, UNOBSERVED
+        )  # ...then the survivor makes contact
 
         lapsed = factory.lifecycle.depart_lapsed(frozenset())
 
@@ -133,11 +139,11 @@ class TestDeparture:
 class TestIdentification:
     def test_naming_a_connection_marks_the_scenes_it_already_shows(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
         scene = _show(factory, _FIRST, "vox")
         marker.scenes.clear()
 
-        factory.lifecycle.identify(_FIRST, _repo("a"))
+        factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
 
         assert marker.scenes == [scene]
 
@@ -145,25 +151,25 @@ class TestIdentification:
         # Presence cannot be the trigger: a repository-kind client with no
         # command earns no menu entry, so presence holds while it is named.
         factory, marker, _ = _wired()
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
         scene = _show(factory, _FIRST, "vox")
         marker.scenes.clear()
 
         factory.lifecycle.identify(
-            _FIRST, ClientIdentity(kind="cli", name="cli", repo="/w/lux")
+            _FIRST, ClientIdentity(kind="cli", name="cli", repo="/w/lux"), UNOBSERVED
         )
 
         assert marker.scenes == [scene]
 
     def test_repeating_the_declaration_marks_once_not_per_request(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
         scene = _show(factory, _FIRST, "vox")
-        factory.lifecycle.identify(_FIRST, _repo("a"))
+        factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
         marker.scenes.clear()
 
-        factory.lifecycle.identify(_FIRST, _repo("a"))
-        factory.lifecycle.identify(_FIRST, _repo("a"))
+        factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
+        factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
 
         assert marker.scenes == []
         assert scene not in marker.scenes
@@ -171,20 +177,22 @@ class TestIdentification:
     def test_an_anonymous_arrival_marks_nothing(self) -> None:
         factory, marker, _ = _wired()
 
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
         _show(factory, _FIRST, "vox")
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
 
         assert marker.scenes == []
 
     def test_a_changed_declaration_marks_again(self) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.identify(_FIRST, _repo("a"))
+        factory.lifecycle.identify(_FIRST, _repo("a"), UNOBSERVED)
         scene = _show(factory, _FIRST, "vox")
         marker.scenes.clear()
 
         factory.lifecycle.identify(
-            _FIRST, ClientIdentity(kind="mcp-session", name="a", repo="/w/other")
+            _FIRST,
+            ClientIdentity(kind="mcp-session", name="a", repo="/w/other"),
+            UNOBSERVED,
         )
 
         assert marker.scenes == [scene]
@@ -193,11 +201,11 @@ class TestIdentification:
         self,
     ) -> None:
         factory, marker, _ = _wired()
-        factory.lifecycle.arrive(_FIRST)
+        factory.lifecycle.arrive(_FIRST, UNOBSERVED)
         scene = _show(factory, _FIRST, "vox")
         marker.scenes.clear()
 
-        factory.lifecycle.attach(_FIRST, _repo("a"), _Leg())
+        factory.lifecycle.attach(_FIRST, _repo("a"), _Leg(), UNOBSERVED)
 
         assert scene in marker.scenes
 

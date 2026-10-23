@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
@@ -92,7 +93,7 @@ def _named(
     identity = ClientIdentity(
         kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
     )
-    lifecycle.identify(conn, identity)
+    lifecycle.identify(conn, identity, UNOBSERVED)
     clients.named_sessions()
     return conn
 

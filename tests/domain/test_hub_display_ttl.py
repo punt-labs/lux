@@ -18,6 +18,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 
 _OWNER = ConnectionId("ttl-owner")
 _FRAME = "ttl-frame"
@@ -68,7 +69,7 @@ def _show(
 ) -> None:
     """Install one owned root in ``scene_id`` framed by ``frame_id`` with a TTL."""
     display.show_scene(
-        _OWNER,
+        Scope(_OWNER),
         scene_id,
         [_WireLeaf(id=f"root-{scene_id}")],
         ScenePresentation(frame_id=frame_id),
@@ -214,7 +215,9 @@ def test_reclaiming_a_blanked_ttl_frame_disarms_its_deadline() -> None:
     scene = SceneId("s")
     _show(display, scene, ttl_seconds=5.0)
 
-    display.replace_scene(_OWNER, scene, ())  # update-to-empty: blanked, frame kept
+    display.replace_scene(
+        Scope(_OWNER), scene, ()
+    )  # update-to-empty: blanked, frame kept
     assert display.frames.seconds_until_next() == 5.0  # still armed pre-reclaim
 
     display.reader.reclaim_if_rootless(scene)  # replicator reclaims the delivered blank
@@ -235,11 +238,11 @@ def test_a_reused_frame_id_does_not_inherit_a_reclaimed_frames_deadline() -> Non
     display = factory.display
     first = SceneId("first")
     _show(display, first, ttl_seconds=5.0)  # _FRAME armed at 5s
-    display.replace_scene(_OWNER, first, ())
+    display.replace_scene(Scope(_OWNER), first, ())
     display.reader.reclaim_if_rootless(first)  # disarms _FRAME
 
     second = SceneId("second")
-    display.replace_scene(_OWNER, second, [_WireLeaf(id="r2")])
+    display.replace_scene(Scope(_OWNER), second, [_WireLeaf(id="r2")])
     # Record into the reused frame with no TTL of its own.
     display.frames.record(second, ScenePresentation(frame_id=_FRAME))
 

@@ -298,6 +298,30 @@ def test_a_run_that_answers_is_its_output(
     assert isinstance(BdRun().completed(_scope()), BdOutput)
 
 
+def test_a_cancelled_calls_ended_bd_is_logged_at_debug_not_as_a_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    started = _silent_bd(tmp_path, monkeypatch)
+    leash = BdLeash()
+
+    async def serve_then_cancel() -> None:
+        job = asyncio.ensure_future(
+            leash.served(lambda: BdRun().completed(_scope()) and None)
+        )
+        while not started.exists():
+            await asyncio.sleep(0.02)
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+        await asyncio.sleep(0.3)
+
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(serve_then_cancel())
+
+    messages = [(r.levelno, r.getMessage()) for r in caplog.records]
+    assert (logging.DEBUG, "the call was cancelled; its bd was ended") in messages
+    assert all(level < logging.WARNING for level, _ in messages)
+
+
 def test_the_exit_is_an_immutable_value() -> None:
     exit_ = BdChild(_QUICK, BdLeash()).output(_JOIN_SECONDS)
 

@@ -36,7 +36,11 @@ class HubStoreFactory:
         owners = OwnerTracker()
         self._clients = HubClientRegistry(clock)
         self._lifecycle = ClientLifecycle(
-            self._clients, owners, DepartureCascade(hub), lock
+            self._clients,
+            self._clients.take_legs(),
+            owners,
+            DepartureCascade(hub),
+            lock,
         )
         self._display = HubDisplay(lock, owners, self._lifecycle, self._clients, clock)
         return self

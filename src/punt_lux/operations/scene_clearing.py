@@ -24,6 +24,7 @@ from punt_lux.operations.models.scene_results import Cleared
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.ports import DirtyMarker
 
 __all__ = ["SceneClearer"]
@@ -43,9 +44,7 @@ class SceneClearer:
         self._replicator = replicator
         return self
 
-    def clear(
-        self, owner: ConnectionId, scene_id: str | None = None
-    ) -> Cleared | OpError:
+    def clear(self, owner: Scope, scene_id: str | None = None) -> Cleared | OpError:
         """Blank ``owner``'s scenes — all of them, or just the one named.
 
         ``scene_id`` absent is the whole-owner clear, which removing nothing
@@ -56,7 +55,7 @@ class SceneClearer:
         a caller can only ever clear a scene it is the connection for
         (DES-086).
         """
-        target = self._compose(owner, scene_id)
+        target = self._compose(owner.connection_id, scene_id)
         if isinstance(target, OpError):
             return target
         touched = HubSceneWriter(self._display).clear(owner, target)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub import hub
 from punt_lux.domain.hub.hub_factory import HubPublishSink, hub_element_factory
@@ -35,7 +36,7 @@ class TestHubPublishSink:
 
     def test_publish_routes_to_hub_in_caller_scope(self) -> None:
         connection_id = ConnectionId("conn-publish-routes")
-        ensure_writer(connection_id)
+        ensure_writer(connection_id, UNOBSERVED)
         hub.subscribe(connection_id, Topic("ping"))
         try:
             sink = HubPublishSink(connection_id)
@@ -51,8 +52,8 @@ class TestHubPublishSink:
     def test_publish_isolated_between_connections(self) -> None:
         a = ConnectionId("conn-a")
         b = ConnectionId("conn-b")
-        ensure_writer(a)
-        ensure_writer(b)
+        ensure_writer(a, UNOBSERVED)
+        ensure_writer(b, UNOBSERVED)
         hub.subscribe(a, Topic("shared"))
         hub.subscribe(b, Topic("shared"))
         try:
@@ -79,7 +80,7 @@ class TestHubElementFactory:
 
     def test_decoded_button_publish_routes_to_caller_scope(self) -> None:
         connection_id = ConnectionId("conn-decoded-button")
-        ensure_writer(connection_id)
+        ensure_writer(connection_id, UNOBSERVED)
         hub.subscribe(connection_id, Topic("clicked"))
         try:
             factory = hub_element_factory(connection_id)

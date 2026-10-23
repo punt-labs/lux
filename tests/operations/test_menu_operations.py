@@ -16,18 +16,19 @@ from typing import Self, final
 import pytest
 from pydantic import ValidationError
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -102,7 +103,9 @@ class _Ops:
     def identified(self, name: str = "sess") -> Scope:
         """Register an identified, live session and return its scope."""
         conn = ConnectionId(name)
-        self.clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
+        self.clients.record(
+            conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+        )
         return Scope(conn)
 
 
@@ -393,7 +396,7 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
         )
     )
     conn = ConnectionId("sess")
-    clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
+    clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED)
 
     result = ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=Scope(conn)

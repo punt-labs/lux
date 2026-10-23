@@ -16,10 +16,12 @@ Markdown follow.
 
 from __future__ import annotations
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.element import Element
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
     ImageElement,
@@ -99,13 +101,13 @@ def test_text_element_wire_path_through_hub_apply() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     client = ConnectionId("alice")
-    lifecycle.arrive(client)
+    lifecycle.arrive(client, UNOBSERVED)
 
     wire = {"kind": "text", "id": "t1", "content": "hello"}
     elem = agent_element_factory().element_from_dict(wire)
     assert isinstance(elem, TextElement)
 
-    display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
+    display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
 
     assert display.owner_of(SceneId("s1"), ElementId("t1")) == client
     stored = display.resolve(SceneId("s1"), ElementId("t1"))
@@ -191,7 +193,7 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
     display = factory.display
     lifecycle = factory.lifecycle
     client = ConnectionId("alice")
-    lifecycle.arrive(client)
+    lifecycle.arrive(client, UNOBSERVED)
 
     elements: list[Element] = [
         TextElement(id="t1", content="hi"),
@@ -202,7 +204,7 @@ def test_every_basics_kind_flows_through_hub_apply() -> None:
         MarkdownElement(id="md1", content="# Hi"),
     ]
     for elem in elements:
-        display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
+        display.apply(Scope(client), AddElement(scene_id=SceneId("s1"), element=elem))
 
     roots = display.scene_roots(SceneId("s1"))
     assert [e.id for e in roots] == [e.id for e in elements]

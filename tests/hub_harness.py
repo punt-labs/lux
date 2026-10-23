@@ -14,10 +14,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from unittest.mock import MagicMock
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
@@ -59,7 +61,7 @@ class IsolatedHub:
     def connect(self, name: str) -> ConnectionId:
         """Register a connection as a Hub client and return its id."""
         connection_id = ConnectionId(name)
-        self.lifecycle.arrive(connection_id)
+        self.lifecycle.arrive(connection_id, UNOBSERVED)
         return connection_id
 
     def install(
@@ -70,7 +72,7 @@ class IsolatedHub:
     ) -> None:
         """Install ``element`` as a root of ``scene_id`` owned by ``owner``."""
         self.display.apply(
-            owner, AddElement(scene_id=scene_id, element=element, parent_id=None)
+            Scope(owner), AddElement(scene_id=scene_id, element=element, parent_id=None)
         )
 
     def click(

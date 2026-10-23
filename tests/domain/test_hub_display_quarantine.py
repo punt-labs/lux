@@ -9,11 +9,13 @@ no orphan quarantine outlives its scene.
 
 from __future__ import annotations
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import RemoveElement
 from punt_lux.protocol.elements.text import TextElement
 
@@ -26,8 +28,8 @@ def _seeded_with_quarantine(record: QuarantineRecord) -> HubDisplay:
     factory = HubStoreFactory()
     store = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t1", content="x")])
     store.quarantine(_SCENE, record)
     return store
 
@@ -41,7 +43,7 @@ def test_replace_scene_fires_the_quarantine_cleared_observers() -> None:
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)
 
-    store.replace_scene(_CONN, _SCENE, [TextElement(id="t2", content="fixed")])
+    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t2", content="fixed")])
 
     assert observed == [_SCENE]
     assert not store.is_quarantined(_SCENE)
@@ -52,7 +54,9 @@ def test_remove_element_that_empties_scene_fires_observers() -> None:
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)
 
-    store.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")))
+    store.apply(
+        Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=ElementId("t1"))
+    )
 
     assert observed == [_SCENE]
     assert not store.is_quarantined(_SCENE)
@@ -68,9 +72,9 @@ def test_ttl_expiry_fires_quarantine_cleared_observers() -> None:
     factory = HubStoreFactory(clock=lambda: now[0])
     store = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
+    lifecycle.arrive(_CONN, UNOBSERVED)
     store.show_scene(
-        _CONN,
+        Scope(_CONN),
         _SCENE,
         [TextElement(id="t1", content="x")],
         ScenePresentation(frame_id="ttl-frame"),
@@ -95,12 +99,14 @@ def test_observers_are_not_fired_on_a_clean_scene() -> None:
     factory = HubStoreFactory()
     store = factory.display
     lifecycle = factory.lifecycle
-    lifecycle.arrive(_CONN)
-    store.replace_scene(_CONN, _SCENE, [TextElement(id="t1", content="x")])
+    lifecycle.arrive(_CONN, UNOBSERVED)
+    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t1", content="x")])
     observed: list[SceneId] = []
     store.add_quarantine_cleared_observer(observed.append)
 
-    store.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("t1")))
+    store.apply(
+        Scope(_CONN), RemoveElement(scene_id=_SCENE, element_id=ElementId("t1"))
+    )
 
     assert observed == []
 
@@ -122,6 +128,6 @@ def test_a_reshow_after_quarantine_needs_full_threshold_before_re_quarantine() -
     store = _seeded_with_quarantine(_record())
     calls: list[SceneId] = []
     store.add_quarantine_cleared_observer(calls.append)
-    store.replace_scene(_CONN, _SCENE, [TextElement(id="t2", content="fixed")])
+    store.replace_scene(Scope(_CONN), _SCENE, [TextElement(id="t2", content="fixed")])
     assert not store.is_quarantined(_SCENE)
     assert calls == [_SCENE]

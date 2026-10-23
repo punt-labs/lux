@@ -55,7 +55,7 @@ class ClientSession:
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
         slot: ListenerSlot | None = None,
-        client_hosts: tuple[str, ...] = (),
+        client_hosts: ClientHosts | None = None,  # None = no host observed yet
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -65,7 +65,7 @@ class ClientSession:
         )
         # Absent means the empty slot — the default for a session with no leg yet.
         self._slot = slot if slot is not None else ListenerSlot()
-        self._hosts = ClientHosts(client_hosts)
+        self._hosts = ClientHosts() if client_hosts is None else client_hosts
         return self
 
     @property
@@ -100,7 +100,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot,
-            hosts.names,
+            hosts,
         )
 
     @property
@@ -160,7 +160,7 @@ class ClientSession:
             self._identity,
             self._lease.renewed(now),
             self._slot,
-            self._hosts.names,
+            self._hosts,
         )
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
@@ -176,7 +176,7 @@ class ClientSession:
             identity.kind, identity.lease_ttl, self._lease.renewed_at
         )
         return ClientSession(
-            self._connected_at, identity, lease, self._slot, self._hosts.names
+            self._connected_at, identity, lease, self._slot, self._hosts
         )
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:
@@ -189,7 +189,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.with_callback(callback),
-            self._hosts.names,
+            self._hosts,
         )
 
     def attached(self, listener: CallbackListener) -> ClientSession:
@@ -206,7 +206,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.occupied_by(listener),
-            self._hosts.names,
+            self._hosts,
         )
 
     # None == stale: not this listener's session; a normal decline, not a failure.
@@ -229,7 +229,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.released(),
-            self._hosts.names,
+            self._hosts,
         )
 
     def registering(

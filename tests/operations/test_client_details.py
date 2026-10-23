@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Self, cast
 
-from punt_lux.client_host import ClientHost
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -24,6 +24,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
@@ -96,7 +97,7 @@ def _named(
     identity: ClientIdentity,
 ) -> None:
     """Record a client and take the read that names it, as the menu build does."""
-    lifecycle.identify(ConnectionId(connection), identity)
+    lifecycle.identify(ConnectionId(connection), identity, UNOBSERVED)
     clients.named_sessions()
 
 
@@ -214,7 +215,7 @@ class TestWhatDetailsReports:
                 ScenePresentation(frame_id="f1"),
                 None,
             ),
-            owner=ConnectionId("c1"),
+            owner=Scope(ConnectionId("c1")),
         )
         details, _marks = _wired(store, clients, hub)
 

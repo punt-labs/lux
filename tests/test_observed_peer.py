@@ -28,9 +28,9 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.mcp_endpoint import McpAsgiApp
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.tools.server import (
     bind_session,
@@ -174,7 +174,7 @@ class TestRegistryRecordsThePeer:
     def test_a_contact_that_reports_no_peer_records_none(self) -> None:
         factory = HubStoreFactory(hub=Hub())
 
-        factory.lifecycle.identify(_CONN, _AGENT)
+        factory.lifecycle.identify(_CONN, _AGENT, UNOBSERVED)
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
@@ -237,7 +237,9 @@ class TestAHostFlowsToTheFacts:
         factory.lifecycle.present_as(marker, MarkMenusSink(marker))
         factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         scene = SceneId("s1")
-        factory.display.replace_scene(_CONN, scene, [TextElement(id="t", content="x")])
+        factory.display.replace_scene(
+            Scope(_CONN), scene, [TextElement(id="t", content="x")]
+        )
         marker.scenes.clear()
 
         factory.lifecycle.identify(_CONN, _AGENT, ClientHost("10.0.0.5"))
@@ -250,7 +252,7 @@ class TestAHostFlowsToTheFacts:
         factory.lifecycle.present_as(marker, MarkMenusSink(marker))
         factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         factory.display.replace_scene(
-            _CONN, SceneId("s1"), [TextElement(id="t", content="x")]
+            Scope(_CONN), SceneId("s1"), [TextElement(id="t", content="x")]
         )
         marker.scenes.clear()
 

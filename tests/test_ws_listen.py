@@ -26,9 +26,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenu
+from punt_lux.domain.hub.callback_ports import CallbackListener
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.departure_cascade import DepartureCascade
@@ -41,6 +43,7 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.listen import CallbackFrame
 from punt_lux.ws_listen import HubListenSession
@@ -148,14 +151,18 @@ class _SilentLeg:
         """Deliberately silent: the click stays in the hold for the next connect."""
 
 
-def _register(clients: HubClientRegistry, callback_id: str) -> None:
+def _leg_of(clients: HubClientRegistry) -> CallbackListener | None:
+    """The listen leg the connection's session holds, or none."""
+    session = clients.session_of(_CONN)
+    return None if session is None else session.listener
+
+
+def _register(lifecycle: ClientLifecycle, callback_id: str) -> None:
     """Register a callback the way a connected app does — against its own leg."""
-    leg = clients.legs.listener_for(_CONN)
-    assert leg is not None, "the session must hold a listen leg to own a callback"
-    outcome = clients.legs.register_callback(
-        _CONN, SessionCallback(id=callback_id, label="Beads"), leg
+    outcome = lifecycle.register_callback(
+        _CONN, SessionCallback(id=callback_id, label="Beads"), UNOBSERVED
     )
-    assert outcome.outcome == "registered"
+    assert outcome == "registered"
 
 
 def test_the_handshake_readies_the_shared_connection_id() -> None:
@@ -172,10 +179,10 @@ def test_an_unidentified_handshake_is_refused() -> None:
 
 def test_a_routed_click_is_pushed_to_the_live_connection() -> None:
     wired = _wired()
-    client, clients, router = wired.client, wired.clients, wired.router
+    client, router = wired.client, wired.router
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg holds the connection's slot by now
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
         assert ws.receive_json() == {"kind": "callback", "callback_id": "beads"}
 
@@ -190,13 +197,13 @@ def test_a_click_buffered_before_connect_is_drained_on_connect() -> None:
     what a socket in mid-teardown amounts to.
     """
     wired = _wired()
-    client, clients, router = wired.client, wired.clients, wired.router
+    client, router = wired.client, wired.router
     quiet = _SilentLeg()
-    clients.legs.attach(_CONN, _IDENTITY, quiet)
-    outcome = clients.legs.register_callback(
-        _CONN, SessionCallback(id="beads", label="Beads"), quiet
+    wired.lifecycle.attach(_CONN, _IDENTITY, quiet, UNOBSERVED)
+    outcome = wired.lifecycle.register_callback(
+        _CONN, SessionCallback(id="beads", label="Beads"), UNOBSERVED
     )
-    assert outcome.outcome == "registered"
+    assert outcome == "registered"
     assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
@@ -217,7 +224,7 @@ def test_a_departed_connections_menu_items_leave_with_it() -> None:
     client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg is up and holds the connection's slot
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         session = clients.session_of(_CONN)
         assert session is not None
         assert session.owns_callback("beads")
@@ -368,10 +375,10 @@ def test_a_second_live_session_of_one_identity_takes_the_connection() -> None:
     client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
-        first_leg = clients.legs.listener_for(_CONN)
+        first_leg = _leg_of(clients)
         with client.websocket_connect("/ws", headers=_HEADERS) as second:
             second.receive_json()  # ready
-            second_leg = clients.legs.listener_for(_CONN)
+            second_leg = _leg_of(clients)
 
             assert second_leg is not None
             assert second_leg is not first_leg
@@ -388,7 +395,7 @@ def test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries() -> None:
     client, clients, menus = wired.client, wired.clients, wired.menus
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         assert _owns(clients, "beads")
         pushes = menus.pushes
 
@@ -427,15 +434,15 @@ def test_a_superseded_sessions_teardown_leaves_its_successor_whole() -> None:
 
     with client.websocket_connect("/ws", headers=_HEADERS) as second:
         second.receive_json()  # ready
-        successor = clients.legs.listener_for(_CONN)
-        _register(clients, "beads")
+        successor = _leg_of(clients)
+        _register(wired.lifecycle, "beads")
 
         # It departs while the successor is live and pumping. Closing the client
         # side joins the server task, so its teardown has run by the time this
         # returns — removing the ownership guard makes the asserts below fail.
         predecessor.close()
 
-        assert clients.legs.listener_for(_CONN) is successor  # the slot was not taken
+        assert _leg_of(clients) is successor  # the slot was not taken
         assert _owns(clients, "beads")  # nor were its entries
         # And it is still reachable: a click routes and lands on its socket.
         assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
@@ -532,7 +539,9 @@ def test_a_departed_session_still_has_its_writer_and_subscriptions_released() ->
         ws.receive_json()  # ready
         ws.send_json({"kind": "subscribe", "topics": ["music.play"]})
         _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
-        wired.lifecycle.register_callback(_CONN, SessionCallback(id="m", label="M"))
+        wired.lifecycle.register_callback(
+            _CONN, SessionCallback(id="m", label="M"), UNOBSERVED
+        )
         marked = menus.pushes
 
         clock.advance(6.0)  # past the declared 5s lease
@@ -903,7 +912,7 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
         ws.receive_json()  # ready
         scene = SceneId("claude-scene")
         factory.display.replace_scene(
-            _AGENT_CONN, scene, [TextElement(id="t", content="x")]
+            Scope(_AGENT_CONN), scene, [TextElement(id="t", content="x")]
         )
         clock.advance(_FAR_FUTURE)  # lapsed, unswept
         marker.scenes.clear()

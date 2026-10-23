@@ -10,6 +10,7 @@ exit.
 
 from __future__ import annotations
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import inbox
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
@@ -36,7 +37,7 @@ def test_disconnect_cascade_fires_a_registered_sink() -> None:
     connection_id = ConnectionId("cascade-sink-1")
     factory = HubStoreFactory(hub=Hub())
     lifecycle = factory.lifecycle
-    lifecycle.arrive(connection_id)
+    lifecycle.arrive(connection_id, UNOBSERVED)
     invocations: list[ConnectionId] = []
 
     def _sink(conn: ConnectionId) -> None:
