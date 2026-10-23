@@ -74,18 +74,14 @@ class SessionWrite:
             before, seen if identity is None else seen.with_identity(identity), now
         )
 
-    @classmethod
-    def attached(
-        cls,
-        before: ClientSession | None,
-        now: float,
-        identity: ClientIdentity,
-        listener: CallbackListener,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
-    ) -> Self:
-        """Record ``identity`` as in :meth:`recorded`, and seat ``listener``."""
-        declared = cls.recorded(before, now, identity, peer)
-        return cls(before, declared.after.attached(listener), now)
+    def seated(self, listener: CallbackListener) -> Self:
+        """This write, with ``listener`` also seated in the stored session's slot.
+
+        The attach is the declaration plus the seating, so it is the recorded
+        write that seats the listener: it already holds the session before and
+        after, and when, so nothing is threaded through a second constructor.
+        """
+        return type(self)(self.before, self.after.attached(listener), self.now)
 
     @property
     def identified(self) -> bool:

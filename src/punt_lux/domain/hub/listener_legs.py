@@ -67,13 +67,9 @@ class ListenerLegs:
         the write changed who the Clients menu lists.
         """
         with self._lock:
-            write = SessionWrite.attached(
-                self._sessions.get(connection_id),
-                self._clock(),
-                identity,
-                listener,
-                peer,
-            )
+            write = SessionWrite.recorded(
+                self._sessions.get(connection_id), self._clock(), identity, peer
+            ).seated(listener)
             self._sessions[connection_id] = write.after
             return write.attachment
 

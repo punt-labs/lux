@@ -42,7 +42,7 @@ def test_recording_without_an_identity_keeps_the_one_declared() -> None:
 def test_attaching_seats_the_listener_and_reports_the_slot() -> None:
     leg = _Leg()
 
-    write = SessionWrite.attached(None, 0.0, _agent(), leg)
+    write = SessionWrite.recorded(None, 0.0, _agent()).seated(leg)
 
     assert write.after.held_by(leg)
     assert write.attachment == Attachment("attached", "gained", identified=True)
@@ -50,11 +50,11 @@ def test_attaching_seats_the_listener_and_reports_the_slot() -> None:
 
 def test_attaching_over_callbacks_reports_them_cleared() -> None:
     first = _Leg()
-    seated = SessionWrite.attached(None, 0.0, _agent(), first).after
+    seated = SessionWrite.recorded(None, 0.0, _agent()).seated(first).after
     registered = seated.registering(SessionCallback(id="beads", label="Beads"), 0.0)
     assert registered is not None
 
-    write = SessionWrite.attached(registered, 1.0, _agent(), _Leg())
+    write = SessionWrite.recorded(registered, 1.0, _agent()).seated(_Leg())
 
     assert write.attachment.slot == "attached_over_callbacks"
 
@@ -101,13 +101,48 @@ class TestIdentified:
         assert not SessionWrite.recorded(declared, 1.0, None).identified
 
     def test_an_attach_that_declares_names_the_connection(self) -> None:
-        write = SessionWrite.attached(None, 0.0, _agent(), _Leg())
+        write = SessionWrite.recorded(None, 0.0, _agent()).seated(_Leg())
 
         assert write.attachment.identified
 
     def test_an_attach_repeating_the_declaration_names_nobody(self) -> None:
         declared = ClientSession(0.0).with_identity(_agent())
 
-        write = SessionWrite.attached(declared, 1.0, _agent(), _Leg())
+        write = SessionWrite.recorded(declared, 1.0, _agent()).seated(_Leg())
 
         assert not write.attachment.identified
+
+
+class TestSeated:
+    """Seating a listener is the recorded write taking the slot, nothing more."""
+
+    def test_keeps_the_session_it_replaced_and_the_time(self) -> None:
+        declared = ClientSession(0.0).with_identity(_agent())
+        recorded = SessionWrite.recorded(declared, 4.0, _agent())
+
+        seated = recorded.seated(_Leg())
+
+        assert seated.before is declared
+        assert seated.now == 4.0
+
+    def test_carries_the_observed_peer_to_the_stored_session(self) -> None:
+        recorded = SessionWrite.recorded(None, 0.0, _agent(), "127.0.0.1")
+
+        seated = recorded.seated(_Leg())
+
+        assert seated.after.peers == ("127.0.0.1",)
+
+    def test_reports_a_new_peer_as_identified_though_the_identity_held(self) -> None:
+        held = ClientSession(0.0).with_identity(_agent()).observed_from("127.0.0.1")
+
+        seated = SessionWrite.recorded(held, 1.0, _agent(), "10.0.0.5").seated(_Leg())
+
+        assert seated.attachment.identified
+
+    def test_leaves_the_recorded_write_untouched(self) -> None:
+        recorded = SessionWrite.recorded(None, 0.0, _agent())
+        leg = _Leg()
+
+        recorded.seated(leg)
+
+        assert not recorded.after.held_by(leg)

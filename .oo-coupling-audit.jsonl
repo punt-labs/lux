@@ -100,3 +100,4 @@
 {"ts":"2026-10-23T01:45:55Z","commit":"0a675c07","files_scored":754,"files_improved":0,"files_regressed":7,"verdict":"fail","deltas":{}}
 {"ts":"2026-10-23T01:56:52Z","commit":"60994c3f","files_scored":754,"files_improved":0,"files_regressed":7,"verdict":"fail","deltas":{}}
 {"ts":"2026-10-23T01:58:17Z","commit":"d25ffa1a","files_scored":754,"files_improved":1,"files_regressed":7,"verdict":"fail","deltas":{"src/punt_lux/display/replica/frame_heading.py":{"max_lcom":[0.4,0.2],"avg_lcom":[0.4,0.2]}}}
+{"ts":"2026-10-23T02:01:39Z","commit":"ef49ef57","files_scored":754,"files_improved":0,"files_regressed":7,"verdict":"fail","deltas":{}}
