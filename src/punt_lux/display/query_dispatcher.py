@@ -117,7 +117,8 @@ class QueryRouter:
             frames.append(
                 {
                     "frame_id": fid,
-                    "title": frame.title,
+                    "title": frame.heading.title,
+                    "scope_label": frame.heading.scope_label,  # None: no owner named
                     "scene_count": len(frame_scenes),
                     "scene_ids": frame_scenes,
                     "layout": frame.hints.layout,

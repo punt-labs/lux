@@ -161,6 +161,7 @@ class RenderLoop:
                 get_opacity=lambda: self._opacity,
                 get_font_scale=lambda: self._font_scale,
                 get_frames=lambda: self._scenes.frames,
+                addressing=self._addressing,
                 on_clear_all=self._clear_all,
                 on_fit_all=self._request_fit_all,
                 on_raise_frame=self._raise_frame_unscoped,
@@ -818,9 +819,8 @@ class RenderLoop:
             logger.info("raise frame=%s applied", frame.frame_id)
         win_flags = self._resolve_frame_flags(frame, imgui)
         still_open = True
-        title = self._addressing.frame_title(frame)
-        win_id = self._addressing.frame_window_id(frame)
-        expanded, still_open = imgui.begin(f"{title}##{win_id}", still_open, win_flags)
+        label = self._addressing.frame_window_label(frame)
+        expanded, still_open = imgui.begin(label, still_open, win_flags)
         hovered = imgui.is_window_hovered(
             imgui.HoveredFlags_.root_and_child_windows.value
         )
@@ -876,7 +876,7 @@ class RenderLoop:
         for fid in minimized_frames:
             sm.minimize(fid)
         # Dock bar for docked frames — a closed frame carries no pill.
-        DockBar(imgui, self._scenes).render(any_frame_hovered=any_frame_hovered)
+        DockBar(imgui, sm, self._addressing).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
         """Render scenes inside a frame.

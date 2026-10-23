@@ -32,28 +32,36 @@ class DockPill:
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs
     _frame: Frame
+    _title: str
     _low: ImVec2
     _high: ImVec2
-    __slots__ = ("_frame", "_high", "_imgui", "_low")
+    __slots__ = ("_frame", "_high", "_imgui", "_low", "_title")
 
-    def __new__(cls, imgui: Any, frame: Frame, low: ImVec2, high: ImVec2) -> Self:
+    def __new__(
+        cls, imgui: Any, frame: Frame, title: str, low: ImVec2, high: ImVec2
+    ) -> Self:
         self = super().__new__(cls)
         self._imgui = imgui
         self._frame = frame
+        self._title = title
         self._low = low
         self._high = high
         return self
 
     @classmethod
-    def at(cls, imgui: Any, frame: Frame, anchor: ImVec2, height: float) -> Self:
-        """The pill for *frame* with its top-left corner at *anchor*.
+    def at(
+        cls, imgui: Any, frame: Frame, title: str, anchor: ImVec2, height: float
+    ) -> Self:
+        """The pill for *frame*, labelled *title*, its top-left corner at *anchor*.
 
         Its width is its title's, so the bar cannot know where the next pill
         starts without building this one first — which is why overflow is
         decided against :attr:`right` rather than computed ahead of the layout.
         """
-        width = imgui.calc_text_size(frame.title).x + _TEXT_PAD * 2.0
-        return cls(imgui, frame, anchor, ImVec2(anchor.x + width, anchor.y + height))
+        width = imgui.calc_text_size(title).x + _TEXT_PAD * 2.0
+        return cls(
+            imgui, frame, title, anchor, ImVec2(anchor.x + width, anchor.y + height)
+        )
 
     @property
     def right(self) -> float:
@@ -76,11 +84,11 @@ class DockPill:
         draw.add_rect_filled(
             self._low, self._high, imgui.get_color_u32(style.color_(fill)), _ROUNDING
         )
-        text = imgui.calc_text_size(self._frame.title)
+        text = imgui.calc_text_size(self._title)
         draw.add_text(
             ImVec2(self._low.x + _TEXT_PAD, self._middle(text.y)),
             imgui.get_color_u32(style.color_(imgui.Col_.text)),
-            self._frame.title,
+            self._title,
         )
 
     def restore(self, scenes: SceneReplica) -> None:

@@ -20,8 +20,10 @@ def _rendering(*noted: tuple[HubId, str]) -> AddressRendering:
     return rendering
 
 
-def _frame(hub: HubId, frame_id: str, title: str) -> Frame:
-    """A minimal on-screen frame owned by ``hub``."""
+def _frame(
+    hub: HubId, frame_id: str, title: str, scope_label: str | None = None
+) -> Frame:
+    """A minimal on-screen frame owned by ``hub``, labelled if the Hub named it."""
     return Frame(
         hub=hub,
         frame_id=frame_id,
@@ -29,6 +31,7 @@ def _frame(hub: HubId, frame_id: str, title: str) -> Frame:
         owner_fds={1},
         scenes={},
         scene_order=[],
+        scope_label=scope_label,
     )
 
 
@@ -53,28 +56,58 @@ class TestHiddenIdFor:
         assert first != second
 
 
-class TestTitleFor:
-    def test_a_lone_item_reads_as_its_plain_label(self) -> None:
+class TestFrameTitle:
+    """DES-100: the connection rung shows whenever the frame has a label."""
+
+    def test_a_lone_labelled_frame_reads_label_then_title(self) -> None:
         rendering = _rendering((_PEMBROKE_1, "c1"))
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
+        frame = _frame(_PEMBROKE_1, "vox", "Vox", "lux")
+        assert rendering.frame_title(frame) == "lux :: Vox"
 
-    def test_with_no_connections_noted_an_item_still_reads_plain(self) -> None:
-        assert AddressRendering().title_for(_PEMBROKE_1, "Vox") == "Vox"
+    def test_two_sessions_of_one_repo_read_lux_and_lux_2(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        first = _frame(_PEMBROKE_1, "vox-1", "Vox", "lux")
+        second = _frame(_PEMBROKE_1, "vox-2", "Vox", "lux (2)")
+        assert rendering.frame_title(first) == "lux :: Vox"
+        assert rendering.frame_title(second) == "lux (2) :: Vox"
 
-    def test_two_hubs_on_one_host_disambiguate_by_numbered_hostname(self) -> None:
-        rendering = _rendering((_PEMBROKE_1, "c1"), (_PEMBROKE_2, "c2"))
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "pembroke :: Vox"
-        assert rendering.title_for(_PEMBROKE_2, "Vox") == "pembroke (2) :: Vox"
+    def test_two_applets_of_one_session_share_the_label(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        assert rendering.frame_title(_frame(_PEMBROKE_1, "b", "Beads", "lux")) == (
+            "lux :: Beads"
+        )
+        assert rendering.frame_title(_frame(_PEMBROKE_1, "v", "Vox", "lux")) == (
+            "lux :: Vox"
+        )
 
-    def test_two_hubs_on_different_hosts_disambiguate_by_hostname(self) -> None:
+    def test_an_unlabelled_frame_keeps_its_plain_title(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        assert rendering.frame_title(_frame(_PEMBROKE_1, "s", "Vox")) == "Vox"
+
+    def test_with_no_connection_noted_a_frame_still_reads_plain(self) -> None:
+        assert AddressRendering().frame_title(_frame(_PEMBROKE_1, "s", "Vox")) == "Vox"
+
+    def test_two_hubs_prefix_the_hub_label_ahead_of_the_scope_label(self) -> None:
         rendering = _rendering((_PEMBROKE_1, "c1"), (_OKINOS, "c2"))
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "pembroke :: Vox"
-        assert rendering.title_for(_OKINOS, "Vox") == "okinos :: Vox"
+        labelled = _frame(_PEMBROKE_1, "vox", "Vox", "lux (2)")
+        plain = _frame(_OKINOS, "vox", "Vox")
+        assert rendering.frame_title(labelled) == "pembroke :: lux (2) :: Vox"
+        assert rendering.frame_title(plain) == "okinos :: Vox"
 
-    def test_a_departed_second_hub_returns_the_survivor_to_plain(self) -> None:
+    def test_two_hubs_minting_one_label_never_interact(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"), (_PEMBROKE_2, "c2"))
+        one = _frame(_PEMBROKE_1, "vox", "Vox", "lux")
+        two = _frame(_PEMBROKE_2, "vox", "Vox", "lux")
+        assert rendering.frame_title(one) == "pembroke :: lux :: Vox"
+        assert rendering.frame_title(two) == "pembroke (2) :: lux :: Vox"
+
+    def test_a_departed_second_hub_returns_the_survivor_to_its_label_alone(
+        self,
+    ) -> None:
         rendering = _rendering((_PEMBROKE_1, "c1"), (_OKINOS, "c2"))
         rendering.forget_connection(_OKINOS, "c2")
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
+        frame = _frame(_PEMBROKE_1, "vox", "Vox", "lux")
+        assert rendering.frame_title(frame) == "lux :: Vox"
 
 
 class TestFrameProjection:
@@ -104,6 +137,27 @@ class TestFrameProjection:
             rendering.frame_window_id(frame)
             == f"{_PEMBROKE_1.wire_token}{ID_SEPARATOR}vox"
         )
+
+
+class TestFrameWindowLabel:
+    def test_is_the_visible_title_then_the_hidden_id(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        frame = _frame(_PEMBROKE_1, "vox", "Vox", "lux")
+        assert rendering.frame_window_label(frame) == (
+            f"lux :: Vox##{_PEMBROKE_1.wire_token}{ID_SEPARATOR}vox"
+        )
+
+    def test_a_label_arriving_changes_the_title_but_never_the_id_part(self) -> None:
+        rendering = _rendering((_PEMBROKE_1, "c1"))
+        frame = _frame(_PEMBROKE_1, "vox", "Vox")
+        before = rendering.frame_window_label(frame)
+
+        frame.heading.scope_label = "lux"
+        after = rendering.frame_window_label(frame)
+
+        assert before.partition("##")[2] == after.partition("##")[2]
+        assert before.partition("##")[0] == "Vox"
+        assert after.partition("##")[0] == "lux :: Vox"
 
 
 class TestWindowIdStabilityAcrossAmbiguity:
@@ -147,12 +201,12 @@ class TestLifecycleRobustness:
     def test_noting_the_same_connection_twice_leaves_one_live_hub(self) -> None:
         rendering = _rendering((_PEMBROKE_1, "c1"))
         rendering.note_connection(_PEMBROKE_1, "c1")  # a redundant note
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"  # still lone
+        assert rendering.frame_title(_frame(_PEMBROKE_1, "v", "Vox")) == "Vox"
 
     def test_forgetting_an_unnoted_connection_is_a_no_op(self) -> None:
         rendering = AddressRendering()
         rendering.forget_connection(_PEMBROKE_1, "never-noted")  # no raise
-        assert rendering.title_for(_PEMBROKE_1, "Vox") == "Vox"
+        assert rendering.frame_title(_frame(_PEMBROKE_1, "v", "Vox")) == "Vox"
 
     def test_a_departed_hubs_orphan_frame_still_renders(self) -> None:
         """An orphaned frame keeps ``frame.hub`` set to a Hub no longer live;

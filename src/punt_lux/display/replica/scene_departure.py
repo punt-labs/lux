@@ -41,8 +41,8 @@ class SceneDeparture:
         return self
 
     def of_empty_push(self, key: HubScopedKey, msg: SceneMessage) -> None:
-        """Drop the scene an empty push named; its frame takes the push's facts."""
-        self._eviction.from_holder(key, msg.frame_owner_facts)
+        """Drop the scene an empty push named; its frame takes the push's word."""
+        self._eviction.from_holder(key, msg.frame_owner_facts, msg.frame_scope_label)
 
     def from_other_frame(self, frame: Frame, key: HubScopedKey) -> None:
         """Take ``key`` out of any frame but ``frame`` that owns it."""

@@ -29,6 +29,7 @@ from punt_lux.display.menus.windows_menu import WindowsMenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
 
@@ -85,6 +86,7 @@ class OwnMenus:
         get_opacity: Callable[[], float],
         get_font_scale: Callable[[], float],
         get_frames: Callable[[], Mapping[str, Frame]],
+        addressing: AddressRendering,
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
         on_raise_frame: Callable[[str], None],
@@ -101,6 +103,7 @@ class OwnMenus:
         self._get_font_scale = get_font_scale
         self._windows = WindowsMenu(
             get_frames=get_frames,
+            addressing=addressing,
             on_clear_all=on_clear_all,
             on_fit_all=on_fit_all,
             on_raise_frame=on_raise_frame,

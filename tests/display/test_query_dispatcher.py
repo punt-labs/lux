@@ -153,6 +153,7 @@ class TestListScenesReportsVisibility:
             {
                 "frame_id": "f1",
                 "title": "f1",
+                "scope_label": None,
                 "scene_count": 1,
                 "scene_ids": ["s1"],
                 "layout": "tab",

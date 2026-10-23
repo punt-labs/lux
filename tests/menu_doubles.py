@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Self, final
 from punt_lux.display.menus.own_menus import OwnMenus
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
+from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.menu_replica import MenuReplica
@@ -784,6 +785,7 @@ def make_menu_replica(**overrides: Any) -> MenuReplica:
         "get_opacity": lambda: 1.0,
         "get_font_scale": lambda: 1.0,
         "get_frames": dict,
+        "addressing": AddressRendering(),
         "on_clear_all": ignore,
         "on_fit_all": ignore,
         "on_raise_frame": ignore,

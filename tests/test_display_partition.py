@@ -799,7 +799,7 @@ class TestCreateFramePartitions:
         assert "frame-beads" in server._scenes.frames
         frame = server._scenes.frames["frame-beads"]
         assert frame.owner_fds == {10}
-        assert frame.title == "frame-beads"
+        assert frame.heading.title == "frame-beads"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
@@ -820,7 +820,7 @@ class TestCreateFramePartitions:
         )
         server._handle_message(sock, msg)
 
-        assert server._scenes.frames["frame-beads"].title == "Beads Explorer"
+        assert server._scenes.frames["frame-beads"].heading.title == "Beads Explorer"
 
     def test_add_scene_to_existing_frame(self):
         """Second scene added to same frame creates a tab."""

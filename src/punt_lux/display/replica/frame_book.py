@@ -123,16 +123,19 @@ class FrameBook:
             initial_size=msg.frame_size,
             flags=msg.frame_flags,
             layout=msg.frame_layout or "tab",
+            scope_label=msg.frame_scope_label,
         )
         self._frames.put(HubScopedKey(hub, frame_id), frame)
         return frame
 
     @staticmethod
     def _adopt_presentation(frame: Frame, msg: SceneMessage) -> None:
-        """Take the title, flags, and layout a push carries; an omitted field
-        means "leave it", never "reset it"."""
+        """Take the title, scope label, flags, and layout a push carries; an
+        omitted field means "leave it", never "reset it"."""
         if msg.frame_title:
-            frame.title = msg.frame_title
+            frame.heading.title = msg.frame_title
+        if msg.frame_scope_label is not None:
+            frame.heading.scope_label = msg.frame_scope_label
         if msg.frame_flags is not None:
             frame.hints.flags = msg.frame_flags
         if msg.frame_layout is not None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Self, final
 
+from punt_lux.display.replica.frame_heading import FrameHeading
 from punt_lux.display.replica.frame_placement import FramePlacement
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.window_hints import WindowHints
@@ -23,7 +24,7 @@ class Frame:
 
     _hub: HubId
     _frame_id: str
-    _title: str
+    _heading: FrameHeading
     _owner_fds: set[int]
     _scenes: dict[str, SceneMessage]
     _scene_order: list[str]
@@ -31,13 +32,13 @@ class Frame:
     _hints: WindowHints
     __slots__ = (
         "_frame_id",
+        "_heading",
         "_hints",
         "_hub",
         "_owner_fds",
         "_placement",
         "_scene_order",
         "_scenes",
-        "_title",
     )
 
     def __new__(
@@ -55,11 +56,12 @@ class Frame:
         initial_size: tuple[int, int] | None = None,
         flags: dict[str, bool] | None = None,
         layout: Literal["tab", "stack"] = "tab",
+        scope_label: str | None = None,  # PY-TS-14: absence is the contract
     ) -> Self:
         self = super().__new__(cls)
         self._hub = hub
         self._frame_id = frame_id
-        self._title = title
+        self._heading = FrameHeading(title, scope_label)
         self._owner_fds = owner_fds
         self._scenes = scenes
         self._scene_order = scene_order
@@ -107,12 +109,9 @@ class Frame:
         self._scene_order = value
 
     @property
-    def title(self) -> str:
-        return self._title
-
-    @title.setter
-    def title(self, value: str) -> None:
-        self._title = value
+    def heading(self) -> FrameHeading:
+        """What the window is called: its title and its owner's scope label."""
+        return self._heading
 
     @property
     def active_tab(self) -> str | None:
