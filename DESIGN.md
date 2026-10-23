@@ -7602,9 +7602,8 @@ its cap.
   compound section without a store.
 
 **Invariants kept.** menu_presence P1/P2: the registry's presence-changing
-writes are called only from `ClientLifecycle`, except `register_callback` and
-`detach`, tracked in bead `lux-s9rl` to be modeled first. The
-store-then-registry lock order and the DES-098 D3 edge gain no new edge.
+writes are called only from `ClientLifecycle`. The store-then-registry lock
+order and the DES-098 D3 edge gain no new edge.
 `arriving_as` runs the submission gate, scoping and `mark_dirty` under the
 store lock, and the dirty signal is a leaf.
 
@@ -7627,3 +7626,29 @@ once).
 **Consequences.** Constructors name what they use. Narrowing `HubDisplay`'s
 scene reads, frames, writer and quarantine forwards remains `main`'s
 wide-facade debt and is a separate unit.
+
+**Amendment (2026-10-23, leader, after local review): the callback route is a
+lifecycle step too.** Review falsified the exception above. An applet earns
+its entry only by registering a callback, and that write ran under the
+registry lock alone, binding no departure sink, so a stalled applet's entry
+outlived its lease (P1 and P2 broken). The model (`docs/menu_presence.tex`,
+jms, accepted by jra in round 2, with fidelity controls `inv1`, `inv1b`,
+`inv2` and `redeclare`) now covers the callback route, and the code follows
+it.
+
+- **Callback steps.** `ClientLifecycle.register_callback` and
+  `ClientLifecycle.detach` are store-locked steps that settle presence through
+  the same announce, so they mark and bind the one shared sink.
+  `CallbackOperations`, `ws_listen` and `ws_transport` hold no `ListenerLegs`.
+- **The withdrawal rule is stated once, in `MenuListing`.** A session that
+  earned an entry before, ignoring the lease, and no longer earns one reads
+  `revised` whatever the lease says. A gain still reads the lease. One rule
+  covers a detach, a re-attach that drops callbacks, and re-identifying as a
+  non-agent.
+- **Revival marks the session's scenes, keyed on the lapse ending**
+  (`SessionWrite.revived`), not on the menu's `gained`. A CLI session has a
+  label but no entry.
+
+Builds on DES-057 and DES-058 (leases), DES-064 and DES-067 (roster naming),
+DES-094, DES-098 (menu lifecycle), DES-099, DES-100 (the label a revival
+re-sends) and this entry. Bead `lux-s9rl` is closed by it.
