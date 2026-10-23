@@ -52,9 +52,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
@@ -82,20 +80,16 @@ class HubListenSession:
     _identity: ClientIdentity
     _hub: Hub
     _lifecycle: ClientLifecycle
-    _legs: ListenerLegs
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
-    _menus: DirtyMarker
     __slots__ = (
         "_client_host",
         "_conn",
         "_hub",
         "_identity",
-        "_legs",
         "_lifecycle",
         "_loop",
-        "_menus",
         "_outbound",
         "_router",
         "_ws",
@@ -108,9 +102,7 @@ class HubListenSession:
         identity: ClientIdentity,
         hub: Hub,
         lifecycle: ClientLifecycle,
-        legs: ListenerLegs,
         router: CallbackRouter,
-        menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._ws = ws
@@ -119,9 +111,7 @@ class HubListenSession:
         self._identity = identity
         self._hub = hub
         self._lifecycle = lifecycle
-        self._legs = legs
         self._router = router
-        self._menus = menus
         self._outbound = asyncio.Queue()
         self._loop = asyncio.get_running_loop()
         return self
@@ -276,19 +266,18 @@ class HubListenSession:
         filling an outbound queue no write task drains, pinning the session and its
         socket for the life of the process.
 
-        The bar is re-pushed whenever entries stopped being deliverable, and left
-        alone only in the stale case, where a successor's entries are live. The
+        The lifecycle step marks the bar whenever entries stopped being
+        deliverable, and leaves it alone in the stale case, where a successor's
+        entries are live. The
         session, its identity, its lease, and its hold survive: a reconnect within
         the lease drains the clicks buffered across the gap and re-registers from
         ``on_connect``, so a transient drop heals itself while a process that is
         gone stays gone.
 
-        This method must contain no ``await``. With no suspension point the detach,
-        the mark, and the release are one uninterrupted loop run, so no reconnect
+        This method must contain no ``await``. With no suspension point the detach
+        (which marks) and the release are one uninterrupted loop run, so no reconnect
         can interleave among them. Adding an ``await`` here reopens that window and
         invalidates the model this design was checked against.
         """
-        detachment = self._legs.detach(self._conn, self)
-        if detachment in {"released_with_callbacks", "released_with_session"}:
-            self._menus.mark_menus()
+        self._lifecycle.detach(self._conn, self)
         self._hub.release_writer(self._conn, self.deliver_event)

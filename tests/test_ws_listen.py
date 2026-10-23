@@ -41,6 +41,7 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.listen import CallbackFrame
 from punt_lux.ws_listen import HubListenSession
 from punt_lux.ws_transport import HubListenTransport
@@ -109,6 +110,7 @@ class _Wiring:
     display: HubDisplay
     router: CallbackRouter
     menus: _MenuFlag
+    lifecycle: ClientLifecycle
 
 
 def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
@@ -121,8 +123,8 @@ def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     menus = _MenuFlag()
     lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    HubListenTransport(hub, lifecycle, clients.legs, router, menus).mount(app)
-    return _Wiring(TestClient(app), hub, clients, display, router, menus)
+    HubListenTransport(hub, lifecycle, router).mount(app)
+    return _Wiring(TestClient(app), hub, clients, display, router, menus, lifecycle)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -153,7 +155,7 @@ def _register(clients: HubClientRegistry, callback_id: str) -> None:
     outcome = clients.legs.register_callback(
         _CONN, SessionCallback(id=callback_id, label="Beads"), leg
     )
-    assert outcome == "registered"
+    assert outcome.outcome == "registered"
 
 
 def test_the_handshake_readies_the_shared_connection_id() -> None:
@@ -194,7 +196,7 @@ def test_a_click_buffered_before_connect_is_drained_on_connect() -> None:
     outcome = clients.legs.register_callback(
         _CONN, SessionCallback(id="beads", label="Beads"), quiet
     )
-    assert outcome == "registered"
+    assert outcome.outcome == "registered"
     assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
@@ -294,9 +296,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
         hub,
         lifecycle,
-        clients.legs,
         CallbackRouter(clients),
-        _MenuFlag(),
     )
 
 
@@ -345,9 +345,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
             ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
             hub,
             lifecycle,
-            clients.legs,
             router,
-            _MenuFlag(),
         )
         await session.run()
 
@@ -534,15 +532,19 @@ def test_a_departed_session_still_has_its_writer_and_subscriptions_released() ->
         ws.receive_json()  # ready
         ws.send_json({"kind": "subscribe", "topics": ["music.play"]})
         _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
+        wired.lifecycle.register_callback(_CONN, SessionCallback(id="m", label="M"))
+        marked = menus.pushes
 
         clock.advance(6.0)  # past the declared 5s lease
         assert clients.live_sessions() == {}  # a read: still just a filter
         assert _CONN in clients.sessions()  # unchanged — reads never depart
-        clients.discard(_CONN)  # the coordinator's atomic removal, run directly
+        wired.lifecycle.depart_lapsed(frozenset())  # the coordinator's atomic sweep
 
     _eventually(lambda: not hub.has_writer(_CONN))
     assert hub.topics_for(_CONN) == frozenset()
-    assert menus.pushes == 1  # the bar loses the departed session's entries
+    # The sweep marks the bar once, through the sink the registration bound; the
+    # teardown that finds no session adds nothing and binds nothing.
+    assert menus.pushes == marked + 1
 
 
 def test_the_teardown_contains_no_await() -> None:
@@ -585,9 +587,7 @@ def _listen_session(
             _VOX_IDENTITY,
             hub,
             lifecycle,
-            clients.legs,
             CallbackRouter(clients),
-            _MenuFlag(),
         )
 
     return asyncio.run(_build())
@@ -605,9 +605,7 @@ def _agent_listen_session(
             _AGENT_IDENTITY,
             hub,
             lifecycle,
-            clients.legs,
             CallbackRouter(clients),
-            _MenuFlag(),
         )
 
     return asyncio.run(_build())
@@ -698,9 +696,7 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
     HubListenTransport(
         hub,
         lifecycle,
-        clients.legs,
         CallbackRouter(clients),
-        menus,
     ).mount(app)
     headers = {
         "X-Lux-Client-Kind": "mcp-session",
@@ -761,9 +757,7 @@ def _agent_rig() -> _AgentRig:
     HubListenTransport(
         hub,
         lifecycle,
-        clients.legs,
         CallbackRouter(clients),
-        menus,
     ).mount(app)
     return _AgentRig(TestClient(app), lifecycle, clients, clock, menus)
 
@@ -875,3 +869,45 @@ def test_no_bound_sink_references_a_departed_listen_session() -> None:
     closures = [r for r in gc.get_referrers(session) if isinstance(r, CellType)]
 
     assert closures == []  # a sink closing over the session would pin it
+
+
+@final
+class _SceneMarker:
+    """A DirtyMarker recording which scenes a revival retitles."""
+
+    scenes: list[SceneId]
+    __slots__ = ("scenes",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.scenes = []
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        self.scenes.append(scene_id)
+
+    def mark_menus(self) -> None:
+        """Menus are not what this test observes."""
+
+
+def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
+    clock, marker, hub = _Clock(), _SceneMarker(), Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    factory.lifecycle.present_as(marker, MarkMenusSink(marker))
+    app = FastAPI()
+    HubListenTransport(hub, factory.lifecycle, CallbackRouter(factory.clients)).mount(
+        app
+    )
+    client = TestClient(app)
+    with client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        scene = SceneId("claude-scene")
+        factory.display.replace_scene(
+            _AGENT_CONN, scene, [TextElement(id="t", content="x")]
+        )
+        clock.advance(_FAR_FUTURE)  # lapsed, unswept
+        marker.scenes.clear()
+
+        ws.send_json(_RENEW)
+
+        _eventually(lambda: scene in marker.scenes)

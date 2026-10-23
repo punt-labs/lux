@@ -16,9 +16,11 @@ from typing import Self, final
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
+from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.models.callback_fields import CallbackFields
@@ -98,7 +100,8 @@ class _Wired:
     _router: CallbackRouter
     _marker: _MarkerSpy
     _ops: CallbackOperations
-    __slots__ = ("_clients", "_marker", "_menus", "_ops", "_router")
+    _lifecycle: ClientLifecycle
+    __slots__ = ("_clients", "_lifecycle", "_marker", "_menus", "_ops", "_router")
 
     def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
@@ -106,12 +109,13 @@ class _Wired:
             HubStoreFactory(clock=clock) if clock is not None else HubStoreFactory()
         )
         self._clients = factory.clients
+        self._lifecycle = factory.lifecycle
         self._menus = CallbackMenuReplica(self._clients)
         self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
+        factory.lifecycle.present_as(self._marker, MarkMenusSink(self._marker))
         self._ops = CallbackOperations(
             factory.lifecycle,
-            self._clients.legs,
             self._router,
             self._marker,
         )
@@ -127,6 +131,12 @@ class _Wired:
     @property
     def pushed(self) -> int:
         return self._marker.pushed
+
+    def departure_marks(self, conn: ConnectionId) -> int:
+        """How many menu marks one departure of ``conn`` raises: the sinks it fires."""
+        before = self._marker.pushed
+        self._lifecycle.depart(conn)
+        return self._marker.pushed - before
 
     def identify(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
@@ -195,9 +205,10 @@ def test_registering_a_callback_renews_a_lapsed_but_still_reachable_session() ->
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
     clock.advance(1801.0)  # past the 1800s mcp-session lease, no contact since
+    before = wired.pushed
 
     assert isinstance(wired.register(conn), Ok)
-    assert wired.pushed == 1
+    assert wired.pushed > before
 
 
 def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> None:
@@ -241,3 +252,33 @@ def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
     result = wired.register(conn, "second")
     assert isinstance(result, OpError)
     assert result.code == "push_required"
+
+
+def test_registering_a_callback_binds_exactly_one_menu_sink() -> None:
+    wired = _Wired()
+    conn = ConnectionId("mcp")
+    wired.connect(conn, _identity())
+
+    assert isinstance(wired.register(conn, "one"), Ok)
+    assert isinstance(wired.register(conn, "two"), Ok)
+
+    assert wired.departure_marks(conn) == 1
+
+
+def test_registering_on_a_lapsed_reachable_applet_marks_menus_and_binds_one_sink() -> (
+    None
+):
+    clock = _Clock()
+    wired = _Wired(clock=clock)
+    conn = ConnectionId("applet")
+    wired.connect(
+        conn,
+        ClientIdentity(kind="applet", name="lux · lux · #1 · beads", repo="/w/lux"),
+    )
+    clock.advance(100.0)  # past an applet's 60 s lease
+    before = wired.pushed
+
+    assert isinstance(wired.register(conn), Ok)
+
+    assert wired.pushed > before
+    assert wired.departure_marks(conn) == 1

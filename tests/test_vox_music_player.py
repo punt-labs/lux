@@ -114,7 +114,7 @@ def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
     clients = factory.clients
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, lifecycle, clients.legs, router, _MenuFlag()).mount(app)
+    HubListenTransport(hub, lifecycle, router).mount(app)
     return TestClient(app), hub, clients, router
 
 
@@ -168,7 +168,7 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
     outcome = clients.legs.register_callback(
         _CONN, SessionCallback(id="music", label="Music"), leg
     )
-    assert outcome == "registered"
+    assert outcome.outcome == "registered"
 
     menus = CallbackMenu.from_named(clients.named_sessions())
 
@@ -199,7 +199,7 @@ def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
         registration = clients.legs.register_callback(
             _CONN, SessionCallback(id="music", label="Music"), leg
         )
-        assert registration == "registered"
+        assert registration.outcome == "registered"
         # The display-less stand-in for a leaf click: the exact route() call the
         # interaction dispatch fires, driven with the id the built leaf carries.
         assert router.route(CallbackInvocation.from_menu_id(leaf_id)) == "routed"

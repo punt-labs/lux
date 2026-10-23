@@ -14,6 +14,7 @@ import threading
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.client_host import UNOBSERVED
+from punt_lux.domain.hub.leg_writes import Detachment, Registration
 from punt_lux.domain.hub.session_write import SessionWrite
 
 if TYPE_CHECKING:
@@ -23,10 +24,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.hub.registry_outcomes import (
-        CallbackRegistration,
-        ListenerDetachment,
-    )
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.hub.session_write import Attachment
     from punt_lux.domain.ids import ConnectionId
@@ -77,43 +74,49 @@ class ListenerLegs:
 
     def detach(
         self, connection_id: ConnectionId, listener: CallbackListener
-    ) -> ListenerDetachment:
+    ) -> Detachment:
         """Release the slot and its callbacks if ``listener`` still holds it.
 
         One critical section: a session superseded while suspended is
-        genuinely ``kept``, but one the lease sweep already took is not.
+        genuinely ``kept``, but one the lease sweep already took is not. A
+        release is returned with the write that made it, so the caller can settle
+        what the withdrawal owes the Display.
         """
         with self._lock:
             session = self._sessions.get(connection_id)
             if session is None:
-                return "released_with_session"
+                return Detachment("released_with_session")
             released = session.detached(listener)
             if released is None:
-                return "kept"
+                return Detachment("kept")
             self._sessions[connection_id] = released
-            return "released_with_callbacks" if session.callbacks else "released"
+            write = SessionWrite(session, released, self._clock())
+            if session.callbacks:
+                return Detachment("released_with_callbacks", write)
+            return Detachment("released", write)
 
     def register_callback(
         self,
         connection_id: ConnectionId,
         callback: SessionCallback,
         expected: CallbackListener,
-    ) -> CallbackRegistration:
+    ) -> Registration:
         """Register ``callback`` if ``expected`` still holds the connection's slot.
 
         The gate and the write are one critical section; the session itself
-        decides whether it accepts -- an anonymous or lapsed one declines.
+        decides whether it accepts -- an anonymous or lapsed one declines. A
+        registration that took is returned with the write that made it.
         """
         with self._lock:
             now = self._clock()
             session = self._sessions.get(connection_id)
             if session is None or not session.held_by(expected):
-                return "superseded"
+                return Registration("superseded")
             updated = session.registering(callback, now)
             if updated is None:
-                return "declined"
+                return Registration("declined")
             self._sessions[connection_id] = updated
-            return "registered"
+            return Registration("registered", SessionWrite(session, updated, now))
 
     def listener_for(self, connection_id: ConnectionId) -> CallbackListener | None:
         """The connection's listen leg, or ``None`` when it holds none."""

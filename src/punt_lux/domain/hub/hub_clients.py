@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
     from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubClientRegistry"]
@@ -87,19 +86,19 @@ class HubClientRegistry:
 
     def renew_if_registered(
         self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED
-    ) -> PresenceChange:
+    ) -> SessionWrite | None:
         """Renew the lease iff already registered; a write must never register.
 
-        The contact's ``host`` is recorded on the session it renews.
+        The contact's ``host`` is recorded on the session it renews. ``None`` is
+        a connection the registry does not hold: nothing was written.
         """
         with self._lock:
             before = self._sessions.get(connection_id)
+            if before is None:
+                return None
             write = SessionWrite.recorded(before, self._clock(), None, host)
-            # An absent connection stays absent: an empty update is a true no-op.
-            self._sessions.update(
-                {} if before is None else {connection_id: write.after}
-            )
-            return write.presence
+            self._sessions[connection_id] = write.after
+            return write
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter."""

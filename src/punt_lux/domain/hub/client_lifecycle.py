@@ -27,7 +27,12 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
+    from punt_lux.domain.hub.registry_outcomes import (
+        CallbackRegistration,
+        ListenerDetachment,
+    )
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
+    from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.hub.session_write import SessionWrite
     from punt_lux.domain.hub.store_lock import StoreLock
     from punt_lux.domain.ids import ConnectionId
@@ -115,9 +120,48 @@ class ClientLifecycle:
         The contact's ``host`` is recorded on the session it renews.
         """
         with self._lock.write():
-            self._announce(
-                connection_id, self._clients.renew_if_registered(connection_id, host)
+            write = self._clients.renew_if_registered(connection_id, host)
+            if write is not None:
+                self._settle(connection_id, write)
+
+    def register_callback(
+        self,
+        connection_id: ConnectionId,
+        callback: SessionCallback,
+        host: ClientHost = UNOBSERVED,
+    ) -> CallbackRegistration:
+        """Register ``callback`` on the connection's own leg, and pay what it owes.
+
+        Contact first: the registration renews the lease, and reviving a lapsed
+        session retitles its scenes. The leg is read and written under the one
+        store hold, so no teardown or reconnect lands between the gate and the
+        write. A connection with no leg is refused as ``superseded``, the same
+        answer as a leg that went between.
+        """
+        with self._lock.write():
+            self.renew(connection_id, host)
+            expected = self._clients.legs.listener_for(connection_id)
+            if expected is None:
+                return "superseded"
+            registration = self._clients.legs.register_callback(
+                connection_id, callback, expected
             )
+            self._announce(connection_id, registration.menu_change)
+            return registration.outcome
+
+    def detach(
+        self, connection_id: ConnectionId, listener: CallbackListener
+    ) -> ListenerDetachment:
+        """Release the connection's leg and callbacks, and mark the withdrawal.
+
+        The session, its lease and its sink survive: a reconnect within the lease
+        heals a transient drop. The mark is owed whatever the lease says, since an
+        entry a lapse left on the Display is still on it.
+        """
+        with self._lock.write():
+            detachment = self._clients.legs.detach(connection_id, listener)
+            self._announce(connection_id, detachment.menu_change)
+            return detachment.outcome
 
     def arm(self, connection_id: ConnectionId) -> None:
         """Bind the one shared menu sink for the connection; repeating is a no-op."""

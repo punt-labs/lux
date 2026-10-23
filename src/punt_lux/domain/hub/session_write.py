@@ -86,7 +86,7 @@ class SessionWrite:
 
     @property
     def restated(self) -> bool:
-        """Whether the write changed who the session is, or where it was seen from.
+        """Whether the write changed who the session is, where from, or that it lives.
 
         A repository-kind client may register no callback, so presence can hold
         while the connection has just been named; this is the signal that what
@@ -99,6 +99,22 @@ class SessionWrite:
         return (
             prior_identity != self.after.identity
             or prior_hosts != self.after.client_hosts
+            or self.revived
+        )
+
+    @property
+    def revived(self) -> bool:
+        """Whether the write ended a lapse: the session was not live, and now is.
+
+        Labels resolve from live sessions only, so a frame whose owner lapsed
+        unswept may hold a stale title; reviving the owner owes its scenes a
+        resend whatever the menu heard, and whether or not it earns an entry.
+        """
+        before = self.before
+        return (
+            before is not None
+            and not before.is_live(self.now)
+            and self.after.is_live(self.now)
         )
 
     @property

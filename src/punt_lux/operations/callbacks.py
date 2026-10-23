@@ -30,7 +30,6 @@ from punt_lux.operations.models.menu_results import Ok
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
@@ -56,21 +55,18 @@ class CallbackOperations:
     """Register callbacks, route their clicks, and re-push the menu."""
 
     _lifecycle: ClientLifecycle
-    _legs: ListenerLegs
     _router: CallbackRouter
     _replicator: DirtyMarker
-    __slots__ = ("_legs", "_lifecycle", "_replicator", "_router")
+    __slots__ = ("_lifecycle", "_replicator", "_router")
 
     def __new__(
         cls,
         lifecycle: ClientLifecycle,
-        legs: ListenerLegs,
         router: CallbackRouter,
         replicator: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._lifecycle = lifecycle
-        self._legs = legs
         self._router = router
         self._replicator = replicator
         return self
@@ -88,25 +84,22 @@ class CallbackOperations:
         challenge a scene write returns, so nothing anonymous owns a menu item.
         A registration that took changes the menu, so the replicator re-pushes it.
 
-        The leg read here is carried into the write, which commits only if that
-        same leg still holds the connection. Reading and writing are separate
-        moments — this runs on an MCP or REST thread, and the leg lives on the
-        loop — so between them it may tear down or be replaced by a reconnect.
-        Committing anyway would leave a menu item with no listener to withdraw it.
+        The lifecycle reads the leg and writes the callback under one store hold,
+        committing only if that same leg still holds the connection: this runs on
+        an MCP or REST thread and the leg lives on the loop, so a teardown or a
+        reconnect must not land between the two. It also pays the menu mark and
+        binds the shared sink, so nothing here compares or remembers.
         """
         if isinstance(request, OpError):
             return request
-        self._lifecycle.renew(scope.connection_id, scope.client_host)
-        expected = self._legs.listener_for(scope.connection_id)
-        if expected is None:
-            return _PUSH_REQUIRED
         return self._registered(
-            self._legs.register_callback(
-                scope.connection_id, request.callback, expected
+            self._lifecycle.register_callback(
+                scope.connection_id, request.callback, scope.client_host
             )
         )
 
-    def _registered(self, outcome: CallbackRegistration) -> Ok | OpError:
+    @staticmethod
+    def _registered(outcome: CallbackRegistration) -> Ok | OpError:
         """Turn a registration outcome into its result, pushing the menu if it took."""
         if outcome == "superseded":
             return _PUSH_REQUIRED
@@ -114,7 +107,6 @@ class CallbackOperations:
             return OpError.identification_required(
                 "declare an identity to own the menu callbacks this session registers"
             )
-        self._replicator.mark_menus()
         return Ok()
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:

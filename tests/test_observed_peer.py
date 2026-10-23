@@ -513,9 +513,7 @@ class TestWebSocketDoor:
         HubListenTransport(
             hub,
             factory.lifecycle,
-            factory.clients.legs,
             CallbackRouter(factory.clients),
-            marker,
         ).mount(app)
         return TestClient(app), factory
 

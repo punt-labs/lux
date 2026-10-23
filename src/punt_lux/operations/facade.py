@@ -140,9 +140,7 @@ class Operations:
         lifecycle.present_as(replicator, MenuDepartureSink(menu_registry, replicator))
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
-        callbacks = CallbackOperations(
-            lifecycle, clients.legs, callback_router, replicator
-        )
+        callbacks = CallbackOperations(lifecycle, callback_router, replicator)
         arming = MenuArmingDeps(lifecycle, clients, ports.ensure_writer).arming()
         listing = ClientListing(display, clients, hub, ports.inbox_depth)
         queries = QueryOperations(display, ports.display_port, listing)

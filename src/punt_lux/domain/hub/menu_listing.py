@@ -50,13 +50,21 @@ class MenuListing:
             and session.is_live(self._now)
         )
 
+    def _earned(self) -> bool:
+        """Whether this session earns an entry, ignoring whether its lease is live."""
+        return self._session is not None and self._session.earns_menu_presence()
+
     def change_to(self, after: MenuListing) -> PresenceChange:
         """How the menu differs once ``after`` replaces this listing.
 
         A renewal that ends a lapse is a gain exactly as a first registration is;
         a re-declaration that changes a listed session's identity is a revision,
-        so its entry is relabelled; an entry withdrawn is a revision too.
+        so its entry is relabelled. A withdrawal is a revision whatever the lease
+        says: a session that earned before, ignoring the lease, and no longer does,
+        may still be on the Display, which only a lapse-blind mark can correct.
         """
+        if self._earned() and not after._earned():
+            return "revised"
         if not after.holds():
             return "revised" if self.holds() else "unchanged"
         if not self.holds():

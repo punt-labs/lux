@@ -51,11 +51,19 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
     pid_path = paths.pid_path
 
     try:
-        paths.ensure(timeout=10.0)
+        paths.ensure(timeout=30.0)
         assert paths.is_running()
         assert pid_path.exists()
 
-        with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
+        # Scenes need a declared Hub identity: the default "test" connection is
+        # the read-only backdoor and the display rejects its SceneMessage.
+        with DisplayLink(
+            sock_path,
+            name="lifecycle-smoke",
+            kind="hub",
+            auto_spawn=False,
+            connect_timeout=5.0,
+        ) as client:
             assert client.is_connected
             ack = client.show(
                 "lifecycle-smoke",

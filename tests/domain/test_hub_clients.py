@@ -19,6 +19,7 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.domain.hub.session_write import SessionWrite
 from punt_lux.domain.ids import ConnectionId
 
 
@@ -321,13 +322,15 @@ def test_register_callback_stores_it_on_an_identified_session() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.legs.register_callback(conn, _beads(), leg) == "registered"
+    assert reg.legs.register_callback(conn, _beads(), leg).outcome == "registered"
     assert reg.sessions()[conn].callbacks == (_beads(),)
 
 
 def test_register_callback_refuses_an_unknown_session() -> None:
     reg = HubClientRegistry()
-    outcome = reg.legs.register_callback(ConnectionId("never"), _beads(), _Leg())
+    outcome = reg.legs.register_callback(
+        ConnectionId("never"), _beads(), _Leg()
+    ).outcome
     assert outcome == "superseded"
 
 
@@ -338,7 +341,7 @@ def test_register_callback_refuses_a_lapsed_session() -> None:
     conn = ConnectionId("cli")
     leg = _attached(reg, conn, _cli())
     clock.advance(91.0)  # past the 90s cli lease
-    assert reg.legs.register_callback(conn, _beads(), leg) == "declined"
+    assert reg.legs.register_callback(conn, _beads(), leg).outcome == "declined"
     assert reg.sessions()[conn].callbacks == ()
 
 
@@ -352,9 +355,11 @@ def test_a_registration_gated_against_a_departed_leg_is_refused() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.legs.detach(conn, leg) == "released"  # the leg tore down meanwhile
+    assert (
+        reg.legs.detach(conn, leg).outcome == "released"
+    )  # the leg tore down meanwhile
 
-    assert reg.legs.register_callback(conn, _beads(), leg) == "superseded"
+    assert reg.legs.register_callback(conn, _beads(), leg).outcome == "superseded"
     assert reg.sessions()[conn].callbacks == ()
 
 
@@ -371,7 +376,7 @@ def test_a_registration_gated_against_a_replaced_leg_is_refused() -> None:
     first = _attached(reg, conn, _mcp())
     _attached(reg, conn, _mcp())  # the successor takes the connection
 
-    assert reg.legs.register_callback(conn, _beads(), first) == "superseded"
+    assert reg.legs.register_callback(conn, _beads(), first).outcome == "superseded"
     assert reg.sessions()[conn].callbacks == ()
 
 
@@ -432,7 +437,7 @@ def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:
     successor = _attached(reg, conn, _mcp())
     reg.legs.register_callback(conn, _beads(), successor)
 
-    assert reg.legs.detach(conn, stale) == "kept"
+    assert reg.legs.detach(conn, stale).outcome == "kept"
 
     assert reg.sessions()[conn].held_by(successor)
     assert reg.sessions()[conn].callbacks == (_beads(),)
@@ -449,7 +454,7 @@ def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
     leg = _attached(reg, conn, _mcp())
     reg.legs.register_callback(conn, _beads(), leg)
 
-    assert reg.legs.detach(conn, leg) == "released_with_callbacks"
+    assert reg.legs.detach(conn, leg).outcome == "released_with_callbacks"
 
     session = reg.sessions()[conn]
     assert session.callbacks == ()
@@ -478,14 +483,14 @@ def test_a_teardown_after_a_departure_is_a_release_not_a_keep() -> None:
     assert reg.live_sessions() == {}  # a read: filtered, not removed
     reg.discard(conn)  # the departure the background reap timer performs
 
-    assert reg.legs.detach(conn, leg) == "released_with_session"
+    assert reg.legs.detach(conn, leg).outcome == "released_with_session"
 
 
 def test_a_teardown_that_removed_no_entries_asks_for_no_menu_push() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.legs.detach(conn, leg) == "released"
+    assert reg.legs.detach(conn, leg).outcome == "released"
 
 
 def test_the_leg_read_is_what_the_gate_asks() -> None:
@@ -523,7 +528,7 @@ def test_the_leg_and_its_callbacks_are_written_under_one_lock() -> None:
     registry.append(reg)
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.legs.register_callback(conn, _beads(), leg) == "registered"
+    assert reg.legs.register_callback(conn, _beads(), leg).outcome == "registered"
 
     assert held_during  # the probe ran
     assert all(held_during)  # and every write it caught was inside the lock
@@ -840,18 +845,24 @@ def test_record_reports_a_lapsed_agents_renewal_as_gained() -> None:
     assert reg.record(conn).presence == "gained"
 
 
+def _presence(write: SessionWrite | None) -> str:
+    """The presence change of a renewal that found its session."""
+    assert write is not None
+    return write.presence
+
+
 def test_renew_if_registered_reports_a_revival_and_never_registers() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("mcp")
-    assert reg.renew_if_registered(conn) == "unchanged"
+    assert reg.renew_if_registered(conn) is None
     assert reg.sessions() == {}
 
     reg.record(conn, _mcp())
-    assert reg.renew_if_registered(conn) == "unchanged"
+    assert _presence(reg.renew_if_registered(conn)) == "unchanged"
     clock.advance(1_000_000.0)
 
-    assert reg.renew_if_registered(conn) == "gained"
+    assert _presence(reg.renew_if_registered(conn)) == "gained"
 
 
 def test_attaching_over_callbacks_revises_the_menu_though_presence_held() -> None:
