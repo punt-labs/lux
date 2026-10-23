@@ -12,11 +12,52 @@ import pytest
 
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from tests.tmp_guard import TmpGuard
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _private_tmpdir(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[Path]:
+    """Run the session in its own TMPDIR, and fail if a ``lux-*`` dir outlives it.
+
+    Every per-test directory is removed by :func:`_test_tmpdir`; what is left
+    here was made outside a test's window (a module- or session-scoped fixture)
+    and nothing else will remove it.
+    """
+    with (
+        tempfile.TemporaryDirectory(prefix="lux-run-") as run,
+        pytest.MonkeyPatch.context() as patch,
+    ):
+        patch.setenv("TMPDIR", run)
+        patch.setattr(tempfile, "tempdir", run)
+        # pytest picks its base temp lazily from the first test's TMPDIR; fix
+        # it here so it lives for the session rather than for one test.
+        tmp_path_factory.getbasetemp()
+        yield Path(run)
+        TmpGuard(Path(run)).assert_clean()
+
+
+@pytest.fixture(autouse=True)
+def _test_tmpdir(
+    _private_tmpdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Path]:
+    """Give each test its own TMPDIR, removed when the test ends.
+
+    Unix socket paths must stay short, so tests make their directories with
+    ``tempfile.mkdtemp(prefix="lux-")`` rather than ``tmp_path``; pointing the
+    temp root at a per-test directory lets every such call be cleaned up here
+    instead of in ~60 call sites.
+    """
+    with tempfile.TemporaryDirectory(dir=_private_tmpdir, prefix="lux-t-") as per_test:
+        monkeypatch.setenv("TMPDIR", per_test)
+        monkeypatch.setattr(tempfile, "tempdir", per_test)
+        yield Path(per_test)
 
 
 class _TestRecordingSink:
