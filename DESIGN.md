@@ -7602,8 +7602,9 @@ its cap.
   compound section without a store.
 
 **Invariants kept.** menu_presence P1/P2: the registry's presence-changing
-writes are called only from `ClientLifecycle`. The store-then-registry lock
-order and the DES-098 D3 edge gain no new edge.
+writes are called only from `ClientLifecycle`, except `register_callback` and
+`detach`, tracked in bead `lux-s9rl` to be modeled first. The
+store-then-registry lock order and the DES-098 D3 edge gain no new edge.
 `arriving_as` runs the submission gate, scoping and `mark_dirty` under the
 store lock, and the dirty signal is a leaf.
 
@@ -7638,8 +7639,12 @@ it.
 
 - **Callback steps.** `ClientLifecycle.register_callback` and
   `ClientLifecycle.detach` are store-locked steps that settle presence through
-  the same announce, so they mark and bind the one shared sink.
-  `CallbackOperations`, `ws_listen` and `ws_transport` hold no `ListenerLegs`.
+  the same announce, so they mark and bind the one shared sink. This
+  supersedes the `register_callback`/`detach` exception in "Invariants kept"
+  above, and the Decision's "`ListenerLegs` for listen legs": only
+  `ClientLifecycle` holds `ListenerLegs` now, handed to it once by
+  `HubClientRegistry.take_legs()`. `CallbackOperations`, `ws_listen` and
+  `ws_transport` take `ClientLifecycle` instead.
 - **The withdrawal rule is stated once, in `MenuListing`.** A session that
   earned an entry before, ignoring the lease, and no longer earns one reads
   `revised` whatever the lease says. A gain still reads the lease. One rule

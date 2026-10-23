@@ -4,9 +4,14 @@
 leader's review of `842d4e5d`, and after the first implementation attempt was
 measured against the ratchets (§4.7, §4.8, §5, §6 are the second amendment).
 As built, `HubDisplay` has no client member, and callers hold
-`ClientLifecycle`, `HubClientRegistry` or `ClientListing`. Callback
-registration and detach are lifecycle steps too, so no presence change runs
-outside the store lock (`docs/menu_presence.tex`).
+`ClientLifecycle`, `HubClientRegistry` or `ClientListing`. The DES-101
+amendment reverses this document's §4.8 "No" on folding the callback route:
+callback registration and detach are lifecycle steps too, so no presence
+change runs outside the store lock (`docs/menu_presence.tex`). Only
+`ClientLifecycle` holds `ListenerLegs`, handed to it once by
+`HubClientRegistry.take_legs()` (there is no `clients.legs`), and the
+consumer-table rows for `CallbackOperations`, `HubListenSession` and
+`HubListenTransport` take `ClientLifecycle` instead.
 **Bead:** `lux-ghhf`. Mission `m-2026-10-22-021`; worker `gvr`, evaluator `rmh`.
 **Scope (leader ruling, 2026-10-22):** the *client door* only — how a connection
 becomes, stays and stops being a Hub client, and who may ask. Narrowing

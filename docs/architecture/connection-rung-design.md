@@ -2,14 +2,24 @@
 
 **Beads:** `lux-xrli` (the connection rung) and the DES-099 host-facts
 amendment. **Status:** delivered (DES-100, DES-099 amendment). The text below
-is the accepted design. As built, it differs in names only: a frame's title
-and label live on one `FrameHeading` (`Frame.heading`, told through
-`adopt`/`relabel`), so there is no `Frame.scope_label` or `Frame.title`
-attribute. The Scope builder is the public `tools.scope()`, and
-`SessionWrite.attached` is `SessionWrite.recorded(...).seated(listener)`. The
-Hub host is `Hub.hostname`, a lazily cached `HubId.current().hostname`, not a
-`HubPorts` field. The observed host is read by one `PeerHost` at every door,
-on every contact the Hub records, not on identification only.
+is the accepted design. As built, it differs in these names and placements:
+
+- A frame's title and label live on one `FrameHeading` (`Frame.heading`, told
+  through `adopt`/`relabel`); there is no `Frame.scope_label` or `Frame.title`
+  attribute.
+- The Scope builder is the public `tools.scope()`, and `Scope` lives in
+  `domain/scope.py` (re-exported by `operations`) with `observed` and
+  `in_process` constructors. `Scope.peer_host` is `Scope.client_host`.
+- The observed host is one immutable `ClientHost` value, captured at each door
+  by `ClientHost.of_connection` and required on every lifecycle and registry
+  write, so it is recorded on every contact, not on identification only.
+  `ClientSession.peers` is `client_hosts`, backed by `ClientHosts`;
+  `observed_from` takes a `ClientHost`.
+- `SessionWrite.identified` is `restated` (identity, a new host, or a revival),
+  and `SessionWrite.attached` is `SessionWrite.recorded(...).seated(listener)`.
+- The Hub host is `Hub.hostname`, a lazily cached `HubId.current().hostname`,
+  carried on `ClientList` and `ClientFacts`, not a `HubPorts` field or a
+  per-client row.
 **Rulings (both settled, not re-opened here):** DES-100 (the connection rung
 is always shown) and the DES-099 amendment of 2026-10-22 (the `i` popup and
 Details report the client host and the Hub host). Both are in `DESIGN.md`.

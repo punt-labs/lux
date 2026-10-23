@@ -1712,14 +1712,20 @@ The same principle covers the other host a person reads in the frame
 amendment).  \textbf{Client host} is the address the Hub \emph{observed}
 on the connection's transport, never a value the client declares:
 \texttt{ClientIdentity} carries no host field and refuses unknown fields,
-so a declaration has nowhere to go.  One reader, \texttt{PeerHost}, takes
-Starlette's socket peer (\field{client.host}) at each front door --- REST,
+so a declaration has nowhere to go.  The host is one immutable
+\texttt{ClientHost} value, captured once at each front door by
+\texttt{ClientHost.of\_connection} from Starlette's socket peer
+(\field{client.host}) --- REST,
 the WebSocket listen leg, and MCP streamable HTTP (bound beside the
 session key on each request and released with it; the session's task
 inherits the binding of the request that opened it, so an MCP session
 reports the host it connected from) --- and the address reaches
 \texttt{ClientSession} on every contact the Hub records, identified or
-not.  luxd builds its
+not.  The host is a required argument on every lifecycle and registry
+write, carried by the caller's \texttt{Scope}; a Hub-internal or
+in-process write says so with \texttt{Scope.in\_process}, whose host is
+\texttt{UNOBSERVED} and records nothing.  \texttt{ClientHosts} keeps a
+session's hosts deduplicated in first-seen order.  luxd builds its
 uvicorn config with \field{proxy\_headers=False}: uvicorn otherwise
 rewrites the client address from an \texttt{X-Forwarded-For} header sent by
 any loopback caller, turning a declaration into the ``observed'' host.  A
