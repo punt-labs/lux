@@ -15,6 +15,7 @@ import threading
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.protocol import FrameReader
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -131,10 +132,12 @@ class ListenerThread:
 
         A frame that cannot be decoded cannot be skipped -- the stream has no
         way to say where the next one starts -- so the connection is closed on
-        purpose and the reconnect begins on a frame boundary. Returns whether
-        the stream is still good.
+        purpose and the reconnect begins on a frame boundary. A frame of a kind
+        a display never sends (a scene, say) is refused on its raw type before
+        any decoding and ends the connection the same way. Returns whether the
+        stream is still good.
         """
-        messages = reader.iter_typed()
+        messages = reader.iter_typed(DISPLAY_VOCABULARY)
         while True:
             try:
                 msg = next(messages, None)

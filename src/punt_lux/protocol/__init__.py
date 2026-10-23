@@ -74,6 +74,8 @@ from punt_lux.protocol.messages import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from punt_lux.protocol.messages.wire_vocabulary import WireVocabulary
+
 __all__ = [
     "HEADER_FORMAT",
     "HEADER_SIZE",
@@ -228,15 +230,17 @@ class FrameReader:
         """Like drain(), but returns typed Message dataclasses."""
         return [message_from_dict(d) for d in self.drain()]
 
-    def iter_typed(self) -> Iterator[Message]:
+    def iter_typed(self, vocabulary: WireVocabulary) -> Iterator[Message]:
         """Yield each complete message as it is decoded, one frame at a time.
 
-        A frame that cannot be decoded raises and stays at the head of the
-        buffer, so everything before it has already been yielded and
-        :meth:`head` still shows what the bad frame began with.
+        A frame whose raw ``type`` is not in ``vocabulary`` is refused before it is
+        decoded. A frame that is refused or cannot be decoded raises and stays
+        at the head of the buffer, so everything before it has already been
+        yielded and :meth:`head` still shows what it began with.
         """
         while (framed := self._next_frame()) is not None:
             raw, total = framed
+            vocabulary.require(raw.get("type"))
             message = message_from_dict(raw)
             del self._buf[:total]
             yield message

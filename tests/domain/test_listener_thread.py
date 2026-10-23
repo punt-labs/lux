@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import logging
+import pickle
 import socket
 import struct
 import threading
@@ -14,7 +16,7 @@ from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.listener_thread import ListenerThread
 from punt_lux.protocol import (
     HEADER_FORMAT,
-    PingMessage,
+    PongMessage,
     ReadyMessage,
     encode_frame,
     encode_message,
@@ -70,10 +72,10 @@ class TestRouting:
         listener.start()
         try:
             assert dialer.peer is not None
-            dialer.peer.sendall(encode_message(PingMessage(ts=1.0)))
-            dialer.peer.sendall(encode_message(PingMessage(ts=2.0)))
+            dialer.peer.sendall(encode_message(PongMessage(ts=1.0)))
+            dialer.peer.sendall(encode_message(PongMessage(ts=2.0)))
             assert _until(lambda: len(routed) == 2)
-            assert routed == [PingMessage(ts=1.0), PingMessage(ts=2.0)]
+            assert routed == [PongMessage(ts=1.0), PongMessage(ts=2.0)]
         finally:
             listener.stop()
             connection.close()
@@ -85,12 +87,12 @@ class TestRouting:
         listener.start()
         try:
             assert dialer.peer is not None
-            wire = encode_message(PingMessage(ts=3.0))
+            wire = encode_message(PongMessage(ts=3.0))
             dialer.peer.sendall(wire[:3])
             time.sleep(0.2)
             assert routed == []
             dialer.peer.sendall(wire[3:])
-            assert _until(lambda: routed == [PingMessage(ts=3.0)])
+            assert _until(lambda: routed == [PongMessage(ts=3.0)])
         finally:
             listener.stop()
             connection.close()
@@ -182,7 +184,7 @@ class TestLifecycle:
         listener.start()
         try:
             assert dialer.peer is not None
-            dialer.peer.sendall(encode_message(PingMessage()))
+            dialer.peer.sendall(encode_message(PongMessage()))
             assert _until(lambda: bool(seen))
             assert seen == [True]
             assert listener.is_current is False
@@ -199,6 +201,44 @@ def _closed(peer: socket.socket | None, connection: DisplayConnection) -> None:
         peer.close()
 
 
+class TestForeignMessages:
+    def test_a_scene_from_a_display_closes_the_connection_and_unpickles_nothing(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        unpickled: list[bytes] = []
+
+        def spy(data: bytes) -> None:
+            unpickled.append(data)
+
+        monkeypatch.setattr(pickle, "loads", spy)
+        listener, connection, dialer, routed = _listening()
+        payload = base64.b64encode(b"not really a pickle").decode("ascii")
+        with caplog.at_level(logging.ERROR):
+            listener.start()
+            assert dialer.peer is not None
+            dialer.peer.sendall(
+                encode_frame(
+                    {
+                        "type": "scene",
+                        "id": "s",
+                        "frame_id": "f",
+                        "elements": [{"_pickled": payload}],
+                    }
+                )
+            )
+            assert _until(lambda: not connection.is_open)
+        try:
+            assert unpickled == []
+            assert routed == []
+            assert any(
+                r.levelno == logging.ERROR and "scene" in r.getMessage()
+                for r in caplog.records
+            )
+        finally:
+            listener.stop()
+            _closed(dialer.peer, connection)
+
+
 class TestMalformedFrames:
     def test_messages_decoded_before_a_bad_frame_are_still_routed(self) -> None:
         listener, connection, dialer, routed = _listening()
@@ -207,12 +247,12 @@ class TestMalformedFrames:
             assert dialer.peer is not None
             bad = b"{not json"
             dialer.peer.sendall(
-                encode_message(PingMessage(ts=1.0))
+                encode_message(PongMessage(ts=1.0))
                 + struct.pack(HEADER_FORMAT, len(bad))
                 + bad
             )
             assert _until(lambda: not listener.alive)
-            assert routed == [PingMessage(ts=1.0)]
+            assert routed == [PongMessage(ts=1.0)]
         finally:
             listener.stop()
             _closed(dialer.peer, connection)
@@ -302,7 +342,7 @@ class TestAbandonedThread:
         listener = ListenerThread(connection, route)
         listener.start()
         assert dialer.peer is not None
-        dialer.peer.sendall(encode_message(PingMessage(ts=1.0)))
+        dialer.peer.sendall(encode_message(PongMessage(ts=1.0)))
         assert in_handler.wait(timeout=3)
         listener.stop()
         assert listener.alive  # stuck in its handler, told to stop
@@ -310,9 +350,9 @@ class TestAbandonedThread:
         with caplog.at_level(logging.ERROR):
             listener.start()
         release.set()
-        dialer.peer.sendall(encode_message(PingMessage(ts=2.0)))
+        dialer.peer.sendall(encode_message(PongMessage(ts=2.0)))
         try:
-            assert _until(lambda: PingMessage(ts=2.0) in routed)
+            assert _until(lambda: PongMessage(ts=2.0) in routed)
             assert "Abandoning" in caplog.text
         finally:
             listener.stop()
@@ -342,7 +382,7 @@ class TestARaisingRoute:
         routed: list[Message] = []
 
         def route(msg: Message) -> None:
-            if msg == PingMessage(ts=1.0):
+            if msg == PongMessage(ts=1.0):
                 raise RuntimeError("the handler blew up")
             routed.append(msg)
 
@@ -351,14 +391,14 @@ class TestARaisingRoute:
             listener.start()
             assert dialer.peer is not None
             dialer.peer.sendall(
-                encode_message(PingMessage(ts=1.0))
-                + encode_message(PingMessage(ts=2.0))
+                encode_message(PongMessage(ts=1.0))
+                + encode_message(PongMessage(ts=2.0))
             )
-            assert _until(lambda: routed == [PingMessage(ts=2.0)])
+            assert _until(lambda: routed == [PongMessage(ts=2.0)])
         try:
             assert listener.alive
             (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
-            assert "PingMessage" in record.getMessage()
+            assert "PongMessage" in record.getMessage()
             assert "pair" in record.getMessage()
         finally:
             listener.stop()
@@ -376,7 +416,7 @@ class TestARaisingRoute:
         listener.start()
         try:
             assert dialer.peer is not None
-            dialer.peer.sendall(encode_message(PingMessage(ts=1.0)))
+            dialer.peer.sendall(encode_message(PongMessage(ts=1.0)))
             time.sleep(0.3)
             assert connection.is_open
             assert listener.alive

@@ -860,8 +860,8 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_unmatched_interaction_and_unknown_are_dropped(self) -> None:
-        """Unmatched interactions and unknown frames are dropped, not buffered."""
+    def test_unmatched_interaction_is_dropped(self) -> None:
+        """An interaction with no callback is dropped, not buffered."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -881,8 +881,43 @@ class TestBackgroundListener:
                     element_id="other", action="click", ts=time.time(), value=True
                 ),
             )
-            # An unknown message type. Both fall through the dispatcher
-            # without filling any queue, so poll_event sees nothing.
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            # Listener has had time to drain the frame; poll_event sees
+            # no business event and times out.
+            time.sleep(0.3)
+            with pytest.raises(TimeoutError):
+                client.poll_event(timeout=0.2)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_an_unknown_message_type_ends_the_connection(self) -> None:
+        """A kind the display never sends is refused, not dropped: the link closes."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
             server_conn.sendall(encode_frame({"type": "custom_event", "data": "hello"}))
 
         t = threading.Thread(target=serve, daemon=True)
@@ -893,11 +928,10 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            # Listener has had time to drain both frames; poll_event sees
-            # no business event and times out.
-            time.sleep(0.3)
-            with pytest.raises(TimeoutError):
-                client.poll_event(timeout=0.2)
+            deadline = time.monotonic() + 3.0
+            while client.is_connected and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not client.is_connected
             client.close()
         finally:
             if server_conn:
