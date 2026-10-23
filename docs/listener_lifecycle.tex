@@ -1,0 +1,749 @@
+%
+% listener_lifecycle.tex
+%
+% A Z specification of the Hub display link's listener/connection lifecycle:
+% one reconnecting connection, a reader thread per dial that stop() may fail to
+% join, the reply sinks those threads feed, and the report a reader makes when
+% its stream breaks.  This is the FIXED design: a connection generation owns
+% its socket, its reply sink and the right to be closed by its own reader;
+% a reader that outlives its generation can touch nothing of the next.
+%
+% Models the defect reported twice on the lux-ghhf branch (round 2 L-2..L-4;
+% round 3 R3-1 and SF3-2) and the design that closes it.  The code it governs:
+% src/punt_lux/domain/hub/{listener_thread,display_replies,display_connection,
+% inbound_router,display_link}.py.
+%
+% Type-check:  fuzz docs/listener_lifecycle.tex
+% Model-check (see the Verification section for every goal predicate):
+%   probcli docs/listener_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2 \
+%     -p MAX_OPERATIONS 200
+%
+% Fidelity controls (each differs from this file in the stated place only):
+%   docs/listener_lifecycle_current_buggy.tex    the code as it stands
+%   docs/listener_lifecycle_gate_only_buggy.tex  the stopping flag as the only fix
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Listener Lifecycle: a Z Specification}
+\author{Formal model of the display link's reader, its socket, and its replies}
+\date{October 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+\texttt{DisplayConnection} is one object that holds, at any moment, at most
+one socket to the display and is re-opened after every loss.  A
+\texttt{ListenerThread} reads one socket on a daemon thread and hands what it
+decodes to the \texttt{InboundRouter}; when its stream breaks it calls
+\texttt{DisplayReplies.end}, which closes \emph{whatever the connection holds
+now} and empties the reply queues.  \texttt{ListenerThread.stop} joins with a
+two-second timeout, and \texttt{start} deliberately abandons a thread it could
+not join.  Two review rounds in succession found the consequence, from two
+sides:
+
+\begin{itemize}
+  \item \textbf{R3-1.}\ An abandoned reader whose read fails after the
+    reconnect finds the connection open --- the \emph{replacement} is open ---
+    and reports a broken stream.  The healthy replacement is closed, and the
+    replies queued for it are dropped.
+  \item \textbf{SF3-2.}\ An abandoned reader goes on routing the rest of its
+    old buffer into the shared queues.  A stale \texttt{Ack},
+    \texttt{Pong} or \texttt{QueryResponse} fills the request of a caller that
+    asked on the new socket, and a torn frame in that buffer reports the wrong
+    connection broken.
+\end{itemize}
+
+Round~2 found the same class (L-2..L-4).  Two rounds of the same class is the
+recurrence signal: the problem is a state space, and this file checks it.
+Both findings are one defect.  \emph{A decision about generation~$g$ is
+executed against generation $g' \ne g$} because nothing in the call carries
+the generation: \texttt{is\_open} describes the current socket, and
+\texttt{end} acts on the current socket.  The reviewers' suggested repair ---
+consult the thread's \texttt{stopping} event before acting --- narrows the
+window and leaves it open (Section~\ref{sec:fidelity}); it is checked here as
+the second fidelity control, not assumed.
+
+\paragraph{The design, by responsibility.}
+The socket's lifetime is owned by exactly one thing: the dial that made it.
+The fixed design says so in the type.  Every dial produces a \emph{generation}
+(in the code, a per-socket object: socket, endpoint, ready message, reply
+sink, and the reader started on it).  Three consequences, each a clause of
+the model:
+
+\begin{description}
+  \item[Routing is keyed by generation.] A reader holds the sink of its own
+    generation and nothing else.  A reply from generation~$g$ goes to the sink
+    of~$g$; when $g$ is closed that sink is discarded, and a late put into it
+    is dropped.  There is no check-then-put to tear, because the sink the
+    reader holds \emph{is} the check.  (\texttt{RouteLive}, \texttt{RouteDead}.)
+  \item[A report is a compare-and-close on the reader's own generation.]
+    ``My stream broke'' closes generation $g$ if $g$ is still the connection's
+    current generation and open, and is a no-op otherwise.  (\texttt{BrokenOwn},
+    \texttt{BrokenStale}.)  This is the only operation a reader has on the
+    connection, and it takes the reader's generation as an argument.
+  \item[The \texttt{stopping} flag silences, it does not protect.] Once set,
+    the reader takes no further step that reports or routes, so a stopped
+    reader neither logs a spurious warning nor does stray work.  It is a
+    courtesy; the two invariants above hold without it
+    (Section~\ref{sec:fidelity}, second control).
+\end{description}
+
+A thread that cannot be joined is therefore abandoned \emph{together with its
+socket}: the generation is retired (closed, sink discarded) before a
+successor is started on the connection.  A successor never reads a socket an
+abandoned thread is still reading (L4).
+
+\paragraph{Decisions this model rests on; each is the implementer's duty.}
+\begin{enumerate}
+  \item \emph{The compare-and-close and the dial's publication are atomic with
+    respect to each other.}  The code needs a small state lock, held only for
+    the field update and never across I/O or a dial.  It must \emph{not} be
+    the connection's \texttt{\_lock}: that lock is held across
+    \texttt{sendall} and \texttt{recv}, and a sender stuck on a wedged display
+    would then hold up the report that would have closed the wedged socket
+    (the very stall that makes \texttt{stop} time out in R3-1).  See
+    ``Lock order'' below.
+  \item \emph{A reply sink belongs to a generation.}  The ack, pong and
+    query-response queues are per generation.  The business-event queue and
+    the interaction handler are \emph{link}-level and are outside L1: an event
+    the display emitted is real whichever socket it left on, and it
+    is not rerouted.
+  \item \emph{Abandonment retires the socket.}  Before a successor reader is
+    started over a reader that did not join, the generation is closed, by
+    \texttt{shutdown} then \texttt{close}, so that the abandoned thread's
+    blocked read returns.
+\end{enumerate}
+
+\paragraph{Scope.}
+The carrier is three generations (two redials past the first dial), two
+reader threads (an abandoned reader and its successor; the code never has
+more live threads than that, because it abandons one at a time), one buffered
+frame per reader, and a reply as a bare tag naming its generation.  Frame
+contents, the handler's duration and the byte-level decode are abstracted:
+a read failure, an end-of-file and a malformed frame are one event, because
+the code answers all three by the same call (\texttt{end}), and
+\texttt{end} is a no-op on a closed connection.  The thread running a handler
+for longer than the join timeout is exactly a reader with a non-empty buffer
+that \texttt{StopTimeout} abandons.
+
+\paragraph{Invariants.}
+
+\begin{description}
+  \item[L1 --- replies are routed within their generation.] No reply is
+    queued except in the sink of the live current generation; no waiter
+    exists on a generation that is not live.  (A stale tag in the queue is
+    what a fresh waiter consumes as the answer to a question it never asked.)
+  \item[L2 --- a report never closes another generation.] A generation is
+    closed only deliberately (the link closing it) or because its own reader
+    found its own stream broken.
+  \item[L3 --- a stopped reader is silent.] No routing or reporting step is
+    taken by a reader whose stopping flag is set and which holds no
+    permission granted before it was set.
+  \item[L4 --- one reader per live generation.] No generation is read by two
+    threads at once.
+\end{description}
+
+% ============================================================
+\section{Constants and Free Types}
+% ============================================================
+
+\begin{axdef}
+  maxGen : \nat \\
+  maxBuf : \nat
+\where
+  maxGen = 3 \\
+  maxBuf = 1
+\end{axdef}
+
+Three generations: the original, the replacement, and one more, so that a
+replacement can itself be replaced while an abandoned reader of the first is
+still alive.  One buffered frame is the least that lets an abandoned reader
+have something left to route.
+
+\begin{zed}
+  T ::= ta | tb
+\end{zed}
+
+The two reader threads.  A thread is a slot: it is idle (\texttt{lexit}),
+running, or stopping.
+
+\begin{zed}
+  LST ::= lexit | lrun | lstop
+\end{zed}
+
+\texttt{lexit}: no thread.  \texttt{lrun}: the thread runs and its stopping
+flag is clear.  \texttt{lstop}: the flag is set and the thread is alive ---
+\texttt{stop} timed out, or has not yet joined.  This is the abandoned thread.
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is split into three groups, then joined, so that an operation can
+say what it leaves alone.
+
+\begin{schema}{Conn}
+  curGen : \nat \\
+  held : FSTATE \\
+  waiters : \power \nat \\
+  qgen : \power \nat
+\where
+  curGen \leq maxGen \\
+  waiters \subseteq 0 \upto maxGen \\
+  qgen \subseteq 0 \upto maxGen \\
+  held = fset \implies curGen > 0
+\end{schema}
+
+\texttt{curGen} is the latest generation dialed (zero before the first dial);
+\texttt{held} says whether the connection holds that generation's socket ---
+\texttt{is\_open}.  Every earlier generation is closed.  \texttt{waiters} are
+the generations on which a caller is blocked awaiting a reply.
+\texttt{qgen} are the generations that have a reply sitting in a sink (a bare
+tag per reply; one suffices, since duplicates change nothing below).
+
+\begin{schema}{Thr}
+  lst : T \fun LST \\
+  lgen : T \fun \nat \\
+  armed : T \fun FSTATE \\
+  buf : T \fun \nat
+\where
+  \forall t : T \spot lgen~t \leq maxGen \land buf~t \leq maxBuf
+\end{schema}
+
+\texttt{lgen} is the generation a thread was started on (meaningful while the
+thread is not \texttt{lexit}); \texttt{buf} counts frames it has read and not
+yet routed.  \texttt{armed} is the permission the thread obtained the last time
+it looked at its stopping flag while the flag was clear: the loop-top test in
+\texttt{\_run}, and the re-test this design adds before a route or a report.
+A step that routes or reports consumes the permission; the next needs a
+fresh look.  The flag can be set \emph{between} the look and the step, which
+is why a permission is state: it is the window, and the model keeps it open.
+
+\begin{schema}{Hist}
+  broken : \power \nat \\
+  deliberate : \power \nat \\
+  leak : FSTATE
+\where
+  broken \subseteq 0 \upto maxGen \\
+  deliberate \subseteq 0 \upto maxGen
+\end{schema}
+
+Three history variables, never read by an operation of this specification, so
+that the invariants are statements about what happened.  \texttt{broken}: the
+generations whose own reader found their own stream broken.
+\texttt{deliberate}: the generations the link closed.  \texttt{leak}: set when
+a step is taken by a stopped reader holding no permission.
+
+\begin{schema}{LL}
+  Conn \\
+  Thr \\
+  Hist
+\end{schema}
+
+\section{Initialization}
+
+\begin{schema}{Init}
+  LL'
+\where
+  curGen' = 0 \\
+  held' = fclear \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  lst' = \{ ta \mapsto lexit, tb \mapsto lexit \} \\
+  lgen' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  armed' = \{ ta \mapsto fclear, tb \mapsto fclear \} \\
+  buf' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  broken' = \emptyset \\
+  deliberate' = \emptyset \\
+  leak' = fclear
+\end{schema}
+
+Nothing dialed, no reader, no reply, nothing recorded.
+
+% ============================================================
+\section{Operations on the Connection}
+% ============================================================
+
+\subsection{Dial}
+
+\begin{schema}{Dial}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fclear \\
+  curGen < maxGen \\
+  curGen' = curGen + 1 \\
+  held' = fset \\
+  waiters' = waiters \\
+  qgen' = qgen
+\end{schema}
+
+\texttt{DisplayConnection.open}: a new generation, a new socket.  Only a
+closed connection dials.  The new generation has no sink content and no
+waiter; nothing of an earlier generation is carried over.
+
+\subsection{Close}
+
+\begin{schema}{Close}
+  \Delta LL \\
+  \Xi Thr
+\where
+  held = fset \\
+  held' = fclear \\
+  curGen' = curGen \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  leak' = leak
+\end{schema}
+
+The link closes the connection on purpose: \texttt{DisplayLink.close},
+\texttt{ClientRegistry.drop}.  The generation's sink is discarded and its
+waiters fail.  Readers are not touched; \texttt{StopJoined} and
+\texttt{StopTimeout} are separate steps, in either order.
+
+\subsection{Request and Consume}
+
+\begin{schema}{Request}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fset \\
+  curGen \notin waiters \\
+  waiters' = waiters \cup \{ curGen \} \\
+  curGen' = curGen \\
+  held' = held \\
+  qgen' = qgen
+\end{schema}
+
+A caller sends a ping, a query or a scene on the current socket and blocks for
+the reply.
+
+\begin{schema}{Consume}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  curGen \in waiters \cap qgen \\
+  waiters' = waiters \setminus \{ curGen \} \\
+  qgen' = qgen \setminus \{ curGen \} \\
+  curGen' = curGen \\
+  held' = held
+\end{schema}
+
+The blocked caller takes the reply from the sink of its own generation.
+
+% ============================================================
+\section{Operations on a Reader}
+% ============================================================
+
+Each takes the thread \texttt{t?}.
+
+\subsection{StartListener}
+
+\begin{schema}{StartListener}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lexit \\
+  held = fset \\
+  \forall u : T \spot lst~u \neq lrun \\
+  \forall u : T \spot lst~u = lexit \lor lgen~u \neq curGen \\
+  lst' = lst \oplus \{ t? \mapsto lrun \} \\
+  lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\texttt{ListenerThread.start}.  It is a no-op while a running reader exists
+(third line); that is the code's \texttt{if not stopping: return}.  The
+fourth line is this design's addition: a successor is started only on a
+generation no live thread is still reading.  Abandoning a reader therefore
+means retiring its generation first (Decision~3).
+
+\subsection{CheckPermit}
+
+\begin{schema}{CheckPermit}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  armed~t? = fclear \\
+  lst' = lst \\
+  lgen' = lgen \\
+  buf' = buf \\
+  armed' = armed \oplus \{ t? \mapsto fset \}
+\end{schema}
+
+The reader looks at its stopping flag, finds it clear, and obtains permission
+for its next routing or reporting step.  Only a running reader can: once the
+flag is set, no permission is issued.
+
+\subsection{Feed}
+
+\begin{schema}{Feed}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  buf~t? < maxBuf \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  buf' = buf \oplus \{ t? \mapsto buf~t? + 1 \}
+\end{schema}
+
+The reader reads a chunk off its own, open socket.  A reader over a closed or
+replaced socket reads nothing new; what it already holds stays in \texttt{buf}.
+
+\subsection{Stop, timeout, and exit}
+
+\begin{schema}{StopJoined}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf
+\end{schema}
+
+\texttt{stop}: the flag is set and the join succeeds.
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  buf' = buf
+\end{schema}
+
+\texttt{stop}: the flag is set and the join times out.  The thread is alive,
+its permission (if any) intact, and it is abandoned.
+
+\begin{schema}{ExitStopped}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lstop \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf
+\end{schema}
+
+The abandoned thread sees its flag at its next test and exits.
+
+\subsection{Route}
+
+\begin{schema}{RouteLive}
+  \Delta LL \\
+  \Xi Hist \\
+  t? : T
+\where
+  armed~t? = fset \\
+  buf~t? > 0 \\
+  held = fset \\
+  lgen~t? = curGen \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf \oplus \{ t? \mapsto buf~t? - 1 \} \\
+  curGen' = curGen \\
+  held' = held \\
+  waiters' = waiters \\
+  qgen' = qgen \cup \{ lgen~t? \}
+\end{schema}
+
+\begin{schema}{RouteDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  armed~t? = fset \\
+  buf~t? > 0 \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf \oplus \{ t? \mapsto buf~t? - 1 \}
+\end{schema}
+
+A reader with permission routes one buffered reply into the sink of its own
+generation.  If that generation is the live current one, the reply is queued
+(\texttt{RouteLive}); if the generation has been closed or replaced, its sink
+is gone and the reply is dropped (\texttt{RouteDead}).  Nothing in
+\texttt{RouteDead} reaches the current generation.
+
+\subsection{Broken}
+
+\begin{schema}{BrokenOwn}
+  \Delta LL \\
+  t? : T
+\where
+  armed~t? = fset \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  broken' = broken \cup \{ curGen \} \\
+  deliberate' = deliberate \\
+  leak' = leak \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  buf' = buf
+\end{schema}
+
+\begin{schema}{BrokenStale}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  armed~t? = fset \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  buf' = buf
+\end{schema}
+
+The reader's stream broke --- the read failed, the display closed it, or a
+frame did not decode --- and it reports.  The report is a compare-and-close
+on the reader's own generation.  If that generation is the open current one,
+it is closed and recorded as broken (\texttt{BrokenOwn}); otherwise the report
+is a no-op (\texttt{BrokenStale}) and the reader exits.  The current
+generation is never touched on behalf of another's reader.
+
+\subsection{Halt}
+
+\begin{schema}{Halt}
+  \Xi LL
+\where
+  curGen = maxGen \\
+  held = fclear \\
+  \forall u : T \spot lst~u = lexit
+\end{schema}
+
+The carrier is finite, so the run ends when every generation has been dialed
+and closed and every reader has exited.  \texttt{Halt} is enabled in that
+quiescent state and nowhere else: a reachable state with no enabled operation
+that is \emph{not} this one is a deadlock.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Each is checked as the unreachability of its negation
+(Section~\ref{sec:verify}); the negations are stated here as predicates over
+the state.
+
+\paragraph{L1 --- routing stays within a generation.}
+\[ qgen \subseteq live \land waiters \subseteq live,
+   \quad live = \{curGen\}\ \text{if}\ held = fset,\ \emptyset\ \text{otherwise.} \]
+\texttt{RouteLive} adds only the reader's own generation and only when that
+generation is the live current one; \texttt{RouteDead} adds nothing;
+\texttt{Close} and \texttt{BrokenOwn} empty both sets; \texttt{Dial} and
+\texttt{Request} add the new current generation only.  Hence both sets stay
+within $live$.  A waiter on the new generation can therefore be answered only
+from the new generation's sink.
+
+\paragraph{L2 --- a generation is closed only by the link or by itself.}
+\[ held = fclear \land curGen > 0 \implies curGen \in broken \cup deliberate. \]
+\texttt{Close} records the generation it closes in \texttt{deliberate};
+\texttt{BrokenOwn} records the generation it closes in \texttt{broken}, and
+fires only when the reader's generation \emph{is} the current one.
+\texttt{BrokenStale}, the only other report, leaves \texttt{Conn} unchanged.
+No third operation clears \texttt{held}.
+
+\paragraph{L3 --- a stopped reader is silent.}
+\[ leak = fclear. \]
+\texttt{leak} is set by a step that a stopped reader takes with no
+permission.  Every routing and reporting step of this specification requires
+permission, and \texttt{CheckPermit} issues one only to a \texttt{lrun}
+reader.  A reader stopped \emph{after} it obtained permission may take that
+one step --- the flag was clear when it looked, and the step is confined by
+L1 and L2 whatever the flag says --- and no more.  This is a property of the
+guards and is, deliberately, the weakest of the four: the first fidelity
+control shows what its absence costs, and the second what it cannot buy.
+
+\paragraph{L4 --- one reader per generation.}
+\[ lst~ta \ne lexit \land lst~tb \ne lexit \land lgen~ta = lgen~tb. \]
+\texttt{StartListener} refuses a generation that a live thread is still
+reading.  (The negation is stated for two live threads on one generation; with
+two slots that is the whole property.)
+
+\paragraph{Deadlock-freedom, and the lock order the model assumes.}
+The model has no lock-acquisition steps, because it makes the two critical
+sections it needs atomic: the dial's publication of $(curGen, held)$ and the
+compare-and-close both execute under one state lock, and a put into a sink
+is a single queue operation.  What the model can and does check is that
+\emph{no state other than the quiescent one lacks an enabled step}: every
+reader can always exit or be stopped, every connection can always be closed
+or dialed until the carrier is spent.  The lock discipline the
+implementation owes the model is a graph with no nesting at all:
+
+\begin{center}
+\begin{tabular}{lll}
+  lock & guards & held across \\ \hline
+  state lock (new) & $curGen$, $held$, sink discard & field updates only; never I/O, never a dial \\
+  \texttt{\_lock} (existing) & the socket's send and recv & one \texttt{sendall} or one \texttt{recv} \\
+  reply-queue locks & one queue's contents & one \texttt{put} or \texttt{get} \\
+\end{tabular}
+\end{center}
+
+No path takes one of these while holding another: the report takes the state
+lock alone; the sender takes \texttt{\_lock} alone; the router takes a queue
+lock alone.  A graph without edges has no cycle.  The one thing that would
+create an edge is the tempting implementation of the compare-and-close under
+\texttt{\_lock}: it would put the state update behind a wedged
+\texttt{sendall}, and then the report waits on the sender, the sender waits on
+a display that the report was about to abandon.  Decision~1 forbids it.
+
+% ============================================================
+\section{Fidelity Controls}
+\label{sec:fidelity}
+% ============================================================
+
+\paragraph{The code as it stands ---
+\texttt{listener\_lifecycle\_current\_buggy.tex}.}
+The reply sink is one queue shared across reconnects (a reply is queued
+whatever its generation); a report is \texttt{end}, which closes the current
+connection if it is open, whatever generation the reporter read; a reader's
+steps need only that the thread is alive, because \texttt{\_routed} tests the
+flag at the top of the loop and not again; and \texttt{start} abandons a live
+thread without retiring its socket.  ProB returns, for L2, an R3-1 trace in
+ten steps: dial; start \texttt{ta}; \texttt{ta} is abandoned; start
+\texttt{tb} over it (L4 already broken here); \texttt{ta}'s read fails on the
+generation both read, which is closed; \texttt{tb} is abandoned; redial; then
+\texttt{tb}'s report --- its socket is the dead generation~1 --- closes
+generation~2, which was neither closed by the link nor broken by its own
+reader.  For L1 it returns the SF3-2 trace: dial, start, feed, the link
+closes, and the reader, which no one stopped, routes its generation-1 reply
+into the shared queue behind a closed (and, after a redial, replaced)
+connection.  For L3 the shortest trace is three steps: start, abandon, the
+abandoned reader reports.
+
+\paragraph{The stopping flag as the only repair ---
+\texttt{listener\_lifecycle\_gate\_only\_buggy.tex}.}
+This is the reviewers' proposed fix taken literally: a reader acts only with
+permission, issued while its flag is clear.  The sink is still shared and the
+report is still \texttt{end}.  L3 and L4 now hold.  L1 and L2 are
+\emph{still violated}: the reader looks, finds the flag clear, is abandoned
+and replaced, and acts on the replacement.  The window between the look and
+the step is a thread being descheduled, or a handler running, and no
+amount of earlier testing of the flag closes it.  Only the confinement of the
+step --- a sink and a compare-and-close that name the reader's generation ---
+does.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/listener_lifecycle.tex
+\end{verbatim}
+
+Every \texttt{probcli} call below also takes \texttt{-p MAX\_OPERATIONS 200}:
+at ProB's default of ten, the operations with an input are truncated in
+some states and the check is reported incomplete.  The coverage report
+(\texttt{-coverage}) lists every operation as covered; it was the first run
+that showed three operations unreachable, which was an error in this file's
+frame conditions and has been corrected.
+
+The fixed design.  The negation of each invariant is unreachable (goal
+\emph{not found}):
+\begin{verbatim}
+  # L1 routing stays within a generation
+  probcli docs/listener_lifecycle.tex -model_check -nodead \
+    -goal "(qgen /= {} & (held = fclear or qgen /= {curGen})) or (waiters /= {} & (held = fclear or waiters /= {curGen}))" \
+    -p DEFAULT_SETSIZE 2
+
+  # L2 a generation is closed only by the link or by itself
+  probcli docs/listener_lifecycle.tex -model_check -nodead \
+    -goal "held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)" \
+    -p DEFAULT_SETSIZE 2
+
+  # L3 a stopped reader is silent
+  probcli docs/listener_lifecycle.tex -model_check -nodead \
+    -goal "leak = fset" -p DEFAULT_SETSIZE 2
+
+  # L4 one reader per live generation
+  probcli docs/listener_lifecycle.tex -model_check -nodead \
+    -goal "lst(ta) /= lexit & lst(tb) /= lexit & lgen(ta) = lgen(tb)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The scenarios are reachable, so the invariants are not vacuous (goal
+\emph{found}): an abandoned reader with its successor running, a reply routed
+live, a reply dropped dead, and a stream the reader found genuinely broken.
+\begin{verbatim}
+  -goal "lst(ta) = lstop & lst(tb) = lrun & lgen(ta) < lgen(tb)"
+  -goal "qgen /= {}"
+  -goal "broken /= {}"
+  -goal "lst(ta) = lstop & buf(ta) > 0 & lgen(ta) < curGen"
+\end{verbatim}
+
+Deadlock-freedom and the structural invariants, by the full model-check:
+\begin{verbatim}
+  probcli docs/listener_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The controls make the negations \emph{found}:
+\begin{verbatim}
+  probcli docs/listener_lifecycle_current_buggy.tex -model_check -nodead \
+    -goal "held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)" \
+    -p DEFAULT_SETSIZE 2
+  probcli docs/listener_lifecycle_gate_only_buggy.tex -model_check -nodead \
+    -goal "held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+(and likewise L1, L3 and L4 against the first, L1 against the second; the
+exact outputs are in the coverage note.)
+
+Re-run \texttt{fuzz} and these checks whenever \texttt{listener\_thread.py},
+\texttt{display\_replies.py}, \texttt{display\_connection.py} or
+\texttt{inbound\_router.py} change how a reader is started, stopped, or
+allowed to act on the connection or the reply queues.
+
+\end{document}

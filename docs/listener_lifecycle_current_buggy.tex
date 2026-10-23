@@ -1,0 +1,341 @@
+%
+% listener_lifecycle_current_buggy.tex
+%
+% FIDELITY CONTROL for docs/listener_lifecycle.tex: the code as it stands at
+% 40d3373f (listener_thread.py, display_replies.py, display_connection.py).
+%
+%  - one reply queue shared across reconnects: a reply is queued tagged with
+%    the reader's generation whatever the current generation is
+%    (RouteShared; InboundRouter.route -> ReplyQueues.put);
+%  - a report is `end`: it closes the current connection if it is open,
+%    whatever generation the reporter read (BrokenWrong; _read_ended's
+%    is_open test and DisplayReplies.end);
+%  - the stopping flag is tested at the top of the loop only, so a reader
+%    needs no permission to route or report: _routed drains its whole buffer
+%    (no CheckPermit; steps need only a live thread; an abandoned thread
+%    leaves only when its buffer is empty);
+%  - start() abandons a live thread without retiring its socket (the fourth
+%    guard of StartListener is absent).
+%
+% Expected: L1, L2, L3 and L4 are all VIOLATED.  L2 is R3-1, L1 is SF3-2.
+%
+% Type-check:  fuzz docs/listener_lifecycle_current_buggy.tex
+% Model-check: probcli docs/listener_lifecycle_current_buggy.tex \
+%                -model_check -nodead -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 200 \
+%                -goal "<negation of L1, L2, L3 or L4; see listener_lifecycle.tex>"
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Listener Lifecycle: the Code as It Stands}
+\author{Fidelity control for listener\_lifecycle.tex}
+\date{October 2026}
+\maketitle
+
+\section{Constants and Free Types}
+
+\begin{axdef}
+  maxGen : \nat \\
+  maxBuf : \nat
+\where
+  maxGen = 3 \\
+  maxBuf = 1
+\end{axdef}
+
+\begin{zed}
+  T ::= ta | tb
+\end{zed}
+
+\begin{zed}
+  LST ::= lexit | lrun | lstop
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\section{State}
+
+\begin{schema}{Conn}
+  curGen : \nat \\
+  held : FSTATE \\
+  waiters : \power \nat \\
+  qgen : \power \nat
+\where
+  curGen \leq maxGen \\
+  waiters \subseteq 0 \upto maxGen \\
+  qgen \subseteq 0 \upto maxGen \\
+  held = fset \implies curGen > 0
+\end{schema}
+
+\begin{schema}{Thr}
+  lst : T \fun LST \\
+  lgen : T \fun \nat \\
+  armed : T \fun FSTATE \\
+  buf : T \fun \nat
+\where
+  \forall t : T \spot lgen~t \leq maxGen \land buf~t \leq maxBuf
+\end{schema}
+
+\begin{schema}{Hist}
+  broken : \power \nat \\
+  deliberate : \power \nat \\
+  leak : FSTATE
+\where
+  broken \subseteq 0 \upto maxGen \\
+  deliberate \subseteq 0 \upto maxGen
+\end{schema}
+
+\begin{schema}{LL}
+  Conn \\
+  Thr \\
+  Hist
+\end{schema}
+
+\begin{schema}{Init}
+  LL'
+\where
+  curGen' = 0 \\
+  held' = fclear \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  lst' = \{ ta \mapsto lexit, tb \mapsto lexit \} \\
+  lgen' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  armed' = \{ ta \mapsto fclear, tb \mapsto fclear \} \\
+  buf' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  broken' = \emptyset \\
+  deliberate' = \emptyset \\
+  leak' = fclear
+\end{schema}
+
+\section{Operations on the Connection (verbatim)}
+
+\begin{schema}{Dial}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fclear \\
+  curGen < maxGen \\
+  curGen' = curGen + 1 \\
+  held' = fset \\
+  waiters' = waiters \\
+  qgen' = qgen
+\end{schema}
+
+\begin{schema}{Close}
+  \Delta LL \\
+  \Xi Thr
+\where
+  held = fset \\
+  held' = fclear \\
+  curGen' = curGen \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  leak' = leak
+\end{schema}
+
+\begin{schema}{Request}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fset \\
+  curGen \notin waiters \\
+  waiters' = waiters \cup \{ curGen \} \\
+  curGen' = curGen \\
+  held' = held \\
+  qgen' = qgen
+\end{schema}
+
+\begin{schema}{Consume}
+  \Delta LL \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  curGen \in waiters \cap qgen \\
+  waiters' = waiters \setminus \{ curGen \} \\
+  qgen' = qgen \setminus \{ curGen \} \\
+  curGen' = curGen \\
+  held' = held
+\end{schema}
+
+\section{Operations on a Reader (verbatim except where stated)}
+
+\begin{schema}{StartListener}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lexit \\
+  held = fset \\
+  \forall u : T \spot lst~u \neq lrun \\
+  lst' = lst \oplus \{ t? \mapsto lrun \} \\
+  lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\begin{schema}{Feed}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  buf~t? < maxBuf \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  buf' = buf \oplus \{ t? \mapsto buf~t? + 1 \}
+\end{schema}
+
+\begin{schema}{StopJoined}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf
+\end{schema}
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  buf' = buf
+\end{schema}
+
+\begin{schema}{ExitStopped}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lstop \\
+  buf~t? = 0 \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  buf' = buf
+\end{schema}
+
+\subsection{RouteShared --- differs: the sink is one queue, and no permission is needed}
+
+\begin{schema}{RouteShared}
+  \Delta LL \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  buf~t? > 0 \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  buf' = buf \oplus \{ t? \mapsto buf~t? - 1 \} \\
+  curGen' = curGen \\
+  held' = held \\
+  waiters' = waiters \\
+  qgen' = qgen \cup \{ lgen~t? \} \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  (lst~t? = lstop \implies leak' = fset) \\
+  (lst~t? \neq lstop \implies leak' = leak)
+\end{schema}
+
+The reader needs no permission: \texttt{\_routed} drains its buffer without
+looking at the flag again.  The reply goes into the shared queue tagged with
+the reader's generation, whatever the current generation is and whether or
+not it is open.  A stopping reader doing so sets \texttt{leak}.
+
+\subsection{Broken --- differs: a report is \texttt{end}, not a compare-and-close}
+
+\begin{schema}{BrokenOwn}
+  \Delta LL \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  broken' = broken \cup \{ curGen \} \\
+  deliberate' = deliberate \\
+  (lst~t? = lstop \implies leak' = fset) \\
+  (lst~t? \neq lstop \implies leak' = leak) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  buf' = buf
+\end{schema}
+
+\begin{schema}{BrokenWrong}
+  \Delta LL \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fset \\
+  lgen~t? \neq curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  waiters' = \emptyset \\
+  qgen' = \emptyset \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  (lst~t? = lstop \implies leak' = fset) \\
+  (lst~t? \neq lstop \implies leak' = leak) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  buf' = buf
+\end{schema}
+
+\begin{schema}{BrokenQuiet}
+  \Delta LL \\
+  \Xi Conn \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fclear \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  (lst~t? = lstop \implies leak' = fset) \\
+  (lst~t? \neq lstop \implies leak' = leak) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  buf' = buf
+\end{schema}
+
+\texttt{BrokenWrong} is R3-1: \texttt{is\_open} describes the replacement, so
+the reader of the retired generation closes it, and records no cause.
+
+\begin{schema}{Halt}
+  \Xi LL
+\where
+  curGen = maxGen \\
+  held = fclear \\
+  \forall u : T \spot lst~u = lexit
+\end{schema}
+
+\end{document}
