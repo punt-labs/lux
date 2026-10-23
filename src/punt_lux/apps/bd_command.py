@@ -107,7 +107,7 @@ class BdRun:
         A failure -- the command missing, a timeout, a non-zero exit, no output at
         all -- comes back as the reason to show rather than as an empty board, so
         the caller can tell "nothing open" from "bd did not run". The child belongs
-        to the call that asked for it, so that call's cancellation ends it.
+        to the call that asked for it; its cancellation raises ``BdCancelledError``.
         """
         cmd = scope.argv()
         cmd_str = " ".join(cmd)
@@ -119,16 +119,16 @@ class BdRun:
         spawn_ms = self._since(spawning)
         waiting = time.perf_counter()
         try:
-            stdout, stderr = child.output(_BD_TIMEOUT_SECONDS)
+            done = child.output(_BD_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             return BeadsFailure(f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s")
         bd_ms = self._since(waiting)
-        if child.returncode != 0:
-            err = stderr.strip()[:_STDERR_LIMIT] or f"exit {child.returncode}"
+        if done.returncode != 0:
+            err = done.stderr.strip()[:_STDERR_LIMIT] or f"exit {done.returncode}"
             return BeadsFailure(f"{cmd_str}: {err}")
-        if not stdout.strip():
+        if not done.stdout.strip():
             return BeadsFailure(f"{cmd_str}: no output")
-        return BdOutput(stdout, spawn_ms, bd_ms)
+        return BdOutput(done.stdout, spawn_ms, bd_ms)
 
     @staticmethod
     def _since(began: float) -> float:

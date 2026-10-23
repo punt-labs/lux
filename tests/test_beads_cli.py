@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import Any, Self, final
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
-
-if TYPE_CHECKING:
-    import pytest
 
 from punt_lux.__main__ import app
 from punt_lux.apps._beads_payload import BeadsPayloadBuilder
@@ -71,6 +70,20 @@ _ISSUES = [
 ]
 
 
+_FAKE_PIDS = itertools.count(2_000_000_000)
+_FAKE_PROCESSES: dict[int, _FakeProcess] = {}
+
+
+def _end_fake_group(pid: int, _signal: int) -> None:
+    """Stand in for ``os.killpg``, which must never be aimed at a fake pid."""
+    _FAKE_PROCESSES[pid].kill()
+
+
+@pytest.fixture(autouse=True)
+def _fake_group_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("punt_lux.apps.bd_child.os.killpg", _end_fake_group)
+
+
 @final
 class _FakeProcess:
     """A stand-in for the ``bd`` process, spawned and waited on separately.
@@ -88,7 +101,16 @@ class _FakeProcess:
     returncode: int
     waited_with: float | None  # None until communicate is called
     killed: bool
-    __slots__ = ("_err", "_out", "_overruns", "killed", "returncode", "waited_with")
+    pid: int
+    __slots__ = (
+        "_err",
+        "_out",
+        "_overruns",
+        "killed",
+        "pid",
+        "returncode",
+        "waited_with",
+    )
 
     def __new__(
         cls, out: str, err: str = "", code: int = 0, *, overruns: bool = False
@@ -100,7 +122,13 @@ class _FakeProcess:
         self.returncode = code
         self.waited_with = None
         self.killed = False
+        # Never a real process id: the fake group signal below finds it by this.
+        self.pid = next(_FAKE_PIDS)
+        _FAKE_PROCESSES[self.pid] = self
         return self
+
+    def poll(self) -> int | None:
+        return None
 
     def communicate(self, timeout: float | None = None) -> tuple[str, str]:
         self.waited_with = timeout
