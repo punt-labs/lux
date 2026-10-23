@@ -4,13 +4,14 @@ The one identity store, keyed by ``ConnectionId`` and serialized by ``_lock``.
 Each session carries a lease; the live read (:meth:`live_sessions`) filters to
 sessions still in lease without removing anyone — a read changes nothing here.
 Departure is the province of ``ClientLifecycle``'s single atomic
-deregister-and-release step, which reaches :meth:`reap_lapsed_locked` — one lock
+deregister-and-release step, which reaps through the write surface — one lock
 hold that finds and removes the lapsed set together, so a renewal racing in
 between can't be evicted anyway. The clock is injected for deterministic tests.
 
-The registry also holds each connection's listen leg, so the leg and its
-callbacks are written under this same lock, through the legs that
-:meth:`take_legs` hands to the lifecycle.
+The registry is the read side. Every write -- record, renew, discard, reap, and the
+listen leg with its callbacks -- is presence, and is made under this same lock
+through the :class:`PresenceWrites` that :meth:`take_writes` hands, once, to the
+lifecycle.
 
 The menu names live here too, reached only under this lock, so a name is
 assigned only to a session live at that instant and released only by the
@@ -21,20 +22,16 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.listener_legs import ListenerLegs
 from punt_lux.domain.hub.named_sessions import NamedSessions
-from punt_lux.domain.hub.reaped import Reaped
-from punt_lux.domain.hub.session_write import SessionWrite
+from punt_lux.domain.hub.presence_writes import PresenceWrites
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.ids import ConnectionId
 
@@ -49,8 +46,8 @@ class HubClientRegistry:
     _roster: ClientRoster
     _lock: threading.Lock
     _clock: Callable[[], float]
-    _legs_taken: bool
-    __slots__ = ("_clock", "_legs_taken", "_lock", "_roster", "_sessions")
+    _writes_taken: bool
+    __slots__ = ("_clock", "_lock", "_roster", "_sessions", "_writes_taken")
 
     def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
@@ -58,58 +55,21 @@ class HubClientRegistry:
         self._roster = ClientRoster()
         self._lock = threading.Lock()
         self._clock = clock
-        self._legs_taken = False
+        self._writes_taken = False
         return self
 
-    def take_legs(self) -> ListenerLegs:
-        """Hand over the listener slots' write surface, once, to the lifecycle.
+    def take_writes(self) -> PresenceWrites:
+        """Hand over the write surface, once, to the lifecycle.
 
-        The slots and the callbacks on them are presence: every write to them owes
-        the Hub a mark and a sink, which only ``ClientLifecycle`` pays. So the
-        surface is given away exactly once, to it; no one else can reach it
-        through the registry.
+        Every write to a session is presence: it owes the Hub a mark and a sink,
+        which only ``ClientLifecycle`` pays. So the surface is given away exactly
+        once, to it; no one else can reach it through the registry.
         """
-        if self._legs_taken:
-            msg = "the listener legs were already handed to a lifecycle"
-            raise RuntimeError(msg)
-        self._legs_taken = True
-        return ListenerLegs(self._sessions, self._lock, self._clock)
-
-    def record(
-        self,
-        connection_id: ConnectionId,
-        identity: ClientIdentity | None,
-        host: ClientHost,
-    ) -> SessionWrite:
-        """Upsert the connection's session, renewing its lease and any identity.
-
-        Any contact is a renewal: an existing session keeps its connect time
-        and pushes its lease forward. The first call stamps the connect time.
-        Returns the write, so the caller can read what it did to the menu and
-        whether it named the connection.
-        """
-        with self._lock:
-            write = SessionWrite.recorded(
-                self._sessions.get(connection_id), self._clock(), identity, host
-            )
-            self._sessions[connection_id] = write.after
-            return write
-
-    def renew_if_registered(
-        self, connection_id: ConnectionId, host: ClientHost
-    ) -> SessionWrite | None:
-        """Renew the lease iff already registered; a write must never register.
-
-        The contact's ``host`` is recorded on the session it renews. ``None`` is
-        a connection the registry does not hold: nothing was written.
-        """
-        with self._lock:
-            before = self._sessions.get(connection_id)
-            if before is None:
-                return None
-            write = SessionWrite.recorded(before, self._clock(), None, host)
-            self._sessions[connection_id] = write.after
-            return write
+        if self._writes_taken:
+            msg = "the presence writes were already handed to a lifecycle"
+            raise ValueError(msg)
+        self._writes_taken = True
+        return PresenceWrites(self._sessions, self._roster, self._lock, self._clock)
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter."""
@@ -121,15 +81,6 @@ class HubClientRegistry:
         with self._lock:
             session = self._sessions.get(connection_id)
         return None if session is None else session.identity
-
-    def discard(self, connection_id: ConnectionId) -> frozenset[ConnectionId]:
-        """Drop the registration, its identity, and the menu name it held.
-
-        Returns the survivors whose name the release moved.
-        """
-        with self._lock:
-            self._sessions.pop(connection_id, None)
-            return self._roster.release((connection_id,))
 
     def sessions(self) -> Mapping[ConnectionId, ClientSession]:
         """Return every recorded session, live or lapsed, without sweeping."""
@@ -148,23 +99,7 @@ class HubClientRegistry:
         """Return the sessions whose lease has not lapsed. Sweeps no one."""
         return self.named_sessions().sessions
 
-    def reap_lapsed_locked(
-        self, exclude: frozenset[ConnectionId] = frozenset()
-    ) -> Reaped:
-        """Atomically find-and-remove every lapsed connection except ``exclude``.
-
-        One lock hold: a renewal cannot slip between the find and the remove.
-        """
-        with self._lock:
-            lapsed = self._lapsed_locked() - exclude
-            deque(map(self._sessions.pop, lapsed), maxlen=0)
-            return Reaped(lapsed, self._roster.release(lapsed))
-
     def _live_locked(self) -> dict[ConnectionId, ClientSession]:
         """The sessions whose lease has not lapsed, as of now. Caller locks."""
         now = self._clock()
         return dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))
-
-    def _lapsed_locked(self) -> frozenset[ConnectionId]:
-        """Every registered connection whose lease has lapsed. Caller locks."""
-        return frozenset(self._sessions) - self._live_locked().keys()

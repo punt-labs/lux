@@ -20,7 +20,6 @@ from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.named_sessions import NamedSessions
@@ -616,7 +615,7 @@ class TestTheReplica:
         factory = HubStoreFactory()
         registry = factory.clients
         ghost, arriving = ConnectionId("outgoing"), ConnectionId("incoming")
-        registry.record(
+        factory.lifecycle.identify(
             ghost,
             ClientIdentity(
                 kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
@@ -640,7 +639,7 @@ class TestTheReplica:
             _clients_menu(CallbackMenu.from_named(registry.named_sessions()))
         ) == ["lux (2)"]
 
-        registry.discard(ghost)
+        factory.lifecycle.depart(ghost)
 
         clients = replica.callback_menu_wire()[0]["items"]
         assert isinstance(clients, list)
@@ -651,7 +650,7 @@ class TestTheReplica:
         factory = HubStoreFactory()
         registry = factory.clients
         # A cli is not the agent, so with no callback it earns no submenu.
-        registry.record(
+        factory.lifecycle.identify(
             ConnectionId("cli"), ClientIdentity(kind="cli", name="lux-cli"), UNOBSERVED
         )
 
@@ -663,10 +662,11 @@ class TestTheReplicasMenuRead:
 
     def test_the_menus_and_the_wire_agree(self) -> None:
 
-        clients = HubClientRegistry()
+        factory = HubStoreFactory()
+        clients = factory.clients
         conn = ConnectionId("a")
         identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
-        clients.record(conn, identity, UNOBSERVED)
+        factory.lifecycle.identify(conn, identity, UNOBSERVED)
         replica = CallbackMenuReplica(clients)
 
         menus = replica.callback_menus()

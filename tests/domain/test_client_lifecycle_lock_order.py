@@ -73,25 +73,24 @@ def _completes(step: Callable[[], object]) -> bool:
 class TestRegistryWritesNeverWaitOnTheStoreLock:
     def test_every_registry_write_completes_while_the_store_lock_is_held(self) -> None:
         factory = _wired()
-        clients = factory.clients
-        legs = HubClientRegistry().take_legs()
+        writes = HubClientRegistry().take_writes()
         leg = _Leg()
         callback = SessionCallback(id="run", label="Run")
-        writes: dict[str, Callable[[], object]] = {
-            "record": lambda: clients.record(_CONN, _applet(), UNOBSERVED),
-            "renew_if_registered": lambda: clients.renew_if_registered(
+        steps: dict[str, Callable[[], object]] = {
+            "record": lambda: writes.record(_CONN, _applet(), UNOBSERVED),
+            "renew_if_registered": lambda: writes.renew_if_registered(
                 _CONN, UNOBSERVED
             ),
-            "attach": lambda: legs.attach(_CONN, _applet(), leg, UNOBSERVED),
-            "register_callback": lambda: legs.register_callback(_CONN, callback, leg),
-            "detach": lambda: legs.detach(_CONN, leg),
-            "reap_lapsed_locked": lambda: clients.reap_lapsed_locked(frozenset()),
-            "discard": lambda: clients.discard(_CONN),
+            "attach": lambda: writes.attach(_CONN, _applet(), leg, UNOBSERVED),
+            "register_callback": lambda: writes.register_callback(_CONN, callback, leg),
+            "detach": lambda: writes.detach(_CONN, leg),
+            "reap_lapsed": lambda: writes.reap_lapsed(frozenset()),
+            "discard": lambda: writes.discard(_CONN),
         }
 
         stalled = []
         with factory.lifecycle.exclusive():
-            for name, write in writes.items():
+            for name, write in steps.items():
                 if not _completes(write):
                     stalled.append(name)
 

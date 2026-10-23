@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
@@ -76,7 +77,8 @@ class _Ops:
     marker: _MenuMarkerSpy
     registry: HubMenuRegistry
     clients: HubClientRegistry
-    __slots__ = ("clients", "marker", "ops", "registry")
+    lifecycle: ClientLifecycle
+    __slots__ = ("clients", "lifecycle", "marker", "ops", "registry")
 
     def __new__(cls, callback_menus: Sequence[Menu] = ()) -> Self:
         self = super().__new__(cls)
@@ -84,6 +86,7 @@ class _Ops:
         lifecycle = factory.lifecycle
         clients = factory.clients
         self.clients = clients
+        self.lifecycle = lifecycle
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
         arming = MenuArming(
@@ -103,7 +106,7 @@ class _Ops:
     def identified(self, name: str = "sess") -> Scope:
         """Register an identified, live session and return its scope."""
         conn = ConnectionId(name)
-        self.clients.record(
+        self.lifecycle.identify(
             conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
         )
         return Scope(conn)
@@ -396,7 +399,9 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
         )
     )
     conn = ConnectionId("sess")
-    clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED)
+    lifecycle.identify(
+        conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+    )
 
     result = ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=Scope(conn)

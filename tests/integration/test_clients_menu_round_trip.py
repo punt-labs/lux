@@ -181,7 +181,7 @@ class _Wired:
 
     def sweep(self, connection_id: ConnectionId) -> None:
         """Drop a client the way the lease sweep does, after the menu was drawn."""
-        self._clients.discard(connection_id)
+        self._lifecycle.depart(connection_id)
 
     def has_details(self, connection_id: ConnectionId) -> bool:
         """Whether the Hub holds a details scene for this client."""

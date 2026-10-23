@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.departure_cascade import DepartureCascade
     from punt_lux.domain.hub.departure_sinks import DepartureSink
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.listener_legs import ListenerLegs
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
+    from punt_lux.domain.hub.presence_writes import PresenceWrites
     from punt_lux.domain.hub.registry_outcomes import (
         CallbackRegistration,
         ListenerDetachment,
@@ -44,25 +44,22 @@ __all__ = ["ClientLifecycle"]
 class ClientLifecycle:
     """Arrival, contact, and departure of the Hub's clients, under the store lock."""
 
-    _clients: HubClientRegistry
-    _legs: ListenerLegs
+    _writes: PresenceWrites
     _owners: OwnerTracker
     _cascade: DepartureCascade
     _lock: StoreLock
     _presence: MenuPresence
-    __slots__ = ("_cascade", "_clients", "_legs", "_lock", "_owners", "_presence")
+    __slots__ = ("_cascade", "_lock", "_owners", "_presence", "_writes")
 
     def __new__(
         cls,
         clients: HubClientRegistry,
-        legs: ListenerLegs,
         owners: OwnerTracker,
         cascade: DepartureCascade,
         lock: StoreLock,
     ) -> Self:
         self = super().__new__(cls)
-        self._clients = clients
-        self._legs = legs
+        self._writes = clients.take_writes()
         self._owners = owners
         self._cascade = cascade
         self._lock = lock
@@ -86,7 +83,7 @@ class ClientLifecycle:
     def arrive(self, connection_id: ConnectionId, host: ClientHost) -> None:
         """Record the connection's own arrival, and the host it came from."""
         with self._lock.write():
-            self._settle(connection_id, self._clients.record(connection_id, None, host))
+            self._settle(connection_id, self._writes.record(connection_id, None, host))
 
     def identify(
         self,
@@ -97,7 +94,7 @@ class ClientLifecycle:
         """Record the identity the connection declared, and the host it came from."""
         with self._lock.write():
             self._settle(
-                connection_id, self._clients.record(connection_id, identity, host)
+                connection_id, self._writes.record(connection_id, identity, host)
             )
 
     def attach(
@@ -109,7 +106,7 @@ class ClientLifecycle:
     ) -> None:
         """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
-            attachment = self._legs.attach(connection_id, identity, listener, host)
+            attachment = self._writes.attach(connection_id, identity, listener, host)
             self._announce(connection_id, attachment.menu_change)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
@@ -119,7 +116,7 @@ class ClientLifecycle:
         The contact's ``host`` is recorded on the session it renews.
         """
         with self._lock.write():
-            write = self._clients.renew_if_registered(connection_id, host)
+            write = self._writes.renew_if_registered(connection_id, host)
             if write is not None:
                 self._settle(connection_id, write)
 
@@ -139,10 +136,10 @@ class ClientLifecycle:
         """
         with self._lock.write():
             self.renew(connection_id, host)
-            expected = self._legs.listener_for(connection_id)
+            expected = self._writes.listener_for(connection_id)
             if expected is None:
                 return "superseded"
-            registration = self._legs.register_callback(
+            registration = self._writes.register_callback(
                 connection_id, callback, expected
             )
             self._announce(connection_id, registration.menu_change)
@@ -158,7 +155,7 @@ class ClientLifecycle:
         entry a lapse left on the Display is still on it.
         """
         with self._lock.write():
-            detachment = self._legs.detach(connection_id, listener)
+            detachment = self._writes.detach(connection_id, listener)
             self._announce(connection_id, detachment.menu_change)
             return detachment.outcome
 
@@ -178,7 +175,7 @@ class ClientLifecycle:
         The one step every departure trigger funnels through.
         """
         with self._lock.write():
-            relabelled = self._clients.discard(connection_id)
+            relabelled = self._writes.discard(connection_id)
             self._owners.release_all(connection_id)
             self._cascade.run(connection_id)
             self._presence.retitle_scenes(self._owners.scenes_of(relabelled))
@@ -188,7 +185,7 @@ class ClientLifecycle:
     ) -> frozenset[ConnectionId]:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
-            reaped = self._clients.reap_lapsed_locked(exclude)
+            reaped = self._writes.reap_lapsed(exclude)
             self._owners.release_departed(reaped.lapsed)
             self._cascade.run_all(reaped.lapsed)
             self._presence.retitle_scenes(self._owners.scenes_of(reaped.relabelled))

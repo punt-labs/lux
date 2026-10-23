@@ -1,19 +1,25 @@
-"""ListenerLegs — each connection's listen leg, written under the registry's lock.
+"""PresenceWrites — every write to the registry's sessions, under the registry's lock.
 
-A connection's leg and its menu callbacks live on its session, and one connection is
-shared by successive sessions of one identity, so every write is a compare against
-the session occupying the slot: :meth:`attach`, :meth:`register_callback`, and
-:meth:`detach` each make that compare-and-write one critical section. The sessions
-and the lock are the registry's own, shared by reference, so these writes and the
-registry's are serialized together.
+A session's record, its lease, its listen leg and its menu callbacks decide who the
+Clients menu lists, so each write owes the Hub a mark and a bound sink -- paid only
+by ``ClientLifecycle``. The registry therefore hands this write surface away exactly
+once, to the lifecycle (:meth:`HubClientRegistry.take_writes`), and keeps only reads.
+
+One connection is shared by successive sessions of one identity, so a leg write is a
+compare against the session occupying the slot: :meth:`attach`,
+:meth:`register_callback`, and :meth:`detach` each make that compare-and-write one
+critical section. The sessions, the roster and the lock are the registry's own,
+shared by reference, so these writes and the registry's reads are serialized together.
 """
 
 from __future__ import annotations
 
 import threading
+from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.leg_writes import Detachment, Registration
+from punt_lux.domain.hub.reaped import Reaped
 from punt_lux.domain.hub.session_write import SessionWrite
 
 if TYPE_CHECKING:
@@ -22,34 +28,101 @@ if TYPE_CHECKING:
     from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.client_roster import ClientRoster
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.hub.session_write import Attachment
     from punt_lux.domain.ids import ConnectionId
 
-__all__ = ["ListenerLegs"]
+__all__ = ["PresenceWrites"]
 
 
 @final
-class ListenerLegs:
-    """Take, release, and read the listener slot of the registry's sessions."""
+class PresenceWrites:
+    """Record, renew, discard, reap, and seat the registry's sessions."""
 
     _sessions: dict[ConnectionId, ClientSession]
+    _roster: ClientRoster
     _lock: threading.Lock
     _clock: Callable[[], float]
-    __slots__ = ("_clock", "_lock", "_sessions")
+    __slots__ = ("_clock", "_lock", "_roster", "_sessions")
 
     def __new__(
         cls,
         sessions: dict[ConnectionId, ClientSession],
+        roster: ClientRoster,
         lock: threading.Lock,
         clock: Callable[[], float],
     ) -> Self:
         self = super().__new__(cls)
         self._sessions = sessions
+        self._roster = roster
         self._lock = lock
         self._clock = clock
         return self
+
+    def record(
+        self,
+        connection_id: ConnectionId,
+        identity: ClientIdentity | None,
+        host: ClientHost,
+    ) -> SessionWrite:
+        """Upsert the connection's session, renewing its lease and any identity.
+
+        Any contact is a renewal: an existing session keeps its connect time
+        and pushes its lease forward. The first call stamps the connect time.
+        Returns the write, so the caller can read what it did to the menu and
+        whether it named the connection.
+        """
+        with self._lock:
+            write = SessionWrite.recorded(
+                self._sessions.get(connection_id), self._clock(), identity, host
+            )
+            self._sessions[connection_id] = write.after
+            return write
+
+    def renew_if_registered(
+        self, connection_id: ConnectionId, host: ClientHost
+    ) -> SessionWrite | None:
+        """Renew the lease iff already registered; a write must never register.
+
+        The contact's ``host`` is recorded on the session it renews. ``None`` is
+        a connection the registry does not hold: nothing was written.
+        """
+        with self._lock:
+            before = self._sessions.get(connection_id)
+            if before is None:
+                return None
+            write = SessionWrite.recorded(before, self._clock(), None, host)
+            self._sessions[connection_id] = write.after
+            return write
+
+    def discard(self, connection_id: ConnectionId) -> frozenset[ConnectionId]:
+        """Drop the registration, its identity, and the menu name it held.
+
+        Returns the survivors whose name the release moved.
+        """
+        with self._lock:
+            self._sessions.pop(connection_id, None)
+            return self._roster.release((connection_id,))
+
+    def reap_lapsed(self, exclude: frozenset[ConnectionId] = frozenset()) -> Reaped:
+        """Atomically find-and-remove every lapsed connection except ``exclude``.
+
+        One lock hold: a renewal cannot slip between the find and the remove.
+        """
+        with self._lock:
+            now = self._clock()
+            lapsed = (
+                frozenset(
+                    cid
+                    for cid, session in self._sessions.items()
+                    if not session.is_live(now)
+                )
+                - exclude
+            )
+            deque(map(self._sessions.pop, lapsed), maxlen=0)
+            return Reaped(lapsed, self._roster.release(lapsed))
 
     def attach(
         self,

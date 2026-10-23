@@ -9,24 +9,25 @@ sessions never clobber and a departed session's bar leaves the composed snapshot
 from __future__ import annotations
 
 from punt_lux.client_host import UNOBSERVED
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.session_callback import MenuLeaf
 from punt_lux.domain.ids import ConnectionId
 
 
-def _live_registry() -> tuple[HubMenuRegistry, HubClientRegistry]:
-    clients = HubClientRegistry()
-    return HubMenuRegistry(clients), clients
+def _live_registry() -> tuple[HubMenuRegistry, ClientLifecycle]:
+    factory = HubStoreFactory()
+    return HubMenuRegistry(factory.clients), factory.lifecycle
 
 
 def test_two_sessions_do_not_clobber_each_other() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     a, b = ConnectionId("sess-a"), ConnectionId("sess-b")
-    clients.record(a, None, UNOBSERVED)
-    clients.record(b, None, UNOBSERVED)
+    lifecycle.arrive(a, UNOBSERVED)
+    lifecycle.arrive(b, UNOBSERVED)
     reg.set_menus(a, [Menu(label="Tools", items=[MenuAction(id="run", label="Run")])])
     reg.set_menus(b, [Menu(label="Edit", items=[MenuAction(id="undo", label="Undo")])])
 
@@ -35,23 +36,23 @@ def test_two_sessions_do_not_clobber_each_other() -> None:
 
 
 def test_a_departed_session_bar_leaves_the_live_composition() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     live, gone = ConnectionId("live"), ConnectionId("gone")
-    clients.record(live, None, UNOBSERVED)
-    clients.record(gone, None, UNOBSERVED)
+    lifecycle.arrive(live, UNOBSERVED)
+    lifecycle.arrive(gone, UNOBSERVED)
     reg.set_menus(live, [Menu(label="Live", items=[])])
     reg.set_menus(gone, [Menu(label="Gone", items=[])])
 
-    clients.discard(gone)  # the session departs the live set
+    lifecycle.depart(gone)  # the session departs the live set
 
     assert [menu.label for menu in reg.menu_bar()] == ["Live"]
     assert [menu["label"] for menu in reg.wire_snapshot()] == ["Live"]
 
 
 def test_wire_snapshot_stamps_each_leaf_id_with_its_owner() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-1")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     reg.set_menus(
         owner,
         [Menu(label="Tools", items=[MenuAction(id="run", label="Run", shortcut="F5")])],
@@ -68,9 +69,9 @@ def test_wire_snapshot_carries_a_frame_id_through_to_the_display() -> None:
     # gap (a) end to end: a frame-bound item's frame_id is OWNER-COMPOSED into the
     # snapshot the display receives — byte-identical to the scene frame key
     # ScenePresentation composes for the same owner, so raise_frame finds it.
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-frame")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     reg.set_menus(
         owner,
         [
@@ -94,10 +95,10 @@ def test_two_sessions_same_labelled_menu_carry_distinct_owner_identity() -> None
     # gap-a-class collision at the heading level: two sessions both name a "Tools"
     # menu. The composed snapshot carries each heading's owner so the display keys
     # them apart, while the visible label stays verbatim for both.
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     a, b = ConnectionId("sess-a"), ConnectionId("sess-b")
-    clients.record(a, None, UNOBSERVED)
-    clients.record(b, None, UNOBSERVED)
+    lifecycle.arrive(a, UNOBSERVED)
+    lifecycle.arrive(b, UNOBSERVED)
     reg.set_menus(a, [Menu(label="Tools", items=[])])
     reg.set_menus(b, [Menu(label="Tools", items=[])])
 
@@ -106,9 +107,9 @@ def test_two_sessions_same_labelled_menu_carry_distinct_owner_identity() -> None
 
 
 def test_set_menus_replaces_only_the_owning_sessions_bar() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-2")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     reg.set_menus(
         owner, [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
     )
@@ -120,9 +121,9 @@ def test_set_menus_replaces_only_the_owning_sessions_bar() -> None:
 
 
 def test_drop_session_prunes_the_bar() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-3")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     reg.set_menus(owner, [Menu(label="File", items=[])])
 
     reg.drop_session(owner)
@@ -132,9 +133,9 @@ def test_drop_session_prunes_the_bar() -> None:
 
 
 def test_menu_bar_returns_copies_the_caller_cannot_mutate() -> None:
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-4")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     reg.set_menus(
         owner, [Menu(label="File", items=[MenuAction(id="open", label="Open")])]
     )
@@ -155,9 +156,9 @@ def test_set_menus_snapshots_against_later_mutation_of_the_request() -> None:
     # request reach the stored — and about-to-be-sent — tree. set_menus deep-copies
     # on ingress. Fail-on-current if it stored by reference: the appended "ghost"
     # leaks into wire_snapshot.
-    reg, clients = _live_registry()
+    reg, lifecycle = _live_registry()
     owner = ConnectionId("owner-mut")
-    clients.record(owner, None, UNOBSERVED)
+    lifecycle.arrive(owner, UNOBSERVED)
     original = Menu(label="Tools", items=[MenuAction(id="run", label="Run")])
     reg.set_menus(owner, [original])
 

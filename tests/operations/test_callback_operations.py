@@ -143,7 +143,10 @@ class _Wired:
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> None:
         """Bind the connection and its declared identity, with no listen leg."""
-        self._clients.record(conn, identity, UNOBSERVED)
+        if identity is None:
+            self._lifecycle.arrive(conn, UNOBSERVED)
+        else:
+            self._lifecycle.identify(conn, identity, UNOBSERVED)
 
     def connect(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
@@ -171,12 +174,13 @@ def test_registration_requires_a_push_reachable_connection() -> None:
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.identify(conn, _identity())  # identified, but no listener
+    pushed_by_identifying = wired.pushed
 
     result = wired.register(conn)
     assert isinstance(result, OpError)
     assert result.code == "push_required"
     assert "listen leg" in result.reason
-    assert wired.pushed == 0  # nothing registered, nothing pushed
+    assert wired.pushed == pushed_by_identifying  # nothing registered, nothing pushed
 
 
 def test_push_reachability_is_answered_before_identity() -> None:
