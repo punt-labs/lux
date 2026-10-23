@@ -4,7 +4,7 @@
 % FIDELITY CONTROL for docs/menu_presence.tex, defect INV-1.
 %
 % Differs from menu_presence.tex in exactly one place: RegisterCallback binds
-% no departure sink. This is ListenerLegs.register_callback as it stood: the
+% no departure sink. This is ListenerLegs.register_callback (now PresenceWrites.register_callback) as it stood: the
 % callback is written under the registry lock alone, the caller marks the menus
 % afterwards by hand (so dirty is raised), and nobody binds the one shared sink.
 % The applet is then an earning session with no sink: P2's first conjunct fails

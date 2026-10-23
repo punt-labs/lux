@@ -12,6 +12,8 @@ change runs outside the store lock (`docs/menu_presence.tex`). Only
 `HubClientRegistry.take_legs()` (there is no `clients.legs`), and the
 consumer-table rows for `CallbackOperations`, `HubListenSession` and
 `HubListenTransport` take `ClientLifecycle` instead.
+**Since renamed:** the names `ListenerLegs`, `take_legs` and `listener_for` below were renamed or removed by the DES-101 2026-10-23 round-2 amendment in `DESIGN.md` (`ListenerLegs` is now `PresenceWrites`, `take_legs` is `take_writes`, `listener_for` is gone, `reap_lapsed_locked` is `reap_lapsed`).
+
 **Bead:** `lux-ghhf`. Mission `m-2026-10-22-021`; worker `gvr`, evaluator `rmh`.
 **Scope (leader ruling, 2026-10-22):** the *client door* only — how a connection
 becomes, stays and stops being a Hub client, and who may ask. Narrowing

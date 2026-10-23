@@ -22,11 +22,11 @@
 %               Hub's scene writes and by ClientLifecycle.bind_sink. The
 %               departure sinks run inside it.
 %   RegLock     HubClientRegistry._lock, a plain (non-re-entrant) lock, which
-%               ListenerLegs shares by reference. Taken INSIDE StoreLock by
-%               every writer (HubClientRegistry.record, renew_if_registered,
-%               discard, reap_lapsed_locked; ListenerLegs.attach,
+%               PresenceWrites shares by reference. Taken INSIDE StoreLock by
+%               every writer (PresenceWrites.record, renew_if_registered,
+%               discard, reap_lapsed, attach,
 %               register_callback, detach), and ALONE by the readers
-%               (named_sessions, live_sessions, session_of, listener_for).
+%               (named_sessions, live_sessions, session_of, identity_of).
 %   (marker)    The DirtyMarker's own lock, taken by mark_menus. It is a leaf:
 %               nothing is acquired while it is held, so it contributes no
 %               edge to the acquisition graph and is not modelled.
@@ -40,8 +40,8 @@
 % "presence changed" and the caller, still inside StoreLock, marks and binds.
 % The callback route is no exception: ClientLifecycle.register_callback and
 % ClientLifecycle.detach take the store lock, and only then reach
-% ListenerLegs, which takes RegLock. (Before the fix CallbackOperations and
-% ws_listen were handed ListenerLegs and wrote under RegLock alone; that is
+% PresenceWrites, which takes RegLock. (Before the fix CallbackOperations and
+% ws_listen were handed PresenceWrites and wrote under RegLock alone; that is
 % deadlock-free, a registry-only writer being a reader as far as the lock
 % graph goes, and it is wrong for the reason menu_presence.tex gives: no sink
 % is bound.) Readers take RegLock alone and never wait for the store. The
@@ -50,7 +50,7 @@
 %
 % THE REJECTED DESIGN (menu_presence_locks_inverted_buggy.tex): the registry
 % itself fires the mark/bind hook from inside record() (or, equally,
-% ListenerLegs.register_callback), i.e. while holding RegLock, and binding a
+% PresenceWrites.register_callback), i.e. while holding RegLock, and binding a
 % sink takes StoreLock. Writers that enter through the
 % registry then hold RegLock and want StoreLock, against ClientLifecycle's writers
 % that hold StoreLock and want RegLock: a cycle. ProB finds the deadlock.
@@ -187,7 +187,7 @@ both. (The marker's leaf lock, taken in between, is not modelled.)
 
 The callback route: \texttt{ClientLifecycle.register\_callback} and
 \texttt{ClientLifecycle.detach} take the store lock, then
-\texttt{ListenerLegs} takes the registry lock for its compare-and-write, then
+\texttt{PresenceWrites} takes the registry lock for its compare-and-write, then
 the lifecycle marks and binds the one shared sink and releases both
 (\texttt{RegisterCallback} and \texttt{Detach} in \texttt{menu\_presence.tex}).
 The three steps have the shape of the three above, and the acquisition graph
@@ -206,7 +206,7 @@ gains no edge: StoreLock $\to$ RegLock, as before.
 
 A writer that enters through the registry directly, as
 \texttt{ws\_listen}'s read loop and \texttt{CallbackOperations} did when they
-were handed the registry and \texttt{ListenerLegs}
+were handed the registry and \texttt{PresenceWrites}
 (\texttt{clients.record}, \texttt{legs.register\_callback}).
 
 \begin{schema}{FireHook}
@@ -220,7 +220,7 @@ were handed the registry and \texttt{ListenerLegs}
   regHeld' = regHeld
 \end{schema}
 
-The defect: the registry (or \texttt{ListenerLegs}) fires the mark/bind hook
+The defect: the registry (or \texttt{PresenceWrites}) fires the mark/bind hook
 from inside \texttt{record} or \texttt{register\_callback}, while holding its
 own lock, and binding a sink takes the store lock. The edge RegLock $\to$
 StoreLock closes a cycle with BeginWrite's StoreLock $\to$ RegLock.

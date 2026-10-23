@@ -26,6 +26,8 @@ Details report the client host and the Hub host). Both are in `DESIGN.md`.
 No ADR is drafted in this document; the first draft of DES-100 that lived
 here is superseded by the settled entry.
 
+**Since renamed:** the names `ListenerLegs`, `take_legs` and `listener_for` below were renamed or removed by the DES-101 2026-10-23 round-2 amendment in `DESIGN.md` (`ListenerLegs` is now `PresenceWrites`, `take_legs` is `take_writes`, `listener_for` is gone, `reap_lapsed_locked` is `reap_lapsed`).
+
 ## Problem
 
 Two things an operator needs to know about a window are missing from the

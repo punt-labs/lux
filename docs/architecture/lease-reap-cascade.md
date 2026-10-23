@@ -11,6 +11,8 @@ one known, out-of-scope residual left open by this implementation.
 `docs/architecture/target/target.md`, especially the DES-088 content/visibility
 split and its discussion of what a Hub resend may and may not overwrite.
 
+**Since renamed:** the names `ListenerLegs`, `take_legs` and `listener_for` below were renamed or removed by the DES-101 2026-10-23 round-2 amendment in `DESIGN.md` (`ListenerLegs` is now `PresenceWrites`, `take_legs` is `take_writes`, `listener_for` is gone, `reap_lapsed_locked` is `reap_lapsed`).
+
 I read `target.md` in full, including DES-088, and both `connection_lease_reaping.tex`
 and its coverage audit in full — the Depart/TimedReap/Claim schemas, the I1–I6
 invariants, and the H1/H2/H3 fidelity controls — before writing this. What
