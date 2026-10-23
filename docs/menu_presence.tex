@@ -56,7 +56,8 @@
 % critical section, raise the mark, leave exactly one sink bound, and mark the
 % scenes of a session it revives -- no caller is trusted to remember. The model
 % is stated for the fixed design. The fidelity controls
-% menu_presence_{d1,d3,d4,d5,d6}_buggy.tex, menu_presence_inv1_buggy.tex,
+% menu_presence_{d1,d3,d4,d5,d6}_buggy.tex, menu_presence_redeclare_buggy.tex,
+% menu_presence_inv1_buggy.tex,
 % menu_presence_inv2_buggy.tex and menu_presence_inv1b_buggy.tex each alter
 % exactly one operation and make the corresponding invariant's negation
 % reachable.
@@ -100,7 +101,7 @@
 % _teardown).
 %
 % Type-check:  fuzz docs/menu_presence.tex
-% Model-check: probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 3
+% Model-check: probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 2
 % The safety goals (P1, P2, P3) are reachability checks of their negations; see
 % the Verification section for the exact -goal predicates.
 %
@@ -150,8 +151,8 @@ Three obligations follow, and every defect in this class breaks one of them.
     has any. Zero sinks is the ghost: the departure fires nothing, so
     nothing marks the entry away (INV-1). More than one is the leak (D6): each
     surplus sink pins a dead object for the life of the process.
-  \item[P3 --- the label converges.] When no scene mark is pending, no live
-    session's frame shows a stale label. A lapsed survivor's frame may stay
+  \item[P3 --- the label converges.] No live session's frame shows a stale
+    label unless that session's own scenes carry a pending mark. A lapsed survivor's frame may stay
     stale only until the session is revived, and the revival marks its scenes
     (INV-2).
 \end{description}
@@ -170,11 +171,14 @@ the one fact that matters for presence: whether the session is an agent, and
 the second route to presence, \texttt{callbacks}, is a set of its own. This
 revision no longer elides it: that elision is what hid INV-1.
 
-Two guards of the real code are deliberately not modelled because they only
+Three guards of the real code are deliberately not modelled because they only
 \emph{restrict} behaviour, so leaving them out makes the model a superset and
 the invariants stronger: \texttt{ListenerLegs.register\_callback} declines an
-anonymous session (one that never identified), and the leg it needs must still
-be the one the caller read (``superseded'').
+anonymous session (one that never identified); the leg it needs must still be
+the one the caller read (``superseded''); and \texttt{ClientSession.registering}
+declines a \emph{lapsed} session. The third cannot be reached in the fixed
+design in any case, because \texttt{register\_callback} renews the lease under
+the store lock before it registers.
 
 % ============================================================
 \section{Basic Types and Free Types}
@@ -499,10 +503,41 @@ the callbacks it carried are withdrawn. An agent's presence does not depend on
 its leg, so its session, its identity, its lease and its sink persist; a
 callback-only session loses its entry and the step marks. The mark is owed
 \emph{whenever the withdrawal leaves the earning set}, not only when the
-session was live: a lapsed entry still on the Display must be withdrawn too,
-and the sweep that later departs the now non-earning session cannot be relied
-on to mark (its sink only matters to an earning session). The finding
-INV-1b below makes this concrete.
+session was live: a lapsed entry still on the Display must be withdrawn too.
+(Were the session swept, its still-bound sink would mark it away; but a session
+that is renewed instead is live, non-earning and never swept, so the entry
+would stay for good. INV-1b below makes this concrete.)
+
+\subsection{Re-declaring a kind --- M1}
+
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+A session stops being an agent without departing: an \texttt{mcp-session}'s
+connection is the transport's, \texttt{identify} accepts any kind (a
+\texttt{cli}, say), and the new identity replaces the old in place. It is
+\texttt{ClientLifecycle.identify} with a non-agent identity, and it renews the
+lease. If the session holds callbacks it still earns and the step is a revival
+at most; if not, it leaves \texttt{earns}, and the step marks \emph{whether or
+not the lease had lapsed}, and marks the scenes if it revived. Without this
+transition the model let \texttt{agents} shrink only on departure, and so could
+not show the ghost it leaves under a lease-gated rule.
 
 \subsection{Departure}
 
@@ -519,8 +554,8 @@ INV-1b below makes this concrete.
   lapsed' = lapsed \setminus \{ c? \} \\
   open' = open \\
   sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
-  (c? \in earns \land sinks~c? \geq 1 \land dirty' = fset) \lor
-    (\lnot (c? \in earns \land sinks~c? \geq 1) \land dirty' = dirty) \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
   shown' = shown \\
   sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
   stale' = (stale \setminus \{ c? \}) \cup r?
@@ -529,8 +564,10 @@ INV-1b below makes this concrete.
 The one deregister-and-release step (\texttt{ClientLifecycle.depart}, and
 \texttt{depart\_lapsed} for the sweep): the session leaves the registry, its
 sinks fire and are unbound, and the sink marks the menus. The mark is the
-\emph{sink's} work, so it is raised only if a sink was bound; this is what
-makes a missing sink (D3, D5, INV-1) a ghost. The survivors $r?$ whose name the
+\emph{sink's} work: a bound sink always fires and marks, whether or not the
+session still earns (\texttt{MarkMenusSink} marks unconditionally), and with no
+sink bound nothing marks; this is what makes a missing sink (D3, D5, INV-1) a
+ghost. The survivors $r?$ whose name the
 departure moved (\texttt{Reaped.relabelled}) have their scenes marked and, until
 those scenes are pushed with the new label, show a stale one. Note
 \texttt{open'}$=$\texttt{open}: the registry has no authority over the socket.
@@ -658,13 +695,14 @@ the leak (D6), the third the dangling hook.
 
 \paragraph{P3 --- the label converges.}
 \[
-  sdirty = \emptyset \;\Rightarrow\; stale \cap (registered \setminus lapsed) = \emptyset .
+  (stale \cap (registered \setminus lapsed)) \subseteq sdirty .
 \]
-With no scene mark pending, every live session's frame shows its current label.
-A lapsed session's may not (it is stale until its revival, and the revival
-marks its scenes), and a session whose scenes are marked is about to be repaired
-by the next push. The negation, checked as a goal, is
-$sdirty = \emptyset \land stale \cap (registered \setminus lapsed) \neq \emptyset$.
+Per connection: a live session's frame shows its current label unless that
+session's own scenes carry a pending mark, in which case the next push repairs
+it. A lapsed session's frame may be stale (until its revival, and the revival
+marks its scenes). The global corollary is that with no scene mark pending at
+all, no live frame is stale. The negation, checked as a goal, is
+$(stale \cap (registered \setminus lapsed)) \setminus sdirty \neq \emptyset$.
 
 \paragraph{Why P1 has this shape.}
 The roster the Display shows is read by
@@ -677,20 +715,26 @@ lapsed entry's lingering is cut off by the sweep. D4 is the renewal that ends
 a lapse without marking: the live set grows, the flag stays clear, and conjunct
 (i) fails \emph{for good}, since no later event is owed to repair it.
 
-\paragraph{A finding the model adds: INV-1b.}
-A lapsed callback-only applet whose entry is still on the Display, and whose
-callbacks are then withdrawn (\texttt{Detach}, or a re-attach that clears them),
-changes neither the live set before nor after, so a mark keyed on the
-\emph{live} presence change (\texttt{MenuListing.change\_to} reads
-``unchanged'' for it) is not raised. The session is now registered, non-earning
-and lapsed: the sweep that departs it fires a sink that is no longer owed, and
-the entry stays on the Display until some unrelated mark. The old code avoided
-this by marking by hand in \texttt{ws\_listen}'s \texttt{\_teardown} and by
-\texttt{Attachment.menu\_change}'s ``revised'' on \texttt{attached\_over\_callbacks};
-a new \texttt{ClientLifecycle.detach} that merely announces
-\texttt{PresenceChange} would lose it. The fixed model marks on any loss from
-\texttt{earns}, lapsed or not, and \texttt{menu\_presence\_inv1b\_buggy.tex}
-shows the lease-gated alternative violates P1.
+\paragraph{A finding the model adds: INV-1b, and its root.}
+\texttt{MenuListing.change\_to} compares \emph{lease-filtered} listings, so a
+withdrawal made during a lapse cannot be seen by it: the session is not listed
+before (it is lapsed) and not listed after (it earns nothing), and the verdict
+is ``unchanged''. Take a lapsed callback-only applet whose entry is still on the
+Display, and withdraw its callbacks (\texttt{Detach}, or a re-attach that clears
+them): no mark is raised. A re-attach renews the lease, so the session is then
+live, non-earning, and still shown; it keeps renewing and is never swept, so the
+entry stays \emph{for good} (the trace
+\texttt{AppletAttach(c); RegisterCallback(c); Push; LeaseLapse(c); AppletAttach(c)}
+reaches $dirty = fclear$ with $c$ shown, registered, live and not earning). The
+old code avoided this by marking by hand in \texttt{ws\_listen}'s
+\texttt{\_teardown} and through \texttt{Attachment.menu\_change}'s ``revised''
+on \texttt{attached\_over\_callbacks}; a new \texttt{ClientLifecycle.detach}
+that merely announced \texttt{PresenceChange} would lose it. The same root
+makes \texttt{Redeclare} (M1) a ghost: a lapsed agent re-identifying as a
+\texttt{cli}. The fixed model marks on any loss from \texttt{earns}, lapsed or
+not; \texttt{menu\_presence\_inv1b\_buggy.tex} and
+\texttt{menu\_presence\_redeclare\_buggy.tex} show the lease-gated alternative
+violates P1.
 
 % ============================================================
 \section{The Design the Model Proves}
@@ -722,6 +766,15 @@ for the listener slot, called by \texttt{ClientLifecycle} alone: neither
 \texttt{CallbackOperations} nor \texttt{ws\_listen} is handed it for these
 writes. The read loop and the teardown must no longer reach the registry
 directly.
+
+\paragraph{One rule for withdrawal.}
+The implementation states it once, in \texttt{MenuListing}, where every route
+passes: a session that \emph{earned before, ignoring the lease}, and does not
+earn after, reads ``revised'', whatever the lease says. That single rule covers
+\texttt{detach}, attach-over-callbacks and re-identification as a non-agent
+(\texttt{Detach}, \texttt{AppletAttach} and \texttt{Redeclare} here). A gain
+still reads the lease: not live before and live and earning after is
+``gained''.
 
 \paragraph{A revival marks the scenes (INV-2).}
 The label of a frame is a function of the owner's live session. A lapse leaves
@@ -761,27 +814,26 @@ Type-checking is a \texttt{fuzz} pass:
 P1, P2 and P3 are checked by asking ProB whether their negation is reachable. A
 goal reported \emph{not found} means the invariant holds on every reachable
 state. Two connections are enough to exhibit every defect below, and the
-exhaustive runs recorded with this model are at \texttt{DEFAULT\_SETSIZE 2}
-(18,900 reachable states, 438,697 transitions). The commands below are
-written at size 3; at that size the state space is very much larger and
-\texttt{-p SYMMETRY\_MODE hash} should be added. Run them at size 2 for a
-result in half a minute each.
+exhaustive runs recorded with this model are at \texttt{DEFAULT\_SETSIZE 2},
+as are the commands below (the state count is stated in the coverage audit). A
+third connection was tried and its state space is very much larger; it is not
+part of the recorded evidence.
 
 \begin{verbatim}
   # P1 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # P2 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
-      or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 3
+      or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 2
 
   # P3 (goal NOT found in this, the fixed, spec)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "sdirty = {} & stale /\ (registered \ lapsed) /= {}" \
-    -p DEFAULT_SETSIZE 3
+    -goal "(stale /\ (registered \ lapsed)) \ sdirty /= {}" \
+    -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 The positive outcomes are confirmed reachable, so the invariants are not
@@ -790,40 +842,39 @@ vacuously true of a model that never shows an entry or a stale label:
 \begin{verbatim}
   # an entry is shown with no mark pending (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "dirty = fclear & shown /= {}" -p DEFAULT_SETSIZE 3
+    -goal "dirty = fclear & shown /= {}" -p DEFAULT_SETSIZE 2
 
   # the permitted lingering: a lapsed, unswept agent is still shown with no
   # mark pending (FOUND -- the honest cost of a lapse being time, not an event)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & #c.(c : shown & c : lapsed)" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # a live agent is shown, nothing lapsed, no mark pending (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & lapsed = {} & shown /= {} & earns = shown" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # a callback-only applet is shown (FOUND)
   probcli docs/menu_presence.tex -model_check -nodead \
     -goal "dirty = fclear & #c.(c : shown & c : cbs & c /: agents)" \
-    -p DEFAULT_SETSIZE 3
+    -p DEFAULT_SETSIZE 2
 
   # a lapsed survivor is stale with no scene mark pending (FOUND -- the cost
   # of a label read that ignores lapsed sessions)
   probcli docs/menu_presence.tex -model_check -nodead \
-    -goal "sdirty = {} & #c.(c : stale & c : lapsed)" -p DEFAULT_SETSIZE 3
+    -goal "sdirty = {} & #c.(c : stale & c : lapsed)" -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 Deadlock-freedom and the structural invariant over the full reachable state
 space:
 \begin{verbatim}
-  probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 3
+  probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 The fidelity controls, each differing from this specification in one
-operation (the first five were written against the model before the callback
-route and the label were added, and are carried here unchanged in the
-operations they alter; their statements are in their own headers):
+operation or, for INV-1b and INV-2, in one rule applied at each of its sites
+(each control's header says which):
 
 \begin{verbatim}
   menu_presence_d1_buggy.tex     P1 negation FOUND (identify never marks)
@@ -835,8 +886,11 @@ operations they alter; their statements are in their own headers):
   menu_presence_inv1_buggy.tex   P1 and P2 negations FOUND (register_callback
                                  under the registry lock only: no sink)
   menu_presence_inv1b_buggy.tex  P1 negation FOUND (a lease-gated withdrawal
-                                 mark: a lapsed applet's entry is never
-                                 withdrawn)
+                                 mark: a lapsed applet is re-attached and
+                                 its entry stays, live and non-earning)
+  menu_presence_redeclare_buggy.tex  P1 negation FOUND (the same gate on
+                                 re-declaring a kind: a lapsed agent becomes
+                                 a cli and its entry stays)
   menu_presence_inv2_buggy.tex   P3 negation FOUND (a revival marks the menus
                                  but not the survivor's scenes)
 \end{verbatim}
