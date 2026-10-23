@@ -92,6 +92,14 @@ the reference for how their subsystem is built.
 - [architecture/display-introspection.md](./architecture/display-introspection.md)
   — the `display_state_get` operation: a Hub-mediated, connection-scoped
   proxy to the Display's own widget/frame state (bead `lux-221j`).
+- [architecture/hub-display-narrowing.md](./architecture/hub-display-narrowing.md)
+  — the client door leaves `HubDisplay`: callers hold `ClientLifecycle`,
+  `HubClientRegistry` or `ClientListing`, and every presence change is one
+  store-locked lifecycle step (DES-101, bead `lux-ghhf`).
+- [architecture/connection-rung-design.md](./architecture/connection-rung-design.md)
+  — the connection rung on every owned frame and the observed client and Hub
+  hosts in the `i` popup and Details (DES-100, the DES-099 amendment, bead
+  `lux-xrli`).
 
 ## Deferred Designs
 

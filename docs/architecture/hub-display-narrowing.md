@@ -1,9 +1,12 @@
 # HubDisplay and the Client Door: Design
 
-**Status:** design, amended twice: after the leader's review of `842d4e5d`, and
-after the first implementation attempt was measured against the ratchets (§4.7,
-§4.8, §5, §6 are the second amendment). For the leader's final review. No code is
-written by this document; the implementation write-set is §9.
+**Status:** delivered (DES-101). Amended twice before implementation: after the
+leader's review of `842d4e5d`, and after the first implementation attempt was
+measured against the ratchets (§4.7, §4.8, §5, §6 are the second amendment).
+As built, `HubDisplay` has no client member, and callers hold
+`ClientLifecycle`, `HubClientRegistry` or `ClientListing`. Callback
+registration and detach are lifecycle steps too, so no presence change runs
+outside the store lock (`docs/menu_presence.tex`).
 **Bead:** `lux-ghhf`. Mission `m-2026-10-22-021`; worker `gvr`, evaluator `rmh`.
 **Scope (leader ruling, 2026-10-22):** the *client door* only — how a connection
 becomes, stays and stops being a Hub client, and who may ask. Narrowing

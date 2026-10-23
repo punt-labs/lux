@@ -1018,8 +1018,9 @@ class Rung:
     """One level of a LuxAddress: a stable uniqueness key and a human
     label.  ``key`` is opaque and never elided from the hidden id -- two
     Rungs with the same ``key`` are the same thing by construction.
-    ``label`` is what a human reads, shown only when this rung's
-    ambiguity requires it."""
+    ``label`` is what a human reads, shown when the title rules for
+    this rung say so (the Hub rung while ambiguous, the connection
+    rung on every owned item -- DES-100)."""
     key: str
     label: str
 
@@ -1070,8 +1071,10 @@ session (DES-064), sent with each scene as
 one is sent, so a later push for a departed owner never blanks it, and
 only the empty-push eviction of the frame's oldest scene takes the Hub's
 fresh answer, absence included.  When a departure renumbers the roster,
-the Hub re-pushes the scenes of every survivor whose label moved in the
-same store-locked step as the registry write, so titles follow by push.
+the Hub marks the scenes of every survivor whose label moved for re-push
+in the same store-locked step as the registry write, and a session that
+returns from a lapsed lease has its scenes marked again (a survivor lapsed
+at the first push sent no label then), so titles follow by push.
 
 \texttt{title()} joins on \texttt{" :: "} rather than \texttt{"/"}: a slash
 reads as a filesystem or URL segment --- plausibly clickable, parseable,
@@ -1275,19 +1278,19 @@ session reads its bare title, \texttt{"Vox"}.
 A single Display-side component, \texttt{AddressBook} --- composed
 wherever \texttt{MenuReplica} and \texttt{SceneReplica} already live --- is
 the one place that: tracks the live set of connected \texttt{HubId}s and,
-per Hub, the live set of connections; computes each rung's
-\textbf{ambiguity} (a pure cardinality test) once per frame or menu build,
-the same cadence \texttt{MenuReplica.menu\_model()} already rebuilds every
-frame; and, once a rung \emph{is} shown, reuses DES-064's
-collision-numbering rule and DES-067's \field{(repo, session\_pid)}
-grouping to compute that rung's own \textbf{label text}.  Ambiguity and
-labeling are two different jobs on two different cadences: ambiguity
-decides \emph{whether} a rung shows at all; DES-064/067 numbering decides
-\emph{what} a shown rung's label reads as.  \texttt{AddressBook} exposes
-exactly one construction path, \field{address\_for(hub, connection\_key,
-connection\_label, leaf\_key, leaf\_label) -> LuxAddress}; no leaf renderer
-may construct a \texttt{MenuItem}, a frame title, a scene entry, or a
-tree-node row directly from a bare label ever again.
+per Hub, the live set of connections; answers the \textbf{Hub rung's
+ambiguity} (\texttt{hub\_ambiguous()}, a pure cardinality test) once per
+frame or menu build, the same cadence \texttt{MenuReplica.menu\_model()}
+already rebuilds every frame; and numbers the Hub rung's \textbf{label}
+with DES-064's collision rule (\texttt{pembroke}, \texttt{pembroke (2)}).
+It decides nothing about the connection rung: under DES-100 that rung is
+shown on every owned frame, and its label is the Hub's own roster name for
+the owning session, delivered as \field{frame\_scope\_label} and passed
+through unchanged.  \texttt{AddressBook} exposes exactly one construction
+path, \field{address\_for(hub, connection: Rung, leaf: Rung) ->
+LuxAddress}; no leaf renderer may construct a \texttt{MenuItem}, a frame
+title, a scene entry, or a tree-node row directly from a bare label ever
+again.
 
 \subsection{Aggregated Storage: \texttt{HubScopedStore}}\label{sec:hubscopedstore}
 
@@ -1711,9 +1714,12 @@ on the connection's transport, never a value the client declares:
 \texttt{ClientIdentity} carries no host field and refuses unknown fields,
 so a declaration has nowhere to go.  One reader, \texttt{PeerHost}, takes
 Starlette's socket peer (\field{client.host}) at each front door --- REST,
-the WebSocket listen leg, and MCP streamable HTTP (bound per request
-beside the session key and released with it) --- and the address reaches
-\texttt{ClientSession} in the same write as the identity.  luxd builds its
+the WebSocket listen leg, and MCP streamable HTTP (bound beside the
+session key on each request and released with it; the session's task
+inherits the binding of the request that opened it, so an MCP session
+reports the host it connected from) --- and the address reaches
+\texttt{ClientSession} on every contact the Hub records, identified or
+not.  luxd builds its
 uvicorn config with \field{proxy\_headers=False}: uvicorn otherwise
 rewrites the client address from an \texttt{X-Forwarded-For} header sent by
 any loopback caller, turning a declaration into the ``observed'' host.  A

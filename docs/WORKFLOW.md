@@ -499,8 +499,17 @@ leader.
       line or changed line in any commit. A deleted or rewritten entry is a
       rewritten history.
    2. **Every appended line passed.** Each new audit line reads
-      `"verdict":"pass"`. A `"fail"` line means the ratchet failed and the
-      commit landed anyway.
+      `"verdict":"pass"`, or `"verdict":"rebaseline-files"` for a leader's
+      bless. A `"fail"` line means the ratchet failed and the commit landed
+      anyway. A refused update writes a `"fail"` line with empty deltas. That
+      line is acceptable in two cases only. First, a refusal of a touched
+      file that a later `"rebaseline-files"` line in the same commit blesses.
+      Second, a refusal of files the commit did not touch, whose regression
+      is already on `main`, provided `make check` passes at that commit. The
+      second case is debt, not a pass: the refused files are fixed in the
+      same PR, so `main` stops writing such lines. Workers find regressions
+      with `make check` and run the update targets only once it is clean or
+      blessed.
    3. **Baselines match the audit.** Every metric that moved in a baseline
       file appears as a delta in an appended audit line. A baseline change no
       audit line accounts for was not written by the tool.
