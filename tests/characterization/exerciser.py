@@ -50,6 +50,7 @@ from typing import Any, ClassVar
 from fastmcp.exceptions import ToolError
 
 from punt_lux import tools as tools_pkg
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -268,7 +269,7 @@ class ToolExerciser:
             )
         message = cls._inbox_message(inbox_event) if inbox_event is not None else None
 
-        def _no_writer(_connection_id: ConnectionId) -> None:
+        def _no_writer(_connection_id: ConnectionId, _host: ClientHost) -> None:
             return None
 
         def _stub_next(

@@ -692,6 +692,13 @@
     "max_lcom": 0.5,
     "avg_lcom": 0.5
   },
+  "src/punt_lux/client_host.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/commands/__init__.py": {
     "efferent_coupling": 29.0,
     "public_names": 44.0,
@@ -2352,7 +2359,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/client_lifecycle.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.242,
@@ -2366,7 +2373,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/client_session.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.347,
@@ -2625,7 +2632,7 @@
     "avg_lcom": 0.273
   },
   "src/punt_lux/domain/hub/hub_clients.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.179,
@@ -2674,7 +2681,7 @@
     "avg_lcom": 0.133
   },
   "src/punt_lux/domain/hub/inbox.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 7.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2716,7 +2723,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/listener_legs.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2989,7 +2996,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/session_write.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3345,6 +3352,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/operations/client_facts.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/operations/client_identity_facts.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -3353,11 +3367,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/operations/client_listing.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.5,
-    "avg_lcom": 0.5
+    "max_lcom": 0.2,
+    "avg_lcom": 0.2
   },
   "src/punt_lux/operations/composition_boundary.py": {
     "efferent_coupling": 1.0,
@@ -3745,7 +3759,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/operations/ports.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 5.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3762,8 +3776,8 @@
     "efferent_coupling": 15.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.639,
-    "avg_lcom": 0.639
+    "max_lcom": 0.607,
+    "avg_lcom": 0.607
   },
   "src/punt_lux/operations/reserved_topics.py": {
     "efferent_coupling": 1.0,
@@ -3815,7 +3829,7 @@
     "avg_lcom": 0.6
   },
   "src/punt_lux/operations/scope.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3841,13 +3855,6 @@
     "circular_imports": 0.0,
     "max_lcom": 0.64,
     "avg_lcom": 0.64
-  },
-  "src/punt_lux/peer_host.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
   },
   "src/punt_lux/polled_event.py": {
     "efferent_coupling": 0.0,
@@ -5082,7 +5089,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/tools/server.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 6.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -5274,8 +5281,8 @@
     "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.4,
-    "avg_lcom": 0.4
+    "max_lcom": 0.418,
+    "avg_lcom": 0.418
   },
   "src/punt_lux/ws_transport.py": {
     "efferent_coupling": 6.0,

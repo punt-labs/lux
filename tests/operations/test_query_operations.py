@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -763,12 +764,12 @@ def test_list_clients_reports_the_observed_hosts_and_the_hubs_own() -> None:
     factory.lifecycle.identify(
         ConnectionId("c1"),
         ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
-        "10.0.0.5",
+        ClientHost("10.0.0.5"),
     )
     factory.lifecycle.identify(
         ConnectionId("c1"),
         ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
-        "127.0.0.1",
+        ClientHost("127.0.0.1"),
     )
     hub = Hub()
     ops = QueryOperations(
@@ -779,8 +780,8 @@ def test_list_clients_reports_the_observed_hosts_and_the_hubs_own() -> None:
 
     (client,) = ops.list_clients().clients
 
-    assert client.client_hosts == ["10.0.0.5", "127.0.0.1"]
-    assert client.hub_host == hub.hostname
+    assert client.client_hosts == ("10.0.0.5", "127.0.0.1")
+    assert ops.list_clients().hub_host == hub.hostname
 
 
 def test_a_client_no_host_was_observed_for_reports_no_hosts() -> None:
@@ -795,4 +796,4 @@ def test_a_client_no_host_was_observed_for_reports_no_hosts() -> None:
 
     (client,) = ops.list_clients().clients
 
-    assert client.client_hosts == []
+    assert client.client_hosts == ()

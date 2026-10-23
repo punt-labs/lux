@@ -35,9 +35,9 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import Topic
-from punt_lux.peer_host import PeerHost
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     ClientFrames,
@@ -76,6 +76,8 @@ class HubListenSession:
     """
 
     _ws: WebSocket
+    # Where the socket came from, read once at accept: the connection never moves.
+    _client_host: ClientHost
     _conn: ConnectionId
     _identity: ClientIdentity
     _hub: Hub
@@ -86,6 +88,7 @@ class HubListenSession:
     _loop: asyncio.AbstractEventLoop
     _menus: DirtyMarker
     __slots__ = (
+        "_client_host",
         "_conn",
         "_hub",
         "_identity",
@@ -111,6 +114,7 @@ class HubListenSession:
     ) -> Self:
         self = super().__new__(cls)
         self._ws = ws
+        self._client_host = ClientHost.of_connection(ws)
         self._conn = conn
         self._identity = identity
         self._hub = hub
@@ -161,9 +165,7 @@ class HubListenSession:
         for an agent that newly appears, so nothing here is bound per attach.
         """
         with self._lifecycle.exclusive():
-            self._lifecycle.attach(
-                self._conn, self._identity, self, PeerHost(self._ws).host
-            )
+            self._lifecycle.attach(self._conn, self._identity, self, self._client_host)
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
@@ -204,9 +206,7 @@ class HubListenSession:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._lifecycle.identify(
-                self._conn, self._identity, PeerHost(self._ws).host
-            )
+            self._lifecycle.identify(self._conn, self._identity, self._client_host)
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:

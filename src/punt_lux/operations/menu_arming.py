@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.menu_arming_deps import MenuArmingDeps
+    from punt_lux.operations.scope import Scope
 
 __all__ = ["MenuArming"]
 
@@ -34,7 +34,7 @@ class MenuArming:
         self._deps = deps
         return self
 
-    def admit(self, connection_id: ConnectionId) -> bool:
+    def admit(self, scope: Scope) -> bool:
         """Renew the caller, arm its inbox and menu prune iff identified; report if in.
 
         An identified session has its lease renewed, its inbox writer armed (so a
@@ -45,9 +45,10 @@ class MenuArming:
         nothing.
         """
         deps = self._deps
-        deps.lifecycle.renew(connection_id)
+        connection_id = scope.connection_id
+        deps.lifecycle.renew(connection_id, scope.client_host)
         if deps.clients.identity_of(connection_id) is None:
             return False
-        deps.ensure_writer(connection_id)
+        deps.ensure_writer(connection_id, scope.client_host)
         deps.lifecycle.arm(connection_id)
         return True

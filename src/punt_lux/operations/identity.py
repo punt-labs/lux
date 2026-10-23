@@ -56,7 +56,7 @@ class IdentityOperations:
             identity = ClientIdentity.model_validate(declaration)
         except ValidationError as exc:
             return OpError.from_validation(exc)
-        self._lifecycle.identify(scope.connection_id, identity, scope.peer_host)
+        self._lifecycle.identify(scope.connection_id, identity, scope.client_host)
         return Identified(identity=identity)
 
     def current(self, scope: Scope) -> ClientIdentity | None:

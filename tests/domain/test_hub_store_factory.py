@@ -17,6 +17,7 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
+from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 
 _ALICE = ConnectionId("alice")
@@ -192,7 +193,7 @@ def test_arriving_as_registers_the_caller_and_holds_the_store_lock() -> None:
     contender_in = threading.Event()
 
     def _hold() -> None:
-        with display.arriving_as(_ALICE):
+        with display.arriving_as(Scope(_ALICE)):
             entered.set()
             release.wait(timeout=5.0)
 

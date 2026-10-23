@@ -13,11 +13,13 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.session_write import SessionWrite
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
@@ -58,7 +60,7 @@ class ListenerLegs:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+        host: ClientHost = UNOBSERVED,
     ) -> Attachment:
         """Install ``listener`` as the connection's leg, recording ``identity``.
 
@@ -68,7 +70,7 @@ class ListenerLegs:
         """
         with self._lock:
             write = SessionWrite.recorded(
-                self._sessions.get(connection_id), self._clock(), identity, peer
+                self._sessions.get(connection_id), self._clock(), identity, host
             ).seated(listener)
             self._sessions[connection_id] = write.after
             return write.attachment

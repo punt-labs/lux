@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
@@ -646,3 +647,32 @@ class TestQuarantinedScenes:
         assert isinstance(
             _ops(store, recorder).render(request, scope=_LOCAL), SceneShown
         )
+
+
+def test_an_unidentified_session_that_only_shows_lists_the_host_it_showed_from() -> (
+    None
+):
+    factory = HubStoreFactory()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+    scope = Scope.observed(_CONNECTION, ClientHost("10.0.0.5"))
+
+    _ops(factory.display, _Recorder()).render(request, scope=scope)
+
+    session = factory.clients.session_of(_CONNECTION)
+    assert session is not None
+    assert session.client_hosts == ("10.0.0.5",)
+
+
+def test_a_show_from_an_in_process_caller_records_no_host() -> None:
+    factory = HubStoreFactory()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+
+    _ops(factory.display, _Recorder()).render(request, scope=_LOCAL)
+
+    session = factory.clients.session_of(_CONNECTION)
+    assert session is not None
+    assert session.client_hosts == ()

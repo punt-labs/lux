@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.menu_presence import MenuPresence
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
+    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.departure_cascade import DepartureCascade
@@ -73,21 +75,23 @@ class ClientLifecycle:
         with self._lock.write():
             self._presence = MenuPresence(marker, sink)
 
-    def arrive(self, connection_id: ConnectionId) -> None:
-        """Record the connection's own arrival, renewing its lease."""
+    def arrive(
+        self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED
+    ) -> None:
+        """Record the connection's own arrival, and the host it came from."""
         with self._lock.write():
-            self._settle(connection_id, self._clients.record(connection_id))
+            self._settle(connection_id, self._clients.record(connection_id, None, host))
 
     def identify(
         self,
         connection_id: ConnectionId,
         identity: ClientIdentity,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+        host: ClientHost = UNOBSERVED,
     ) -> None:
         """Record the identity the connection declared, and the host it came from."""
         with self._lock.write():
             self._settle(
-                connection_id, self._clients.record(connection_id, identity, peer)
+                connection_id, self._clients.record(connection_id, identity, host)
             )
 
     def attach(
@@ -95,21 +99,24 @@ class ClientLifecycle:
         connection_id: ConnectionId,
         identity: ClientIdentity,
         listener: CallbackListener,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+        host: ClientHost = UNOBSERVED,
     ) -> None:
-        """Take the connection's listener slot, recording ``identity`` and ``peer``."""
+        """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
             attachment = self._clients.legs.attach(
-                connection_id, identity, listener, peer
+                connection_id, identity, listener, host
             )
             self._announce(connection_id, attachment.menu_change)
-            self._retitle(connection_id, named=attachment.identified)
+            self._resend_scenes(connection_id, owed=attachment.restated)
 
-    def renew(self, connection_id: ConnectionId) -> None:
-        """Renew the lease iff registered; reviving a lapsed agent is announced."""
+    def renew(self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED) -> None:
+        """Renew the lease iff registered; reviving a lapsed agent is announced.
+
+        The contact's ``host`` is recorded on the session it renews.
+        """
         with self._lock.write():
             self._announce(
-                connection_id, self._clients.renew_if_registered(connection_id)
+                connection_id, self._clients.renew_if_registered(connection_id, host)
             )
 
     def arm(self, connection_id: ConnectionId) -> None:
@@ -149,11 +156,11 @@ class ClientLifecycle:
         self._presence.announce(change, connection_id, self._cascade)
 
     def _settle(self, connection_id: ConnectionId, write: SessionWrite) -> None:
-        """Pay what a registry write owes: the menu, and a retitle if it named."""
+        """Pay what a registry write owes: the menu, and a resend if it restated."""
         self._announce(connection_id, write.presence)
-        self._retitle(connection_id, named=write.identified)
+        self._resend_scenes(connection_id, owed=write.restated)
 
-    def _retitle(self, connection_id: ConnectionId, *, named: bool) -> None:
-        """Mark the connection's own scenes dirty if it has just been named."""
-        if named:
+    def _resend_scenes(self, connection_id: ConnectionId, *, owed: bool) -> None:
+        """Mark the connection's own scenes dirty if the write restated its session."""
+        if owed:
             self._presence.scenes_renamed(self._owners.scenes_of((connection_id,)))

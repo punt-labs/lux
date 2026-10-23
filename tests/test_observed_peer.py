@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.requests import Request
 
+from punt_lux.client_host import UNOBSERVED, ClientHost, ClientHosts
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -30,11 +31,10 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.mcp_endpoint import McpAsgiApp
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.scope import Scope
-from punt_lux.peer_host import PeerHost
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.tools.server import (
     bind_session,
-    current_peer,
+    current_client_host,
     current_session,
     unbind_session,
 )
@@ -63,38 +63,44 @@ def _request(
     return Request(scope)
 
 
-class TestClientSessionPeers:
+class TestClientSessionHosts:
     def test_a_new_session_has_seen_no_host(self) -> None:
-        assert ClientSession(0.0).peers == ()
+        assert ClientSession(0.0).client_hosts == ()
 
     def test_a_host_is_recorded(self) -> None:
-        assert ClientSession(0.0).observed_from("127.0.0.1").peers == ("127.0.0.1",)
+        assert ClientSession(0.0).observed_from(
+            ClientHost("127.0.0.1")
+        ).client_hosts == ("127.0.0.1",)
 
     def test_an_ipv6_loopback_is_recorded_as_reported(self) -> None:
-        assert ClientSession(0.0).observed_from("::1").peers == ("::1",)
+        assert ClientSession(0.0).observed_from(ClientHost("::1")).client_hosts == (
+            "::1",
+        )
 
     def test_no_peer_records_nothing(self) -> None:
         session = ClientSession(0.0)
 
-        assert session.observed_from(None) is session
+        assert session.observed_from(UNOBSERVED) is session
 
     def test_a_repeated_host_is_not_duplicated(self) -> None:
-        once = ClientSession(0.0).observed_from("127.0.0.1")
+        once = ClientSession(0.0).observed_from(ClientHost("127.0.0.1"))
 
-        assert once.observed_from("127.0.0.1").peers == ("127.0.0.1",)
+        assert once.observed_from(ClientHost("127.0.0.1")).client_hosts == (
+            "127.0.0.1",
+        )
 
     def test_distinct_hosts_keep_first_seen_order(self) -> None:
         session = (
             ClientSession(0.0)
-            .observed_from("10.0.0.5")
-            .observed_from("127.0.0.1")
-            .observed_from("10.0.0.5")
+            .observed_from(ClientHost("10.0.0.5"))
+            .observed_from(ClientHost("127.0.0.1"))
+            .observed_from(ClientHost("10.0.0.5"))
         )
 
-        assert session.peers == ("10.0.0.5", "127.0.0.1")
+        assert session.client_hosts == ("10.0.0.5", "127.0.0.1")
 
     def test_every_rebuild_carries_the_hosts_forward(self) -> None:
-        seen = ClientSession(0.0).observed_from("127.0.0.1")
+        seen = ClientSession(0.0).observed_from(ClientHost("127.0.0.1"))
 
         class _Leg:
             def wake(self) -> None:
@@ -114,48 +120,56 @@ class TestClientSessionPeers:
         )
 
         assert all(session is not None for session in rebuilt)
-        assert [s.peers for s in rebuilt if s is not None] == [("127.0.0.1",)] * 4
+        assert [s.client_hosts for s in rebuilt if s is not None] == [
+            ("127.0.0.1",)
+        ] * 4
         assert callback is not None
-        assert callback.peers == ("127.0.0.1",)
+        assert callback.client_hosts == ("127.0.0.1",)
 
 
-class TestScopePeer:
+class TestScopeClientHost:
     def test_defaults_to_no_peer(self) -> None:
-        assert Scope(_CONN).peer_host is None
+        assert Scope(_CONN).client_host == UNOBSERVED
 
     def test_carries_the_peer_it_is_given(self) -> None:
-        assert Scope(_CONN, "127.0.0.1").peer_host == "127.0.0.1"
+        assert Scope.observed(_CONN, ClientHost("127.0.0.1")).client_host == ClientHost(
+            "127.0.0.1"
+        )
 
     def test_two_scopes_for_one_connection_stay_equal_whatever_the_peer(self) -> None:
-        assert Scope(_CONN, "127.0.0.1") == Scope(_CONN, "10.0.0.5")
-        assert hash(Scope(_CONN, "127.0.0.1")) == hash(Scope(_CONN, None))
+        here = Scope.observed(_CONN, ClientHost("127.0.0.1"))
+        there = Scope.observed(_CONN, ClientHost("10.0.0.5"))
+        assert here == there
+        assert hash(here) == hash(Scope.in_process(_CONN))
 
 
-class TestPeerHost:
+class TestClientHost:
     def test_reads_the_socket_peer(self) -> None:
-        assert PeerHost(_request(("127.0.0.1", 5000))).host == "127.0.0.1"
+        assert ClientHost.of_connection(_request(("127.0.0.1", 5000))) == ClientHost(
+            "127.0.0.1"
+        )
 
     def test_reads_an_ipv6_peer(self) -> None:
-        assert PeerHost(_request(("::1", 5000))).host == "::1"
+        assert ClientHost.of_connection(_request(("::1", 5000))) == ClientHost("::1")
 
-    def test_a_server_that_reports_no_peer_gives_none(self) -> None:
-        assert PeerHost(_request(None)).host is None
+    def test_a_server_that_reports_no_peer_is_unobserved(self) -> None:
+        assert ClientHost.of_connection(_request(None)) == UNOBSERVED
 
     def test_never_reads_a_forwarding_header(self) -> None:
         request = _request(("127.0.0.1", 5000), {"X-Forwarded-For": "10.9.9.9"})
 
-        assert PeerHost(request).host == "127.0.0.1"
+        assert ClientHost.of_connection(request) == ClientHost("127.0.0.1")
 
 
 class TestRegistryRecordsThePeer:
     def test_identifying_records_the_peer_in_the_same_write(self) -> None:
         factory = HubStoreFactory(hub=Hub())
 
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ("127.0.0.1",)
+        assert session.client_hosts == ("127.0.0.1",)
 
     def test_a_contact_that_reports_no_peer_records_none(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -164,31 +178,31 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ()
+        assert session.client_hosts == ()
 
     def test_rest_then_websocket_from_one_host_reports_one_host(self) -> None:
         factory = HubStoreFactory(hub=Hub())
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
 
         class _Leg:
             def wake(self) -> None:
                 """Occupies the slot only."""
 
-        factory.lifecycle.attach(_CONN, _AGENT, _Leg(), "127.0.0.1")
+        factory.lifecycle.attach(_CONN, _AGENT, _Leg(), ClientHost("127.0.0.1"))
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ("127.0.0.1",)
+        assert session.client_hosts == ("127.0.0.1",)
 
     def test_a_second_distinct_host_appends_in_first_seen_order(self) -> None:
         factory = HubStoreFactory(hub=Hub())
-        factory.lifecycle.identify(_CONN, _AGENT, "10.0.0.5")
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
-        factory.lifecycle.identify(_CONN, _AGENT, "10.0.0.5")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("10.0.0.5"))
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("10.0.0.5"))
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ("10.0.0.5", "127.0.0.1")
+        assert session.client_hosts == ("10.0.0.5", "127.0.0.1")
 
     def test_a_declared_host_is_not_a_field_of_an_identity(self) -> None:
         with pytest.raises(ValidationError):
@@ -221,12 +235,12 @@ class TestAHostFlowsToTheFacts:
         factory = HubStoreFactory(hub=Hub())
         marker = _Marker()
         factory.lifecycle.present_as(marker, MarkMenusSink(marker))
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         scene = SceneId("s1")
         factory.display.replace_scene(_CONN, scene, [TextElement(id="t", content="x")])
         marker.scenes.clear()
 
-        factory.lifecycle.identify(_CONN, _AGENT, "10.0.0.5")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("10.0.0.5"))
 
         assert marker.scenes == [scene]
 
@@ -234,13 +248,13 @@ class TestAHostFlowsToTheFacts:
         factory = HubStoreFactory(hub=Hub())
         marker = _Marker()
         factory.lifecycle.present_as(marker, MarkMenusSink(marker))
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
         factory.display.replace_scene(
             _CONN, SceneId("s1"), [TextElement(id="t", content="x")]
         )
         marker.scenes.clear()
 
-        factory.lifecycle.identify(_CONN, _AGENT, "127.0.0.1")
+        factory.lifecycle.identify(_CONN, _AGENT, ClientHost("127.0.0.1"))
 
         assert marker.scenes == []
 
@@ -252,12 +266,12 @@ class TestIdentityOperationsPassesThePeer:
 
         ops.identify(
             {"kind": "mcp-session", "name": "claude", "repo": "/w/lux"},
-            scope=Scope(_CONN, "10.0.0.5"),
+            scope=Scope.observed(_CONN, ClientHost("10.0.0.5")),
         )
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ("10.0.0.5",)
+        assert session.client_hosts == ("10.0.0.5",)
 
     def test_a_scope_without_a_peer_records_none(self) -> None:
         factory = HubStoreFactory(hub=Hub())
@@ -267,43 +281,49 @@ class TestIdentityOperationsPassesThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
-        assert session.peers == ()
+        assert session.client_hosts == ()
 
 
 class TestMcpBinding:
     def test_the_default_peer_is_none(self) -> None:
-        assert current_peer() is None
+        assert current_client_host() == UNOBSERVED
 
     def test_a_binding_carries_key_and_peer_and_releases_both(self) -> None:
-        binding = bind_session("sess", "127.0.0.1")
+        binding = bind_session("sess", ClientHost("127.0.0.1"))
         try:
-            assert (current_session(), current_peer()) == ("sess", "127.0.0.1")
+            assert (current_session(), current_client_host()) == (
+                "sess",
+                ClientHost("127.0.0.1"),
+            )
         finally:
             unbind_session(binding)
 
-        assert (current_session(), current_peer()) == ("local", None)
+        assert (current_session(), current_client_host()) == ("local", UNOBSERVED)
 
     def test_a_binding_without_a_peer_leaves_it_unknown(self) -> None:
         binding = bind_session("sess")
         try:
-            assert current_peer() is None
+            assert current_client_host() == UNOBSERVED
         finally:
             unbind_session(binding)
 
     def test_bindings_nest_and_unwind(self) -> None:
-        outer = bind_session("outer", "10.0.0.5")
-        inner = bind_session("inner", "::1")
-        assert current_peer() == "::1"
+        outer = bind_session("outer", ClientHost("10.0.0.5"))
+        inner = bind_session("inner", ClientHost("::1"))
+        assert current_client_host() == ClientHost("::1")
         unbind_session(inner)
-        assert (current_session(), current_peer()) == ("outer", "10.0.0.5")
+        assert (current_session(), current_client_host()) == (
+            "outer",
+            ClientHost("10.0.0.5"),
+        )
         unbind_session(outer)
 
     def test_the_tool_scope_carries_the_bound_peer(self) -> None:
         from punt_lux.tools import tools as core_tools
 
-        binding = bind_session("sess", "127.0.0.1")
+        binding = bind_session("sess", ClientHost("127.0.0.1"))
         try:
-            assert core_tools.scope().peer_host == "127.0.0.1"
+            assert core_tools.scope().client_host == ClientHost("127.0.0.1")
             assert core_tools.scope().connection_id == ConnectionId("sess")
         finally:
             unbind_session(binding)
@@ -311,14 +331,14 @@ class TestMcpBinding:
     def test_a_tool_scope_with_no_binding_has_no_peer(self) -> None:
         from punt_lux.tools import tools as core_tools
 
-        assert core_tools.scope().peer_host is None
+        assert core_tools.scope().client_host == UNOBSERVED
 
 
 @final
 class _CapturingManager:
     """Stands in for the SDK's session manager: records what the context holds."""
 
-    seen: list[tuple[str, str | None]]
+    seen: list[tuple[str, ClientHost]]
     # None = the request is served; an exception = the SDK raises after the
     # context was read, as a failing session would.
     _failure: Exception | None
@@ -331,7 +351,7 @@ class _CapturingManager:
         return self
 
     async def handle_request(self, scope: Any, receive: Any, send: Any) -> None:
-        self.seen.append((current_session(), current_peer()))
+        self.seen.append((current_session(), current_client_host()))
         if self._failure is not None:
             raise self._failure
 
@@ -367,8 +387,8 @@ class TestMcpDoor:
     async def test_binds_the_socket_peer_beside_the_session_key(self) -> None:
         manager = await _drive(("127.0.0.1", 5000))
 
-        assert manager.seen == [("abc", "127.0.0.1")]
-        assert (current_session(), current_peer()) == ("local", None)
+        assert manager.seen == [("abc", ClientHost("127.0.0.1"))]
+        assert (current_session(), current_client_host()) == ("local", UNOBSERVED)
 
     @pytest.mark.anyio
     async def test_a_raising_manager_still_releases_both_bindings(self) -> None:
@@ -378,8 +398,8 @@ class TestMcpDoor:
             await _drive(("127.0.0.1", 5000), manager=manager)
 
         # The body saw both bindings, and neither outlives it.
-        assert manager.seen == [("abc", "127.0.0.1")]
-        assert (current_session(), current_peer()) == ("local", None)
+        assert manager.seen == [("abc", ClientHost("127.0.0.1"))]
+        assert (current_session(), current_client_host()) == ("local", UNOBSERVED)
 
     @pytest.mark.anyio
     async def test_a_raising_manager_releases_a_peerless_binding_too(self) -> None:
@@ -388,20 +408,20 @@ class TestMcpDoor:
         with pytest.raises(RuntimeError, match="the session failed"):
             await _drive(None, manager=manager)
 
-        assert manager.seen == [("abc", None)]
-        assert (current_session(), current_peer()) == ("local", None)
+        assert manager.seen == [("abc", UNOBSERVED)]
+        assert (current_session(), current_client_host()) == ("local", UNOBSERVED)
 
     @pytest.mark.anyio
     async def test_an_ipv6_peer_is_bound_as_reported(self) -> None:
         manager = await _drive(("::1", 5000))
 
-        assert manager.seen == [("abc", "::1")]
+        assert manager.seen == [("abc", ClientHost("::1"))]
 
     @pytest.mark.anyio
     async def test_a_request_with_no_peer_binds_none(self) -> None:
         manager = await _drive(None)
 
-        assert manager.seen == [("abc", None)]
+        assert manager.seen == [("abc", UNOBSERVED)]
 
 
 class TestRestDoor:
@@ -419,10 +439,10 @@ class TestRestDoor:
 
         scope = caller.resolve(request)
 
-        assert scope.peer_host == "127.0.0.1"
+        assert scope.client_host == ClientHost("127.0.0.1")
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.peers == ("127.0.0.1",)
+        assert session.client_hosts == ("127.0.0.1",)
 
     def test_an_ipv6_peer_is_recorded(self) -> None:
         caller, factory = self._caller()
@@ -431,7 +451,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.peers == ("::1",)
+        assert session.client_hosts == ("::1",)
 
     def test_a_forwarding_header_is_not_the_recorded_host(self) -> None:
         caller, factory = self._caller()
@@ -441,7 +461,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.peers == ("127.0.0.1",)
+        assert session.client_hosts == ("127.0.0.1",)
 
     def test_a_request_with_no_peer_records_none(self) -> None:
         caller, factory = self._caller()
@@ -450,7 +470,7 @@ class TestRestDoor:
 
         session = factory.clients.session_of(scope.connection_id)
         assert session is not None
-        assert session.peers == ()
+        assert session.client_hosts == ()
 
     def test_an_unidentified_request_is_still_refused(self) -> None:
         caller, _ = self._caller()
@@ -509,7 +529,7 @@ class TestWebSocketDoor:
             session = factory.clients.session_of(conn)
             assert session is not None
             # Starlette's TestClient reports the peer host it simulates.
-            assert session.peers == ("testclient",)
+            assert session.client_hosts == ("testclient",)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -519,3 +539,41 @@ def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
             return
         time.sleep(0.01)
     raise AssertionError("condition not reached within timeout")
+
+
+class TestAnEmptyAddressIsNoAddress:
+    def test_an_empty_host_is_unobserved(self) -> None:
+        assert ClientHost.of("") == UNOBSERVED
+        assert not ClientHost("").observed
+
+    def test_a_real_host_is_observed(self) -> None:
+        assert ClientHost.of("10.0.0.5").observed
+
+    def test_an_empty_host_joins_no_list(self) -> None:
+        hosts = ClientHosts(("10.0.0.5",))
+
+        assert hosts.with_host(ClientHost("")) is hosts
+        assert ClientHosts().with_host(ClientHost("")).names == ()
+
+    def test_a_new_host_joins_last_and_a_known_one_not_again(self) -> None:
+        hosts = ClientHosts().with_host(ClientHost("a")).with_host(ClientHost("b"))
+
+        assert hosts.names == ("a", "b")
+        assert hosts.with_host(ClientHost("a")) is hosts
+
+    def test_an_empty_host_is_never_recorded_on_a_session(self) -> None:
+        session = ClientSession(0.0).observed_from(ClientHost(""))
+
+        assert session.client_hosts == ()
+
+    def test_a_server_reporting_an_empty_peer_is_unobserved(self) -> None:
+        assert ClientHost.of_connection(_request(("", 5000))) == UNOBSERVED
+
+    def test_hosts_are_values_equal_by_address_and_hashable(self) -> None:
+        assert {ClientHost("a"), ClientHost("a"), ClientHost("b")} == {
+            ClientHost("a"),
+            ClientHost("b"),
+        }
+
+    def test_a_host_is_not_equal_to_a_bare_string(self) -> None:
+        assert ClientHost("a") != "a"

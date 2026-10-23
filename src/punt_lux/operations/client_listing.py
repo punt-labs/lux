@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.operations.client_facts import ClientFacts
 from punt_lux.operations.models.query_clients import ClientList, HubClient
 from punt_lux.operations.scene_listing import SceneListing
 
@@ -64,16 +65,18 @@ class ClientListing:
             clients=[
                 self._client(entry, now)
                 for entry in self._clients.live_sessions().items()
-            ]
+            ],
+            hub_host=self._hub.hostname,
         )
 
     def named(self, connection_id: ConnectionId) -> NamedSession | None:
         """Read one connection's live session and menu name together, or ``None``."""
         return self._clients.named_sessions().named(connection_id, _UNNAMED)
 
-    def facts(self, named: NamedSession) -> HubClient:
+    def facts(self, named: NamedSession) -> ClientFacts:
         """Return one session's facts — what Details renders and :meth:`read` lists."""
-        return self._client((named.connection_id, named.session), time.monotonic())
+        client = self._client((named.connection_id, named.session), time.monotonic())
+        return ClientFacts(client, self._hub.hostname)
 
     def _client(
         self, entry: tuple[ConnectionId, ClientSession], now: float
@@ -103,6 +106,5 @@ class ClientListing:
             ),
             writer_bound=self._hub.has_writer(connection_id),
             inbox_depth=self._inbox_depth(connection_id),
-            client_hosts=list(session.peers),
-            hub_host=self._hub.hostname,
+            client_hosts=session.client_hosts,
         )

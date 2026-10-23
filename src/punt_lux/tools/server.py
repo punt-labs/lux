@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import logging
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.tools.session_binding import SessionBinding
+
+if TYPE_CHECKING:
+    from punt_lux.client_host import ClientHost
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +52,14 @@ mcp = FastMCP(
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
-# The host the transport observed when the session's task was spawned. None on
-# stdio and in-process calls, which have no peer; the row then reads "unknown".
-_peer_host: ContextVar[str | None] = ContextVar("peer_host", default=None)
+# The host the transport observed when the session's task was spawned. Unobserved
+# on stdio and in-process calls, which have no peer; the row then reads "unknown".
+_client_host: ContextVar[ClientHost] = ContextVar("client_host", default=UNOBSERVED)
 
 
-def bind_session(session_key: str, peer: str | None = None) -> SessionBinding:
+def bind_session(
+    session_key: str, client_host: ClientHost = UNOBSERVED
+) -> SessionBinding:
     """Bind the calling context to an MCP session; return the binding to release.
 
     luxd's transport leg binds a session before the SDK spawns its task, so the
@@ -60,13 +67,12 @@ def bind_session(session_key: str, peer: str | None = None) -> SessionBinding:
     -- to every tool and the cleanup cascade. The returned binding releases both
     via :func:`unbind_session`.
     """
-    return SessionBinding(_session_key.set(session_key), _peer_host.set(peer))
+    return SessionBinding(_session_key.set(session_key), _client_host.set(client_host))
 
 
 def unbind_session(binding: SessionBinding) -> None:
     """Release a session binding created by :func:`bind_session`."""
-    _peer_host.reset(binding.peer)
-    _session_key.reset(binding.key)
+    binding.release()
 
 
 def current_session() -> str:
@@ -74,6 +80,6 @@ def current_session() -> str:
     return _session_key.get()
 
 
-def current_peer() -> str | None:
+def current_client_host() -> ClientHost:
     """The host observed when the calling context's session connected, if any."""
-    return _peer_host.get()
+    return _client_host.get()

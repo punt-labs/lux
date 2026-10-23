@@ -23,6 +23,7 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuDepartureSink
+from punt_lux.operations.scope import Scope
 
 
 class _Clock:
@@ -80,7 +81,7 @@ def _armed(
     return MenuArmingDeps(
         lifecycle,
         factory.clients,
-        lambda _cid: None,  # ensure_writer: incidental to the departure leg
+        lambda _cid, _host: None,  # ensure_writer: incidental to the departure leg
     ).arming()
 
 
@@ -101,7 +102,9 @@ def test_a_lease_lapse_departure_withdraws_the_sessions_menu() -> None:
     conn = ConnectionId("agent")
     lifecycle.identify(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
-    assert arming.admit(conn) is True  # binds the registry prune as a departure sink
+    assert (
+        arming.admit(Scope(conn)) is True
+    )  # binds the registry prune as a departure sink
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
     reaped = lifecycle.depart_lapsed(frozenset())  # the timer's own sweep, nothing else
@@ -132,7 +135,7 @@ def test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push() -> None:
     conn = ConnectionId("agent")
     lifecycle.identify(conn, _cli("agent"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
-    assert arming.admit(conn) is True
+    assert arming.admit(Scope(conn)) is True
 
     clock.advance(91.0)  # past the 90s cli lease; nothing renews
     assert lifecycle.depart_lapsed(frozenset()) == frozenset({conn})
@@ -155,7 +158,7 @@ def test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities() -> None
     conn = ConnectionId("steady")
     lifecycle.identify(conn, _cli("steady"))
     registry.set_menus(conn, [Menu(label="Tools", items=[])])
-    assert arming.admit(conn) is True
+    assert arming.admit(Scope(conn)) is True
 
     for _ in range(3):
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time

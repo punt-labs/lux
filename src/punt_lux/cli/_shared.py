@@ -194,7 +194,7 @@ def _parse_as(as_: str | None) -> dict[str, str]:
 
 def scope_for(identity: ClientIdentity) -> Scope:
     """Compose the :class:`Scope` the identity's writes are keyed under."""
-    return Scope(identity.connection_id)
+    return Scope.in_process(identity.connection_id)
 
 
 def read_json_payload(inline: str | None, from_file: Path | None) -> dict[str, object]:

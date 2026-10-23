@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Final, Self, cast, final
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from punt_lux.client_host import ClientHost
 from punt_lux.commands import (
     Ctx as CommandCtx,
     SessionOps,
@@ -33,7 +34,6 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.scope import Scope
-from punt_lux.peer_host import PeerHost
 
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
@@ -103,7 +103,9 @@ class RestCaller:
                 detail=_CHALLENGE_REASON,
                 headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
             )
-        scope = Scope(self._connection_for(declaration), PeerHost(request).host)
+        scope = Scope.observed(
+            self._connection_for(declaration), ClientHost.of_connection(request)
+        )
         ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=ANONYMOUS_REST)
         outcome: Identified | OpError = asyncio.run(
             session_identify_command.execute(ctx, declaration, scope=scope)

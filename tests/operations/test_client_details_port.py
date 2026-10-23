@@ -68,7 +68,7 @@ def _ports() -> HubPorts:
     """The collaborators a composition root hands the recipe, with no display."""
     return HubPorts(
         element_factory=hub_element_factory,
-        ensure_writer=lambda _connection: None,
+        ensure_writer=lambda _connection, _host: None,
         next_event=lambda _connection, _timeout: None,
         inbox_depth=inbox_depth_for,
         display_port=cast("DisplayPort", _ForbiddenPort()),

@@ -85,7 +85,9 @@ class _Ops:
         self.clients = clients
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
+        arming = MenuArming(
+            MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None)
+        )
         self.ops = MenuOperations(
             MenuOperationsDeps(
                 registry=self.registry,
@@ -361,14 +363,14 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     lifecycle = factory.lifecycle
     clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None))
 
     original_admit = MenuArming.admit
     original_set_menus = HubMenuRegistry.set_menus
 
-    def _rec_admit(self: MenuArming, connection_id: ConnectionId) -> bool:
+    def _rec_admit(self: MenuArming, scope: Scope) -> bool:
         events.append("admit")
-        return original_admit(self, connection_id)
+        return original_admit(self, scope)
 
     def _rec_set_menus(
         self: HubMenuRegistry,
@@ -414,7 +416,7 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     lifecycle = factory.lifecycle
     clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid: None))
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None))
 
     original_set_menus = HubMenuRegistry.set_menus
 

@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, cast, final
 
 import pytest
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub import hub, hub_lifecycle
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory, hub_clients
 from punt_lux.domain.hub.inbox import (
     drop_session,
     ensure_writer,
@@ -160,7 +161,7 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
     )
-    ops = PubSubOperations(Hub(), lifecycle, _ports(lambda _c: None, _no_event))
+    ops = PubSubOperations(Hub(), lifecycle, _ports(lambda _c, _h: None, _no_event))
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
@@ -227,3 +228,30 @@ def test_non_reserved_topic_is_unaffected(scope: Scope) -> None:
     )
     assert isinstance(published, Published)
     assert published.delivered == 1
+
+
+def test_an_unidentified_session_that_only_subscribes_lists_its_host(
+    scope: Scope,
+) -> None:
+    observed = Scope.observed(scope.connection_id, ClientHost("10.0.0.5"))
+
+    _ops().subscribe("work.saved", scope=observed)
+
+    session = hub_clients.session_of(scope.connection_id)
+    assert session is not None
+    assert session.client_hosts == ("10.0.0.5",)
+
+
+def test_a_later_contact_from_a_second_host_is_listed_after_the_first(
+    scope: Scope,
+) -> None:
+    ops = _ops()
+    ops.subscribe(
+        "work.saved", scope=Scope.observed(scope.connection_id, ClientHost("10.0.0.5"))
+    )
+
+    ops.receive(scope=Scope.observed(scope.connection_id, ClientHost("127.0.0.1")))
+
+    session = hub_clients.session_of(scope.connection_id)
+    assert session is not None
+    assert session.client_hosts == ("10.0.0.5", "127.0.0.1")

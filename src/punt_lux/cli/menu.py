@@ -89,4 +89,4 @@ def set_(
         typer.echo(f"error: {request.reason}", err=True)
         raise typer.Exit(code=1)
     ctx: Ctx[MenuOps] = Ctx(ops=connect_client(identity=identity), identity=identity)
-    run(menu_set(ctx, request, scope=Scope(identity.connection_id)), flags)
+    run(menu_set(ctx, request, scope=Scope.in_process(identity.connection_id)), flags)

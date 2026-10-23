@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from starlette.requests import Request
 
-from punt_lux.peer_host import PeerHost
+from punt_lux.client_host import ClientHost
 from punt_lux.session_key import SessionKey
 from punt_lux.tools.server import bind_session, unbind_session
 
@@ -38,7 +38,7 @@ class McpAsgiApp:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope)
         session = SessionKey.from_request(request.query_params.get("session_key", ""))
-        binding = bind_session(session.value, PeerHost(request).host)
+        binding = bind_session(session.value, ClientHost.of_connection(request))
         try:
             await self._manager.handle_request(scope, receive, send)
         finally:

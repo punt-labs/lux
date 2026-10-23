@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
@@ -291,7 +292,9 @@ def test_list_clients_is_empty_without_sessions() -> None:
     client = make_client()
     resp = client.get("/clients")
     assert resp.status_code == 200
-    assert resp.json() == {"kind": "ok", "clients": []}
+    body = resp.json()
+    assert (body["kind"], body["clients"]) == ("ok", [])
+    assert body["hub_host"]  # the Hub's own fact, reported even with no client
 
 
 def test_a_permanent_lease_survives_the_json_round_trip() -> None:
@@ -458,7 +461,9 @@ def test_list_clients_reports_the_hosts_and_matches_the_library_read() -> None:
     """
     factory = HubStoreFactory()
     factory.lifecycle.identify(
-        ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"), "127.0.0.1"
+        ConnectionId("voxd"),
+        ClientIdentity(kind="app", name="voxd"),
+        ClientHost("127.0.0.1"),
     )
     client = make_client(factory=factory)
 
@@ -466,6 +471,7 @@ def test_list_clients_reports_the_hosts_and_matches_the_library_read() -> None:
 
     (reported,) = body["clients"]
     assert reported["client_hosts"] == ["127.0.0.1"]
-    assert isinstance(reported["hub_host"], str)
-    assert reported["hub_host"]
-    assert ClientList.model_validate(body).clients[0].client_hosts == ["127.0.0.1"]
+    assert "hub_host" not in reported
+    assert isinstance(body["hub_host"], str)
+    assert body["hub_host"]
+    assert ClientList.model_validate(body).clients[0].client_hosts == ("127.0.0.1",)

@@ -23,11 +23,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import ClientHosts
 from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
 
 if TYPE_CHECKING:
+    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.lease_term import LeaseTerm
@@ -44,8 +46,8 @@ class ClientSession:
     _identity: ClientIdentity | None
     _lease: SessionLease
     _slot: ListenerSlot
-    _peers: tuple[str, ...]
-    __slots__ = ("_connected_at", "_identity", "_lease", "_peers", "_slot")
+    _hosts: ClientHosts
+    __slots__ = ("_connected_at", "_hosts", "_identity", "_lease", "_slot")
 
     def __new__(
         cls,
@@ -53,7 +55,7 @@ class ClientSession:
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
         slot: ListenerSlot | None = None,
-        peers: tuple[str, ...] = (),
+        client_hosts: tuple[str, ...] = (),
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -63,7 +65,7 @@ class ClientSession:
         )
         # Absent means the empty slot — the default for a session with no leg yet.
         self._slot = slot if slot is not None else ListenerSlot()
-        self._peers = peers
+        self._hosts = ClientHosts(client_hosts)
         return self
 
     @property
@@ -77,28 +79,28 @@ class ClientSession:
         return self._identity
 
     @property
-    def peers(self) -> tuple[str, ...]:
+    def client_hosts(self) -> tuple[str, ...]:
         """The distinct hosts the Hub observed this session connecting from.
 
         First-seen order. Observed on the transport, never declared: the identity
         carries no host field, and no header is read (DES-099).
         """
-        return self._peers
+        return self._hosts.names
 
-    def observed_from(self, host: str | None) -> ClientSession:
+    def observed_from(self, host: ClientHost) -> ClientSession:
         """Return this session also known to have been reached from ``host``.
 
-        ``None`` is a transport that reported no peer, and records nothing; a host
-        already seen is not repeated.
+        An unobserved contact records nothing; a host already seen is not repeated.
         """
-        if host is None or host in self._peers:
+        hosts = self._hosts.with_host(host)
+        if hosts is self._hosts:
             return self
         return ClientSession(
             self._connected_at,
             self._identity,
             self._lease,
             self._slot,
-            (*self._peers, host),
+            hosts.names,
         )
 
     @property
@@ -153,9 +155,12 @@ class ClientSession:
 
     def renewed(self, now: float) -> ClientSession:
         """Return this session with its lease renewed at ``now``; any contact renews."""
-        lease = self._lease.renewed(now)
         return ClientSession(
-            self._connected_at, self._identity, lease, self._slot, self._peers
+            self._connected_at,
+            self._identity,
+            self._lease.renewed(now),
+            self._slot,
+            self._hosts.names,
         )
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
@@ -171,7 +176,7 @@ class ClientSession:
             identity.kind, identity.lease_ttl, self._lease.renewed_at
         )
         return ClientSession(
-            self._connected_at, identity, lease, self._slot, self._peers
+            self._connected_at, identity, lease, self._slot, self._hosts.names
         )
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:
@@ -184,7 +189,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.with_callback(callback),
-            self._peers,
+            self._hosts.names,
         )
 
     def attached(self, listener: CallbackListener) -> ClientSession:
@@ -201,7 +206,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.occupied_by(listener),
-            self._peers,
+            self._hosts.names,
         )
 
     # None == stale: not this listener's session; a normal decline, not a failure.
@@ -217,16 +222,14 @@ class ClientSession:
         The listener and the callbacks go together, so no reader can observe a
         callback whose listener has already been cleared.
         """
-        return (
-            ClientSession(
-                self._connected_at,
-                self._identity,
-                self._lease,
-                self._slot.released(),
-                self._peers,
-            )
-            if self._slot.held_by(listener)
-            else None
+        if not self._slot.held_by(listener):
+            return None
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot.released(),
+            self._hosts.names,
         )
 
     def registering(

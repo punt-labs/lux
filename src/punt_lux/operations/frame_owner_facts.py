@@ -75,6 +75,6 @@ class FrameOwnerFacts:
         named = self._clients.named(owners[0].connection_id)
         if named is None:
             return FrameOwnership()
-        client = self._clients.facts(named)
-        rows = ClientIdentityFacts(client, named.name).build().rows()
+        facts = ClientIdentityFacts(self._clients.facts(named), named.name)
+        rows = facts.build().rows()
         return FrameOwnership(rows, named.scope_label)

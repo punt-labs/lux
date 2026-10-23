@@ -23,6 +23,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_roster import ClientRoster
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.listener_legs import ListenerLegs
@@ -33,6 +34,7 @@ from punt_lux.domain.hub.session_write import SessionWrite
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.ids import ConnectionId
@@ -70,7 +72,7 @@ class HubClientRegistry:
         self,
         connection_id: ConnectionId,
         identity: ClientIdentity | None = None,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+        host: ClientHost = UNOBSERVED,
     ) -> SessionWrite:
         """Upsert the connection's session, renewing its lease and any identity.
 
@@ -81,16 +83,21 @@ class HubClientRegistry:
         """
         with self._lock:
             write = SessionWrite.recorded(
-                self._sessions.get(connection_id), self._clock(), identity, peer
+                self._sessions.get(connection_id), self._clock(), identity, host
             )
             self._sessions[connection_id] = write.after
             return write
 
-    def renew_if_registered(self, connection_id: ConnectionId) -> PresenceChange:
-        """Renew the lease iff already registered; a write must never register."""
+    def renew_if_registered(
+        self, connection_id: ConnectionId, host: ClientHost = UNOBSERVED
+    ) -> PresenceChange:
+        """Renew the lease iff already registered; a write must never register.
+
+        The contact's ``host`` is recorded on the session it renews.
+        """
         with self._lock:
             before = self._sessions.get(connection_id)
-            write = SessionWrite.recorded(before, self._clock(), None)
+            write = SessionWrite.recorded(before, self._clock(), None, host)
             # An absent connection stays absent: an empty update is a true no-op.
             self._sessions.update(
                 {} if before is None else {connection_id: write.after}

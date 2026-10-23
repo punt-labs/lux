@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
@@ -1006,7 +1007,7 @@ def _bind_pubsub(
 ) -> None:
     """Route the pub-sub adapters at a facade whose inbox is ``next_fn``."""
 
-    def _no_writer(_connection_id: ConnectionId) -> None:
+    def _no_writer(_connection_id: ConnectionId, _host: ClientHost) -> None:
         return None
 
     factory = HubStoreFactory()

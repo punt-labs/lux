@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
+from punt_lux.operations.scope import Scope
 
 
 @final
@@ -29,7 +31,9 @@ class _CallSpy:
         self.armed = []
         return self
 
-    def __call__(self, connection_id: ConnectionId) -> None:
+    def __call__(
+        self, connection_id: ConnectionId, _host: ClientHost = UNOBSERVED
+    ) -> None:
         self.armed.append(connection_id)
 
 
@@ -49,7 +53,7 @@ def test_admits_an_identified_session_and_arms_its_inbox_and_departure() -> None
     conn = ConnectionId("agent")
     lifecycle.identify(conn, ClientIdentity(kind="mcp-session", name="agent"))
 
-    assert arming.admit(conn) is True
+    assert arming.admit(Scope(conn)) is True
     assert writer.armed == [conn]
     # D2: admitting a menu owner also arms the shared menu sink, so every
     # departure trigger (not only the graceful leg) withdraws the bar.
@@ -64,7 +68,7 @@ def test_refuses_an_anonymous_session_and_arms_nothing() -> None:
     conn = ConnectionId("anon")
     lifecycle.arrive(conn)  # registered, but never identified
 
-    assert arming.admit(conn) is False
+    assert arming.admit(Scope(conn)) is False
     lifecycle.depart(conn)
     assert writer.armed == []
     assert departure.armed == []
@@ -74,6 +78,6 @@ def test_refuses_an_unregistered_session() -> None:
     writer, departure = _CallSpy(), _CallSpy()
     _display, arming = _armed(writer, departure)
 
-    assert arming.admit(ConnectionId("never")) is False
+    assert arming.admit(Scope(ConnectionId("never"))) is False
     assert writer.armed == []
     assert departure.armed == []

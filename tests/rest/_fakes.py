@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from punt_lux.client_host import ClientHost
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -99,9 +100,9 @@ class ForbiddenInbox:
     land, and that arming is expected on the write path.
     """
 
-    def ensure_writer(self, connection_id: ConnectionId) -> None:
+    def ensure_writer(self, connection_id: ConnectionId, host: ClientHost) -> None:
         """A permitted no-op: menu_set arms the writer; no queue is stood up here."""
-        del connection_id
+        del connection_id, host
 
     def next_event(
         self, connection_id: ConnectionId, timeout: float

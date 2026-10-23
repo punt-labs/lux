@@ -96,7 +96,7 @@ class CallbackOperations:
         """
         if isinstance(request, OpError):
             return request
-        self._lifecycle.renew(scope.connection_id)
+        self._lifecycle.renew(scope.connection_id, scope.client_host)
         expected = self._legs.listener_for(scope.connection_id)
         if expected is None:
             return _PUSH_REQUIRED

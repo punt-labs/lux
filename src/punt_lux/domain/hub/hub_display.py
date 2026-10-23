@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.hub.store_lock import StoreLock
+    from punt_lux.operations.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]
 
@@ -177,16 +178,15 @@ class HubDisplay:
             yield
 
     @contextmanager
-    def arriving_as(self, connection_id: ConnectionId) -> Generator[None]:
-        """Hold the store lock as ``connection_id``, its arrival recorded first.
+    def arriving_as(self, scope: Scope) -> Generator[None]:
+        """Hold the store lock as the scope's connection, its arrival recorded first.
 
         The show path's counterpart of :meth:`writing_as`: showing a scene is the
         caller reaching the Hub, so the caller registers (a write registers nobody
-        -- a session comes only from its own arrival) and then writes under the
-        same hold.
+        -- a session comes only from its own arrival) and then writes, one hold.
         """
         with self._lock.write():
-            self._lifecycle.arrive(connection_id)
+            self._lifecycle.arrive(scope.connection_id, scope.client_host)
             yield
 
     # -- index access ------------------------------------------------------

@@ -106,7 +106,7 @@ class SceneOperations:
         lease: a client that only ever shows is still a client, and stays one for
         as long as it keeps showing.
         """
-        with self._display.arriving_as(scope.connection_id):
+        with self._display.arriving_as(scope):
             return self._installer.install(submission, owner=scope.connection_id)
 
     def update(

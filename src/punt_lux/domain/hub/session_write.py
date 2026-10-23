@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.menu_listing import MenuListing
 
@@ -30,7 +31,7 @@ class Attachment:
 
     slot: ListenerAttachment
     presence: PresenceChange
-    identified: bool  # whether the write named (or renamed) the connection
+    restated: bool  # whether the write changed who the session is or where from
 
     @property
     def menu_change(self) -> PresenceChange:
@@ -60,16 +61,16 @@ class SessionWrite:
         before: ClientSession | None,
         now: float,
         identity: ClientIdentity | None,
-        peer: str | None = None,  # PY-TS-14: a transport may report no peer
+        host: ClientHost = UNOBSERVED,
     ) -> Self:
         """Renew ``before`` at ``now`` (or start a session), declaring ``identity``.
 
-        ``peer`` is the host the transport observed; it is recorded beside the
-        identity, in the same write, so a resend triggered by identification
-        already carries it.
+        ``host`` is where the transport observed the contact from; it is recorded
+        beside the identity, in the same write, so a resend triggered by
+        identification already carries it.
         """
         base = before.renewed(now) if before is not None else ClientSession(now)
-        seen = base.observed_from(peer)
+        seen = base.observed_from(host)
         return cls(
             before, seen if identity is None else seen.with_identity(identity), now
         )
@@ -84,18 +85,21 @@ class SessionWrite:
         return type(self)(self.before, self.after.attached(listener), self.now)
 
     @property
-    def identified(self) -> bool:
+    def restated(self) -> bool:
         """Whether the write changed who the session is, or where it was seen from.
 
         A repository-kind client may register no callback, so presence can hold
         while the connection has just been named; this is the signal that what
         the Hub shows of it -- its title and its host -- is owed a resend. A
-        new distinct peer counts: the popup's host row would otherwise stay stale.
+        new distinct host counts: the popup's host row would otherwise stay stale.
         """
         before = self.before
         prior_identity = None if before is None else before.identity
-        prior_peers = () if before is None else before.peers
-        return prior_identity != self.after.identity or prior_peers != self.after.peers
+        prior_hosts = () if before is None else before.client_hosts
+        return (
+            prior_identity != self.after.identity
+            or prior_hosts != self.after.client_hosts
+        )
 
     @property
     def presence(self) -> PresenceChange:
@@ -111,5 +115,5 @@ class SessionWrite:
         return Attachment(
             "attached_over_callbacks" if over_callbacks else "attached",
             self.presence,
-            self.identified,
+            self.restated,
         )

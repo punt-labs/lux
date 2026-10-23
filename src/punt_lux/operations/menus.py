@@ -138,7 +138,7 @@ class MenuOperations:
         if isinstance(request, OpError):
             return request
         with self._write_lock():
-            if not self._arming.admit(scope.connection_id):
+            if not self._arming.admit(scope):
                 return OpError.identification_required(
                     "declare an identity to own the menu items this session sets"
                 )

@@ -22,7 +22,7 @@ from punt_lux.protocol.compositions.client_details import ClientDetailsCompositi
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.named_sessions import NamedSession
-    from punt_lux.operations.models.query_clients import HubClient
+    from punt_lux.operations.client_facts import ClientFacts
 
 __all__ = ["DetailsScene"]
 
@@ -33,16 +33,16 @@ _TABLE_ID = "lux.client-details.table"
 class DetailsScene:
     """The Details scene for one client: how it is named, framed, and filled."""
 
-    _client: HubClient
+    _facts: ClientFacts
     _named: NamedSession
     _frame: DetailsFrame
-    __slots__ = ("_client", "_frame", "_named")
+    __slots__ = ("_facts", "_frame", "_named")
 
-    def __new__(cls, client: HubClient, named: NamedSession) -> Self:
+    def __new__(cls, facts: ClientFacts, named: NamedSession) -> Self:
         self = super().__new__(cls)
-        self._client = client
+        self._facts = facts
         self._named = named
-        self._frame = DetailsFrame(client.connection_id)
+        self._frame = DetailsFrame(facts.connection_id)
         return self
 
     @property
@@ -52,7 +52,7 @@ class DetailsScene:
 
     def submission(self) -> SceneSubmission:
         """Offer the table in its own frame, titled with the program."""
-        facts = ClientIdentityFacts(self._client, self._named.name).build()
+        facts = ClientIdentityFacts(self._facts, self._named.name).build()
         return SceneSubmission.of(
             ClientDetailsComposition.build(facts, element_id=_TABLE_ID),
             self.scene_id,

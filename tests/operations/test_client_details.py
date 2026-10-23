@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Self, cast
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -144,7 +145,7 @@ class TestWhatDetailsReports:
         clients = factory.clients
         store = factory.display
         hub = Hub()
-        lifecycle.identify(ConnectionId("c1"), _identity(), "127.0.0.1")
+        lifecycle.identify(ConnectionId("c1"), _identity(), ClientHost("127.0.0.1"))
         clients.named_sessions()
         details, _marks = _wired(store, clients, hub)
 
@@ -177,8 +178,8 @@ class TestWhatDetailsReports:
         lifecycle = factory.lifecycle
         clients = factory.clients
         store = factory.display
-        lifecycle.identify(ConnectionId("c1"), _identity(), "10.0.0.5")
-        lifecycle.identify(ConnectionId("c1"), _identity(), "127.0.0.1")
+        lifecycle.identify(ConnectionId("c1"), _identity(), ClientHost("10.0.0.5"))
+        lifecycle.identify(ConnectionId("c1"), _identity(), ClientHost("127.0.0.1"))
         clients.named_sessions()
         details, _marks = _wired(store, clients, Hub())
 

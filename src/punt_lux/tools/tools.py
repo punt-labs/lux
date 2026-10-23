@@ -22,7 +22,7 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
-from punt_lux.tools.server import _session_key, current_peer
+from punt_lux.tools.server import _session_key, current_client_host
 
 __all__ = [
     "OPERATIONS",
@@ -52,7 +52,7 @@ def scope() -> Scope:
     The one place a tool's scope is built: ``identify`` is reachable only through
     here, and the peer it records is the host observed when the session connected.
     """
-    return Scope(_connection_id(), current_peer())
+    return Scope.observed(_connection_id(), current_client_host())
 
 
 def _identity() -> ClientIdentity:

@@ -7,6 +7,7 @@ record of a connection always agree.
 
 from __future__ import annotations
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.frame_ownership import FrameOwnership
@@ -57,7 +58,9 @@ class TestTheHostRowsInThePopup:
         store, lifecycle, clients = factory.display, factory.lifecycle, factory.clients
         hub = Hub()
         conn = ConnectionId("c1")
-        lifecycle.identify(conn, ClientIdentity(kind="cli", name="lux"), "127.0.0.1")
+        lifecycle.identify(
+            conn, ClientIdentity(kind="cli", name="lux"), ClientHost("127.0.0.1")
+        )
         clients.named_sessions()
         scene_id = SceneId("c1-scene")
         store.replace_scene(conn, scene_id, [TextElement(id="t1", content="hi")])
