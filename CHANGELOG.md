@@ -136,9 +136,31 @@
 - **The beads applet leaves when its session does.** An applet whose session
   ended mid-query stayed alive until `bd` answered (up to 60s), because
   shutdown joined a worker thread blocked on the `bd` child. Each call now owns
-  its child, and cancelling the call kills only that call's `bd`. The
-  trust-anchor test now asserts the server's rejection of an unenrolled client
-  rather than one client-side error form, which removes its flake.
+  its children, and cancelling the call ends only that call's `bd` and any
+  process it started (the whole process group), with a bounded reap. A
+  cancelled query is an ending, not a failure: it no longer shows a red
+  "bd unavailable" board or logs a warning. The trust-anchor test now asserts
+  the server's rejection of an unenrolled client rather than one client-side
+  error form, which removes its flake.
+- **The Hub's display link survives a malformed frame and a stuck stop.** A
+  frame the Hub cannot decode is logged at ERROR with the display's endpoint
+  and the frame's first bytes, the messages decoded before it are still
+  delivered, and the connection is closed so the reconnect starts on a frame
+  boundary; previously the listener thread died silently and lost the batch.
+  A listener that would not stop in time is abandoned with an ERROR and a new
+  one started, instead of leaving nothing listening.
+- **The client host is recorded for every contact.** A session that shows a
+  scene, subscribes or sets a menu without ever identifying now reports the
+  host the Hub observed, instead of `unknown`. An empty transport address
+  counts as unobserved.
+- **Callback applets leave the Clients menu exactly like agents.** Registering
+  and withdrawing a callback are now lifecycle steps under the store lock, so
+  an applet that registered a callback gets the same departure hook as an agent
+  and its entry leaves when its lease is reaped. A withdrawal clears the entry
+  even while the lease is lapsed, which covers a detach, a re-attach that drops
+  callbacks, and a session re-identifying as a non-agent. A session that comes
+  back from a lapsed lease re-pushes its windows, so their session labels catch
+  up. The rules are model-checked in `docs/menu_presence.tex`.
 - **The Clients menu entry for a connection with no commands reopens after you
   close it (`lux-ghhf`).** The per-group `Details` item, which described an
   arbitrary "senior" process, is gone; the per-frame `i` glyph answers where a
