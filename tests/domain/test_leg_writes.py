@@ -34,7 +34,7 @@ def _held(callbacks: bool) -> ClientSession:
 
 class TestRegistration:
     def test_a_registration_that_took_carries_its_write(self) -> None:
-        write = _write()
+        write = SessionWrite(None, _held(callbacks=True), 0.0)
 
         registration = Registration.took(write)
 
@@ -55,6 +55,23 @@ class TestRegistration:
     def test_a_refusal_with_a_write_is_refused(self) -> None:
         with pytest.raises(ValueError, match="disagree"):
             Registration("declined", _write())
+
+    def test_a_registered_outcome_whose_write_stored_no_callback_is_refused(
+        self,
+    ) -> None:
+        session = _held(callbacks=False)
+
+        with pytest.raises(ValueError, match="disagree"):
+            Registration("registered", SessionWrite(session, session, 0.0))
+
+    def test_a_registered_outcome_whose_write_stored_a_callback_is_accepted(
+        self,
+    ) -> None:
+        session = _held(callbacks=True)
+
+        registration = Registration("registered", SessionWrite(None, session, 0.0))
+
+        assert registration.outcome == "registered"
 
 
 class TestDetachment:
@@ -83,3 +100,24 @@ class TestDetachment:
     def test_a_kept_outcome_with_a_write_is_refused(self) -> None:
         with pytest.raises(ValueError, match="disagree"):
             Detachment("kept", _write())
+
+    def test_a_bare_release_of_a_session_that_held_entries_is_refused(self) -> None:
+        released = SessionWrite(_held(callbacks=True), ClientSession(0.0), 0.0)
+
+        with pytest.raises(ValueError, match="disagree"):
+            Detachment("released", released)
+
+    def test_a_release_with_entries_of_a_session_that_held_none_is_refused(
+        self,
+    ) -> None:
+        released = SessionWrite(_held(callbacks=False), ClientSession(0.0), 0.0)
+
+        with pytest.raises(ValueError, match="disagree"):
+            Detachment("released_with_callbacks", released)
+
+    @pytest.mark.parametrize("outcome", ["released", "released_with_callbacks"])
+    def test_a_release_outcome_without_a_write_is_refused_for_every_release(
+        self, outcome: str
+    ) -> None:
+        with pytest.raises(ValueError, match="disagree"):
+            Detachment(outcome, None)  # type: ignore[arg-type]

@@ -36,7 +36,12 @@ class Registration:
     write: SessionWrite | None
 
     def __post_init__(self) -> None:
-        if (self.outcome == "registered") != (self.write is not None):
+        write = self.write
+        if write is None:
+            agrees = self.outcome != "registered"
+        else:
+            agrees = self.outcome == "registered" and bool(write.after.callbacks)
+        if not agrees:
             msg = f"a {self.outcome!r} registration and its write disagree"
             raise ValueError(msg)
 
@@ -70,16 +75,25 @@ class Detachment:
     write: SessionWrite | None
 
     def __post_init__(self) -> None:
-        released = self.outcome in ("released", "released_with_callbacks")
-        if released != (self.write is not None):
+        write = self.write
+        if write is None:
+            agrees = self.outcome in ("kept", "released_with_session")
+        else:
+            agrees = self.outcome == self._released_outcome(write)
+        if not agrees:
             msg = f"a {self.outcome!r} detachment and its write disagree"
             raise ValueError(msg)
 
     @classmethod
     def released(cls, write: SessionWrite) -> Self:
         """A release: it carried the callbacks off with it if the session held any."""
+        return cls(cls._released_outcome(write), write)
+
+    @staticmethod
+    def _released_outcome(write: SessionWrite) -> ListenerDetachment:
+        """What a release is called: the one place it is decided, from its write."""
         held = write.before is not None and bool(write.before.callbacks)
-        return cls("released_with_callbacks" if held else "released", write)
+        return "released_with_callbacks" if held else "released"
 
     @classmethod
     def nothing(cls, outcome: Literal["kept", "released_with_session"]) -> Self:
