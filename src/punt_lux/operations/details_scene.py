@@ -26,8 +26,6 @@ if TYPE_CHECKING:
 
 __all__ = ["DetailsScene"]
 
-_TABLE_ID = "lux.client-details.table"
-
 
 @final
 class DetailsScene:
@@ -42,7 +40,7 @@ class DetailsScene:
         self = super().__new__(cls)
         self._facts = facts
         self._named = named
-        self._frame = DetailsFrame(facts.connection_id)
+        self._frame = DetailsFrame(named.connection_id)
         return self
 
     @property
@@ -54,7 +52,7 @@ class DetailsScene:
         """Offer the table in its own frame, titled with the program."""
         facts = ClientIdentityFacts(self._facts, self._named.name).build()
         return SceneSubmission.of(
-            ClientDetailsComposition.build(facts, element_id=_TABLE_ID),
+            ClientDetailsComposition.build(facts, element_id=DetailsFrame.table_id),
             self.scene_id,
             self._frame.presentation(self._named.program),
             None,

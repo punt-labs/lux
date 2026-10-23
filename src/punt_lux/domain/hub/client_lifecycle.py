@@ -138,7 +138,7 @@ class ClientLifecycle:
             relabelled = self._clients.discard(connection_id)
             self._owners.release_all(connection_id)
             self._cascade.run(connection_id)
-            self._presence.scenes_renamed(self._owners.scenes_of(relabelled))
+            self._presence.retitle_scenes(self._owners.scenes_of(relabelled))
 
     def depart_lapsed(
         self, exclude: frozenset[ConnectionId]
@@ -148,7 +148,7 @@ class ClientLifecycle:
             reaped = self._clients.reap_lapsed_locked(exclude)
             self._owners.release_departed(reaped.lapsed)
             self._cascade.run_all(reaped.lapsed)
-            self._presence.scenes_renamed(self._owners.scenes_of(reaped.relabelled))
+            self._presence.retitle_scenes(self._owners.scenes_of(reaped.relabelled))
             return reaped.lapsed
 
     def _announce(self, connection_id: ConnectionId, change: PresenceChange) -> None:
@@ -163,4 +163,4 @@ class ClientLifecycle:
     def _resend_scenes(self, connection_id: ConnectionId, *, owed: bool) -> None:
         """Mark the connection's own scenes dirty if the write restated its session."""
         if owed:
-            self._presence.scenes_renamed(self._owners.scenes_of((connection_id,)))
+            self._presence.retitle_scenes(self._owners.scenes_of((connection_id,)))

@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.replica.address_book import AddressBook
-from punt_lux.display.replica.lux_address import Rung
 from punt_lux.domain.id_separator import ID_SEPARATOR
 
 if TYPE_CHECKING:
@@ -65,13 +64,11 @@ class AddressRendering:
         label is taken from the book, so a second Hub sharing a host reads
         ``pembroke (2)``.
         """
-        label = frame.heading.scope_label
-        address = self._book.address_for(
-            frame.hub, Rung("", label or ""), Rung("", frame.heading.title)
-        )
+        heading = frame.heading
+        address = self._book.address_for(frame.hub, *heading.rungs())
         return address.title(
             hub_ambiguous=self._book.hub_ambiguous(),
-            connection_shown=label is not None,
+            connection_shown=heading.names_owner,
         )
 
     def frame_window_label(self, frame: Frame) -> str:

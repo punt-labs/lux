@@ -86,3 +86,23 @@ class TestRelabel:
         heading.relabel(None)
 
         assert heading.title == "Vox"
+
+
+class TestRungs:
+    """What the addressing seam composes: the owner rung, then the title rung."""
+
+    def test_an_owned_heading_names_its_owner_and_its_title(self) -> None:
+        heading = FrameHeading("Vox", "lux")
+
+        owner, titled = heading.rungs()
+
+        assert (owner.label, titled.label) == ("lux", "Vox")
+        assert heading.names_owner
+
+    def test_an_unowned_heading_has_an_empty_owner_rung(self) -> None:
+        heading = FrameHeading("Vox")
+
+        owner, _ = heading.rungs()
+
+        assert owner.label == ""
+        assert not heading.names_owner

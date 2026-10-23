@@ -22,8 +22,3 @@ class ClientFacts:
 
     client: HubClient
     hub_host: str
-
-    @property
-    def connection_id(self) -> str:
-        """The connection the facts describe."""
-        return self.client.connection_id

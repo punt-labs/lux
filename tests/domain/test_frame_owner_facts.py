@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from typing import Self, final
 
+import pytest
+
 from punt_lux.domain.hub.frame_owner_facts import (
     FrameOwnerFactsBinding,
     FrameOwnerFactsReader,
     NoFrameOwnerFacts,
 )
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 
 
 @final
@@ -71,3 +73,15 @@ def test_a_real_reader_satisfies_the_reader_contract() -> None:
 def test_the_binding_itself_satisfies_the_reader_contract() -> None:
     """The replicator can hold the binding directly as its FrameOwnerFactsReader."""
     assert isinstance(FrameOwnerFactsBinding(), FrameOwnerFactsReader)
+
+
+def test_a_scope_label_without_rows_is_refused() -> None:
+    with pytest.raises(ValueError, match="needs rows"):
+        FrameOwnership(None, "lux")
+
+
+def test_rows_without_a_label_are_an_owner_the_hub_named_no_scope_for() -> None:
+    owned = FrameOwnership((("Kind", "cli"),), None)
+
+    assert owned.scope_label is None
+    assert owned != UNOWNED

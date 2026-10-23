@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.client_listing import ClientListing
 
@@ -71,10 +71,10 @@ class FrameOwnerFacts:
         """
         owners = self._display.scene_owners(scene_id)
         if not owners:
-            return FrameOwnership()
+            return UNOWNED
         named = self._clients.named(owners[0].connection_id)
         if named is None:
-            return FrameOwnership()
+            return UNOWNED
         facts = ClientIdentityFacts(self._clients.facts(named), named.name)
         rows = facts.build().rows()
         return FrameOwnership(rows, named.scope_label)

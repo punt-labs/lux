@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.display.replica.lux_address import Rung
+
 __all__ = ["FrameHeading"]
 
 
@@ -37,6 +39,15 @@ class FrameHeading:
     def scope_label(self) -> str | None:
         """The Hub's name for the frame's owner, or ``None`` if it named none."""
         return self._scope_label
+
+    @property
+    def names_owner(self) -> bool:
+        """Whether the Hub named an owner, so the title carries its label."""
+        return self._scope_label is not None
+
+    def rungs(self) -> tuple[Rung, Rung]:
+        """The owner rung and the title rung the addressing seam composes."""
+        return Rung("", self._scope_label or ""), Rung("", self._title)
 
     def adopt(
         self,

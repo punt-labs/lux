@@ -22,3 +22,10 @@ class Reaped:
 
     lapsed: frozenset[ConnectionId]
     relabelled: frozenset[ConnectionId]
+
+    def __post_init__(self) -> None:
+        """Only a survivor can be retitled: the lapsed are gone."""
+        departed = self.lapsed & self.relabelled
+        if departed:
+            msg = f"a lapsed connection cannot be relabelled: {sorted(departed)!r}"
+            raise ValueError(msg)

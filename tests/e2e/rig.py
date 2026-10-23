@@ -248,10 +248,8 @@ class SyncReplicator:
     def mark_dirty(self, scene_id: SceneId) -> None:
         """Snapshot the scene from the Hub store and re-push it to the replica."""
         from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.hub.frame_ownership import FrameOwnership
+        from punt_lux.domain.hub.frame_ownership import UNOWNED
 
         roots = hub_display.scene_roots(scene_id)
         presentation = hub_display.frames.presentation_for(scene_id)
-        presentation.push(
-            self._rig.repush_client, scene_id, roots, ownership=FrameOwnership()
-        )
+        presentation.push(self._rig.repush_client, scene_id, roots, ownership=UNOWNED)

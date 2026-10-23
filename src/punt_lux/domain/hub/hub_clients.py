@@ -42,9 +42,6 @@ if TYPE_CHECKING:
 __all__ = ["HubClientRegistry"]
 
 
-_ANONYMOUS = ClientSession(0.0)  # a connection with no session has declared nothing
-
-
 @final
 class HubClientRegistry:
     """The registered Hub sessions, keyed by ``ConnectionId`` to their session."""
@@ -111,7 +108,9 @@ class HubClientRegistry:
 
     def identity_of(self, connection_id: ConnectionId) -> ClientIdentity | None:
         """The identity the connection declared; None if unregistered or anonymous."""
-        return self._sessions.get(connection_id, _ANONYMOUS).identity
+        with self._lock:
+            session = self._sessions.get(connection_id)
+        return None if session is None else session.identity
 
     def discard(self, connection_id: ConnectionId) -> frozenset[ConnectionId]:
         """Drop the registration, its identity, and the menu name it held.

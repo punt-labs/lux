@@ -19,17 +19,24 @@ __all__ = ["UNOWNED", "FrameOwnership"]
 class FrameOwnership:
     """The popup rows and the scope label of one frame's canonical owner.
 
-    ``FrameOwnership()`` is the Hub's "no name for this owner right now": the
-    frame is unowned, its owner is unidentified, or it departed between the
-    snapshot and the push. The wire fields it fills mean "no change", never
-    "blank", so the Display keeps what it last held.
+    :data:`UNOWNED` is the Hub's "no name for this owner right now": the frame is
+    unowned, its owner is unidentified, or it departed between the snapshot and
+    the push. The wire fields it fills mean "no change", never "blank", so the
+    Display keeps what it last held. A label needs rows: it is only ever minted
+    for a named session, which also has rows to show.
     """
 
     # None = the Hub has no named live session for the owner (PY-TS-14: absence
     # is the documented contract, and the wire field's own "owner unknown").
     rows: tuple[tuple[str, str], ...] | None = None
-    # None = the same absence; a label is only ever minted for a named session.
+    # None = no label to show: either the absence above, or an owner the Hub
+    # named no scope for (rows present, label absent).
     scope_label: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.rows is None and self.scope_label is not None:
+            msg = f"a scope label needs rows: got label {self.scope_label!r} alone"
+            raise ValueError(msg)
 
 
 # The shared "no owner known" value, usable as a parameter default.

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 
 if TYPE_CHECKING:
@@ -56,9 +56,7 @@ class CanonicalFrameOwner:
     def facts_for_frame(self, frame_id: str) -> FrameOwnership:
         """Return the frame's canonical owner's rows and label, empty if none."""
         canonical = self._canonical_scene(frame_id)
-        return (
-            FrameOwnership() if canonical is None else self._facts.facts_for(canonical)
-        )
+        return UNOWNED if canonical is None else self._facts.facts_for(canonical)
 
     def _canonical_scene(self, frame_id: str) -> SceneId | None:
         """Return the oldest live scene of ``frame_id``; ``None`` if it holds none.

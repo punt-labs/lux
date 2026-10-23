@@ -138,7 +138,7 @@ class _SceneMarker:
 def test_renamed_scenes_are_each_marked_dirty() -> None:
     marker = _SceneMarker()
 
-    MenuPresence(marker, MarkMenusSink(marker)).scenes_renamed(
+    MenuPresence(marker, MarkMenusSink(marker)).retitle_scenes(
         [SceneId("s1"), SceneId("s2")]
     )
 
@@ -148,6 +148,6 @@ def test_renamed_scenes_are_each_marked_dirty() -> None:
 def test_no_renamed_scene_marks_nothing() -> None:
     marker = _SceneMarker()
 
-    MenuPresence(marker, MarkMenusSink(marker)).scenes_renamed(())
+    MenuPresence(marker, MarkMenusSink(marker)).retitle_scenes(())
 
     assert marker.scenes == []

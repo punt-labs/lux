@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Protocol, Self, final, runtime_checkable
 
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 
 __all__ = ["FrameOwnerFactsBinding", "FrameOwnerFactsReader", "NoFrameOwnerFacts"]
 
@@ -41,7 +41,7 @@ class NoFrameOwnerFacts:
     def facts_for_frame(self, frame_id: str) -> FrameOwnership:
         """Report every frame as unowned — the honest answer before binding."""
         _ = frame_id  # Null Object: the port's contract, unused by design
-        return FrameOwnership()
+        return UNOWNED
 
 
 @final

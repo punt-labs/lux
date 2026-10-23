@@ -1,7 +1,9 @@
 """MenuPresence — what a change to who the Clients menu lists owes the Hub.
 
-A change to what a connection is *called* owes the same marking for its scenes
-(:meth:`MenuPresence.scenes_renamed`): a label is part of a window's title.
+A change to who the menu lists is also a change to what a connection is
+*called*, and a label is part of a window's title, so the same debt-payer
+retitles the connection's scenes (:meth:`MenuPresence.retitle_scenes`): both are
+marks on the one replicator, owed by the same transitions.
 
 Every transition that changes which sessions earn a menu entry owes the rest of
 the Hub two things, in the same critical section: a mark, so the replicator
@@ -85,7 +87,7 @@ class MenuPresence:
             self.arm(connection_id, binder)
             self._marker.mark_menus()
 
-    def scenes_renamed(self, scene_ids: Iterable[SceneId]) -> None:
+    def retitle_scenes(self, scene_ids: Iterable[SceneId]) -> None:
         """Mark each scene dirty: its owner's name moved, so its title is stale.
 
         A name moves when a group's last member departs or when a connection is
