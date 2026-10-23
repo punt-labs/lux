@@ -80,6 +80,18 @@ class MenuDepartureSink:
         self._registry.drop_session(connection_id)
         self._replicator.mark_menus()
 
+    def __eq__(self, other: object) -> bool:
+        """Sinks over the same registry and replicator are one sink."""
+        if not isinstance(other, MenuDepartureSink):
+            return NotImplemented
+        return (self._registry, self._replicator) == (
+            other._registry,
+            other._replicator,
+        )
+
+    def __hash__(self) -> int:
+        return hash((MenuDepartureSink, id(self._registry), id(self._replicator)))
+
 
 @final
 @dataclass(frozen=True, slots=True)
