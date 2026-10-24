@@ -1,10 +1,11 @@
 %
 % listener_lifecycle_lose_buggy.tex
 %
-% FIDELITY CONTROL for docs/listener_lifecycle.tex: the display may drop an ack it owed on a live generation (Lose).
-% The ack ledger counts: one lost ack skews every later position.  A display
-% only loses an ack by losing the connection, which retires the generation; this
-% control shows what the rule `exactly one ack per scene' protects.
+% FIDELITY CONTROL for docs/listener_lifecycle.tex: the display may drop an ack it owed and keep the connection
+% (Lose).  This is the display as shipped: send_to_client returns False when a
+% send cannot complete before the frame deadline and nothing resends.  The ack
+% ledger counts: one lost ack skews every later position.  The fixed design
+% replaces the loss by Sever (the display closes the connection), which holds.
 %
 % Expected: L6 VIOLATED.
 %
@@ -783,6 +784,34 @@ the command line (Section~\ref{sec:verify}).
   (lst~t? = lstop \implies
     afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
   (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\subsection{Sever}
+
+\begin{schema}{Sever}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  r? : 1 \upto maxReq
+\where
+  held = fset \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \\
+  broken' = broken \cup \{ curGen \} \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
 \end{schema}
 
 \subsection{RepeatPong}

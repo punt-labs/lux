@@ -26,7 +26,7 @@ that generation's sink (`Await`). The replicator also writes scenes nobody waits
 for (`SendNoWait`). An arriving reply is delivered to the waiter it matches (a pong
 by its `ts`, an ack by its position among the acks owed) and dropped otherwise; a
 query that times out ends its generation, a ping or scene that times out does not,
-and a budget that runs out waiting for the lock sends nothing and ends nothing.
+and a budget that runs out waiting for the lock sends nothing and ends nothing. A display that cannot send a reply closes the connection (`Sever`); it never drops a reply on a live one.
 Test partitions follow the operations and the guards that choose between their
 outcomes.
 
@@ -38,8 +38,17 @@ the display". That was wrong: it assumed every write that elicits a reply is awa
 (the replicator's `send_scene` is not; `listener_lifecycle_nowait_buggy.tex`
 reproduces the defect with no timeout at all), it assumed the display answers at
 most once, and its one-caller model hid the lock-wait case. Decision 5 of the
-specification is rewritten; rows F7, F7a, F7b, F7c, S9, A1 to A3 and T6 below are
+specification is rewritten; rows F7, F7a, F7b, F7c, S9, M1 to M4, W1 to W3 and T6 below are
 new or changed. The round-2 rows are otherwise unchanged.
+
+A second errata, from the second round: assumption A1 (one ack per scene, none lost
+on a live connection) is false of the display as shipped. `_handle_scene` discards the
+result of `send_to_client`, which returns `False` when a send cannot complete before the
+frame deadline, leaves the client connected, and nothing resends. The ruling: the display
+never drops a reply on a live connection; when it cannot send one it closes that
+connection and the Hub redials (the model's `Sever`; `_lose` is the display as
+shipped). Three Hub-side failure-path rules (rows W1 to W3) and the mandatory `scene_id`
+cross-check (row M4) follow.
 
 ## The invariants
 
@@ -56,6 +65,14 @@ new or changed. The round-2 rows are otherwise unchanged.
 | L8 | a liveness ping's lock wait is not held up by another kind of request |
 | L9 | the sink is bounded: no reply is parked for a caller that is not waiting |
 
+L7 and L8 are tautologies of the fixed specification: no fixed operation writes
+`wrongRetire` or `starved`, so their goals are not a search. Their content is in the
+guards of `Send` and `LockExpire`, and the controls (`_lock_expiry`, `_perlink_lock`) are
+their evidence. The model's deadlock check is likewise trivial (`Want` is enabled for
+every idle caller, `LockExpire` for every caller waiting for a lock); the lock order is
+argued, and its model-checked companion (`docs/listener_locks.tex`, with an inverted
+control) is to come.
+
 ## Verification record
 
 Commands run from the repository root on scratch copies of the files under `docs/`
@@ -70,24 +87,24 @@ operation's guard, so an operation whose result would violate it is *disabled*. 
 control that plainly violates `crossReq = fclear` then reports the goal `crossReq =
 fset` "not found" over the whole space. The invariants are therefore searched as
 negated goals, never written into the schema. (With them written in, the smallest
-shape of the fixed design takes the same 815678 transitions as without, so nothing
+shape of the fixed design took the same 815678 transitions as without (before `Sever` was added), so nothing
 was pruned there; this was checked, not assumed.)
 
 ```text
-fuzz docs/listener_lifecycle.tex and the 13 control files          exit 0, no output
+fuzz docs/listener_lifecycle.tex and the 16 control files          exit 0, no output
 
 goal ALL = the disjunction of the negations of L1q, L1w, L2, L3, L4a, L4b, L5, L6,
            L7, L8, L9 (every invariant at once; deadlock detection on)
 
 probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 1 -card C 1    -> 184249 states, 815678 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 29
+  -p MAX_OPERATIONS 200 -card T 1 -card C 1    -> 299195 states, 1327520 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
 probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 2 -card C 1    -> 1640422 states, 8059331 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 29
+  -p MAX_OPERATIONS 200 -card T 2 -card C 1    -> 2671285 states, 13224325 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
 probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 1 -card C 2    -> 3702061 states, 23474491 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 29
+  -p MAX_OPERATIONS 200 -card T 1 -card C 2    -> 6100145 states, 38739050 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
 ```
 
 The product of two readers and two callers was started and abandoned: a control run
@@ -107,8 +124,9 @@ three-reader shape is not tractable at this carrier.
 
 Controls. Each is run with `-model_check -nodead -bf -goal "<negation>"
 -p MAX_OPERATIONS 200` and the cards shown; the negations are in each file's
-header. The round-2 family (the first five) is single-caller and was run with
-`-p DEFAULT_SETSIZE 2` as before.
+header. The round-2 family (the first five) is single-caller, has a free type `T` and no
+`C`, and is run with `-p DEFAULT_SETSIZE 2` and **no** `-card` (passing one raises
+setup errors, though the goal is still found).
 
 | Control | Cards | States (full, `-coverage`) | Result |
 |---|---|---|---|
@@ -117,14 +135,17 @@ header. The round-2 family (the first five) is single-caller and was run with
 | `_gate_only_buggy` | | 281329, 1036446, 0 uncovered | L1q, L1w, L2, L4a, L5, L6 **found**; L3, L4b not found (281329) |
 | `_stale_reply_buggy` | | 110012, 401516, 0 uncovered | L6 **found**; L1q to L5 not found (110012) |
 | `_nowait_buggy` | | 159100, 545935, 0 uncovered | L6 **found** in 9 steps; L1q, L1w, L2, L3, L4a, L4b, L5 not found (159100) |
-| `_ack_key_only_buggy` | T1 C1 | goal run | L6 **found**, 10 steps |
-| `_pong_unkeyed_buggy` | T1 C1 | goal run | L6 **found**, 13 steps |
-| `_query_plain_buggy` | T1 C1 | goal run | L6 **found**, 13 steps |
-| `_repeat_buggy` | T1 C1 | goal run | L6 **found**, 14 steps |
-| `_lose_buggy` | T1 C1 | goal run | L6 **found**, 11 steps |
-| `_reader_restart_buggy` | T1 C1 | goal run | L6 **found**, 13 steps |
-| `_lock_expiry_buggy` | T1 C2 | goal run | L7 **found**, 5 steps |
-| `_perlink_lock_buggy` | T1 C2 | goal run | L8 **found**, 5 steps |
+| `_ack_key_only_buggy` | T1 C1 | goal run | L6 **found**, 10 steps, 17054 states |
+| `_pong_unkeyed_buggy` | T1 C1 | goal run | L6 **found**, 13 steps, 75894 states |
+| `_query_plain_buggy` | T1 C1 | goal run | L6 **found**, 13 steps, 98172 states |
+| `_repeat_buggy` | T1 C1 | goal run | L6 **found**, 14 steps, 133346 states |
+| `_lose_buggy` | T1 C1 | goal run | L6 **found**, 11 steps, 35864 states |
+| `_reader_restart_buggy` | T1 C1 | goal run | L6 **found**, 13 steps, 81297 states |
+| `_lock_expiry_buggy` | T1 C2 | goal run | L7 **found**, 5 steps, 269 states |
+| `_perlink_lock_buggy` | T1 C2 | goal run | L8 **found**, 5 steps, 359 states |
+| `_write_fail_keep_buggy` | T1 C1 | goal run | L6 **found**, 15 steps, 576331 states |
+| `_route_skip_buggy` | T1 C1 | goal run | L6 **found**, 13 steps, 87132 states |
+| `_inline_skip_buggy` | T1 C1 | goal run | L6 **found**, 19 steps, 69630 states |
 
 The first four rows are the round-2 controls, re-run unchanged on this revision
 with the same results and the same shortest traces as the evaluators'. The
@@ -150,14 +171,17 @@ speaks for the code as it ships. Public-API traces are labelled as such.
 | flag-only repair still fails (L1q) | `_gate_only_buggy` | `Dial; StartListener(ta); CheckPermit(ta); Send; Feed(1,ta); StopTimeout(ta); Close; RouteShared(1,ta)` |
 | late reply to an earlier request (L6), round 2 | `_stale_reply_buggy` | `Dial; StartListener(ta); Send; Await; Feed(1,ta); TimeoutPlain; CheckPermit(ta); RouteLive(1,ta); Send; Await; Consume` |
 | **F7a: show() takes an un-awaited scene's ack (L6), no timeout** | `_nowait_buggy` | `Dial; SendNoWait; Send; Await; StartListener(ta); CheckPermit(ta); Feed(1,ta); RouteLive(1,ta); Consume(1)` |
-| F7a, round 3, ack matched by kind | `_ack_key_only_buggy` | `Dial; StartListener(T1); Want(C1,ks); SendNoWait; Feed(1,T1); Send(C1); CheckPermit(T1); RouteDeliver(C1,1,T1); Await(C1); Consume(C1)` |
-| late pong answers the next ping (L6) | `_pong_unkeyed_buggy` | `Want(C1,kp); Dial; StartListener(T1); CheckPermit(T1); Send(C1); Feed(1,T1); Await(C1); TimeoutKeep(C1); Want(C1,kp); Send(C1); RouteDeliver(C1,1,T1); Await(C1); Consume(C1)` |
-| late query response answers the next query (L6) | `_query_plain_buggy` | `Want(C1,kq); Dial; Send(C1); Await(C1); TimeoutKeep(C1); Want(C1,kq); StartListener(T1); CheckPermit(T1); Feed(1,T1); Send(C1); Await(C1); RouteDeliver(C1,1,T1); Consume(C1)` |
-| **F7c: a repeated ack answers the next request (L6)** | `_repeat_buggy` | `Dial; StartListener(T1); SendNoWait; Feed(1,T1); Repeat(1); CheckPermit(T1); RouteDropAck(1,1,T1); Feed(1,T1); CheckPermit(T1); Want(C1,ks); Send(C1); RouteDeliver(C1,1,T1); Await(C1); Consume(C1)` |
-| a lost ack skews every later ack (L6) | `_lose_buggy` | `Want(C1,ks); Dial; Send(C1); SendNoWait; StartListener(T1); CheckPermit(T1); Lose(1); Feed(2,T1); Await(C1); RouteDeliver(C1,2,T1); Consume(C1)` |
-| a stop that leaves the generation open loses a reply (L6) | `_reader_restart_buggy` | `Want(C1,ks); Dial; Send(C1); StartListener(T1); Feed(1,T1); StopJoined(T1); StartListener(T1); SendNoWait; Feed(2,T1); CheckPermit(T1); RouteDeliver(C1,2,T1); Await(C1); Consume(C1)` |
+| F7a, round 3, ack matched by scene id alone | `_ack_key_only_buggy` | `Dial; SendNoWait; Want(C1,ks); Send(C1); StartListener(T1); CheckPermit(T1); Feed(1,T1); RouteDeliver(C1,1,T1); Await(C1); Consume(C1)` |
+| late pong answers the next ping (L6) | `_pong_unkeyed_buggy` | `Want(C1,kp); Dial; Send(C1); Await(C1); TimeoutKeep(C1); StartListener(T1); CheckPermit(T1); Want(C1,kp); Send(C1); Await(C1); Feed(1,T1); RouteDeliver(C1,1,T1); Consume(C1)` |
+| late query response answers the next query (L6) | `_query_plain_buggy` | `Want(C1,kq); Dial; Send(C1); Await(C1); TimeoutKeep(C1); Want(C1,kq); StartListener(T1); Send(C1); CheckPermit(T1); Await(C1); Feed(1,T1); RouteDeliver(C1,1,T1); Consume(C1)` |
+| **F7c: a repeated ack answers the next request (L6)** | `_repeat_buggy` | `Dial; StartListener(T1); SendNoWait; Feed(1,T1); CheckPermit(T1); RouteDropAck(1,1,T1); Repeat(1); Want(C1,ks); Feed(1,T1); Send(C1); Await(C1); CheckPermit(T1); RouteDeliver(C1,1,T1); Consume(C1)` |
+| a lost ack skews every later ack (L6) | `_lose_buggy` | `Want(C1,ks); Dial; Send(C1); SendNoWait; Lose(1); StartListener(T1); CheckPermit(T1); Feed(2,T1); RouteDeliver(C1,2,T1); Await(C1); Consume(C1)` |
+| a stop that leaves the generation open loses a reply (L6) | `_reader_restart_buggy` | `Want(C1,ks); Dial; Send(C1); StartListener(T1); Feed(1,T1); StopJoined(T1); StartListener(T1); CheckPermit(T1); SendNoWait; Feed(2,T1); RouteDeliver(C1,2,T1); Await(C1); Consume(C1)` |
 | **F7b: a lock-wait expiry retires (L7)** | `_lock_expiry_buggy` | `Dial; Want(C1,kp); Send(C1); Want(C2,kp); ExpireRetire(C2)` |
 | one lock per link starves the liveness ping (L8) | `_perlink_lock_buggy` | `Dial; Want(C2,ks); Send(C2); Want(C1,kp); LockExpire(C1)` |
+| a failed write keeps its ledger entry (L6, three requests) | `_write_fail_keep_buggy` | `Want(C1,ks); Dial; WriteFailKeep(C1); Want(C1,ks); StartListener(T1); Send(C1); CheckPermit(T1); Feed(2,T1); SendNoWait; RouteDropAck(1,2,T1); CheckPermit(T1); Feed(3,T1); RouteDeliver(C1,3,T1); Await(C1); Consume(C1)` |
+| a raising route skips the reply (L6) | `_route_skip_buggy` | `Dial; StartListener(T1); Want(C1,ks); CheckPermit(T1); Send(C1); Feed(1,T1); RouteSkip(1,T1); SendNoWait; Feed(2,T1); CheckPermit(T1); RouteDeliver(C1,2,T1); Await(C1); Consume(C1)` |
+| the inline path drops an ack without popping (L6, four requests, one generation) | `_inline_skip_buggy` | `Want(C1,kp); Dial; Send(C1); SendNoWait; Await(C1); InlineSkip(2); StartListener(T1); CheckPermit(T1); TimeoutKeep(C1); Want(C1,ks); Send(C1); SendNoWait; Feed(3,T1); RouteDropAck(2,3,T1); Feed(4,T1); Await(C1); CheckPermit(T1); RouteDeliver(C1,4,T1); Consume(C1)` |
 
 Reachability on the fixed spec (each **found**, so the invariants are not vacuous;
 goals in the specification's Verification section): `afterStop(t) = 1`
@@ -212,14 +236,22 @@ Each partition is a class of behaviour the model distinguishes. Tests live in
 | R7 | a waiter on the new generation is never answered by an old generation's reply (L5, SF3-2 symptom) | RouteDeliver after RouteDead | none | **GAP** |
 | R8 | blocked route on message k of a chunk, stop times out, successor started, route released: message k+1 is not routed | RouteDead, buffered | none (the review's proposed test) | **GAP** |
 
-### Matching a reply to its request (A1 to A4)
+### Matching a reply to its request (M1 to M4)
 
 | # | Partition | Model operation | Existing test | Status |
 |---|---|---|---|---|
-| A1 | a pong is delivered only to the ping whose `ts` it echoes; a pong with another `ts`, a repeated pong, a pong with no ping in flight, are dropped on arrival | RouteDeliver (kp), RouteDrop, RepeatPong; `pong_unkeyed` | none | **GAP**. The Hub must make each ping's `ts` strictly increasing within a generation (the wall clock alone can repeat); a test sends two pings within one clock tick |
-| A2 | an ack is matched by its position among the acks owed on the generation, un-awaited scenes included: the ack of a `send_scene` is routed and dropped, and the `show()` after it gets its own (Decision 5d) | RouteDeliver (ks), RouteDropAck, the `led` ledger; `_nowait`, `_ack_key_only` | none | **GAP**: see F7a, which is this partition's test |
-| A3 | a query response is delivered to the query in flight; a response with no query in flight is dropped on arrival; a query that times out retires its generation (Decision 5e) | RouteDeliver (kq), RouteDrop, TimeoutRetire; `_query_plain` | none | **GAP**: see F7 |
-| A4 | the `scene_id` of an ack is a cross-check, never a key: an ack whose id differs from the oldest outstanding entry's retires the generation (not modelled; defence in depth for A1 of the display) | none | none | **GAP**, optional |
+| M1 | a pong is delivered only to the ping whose `ts` it echoes; a pong with another `ts`, a repeated pong, a pong with no ping in flight, are dropped on arrival | RouteDeliver (kp), RouteDrop, RepeatPong; `pong_unkeyed` | none | **GAP**. The Hub must make each ping's `ts` strictly increasing within a generation (the wall clock alone can repeat); a test sends two pings within one clock tick |
+| M2 | an ack is matched by its position among the acks owed on the generation, un-awaited scenes included: the ack of a `send_scene` is routed and dropped, and the `show()` after it gets its own (Decision 5d) | RouteDeliver (ks), RouteDropAck, the `led` ledger; `_nowait`, `_ack_key_only` | none | **GAP**: see F7a, which is this partition's test |
+| M3 | a query response is delivered to the query in flight; a response with no query in flight is dropped on arrival; a query that times out retires its generation (Decision 5e) | RouteDeliver (kq), RouteDrop, TimeoutRetire; `_query_plain` | none | **GAP**: see F7 |
+| M4 | **mandatory**: the `scene_id` of an ack is a cross-check, never a key: an ack whose id differs from the oldest outstanding entry's retires the generation. Limit: the replicator pushes one scene id many times, and a shift among acks of one id is invisible to the check (it persists until an ack of another id arrives), so the check is defence in depth and the guarantee is assumption A1 with the display-side rule (F7c) | none (the model gives every scene one id, the worst case) | none | **GAP**. Test: write scenes `a`, `b`; make the display ack `b` first (or drop `a`'s ack); the generation retires. Test the limit too: two scenes of one id with the first ack dropped is *not* detected, which is why F7c's backpressure test must hold |
+
+### The Hub's failure paths (W1 to W3)
+
+| # | Partition | Model operation | Existing test | Status |
+|---|---|---|---|---|
+| W1 | a write that raises after its ledger entry was appended retires its generation (or the entry is appended only after the write returns, under `_lock`); the next `show()` is answered by its own ack | Close; `_write_fail_keep` | none | **GAP**. Test: make `sendall` raise once after the append; the generation is retired, the next request redials and gets its own reply |
+| W2 | a reply whose routing raises is not skipped: routing a pong, ack or query response is infallible, or a failure retires the generation; business events keep log-and-continue (`ListenerThread._routed_one`) | BrokenOwn; `_route_skip` | `TestARaisingRoute` asserts log-and-continue for every message and must be narrowed to business events | **GAP**, and an existing test to narrow |
+| W3 | the inline read path (no listener) pops the ledger for every ack it reads, interleaved ones included, applies M1 to M3, and reads under the generation's socket lock, never concurrently with another kind's `sendall` (an `SSLSocket`, DES-090, does not allow it; `DisplayConnection.receive` takes no lock today, `poll_chunk` does) | the specification of RouteDeliver/RouteDrop/RouteDropAck for both paths; `_inline_skip`; the lock half is outside this model (companion `docs/listener_locks.tex` to come) | none | **GAP**. Test: with no listener, a ping waits while an un-awaited scene's ack arrives; then a `show()` gets its own ack. Lock half: two kinds in flight on a TLS pair, no concurrent read and write |
 
 ### Reporting (BrokenOwn, BrokenStale)
 
@@ -243,20 +275,20 @@ Each partition is a class of behaviour the model distinguishes. Tests live in
 | C3 | closing a closed connection is not an error | Close, idempotent | `test_display_connection.py::test_closing_a_closed_connection_is_not_an_error` | covered |
 | C4 | closing discards queued replies and fails waiters | Close | `test_inbound_router.py::test_reset_discards_replies_a_dying_listener_left`, `test_a_listener_that_exited_fails_the_waiter_instead_of_timing_out` | covered |
 | C5 | a redial carries no reply, no ledger entry and no waiter of the generation before | Dial | none that asserts it across a close and redial | **GAP** |
-| F7 | **a query that times out retires its generation** (`close_if_current(g)` with that request's generation); the next query, on the redialed generation, is never handed the earlier query's late response (L6) | TimeoutRetire; `_query_plain` | none | **GAP**. Test: send a query to a display that answers after the budget; the caller times out and the connection closes; the late response, if it arrives at all, is dropped; the next query is answered only by its own response. A *ping* or a *scene* that times out does **not** retire (TimeoutKeep, A1, A2) |
+| F7 | **a query that times out retires its generation** (`close_if_current(g)` with that request's generation); the next query, on the redialed generation, is never handed the earlier query's late response (L6) | TimeoutRetire; `_query_plain` | none | **GAP**. Test: send a query to a display that answers after the budget; the caller times out and the connection closes; the late response, if it arrives at all, is dropped; the next query is answered only by its own response. A *ping* or a *scene* that times out does **not** retire (TimeoutKeep, M1, M2) |
 | **F7a** | **a `send_scene` followed by `show()` on one generation: `show()` gets its own scene's ack, and the ack sink stays bounded across N replicated scenes** (L6, L9) | SendNoWait; RouteDropAck; `_nowait`; the reachability trace | none | **GAP**, and it **fails against the code today**: every replicated scene leaves one `AckMessage` in `ReplyQueues._ack`, nothing consumes it, and luxd's link lives for days. Test: replicate N scenes, then `show()`; assert the ack is the show's (the display acks in order; make the display slow to ack the first) and that the ack queue's length is 0 after N scenes. Include two scenes with **one scene id**: the ack count, not the id, decides |
 | **F7b** | **a budget that expires while waiting for the request lock fails the caller without retiring the generation or touching any other caller; a liveness ping is not delayed behind a slow query** (L7, L8) | LockExpire; `_lock_expiry`, `_perlink_lock` | none | **GAP**. Tests: (a) hold a ping in flight, start a second ping with a budget shorter than the first's remaining wait: it fails, the generation is still live and the first ping completes; (b) hold a query in flight (display slow), run a liveness ping: it is not blocked and returns its own pong |
-| **F7c** | **display side: the display answers each request at most once, and acks each scene exactly once, in order** (A1, A2 of the specification; the assumption under the ack ledger and the query rule) | the `repeat` and `lose` controls | none | **GAP**, in `tests/` of the display (`test_render_loop*` or the socket-listener tests): one ack per `SceneMessage` the Hub's link sends (a scene the display rejects for identity, `reject_scene_unless_hub`, is today not acked at all: a Hub link is never rejected, but the test must say so), one pong per ping, one `QueryResponse` per `QueryRequest`, none duplicated by a reconnect or a retry; replies of one connection in the order of its requests |
+| **F7c** | **display side: the display never drops a reply on a live connection, answers each request at most once, and acks each scene exactly once, in order** (assumptions A1 and A2 of the specification; they underlie the ack ledger and the query rule) | the `repeat` and `lose` controls; `Sever` in the fixed model | none | **GAP**, in `tests/` of the display (`test_render_loop*` or the socket-listener tests): one ack per `SceneMessage` the Hub's link sends (a scene the display rejects for identity, `reject_scene_unless_hub`, is today not acked at all: a Hub link is never rejected, but the test must say so), one pong per ping, one `QueryResponse` per `QueryRequest`, none duplicated by a reconnect or a retry; replies of one connection in the order of its requests. **Backpressure test**: the display as shipped *fails* it (`_handle_scene` discards the result of `send_to_client`, which returns `False` at the frame deadline and nothing resends; `socket_server.py`, `bounded_send.py`). Fill the Hub side of the socket (a Hub that does not read), send N scenes: assert that N acks arrive in order, or that the display closed the connection. The rule (leader's ruling): when `send_to_client` defers or misses its deadline the display closes that connection, and the Hub redials through `ClientRegistry`. The same holds for pongs and query responses (harmless under the design, but never silently dropped) |
 | T1 | a request sent on generation g is answered only from g; a redial between send and wait fails the waiter, never consuming g+1's reply (Decision 4, L1w, L5) | Send; AwaitFail | none | **GAP**. `send` must return the generation; test by redialing in a seam between the send and the wait |
 | T2 | a waiter on g fails promptly when g is closed or g's reader exits, even while an abandoned reader of g-1 is alive (Decision 6) | Close, StopJoined, StopTimeout, BrokenOwn, TimeoutRetire fail the waiter; promptness is a liveness property the model does not check | none (`test_a_pending_reply_fails_when_the_listener_exits` covers the link-level listener only) | **GAP** |
-| T6 | **the inline read path** (`DisplayReplies.typed` and `ack` when no listener runs) reads the request's own generation's socket, applies the same matching (A1, A2, A3), and never reads the replacement after a redial in the gap (D4 inline path) | the inline form of Await and Consume | none | **GAP**. Test: with no listener, redial between send and wait; the wait fails instead of reading the new socket |
+| T6 | **the inline read path** (`DisplayReplies.typed` and `ack` when no listener runs) reads the request's own generation's socket, applies the same matching and the same ledger pops (M1 to M3, W3), and never reads the replacement after a redial in the gap (D4 inline path) | the inline form of Await and Consume | none | **GAP**. Test: with no listener, redial between send and wait; the wait fails instead of reading the new socket |
 
 ### Socket and thread realization
 
 | # | Partition | Model operation | Existing test | Status |
 |---|---|---|---|---|
 | T3 | an abandoned reader never reads the replacement's socket (L4b, the production route to two readers) | Feed guard `lgen = curGen` | none | **GAP**: stall a reader past the join after it passed `is_open`, redial, release it; assert it read nothing from the new socket, and that `poll_chunk` is not reaching `require()` |
-| T4 | `shutdown(SHUT_RDWR)` before `close()` releases a sender wedged in `sendall` and a reader blocked on `_lock` behind it (Decision 3); also on an `SSLSocket` (DES-090) | the realization of StopTimeout closing the generation | none | **GAP**; pairs with row D |
+| T4 | `shutdown(SHUT_RDWR)` before `close()` releases a sender wedged in `sendall` and a reader blocked on `_lock` behind it (Decision 3); also on an `SSLSocket` (DES-090): the raw socket's `shutdown`, not `unwrap()`, which blocks on a wedged peer | the realization of StopTimeout closing the generation | none | **GAP**; pairs with row D |
 | T5 | the business-event policy: closing a generation does not drain the link-level event queue; events queued before a close and events a straggler routes after it are both delivered; interaction handlers may run on two threads, out of order (Decision 7) | none (outside L1 by design) | `test_inbound_router.py::test_reset_discards_events_queued_before_it` asserts the opposite and must change with the fix | **GAP**, and an existing test to rewrite |
 
 ### Invariants and deadlock
@@ -268,14 +300,14 @@ Each partition is a class of behaviour the model distinguishes. Tests live in
 | L3 | a stopped reader takes at most one step | none | **GAP** (R5, R6) |
 | L4a | one reader per live generation | none | **GAP** (S7, S9) |
 | L4b | a reader holds only its own generation's bytes | none | **GAP** (T3) |
-| L5, L6 | no wrong reply is consumed | none | **GAP** (R7, T1, A1 to A3, F7, F7a) |
+| L5, L6 | no wrong reply is consumed | none | **GAP** (R7, T1, M1 to M3, W1 to W3, F7, F7a) |
 | L7, L8 | lock waits | none | **GAP** (F7b) |
 | L9 | the sink is bounded | none | **GAP** (F7a) |
 | D | the lock graph: one request lock per kind, then the state lock, then a queue lock, with `_lock` a leaf; a report never takes a request lock and never `_lock`; a caller waiting for a request lock holds nothing | `test_single_writer.py` covers the single-writer discipline for the replicator, not these locks | **GAP**: assert the state lock is not `_lock`, that a report from another thread still closes the generation while a sender is blocked in `sendall` on a wedged peer, and that two request kinds never serialise (F7b) |
 
 ## What the implementation mission must add
 
-The gaps S7, S9, R3 to R8, A1 to A3, B5 to B8, C5, F7, F7a, F7b, F7c, T1 to T6 and D
+The gaps S7, S9, R3 to R8, M1 to M4, W1 to W3, B5 to B8, C5, F7, F7a, F7b, F7c, T1 to T6 and D
 are the regression tests of the design, and each fails against today's code. B5 is
 the test named in the R3-1 review. R8 is the SF3-2 review's test. Neither is
 sufficient alone: the stopping-flag control passes both and still violates L1 and

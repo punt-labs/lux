@@ -48,6 +48,9 @@
 %   docs/listener_lifecycle_reader_restart_buggy.tex stop does not retire
 %   docs/listener_lifecycle_lock_expiry_buggy.tex   a lock-wait expiry retires
 %   docs/listener_lifecycle_perlink_lock_buggy.tex  one request lock per link
+%   docs/listener_lifecycle_write_fail_keep_buggy.tex a failed write keeps its ledger entry
+%   docs/listener_lifecycle_route_skip_buggy.tex    a raising route skips the reply
+%   docs/listener_lifecycle_inline_skip_buggy.tex   the inline path drops an ack unpopped
 %
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -113,7 +116,19 @@ assumption about the display and has to be stated and tested;
 (c) its model had one caller, so it could not show that a caller whose budget
 expires \emph{waiting for the lock} has sent nothing and must not retire, nor
 that one lock for the whole link lets a slow query starve the liveness ping.
-Decision~5 below replaces it; Decision~9 is new.
+Decision~5 below replaces it; Decisions~9 and~10 are new.
+
+\paragraph{A fourth failure, found in the second round of this revision.}
+The assumption A1 below (one ack per scene, none lost on a live connection) is
+false for the display as shipped: \texttt{\_handle\_scene} discards the result of
+\texttt{send\_to\_client}, which on a send that cannot complete before the frame
+deadline returns \texttt{False} and leaves the client connected
+(\texttt{socket\_server.py}, \texttt{bounded\_send.py}); nothing queues the ack
+again.  A Hub that reads slowly, which is the situation this model is about,
+loses acks on a live connection.  The ruling that stands (Option A below) makes
+A1 true by a display-side rule, with no wire change: \emph{a display never
+drops a reply on a live connection; when it cannot send one, it closes that
+connection} (\texttt{Sever}), and the Hub redials through the registry.
 
 \paragraph{The design, by responsibility.}
 The socket's lifetime is owned by exactly one thing: the dial that made it.
@@ -144,6 +159,10 @@ sink, and the one reader started on it).  The clauses of the model:
     current generation and open, and is a no-op otherwise.  (\texttt{BrokenOwn},
     \texttt{BrokenStale}.)  This is the only operation a reader has on the
     connection, and it takes the reader's generation as an argument.
+  \item[A display never drops a reply on a live connection.] When it cannot
+    send one it closes the connection (\texttt{Sever}); the generation ends and
+    the Hub redials.  A reply that cannot be delivered is thus a lost
+    connection, never a lost reply.  (Decision~5d, assumption A1.)
   \item[A reader lives and dies with its generation.] Stopping a reader closes
     its generation, joined or not (\texttt{StopJoined}, \texttt{StopTimeout});
     a reader is started once per generation.  (Decision~9.)
@@ -226,10 +245,16 @@ a socket an abandoned thread is still reading (L4a).
         otherwise.  The ack sink is thereby bounded (L9, F7a).  The
         \texttt{scene\_id} remains as a cross-check, never a key: an ack whose
         id differs from the oldest entry's is evidence the count is off
-        (a lost or repeated ack) and retires the generation (Decision~9's
-        cousin, not modelled).  \emph{Assumption} (A1), about the display:
-        one ack per scene, in order, none lost on a live connection.  The
-        \texttt{repeat} and \texttt{lose} controls show what it protects.
+        (a lost or repeated ack) and retires the generation (not modelled;
+        mandatory).  Its limit: the replicator pushes one scene id many times,
+        and a shift among acks of one id is invisible to the id; it persists
+        until an ack of another id arrives.  So the check is defence in depth, and the
+        guarantee is A1.  \emph{Assumption} (A1), about the display: one ack
+        per scene, in order, none lost on a live connection.  A1 is false of
+        the display as shipped and is made true by the display-side rule
+        (\texttt{Sever}: a reply the display cannot send ends the connection).
+        The \texttt{repeat} and \texttt{lose} controls show what A1 protects;
+        \texttt{lose} is the display as shipped.
       \item[(e)] \emph{Query: retire on timeout.}  \texttt{QueryResponse}
         carries a \texttt{method}, which does not separate two queries of one
         method.  Nothing correlates, so a query that times out retires the
@@ -293,11 +318,52 @@ a socket an abandoned thread is still reading (L4a).
     reconnected on a frame boundary.  The cost: a library caller that stops its
     listener and starts another on the same connection must redial; the
     production callers already close after a stop.
+  \item \emph{The Hub's own failure paths never lose a ledger entry's
+    reply, and never keep a ledger entry whose scene may not have been sent.}
+    The ack ledger counts, so every way a reply is consumed or a write is
+    abandoned without the matching ledger step is a \texttt{Lose} in the
+    model's terms, and the \texttt{lose} control shows the consequence.  Three
+    rules; each has a control that removes it:
+    \begin{enumerate}
+      \item[(a)] \emph{A write that raises after its ledger entry was
+        appended retires its generation} (\texttt{close\_if\_current(g)}), or
+        the entry is appended only after the write returns, still under
+        \texttt{\_lock}.  The model's retirement is \texttt{Close}; the
+        \texttt{write\_fail\_keep} control keeps the entry and the
+        generation (L6, three requests).
+      \item[(b)] \emph{A reply whose routing raises is not skipped.}
+        \texttt{ListenerThread.\_routed\_one} logs a raising route and
+        continues.  For a pong, an ack or a query response, routing is
+        infallible or a failure retires the generation (a report: the model's
+        \texttt{BrokenOwn}).  Business events keep log-and-continue.  The
+        \texttt{route\_skip} control drops the reply and keeps the generation
+        (L6).
+      \item[(c)] \emph{The inline read path} (no listener running) obeys the
+        rules of the listener's route: \texttt{RouteDeliver},
+        \texttt{RouteDrop} and \texttt{RouteDropAck} are the specification of
+        both.  It pops the ledger for \emph{every} ack it reads, an
+        interleaved ack of a scene nobody awaits included
+        (\texttt{DisplayReplies.typed} drops interleaved frames today without
+        a pop); the \texttt{inline\_skip} control does not (L6, four
+        requests).  It also reads under the generation's socket lock
+        (\texttt{\_lock}), as \texttt{poll\_chunk} does: with a lock per kind,
+        an inline read of one kind runs against a \texttt{sendall} of another
+        on the same socket, which an \texttt{SSLSocket} (DES-090) does not
+        allow.  That second half is a lock property, outside this model; the
+        lock-order companion to come (\texttt{docs/listener\_locks.tex})
+        carries it.  The model does not model the inline path as such, only
+        its ledger obligation.
+    \end{enumerate}
 \end{enumerate}
 
 \paragraph{Options for Decision~5 (for the operator).}
-The design above needs no wire change.  It is sound under A1 and A2 and under
-the rule of Decision~9, and is the recommended one.  The alternative:
+The design above needs no wire change.  It is sound under A1 and A2, under
+the rule of Decision~9 and the failure-path rules of Decision~10, and, for A1
+to hold of the display this repository ships, under the display-side rule that
+it closes a connection rather than drop a reply.  It is the recommended one,
+and the operator's ruling.  Under Option~B a lost ack costs only its own
+\texttt{show()}'s timeout, and none of these display-side or failure-path
+rules is needed.  The alternative:
 
 \begin{description}
   \item[Request ids on the wire.] Each request carries an id, unique within the
@@ -338,9 +404,10 @@ the join timeout is exactly a reader with a non-empty buffer that
 \texttt{StopTimeout} abandons.  All scenes carry one scene id, the worst case
 for correlation by id.  The display's behaviour is in the model as three
 environment steps: it answers each owed reply once (\texttt{Feed}, in order
-for acks); it may repeat a pong (\texttt{RepeatPong}); and, in the controls
-only, it may repeat any reply (\texttt{Repeat}) or lose an ack
-(\texttt{Lose}).
+for acks); it may repeat a pong (\texttt{RepeatPong}); and it may fail to send
+a reply, in which case it severs the connection (\texttt{Sever}).  In the
+controls only, it may repeat any reply (\texttt{Repeat}) or lose an ack and
+keep the connection (\texttt{Lose}, the display as shipped).
 
 \paragraph{Invariants.}
 
@@ -350,7 +417,7 @@ only, it may repeat any reply (\texttt{Repeat}) or lose an ack
     caller waits on the live current generation, the one it wrote to.
   \item[L2 --- a report never closes another generation.] A generation is
     closed only deliberately (the link, a stop, or the caller's timeout of a
-    query) or because its own reader found its own stream broken.
+    query), by the display severing it, or because its own reader found its own stream broken.
   \item[L3 --- a stopped reader takes at most the one step it was
     permitted.]  The number of routing or reporting steps taken by a reader
     after its stopping flag was set is at most one: the step whose permission
@@ -569,7 +636,9 @@ wait fails at once if that generation is no longer the live one
 \texttt{Consume} takes the parked reply.  \texttt{TimeoutKeep} is a ping or a
 scene's budget running out while awaited: the generation stays in service and
 the late reply, if any, will match nothing.  \texttt{TimeoutRetire} is a
-query's: the generation is closed.  \texttt{Close} is the link closing the
+query's: the generation is closed.  \texttt{Sever} is the display failing to send a
+reply it owed and closing the connection instead (the reader will find the
+stream ended, and \texttt{BrokenStale} is then a no-op).  \texttt{Close} is the link closing the
 connection on purpose (\texttt{DisplayLink.close},
 \texttt{ClientRegistry.drop}); nothing here reconnects, the next \texttt{Dial}
 does.
@@ -1174,6 +1243,34 @@ does.
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
+\subsection{Sever}
+
+\begin{schema}{Sever}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  r? : 1 \upto maxReq
+\where
+  held = fset \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \\
+  broken' = broken \cup \{ curGen \} \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
+\end{schema}
+
 \subsection{RepeatPong}
 
 \begin{schema}{RepeatPong}
@@ -1233,7 +1330,7 @@ closes the generation empties \texttt{mbox} and fails the waiters;
 while that is live.
 
 \paragraph{L2 --- a generation is closed only by the link, a stop, a query
-timeout, or by itself.}
+timeout, the display, or by itself.}
 \[ held = fclear \land curGen > 0 \implies curGen \in broken \cup deliberate. \]
 \texttt{BrokenOwn} fires only when the reader's generation \emph{is} the
 current one; \texttt{BrokenStale} changes nothing of the connection.
@@ -1270,7 +1367,10 @@ and A2 (\texttt{repeat}, \texttt{lose}, \texttt{reader\_restart}).
 \[ wrongRetire = fclear;\qquad starved = fclear. \]
 \texttt{LockExpire} changes only the expiring caller; the controls make a
 lock-wait expiry retire (\texttt{lock\_expiry}) and make one lock cover the link
-(\texttt{perlink\_lock}).  L7 and L8 are by construction in the fixed design,
+(\texttt{perlink\_lock}).  L7 and L8 are tautologies of the fixed design:
+no fixed operation writes \texttt{wrongRetire} or \texttt{starved}, so their goals are not a
+search; their content is in the guards of \texttt{Send} and \texttt{LockExpire}, and the
+controls are their evidence.  L7 and L8 are by construction in the fixed design,
 and the controls show them reachable.
 
 \paragraph{L9 --- the sink is bounded.}
@@ -1283,7 +1383,13 @@ parked ack each for the life of the link.
 \paragraph{Deadlock-freedom, and the lock order the model assumes.}
 The model has no lock-acquisition steps, because it makes the critical
 sections it needs atomic.  What it checks is that \emph{no state other than
-the quiescent one lacks an enabled step}.  The lock discipline the
+the quiescent one lacks an enabled step}.  That check is trivial here:
+\texttt{Want} is enabled for every idle caller and \texttt{LockExpire} for every
+caller waiting for a lock, so no state is deadlocked and \texttt{deadlocked:0}
+proves nothing about the locks.  The lock order below is argued, not checked, in
+this file; a lock-order model with an inverted control, in the manner of
+\texttt{menu\_presence\_locks.tex}, is the companion to come
+(\texttt{docs/listener\_locks.tex}).  The lock discipline the
 implementation owes the model:
 
 \begin{center}
@@ -1394,6 +1500,14 @@ against the round-2 Decision~5, reproduced.  It is also a defect of the code
 today: every replicated scene leaves one \texttt{AckMessage} in the ack queue,
 and nothing consumes it before the connection ends.
 
+\paragraph{The failure paths of Decision~10, one control each.}
+\emph{A failed write keeps its ledger entry} (\texttt{write\_fail\_keep}, three
+requests): L6.  \emph{A raising route skips the reply} (\texttt{route\_skip}): L6.
+\emph{The inline path drops an ack without popping the ledger}
+(\texttt{inline\_skip}, four requests): L6.  Each is a \texttt{Lose} by another
+route: the ledger counts, and a reply consumed or an entry abandoned without the
+matching step shifts every later position.
+
 \paragraph{The rules of Decision~5, one control each.}
 \emph{Ack matched by scene id alone}
 (\texttt{ack\_key\_only}): the show takes the un-awaited scene's ack, as above,
@@ -1404,7 +1518,10 @@ late pong answers the next ping; L6.
 \emph{A display that answers twice} (\texttt{repeat}): a repeated ack or query
 response answers the next request; L6.  (A repeated pong does not: it is part
 of the fixed model.)
-\emph{A display that loses an ack} (\texttt{lose}): L6.
+\emph{A display that loses an ack and keeps the connection} (\texttt{lose}): L6.
+This is the display as shipped (a send that cannot complete by the frame deadline
+returns \texttt{False} and nothing resends); the fixed model replaces the loss by
+\texttt{Sever}, the display closing the connection, and holds.
 \emph{A stopped reader keeps its generation} (\texttt{reader\_restart}): L6,
 by a plain stop and start over an open socket.
 \emph{A lock-wait expiry retires} (\texttt{lock\_expiry}): L7.
@@ -1421,8 +1538,8 @@ Type-checking is a \texttt{fuzz} pass:
 \end{verbatim}
 
 \texttt{T} (readers) and \texttt{C} (callers) are given sets, and their sizes
-are set on the command line with \texttt{-card}.  Every \texttt{probcli} call
-below also takes \texttt{-p MAX\_OPERATIONS 200}: at ProB's default the
+are set on the command line with \texttt{-card}.  are set on the command line with \texttt{-card}.  The round-2 controls (a free type
+\texttt{T}, no \texttt{C}) are run without \texttt{-card}. \texttt{-p MAX\_OPERATIONS 200}: at ProB's default the
 operations with inputs are truncated in some states and the check is reported
 incomplete.  Run with \texttt{-coverage} and read the
 \texttt{UNCOVERED\_OPERATIONS} count: an operation that cannot fire makes every

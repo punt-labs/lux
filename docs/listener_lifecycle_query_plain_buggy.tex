@@ -760,6 +760,34 @@ the command line (Section~\ref{sec:verify}).
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
+\subsection{Sever}
+
+\begin{schema}{Sever}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  r? : 1 \upto maxReq
+\where
+  held = fset \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \\
+  broken' = broken \cup \{ curGen \} \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
+\end{schema}
+
 \subsection{RepeatPong}
 
 \begin{schema}{RepeatPong}
