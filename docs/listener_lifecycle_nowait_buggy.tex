@@ -1,0 +1,647 @@
+%
+% listener_lifecycle_nowait_buggy.tex
+%
+% FIDELITY CONTROL for docs/listener_lifecycle.tex: the ROUND-2 design (retire
+% on timeout, one untyped reply sink per generation, one request in flight
+% per link) in the presence of the replicator's un-awaited send_scene.  It is
+% the round-2 fixed specification verbatim plus ONE operation, SendNoWait: a
+% write that makes a reply owed and has no waiter.  Round-2's retire rule
+% assumed every write that elicits a reply is awaited under the request lock;
+% the display acks every SceneMessage, so that assumption is false.
+%
+% Expected: L1 to L5 hold; L6 VIOLATED
+%   (Dial; SendNoWait; Send; Await; StartListener(ta); CheckPermit(ta);
+%    Feed(1,ta); RouteLive(1,ta); Consume(1))
+% -- no timeout is involved: a later show() takes the ack of an earlier
+% fire-and-forget scene.
+%
+% Goals (negations of the invariants; see listener_lifecycle.tex, round 2):
+%   L1 (qrep /= {} & (held = fclear or {r | r:qrep & rgen(r) /= curGen} /= {}))
+%        or (cstate = cwait & (held = fclear or rgen(creq) /= curGen))
+%   L2 held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)
+%   L3 afterStop(ta) > 1 or afterStop(tb) > 1
+%   L4a lst(ta) /= lexit & lst(tb) /= lexit & lgen(ta) = lgen(tb)
+%   L4b {r | r:bufr(ta) & rgen(r) /= lgen(ta)} /= {}
+%        or {r | r:bufr(tb) & rgen(r) /= lgen(tb)} /= {}
+%   L5 crossGen = fset      L6 crossReq = fset
+% Check:  fuzz FILE ; probcli FILE -model_check -nodead -p DEFAULT_SETSIZE 2 \
+%           -p MAX_OPERATIONS 200 -goal "<negation>"
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Listener Lifecycle: the Round-2 Design with an Unawaited Send}
+\author{Fidelity control for listener\_lifecycle.tex}
+\date{October 2026}
+\maketitle
+
+% ============================================================
+\section{Constants and Free Types}
+% ============================================================
+
+Three generations: the original, the replacement, and one more, so that a
+replacement can itself be replaced while an abandoned reader of the first is
+still alive.  Two requests: the least that lets a late reply meet a later
+request.  One buffered reply is the least that lets an abandoned reader have
+something left to route.
+
+\begin{axdef}
+  maxGen : \nat \\
+  maxReq : \nat \\
+  maxBuf : \nat
+\where
+  maxGen = 3 \\
+  maxReq = 2 \\
+  maxBuf = 1
+\end{axdef}
+
+\begin{zed}
+  T ::= ta | tb
+\end{zed}
+
+\begin{zed}
+  LST ::= lexit | lrun | lstop
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  CST ::= cidle | csent | cwait
+\end{zed}
+
+\texttt{T}: the two reader threads, as slots.  \texttt{LST}: a slot is idle
+(\texttt{lexit}), running with its stopping flag clear (\texttt{lrun}), or
+alive with the flag set (\texttt{lstop} --- \texttt{stop} timed out, or has
+not yet joined: the abandoned thread).  \texttt{CST}: the caller's request is
+idle, written and not yet awaited (\texttt{csent}), or awaited
+(\texttt{cwait}).
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is split into four groups, then joined, so that an operation can
+say what it leaves alone.
+
+\begin{schema}{Conn}
+  curGen : \nat \\
+  held : FSTATE
+\where
+  curGen \leq maxGen \\
+  held = fset \implies curGen > 0
+\end{schema}
+
+\begin{schema}{Req}
+  nreq : \nat \\
+  creq : \nat \\
+  cstate : CST \\
+  rgen : (0 \upto maxReq) \fun (0 \upto maxGen) \\
+  owed : \power \nat \\
+  qrep : \power \nat
+\where
+  nreq \leq maxReq \\
+  creq \leq maxReq \\
+  owed \subseteq 1 \upto maxReq \\
+  qrep \subseteq 1 \upto maxReq
+\end{schema}
+
+\begin{schema}{Thr}
+  lst : T \fun LST \\
+  lgen : T \fun \nat \\
+  armed : T \fun FSTATE \\
+  bufr : T \fun (\power \nat) \\
+  afterStop : T \fun \nat
+\where
+  \forall t : T \spot lgen~t \leq maxGen \land \# (bufr~t) \leq maxBuf
+    \land bufr~t \subseteq 1 \upto maxReq \land afterStop~t \leq maxBuf + 1
+\end{schema}
+
+\begin{schema}{Hist}
+  broken : \power \nat \\
+  deliberate : \power \nat \\
+  crossGen : FSTATE \\
+  crossReq : FSTATE
+\where
+  broken \subseteq 0 \upto maxGen \\
+  deliberate \subseteq 0 \upto maxGen
+\end{schema}
+
+\begin{schema}{LL}
+  Conn \\
+  Req \\
+  Thr \\
+  Hist
+\end{schema}
+
+
+\texttt{curGen} is the latest generation dialed (zero before the first dial);
+\texttt{held} says whether the connection holds that generation's socket ---
+\texttt{is\_open}.  Every earlier generation is closed.
+
+In \texttt{Req}, requests are numbered \texttt{1..nreq}; \texttt{rgen} gives
+the generation each was written on; \texttt{creq} and \texttt{cstate} are the
+caller's request and where it stands.  \texttt{owed} are the requests the
+display may still answer; \texttt{qrep} are the replies sitting in sinks (a
+reply is the number of its request).
+
+In \texttt{Thr}, \texttt{lgen} is the generation a reader was started on;
+\texttt{bufr} are the replies it has read and not yet routed;
+\texttt{armed} is the permission the reader obtained the last time it looked
+at its stopping flag while the flag was clear (the loop-top test in
+\texttt{\_run}, and the re-test this design adds before a route or a report).
+A step that routes or reports consumes the permission.  The flag can be set
+\emph{between} the look and the step, which is why a permission is state: it
+is the window, and the model keeps it open.  \texttt{afterStop} counts the
+routing and reporting steps a reader has taken since its flag was set.
+
+\texttt{Hist} holds history variables, never read by an operation guard, so
+that invariants are statements about what happened.  \texttt{broken}: the
+generations whose own reader found their own stream broken.
+\texttt{deliberate}: the generations the link, or a timeout, closed.
+\texttt{crossGen}: a caller consumed a reply of another generation.
+\texttt{crossReq}: a caller consumed a reply to a request other than its own.
+
+\section{Initialization}
+
+\begin{schema}{Init}
+  LL'
+\where
+  curGen' = 0 \\
+  held' = fclear \\
+  nreq' = 0 \\
+  creq' = 0 \\
+  cstate' = cidle \\
+  \forall i : 0 \upto maxReq \spot rgen'~i = 0 \\
+  owed' = \emptyset \\
+  qrep' = \emptyset \\
+  lst' = \{ ta \mapsto lexit, tb \mapsto lexit \} \\
+  lgen' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  armed' = \{ ta \mapsto fclear, tb \mapsto fclear \} \\
+  bufr' = \{ ta \mapsto \emptyset, tb \mapsto \emptyset \} \\
+  afterStop' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  broken' = \emptyset \\
+  deliberate' = \emptyset \\
+  crossGen' = fclear \\
+  crossReq' = fclear
+\end{schema}
+
+
+Nothing dialed, no request, no reader, no reply, nothing recorded.
+
+% ============================================================
+\section{Operations on the Connection and the Caller}
+% ============================================================
+
+
+\subsection{Dial}
+
+\begin{schema}{Dial}
+  \Delta LL \\
+  \Xi Req \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fclear \\
+  curGen < maxGen \\
+  curGen' = curGen + 1 \\
+  held' = fset
+\end{schema}
+\texttt{DisplayConnection.open}: a new generation, a new socket.  Only a
+closed connection dials.  The new generation has no sink content; nothing of
+an earlier generation is carried over.
+
+\subsection{Close}
+
+\begin{schema}{Close}
+  \Delta LL \\
+  \Xi Thr
+\where
+  held = fset \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  (cstate = cwait \implies cstate' = cidle) \\
+  (cstate \neq cwait \implies cstate' = cstate) \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq
+\end{schema}
+The link closes the connection on purpose: \texttt{DisplayLink.close},
+\texttt{ClientRegistry.drop}.  The generation's sink is discarded, a waiting
+caller fails, and the replies the display still owed on that socket are gone
+with it.  Readers are not touched; \texttt{StopJoined} and
+\texttt{StopTimeout} are separate steps, in either order.  The link-level
+event queue is not touched (Decision~7).
+
+\subsection{Send}
+
+\begin{schema}{Send}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = cidle \\
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  creq' = nreq + 1 \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  qrep' = qrep \\
+  cstate' = csent
+\end{schema}
+The caller, holding the request lock, writes a request on the current socket.
+Its reply is owed by the display.  The write returns the generation
+(\texttt{rgen}) --- Decision~4.
+
+\subsection{Await}
+
+\begin{schema}{Await}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = csent \\
+  held = fset \\
+  rgen~creq = curGen \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  qrep' = qrep \\
+  cstate' = cwait
+\end{schema}
+
+\begin{schema}{AwaitFail}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = csent \\
+  \lnot (held = fset \land rgen~creq = curGen) \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  qrep' = qrep \\
+  cstate' = cidle
+\end{schema}
+The caller waits on the sink of the generation it wrote on, if that
+generation is still the live one; otherwise the wait fails at once
+(\texttt{AwaitFail}).  A redial between \texttt{Send} and \texttt{Await} is
+the case \texttt{AwaitFail} exists for.
+
+\subsection{Consume}
+
+\begin{schema}{Consume}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  r? : 1 \upto maxReq
+\where
+  cstate = cwait \\
+  r? \in qrep \\
+  rgen~r? = rgen~creq \\
+  qrep' = qrep \setminus \{ r? \} \\
+  cstate' = cidle \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  crossGen' = crossGen \\
+  (r? \neq creq \implies crossReq' = fset) \\
+  (r? = creq \implies crossReq' = crossReq)
+\end{schema}
+The waiting caller takes a reply from its generation's sink.  The sink is
+untagged: any reply in it will do, as in the code.  \texttt{crossReq} records
+a reply that was not the caller's own; the fixed design never sets it,
+because a sink holds only replies to requests written on its generation and
+the generation is retired the moment a request is abandoned.
+
+\subsection{TimeoutRetire}
+
+\begin{schema}{TimeoutRetire}
+  \Delta LL \\
+  \Xi Thr
+\where
+  cstate = cwait \\
+  held = fset \\
+  rgen~creq = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  cstate' = cidle \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq
+\end{schema}
+The caller's budget expires while it waits.  The generation it wrote on is
+ended: closed, its sink discarded, its owed replies gone.  This is the
+timeout rule of Decision~5.  Nothing is reconnected here; the next
+\texttt{Get} redials.
+
+% ============================================================
+\section{Operations on a Reader}
+% ============================================================
+
+Each takes the thread \texttt{t?}.
+
+\subsection{StartListener}
+
+\begin{schema}{StartListener}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lexit \\
+  held = fset \\
+  \forall u : T \spot lst~u \neq lrun \\
+  \forall u : T \spot lst~u = lexit \lor lgen~u \neq curGen \\
+  lst' = lst \oplus \{ t? \mapsto lrun \} \\
+  lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto \emptyset \} \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\texttt{ListenerThread.start}.  A no-op while a running reader exists (the third line is the code's \texttt{if not stopping: return}).  The fourth line is this design's addition: a successor is started only on a generation no live thread is still reading.  Abandoning a reader means retiring its generation first (Decision~3).
+
+\subsection{CheckPermit}
+
+\begin{schema}{CheckPermit}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  armed~t? = fclear \\
+  lst' = lst \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  afterStop' = afterStop \\
+  armed' = armed \oplus \{ t? \mapsto fset \}
+\end{schema}
+
+The reader looks at its stopping flag, finds it clear, and obtains permission for its next routing or reporting step.  Only a running reader can: once the flag is set, no permission is issued.
+
+\subsection{Feed}
+
+\begin{schema}{Feed}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  \# (bufr~t?) < maxBuf \\
+  owed' = owed \setminus \{ r? \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \cup \{ r? \} \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  qrep' = qrep \\
+  cstate' = cstate \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  afterStop' = afterStop
+\end{schema}
+
+The reader reads a reply off its own generation's socket, while that socket is the open current one.  A reader over a closed or replaced socket reads nothing new; what it already holds stays in \texttt{bufr}. This is Decision~8: the reader holds its socket and never reads through \texttt{require()}.
+
+\subsection{StopJoined}
+
+\begin{schema}{StopJoined}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\texttt{stop}: the flag is set and the join succeeds.
+
+\subsection{StopTimeout}
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  bufr' = bufr \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\texttt{stop}: the flag is set and the join times out.  The thread is alive, its permission (if any) intact, and it is abandoned.
+
+\subsection{ExitStopped}
+
+\begin{schema}{ExitStopped}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lstop \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+The abandoned thread sees its flag at its next test and exits.
+
+\subsection{RouteLive}
+
+\begin{schema}{RouteLive}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  qrep' = qrep \cup \{ r? \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  cstate' = cstate \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+A reader with permission routes one buffered reply into the sink of its own generation, when that generation is the live current one.
+
+\subsection{RouteDead}
+
+\begin{schema}{RouteDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  qrep' = qrep \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  cstate' = cstate \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+If the generation has been closed or replaced, its sink is gone and the reply is dropped.  Nothing here reaches the current generation.
+
+\subsection{BrokenOwn}
+
+\begin{schema}{BrokenOwn}
+  \Delta LL \\
+  t? : T
+\where
+  armed~t? = fset \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  (cstate = cwait \implies cstate' = cidle) \\
+  (cstate \neq cwait \implies cstate' = cstate) \\
+  broken' = broken \cup \{ curGen \} \\
+  deliberate' = deliberate \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+The reader's stream broke --- the read failed, the display closed it, or a frame did not decode --- and it reports by compare-and-close on its own generation.  If that generation is the open current one, it is closed and recorded as broken.
+
+\subsection{BrokenStale}
+
+\begin{schema}{BrokenStale}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  armed~t? = fset \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+Otherwise the report is a no-op and the reader exits.  The current generation is never touched on behalf of another's reader.
+
+\subsection{Halt}
+
+\begin{schema}{Halt}
+  \Xi LL
+\where
+  curGen = maxGen \\
+  held = fclear \\
+  cstate = cidle \\
+  \forall u : T \spot lst~u = lexit
+\end{schema}
+
+The carrier is finite, so the run ends when every generation has been dialed and closed, every reader has exited and the caller is idle.  \texttt{Halt} is enabled in that quiescent state and nowhere else: a reachable state with no enabled operation that is \emph{not} this one is a deadlock.
+
+
+\subsection{SendNoWait}
+
+\begin{schema}{SendNoWait}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = cidle \\
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  creq' = creq \\
+  cstate' = cstate \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  qrep' = qrep
+\end{schema}
+A write that makes a reply owed and that nobody waits for: the replicator's \texttt{send\_scene}.  The display acks every scene (\texttt{render\_loop.\_handle\_scene}), so the ack arrives in the generation's sink with no waiter.
+
+\end{document}

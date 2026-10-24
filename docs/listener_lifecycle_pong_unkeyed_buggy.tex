@@ -1,0 +1,818 @@
+%
+% listener_lifecycle_pong_unkeyed_buggy.tex
+%
+% FIDELITY CONTROL for docs/listener_lifecycle.tex: a pong is delivered to whichever ping is in flight, without
+% comparing the echoed ts with the request's.  (The fixed design delivers a pong
+% only to the caller whose own request it answers.)
+%
+% Expected: L6 VIOLATED: a timed-out ping's late pong answers the next ping.
+%
+% Everything else is verbatim the fixed design.
+%
+% Goals (negations of the invariants; see listener_lifecycle.tex):
+%   L1q mbox /= {} & (held = fclear or #c.(c:dom(mbox) & rgen(mbox(c)) /= curGen))
+%   L1w #c.(cstate(c) = cwait & (held = fclear or rgen(creq(c)) /= curGen))
+%   L2  held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)
+%   L3  #t.(t:T & afterStop(t) > 1)
+%   L4a #(t,u).(t:T & u:T & t /= u & lst(t) /= lexit & lst(u) /= lexit
+%                & lgen(t) = lgen(u))
+%   L4b #t.(t:T & {r | r:bufr(t) & rgen(r) /= lgen(t)} /= {})
+%   L5  crossGen = fset      L6  crossReq = fset
+%   L7  wrongRetire = fset   L8  starved = fset
+%   L9  #c.(c:dom(mbox) & cstate(c) /: {csent,cwait})
+% Check:  fuzz FILE ; probcli FILE -model_check -nodead -bf -goal "<negation>" \
+%           -p MAX_OPERATIONS 200 -card T <n> -card C <m>
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Listener Lifecycle: Pong Matched by Kind Alone}
+\author{Fidelity control for listener\_lifecycle.tex}
+\date{October 2026}
+\maketitle
+
+\section{Constants and Free Types}
+% ============================================================
+
+Three generations: the original, the replacement, and one more, so that a
+replacement can itself be replaced while an abandoned reader of the first is
+still alive.  Two requests: the least that lets a late reply, or the ack of an
+un-awaited scene, meet a later request in one generation.  One buffered reply
+is the least that lets an abandoned reader have something left to route.  The
+sets of readers \texttt{T} and of callers \texttt{C} are given sets, sized on
+the command line (Section~\ref{sec:verify}).
+
+\begin{axdef}
+  maxGen : \nat \\
+  maxReq : \nat \\
+  maxBuf : \nat
+\where
+  maxGen = 3 \\
+  maxReq = 2 \\
+  maxBuf = 1
+\end{axdef}
+
+\begin{zed}
+  [T]
+\end{zed}
+
+\begin{zed}
+  [C]
+\end{zed}
+
+\begin{zed}
+  K ::= kp | ks | kq
+\end{zed}
+
+\begin{zed}
+  LST ::= lexit | lrun | lstop
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  CST ::= cidle | clockwait | csent | cwait
+\end{zed}
+
+% ============================================================
+\section{State}
+% ============================================================
+
+\begin{schema}{Conn}
+  curGen : \nat \\
+  held : FSTATE \\
+  started : \power \nat
+\where
+  started \subseteq 1 \upto maxGen \\
+  curGen \leq maxGen \\
+  held = fset \implies curGen > 0
+\end{schema}
+
+\begin{schema}{ReqT}
+  nreq : \nat \\
+  rk : (0 \upto maxReq) \fun K \\
+  rgen : (0 \upto maxReq) \fun (0 \upto maxGen)
+\where
+  nreq \leq maxReq
+\end{schema}
+
+\begin{schema}{Cal}
+  cstate : C \fun CST \\
+  ck : C \fun K \\
+  creq : C \fun \nat
+\where
+  \forall c : C \spot creq~c \leq maxReq
+\end{schema}
+
+\begin{schema}{Snk}
+  owed : \power \nat \\
+  led : \power \nat \\
+  mbox : C \pfun \nat
+\where
+  owed \subseteq 1 \upto maxReq \\
+  led \subseteq 1 \upto maxReq \\
+  \ran mbox \subseteq 1 \upto maxReq
+\end{schema}
+
+\begin{schema}{Thr}
+  lst : T \fun LST \\
+  lgen : T \fun \nat \\
+  armed : T \fun FSTATE \\
+  bufr : T \fun (\power \nat) \\
+  afterStop : T \fun \nat
+\where
+  \forall t : T \spot lgen~t \leq maxGen \land \# (bufr~t) \leq maxBuf
+    \land bufr~t \subseteq 1 \upto maxReq \land afterStop~t \leq maxBuf + 1
+\end{schema}
+
+\begin{schema}{Hist}
+  broken : \power \nat \\
+  deliberate : \power \nat \\
+  crossGen : FSTATE \\
+  crossReq : FSTATE \\
+  wrongRetire : FSTATE \\
+  starved : FSTATE
+\where
+  broken \subseteq 0 \upto maxGen \\
+  deliberate \subseteq 0 \upto maxGen
+\end{schema}
+
+\begin{schema}{LL}
+  Conn \\
+  ReqT \\
+  Cal \\
+  Snk \\
+  Thr \\
+  Hist
+\end{schema}
+
+\section{Initialization}
+
+\begin{schema}{Init}
+  LL'
+\where
+  curGen' = 0 \\
+  held' = fclear \\
+  started' = \emptyset \\
+  nreq' = 0 \\
+  \forall i : 0 \upto maxReq \spot rk'~i = kp \land rgen'~i = 0 \\
+  cstate' = C \cross \{ cidle \} \\
+  ck' = C \cross \{ kp \} \\
+  creq' = C \cross \{ 0 \} \\
+  owed' = \emptyset \\
+  led' = \emptyset \\
+  mbox' = \emptyset \\
+  lst' = T \cross \{ lexit \} \\
+  lgen' = T \cross \{ 0 \} \\
+  armed' = T \cross \{ fclear \} \\
+  bufr' = T \cross \{ \emptyset \} \\
+  afterStop' = T \cross \{ 0 \} \\
+  broken' = \emptyset \\
+  deliberate' = \emptyset \\
+  crossGen' = fclear \\
+  crossReq' = fclear \\
+  wrongRetire' = fclear \\
+  starved' = fclear
+\end{schema}
+
+% ============================================================
+\section{Operations on the Connection and the Callers}
+% ============================================================
+
+\subsection{Dial}
+
+\begin{schema}{Dial}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fclear \\
+  curGen < maxGen \\
+  curGen' = curGen + 1 \\
+  started' = started \\
+  held' = fset
+\end{schema}
+
+\subsection{Close}
+
+\begin{schema}{Close}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Thr
+\where
+  held = fset \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
+\end{schema}
+
+\subsection{Want, Send and SendNoWait}
+
+\begin{schema}{Want}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C \\
+  k? : K
+\where
+  cstate~c? = cidle \\
+  cstate' = cstate \oplus \{ c? \mapsto clockwait \} \\
+  ck' = ck \oplus \{ c? \mapsto k? \} \\
+  creq' = creq
+\end{schema}
+
+\begin{schema}{Send}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = clockwait \\
+  \forall d : C | d \neq c? \spot
+    cstate~d \in \{ csent, cwait \} \implies ck~d \neq ck~c? \\
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  rk' = rk \oplus \{ nreq + 1 \mapsto ck~c? \} \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  cstate' = cstate \oplus \{ c? \mapsto csent \} \\
+  ck' = ck \\
+  creq' = creq \oplus \{ c? \mapsto nreq + 1 \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  (ck~c? = ks \implies led' = led \cup \{ nreq + 1 \}) \\
+  (ck~c? \neq ks \implies led' = led) \\
+  mbox' = mbox
+\end{schema}
+
+\begin{schema}{SendNoWait}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Cal \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  rk' = rk \oplus \{ nreq + 1 \mapsto ks \} \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  led' = led \cup \{ nreq + 1 \} \\
+  mbox' = mbox
+\end{schema}
+
+\subsection{Await and AwaitFail}
+
+\begin{schema}{Await}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = csent \\
+  held = fset \\
+  rgen~(creq~c?) = curGen \\
+  cstate' = cstate \oplus \{ c? \mapsto cwait \} \\
+  ck' = ck \\
+  creq' = creq
+\end{schema}
+
+\begin{schema}{AwaitFail}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = csent \\
+  \lnot (held = fset \land rgen~(creq~c?) = curGen) \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  owed' = owed \\
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox
+\end{schema}
+
+\subsection{Consume}
+
+\begin{schema}{Consume}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  c? : C
+\where
+  cstate~c? = cwait \\
+  c? \in \dom mbox \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  owed' = owed \\
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  (rgen~(mbox~c?) \neq rgen~(creq~c?) \implies crossGen' = fset) \\
+  (rgen~(mbox~c?) = rgen~(creq~c?) \implies crossGen' = crossGen) \\
+  (mbox~c? \neq creq~c? \implies crossReq' = fset) \\
+  (mbox~c? = creq~c? \implies crossReq' = crossReq) \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
+\end{schema}
+
+\subsection{LockExpire}
+
+\begin{schema}{LockExpire}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = clockwait \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq
+\end{schema}
+
+\subsection{TimeoutRetire and TimeoutKeep}
+
+\begin{schema}{TimeoutRetire}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  c? : C
+\where
+  cstate~c? = cwait \\
+  ck~c? = kq \\
+  held = fset \\
+  rgen~(creq~c?) = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
+\end{schema}
+
+\begin{schema}{TimeoutKeep}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = cwait \\
+  ck~c? \in \{ kp, ks \} \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  owed' = owed \\
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox
+\end{schema}
+
+% ============================================================
+\section{Operations on a Reader}
+% ============================================================
+
+\subsection{StartListener}
+
+\begin{schema}{StartListener}
+  \Delta LL \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lexit \\
+  held = fset \\
+  curGen \notin started \\
+  \forall u : T \spot lst~u \neq lrun \\
+  \forall u : T \spot lst~u = lexit \lor lgen~u \neq curGen \\
+  held' = held \\
+  curGen' = curGen \\
+  started' = started \cup \{ curGen \} \\
+  lst' = lst \oplus \{ t? \mapsto lrun \} \\
+  lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto \emptyset \} \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\subsection{CheckPermit}
+
+\begin{schema}{CheckPermit}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  armed~t? = fclear \\
+  lst' = lst \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  afterStop' = afterStop \\
+  armed' = armed \oplus \{ t? \mapsto fset \}
+\end{schema}
+
+\subsection{Feed}
+
+\begin{schema}{Feed}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  (rk~r? = ks \implies
+    (\forall x : owed | rk~x = ks \land rgen~x = curGen \spot r? \leq x)) \\
+  \# (bufr~t?) < maxBuf \\
+  owed' = owed \setminus \{ r? \} \\
+  led' = led \\
+  mbox' = mbox \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \cup \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  afterStop' = afterStop
+\end{schema}
+
+\subsection{StopJoined, StopTimeout, ExitStopped}
+
+\begin{schema}{StopJoined}
+  \Delta LL \\
+  \Xi ReqT \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{StopJoinedDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi ReqT \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  bufr' = bufr \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\begin{schema}{StopTimeoutDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  bufr' = bufr \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\begin{schema}{ExitStopped}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lstop \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\subsection{RouteDeliver, RouteDrop and RouteDead}
+
+\begin{schema}{RouteDeliver}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq \\
+  c? : C
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  cstate~c? \in \{ csent, cwait \} \\
+  rgen~(creq~c?) = curGen \\
+  ck~c? = rk~r? \\
+  c? \notin \dom mbox \\
+  (rk~r? = ks \implies
+    (creq~c? \in led \land (\forall x : led \spot creq~c? \leq x))) \\
+  mbox' = mbox \cup \{ c? \mapsto r? \} \\
+  (rk~r? = ks \implies led' = led \setminus \{ creq~c? \}) \\
+  (rk~r? \neq ks \implies led' = led) \\
+  owed' = owed \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{RouteDrop}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
+    \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
+    \land (rk~r? = ks \implies
+      (creq~c \in led \land (\forall x : led \spot creq~c \leq x)))) \\
+  (rk~r? \neq ks \lor led = \emptyset) \\
+  led' = led \\
+  mbox' = mbox \\
+  owed' = owed \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{RouteDropAck}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq \\
+  m? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
+    \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
+    \land (rk~r? = kp \implies creq~c = r?)
+    \land (rk~r? = ks \implies
+      (creq~c \in led \land (\forall x : led \spot creq~c \leq x)))) \\
+  rk~r? = ks \\
+  m? \in led \\
+  \forall x : led \spot m? \leq x \\
+  led' = led \setminus \{ m? \} \\
+  mbox' = mbox \\
+  owed' = owed \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{RouteDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\subsection{BrokenOwn and BrokenStale}
+
+\begin{schema}{BrokenOwn}
+  \Delta LL \\
+  \Xi ReqT \\
+  t? : T
+\where
+  armed~t? = fset \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  broken' = broken \cup \{ curGen \} \\
+  deliberate' = deliberate \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{BrokenStale}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  armed~t? = fset \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\subsection{RepeatPong}
+
+\begin{schema}{RepeatPong}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Thr \\
+  \Xi Hist \\
+  r? : 1 \upto maxReq
+\where
+  held = fset \\
+  rk~r? = kp \\
+  r? \notin owed \\
+  rgen~r? = curGen \\
+  r? \leq nreq \\
+  owed' = owed \cup \{ r? \} \\
+  led' = led \\
+  mbox' = mbox
+\end{schema}
+
+\subsection{Halt}
+
+\begin{schema}{Halt}
+  \Xi LL
+\where
+  curGen = maxGen \\
+  held = fclear \\
+  \forall c : C \spot cstate~c = cidle \\
+  \forall u : T \spot lst~u = lexit
+\end{schema}
+
+
+\end{document}

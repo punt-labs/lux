@@ -3,28 +3,51 @@
 %
 % A Z specification of the Hub display link's listener/connection lifecycle:
 % one reconnecting connection, a reader thread per dial that stop() may fail to
-% join, the reply sinks those threads feed, the request that waits on a sink,
+% join, the reply sinks those threads feed, the requests that wait on a sink,
 % and the report a reader makes when its stream breaks.  This is the FIXED
-% design: a connection generation owns its socket, its reply sink and the
-% right to be closed by its own reader; a reader that outlives its generation
-% can touch nothing of the next, and a request is answered from the generation
-% it was written on or not at all.
+% design: a connection generation owns its socket, its reply sink, its one
+% reader and the right to be closed by that reader; a reader that outlives its
+% generation can touch nothing of the next, and a request is answered from the
+% generation it was written on, by the reply the wire lets it recognise, or not
+% at all.
 %
-% Models the defect reported twice on the lux-ghhf branch (round 2 L-2..L-4;
-% round 3 R3-1 and SF3-2) and the design that closes it.  The code it governs:
+% Round 1-2: the defect reported twice on the lux-ghhf branch (round 2 L-2..L-4;
+% round 3 R3-1 and SF3-2).  Round 3 of this model (mission m-2026-10-23-024)
+% re-derives Decision 5 against the code's real callers: the replicator's
+% un-awaited send_scene, a display that may answer twice, and several callers
+% contending for the request lock.  The code it governs:
 % src/punt_lux/domain/hub/{listener_thread,display_replies,display_connection,
-% inbound_router,display_link}.py.
+% inbound_router,display_link,replicator,liveness}.py and
+% src/punt_lux/operations/display_connection.py.  ADRs: DES-093 (the Hub never
+% controls the display's process; pacing, backoff and the manifest reconcile
+% belong to the registry), DES-090 (the cross-host dialer is per dial, so the
+% generation sits above the transport), DES-101 (one lifecycle step, one lock).
 %
 % Type-check:  fuzz docs/listener_lifecycle.tex
-% Model-check (see the Verification section for every goal predicate):
-%   probcli docs/listener_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2 \
-%     -p MAX_OPERATIONS 200
+% Model-check (deadlock-freedom, and the disjunction of the negated invariants
+% as the goal, so one run searches for a violation of any; two reader slots with
+% one caller, and one reader slot with two callers; see Verification for the
+% goal and for why the invariants are not conjuncts of the state schema):
+%   probcli docs/listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
+%     -p MAX_OPERATIONS 200 -card T 2 -card C 1
+%   probcli docs/listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
+%     -p MAX_OPERATIONS 200 -card T 1 -card C 2
 %
-% Fidelity controls (each differs from this file in the stated places only):
-%   docs/listener_lifecycle_current_buggy.tex     the code as it stands
-%   docs/listener_lifecycle_production_buggy.tex  ... on the production paths
-%   docs/listener_lifecycle_gate_only_buggy.tex   the stopping flag as the fix
-%   docs/listener_lifecycle_stale_reply_buggy.tex no timeout rule
+% Fidelity controls (each differs from this file in the stated places only,
+% except the first four, which are the round-2 design and are single-caller):
+%   docs/listener_lifecycle_current_buggy.tex       the code as it stands
+%   docs/listener_lifecycle_production_buggy.tex    ... on the production paths
+%   docs/listener_lifecycle_gate_only_buggy.tex     the stopping flag as the fix
+%   docs/listener_lifecycle_stale_reply_buggy.tex   no timeout rule
+%   docs/listener_lifecycle_nowait_buggy.tex        round-2 design + unawaited send
+%   docs/listener_lifecycle_ack_key_only_buggy.tex  ack matched by scene id alone
+%   docs/listener_lifecycle_pong_unkeyed_buggy.tex  pong matched by kind alone
+%   docs/listener_lifecycle_query_plain_buggy.tex   no retire on a query timeout
+%   docs/listener_lifecycle_repeat_buggy.tex        a display that answers twice
+%   docs/listener_lifecycle_lose_buggy.tex          a display that loses an ack
+%   docs/listener_lifecycle_reader_restart_buggy.tex stop does not retire
+%   docs/listener_lifecycle_lock_expiry_buggy.tex   a lock-wait expiry retires
+%   docs/listener_lifecycle_perlink_lock_buggy.tex  one request lock per link
 %
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -75,41 +98,65 @@ consult the thread's \texttt{stopping} event before acting --- narrows the
 window and leaves it open (Section~\ref{sec:fidelity}); it is checked here as
 a fidelity control, not assumed.
 
+\paragraph{Errata to the previous revision (round~2), Decision~5.}
+The previous revision said that retiring a generation on a request's timeout
+was ``the one rule that needs no wire change and no assumption about the
+display''.  That was wrong in three ways, each found by an independent
+evaluation and each reproduced here by a control:
+(a) it assumed that every write that elicits a reply is awaited under the
+request lock; the replicator's \texttt{send\_scene} is not, and the display acks
+every scene, so a later \texttt{show()} takes the ack of an earlier
+fire-and-forget scene with no timeout involved
+(\texttt{listener\_lifecycle\_nowait\_buggy.tex});
+(b) it assumed the display answers a request at most once, which is an
+assumption about the display and has to be stated and tested;
+(c) its model had one caller, so it could not show that a caller whose budget
+expires \emph{waiting for the lock} has sent nothing and must not retire, nor
+that one lock for the whole link lets a slow query starve the liveness ping.
+Decision~5 below replaces it; Decision~9 is new.
+
 \paragraph{The design, by responsibility.}
 The socket's lifetime is owned by exactly one thing: the dial that made it.
 The fixed design says so in the type.  Every dial produces a \emph{generation}
 (in the code, a per-socket object: socket, endpoint, ready message, reply
-sink, and the reader started on it).  The clauses of the model:
+sink, and the one reader started on it).  The clauses of the model:
 
 \begin{description}
   \item[Routing is keyed by generation.] A reader holds the sink of its own
     generation and nothing else.  A reply from generation~$g$ goes to the sink
     of~$g$; when $g$ is closed that sink is discarded, and a late put into it
     is dropped.  There is no check-then-put to tear, because the sink the
-    reader holds \emph{is} the check.  (\texttt{RouteLive}, \texttt{RouteDead}.)
+    reader holds \emph{is} the check.  (\texttt{RouteDeliver},
+    \texttt{RouteDrop}, \texttt{RouteDead}.)
   \item[A request is answered from the generation it was written on.] The
     caller writes (\texttt{Send}), then waits (\texttt{Await}); the wait is on
     the sink of the generation the write went to, and fails at once if that
     generation is no longer the live one (\texttt{AwaitFail}).
+  \item[A reply is matched to its request by what the wire carries.] There are
+    three kinds of reply (pong, ack, query response), a sink slot per waiting
+    caller, and one request lock per kind.  A pong is matched by the \texttt{ts}
+    it echoes; an ack by its position among the acks owed; a query response by
+    nothing, so a query that times out retires its generation
+    (Decision~5).  A reply that matches no waiter is dropped on arrival, so the
+    sink is bounded (L9).
   \item[A report is a compare-and-close on the reader's own generation.]
     ``My stream broke'' closes generation $g$ if $g$ is still the connection's
     current generation and open, and is a no-op otherwise.  (\texttt{BrokenOwn},
     \texttt{BrokenStale}.)  This is the only operation a reader has on the
     connection, and it takes the reader's generation as an argument.
+  \item[A reader lives and dies with its generation.] Stopping a reader closes
+    its generation, joined or not (\texttt{StopJoined}, \texttt{StopTimeout});
+    a reader is started once per generation.  (Decision~9.)
   \item[The \texttt{stopping} flag silences, it does not protect.] Once set,
     the reader takes no further step that routes or reports beyond the one it
     already holds permission for (L3).  The two invariants that protect the
     replacement (L1, L2) hold without it (Section~\ref{sec:fidelity}).
-  \item[A timeout ends the generation.] A request whose reply does not come in
-    budget leaves the generation's request/reply alignment in doubt, and the
-    wire carries nothing to restore it (Decision~5).  The generation is
-    retired; the late reply dies with its sink.  (\texttt{TimeoutRetire}.)
 \end{description}
 
 A thread that cannot be joined is therefore abandoned \emph{together with its
-socket}: the generation is retired (closed, sink discarded) before a
-successor is started on the connection.  A successor never reads a socket an
-abandoned thread is still reading (L4a).
+socket}: the generation is retired (closed, sink discarded) at the moment of
+the abandonment, before any successor can be started.  A successor never reads
+a socket an abandoned thread is still reading (L4a).
 
 \paragraph{Decisions this model rests on; each is the implementer's duty.}
 \begin{enumerate}
@@ -122,52 +169,99 @@ abandoned thread is still reading (L4a).
     wedged socket (the very stall that makes \texttt{stop} time out in R3-1).
     See ``Lock order'' below.
   \item \emph{A reply sink belongs to a generation.}  The ack, pong and
-    query-response queues are per generation.  The business-event queue and
+    query-response sinks are per generation.  The business-event queue and
     the interaction handler are \emph{link}-level (Decision~7).
-  \item \emph{Abandonment retires the socket.}  Before a successor reader is
-    started over a reader that did not join, the generation is closed, by
-    \texttt{shutdown} then \texttt{close}, so that the abandoned thread's
-    blocked read returns and a sender wedged in \texttt{sendall} is released.
+  \item \emph{Abandonment retires the socket.}  When a reader is stopped, the
+    generation is closed, by \texttt{shutdown} then \texttt{close}, so that
+    the abandoned thread's blocked read returns and a sender wedged in
+    \texttt{sendall} is released.
   \item \emph{\texttt{send} returns the generation it wrote on, and the wait is
     on that generation's sink.}  In the code a request is two calls
     (\texttt{connection.send}, then \texttt{replies.typed}, \texttt{ack} or
     the query's wait) and nothing passes between them; a redial in the gap
     leaves the caller waiting on the \emph{new} generation for the reply to a
     request written to the old one.  The model splits the request in two
-    steps, \texttt{Send} and \texttt{Await}, and keeps it clean
-    (L1, L5).
-  \item \emph{One request is in flight per link, and a timeout retires its
-    generation.}  The replies carry no correlation to their request on the
-    wire: \texttt{PongMessage} echoes a timestamp, \texttt{AckMessage} a scene
-    id, \texttt{QueryResponse} nothing; and a display may answer late, twice or
-    never.  A request lock serializes send-and-wait per link (the model's
-    \texttt{Send} requires the caller idle).  That alone is not enough: a
-    request that times out leaves its reply outstanding in the generation,
-    and the next request would take it.  Discarding the sink before the next
-    send does not help, because the late reply can arrive after the discard.
-    Counting outstanding requests and matching replies in order would be sound
-    only if the display answers every request exactly once, in order, and
-    nothing in the protocol promises that.  The one rule that needs no wire
-    change and no assumption about the display is to end the generation on
-    timeout: \texttt{TimeoutRetire}.  This is the same rule the code already
-    applies to a malformed frame (the stream cannot be resynchronised, so it
-    is reconnected on a frame boundary), and it follows the same
-    responsibility: the generation owns the alignment of its stream, and when
-    that is in doubt the generation, not the request, is what ends.  The cost
-    is a redial and a repaint of the manifest after a timeout; the leader
-    should weigh it (it is a behaviour change: today a timeout returns
-    \texttt{None} and the link carries on).  Correlation on the wire would
-    remove the cost and is the alternative if the cost is unwelcome.
+    steps, \texttt{Send} and \texttt{Await}, and keeps it clean (L1, L5).  The
+    inline read path of \texttt{DisplayReplies.typed} and \texttt{ack}, used
+    when no listener runs, reads through \texttt{connection.receive} and
+    \texttt{require()}; it must read the request's own generation's socket as
+    well, or a redial in the gap makes it read the replacement.
+  \item \emph{Replies are correlated by kind, then by what the wire already
+    carries; a timeout retires only where nothing correlates; one request
+    lock per kind.}  This replaces round~2's ``one request in flight, retire on
+    any timeout''.  Its parts, with what each assumes:
+    \begin{enumerate}
+      \item[(a)] \emph{One request lock per reply kind} (pong, ack, query): a
+        request holds its kind's lock from the write to its consumption or
+        failure.  The reply of a kind is matched to the waiter of that kind, so
+        per-kind locks suffice for L6 and one lock for the whole link is not
+        needed (and is harmful: a slow query then holds up the liveness ping
+        until the liveness probe reports a healthy display dead; the
+        \texttt{perlink\_lock} control, L8).
+      \item[(b)] \emph{A budget that expires while waiting for the lock sends
+        nothing, so it retires nothing and fails the caller alone}
+        (\texttt{LockExpire}, L7; the \texttt{lock\_expiry} control).  Time spent
+        waiting for the lock counts against the caller's budget.
+      \item[(c)] \emph{Pong: matched by \texttt{ts}.}  The Hub makes the
+        \texttt{ts} of each ping unique within a generation (strictly
+        increasing; the wall clock alone can repeat), and takes a pong
+        only if its \texttt{ts} is the in-flight ping's.  Any other pong is
+        dropped on arrival.  Late, repeated, or reordered pongs are all
+        harmless, so \emph{no assumption about the display} is made for
+        pongs, and a ping timeout retires nothing.  (\texttt{RepeatPong} is part
+        of this model and holds; the \texttt{pong\_unkeyed} control shows the
+        match is load-bearing.)
+      \item[(d)] \emph{Ack: matched by position.}  \texttt{AckMessage.scene\_id}
+        cannot be the key on its own: the same scene is sent more than once (a
+        replicated scene, then a \texttt{show} of it; two shows), and the two
+        acks are indistinguishable (the \texttt{ack\_key\_only} control, where
+        every scene has one id, the worst case).  The display handles a
+        connection's messages in order and acks each scene once
+        (\texttt{render\_loop.\_handle\_scene}), so the $n$-th ack of a
+        generation answers the $n$-th scene sent on it.  The Hub therefore
+        keeps, per generation, the scenes whose acks are outstanding in send
+        order (the model's \texttt{led}), including the un-awaited ones the
+        replicator sends: an arriving ack takes the oldest entry; it is
+        delivered if that entry is a waiting \texttt{show}'s, and dropped
+        otherwise.  The ack sink is thereby bounded (L9, F7a).  The
+        \texttt{scene\_id} remains as a cross-check, never a key: an ack whose
+        id differs from the oldest entry's is evidence the count is off
+        (a lost or repeated ack) and retires the generation (Decision~9's
+        cousin, not modelled).  \emph{Assumption} (A1), about the display:
+        one ack per scene, in order, none lost on a live connection.  The
+        \texttt{repeat} and \texttt{lose} controls show what it protects.
+      \item[(e)] \emph{Query: retire on timeout.}  \texttt{QueryResponse}
+        carries a \texttt{method}, which does not separate two queries of one
+        method.  Nothing correlates, so a query that times out retires the
+        generation it was written on (\texttt{TimeoutRetire},
+        \texttt{close\_if\_current(g)} with that request's generation); a
+        late response then dies with the sink.  \emph{Assumption} (A2): the
+        display sends at most one response per query.  The \texttt{query\_plain}
+        and \texttt{repeat} controls show what the rule and the assumption
+        protect.
+      \item[(f)] \emph{What a retirement costs.}  A redial, through the registry
+        (DES-093's pacing and manifest reconcile), and every caller waiting on
+        the generation fails.  Today a failed liveness probe and a failed
+        \texttt{probe\_alive} already drop the link; the callers that newly pay
+        are the operator surfaces' queries (\texttt{operations/}), when
+        a query misses its budget.  Pongs and acks never retire.
+    \end{enumerate}
+    Assumptions A1 and A2 are statements about the display the Hub's own
+    repository ships; they are pinned by display-side tests (F7c in the
+    coverage note).  If the display may be another implementation or version
+    (DES-090, cross-host), they cannot be pinned, and the alternative is a
+    request id on the wire (see Options, below).
   \item \emph{A waiter watches its own generation.}  The wait fails when the
     sink of the generation it waits on is closed or that generation's reader
     has exited, and not when the link-level \texttt{ListenerThread} is dead
     (today's \texttt{InboundRouter.\_awaited} asks the link-level listener,
     which an abandoned reader of an earlier generation keeps alive).  The
     model establishes the safe half: a waiter can exist only on the live
-    generation (L1), and \texttt{Close}, \texttt{BrokenOwn} and
-    \texttt{TimeoutRetire} fail it.  Promptness (that the waiter wakes within
-    a bound) is a liveness property that this safety model does not
-    check; it is an obligation here and a row in the coverage note.
+    generation (L1), and \texttt{Close}, \texttt{StopJoined},
+    \texttt{StopTimeout}, \texttt{BrokenOwn} and \texttt{TimeoutRetire} fail
+    it.  Promptness (that the waiter wakes within a bound) is a liveness
+    property that this safety model does not check; it is an obligation here
+    and a row in the coverage note.
   \item \emph{Business events are link-level and real.}  An
     \texttt{ObserverMessage} or \texttt{RemoteEventHandlerInvocation} the
     display sent is a user act, whichever socket it left on.  The Hub resolves
@@ -183,37 +277,80 @@ abandoned thread is still reading (L4a).
     \texttt{require()} on every poll, which returns the socket held \emph{now};
     a reader that passed its tests, stalled past the join, and woke after the
     redial reads the replacement's socket, steals its bytes, and mixes two
-    streams in one \texttt{FrameReader}.  The fixed \texttt{Feed} guard
+    streams in one \texttt{FrameReader}.  The \texttt{Feed} guard
     \texttt{lgen~t? = curGen} is the abstraction of this obligation; the
     code satisfies it only if the reader is handed its own socket.  The
     production control reaches the violation (L4b).
+  \item \emph{A reader lives and dies with its generation.}  Stopping a reader,
+    joined or not, closes its generation if that is still the live one, and a
+    reader is started at most once on a generation.  This is new in this
+    revision.  A reader that exits holding a decoded, unrouted reply has lost
+    it; with acks matched by position, one lost ack skews every later position
+    on that generation (the \texttt{reader\_restart} control, whose trace is a
+    plain \texttt{stop\_listener}/\texttt{start\_listener} over an open
+    socket).  Retiring the generation is the same rule the code already
+    applies to a malformed frame: the stream cannot be resynchronised, so it is
+    reconnected on a frame boundary.  The cost: a library caller that stops its
+    listener and starts another on the same connection must redial; the
+    production callers already close after a stop.
 \end{enumerate}
 
+\paragraph{Options for Decision~5 (for the operator).}
+The design above needs no wire change.  It is sound under A1 and A2 and under
+the rule of Decision~9, and is the recommended one.  The alternative:
+
+\begin{description}
+  \item[Request ids on the wire.] Each request carries an id, unique within the
+    generation, which the display echoes (\texttt{SceneMessage},
+    \texttt{AckMessage}, \texttt{QueryRequest}, \texttt{QueryResponse};
+    \texttt{PingMessage} already has \texttt{ts}).  A reply whose id is not the
+    in-flight request's is dropped, which bounds the sink; no timeout retires
+    anything; A1, A2 and Decision~9's loss argument are not needed, and the
+    ledger disappears.  This was checked by the evaluator on the round-2
+    specification (every control operation enabled, 347268 states,
+    \texttt{.tmp/jra-eval-r2/v\_corr.tex}); this file does not model it.  Its
+    cost is a coordinated change in Hub and display and a version gate for
+    older peers on other hosts (DES-090).
+\end{description}
+A mixed scheme is sound if each reply kind meets the conditions of the rule it
+uses: this design already correlates pong and ack and retires for query.  The
+ids would remove A1 and A2 for ack and query.
+
 \paragraph{Scope.}
-The carrier is three generations (two redials past the first dial), two reader
-threads (an abandoned reader and its successor), two requests, and one
-buffered reply per reader.  An independent check with three reader slots
-(the evaluator's, 92327 states, run on the previous revision of this file
-and not repeated on this one) found every invariant preserved under a
-second abandonment.  A reply is a request number; the generation it belongs to
-is the generation the request was written on.  Frame contents, the handler's
-duration and the byte-level decode are abstracted: a read failure, an
-end-of-file and a malformed frame are one event, because the code answers all
-three by the same call (\texttt{end}), and \texttt{end} is a no-op on a closed
-connection.  The thread running a handler for longer than the join timeout is
-exactly a reader with a non-empty buffer that \texttt{StopTimeout} abandons.
-The model has one caller; the request lock (Decision~5) is the guard that
-keeps it one.
+The carrier is three generations (two redials past the first dial), two
+requests, one buffered reply per reader, three kinds of reply, and
+\emph{either} two reader threads (an abandoned reader and its successor) with
+one caller \emph{or} one reader thread with two callers.  The two shapes are
+two runs of one specification (\texttt{-card T}, \texttt{-card C}); the product,
+two readers with two callers, is not checked, because it was not tractable
+(Section~\ref{sec:verify}); each of the new operations touches either the
+reader state or the caller state, not both except through the sink, and the
+runs cover both sides of the sink.  An independent check of the round-2
+revision with three reader slots (the evaluator's, 752902 states, one
+caller) preserved every invariant, including under a double abandonment; it
+was not repeated on this revision.  A reply is a request number; the
+generation it belongs to is the generation the request was written on.  Frame
+contents, the handler's duration and the byte-level decode are abstracted: a
+read failure, an end-of-file and a malformed frame are one event, because the
+code answers all three by the same call (\texttt{end}), and \texttt{end} is a
+no-op on a closed connection.  The thread running a handler for longer than
+the join timeout is exactly a reader with a non-empty buffer that
+\texttt{StopTimeout} abandons.  All scenes carry one scene id, the worst case
+for correlation by id.  The display's behaviour is in the model as three
+environment steps: it answers each owed reply once (\texttt{Feed}, in order
+for acks); it may repeat a pong (\texttt{RepeatPong}); and, in the controls
+only, it may repeat any reply (\texttt{Repeat}) or lose an ack
+(\texttt{Lose}).
 
 \paragraph{Invariants.}
 
 \begin{description}
   \item[L1 --- replies are routed within their generation.] No reply is
-    queued except in the sink of the live current generation, and a waiting
+    parked except in the sink of the live current generation, and a waiting
     caller waits on the live current generation, the one it wrote to.
   \item[L2 --- a report never closes another generation.] A generation is
-    closed only deliberately (the link, or the caller's timeout) or because
-    its own reader found its own stream broken.
+    closed only deliberately (the link, a stop, or the caller's timeout of a
+    query) or because its own reader found its own stream broken.
   \item[L3 --- a stopped reader takes at most the one step it was
     permitted.]  The number of routing or reporting steps taken by a reader
     after its stopping flag was set is at most one: the step whose permission
@@ -224,6 +361,13 @@ keeps it one.
   \item[L6 --- no caller consumes the reply to an earlier request.]  (The
     request and its late reply are in one generation: the failure L5 does not
     cover.)
+  \item[L7 --- a lock-wait expiry never retires.]  A request that was never
+    written cannot have left a reply in doubt.
+  \item[L8 --- a liveness ping's lock wait is not held up by another kind of
+    request.]
+  \item[L9 --- the sink is bounded: no reply is parked for a caller that is not
+    waiting.]  An arriving reply with no matching waiter is dropped, so the
+    sink holds at most one reply per caller in flight.
 \end{description}
 
 % ============================================================
@@ -232,9 +376,11 @@ keeps it one.
 
 Three generations: the original, the replacement, and one more, so that a
 replacement can itself be replaced while an abandoned reader of the first is
-still alive.  Two requests: the least that lets a late reply meet a later
-request.  One buffered reply is the least that lets an abandoned reader have
-something left to route.
+still alive.  Two requests: the least that lets a late reply, or the ack of an
+un-awaited scene, meet a later request in one generation.  One buffered reply
+is the least that lets an abandoned reader have something left to route.  The
+sets of readers \texttt{T} and of callers \texttt{C} are given sets, sized on
+the command line (Section~\ref{sec:verify}).
 
 \begin{axdef}
   maxGen : \nat \\
@@ -247,7 +393,15 @@ something left to route.
 \end{axdef}
 
 \begin{zed}
-  T ::= ta | tb
+  [T]
+\end{zed}
+
+\begin{zed}
+  [C]
+\end{zed}
+
+\begin{zed}
+  K ::= kp | ks | kq
 \end{zed}
 
 \begin{zed}
@@ -259,43 +413,85 @@ something left to route.
 \end{zed}
 
 \begin{zed}
-  CST ::= cidle | csent | cwait
+  CST ::= cidle | clockwait | csent | cwait
 \end{zed}
-
-\texttt{T}: the two reader threads, as slots.  \texttt{LST}: a slot is idle
-(\texttt{lexit}), running with its stopping flag clear (\texttt{lrun}), or
-alive with the flag set (\texttt{lstop} --- \texttt{stop} timed out, or has
-not yet joined: the abandoned thread).  \texttt{CST}: the caller's request is
-idle, written and not yet awaited (\texttt{csent}), or awaited
-(\texttt{cwait}).
 
 % ============================================================
 \section{State}
 % ============================================================
 
-The state is split into four groups, then joined, so that an operation can
-say what it leaves alone.
+\texttt{curGen} is the latest generation dialed (zero before the first dial);
+\texttt{held} says whether the connection holds that generation's socket ---
+\texttt{is\_open}.  Every earlier generation is closed.  \texttt{started} are
+the generations a reader has been started on (Decision~9).
+
+In \texttt{ReqT}, requests are numbered \texttt{1..nreq}; \texttt{rk} gives the
+kind of each (\texttt{kp} ping, \texttt{ks} scene, \texttt{kq} query) and
+\texttt{rgen} the generation it was written on.  \texttt{Cal} is the callers
+(\texttt{C} is a given set: the code has several, \texttt{probe\_alive},
+\texttt{liveness.check\_once} and the operator surfaces): \texttt{cstate} is
+idle, waiting for its kind's request lock (\texttt{clockwait}), written and not
+yet awaited (\texttt{csent}), or awaited (\texttt{cwait}); \texttt{ck} is the
+kind it wants; \texttt{creq} its request.  \texttt{Snk} is the display and the
+sink: \texttt{owed} are the requests the display may still answer; \texttt{led}
+the scenes whose acks are outstanding, in send order, including those nobody
+waits for; \texttt{mbox} the one reply, at most, parked for a waiting caller
+(a reply is the number of its request).
+
+In \texttt{Thr}, \texttt{lgen} is the generation a reader was started on;
+\texttt{bufr} are the replies it has read and not yet routed;
+\texttt{armed} is the permission the reader obtained the last time it looked
+at its stopping flag while the flag was clear (the loop-top test in
+\texttt{\_run}, and the re-test this design adds before a route or a report).
+A step that routes or reports consumes the permission.  The flag can be set
+\emph{between} the look and the step, which is why a permission is state: it
+is the window, and the model keeps it open.  \texttt{afterStop} counts the
+routing and reporting steps a reader has taken since its flag was set.
+
+\texttt{Hist} holds history variables, never read by an operation guard, so
+that invariants are statements about what happened.  \texttt{broken}: the
+generations whose own reader found their own stream broken.
+\texttt{deliberate}: the generations the link, a stop, or a timeout closed.
+\texttt{crossGen}, \texttt{crossReq}: a caller consumed a reply of another
+generation, or to a request other than its own.  \texttt{wrongRetire}: a
+generation was retired by a caller that had sent nothing.  \texttt{starved}: a
+liveness ping's lock wait expired behind a request of another kind. .
+
 
 \begin{schema}{Conn}
   curGen : \nat \\
-  held : FSTATE
+  held : FSTATE \\
+  started : \power \nat
 \where
+  started \subseteq 1 \upto maxGen \\
   curGen \leq maxGen \\
   held = fset \implies curGen > 0
 \end{schema}
 
-\begin{schema}{Req}
+\begin{schema}{ReqT}
   nreq : \nat \\
-  creq : \nat \\
-  cstate : CST \\
-  rgen : (0 \upto maxReq) \fun (0 \upto maxGen) \\
-  owed : \power \nat \\
-  qrep : \power \nat
+  rk : (0 \upto maxReq) \fun K \\
+  rgen : (0 \upto maxReq) \fun (0 \upto maxGen)
 \where
-  nreq \leq maxReq \\
-  creq \leq maxReq \\
+  nreq \leq maxReq
+\end{schema}
+
+\begin{schema}{Cal}
+  cstate : C \fun CST \\
+  ck : C \fun K \\
+  creq : C \fun \nat
+\where
+  \forall c : C \spot creq~c \leq maxReq
+\end{schema}
+
+\begin{schema}{Snk}
+  owed : \power \nat \\
+  led : \power \nat \\
+  mbox : C \pfun \nat
+\where
   owed \subseteq 1 \upto maxReq \\
-  qrep \subseteq 1 \upto maxReq
+  led \subseteq 1 \upto maxReq \\
+  \ran mbox \subseteq 1 \upto maxReq
 \end{schema}
 
 \begin{schema}{Thr}
@@ -313,7 +509,9 @@ say what it leaves alone.
   broken : \power \nat \\
   deliberate : \power \nat \\
   crossGen : FSTATE \\
-  crossReq : FSTATE
+  crossReq : FSTATE \\
+  wrongRetire : FSTATE \\
+  starved : FSTATE
 \where
   broken \subseteq 0 \upto maxGen \\
   deliberate \subseteq 0 \upto maxGen
@@ -321,38 +519,12 @@ say what it leaves alone.
 
 \begin{schema}{LL}
   Conn \\
-  Req \\
+  ReqT \\
+  Cal \\
+  Snk \\
   Thr \\
   Hist
 \end{schema}
-
-
-\texttt{curGen} is the latest generation dialed (zero before the first dial);
-\texttt{held} says whether the connection holds that generation's socket ---
-\texttt{is\_open}.  Every earlier generation is closed.
-
-In \texttt{Req}, requests are numbered \texttt{1..nreq}; \texttt{rgen} gives
-the generation each was written on; \texttt{creq} and \texttt{cstate} are the
-caller's request and where it stands.  \texttt{owed} are the requests the
-display may still answer; \texttt{qrep} are the replies sitting in sinks (a
-reply is the number of its request).
-
-In \texttt{Thr}, \texttt{lgen} is the generation a reader was started on;
-\texttt{bufr} are the replies it has read and not yet routed;
-\texttt{armed} is the permission the reader obtained the last time it looked
-at its stopping flag while the flag was clear (the loop-top test in
-\texttt{\_run}, and the re-test this design adds before a route or a report).
-A step that routes or reports consumes the permission.  The flag can be set
-\emph{between} the look and the step, which is why a permission is state: it
-is the window, and the model keeps it open.  \texttt{afterStop} counts the
-routing and reporting steps a reader has taken since its flag was set.
-
-\texttt{Hist} holds history variables, never read by an operation guard, so
-that invariants are statements about what happened.  \texttt{broken}: the
-generations whose own reader found their own stream broken.
-\texttt{deliberate}: the generations the link, or a timeout, closed.
-\texttt{crossGen}: a caller consumed a reply of another generation.
-\texttt{crossReq}: a caller consumed a reply to a request other than its own.
 
 \section{Initialization}
 
@@ -361,212 +533,299 @@ generations whose own reader found their own stream broken.
 \where
   curGen' = 0 \\
   held' = fclear \\
+  started' = \emptyset \\
   nreq' = 0 \\
-  creq' = 0 \\
-  cstate' = cidle \\
-  \forall i : 0 \upto maxReq \spot rgen'~i = 0 \\
+  \forall i : 0 \upto maxReq \spot rk'~i = kp \land rgen'~i = 0 \\
+  cstate' = C \cross \{ cidle \} \\
+  ck' = C \cross \{ kp \} \\
+  creq' = C \cross \{ 0 \} \\
   owed' = \emptyset \\
-  qrep' = \emptyset \\
-  lst' = \{ ta \mapsto lexit, tb \mapsto lexit \} \\
-  lgen' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
-  armed' = \{ ta \mapsto fclear, tb \mapsto fclear \} \\
-  bufr' = \{ ta \mapsto \emptyset, tb \mapsto \emptyset \} \\
-  afterStop' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  led' = \emptyset \\
+  mbox' = \emptyset \\
+  lst' = T \cross \{ lexit \} \\
+  lgen' = T \cross \{ 0 \} \\
+  armed' = T \cross \{ fclear \} \\
+  bufr' = T \cross \{ \emptyset \} \\
+  afterStop' = T \cross \{ 0 \} \\
   broken' = \emptyset \\
   deliberate' = \emptyset \\
   crossGen' = fclear \\
-  crossReq' = fclear
+  crossReq' = fclear \\
+  wrongRetire' = fclear \\
+  starved' = fclear
 \end{schema}
 
-
-Nothing dialed, no request, no reader, no reply, nothing recorded.
-
 % ============================================================
-\section{Operations on the Connection and the Caller}
+\section{Operations on the Connection and the Callers}
 % ============================================================
+
+The operations in this section are the connection's and the callers'.  A caller
+\texttt{Want}s a kind of request, takes its kind's lock and writes
+(\texttt{Send}, which returns the generation), then waits (\texttt{Await}); the
+wait fails at once if that generation is no longer the live one
+(\texttt{AwaitFail}).  \texttt{SendNoWait} is the replicator's
+\texttt{send\_scene}: it writes a scene, owes an ack and waits for nothing.
+\texttt{LockExpire} is a budget that runs out in \texttt{clockwait}.
+\texttt{Consume} takes the parked reply.  \texttt{TimeoutKeep} is a ping or a
+scene's budget running out while awaited: the generation stays in service and
+the late reply, if any, will match nothing.  \texttt{TimeoutRetire} is a
+query's: the generation is closed.  \texttt{Close} is the link closing the
+connection on purpose (\texttt{DisplayLink.close},
+\texttt{ClientRegistry.drop}); nothing here reconnects, the next \texttt{Dial}
+does.
 
 
 \subsection{Dial}
 
 \begin{schema}{Dial}
   \Delta LL \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Thr \\
   \Xi Hist
 \where
   held = fclear \\
   curGen < maxGen \\
   curGen' = curGen + 1 \\
+  started' = started \\
   held' = fset
 \end{schema}
-\texttt{DisplayConnection.open}: a new generation, a new socket.  Only a
-closed connection dials.  The new generation has no sink content; nothing of
-an earlier generation is carried over.
 
 \subsection{Close}
 
 \begin{schema}{Close}
   \Delta LL \\
+  \Xi ReqT \\
   \Xi Thr
 \where
   held = fset \\
   held' = fclear \\
   curGen' = curGen \\
-  qrep' = \emptyset \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
   owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  nreq' = nreq \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
   creq' = creq \\
-  rgen' = rgen \\
-  (cstate = cwait \implies cstate' = cidle) \\
-  (cstate \neq cwait \implies cstate' = cstate) \\
   deliberate' = deliberate \cup \{ curGen \} \\
   broken' = broken \\
   crossGen' = crossGen \\
-  crossReq' = crossReq
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
 \end{schema}
-The link closes the connection on purpose: \texttt{DisplayLink.close},
-\texttt{ClientRegistry.drop}.  The generation's sink is discarded, a waiting
-caller fails, and the replies the display still owed on that socket are gone
-with it.  Readers are not touched; \texttt{StopJoined} and
-\texttt{StopTimeout} are separate steps, in either order.  The link-level
-event queue is not touched (Decision~7).
 
-\subsection{Send}
+\subsection{Want, Send and SendNoWait}
+
+\begin{schema}{Want}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C \\
+  k? : K
+\where
+  cstate~c? = cidle \\
+  cstate' = cstate \oplus \{ c? \mapsto clockwait \} \\
+  ck' = ck \oplus \{ c? \mapsto k? \} \\
+  creq' = creq
+\end{schema}
 
 \begin{schema}{Send}
   \Delta LL \\
   \Xi Conn \\
   \Xi Thr \\
-  \Xi Hist
+  \Xi Hist \\
+  c? : C
 \where
-  cstate = cidle \\
+  cstate~c? = clockwait \\
+  \forall d : C | d \neq c? \spot
+    cstate~d \in \{ csent, cwait \} \implies ck~d \neq ck~c? \\
   held = fset \\
   nreq < maxReq \\
   nreq' = nreq + 1 \\
-  creq' = nreq + 1 \\
+  rk' = rk \oplus \{ nreq + 1 \mapsto ck~c? \} \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  cstate' = cstate \oplus \{ c? \mapsto csent \} \\
+  ck' = ck \\
+  creq' = creq \oplus \{ c? \mapsto nreq + 1 \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  (ck~c? = ks \implies led' = led \cup \{ nreq + 1 \}) \\
+  (ck~c? \neq ks \implies led' = led) \\
+  mbox' = mbox
+\end{schema}
+
+\begin{schema}{SendNoWait}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Cal \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  rk' = rk \oplus \{ nreq + 1 \mapsto ks \} \\
   rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
   owed' = owed \cup \{ nreq + 1 \} \\
-  qrep' = qrep \\
-  cstate' = csent
+  led' = led \cup \{ nreq + 1 \} \\
+  mbox' = mbox
 \end{schema}
-The caller, holding the request lock, writes a request on the current socket.
-Its reply is owed by the display.  The write returns the generation
-(\texttt{rgen}) --- Decision~4.
 
-\subsection{Await}
+\subsection{Await and AwaitFail}
 
 \begin{schema}{Await}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
   \Xi Thr \\
-  \Xi Hist
+  \Xi Hist \\
+  c? : C
 \where
-  cstate = csent \\
+  cstate~c? = csent \\
   held = fset \\
-  rgen~creq = curGen \\
-  nreq' = nreq \\
-  creq' = creq \\
-  rgen' = rgen \\
-  owed' = owed \\
-  qrep' = qrep \\
-  cstate' = cwait
+  rgen~(creq~c?) = curGen \\
+  cstate' = cstate \oplus \{ c? \mapsto cwait \} \\
+  ck' = ck \\
+  creq' = creq
 \end{schema}
 
 \begin{schema}{AwaitFail}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
   \Xi Thr \\
-  \Xi Hist
+  \Xi Hist \\
+  c? : C
 \where
-  cstate = csent \\
-  \lnot (held = fset \land rgen~creq = curGen) \\
-  nreq' = nreq \\
+  cstate~c? = csent \\
+  \lnot (held = fset \land rgen~(creq~c?) = curGen) \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
   creq' = creq \\
-  rgen' = rgen \\
   owed' = owed \\
-  qrep' = qrep \\
-  cstate' = cidle
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox
 \end{schema}
-The caller waits on the sink of the generation it wrote on, if that
-generation is still the live one; otherwise the wait fails at once
-(\texttt{AwaitFail}).  A redial between \texttt{Send} and \texttt{Await} is
-the case \texttt{AwaitFail} exists for.
 
 \subsection{Consume}
 
 \begin{schema}{Consume}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
   \Xi Thr \\
-  r? : 1 \upto maxReq
+  c? : C
 \where
-  cstate = cwait \\
-  r? \in qrep \\
-  rgen~r? = rgen~creq \\
-  qrep' = qrep \setminus \{ r? \} \\
-  cstate' = cidle \\
-  nreq' = nreq \\
+  cstate~c? = cwait \\
+  c? \in \dom mbox \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
   creq' = creq \\
-  rgen' = rgen \\
   owed' = owed \\
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox \\
   broken' = broken \\
   deliberate' = deliberate \\
-  crossGen' = crossGen \\
-  (r? \neq creq \implies crossReq' = fset) \\
-  (r? = creq \implies crossReq' = crossReq)
+  (rgen~(mbox~c?) \neq rgen~(creq~c?) \implies crossGen' = fset) \\
+  (rgen~(mbox~c?) = rgen~(creq~c?) \implies crossGen' = crossGen) \\
+  (mbox~c? \neq creq~c? \implies crossReq' = fset) \\
+  (mbox~c? = creq~c? \implies crossReq' = crossReq) \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
 \end{schema}
-The waiting caller takes a reply from its generation's sink.  The sink is
-untagged: any reply in it will do, as in the code.  \texttt{crossReq} records
-a reply that was not the caller's own; the fixed design never sets it,
-because a sink holds only replies to requests written on its generation and
-the generation is retired the moment a request is abandoned.
 
-\subsection{TimeoutRetire}
+\subsection{LockExpire}
+
+\begin{schema}{LockExpire}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Snk \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = clockwait \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq
+\end{schema}
+
+\subsection{TimeoutRetire and TimeoutKeep}
 
 \begin{schema}{TimeoutRetire}
   \Delta LL \\
-  \Xi Thr
+  \Xi ReqT \\
+  \Xi Thr \\
+  c? : C
 \where
-  cstate = cwait \\
+  cstate~c? = cwait \\
+  ck~c? = kq \\
   held = fset \\
-  rgen~creq = curGen \\
+  rgen~(creq~c?) = curGen \\
   held' = fclear \\
   curGen' = curGen \\
-  qrep' = \emptyset \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
   owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  nreq' = nreq \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
   creq' = creq \\
-  rgen' = rgen \\
-  cstate' = cidle \\
   deliberate' = deliberate \cup \{ curGen \} \\
   broken' = broken \\
   crossGen' = crossGen \\
-  crossReq' = crossReq
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved
 \end{schema}
-The caller's budget expires while it waits.  The generation it wrote on is
-ended: closed, its sink discarded, its owed replies gone.  This is the
-timeout rule of Decision~5.  Nothing is reconnected here; the next
-\texttt{Get} redials.
+
+\begin{schema}{TimeoutKeep}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Thr \\
+  \Xi Hist \\
+  c? : C
+\where
+  cstate~c? = cwait \\
+  ck~c? \in \{ kp, ks \} \\
+  cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  owed' = owed \\
+  led' = led \\
+  mbox' = \{ c? \} \ndres mbox
+\end{schema}
 
 % ============================================================
 \section{Operations on a Reader}
 % ============================================================
 
-Each takes the thread \texttt{t?}.
-
 \subsection{StartListener}
 
 \begin{schema}{StartListener}
   \Delta LL \\
-  \Xi Conn \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T
 \where
   lst~t? = lexit \\
   held = fset \\
+  curGen \notin started \\
   \forall u : T \spot lst~u \neq lrun \\
   \forall u : T \spot lst~u = lexit \lor lgen~u \neq curGen \\
+  held' = held \\
+  curGen' = curGen \\
+  started' = started \cup \{ curGen \} \\
   lst' = lst \oplus \{ t? \mapsto lrun \} \\
   lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
@@ -574,14 +833,14 @@ Each takes the thread \texttt{t?}.
   afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
 \end{schema}
 
-\texttt{ListenerThread.start}.  A no-op while a running reader exists (the third line is the code's \texttt{if not stopping: return}).  The fourth line is this design's addition: a successor is started only on a generation no live thread is still reading.  Abandoning a reader means retiring its generation first (Decision~3).
-
 \subsection{CheckPermit}
 
 \begin{schema}{CheckPermit}
   \Delta LL \\
   \Xi Conn \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T
 \where
@@ -594,13 +853,13 @@ Each takes the thread \texttt{t?}.
   armed' = armed \oplus \{ t? \mapsto fset \}
 \end{schema}
 
-The reader looks at its stopping flag, finds it clear, and obtains permission for its next routing or reporting step.  Only a running reader can: once the flag is set, no permission is issued.
-
 \subsection{Feed}
 
 \begin{schema}{Feed}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
   \Xi Hist \\
   t? : T \\
   r? : 1 \upto maxReq
@@ -610,32 +869,44 @@ The reader looks at its stopping flag, finds it clear, and obtains permission fo
   lgen~t? = curGen \\
   r? \in owed \\
   rgen~r? = curGen \\
+  (rk~r? = ks \implies
+    (\forall x : owed | rk~x = ks \land rgen~x = curGen \spot r? \leq x)) \\
   \# (bufr~t?) < maxBuf \\
   owed' = owed \setminus \{ r? \} \\
+  led' = led \\
+  mbox' = mbox \\
   bufr' = bufr \oplus \{ t? \mapsto bufr~t? \cup \{ r? \} \} \\
-  nreq' = nreq \\
-  creq' = creq \\
-  rgen' = rgen \\
-  qrep' = qrep \\
-  cstate' = cstate \\
   lst' = lst \\
   lgen' = lgen \\
   armed' = armed \\
   afterStop' = afterStop
 \end{schema}
 
-The reader reads a reply off its own generation's socket, while that socket is the open current one.  A reader over a closed or replaced socket reads nothing new; what it already holds stays in \texttt{bufr}. This is Decision~8: the reader holds its socket and never reads through \texttt{require()}.
-
-\subsection{StopJoined}
+\subsection{StopJoined, StopTimeout, ExitStopped}
 
 \begin{schema}{StopJoined}
   \Delta LL \\
-  \Xi Conn \\
-  \Xi Req \\
-  \Xi Hist \\
+  \Xi ReqT \\
   t? : T
 \where
   lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   lgen' = lgen \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
@@ -643,18 +914,47 @@ The reader reads a reply off its own generation's socket, while that socket is t
   afterStop' = afterStop
 \end{schema}
 
-\texttt{stop}: the flag is set and the join succeeds.
-
-\subsection{StopTimeout}
-
-\begin{schema}{StopTimeout}
+\begin{schema}{StopJoinedDead}
   \Delta LL \\
   \Xi Conn \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T
 \where
   lst~t? = lrun \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi ReqT \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
   lst' = lst \oplus \{ t? \mapsto lstop \} \\
   lgen' = lgen \\
   armed' = armed \\
@@ -662,14 +962,30 @@ The reader reads a reply off its own generation's socket, while that socket is t
   afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
 \end{schema}
 
-\texttt{stop}: the flag is set and the join times out.  The thread is alive, its permission (if any) intact, and it is abandoned.
-
-\subsection{ExitStopped}
+\begin{schema}{StopTimeoutDead}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  \lnot (held = fset \land lgen~t? = curGen) \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  bufr' = bufr \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
 
 \begin{schema}{ExitStopped}
   \Delta LL \\
   \Xi Conn \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T
 \where
@@ -681,13 +997,47 @@ The reader reads a reply off its own generation's socket, while that socket is t
   afterStop' = afterStop
 \end{schema}
 
-The abandoned thread sees its flag at its next test and exits.
+\subsection{RouteDeliver, RouteDrop and RouteDead}
 
-\subsection{RouteLive}
-
-\begin{schema}{RouteLive}
+\begin{schema}{RouteDeliver}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq \\
+  c? : C
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  cstate~c? \in \{ csent, cwait \} \\
+  rgen~(creq~c?) = curGen \\
+  ck~c? = rk~r? \\
+  c? \notin \dom mbox \\
+  (rk~r? = kp \implies creq~c? = r?) \\
+  (rk~r? = ks \implies
+    (creq~c? \in led \land (\forall x : led \spot creq~c? \leq x))) \\
+  mbox' = mbox \cup \{ c? \mapsto r? \} \\
+  (rk~r? = ks \implies led' = led \setminus \{ creq~c? \}) \\
+  (rk~r? \neq ks \implies led' = led) \\
+  owed' = owed \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{RouteDrop}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
   \Xi Hist \\
   t? : T \\
   r? : 1 \upto maxReq
@@ -696,28 +1046,64 @@ The abandoned thread sees its flag at its next test and exits.
   r? \in bufr~t? \\
   held = fset \\
   lgen~t? = curGen \\
-  qrep' = qrep \cup \{ r? \} \\
+  \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
+    \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
+    \land (rk~r? = kp \implies creq~c = r?)
+    \land (rk~r? = ks \implies
+      (creq~c \in led \land (\forall x : led \spot creq~c \leq x)))) \\
+  (rk~r? \neq ks \lor led = \emptyset) \\
+  led' = led \\
+  mbox' = mbox \\
+  owed' = owed \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
   lst' = lst \\
   lgen' = lgen \\
-  nreq' = nreq \\
-  creq' = creq \\
-  rgen' = rgen \\
-  owed' = owed \\
-  cstate' = cstate \\
   (lst~t? = lstop \implies
     afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
-A reader with permission routes one buffered reply into the sink of its own generation, when that generation is the live current one.
-
-\subsection{RouteDead}
+\begin{schema}{RouteDropAck}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq \\
+  m? : 1 \upto maxReq
+\where
+  armed~t? = fset \\
+  r? \in bufr~t? \\
+  held = fset \\
+  lgen~t? = curGen \\
+  \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
+    \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
+    \land (rk~r? = kp \implies creq~c = r?)
+    \land (rk~r? = ks \implies
+      (creq~c \in led \land (\forall x : led \spot creq~c \leq x)))) \\
+  rk~r? = ks \\
+  m? \in led \\
+  \forall x : led \spot m? \leq x \\
+  led' = led \setminus \{ m? \} \\
+  mbox' = mbox \\
+  owed' = owed \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
 
 \begin{schema}{RouteDead}
   \Delta LL \\
   \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T \\
   r? : 1 \upto maxReq
@@ -725,27 +1111,20 @@ A reader with permission routes one buffered reply into the sink of its own gene
   armed~t? = fset \\
   r? \in bufr~t? \\
   \lnot (held = fset \land lgen~t? = curGen) \\
-  qrep' = qrep \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
   lst' = lst \\
   lgen' = lgen \\
-  nreq' = nreq \\
-  creq' = creq \\
-  rgen' = rgen \\
-  owed' = owed \\
-  cstate' = cstate \\
   (lst~t? = lstop \implies
     afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
-If the generation has been closed or replaced, its sink is gone and the reply is dropped.  Nothing here reaches the current generation.
-
-\subsection{BrokenOwn}
+\subsection{BrokenOwn and BrokenStale}
 
 \begin{schema}{BrokenOwn}
   \Delta LL \\
+  \Xi ReqT \\
   t? : T
 \where
   armed~t? = fset \\
@@ -753,17 +1132,19 @@ If the generation has been closed or replaced, its sink is gone and the reply is
   lgen~t? = curGen \\
   held' = fclear \\
   curGen' = curGen \\
-  qrep' = \emptyset \\
+  started' = started \\
+  mbox' = \emptyset \\
+  led' = \emptyset \\
   owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  nreq' = nreq \\
+  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  ck' = ck \\
   creq' = creq \\
-  rgen' = rgen \\
-  (cstate = cwait \implies cstate' = cidle) \\
-  (cstate \neq cwait \implies cstate' = cstate) \\
   broken' = broken \cup \{ curGen \} \\
   deliberate' = deliberate \\
   crossGen' = crossGen \\
   crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   lgen' = lgen \\
@@ -773,14 +1154,12 @@ If the generation has been closed or replaced, its sink is gone and the reply is
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
-The reader's stream broke --- the read failed, the display closed it, or a frame did not decode --- and it reports by compare-and-close on its own generation.  If that generation is the open current one, it is closed and recorded as broken.
-
-\subsection{BrokenStale}
-
 \begin{schema}{BrokenStale}
   \Delta LL \\
   \Xi Conn \\
-  \Xi Req \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Snk \\
   \Xi Hist \\
   t? : T
 \where
@@ -795,7 +1174,26 @@ The reader's stream broke --- the read failed, the display closed it, or a frame
   (lst~t? \neq lstop \implies afterStop' = afterStop)
 \end{schema}
 
-Otherwise the report is a no-op and the reader exits.  The current generation is never touched on behalf of another's reader.
+\subsection{RepeatPong}
+
+\begin{schema}{RepeatPong}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi ReqT \\
+  \Xi Cal \\
+  \Xi Thr \\
+  \Xi Hist \\
+  r? : 1 \upto maxReq
+\where
+  held = fset \\
+  rk~r? = kp \\
+  r? \notin owed \\
+  rgen~r? = curGen \\
+  r? \leq nreq \\
+  owed' = owed \cup \{ r? \} \\
+  led' = led \\
+  mbox' = mbox
+\end{schema}
 
 \subsection{Halt}
 
@@ -804,65 +1202,83 @@ Otherwise the report is a no-op and the reader exits.  The current generation is
 \where
   curGen = maxGen \\
   held = fclear \\
-  cstate = cidle \\
+  \forall c : C \spot cstate~c = cidle \\
   \forall u : T \spot lst~u = lexit
 \end{schema}
 
-The carrier is finite, so the run ends when every generation has been dialed and closed, every reader has exited and the caller is idle.  \texttt{Halt} is enabled in that quiescent state and nowhere else: a reachable state with no enabled operation that is \emph{not} this one is a deadlock.
+
 
 % ============================================================
 \section{Invariants}
 \label{sec:inv}
 % ============================================================
 
-Each is checked as the unreachability of its negation
-(Section~\ref{sec:verify}).
+Each invariant is checked as the unreachability of its negation
+(Section~\ref{sec:verify}).  They are deliberately not conjuncts of the state
+schema: in ProB's reading of Z a primed state schema is part of every
+operation's guard, so an invariant written there \emph{disables} an operation
+whose result would violate it, instead of reporting the violation.  (In the smallest
+shape the fixed design takes the same 815678 transitions with them as conjuncts
+and without, so nothing was pruned.)
 
 \paragraph{L1 --- routing and waiting stay within a generation.}
-\[ qrep \subseteq \{ r \mid rgen~r = curGen \}\ \mbox{and}\ held = fset
-   \ \mbox{whenever}\ qrep \ne \emptyset;\qquad
-   cstate = cwait \implies held = fset \land rgen~creq = curGen. \]
-\texttt{RouteLive} adds only a reply of the reader's own generation and only
-when that generation is the live current one; \texttt{RouteDead} adds nothing;
-\texttt{Close}, \texttt{BrokenOwn} and \texttt{TimeoutRetire} empty the sink
-and fail the waiter; \texttt{Await} admits a waiter only on the generation it
-wrote to, and only while that is live.  The caller can therefore be answered
-only from the sink of the generation it wrote on.
+\[ mbox \ne \emptyset \implies held = fset \land
+   \forall c \in \dom mbox \spot rgen(mbox\,c) = curGen;\qquad
+   cstate\,c = cwait \implies held = fset \land rgen(creq\,c) = curGen. \]
+\texttt{RouteDeliver} parks a reply only for a waiter on the reader's own
+generation and only while that is live; \texttt{RouteDrop},
+\texttt{RouteDropAck} and \texttt{RouteDead} park nothing; every operation that
+closes the generation empties \texttt{mbox} and fails the waiters;
+\texttt{Await} admits a waiter only on the generation it wrote to, and only
+while that is live.
 
-\paragraph{L2 --- a generation is closed only by the link or by itself.}
+\paragraph{L2 --- a generation is closed only by the link, a stop, a query
+timeout, or by itself.}
 \[ held = fclear \land curGen > 0 \implies curGen \in broken \cup deliberate. \]
-\texttt{Close} and \texttt{TimeoutRetire} record the generation in
-\texttt{deliberate}; \texttt{BrokenOwn} records it in \texttt{broken}, and
-fires only when the reader's generation \emph{is} the current one.
-\texttt{BrokenStale}, the only other report, changes nothing of the
-connection.  No other operation clears \texttt{held}.
+\texttt{BrokenOwn} fires only when the reader's generation \emph{is} the
+current one; \texttt{BrokenStale} changes nothing of the connection.
 
 \paragraph{L3 --- a stopped reader takes at most one step.}
-\[ afterStop~t \le 1. \]
+\[ afterStop\,t \le 1. \]
 \texttt{StopTimeout} sets the count to zero; each routing or reporting step of
 a reader whose flag is set adds one; every such step needs a permission, a
-step consumes it, and \texttt{CheckPermit} issues one only to a \texttt{lrun}
+step consumes it, and \texttt{CheckPermit} issues one only to an \texttt{lrun}
 reader.  The permission held at the moment of \texttt{StopTimeout} buys exactly
-one step.  That step is real (the goal \texttt{afterStop(ta) = 1} is reached,
+one step.  That step is real (the goal \texttt{afterStop(t) = 1} is reached,
 Section~\ref{sec:verify}) and is confined: it routes into its own
 generation's sink or reports on its own generation, so by L1 and L2 it cannot
 touch the replacement.  The flag is hygiene, not safety.
 
 \paragraph{L4a, L4b --- one reader per generation, and it reads its own socket.}
-\[ lst~ta \ne lexit \land lst~tb \ne lexit \land lgen~ta = lgen~tb;\qquad
-   \exists r \in bufr~t \spot rgen~r \ne lgen~t. \]
-\texttt{StartListener} refuses a generation that a live thread is still
-reading (L4a).  \texttt{Feed} reads only the socket of the reader's own
-generation (L4b), the abstraction of Decision~8.
+\[ lst\,t \ne lexit \land lst\,u \ne lexit \land t \ne u \land lgen\,t = lgen\,u;
+   \qquad \exists r \in bufr\,t \spot rgen\,r \ne lgen\,t. \]
+\texttt{StartListener} refuses a generation that already had a reader, so
+L4a also holds as a consequence of Decision~9; \texttt{Feed} reads only the
+socket of the reader's own generation (L4b), the abstraction of Decision~8.
 
 \paragraph{L5, L6 --- no wrong reply is consumed.}
 \[ crossGen = fclear;\qquad crossReq = fclear. \]
-L5 is by construction in the fixed design (\texttt{Consume} takes from the
-sink of the waiter's own generation; the controls take from a shared one and
-set the flag).  L6 is not by construction: it holds because a late reply
-cannot exist in a generation that is still in service
-(\texttt{TimeoutRetire}), and the fifth control removes that rule to show it
-is load-bearing.
+L5 is by construction in the fixed design (a reply parked for a caller is of
+the caller's generation).  L6 is not: it holds because of the rules of
+Decision~5, each of which a control removes: the kind of the lock and the
+match by kind (\texttt{pong\_unkeyed}), the ledger of acks
+(\texttt{ack\_key\_only}, \texttt{nowait}), the retire on a query timeout
+(\texttt{query\_plain}, \texttt{stale\_reply}), and the assumptions A1
+and A2 (\texttt{repeat}, \texttt{lose}, \texttt{reader\_restart}).
+
+\paragraph{L7, L8 --- lock waits.}
+\[ wrongRetire = fclear;\qquad starved = fclear. \]
+\texttt{LockExpire} changes only the expiring caller; the controls make a
+lock-wait expiry retire (\texttt{lock\_expiry}) and make one lock cover the link
+(\texttt{perlink\_lock}).  L7 and L8 are by construction in the fixed design,
+and the controls show them reachable.
+
+\paragraph{L9 --- the sink is bounded.}
+\[ \forall c \in \dom mbox \spot cstate\,c \in \{csent, cwait\}. \]
+A reply is parked only for a caller in flight and is removed when the caller
+consumes, times out, or the generation closes; every other arriving reply is
+dropped.  Without the drop, the replicator's un-awaited scenes would leave one
+parked ack each for the life of the link.
 
 \paragraph{Deadlock-freedom, and the lock order the model assumes.}
 The model has no lock-acquisition steps, because it makes the critical
@@ -873,8 +1289,8 @@ implementation owes the model:
 \begin{center}
 \begin{tabular}{lll}
   lock & guards & held across \\ \hline
-  request lock (new) & one request in flight per link & a send and its wait (up to the budget) \\
-  state lock (new) & $curGen$, $held$, detaching a sink & field updates only; never I/O, never a dial \\
+  request lock, one per kind (new) & one request of that kind in flight & a send and its wait (up to the budget) \\
+  state lock (new) & $curGen$, $held$, $started$, detaching a sink & field updates only; never I/O, never a dial \\
   reply-queue locks & one queue's contents & one \texttt{put}, \texttt{get} or wake-up \\
   \texttt{\_lock} (existing) & the socket's send and recv & one \texttt{sendall} or one \texttt{recv} \\
 \end{tabular}
@@ -883,7 +1299,11 @@ implementation owes the model:
 The edges that exist, and no others:
 \begin{itemize}
   \item request lock $\to$ \texttt{\_lock} (the caller's send);
-  \item request lock $\to$ state lock (the caller's timeout retires its
+  \item \texttt{\_lock} $\to$ a queue lock (the ack ledger's entry is appended in
+    the same critical section as the write, so the ledger's order is the
+    wire's order, whichever thread wrote; no code path takes \texttt{\_lock}
+    while holding a queue lock, so the edge closes no cycle);
+  \item request lock $\to$ state lock (a query's timeout retires its
     generation);
   \item request lock $\to$ a queue lock (the caller's wait);
   \item state lock $\to$ a queue lock, when discarding a sink wakes its waiters.
@@ -891,18 +1311,20 @@ The edges that exist, and no others:
     discarding it outside; it is kept or removed at the implementer's choice.
 \end{itemize}
 The order request lock, then state lock, then a queue lock, with
-\texttt{\_lock} a leaf below the request lock, has no cycle.  What keeps it
-acyclic: a waiter releases its queue lock inside \texttt{Condition.wait}; the
-router puts into the sink it holds without taking the state lock; the report
-takes the state lock alone and never the request lock (so a report is never
-held up by a caller waiting out its budget); the link's \texttt{close} takes the
-state lock and never the request lock for the same reason; and the
-\texttt{shutdown} and \texttt{close} of the socket happen outside the state
-lock.  The one thing that would create a cycle is the tempting implementation
-of the compare-and-close under \texttt{\_lock}: it would put the state update
-behind a wedged \texttt{sendall}, and then the report waits on the sender, the
-sender waits on a display that the report was about to abandon.  Decision~1
-forbids it.
+\texttt{\_lock} between the request lock and the queue locks, has no cycle.  Request locks of
+different kinds are never held together: a caller holds one.  What keeps the
+order acyclic: a waiter releases its queue lock inside \texttt{Condition.wait};
+the router puts into the sink it holds without taking the state lock; the
+report takes the state lock alone and never a request lock (so a report is
+never held up by a caller waiting out its budget); the link's \texttt{close}
+and a reader's stop take the state lock and never a request lock for the same
+reason; a caller waiting for a request lock holds nothing, so its expiry
+(\texttt{LockExpire}) touches no state; and the \texttt{shutdown} and
+\texttt{close} of the socket happen outside the state lock.  The one thing that
+would create a cycle is the tempting implementation of the compare-and-close
+under \texttt{\_lock}: it would put the state update behind a wedged
+\texttt{sendall}, and then the report waits on the sender, the sender waits on
+a display that the report was about to abandon.  Decision~1 forbids it.
 
 % ============================================================
 \section{Fidelity Controls}
@@ -924,7 +1346,9 @@ are all violated.  The shortest traces found are not the production ones ---
 this control admits a \texttt{Close} that does not follow a stop and a
 \texttt{StartListener} over an unjoined reader on an open socket, which the
 public \texttt{stop\_listener}/\texttt{start\_listener} pair allows and
-\texttt{DisplayLink.close} and \texttt{ClientRegistry} do not.
+\texttt{DisplayLink.close} and \texttt{ClientRegistry} do not.  This and the
+next three controls are the round-2 specification family: one caller, one kind
+of request, no \texttt{started}.
 
 \paragraph{The code, on the production paths ---
 \texttt{listener\_lifecycle\_production\_buggy.tex}.}
@@ -953,11 +1377,38 @@ compare-and-close that name the reader's generation --- closes L1 and L2.
 
 \paragraph{No timeout rule ---
 \texttt{listener\_lifecycle\_stale\_reply\_buggy.tex}.}
-The fixed design with \texttt{TimeoutPlain} for \texttt{TimeoutRetire}.  L1 to
+The round-2 design with \texttt{TimeoutPlain} for \texttt{TimeoutRetire}.  L1 to
 L5 hold; L6 is violated by Send, Await, Timeout, Feed, RouteLive, Send,
 Await, Consume: the second request takes the first's late reply, in the same
 generation, from the same sink.  The per-generation sink does not help; the
-wire has no correlation to help with.
+wire has no correlation to help with.  (In the round-3 design the same defect
+is \texttt{query\_plain}: a query is the one kind with nothing to correlate.)
+
+\paragraph{The round-2 rule meets an unawaited send ---
+\texttt{listener\_lifecycle\_nowait\_buggy.tex}.}
+The round-2 specification plus \texttt{SendNoWait}.  L1 to L5 hold; L6 is
+violated by Dial, SendNoWait, Send, Await, StartListener, CheckPermit, Feed,
+RouteLive, Consume: no timeout is involved; a later \texttt{show()} takes the
+ack of an earlier fire-and-forget scene.  This is the evaluator's finding
+against the round-2 Decision~5, reproduced.  It is also a defect of the code
+today: every replicated scene leaves one \texttt{AckMessage} in the ack queue,
+and nothing consumes it before the connection ends.
+
+\paragraph{The rules of Decision~5, one control each.}
+\emph{Ack matched by scene id alone}
+(\texttt{ack\_key\_only}): the show takes the un-awaited scene's ack, as above,
+now with the typed sinks of round~3; L6.
+\emph{Pong matched by kind alone} (\texttt{pong\_unkeyed}): a timed-out ping's
+late pong answers the next ping; L6.
+\emph{No retire on a query timeout} (\texttt{query\_plain}): L6.
+\emph{A display that answers twice} (\texttt{repeat}): a repeated ack or query
+response answers the next request; L6.  (A repeated pong does not: it is part
+of the fixed model.)
+\emph{A display that loses an ack} (\texttt{lose}): L6.
+\emph{A stopped reader keeps its generation} (\texttt{reader\_restart}): L6,
+by a plain stop and start over an open socket.
+\emph{A lock-wait expiry retires} (\texttt{lock\_expiry}): L7.
+\emph{One lock per link} (\texttt{perlink\_lock}): L8.
 
 % ============================================================
 \section{Verification}
@@ -969,45 +1420,52 @@ Type-checking is a \texttt{fuzz} pass:
   fuzz docs/listener_lifecycle.tex
 \end{verbatim}
 
-Every \texttt{probcli} call below also takes
-\texttt{-p DEFAULT\_SETSIZE 2 -p MAX\_OPERATIONS 200}: at ProB's default of ten,
-the operations with an input are truncated in some states and the check is
-reported incomplete.  Run with \texttt{-coverage} and read the
+\texttt{T} (readers) and \texttt{C} (callers) are given sets, and their sizes
+are set on the command line with \texttt{-card}.  Every \texttt{probcli} call
+below also takes \texttt{-p MAX\_OPERATIONS 200}: at ProB's default the
+operations with inputs are truncated in some states and the check is reported
+incomplete.  Run with \texttt{-coverage} and read the
 \texttt{UNCOVERED\_OPERATIONS} count: an operation that cannot fire makes every
-invariant that depends on it vacuous, and an earlier revision of this file
-had three.
+invariant that depends on it vacuous.
 
-Deadlock-freedom and the structural invariants, by the full model-check
-(deadlock detection on):
+Deadlock-freedom, and every invariant at once: the full model-check with
+deadlock detection on, and the disjunction of the negated invariants (in
+\texttt{listener\_lifecycle\_coverage.md}) as the goal.  A pass is ``no
+counter example, all states visited, \texttt{deadlocked:0}'':
 \begin{verbatim}
-  probcli docs/listener_lifecycle.tex -model_check -coverage \
-    -p DEFAULT_SETSIZE 2 -p MAX_OPERATIONS 200
+  probcli docs/listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
+    -p MAX_OPERATIONS 200 -card T 2 -card C 1
+  probcli docs/listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
+    -p MAX_OPERATIONS 200 -card T 1 -card C 2
 \end{verbatim}
+Invariants are \emph{not} written into the state schema: ProB treats the
+primed state schema as part of each operation's guard, so a violated
+invariant there silently disables the operation (the goal \texttt{crossReq =
+fset} is then ``not found'' in a control that plainly violates it).
+Two readers and two callers together exceed what the checker finishes (a
+control run in that shape estimated over two million states at under half the
+search, at about 800 states a second, and did not finish in 25 minutes), so the
+specification is run in the two shapes above; the numbers are in
+\texttt{listener\_lifecycle\_coverage.md}.
 
-The negation of each invariant, searched for with \texttt{-model\_check -nodead
--goal}; on the fixed design every one is \emph{not found}:
-\begin{verbatim}
-  L1  (qrep /= {} & (held = fclear or {r | r:qrep & rgen(r) /= curGen} /= {}))
-      or (cstate = cwait & (held = fclear or rgen(creq) /= curGen))
-  L2  held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)
-  L3  afterStop(ta) > 1 or afterStop(tb) > 1
-  L4a lst(ta) /= lexit & lst(tb) /= lexit & lgen(ta) = lgen(tb)
-  L4b {r | r:bufr(ta) & rgen(r) /= lgen(ta)} /= {}
-      or {r | r:bufr(tb) & rgen(r) /= lgen(tb)} /= {}
-  L5  crossGen = fset
-  L6  crossReq = fset
-\end{verbatim}
+The negation of one invariant, searched for with
+\texttt{-model\_check -nodead -bf -goal}, is how a control is shown to
+violate it; the goals are listed in the header of each control.  On the fixed
+design every one is \emph{not found}, singly and as the disjunction.
 
 The scenarios are reachable, so the invariants are not vacuous (goal
 \emph{found}):
 \begin{verbatim}
-  afterStop(ta) = 1                      the one permitted step after stop
-  lst(ta) = lstop & lst(tb) = lrun & lgen(ta) < lgen(tb)
-  qrep /= {}                             a reply is queued
-  broken /= {}                           a stream found genuinely broken
-  cstate = cwait                         a caller waits
-  cstate = cidle & nreq = 2 & held = fclear & curGen >= 2
-                                         a request answered or failed, then a redial
+  #t.(t:T & afterStop(t) = 1)             the one permitted step after stop
+  #(t,u).(t:T & u:T & lst(t) = lstop & lst(u) = lrun & lgen(t) /= lgen(u))
+                                          an abandoned reader with a successor
+  led = {} & nreq = 2 & held = fset & rgen(1) = rgen(2) & rgen(2) = curGen
+     & rk(1) = ks & #c.(c:dom(mbox) & mbox(c) = 2 & ck(c) = ks)
+                                          a show answered by its own ack after
+                                          an un-awaited scene's ack was dropped
+  broken /= {} & #c.(cstate(c) = cwait)   a stream broke, then a caller waits
+  #c.(c:C & cstate(c) = clockwait & #d.(d:C & d /= c & cstate(d) = csent
+     & ck(d) = ck(c)))                    a caller waits for a lock another holds
 \end{verbatim}
 
 The controls make the negations \emph{found}; the results are recorded in
@@ -1015,9 +1473,10 @@ The controls make the negations \emph{found}; the results are recorded in
 
 Re-run \texttt{fuzz}, the coverage and the goals whenever
 \texttt{listener\_thread.py}, \texttt{display\_replies.py},
-\texttt{display\_connection.py}, \texttt{inbound\_router.py} or
-\texttt{display\_link.py} change how a reader is started, stopped or allowed
-to act on the connection or the reply queues, or how a request is sent and
-awaited.
+\texttt{display\_connection.py}, \texttt{inbound\_router.py},
+\texttt{display\_link.py}, \texttt{replicator.py} or \texttt{liveness.py}
+change how a reader is started, stopped or allowed to act on the connection or
+the reply queues, how a request is sent and awaited, or which caller may send
+while another waits.
 
 \end{document}
