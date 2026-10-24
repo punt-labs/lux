@@ -323,14 +323,26 @@ a socket an abandoned thread is still reading (L4a).
     The ack ledger counts, so every way a reply is consumed or a write is
     abandoned without the matching ledger step is a \texttt{Lose} in the
     model's terms, and the \texttt{lose} control shows the consequence.  Three
-    rules; each has a control that removes it:
+    rules, each with a control that removes it, and a fourth that bounds the
+    first:
     \begin{enumerate}
       \item[(a)] \emph{A write that raises after its ledger entry was
         appended retires its generation} (\texttt{close\_if\_current(g)}), or
         the entry is appended only after the write returns, still under
         \texttt{\_lock}.  The model's retirement is \texttt{Close}; the
         \texttt{write\_fail\_keep} control keeps the entry and the
-        generation (L6, three requests).
+        generation (L6, three requests).  A write that \emph{blocks} raises
+        only if it is bounded: every generation's socket carries the send
+        timeout (\texttt{set\_send\_timeout}, \texttt{SO\_SNDTIMEO}, about two
+        seconds), on both legs (\texttt{handshake\_connector.py},
+        \texttt{cross\_host\_connector.py}), and a timed-out send raises and
+        is retired by this rule.  A display that stops reading produces no
+        end-of-file, so no report ends the wedge; the send timeout does.
+        Without it every writer, the liveness ping included, queues for
+        \texttt{\_lock} behind the wedged sender for ever
+        (\texttt{listener\_locks.tex}, the wedge paragraph).  A test pins it:
+        with a display that stops reading, a \texttt{show} raises within the
+        send timeout and its generation is retired.
       \item[(b)] \emph{A reply whose routing raises is not skipped.}
         \texttt{ListenerThread.\_routed\_one} logs a raising route and
         continues.  For a pong, an ack or a query response, routing is
@@ -1439,6 +1451,15 @@ would create a cycle is the tempting implementation of the compare-and-close
 under \texttt{\_lock}: it would put the state update behind a wedged
 \texttt{sendall}, and then the report waits on the sender, the sender waits on
 a display that the report was about to abandon.  Decision~1 forbids it.
+
+Two locks lie above this set and are outside the model: the
+\texttt{ClientRegistry} lock and the store lock, taken before any lock of the
+set (registry lock $\to$ \texttt{\_lock}, registry lock $\to$ state lock).
+No lock of this model is held while taking either of them.  In particular a
+query's timeout retire is \texttt{close\_if\_current(g)} inside the link, and
+it never calls \texttt{ClientRegistry.drop()} while holding the query's request
+lock or any other lock of the set: that would be a back-edge into the registry
+lock, against the registry's own edge into \texttt{\_lock}.
 
 % ============================================================
 \section{Fidelity Controls}

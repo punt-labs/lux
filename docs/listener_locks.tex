@@ -53,6 +53,24 @@
 % wait on the sender that waits on the shutdown; the model has no such
 % reporter, and the deadlock check shows the one it has is never stuck.
 %
+% WHAT ENDS A WEDGE IN THE CODE.  Not a reporter: a display that stops reading
+% produces no end-of-file, so the reader never reports.  The bound is the send
+% timeout: every generation's socket carries SO_SNDTIMEO (send_timeout.py,
+% about 2 s, on both legs), a timed-out sendall raises, and the write-failure
+% rule (listener_lifecycle.tex, Decision 10(a)) retires the generation.  The
+% model's restriction of Wedge to a running reporter stands for that bound.
+% Without the bound the model deadlocks: with the reporter condition dropped,
+% ProB finds  Start(showC,T2); Wedge; Start(queryC,T1); Acquire(T2);
+% Acquire(T1); Acquire(T2)  (the show wedged inside its write holding lk, the
+% query waiting on lk for ever).  That is a deadlock of the environment, not
+% of the order; it shows why the send timeout must be on every socket.
+%
+% LOCKS OUTSIDE THE MODEL.  ClientRegistry._lock and the store lock sit above
+% the model's set (registry lock -> lk, registry lock -> st).  No lock of this
+% model is held while taking either of them; in particular a query's timeout
+% retire is close_if_current(g) inside the link and never calls
+% ClientRegistry.drop() while holding rq.
+%
 % THE PROGRAMS (the number of steps is the index of the program counter):
 %   pingC   rp; lk{write}; qu{wait}; release rp
 %   showC   rs; lk{write; qu{ledger append}}; qu{wait}; release rs
@@ -242,6 +260,26 @@ A thread picks its program once.
 The display stops reading.  The wedge is possible only while a reporter is
 running and has not yet shut the socket down: a wedge with nobody to end it
 would be a deadlock of the environment, not of the locks.
+
+What ends a wedge in the code is not a reporter.  A display that stops
+reading produces no end-of-file, so the reader never reports.  The bound is the
+send timeout: every generation's socket carries \texttt{SO\_SNDTIMEO} (about two
+seconds, on both legs), a timed-out \texttt{sendall} raises, and the
+write-failure rule retires the generation.  The restriction of \texttt{Wedge}
+to a running reporter stands for that bound.  Drop the restriction and ProB
+finds the deadlock \texttt{Start(showC,T2)}, \texttt{Wedge},
+\texttt{Start(queryC,T1)}, \texttt{Acquire(T2)}, \texttt{Acquire(T1)},
+\texttt{Acquire(T2)}: the show wedged inside its write holding
+\texttt{\_lock}, the query waiting on \texttt{\_lock} for ever.  It is a
+deadlock of the environment, not of the order, and it is why the bound is
+needed.
+
+Two locks lie above the model's set and outside it: the
+\texttt{ClientRegistry} lock and the store lock (registry lock $\to$
+\texttt{\_lock}, registry lock $\to$ state lock).  No lock of this model is held
+while taking either of them; in particular a query's timeout retire is
+\texttt{close\_if\_current(g)} inside the link, and never calls
+\texttt{ClientRegistry.drop()} while holding the request lock.
 
 \begin{schema}{AcquireOrdered}
   \Delta LS \\
