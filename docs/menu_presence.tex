@@ -874,11 +874,33 @@ vacuously true of a model that never shows an entry or a stale label:
     -goal "sdirty = {} & #c.(c : stale & c : lapsed)" -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
-Deadlock-freedom and the structural invariant over the full reachable state
-space:
+The structural invariant (\texttt{agents}, \texttt{cbs}, \texttt{lapsed},
+\texttt{sdirty} and \texttt{stale} are each included in \texttt{registered}) is
+a conjunct of the state schema, so in a plain \texttt{-model\_check} it is a
+guard on every successor: a violating operation would be disabled, not
+reported, and the plain run does not verify it.  It is checked as a negated
+goal, like P1 to P3, and the goal is \emph{not found}:
+\begin{verbatim}
+  # S, the structural invariant (goal NOT found in this, the fixed, spec)
+  probcli docs/menu_presence.tex -model_check -nodead \
+    -goal "not(agents <: registered) or not(cbs <: registered) or \
+           not(lapsed <: registered) or not(sdirty <: registered) or \
+           not(stale <: registered)" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+The run visits 18900 states and 453277 transitions, the numbers of the
+coverage audit.  Because the conjuncts are guards, ``not found'' says that no
+enabled step reaches a violation; that none was pruned is shown by the same
+counts with the five conjuncts removed (the \texttt{earns} equation, a
+definition no operation constrains otherwise, is kept).
+
+Deadlock-freedom is not claimed here.  The deadlock check of
 \begin{verbatim}
   probcli docs/menu_presence.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
+proves nothing about this specification: \texttt{Connect} has no guard and is
+enabled in every state, so no state can be deadlocked.  Deadlock-freedom of the
+lock order that makes these transitions atomic is claimed by
+\texttt{menu\_presence\_locks.tex} alone, whose inverted control deadlocks.
 
 The fidelity controls, each differing from this specification in one
 operation or, for INV-1b and INV-2, in one rule applied at each of its sites

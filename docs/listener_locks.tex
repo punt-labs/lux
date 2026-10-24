@@ -1,0 +1,393 @@
+%
+% listener_locks.tex
+%
+% Companion to docs/listener_lifecycle.tex: the LOCK ORDER the fixed design
+% requires, checked for deadlock-freedom.
+%
+% listener_lifecycle.tex makes each critical section one atomic step, so its
+% deadlocked:0 proves nothing about locks (Want and LockExpire are enabled in
+% every state).  The claim that the fixed design cannot deadlock is made here,
+% and here alone.  The locks in play (listener_lifecycle.tex, Decision 5 and
+% the section "Deadlock-freedom, and the lock order the model assumes"):
+%
+%   rp, rs, rq  the request locks, one per reply kind: pong (ping), ack
+%               (show), query.  A request holds its kind's lock from the
+%               write to its consumption or failure.
+%   st          the generation state lock: curGen, held, started, detaching a
+%               sink.  Field updates only; never I/O, never a dial.
+%   lk          the connection's _lock: one sendall or one recv.
+%   qu          a reply-queue / ack-ledger lock: one put, get or wake-up.
+%               The ledger entry is appended under lk, in the write's own
+%               critical section.  The queues are modelled as one lock: two
+%               queue locks are never held together, so one stands for all.
+%
+% THE FIXED ORDER:  request lock < st < lk < qu.  The edges that occur are
+% request -> lk, lk -> qu, request -> st, request -> qu, st -> qu.  A rank
+% function over the locks is strictly increasing along every edge, so the
+% acquisition graph is acyclic.
+%
+% The model is not that argument.  It runs the six programs below, each as a
+% thread of acquire / release / I/O steps over the locks, against every
+% interleaving, and asks ProB for a state in which some thread is not done and
+% none can move.
+%
+% MUTUAL EXCLUSION IS ASSUMED, AS A LOCK IS MODELLED: Acquire is guarded by
+% "the lock is free".  That is what a lock is; it is not checked.  What is
+% checked:
+%   (1) deadlock-freedom: Halt is enabled only when every thread is done, so a
+%       blocked subset is reported by probcli as a deadlock;
+%   (2) ORDER, as a negated goal: the flag orderBroken is set by an Acquire
+%       made while the thread holds a lock of equal or higher rank.  The goal
+%       orderBroken = fset must not be found.  The order is deliberately not a
+%       conjunct of the state schema: ProB treats the primed state schema as
+%       part of each operation's guard, so a violation written there disables
+%       the operation instead of reporting it.
+%
+% THE WEDGE.  A display that stops reading holds a sender inside sendall,
+% under lk, until the connection is shut down.  Wedge models that (it is
+% enabled only while a reporter is running, so a wedge always has someone who
+% can end it); Write, the I/O under lk, is blocked until shut = fset.  The
+% reporter must reach its shutdown without waiting for anything a wedged
+% sender holds: it takes st and qu, releases both, and shuts the socket
+% outside the state lock.  A reporter that needed lk or a request lock would
+% wait on the sender that waits on the shutdown; the model has no such
+% reporter, and the deadlock check shows the one it has is never stuck.
+%
+% THE PROGRAMS (the number of steps is the index of the program counter):
+%   pingC   rp; lk{write}; qu{wait}; release rp
+%   showC   rs; lk{write; qu{ledger append}}; qu{wait}; release rs
+%   queryC  rq; lk{write}; qu{wait}; st{qu{retire the generation, wake
+%           waiters}}; shutdown outside st; release rq
+%   sendS   the replicator's send_scene: lk{write; qu{ledger append}}
+%   reader  the listener's poll_chunk, and equally the inline read of rule 23
+%           (select outside lk, recv under it: lk alone, for the recv only);
+%           then qu{route the reply}
+%   report  st{qu{retire}}; shutdown outside st
+% A wait releases its queue lock inside Condition.wait; it is the acquire /
+% release pair on qu.  The marker-like leaves that hold nothing else are not
+% modelled.
+%
+% THE REJECTED ORDER (listener_locks_inverted_buggy.tex): showC takes the
+% ledger/queue lock before lk.  A reader holds lk and wants qu; showC holds qu
+% and wants lk.  ProB finds the deadlock.
+%
+% Type-check:  fuzz docs/listener_locks.tex
+% Model-check: probcli docs/listener_locks.tex -model_check -coverage \
+%                -p MAX_OPERATIONS 200 -card T 2
+%              probcli docs/listener_locks.tex -model_check -coverage \
+%                -p MAX_OPERATIONS 200 -card T 3
+%              probcli docs/listener_locks.tex -model_check -nodead -bf \
+%                -goal "orderBroken = fset" -p MAX_OPERATIONS 200 -card T 3
+% Expected: no counter example, deadlocked 0, goal not found.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Listener Lifecycle: the Lock Order}
+\maketitle
+
+\begin{zed}
+  [T]
+\end{zed}
+
+A thread: a caller (the liveness ping, the replicator's show, a query), the
+replicator's \texttt{send\_scene}, the reader, the report.  Two suffice for a
+cycle; three give every pair a third party.
+
+\begin{zed}
+  LOCK ::= rp | rs | rq | lk | st | qu
+\end{zed}
+
+\begin{zed}
+  ACT ::= grab | drop | io | sd | fin
+\end{zed}
+
+\begin{zed}
+  PROG ::= pingC | showC | queryC | sendS | reader | report
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  TST ::= tnew | trun | tdone
+\end{zed}
+
+Steps: acquire or release a lock, do I/O under the connection's lock, shut the
+socket down, finish.
+
+\begin{axdef}
+  lvl : LOCK \fun 1 \upto 4
+\where
+  lvl = \{ rp \mapsto 1, rs \mapsto 1, rq \mapsto 1, st \mapsto 2,
+    lk \mapsto 3, qu \mapsto 4 \}
+\end{axdef}
+
+The order of the fixed design: a request lock, then the state lock, then the
+connection's \texttt{\_lock}, then a queue lock.  The order is a ranking, not
+a premise of the model: it is the standard the flag \texttt{orderBroken}
+measures each acquisition against.
+
+\begin{axdef}
+  act : PROG \cross (1 \upto 13) \pfun ACT \\
+  lck : PROG \cross (1 \upto 13) \pfun LOCK
+\where
+  act = \{ (pingC, 1) \mapsto grab, (pingC, 2) \mapsto grab, (pingC, 3) \mapsto io,
+    (pingC, 4) \mapsto drop, (pingC, 5) \mapsto grab, (pingC, 6) \mapsto drop,
+    (pingC, 7) \mapsto drop, (pingC, 8) \mapsto fin,
+    (showC, 1) \mapsto grab, (showC, 2) \mapsto grab, (showC, 3) \mapsto io,
+    (showC, 4) \mapsto grab, (showC, 5) \mapsto drop, (showC, 6) \mapsto drop,
+    (showC, 7) \mapsto grab, (showC, 8) \mapsto drop, (showC, 9) \mapsto drop,
+    (showC, 10) \mapsto fin,
+    (queryC, 1) \mapsto grab, (queryC, 2) \mapsto grab, (queryC, 3) \mapsto io,
+    (queryC, 4) \mapsto drop, (queryC, 5) \mapsto grab, (queryC, 6) \mapsto drop,
+    (queryC, 7) \mapsto grab, (queryC, 8) \mapsto grab, (queryC, 9) \mapsto drop,
+    (queryC, 10) \mapsto drop, (queryC, 11) \mapsto sd, (queryC, 12) \mapsto drop,
+    (queryC, 13) \mapsto fin,
+    (sendS, 1) \mapsto grab, (sendS, 2) \mapsto io, (sendS, 3) \mapsto grab,
+    (sendS, 4) \mapsto drop, (sendS, 5) \mapsto drop, (sendS, 6) \mapsto fin,
+    (reader, 1) \mapsto grab, (reader, 2) \mapsto drop, (reader, 3) \mapsto grab,
+    (reader, 4) \mapsto drop, (reader, 5) \mapsto fin,
+    (report, 1) \mapsto grab, (report, 2) \mapsto grab, (report, 3) \mapsto drop,
+    (report, 4) \mapsto drop, (report, 5) \mapsto sd, (report, 6) \mapsto fin \} \\
+  lck = \{ (pingC, 1) \mapsto rp, (pingC, 2) \mapsto lk, (pingC, 4) \mapsto lk,
+    (pingC, 5) \mapsto qu, (pingC, 6) \mapsto qu, (pingC, 7) \mapsto rp,
+    (showC, 1) \mapsto rs, (showC, 2) \mapsto lk, (showC, 4) \mapsto qu,
+    (showC, 5) \mapsto qu, (showC, 6) \mapsto lk, (showC, 7) \mapsto qu,
+    (showC, 8) \mapsto qu, (showC, 9) \mapsto rs,
+    (queryC, 1) \mapsto rq, (queryC, 2) \mapsto lk, (queryC, 4) \mapsto lk,
+    (queryC, 5) \mapsto qu, (queryC, 6) \mapsto qu, (queryC, 7) \mapsto st,
+    (queryC, 8) \mapsto qu, (queryC, 9) \mapsto qu, (queryC, 10) \mapsto st,
+    (queryC, 12) \mapsto rq,
+    (sendS, 1) \mapsto lk, (sendS, 3) \mapsto qu, (sendS, 4) \mapsto qu,
+    (sendS, 5) \mapsto lk,
+    (reader, 1) \mapsto lk, (reader, 2) \mapsto lk, (reader, 3) \mapsto qu,
+    (reader, 4) \mapsto qu,
+    (report, 1) \mapsto st, (report, 2) \mapsto qu, (report, 3) \mapsto qu,
+    (report, 4) \mapsto st \}
+\end{axdef}
+
+The programs, one row of \texttt{act} and \texttt{lck} per step.  A ping holds
+its request lock across a write under \texttt{\_lock} and a wait on the queue;
+a show appends its ledger entry (queue lock) inside the same \texttt{\_lock}
+hold as the write, so the ledger's order is the wire's; a query that times out
+retires its generation, taking the state lock and, inside it, the queue lock
+to wake the sink's waiters, and closes the socket after releasing the state
+lock; the reader's \texttt{recv} holds \texttt{\_lock} alone and routes the
+reply under a queue lock afterwards; the report retires under the state lock
+and shuts the socket down outside it.
+
+\begin{schema}{LS}
+  ts : T \fun TST \\
+  pr : T \fun PROG \\
+  pc : T \fun 1 \upto 13 \\
+  owner : LOCK \pfun T \\
+  wedged : FSTATE \\
+  shut : FSTATE \\
+  orderBroken : FSTATE
+\end{schema}
+
+\texttt{owner} is the lock table; a lock in its domain is held.  Nothing else
+is written into the state schema: no property is a conjunct of it.
+
+\begin{schema}{Init}
+  LS'
+\where
+  ts' = T \cross \{ tnew \} \\
+  pr' = T \cross \{ reader \} \\
+  pc' = T \cross \{ 1 \} \\
+  owner' = \emptyset \\
+  wedged' = fclear \\
+  shut' = fclear \\
+  orderBroken' = fclear
+\end{schema}
+
+\begin{schema}{Start}
+  \Delta LS \\
+  t? : T \\
+  p? : PROG
+\where
+  ts~t? = tnew \\
+  ts' = ts \oplus \{ t? \mapsto trun \} \\
+  pr' = pr \oplus \{ t? \mapsto p? \} \\
+  pc' = pc \\
+  owner' = owner \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+A thread picks its program once.
+
+\begin{schema}{Wedge}
+  \Delta LS
+\where
+  wedged = fclear \\
+  shut = fclear \\
+  \exists t : T | ts~t = trun \land pr~t = report \spot true \\
+  wedged' = fset \\
+  ts' = ts \\
+  pr' = pr \\
+  pc' = pc \\
+  owner' = owner \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+The display stops reading.  The wedge is possible only while a reporter is
+running and has not yet shut the socket down: a wedge with nobody to end it
+would be a deadlock of the environment, not of the locks.
+
+\begin{schema}{AcquireOrdered}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = grab \\
+  lck~(pr~t?, pc~t?) \notin \dom owner \\
+  \forall l : \dom owner | owner~l = t? \spot
+    lvl~l < lvl~(lck~(pr~t?, pc~t?)) \\
+  owner' = owner \cup \{ lck~(pr~t?, pc~t?) \mapsto t? \} \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+\begin{schema}{AcquireUnordered}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = grab \\
+  lck~(pr~t?, pc~t?) \notin \dom owner \\
+  \exists l : \dom owner | owner~l = t? \spot
+    lvl~l \geq lvl~(lck~(pr~t?, pc~t?)) \\
+  owner' = owner \cup \{ lck~(pr~t?, pc~t?) \mapsto t? \} \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = fset
+\end{schema}
+
+\begin{zed}
+  Acquire \defs AcquireOrdered \lor AcquireUnordered
+\end{zed}
+
+Acquire is guarded by ``the lock is free'': that is mutual exclusion, assumed
+as a lock is modelled and not checked.  The two disjuncts differ only in the
+flag: an acquisition made while the thread holds a lock of equal or higher
+rank sets \texttt{orderBroken}, and both proceed, so that a broken order is
+reported by the goal instead of hidden by a disabled step.
+
+\begin{schema}{Release}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = drop \\
+  owner' = \{ lck~(pr~t?, pc~t?) \} \ndres owner \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+\begin{schema}{Write}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = io \\
+  wedged = fclear \lor shut = fset \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  owner' = owner \\
+  ts' = ts \\
+  pr' = pr \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+The write under \texttt{\_lock} completes unless the display is wedged, and
+a wedged one completes it only once the connection is shut down.  The thread
+that waits here holds whatever it holds.
+
+\begin{schema}{Shutdown}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = sd \\
+  shut' = fset \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  owner' = owner \\
+  ts' = ts \\
+  pr' = pr \\
+  wedged' = wedged \\
+  orderBroken' = orderBroken
+\end{schema}
+
+The socket's \texttt{shutdown} and \texttt{close} take no lock of the model:
+they happen outside the state lock and unblock a wedged \texttt{sendall}.
+
+\begin{schema}{Finish}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = fin \\
+  ts' = ts \oplus \{ t? \mapsto tdone \} \\
+  pc' = pc \\
+  owner' = owner \\
+  pr' = pr \\
+  wedged' = wedged \\
+  shut' = shut \\
+  orderBroken' = orderBroken
+\end{schema}
+
+\begin{schema}{Halt}
+  \Xi LS
+\where
+  \forall t : T \spot ts~t = tdone
+\end{schema}
+
+Halt is enabled only when every thread has finished, so a state in which some
+thread is not done and no thread can move is a deadlock of the model, and
+probcli reports it.  Deadlock-freedom is the claim that every reachable state
+other than the finished one has an enabled step: a thread holding a queue
+lock waits for nothing; a thread holding \texttt{\_lock} waits only for a
+queue lock or, in the write, for a shutdown that the reporter reaches holding
+nothing a wedged sender holds; a thread holding the state lock waits only for
+a queue lock; a thread holding a request lock waits for the locks above it.
+The acquisition graph is acyclic, and the wedge adds no edge into the report.
+
+\begin{verbatim}
+  fuzz docs/listener_locks.tex
+  probcli docs/listener_locks.tex -model_check -coverage \
+    -p MAX_OPERATIONS 200 -card T 2
+  probcli docs/listener_locks.tex -model_check -coverage \
+    -p MAX_OPERATIONS 200 -card T 3
+  probcli docs/listener_locks.tex -model_check -nodead -bf \
+    -goal "orderBroken = fset" -p MAX_OPERATIONS 200 -card T 3
+\end{verbatim}
+
+At two threads: 3267 states, 6433 transitions, no counter example,
+\texttt{deadlocked:0}, ten of ten operations covered.  At three: 150552
+states, 417164 transitions, no counter example, \texttt{deadlocked:0}, all
+covered.  The goal \texttt{orderBroken = fset}, searched at three threads with
+the deadlock check off, is not found in 150551 states analysed.  The control,
+\texttt{listener\_locks\_inverted\_buggy.tex}, deadlocks and reaches the goal.
+
+\end{document}

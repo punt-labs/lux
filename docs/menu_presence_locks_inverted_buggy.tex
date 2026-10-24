@@ -26,7 +26,7 @@
 %               every writer (PresenceWrites.record, renew_if_registered,
 %               discard, reap_lapsed, attach,
 %               register_callback, detach), and ALONE by the readers
-%               (named_sessions, live_sessions, session_of, identity_of).
+%               (named_sessions, live_sessions, sessions, session_of, identity_of).
 %   (marker)    The DirtyMarker's own lock, taken by mark_menus. It is a leaf:
 %               nothing is acquired while it is held, so it contributes no
 %               edge to the acquisition graph and is not modelled.
@@ -41,7 +41,8 @@
 % The callback route is no exception: ClientLifecycle.register_callback and
 % ClientLifecycle.detach take the store lock, and only then reach
 % PresenceWrites, which takes RegLock. (Before the fix CallbackOperations and
-% ws_listen were handed PresenceWrites and wrote under RegLock alone; that is
+% ws_listen were handed the listener-leg write (then ListenerLegs, now PresenceWrites) and
+% wrote under RegLock alone; that is
 % deadlock-free, a registry-only writer being a reader as far as the lock
 % graph goes, and it is wrong for the reason menu_presence.tex gives: no sink
 % is bound.) Readers take RegLock alone and never wait for the store. The
@@ -102,7 +103,9 @@ model says in so many words that \texttt{register\_callback} and
 \end{schema}
 
 The lock tables are derived from the program counters, so they can never
-disagree with them; the cardinality bounds are mutual exclusion.
+disagree with them. The cardinality bounds are mutual exclusion, assumed as a
+guard, as a lock is modelled: a thread cannot take a held lock. They are not
+checked: what the model puts to the test is the order, by the deadlock check.
 
 \begin{schema}{Init}
   Locks'
@@ -206,7 +209,8 @@ gains no edge: StoreLock $\to$ RegLock, as before.
 
 A writer that enters through the registry directly, as
 \texttt{ws\_listen}'s read loop and \texttt{CallbackOperations} did when they
-were handed the registry and \texttt{PresenceWrites}
+were handed the registry and the listener-leg write (then
+\texttt{ListenerLegs}, now \texttt{PresenceWrites})
 (\texttt{clients.record}, \texttt{legs.register\_callback}).
 
 \begin{schema}{FireHook}

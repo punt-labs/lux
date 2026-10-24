@@ -349,9 +349,16 @@ a socket an abandoned thread is still reading (L4a).
         (\texttt{\_lock}), as \texttt{poll\_chunk} does: with a lock per kind,
         an inline read of one kind runs against a \texttt{sendall} of another
         on the same socket, which an \texttt{SSLSocket} (DES-090) does not
-        allow.  That second half is a lock property, outside this model; the
-        lock-order companion to come (\texttt{docs/listener\_locks.tex})
-        carries it.  The model does not model the inline path as such, only
+        allow.  ``As \texttt{poll\_chunk} does'' means exactly this: the
+        inline read waits for readability with \texttt{select} \emph{outside}
+        \texttt{\_lock} and holds \texttt{\_lock} only for the \texttt{recv}
+        itself.  A \texttt{recv\_message} holding \texttt{\_lock} for the
+        caller's whole budget would block every other kind's \texttt{sendall}
+        for that budget, which is the starvation of L8 moved from the request
+        lock to the socket lock.  That second half is a lock property,
+        outside this model; the lock-order companion
+        (\texttt{docs/listener\_locks.tex}) carries it, as the reader
+        program, \texttt{lk} alone for the \texttt{recv}.  The model does not model the inline path as such, only
         its ledger obligation.
     \end{enumerate}
 \end{enumerate}
@@ -1370,8 +1377,7 @@ lock-wait expiry retire (\texttt{lock\_expiry}) and make one lock cover the link
 (\texttt{perlink\_lock}).  L7 and L8 are tautologies of the fixed design:
 no fixed operation writes \texttt{wrongRetire} or \texttt{starved}, so their goals are not a
 search; their content is in the guards of \texttt{Send} and \texttt{LockExpire}, and the
-controls are their evidence.  L7 and L8 are by construction in the fixed design,
-and the controls show them reachable.
+controls are their evidence.
 
 \paragraph{L9 --- the sink is bounded.}
 \[ \forall c \in \dom mbox \spot cstate\,c \in \{csent, cwait\}. \]
@@ -1387,9 +1393,11 @@ the quiescent one lacks an enabled step}.  That check is trivial here:
 \texttt{Want} is enabled for every idle caller and \texttt{LockExpire} for every
 caller waiting for a lock, so no state is deadlocked and \texttt{deadlocked:0}
 proves nothing about the locks.  The lock order below is argued, not checked, in
-this file; a lock-order model with an inverted control, in the manner of
-\texttt{menu\_presence\_locks.tex}, is the companion to come
-(\texttt{docs/listener\_locks.tex}).  The lock discipline the
+this file; it is checked in the companion \texttt{docs/listener\_locks.tex}, a
+lock-order model with an inverted control
+(\texttt{docs/listener\_locks\_inverted\_buggy.tex}), in the manner of
+\texttt{menu\_presence\_locks.tex}.  Deadlock-freedom of the fixed design is
+claimed by that companion alone.  The lock discipline the
 implementation owes the model:
 
 \begin{center}
@@ -1538,10 +1546,11 @@ Type-checking is a \texttt{fuzz} pass:
 \end{verbatim}
 
 \texttt{T} (readers) and \texttt{C} (callers) are given sets, and their sizes
-are set on the command line with \texttt{-card}.  are set on the command line with \texttt{-card}.  The round-2 controls (a free type
-\texttt{T}, no \texttt{C}) are run without \texttt{-card}. \texttt{-p MAX\_OPERATIONS 200}: at ProB's default the
-operations with inputs are truncated in some states and the check is reported
-incomplete.  Run with \texttt{-coverage} and read the
+are set on the command line with \texttt{-card}.  The round-2 controls (a free
+type \texttt{T}, no \texttt{C}) are run without \texttt{-card}.  Every
+\texttt{probcli} call below also takes \texttt{-p MAX\_OPERATIONS 200}: at
+ProB's default the operations with inputs are truncated in some states and the
+check is reported incomplete.  Run with \texttt{-coverage} and read the
 \texttt{UNCOVERED\_OPERATIONS} count: an operation that cannot fire makes every
 invariant that depends on it vacuous.
 
