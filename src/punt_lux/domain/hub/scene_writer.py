@@ -83,7 +83,8 @@ class HubSceneWriter:
         Stage a realization per field patch, guard every removal, check every
         rejection, and — only if all pass — commit the fields atomically (a
         mid-commit raise rolls all back), then apply removals post-commit
-        (idempotent). Any rejection leaves the store untouched.
+        (idempotent). Any rejection, a batch that would leave its scene nested
+        past the cap included, leaves the store untouched.
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
@@ -101,10 +102,9 @@ class HubSceneWriter:
                 UnknownSceneError,
             ) as exc:
                 return WriteRejected(str(exc))
-            for realization in realizations:
-                rejection = realization.rejection()
-                if rejection is not None:
-                    return rejection
+            rejection = self._rejection_of(scope, realizations)
+            if rejection is not None:
+                return rejection
             self._commit(realizations)
             self._apply_removals(scope, batch.removals)
             return WriteAccepted()
@@ -159,6 +159,23 @@ class HubSceneWriter:
                 )
                 continue
             self._require_owner(scope, element_id)
+
+    def _rejection_of(
+        self, scope: SceneScope, realizations: Sequence[FieldRealization]
+    ) -> WriteRejected | None:
+        """Why the batch may not be committed, judged before any of it is.
+
+        Each realization answers for itself; then the scene as the whole batch would
+        leave it must still fit the nesting cap.
+        """
+        for realization in realizations:
+            rejection = realization.rejection()
+            if rejection is not None:
+                return rejection
+        too_deep = self._display.write_seam.nesting_refusal(
+            scope.scene_id, realizations
+        )
+        return None if too_deep is None else WriteRejected(too_deep)
 
     @staticmethod
     def _commit(realizations: Sequence[FieldRealization]) -> None:

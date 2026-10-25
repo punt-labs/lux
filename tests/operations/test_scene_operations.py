@@ -13,6 +13,7 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
+from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import (
@@ -27,6 +28,8 @@ from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.protocol import CollapsingHeaderElement
+from punt_lux.protocol.elements import GroupElement, TreeElement
+from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 _CONNECTION = ConnectionId("local")
@@ -677,3 +680,141 @@ def test_a_show_from_an_in_process_caller_records_no_host() -> None:
     session = factory.clients.session_of(_CONNECTION)
     assert session is not None
     assert session.client_hosts.names == ()
+
+
+def _nodes(depth: int) -> dict[str, object]:
+    """A tree node with ``depth`` levels of children under it."""
+    node: dict[str, object] = {"label": "leaf"}
+    for i in range(depth):
+        node = {"label": f"n{i}", "children": [node]}
+    return node
+
+
+class TestAnUpdateCannotNestPastTheCap:
+    """The cap on how deep an element nests holds for a patch as it does for show."""
+
+    def test_a_patch_that_nests_an_element_past_the_cap_is_rejected_whole(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse(
+            [{"id": "t", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}}]
+        )
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert result.code == "rejected"
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert recorder.dirtied == []
+        tree = store.resolve(_scoped("s1"), ElementId("t"))
+        assert isinstance(tree, TreeElement)
+        assert tree.to_dict().get("nodes") in (None, [], ())
+
+    def test_a_refused_deep_patch_fires_no_observer(self) -> None:
+        # A state the Hub refused must never be published, even briefly: nothing
+        # is committed (so nothing is notified) before the projected depth is judged.
+        store = HubStoreFactory().display
+        tree = TreeElement(id="t")
+        heard: list[str] = []
+        tree.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [tree])
+        request = UpdateRequest.parse(
+            [{"id": "t", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}}]
+        )
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert heard == []
+
+    def test_an_accepted_patch_notifies_its_observer_once(self) -> None:
+        store = HubStoreFactory().display
+        tree = TreeElement(id="t")
+        heard: list[str] = []
+        tree.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [tree])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert heard.count("nodes") == 1
+
+    def test_a_patch_that_deepens_a_nested_element_past_the_cap_is_rejected(
+        self,
+    ) -> None:
+        # The tree alone stays shallow; it is the ancestors above it that carry
+        # the whole scene past the cap, so the root is what is measured.
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        root: GroupElement | None = None
+        levels = 1
+        while True:
+            candidate: GroupElement | TreeElement = TreeElement(id="t")
+            for i in range(levels):
+                candidate = GroupElement(id=f"g{i}", children=(candidate,))
+            if NestingCap().refusal([candidate]) is not None:
+                break
+            assert isinstance(candidate, GroupElement)
+            root, levels = candidate, levels + 1
+        assert root is not None
+        store.replace_scene(_LOCAL, _scoped("s1"), [root])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(8)]}}])
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert recorder.dirtied == []
+
+    def test_two_independent_patches_each_within_the_cap_are_accepted(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(
+            _LOCAL, _scoped("s1"), [TreeElement(id="a"), TreeElement(id="b")]
+        )
+        request = UpdateRequest.parse(
+            [
+                {"id": "a", "set": {"nodes": [_nodes(10)]}},
+                {"id": "b", "set": {"nodes": [_nodes(10)]}},
+            ]
+        )
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert recorder.dirtied == [_scoped("s1")]
+
+    def test_a_batch_with_one_patch_past_the_cap_changes_and_notifies_nothing(
+        self,
+    ) -> None:
+        store = HubStoreFactory().display
+        fine, deep = TreeElement(id="a"), TreeElement(id="b")
+        heard: list[str] = []
+        fine.add_observer(heard.append)
+        deep.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [fine, deep])
+        request = UpdateRequest.parse(
+            [
+                {"id": "a", "set": {"nodes": [_nodes(2)]}},
+                {"id": "b", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}},
+            ]
+        )
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert heard == [], "the batch was refused whole: nothing committed or heard"
+        assert fine.to_dict().get("nodes") in (None, [], ())
+
+    def test_a_patch_within_the_cap_is_still_accepted(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert recorder.dirtied == [_scoped("s1")]

@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
+from punt_lux.domain.nesting_cap import NestingCap
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.field_realization import FieldRealization
@@ -53,6 +54,19 @@ class WriteSeam:
         FieldGate.reject(element_id, fields)
         element = self._require_abc(scene_id, element_id)
         return AbcFieldRealization(element, fields)
+
+    def nesting_refusal(
+        self, scene_id: SceneId, realizations: Sequence[FieldRealization]
+    ) -> str | None:
+        """Why the scene, with every realization applied at once, would nest too deeply.
+
+        Judged on the whole batch before any of it is committed, so a refused batch
+        changes nothing and no observer hears of it.
+        """
+        return NestingCap().refusal_if_patched(
+            self._index.scene_roots(scene_id),
+            dict(r.projected() for r in realizations),
+        )
 
     def is_present(self, scene_id: SceneId, element_id: ElementId) -> bool:
         """Return whether ``element_id`` is installed — lets removal stay idempotent."""

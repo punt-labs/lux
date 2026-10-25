@@ -41,6 +41,10 @@ class FieldRealization(Protocol):
         """Return why the patch may not be written, or ``None`` if it may."""
         ...
 
+    def projected(self) -> tuple[str, object]:
+        """The target's id and the element it would become, without applying it."""
+        ...
+
     def commit(self) -> None:
         """Apply the mutation, snapshotting enough to restore it exactly."""
         ...
@@ -56,7 +60,9 @@ class AbcFieldRealization:
 
     The object *is* the identity, so mutating it in place preserves its handlers
     and observers and the change is visible through any parent that holds it.
-    Validation runs on a throwaway deep copy so a rejected write never touches it.
+    Validation, and the check that the scene would not nest too deeply, run on a
+    throwaway deep copy so a rejected write never touches the element, and no
+    observer hears of it.
     """
 
     _element: AbcElement
@@ -84,10 +90,21 @@ class AbcFieldRealization:
                     f"cannot set unknown field {key!r} on element {self._element.id!r}"
                 )
         try:
-            errors = deepcopy(self._element).apply_patch(self._fields).validate()
+            patched = deepcopy(self._element).apply_patch(self._fields)
+            errors = patched.validate()
         except (ValueError, TypeError) as exc:
             return WriteRejected(str(exc))
-        return WriteRejected(ValidationReport(errors).describe()) if errors else None
+        if errors:
+            return WriteRejected(ValidationReport(errors).describe())
+        return None
+
+    def projected(self) -> tuple[str, AbcElement]:
+        """The element's id and what it would be once the patch is applied.
+
+        A throwaway deep copy: the element itself, and any observer of it, is
+        untouched.
+        """
+        return self._element.id, deepcopy(self._element).apply_patch(self._fields)
 
     def commit(self) -> None:
         """Snapshot the element's field state, then patch it in place."""
