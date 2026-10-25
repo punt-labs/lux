@@ -10,6 +10,9 @@ kinds its interaction sender sends. A reply is *made* by constructing one or by
 calling a function that returns one (found by fixpoint, not named), and every value
 so made must either go straight into ``reply_to_client`` or be returned to a caller,
 which is then held to the same rule; anything else drops it or sends it another way.
+The doors belong to one :class:`ClientSender`, built by the listener that owns the
+sockets; a second construction anywhere in the package is a second set of doors, so
+the guard counts constructions the way the other capabilities' guards do.
 The guard fails on planted violations, so it cannot pass by checking nothing.
 """
 
@@ -21,7 +24,10 @@ from typing import Self, final, get_args
 
 from punt_lux.protocol.messages import DisplayMessage
 
-_DISPLAY = Path(__file__).resolve().parents[2] / "src" / "punt_lux" / "display"
+_SRC = Path(__file__).resolve().parents[2] / "src"
+_DISPLAY = _SRC / "punt_lux" / "display"
+_SENDER = "ClientSender"
+_SENDER_HOME = "src/punt_lux/display/socket_server.py"
 _EVENT_SENDER = "interaction_delivery"
 _DOOR_HOME = "client_sender"
 _REPLY_DOOR = "reply_to_client"
@@ -234,6 +240,15 @@ def _display_sources() -> dict[str, str]:
     return {p.stem: p.read_text(encoding="utf-8") for p in _DISPLAY.rglob("*.py")}
 
 
+def _constructions_of(source: str, name: str) -> int:
+    """How many times ``source`` calls ``name(...)``, bare or through a module."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call) and _callee(n) == name
+    )
+
+
 def _constructed_names(source: str) -> set[str]:
     return {
         n.func.id
@@ -279,6 +294,31 @@ class TestEveryReplySiteGoesThroughReplyToClient:
         ]
 
         assert offenders == []
+
+
+class TestTheDoorsHaveOneOwner:
+    def test_the_sender_is_built_once_by_the_listener_that_owns_the_sockets(
+        self,
+    ) -> None:
+        built = {
+            path.relative_to(_SRC.parent).as_posix(): count
+            for path in sorted(_SRC.rglob("*.py"))
+            if (count := _constructions_of(path.read_text(encoding="utf-8"), _SENDER))
+        }
+
+        assert built == {_SENDER_HOME: 1}
+
+    def test_a_second_construction_is_counted_in_either_spelling(self) -> None:
+        for planted in (
+            "def f(host):\n    return ClientSender(host)\n",
+            "def f(host):\n    return client_sender.ClientSender(host)\n",
+        ):
+            assert _constructions_of(planted, _SENDER) == 1, planted
+
+    def test_a_module_that_only_annotates_the_sender_builds_none(self) -> None:
+        planted = "def f(sender: ClientSender) -> None:\n    sender.go()\n"
+
+        assert _constructions_of(planted, _SENDER) == 0
 
 
 class TestTheGuardFailsOnAPlantedViolation:
