@@ -8,5 +8,5 @@ __all__ = ["release_of"]
 
 
 def release_of(roster: ClientRoster) -> RosterRelease:
-    """A release over ``roster``'s own state, without taking the roster's one."""
-    return RosterRelease(roster, roster._names, roster._key_of)  # test seam
+    """A release that asks ``roster`` itself, without taking the roster's one."""
+    return RosterRelease(roster._release_departed)  # test seam

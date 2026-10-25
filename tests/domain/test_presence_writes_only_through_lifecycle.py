@@ -62,6 +62,8 @@ _NAMED_SESSIONS_REL = "src/punt_lux/domain/hub/named_sessions.py"
 # What the roster itself offers: to name connections, to read the names held, and to
 # hand its release away. The release is the one place a survivor is renumbered.
 _ROSTER_OWN = {"names_for", "held", "take_release"}
+# The roster's one write, private to it: the release is the only way to ask for it.
+_ROSTER_DROP = "_release_departed"
 # Who may name the release: its home and the writes that hold it.
 _RELEASE_NAMERS = {_ROSTER_REL, "src/punt_lux/domain/hub/presence_writes.py"}
 
@@ -189,29 +191,59 @@ def _roster_methods(source: str, name: str = "ClientRoster") -> set[str]:
     }
 
 
-def _classes_that_drop_names(source: str) -> set[str]:
-    """The classes whose methods drop a name from the roster's holdings.
+def _drops_names(node: ast.AST) -> bool:
+    """Whether ``node`` drops a name from the roster's holdings.
 
     Dropping is ``self._names.drop(...)`` or popping a connection out of ``_key_of``:
     the two steps that make a survivor's label move.
     """
-    found: set[str] = set()
-    for cls in ast.walk(ast.parse(source)):
-        if not isinstance(cls, ast.ClassDef):
-            continue
-        for call in ast.walk(cls):
-            if (
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and (
-                    (call.func.attr == "drop" and _label(call.func.value) == "_names")
-                    or (
-                        call.func.attr == "pop" and _label(call.func.value) == "_key_of"
-                    )
-                )
-            ):
-                found.add(cls.name)
-    return found
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and (
+            (call.func.attr == "drop" and _label(call.func.value) == "_names")
+            or (call.func.attr == "pop" and _label(call.func.value) == "_key_of")
+        )
+        for call in ast.walk(node)
+    )
+
+
+def _classes_that_drop_names(source: str) -> set[str]:
+    """The classes whose methods drop a name from the roster's holdings."""
+    return {
+        cls.name
+        for cls in ast.walk(ast.parse(source))
+        if isinstance(cls, ast.ClassDef) and _drops_names(cls)
+    }
+
+
+def _methods_that_drop_names(source: str, name: str) -> set[str]:
+    """The methods of class ``name`` that drop a name from the roster's holdings."""
+    cls = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+    return {
+        m.name for m in cls.body if isinstance(m, ast.FunctionDef) and _drops_names(m)
+    }
+
+
+def _methods_that_name(source: str, cls_name: str, attribute: str) -> set[str]:
+    """The methods of class ``cls_name`` that read ``<expr>.<attribute>``."""
+    cls = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and node.name == cls_name
+    )
+    return {
+        m.name
+        for m in cls.body
+        if isinstance(m, ast.FunctionDef)
+        and any(
+            isinstance(n, ast.Attribute) and n.attr == attribute for n in ast.walk(m)
+        )
+    }
 
 
 def _constructions_of(source: str, name: str) -> int:
@@ -322,8 +354,22 @@ def test_the_roster_itself_only_names_and_hands_its_release_away() -> None:
     assert _roster_methods(_ROSTER_FILE.read_text()) == _ROSTER_OWN
 
 
-def test_only_the_release_drops_a_name_from_the_roster() -> None:
-    assert _classes_that_drop_names(_ROSTER_FILE.read_text()) == {"RosterRelease"}
+def test_only_the_roster_drops_a_name_and_in_one_private_method() -> None:
+    source = _ROSTER_FILE.read_text()
+
+    assert _classes_that_drop_names(source) == {"ClientRoster"}
+    assert _methods_that_drop_names(source, "ClientRoster") == {_ROSTER_DROP}
+
+
+def test_the_roster_s_drop_is_reached_only_through_the_release_it_hands_away() -> None:
+    readers = {
+        rel for rel, text in _files(_SRC) if _reads_attribute(text, _ROSTER_DROP)
+    }
+
+    assert readers == {_ROSTER_REL}
+    assert _methods_that_name(
+        _ROSTER_FILE.read_text(), "ClientRoster", _ROSTER_DROP
+    ) == {"take_release"}
 
 
 def test_the_release_is_built_once_by_the_roster_that_hands_it_away() -> None:
@@ -543,6 +589,7 @@ class TestTheRulesCanFail:
         )
 
         assert _classes_that_drop_names(source) == {"ClientRoster", "RosterRelease"}
+        assert _methods_that_drop_names(source, "ClientRoster") == {"evict"}
 
     def test_a_planted_roster_method_enters_the_derived_set(self) -> None:
         source = (
@@ -556,7 +603,7 @@ class TestTheRulesCanFail:
         assert _roster_methods(source) == {"names_for", "release"}
 
     def test_a_second_construction_of_the_release_is_counted(self) -> None:
-        source = "def f(roster):\n    return RosterRelease(roster, None, None)\n"
+        source = "def f(roster):\n    return RosterRelease(roster._release_departed)\n"
 
         assert _constructions_of(source, "RosterRelease") == 1
 

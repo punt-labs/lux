@@ -537,3 +537,14 @@ class TestTheReleaseIsGivenAwayOnce:
 
     def test_the_roster_itself_carries_no_release_method(self) -> None:
         assert not hasattr(ClientRoster, "release")
+
+    def test_the_release_holds_none_of_the_rosters_state(self) -> None:
+        # The roster owns its names and its keys; the release is a capability to ask
+        # it to drop, never a second holder of the same containers.
+        roster = ClientRoster()
+        release = roster.take_release()
+        held = [getattr(release, slot) for slot in type(release).__slots__]
+
+        assert not [
+            v for v in held if v is roster or v is roster._names or v is roster._key_of
+        ]

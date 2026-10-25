@@ -22,7 +22,8 @@ Departure is told to the roster, never inferred by it, and only through a
 :class:`RosterRelease`. A release can renumber survivors, which changes the Clients
 menu's labels, so it is presence and the presence writes' alone: the roster hands its
 :class:`RosterRelease` away exactly once (:meth:`ClientRoster.take_release`), the
-release is the only place the write exists, and what the registry hands its readers is
+release is the only way to ask for the write (the roster does it, on state it
+alone holds), and what the registry hands its readers is
 a :class:`RosterNames`, which can only name. Nothing a reader is given can take a name
 away or promote anybody. The roster holds no lock and needs none; the registry owns it
 and calls it under its own lock.
@@ -36,7 +37,7 @@ from punt_lux.domain.hub.menu_group_key import MenuGroupKey
 from punt_lux.domain.menu_name import MenuNames
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.ids import ConnectionId
@@ -94,14 +95,15 @@ class ClientRoster:
     def take_release(self) -> RosterRelease:
         """Hand over the one thing that can drop a connection, once.
 
-        Raises ``ValueError`` on a second ask, so no second holder can renumber
-        the survivors.
+        The release carries the roster's own drop and nothing of its state. Raises
+        ``ValueError`` on a second ask, so no second holder can renumber the
+        survivors.
         """
         if self._release_taken:
             msg = "the roster's release was already handed to the presence writes"
             raise ValueError(msg)
         self._release_taken = True
-        return RosterRelease(self, self._names, self._key_of)
+        return RosterRelease(self._release_departed)
 
     def _enrol(self, cid: ConnectionId, identity: ClientIdentity) -> None:
         """Place *cid* in its group and take a name for that group if it is new."""
@@ -109,29 +111,9 @@ class ClientRoster:
         self._key_of.setdefault(cid, key)
         self._names.take(key, identity.menu_label)
 
-
-@final
-class RosterRelease:
-    """Drop departed connections from a roster: the write that renumbers survivors."""
-
-    _roster: ClientRoster
-    _names: MenuNames[MenuGroupKey]
-    _key_of: dict[ConnectionId, MenuGroupKey]
-    __slots__ = ("_key_of", "_names", "_roster")
-
-    def __new__(
-        cls,
-        roster: ClientRoster,
-        names: MenuNames[MenuGroupKey],
-        key_of: dict[ConnectionId, MenuGroupKey],
-    ) -> Self:
-        self = super().__new__(cls)
-        self._roster = roster
-        self._names = names
-        self._key_of = key_of
-        return self
-
-    def release(self, departed: Iterable[ConnectionId]) -> frozenset[ConnectionId]:
+    def _release_departed(
+        self, departed: Iterable[ConnectionId]
+    ) -> frozenset[ConnectionId]:
         """Drop *departed* connections and free any group whose last member left.
 
         A group whose last connection departs frees its base, which is handed
@@ -139,10 +121,33 @@ class RosterRelease:
         held name that hand-over changed, so their windows can be retitled.
         Releasing a connection the roster never named is no error.
         """
-        before = self._roster.held()
+        before = self.held()
         freed = {
             k for cid in departed if (k := self._key_of.pop(cid, None)) is not None
         }
         self._names.drop(freed - set(self._key_of.values()))
         # A name now held that was not held before: the pairs that moved.
-        return frozenset(cid for cid, _ in self._roster.held().items() - before.items())
+        return frozenset(cid for cid, _ in self.held().items() - before.items())
+
+
+@final
+class RosterRelease:
+    """Ask a roster to drop departed connections: the write that renumbers survivors.
+
+    Holds the roster's own drop and no state of the roster's, so the roster stays
+    the one owner of what it names.
+    """
+
+    _drop: Callable[[Iterable[ConnectionId]], frozenset[ConnectionId]]
+    __slots__ = ("_drop",)
+
+    def __new__(
+        cls, drop: Callable[[Iterable[ConnectionId]], frozenset[ConnectionId]]
+    ) -> Self:
+        self = super().__new__(cls)
+        self._drop = drop
+        return self
+
+    def release(self, departed: Iterable[ConnectionId]) -> frozenset[ConnectionId]:
+        """Drop *departed* connections; return the survivors whose name moved."""
+        return self._drop(departed)
