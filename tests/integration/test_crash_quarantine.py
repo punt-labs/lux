@@ -65,6 +65,11 @@ class _FaultInjectingSender:
     _crashers: set[str]
     __slots__ = ("_crashers", "shows")
 
+    @property
+    def requests(self) -> _FaultInjectingSender:
+        """The outbound port: this fake is its own."""
+        return self
+
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.shows = []

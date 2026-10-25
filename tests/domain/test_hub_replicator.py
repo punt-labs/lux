@@ -113,6 +113,11 @@ class _FakeSender:
         "timeline",
     )
 
+    @property
+    def requests(self) -> _FakeSender:
+        """The outbound port: this fake is its own."""
+        return self
+
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.shows = []

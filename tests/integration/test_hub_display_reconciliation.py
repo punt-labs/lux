@@ -44,7 +44,9 @@ def _live_scene_ids(sock_path: Path) -> set[str]:
     matching the introspection surface's own contract.
     """
     with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as probe:
-        sock = probe._connection.require()  # test-only reach-through: raw round-trip
+        sock = (
+            probe._connection.require().socket
+        )  # test-only reach-through: raw round-trip
         send_message(sock, ListScenesRequest())
         resp = recv_message(sock, DISPLAY_VOCABULARY, timeout=5.0)
     assert isinstance(resp, ListScenesResponse)
@@ -85,7 +87,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
         with DisplayLink(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         ) as first:
-            ack = first.show(
+            ack = first.requests.show(
                 "ghost-scene", elements=[TextElement(id="t1", content="Ghost")]
             )
             assert ack is not None
@@ -101,7 +103,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
         )
         try:
             second.connect()
-            second.send_manifest(())
+            second.requests.send_manifest(())
 
             assert _wait_until(lambda: _live_scene_ids(sock_path) == set()), (
                 "the ghost scene was never purged"
@@ -109,7 +111,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
             # Ordinary traffic still works under the surviving connection --
             # reconciliation does not wedge subsequent pushes.
-            ack = second.show(
+            ack = second.requests.show(
                 "fresh-scene", elements=[TextElement(id="t2", content="Fresh")]
             )
             assert ack is not None

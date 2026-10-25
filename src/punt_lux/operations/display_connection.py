@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
@@ -60,7 +61,9 @@ class HubDisplayConnection:
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
         try:
-            response = self._clients.get().query(method, dict(params))
+            response = self._clients.get().requests.query(method, dict(params))
+        except DisplayBusyError:
+            return DisplayFault(code="timeout")  # nothing sent; the dial is sound
         except ConnectionClosedError:
             self._clients.drop()
             return DisplayFault(code="display_unavailable")
@@ -87,7 +90,7 @@ class HubDisplayConnection:
             return DisplayFault(code="display_unavailable")
         started = time.monotonic()
         try:
-            pong = self._clients.get().ping(timeout=wait)
+            pong = self._clients.get().requests.ping(timeout=wait)
         except ConnectionClosedError:
             self._clients.drop()
             return DisplayFault(code="display_unavailable")

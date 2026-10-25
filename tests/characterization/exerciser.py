@@ -125,6 +125,11 @@ class _StubClient:
     # at the test boundary.
     _spec: Mapping[str, Mapping[str, Any]]
 
+    @property
+    def requests(self) -> _StubClient:
+        """The outbound port: this stub is its own."""
+        return self
+
     def __new__(cls, spec: Mapping[str, Mapping[str, Any]]) -> _StubClient:
         self = super().__new__(cls)
         self._spec = spec

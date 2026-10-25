@@ -68,6 +68,11 @@ class _Client:
     _ping_delay: float
     ping_timeout: float | None
 
+    @property
+    def requests(self) -> _Client:
+        """The outbound port: this fake is its own."""
+        return self
+
     def __new__(
         cls,
         *,

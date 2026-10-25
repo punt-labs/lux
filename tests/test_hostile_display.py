@@ -173,7 +173,7 @@ class TestScenesFromADisplay:
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
-                link.ping(timeout=2.0)
+                link.requests.ping(timeout=2.0)
             assert not link.is_connected
         assert unpickled == []
 
@@ -186,7 +186,7 @@ class TestScenesFromADisplay:
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
-                link.show("s", [])
+                link.requests.show("s", [])
             assert not link.is_connected
         assert unpickled == []
 

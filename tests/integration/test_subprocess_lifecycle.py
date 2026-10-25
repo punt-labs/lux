@@ -65,7 +65,7 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
             connect_timeout=5.0,
         ) as client:
             assert client.is_connected
-            ack = client.show(
+            ack = client.requests.show(
                 "lifecycle-smoke",
                 elements=[TextElement(id="t1", content="Hello, lifecycle.")],
                 title="Lifecycle Smoke",

@@ -80,6 +80,11 @@ class _StubClient:
 
     __slots__ = ()
 
+    @property
+    def requests(self) -> _StubClient:
+        """The outbound port: this stub is its own."""
+        return self
+
     def query(self, method: str, params: dict[str, object]) -> _Reply:
         return _Reply(_GEOMETRY_REPLY)
 

@@ -184,7 +184,7 @@ class TestRapidSceneUpdates:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
-                    ack = client.show(
+                    ack = client.requests.show(
                         scene_id,
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -230,7 +230,7 @@ class TestRapidSceneUpdates:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
-                    ack = client.show(
+                    ack = client.requests.show(
                         f"s{seq}",
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -318,7 +318,7 @@ class TestGracefulDisconnection:
                 client.start_listener()
                 client_connected.set()
                 with pytest.raises(TimeoutError):
-                    client.poll_event(timeout=2.0)
+                    client.events.poll_event(timeout=2.0)
         finally:
             _cleanup(short_dir, server_conn)
             t.join(timeout=5)
@@ -361,7 +361,7 @@ class TestReconnection:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
-                ack = client1.show(
+                ack = client1.requests.show(
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
                 )
@@ -396,7 +396,7 @@ class TestReconnection:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
-                ack = client2.show(
+                ack = client2.requests.show(
                     "s2",
                     elements=[TextElement(id="t1", content="second")],
                 )

@@ -28,6 +28,7 @@ __all__ = [
     "DisplayLifecycle",
     "DisplaySender",
     "MenuReader",
+    "SenderPort",
 ]
 
 
@@ -88,11 +89,21 @@ class DisplaySender(ScenePusher, Protocol):
 
 
 @runtime_checkable
+class SenderPort(Protocol):
+    """A display link, seen as the replicator sees it: the port it sends through."""
+
+    @property
+    def requests(self) -> DisplaySender:
+        """The link's outbound port."""
+        ...
+
+
+@runtime_checkable
 class ClientProvider(ReconnectWaiter, Protocol):
     """Hands out the one display connection, drops a dead one, and waits."""
 
-    def get(self) -> DisplaySender:
-        """Return the sender; raises ``DisplayNotConnectedError`` if never connected."""
+    def get(self) -> SenderPort:
+        """Return the link; raises ``DisplayNotConnectedError`` if never connected."""
         ...
 
     def drop(self) -> None:

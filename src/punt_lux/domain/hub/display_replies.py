@@ -1,152 +1,115 @@
-"""DisplayReplies -- waiting for what the display sends back, and ending what is left.
+"""DisplayReplies -- waiting on a dial for the reply one request is owed.
 
-Extracted from :class:`~punt_lux.domain.hub.display_link.DisplayLink`: the link
-sends; this is the receiving side. A caller that sent a request waits here for its
-one typed reply, an ack, or the next business event -- from the listener's queues
-when the listener runs, from the socket directly when it does not. The same object
-ends the connection (the link closing it, or the listener finding the stream
-broken), because ending it means discarding the replies queued behind it.
+Extracted from :class:`~punt_lux.domain.hub.display_link.DisplayLink`: a caller
+that sent a request waits here for the reply the request's own dial owes it --
+from the dial's sink when a listener reads it, from the dial's socket directly
+when none does. A dial has one reader at a time: an inline read holds the dial's
+reader slot for its duration, so it never shares the frame buffer with a listener
+or with another caller's inline read, and a caller that cannot take the slot waits
+on the sink the holder feeds. What an inline read decodes is routed exactly as the
+listener would route it (a click reaches the handlers, an event its queue).
 """
 
 from __future__ import annotations
 
 import logging
-import queue
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.inbound_router import InboundRouter
-from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
-from punt_lux.domain.hub.listener_thread import ListenerThread
+from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
-    from punt_lux.polled_event import PolledEvent
-    from punt_lux.protocol import Message, RemoteEventHandlerInvocation
+    from punt_lux.domain.hub.display_listener import DisplayListener
+    from punt_lux.domain.hub.reply_sink import Pending
+    from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["DisplayReplies"]
 
+# How long a caller that could not take the reader slot waits on the sink before
+# trying for the slot again (the holder may have finished with its own reply).
+_SLOT_RETRY_SECONDS = 0.05
+
 
 @final
 class DisplayReplies:
-    """The receiving side of one display link."""
+    """The waiting side of one display link."""
 
     _connection: DisplayConnection
-    _handlers: InteractionHandlers
-    _inbound: InboundRouter
-    _listener: ListenerThread
-    _budget: float
-    __slots__ = ("_budget", "_connection", "_handlers", "_inbound", "_listener")
+    _listener: DisplayListener
+    __slots__ = ("_connection", "_listener")
 
-    def __new__(
-        cls,
-        connection: DisplayConnection,
-        budget: float,
-    ) -> Self:
+    def __new__(cls, connection: DisplayConnection, listener: DisplayListener) -> Self:
         self = super().__new__(cls)
         self._connection = connection
-        self._handlers = InteractionHandlers()
-        self._inbound = InboundRouter(self._handlers)
-        self._listener = ListenerThread(connection, self.route, self.end)
-        self._budget = budget
+        self._listener = listener
         return self
 
-    @property
-    def listening(self) -> bool:
-        """Whether the listener thread is running."""
-        return self._listener.alive
+    def await_reply(
+        self, generation: DialGeneration, pending: Pending, deadline: float
+    ) -> Message | None:
+        """Wait until ``deadline`` for ``pending``'s reply on ``generation``.
 
-    def start(self) -> None:
-        """Start the listener thread; a no-op if it is already running."""
-        self._listener.start()
-
-    def stop(self) -> None:
-        """Stop the listener thread, if running."""
-        self._listener.stop()
-
-    def route(self, msg: Message) -> None:
-        """Send a message the display sent to where it is waited for."""
-        self._inbound.route(msg)
-
-    def set_fallback(
-        self, handler: Callable[[RemoteEventHandlerInvocation], None]
-    ) -> None:
-        """Answer every interaction the display reports with ``handler``."""
-        self._handlers.set_fallback(handler)
-
-    def end(self) -> None:
-        """Close the socket and discard the stragglers; a no-op if already closed."""
-        if self._connection.is_open:
-            self._connection.close()
-            self._inbound.reset()
-
-    def typed[T: Message](self, expected: type[T], wait: float | None) -> T | None:
-        """Wait for one ``expected`` reply, active listener or inline read.
-
-        A ping, a query and a scene each send a request and then wait for exactly
-        one typed reply -- from the background listener's own queue when it is
-        running, or an inline read loop when it is not, dropping any interleaved
-        frame the inline path sees along the way. ``wait`` of ``None`` is the
-        standing budget. A frame the display may not send ends the connection and
-        raises ``ValueError``: a peer that sent one cannot be trusted with the
-        rest of the stream.
-
-        Raises ``RuntimeError`` if called from the listener thread (it is the only
-        producer of the replies this would wait for, so the wait could never end).
+        ``None`` on the deadline. Raises ``RuntimeError`` on the listener thread
+        (it is the only producer of the replies this would wait for, so the wait
+        could never end), :class:`ConnectionClosedError` when the dial is retired
+        while waiting, and the decoder's error (after retiring the dial) for a
+        frame a display may not send or that cannot be decoded: a peer that sent
+        one cannot be trusted with the rest of the stream.
         """
         if self._listener.is_current:
-            err = f"Cannot wait for {expected.__name__} from the listener thread"
+            err = "Cannot wait for a reply from the listener thread"
             raise RuntimeError(err)
-        deadline = time.monotonic() + (self._budget if wait is None else wait)
-        if self._listener.alive:
-            remaining = deadline - time.monotonic()
-            return self._inbound.next_reply(expected, remaining, self._listener)
-        self._connection.require()
         while True:
+            remaining = deadline - time.monotonic()
+            if generation.has_reader:
+                return generation.sink.await_reply(pending, remaining)
+            with generation.inline_reading() as granted:
+                if granted:
+                    return self._read_inline(generation, pending, deadline)
+            if remaining <= 0:
+                return None
+            reply = generation.sink.await_reply(
+                pending, min(remaining, _SLOT_RETRY_SECONDS)
+            )
+            if reply is not None:
+                return reply
+
+    def _read_inline(
+        self, generation: DialGeneration, pending: Pending, deadline: float
+    ) -> Message | None:
+        """Read ``generation``'s socket until ``pending`` is answered or time is up.
+
+        The same routing the listener applies, so the ack ledger stays in step
+        with the wire. A failed read or an undecodable frame retires the dial, as
+        the reader would.
+        """
+        while pending.reply is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
             try:
-                received = self._connection.receive(remaining)
-            except ValueError:
-                self.end()
+                chunk = generation.poll_chunk(remaining)
+                if chunk is not None:
+                    self._route_inline(generation, chunk)
+            except Exception:  # re-raised: the dial's stream cannot be trusted
+                self._connection.close_if_current(generation)
                 raise
-            if received is None:
-                return None
-            if isinstance(received, expected):
-                return received
-            kind = type(received).__name__
-            logger.debug("%s: dropping interleaved %s frame", expected.__name__, kind)
+        return pending.reply
 
-    def event(self, wait: float | None) -> PolledEvent:
-        """Block for the next subscribed business event (a :class:`PolledEvent`).
-
-        Raises ``TimeoutError`` after ``wait`` seconds (default the standing
-        budget); requires a listener that was started (observer messages are
-        push-only). Gates on the listener having started so a listener that
-        started and has since exited surfaces as ``TimeoutError`` naming the exit,
-        not a ``RuntimeError`` claiming it never started.
-        """
-        self._connection.require()
-        if not self._listener.started:
-            err = (
-                "poll_event requires an active listener — "
-                "call start_listener() after connect()"
-            )
-            raise RuntimeError(err)
-        t = self._budget if wait is None else wait
-        try:
-            return self._inbound.next_event(t)
-        except queue.Empty as exc:
-            if not self._listener.alive:
-                err = (
-                    f"no business event arrived within {t}s "
-                    "and the listener thread has exited"
+    def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
+        """Route every message ``chunk`` completes; a raising reply ends the dial."""
+        for msg in generation.messages(chunk):
+            try:
+                self._listener.route(generation, msg)
+            except Exception:
+                if isinstance(msg, REPLY_TYPES):
+                    raise
+                logger.exception(
+                    "Inline route failed on %s from display %s",
+                    type(msg).__name__,
+                    generation.endpoint,
                 )
-            else:
-                err = f"no business event arrived within {t}s"
-            raise TimeoutError(err) from exc

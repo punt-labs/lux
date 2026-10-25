@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import (
@@ -131,7 +132,7 @@ class TestConnect:
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
             assert (
-                applied_to is client._connection.require()
+                applied_to is client._connection.require().socket
             )  # its own connected fd, not any socket
             client.close()
         finally:
@@ -337,7 +338,7 @@ class TestSendMessages:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                ack = client.show(
+                ack = client.requests.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
                     title="Test",
@@ -386,7 +387,7 @@ class TestSendMessages:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                ack = client.show(
+                ack = client.requests.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
                 )
@@ -425,7 +426,7 @@ class TestSendMessages:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                pong = client.ping()
+                pong = client.requests.ping()
                 assert isinstance(pong, PongMessage)
         finally:
             if server_conn:
@@ -461,17 +462,15 @@ class TestSendMessages:
 
         reads: list[float | None] = []
 
-        def _record(
-            _sock: object, _vocabulary: object, timeout: float | None = None
-        ) -> None:
+        def _record(_generation: object, timeout: float) -> None:
             reads.append(timeout)
 
         try:
             with (
                 DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0) as client,
-                patch("punt_lux.domain.hub.display_connection.recv_message", _record),
+                patch.object(DialGeneration, "poll_chunk", _record),
             ):
-                pong = client.ping(timeout=0.0)
+                pong = client.requests.ping(timeout=0.0)
             assert pong is None
             assert reads == []  # a non-zero fallback budget would read here
         finally:
@@ -523,7 +522,7 @@ class TestRecvEvents:
                 received.append(msg)
                 done.set()
 
-            client.set_fallback_handler(_cb)
+            client.events.set_fallback_handler(_cb)
             try:
                 client.connect()
                 client.start_listener()
@@ -563,7 +562,7 @@ class TestRecvEvents:
             ) as client:
                 client.start_listener()
                 with pytest.raises(TimeoutError):
-                    client.poll_event(timeout=0.2)
+                    client.events.poll_event(timeout=0.2)
         finally:
             if server_conn:
                 server_conn.close()
@@ -583,13 +582,13 @@ class TestErrorHandling:
         """Calling show() before connect() raises RuntimeError."""
         client = DisplayLink(auto_spawn=False)
         with pytest.raises(ConnectionClosedError, match="Not connected"):
-            client.show("s1", elements=[])
+            client.requests.show("s1", elements=[])
 
     def test_poll_event_without_connect_raises(self) -> None:
         """Calling poll_event() before connect() raises RuntimeError."""
         client = DisplayLink(auto_spawn=False)
         with pytest.raises(ConnectionClosedError, match="Not connected"):
-            client.poll_event()
+            client.events.poll_event()
 
     def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
         """A listener that started and exited surfaces as TimeoutError.
@@ -627,7 +626,7 @@ class TestErrorHandling:
                 # The wait is bounded and the message is chosen when it ends,
                 # by which time the listener has read the close and exited.
                 with pytest.raises(TimeoutError, match="listener thread has exited"):
-                    client.poll_event(timeout=1.0)
+                    client.events.poll_event(timeout=1.0)
         finally:
             if server_conn:
                 server_conn.close()
@@ -842,7 +841,7 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.set_fallback_handler(lambda msg: received.append(msg))
+            client.events.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
             # Wait for callback to fire
@@ -895,7 +894,7 @@ class TestBackgroundListener:
             # no business event and times out.
             time.sleep(0.3)
             with pytest.raises(TimeoutError):
-                client.poll_event(timeout=0.2)
+                client.events.poll_event(timeout=0.2)
             client.close()
         finally:
             if server_conn:
@@ -930,8 +929,10 @@ class TestBackgroundListener:
             client.connect()
             client.start_listener()
             began = time.monotonic()
-            with pytest.raises(ConnectionClosedError, match="listener exited"):
-                client.ping(timeout=4.0)
+            with pytest.raises(
+                ConnectionClosedError, match="closed while a reply was pending"
+            ):
+                client.requests.ping(timeout=4.0)
             assert time.monotonic() - began < 3.0
             assert not client.is_connected
             client.close()
@@ -1007,7 +1008,7 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            event = client.poll_event(timeout=2.0)
+            event = client.events.poll_event(timeout=2.0)
             assert event.topic == "work.saved"
             assert event.payload == {"id": "save_btn"}
             client.close()
@@ -1044,7 +1045,9 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            ack = client.show("s1", elements=[TextElement(id="t1", content="Hello")])
+            ack = client.requests.show(
+                "s1", elements=[TextElement(id="t1", content="Hello")]
+            )
             assert ack is not None
             assert ack.scene_id == "s1"
             client.close()
@@ -1091,7 +1094,7 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
-                client.send_scene(
+                client.requests.send_scene(
                     SceneMessage(
                         id="response",
                         elements=[TextElement(id="t1", content="Callback fired")],
@@ -1100,7 +1103,7 @@ class TestBackgroundListener:
                 )
                 callback_done.set()
 
-            client.set_fallback_handler(on_trigger)
+            client.events.set_fallback_handler(on_trigger)
             client.connect()
             client.start_listener()
             assert callback_done.wait(timeout=2.0)
@@ -1149,14 +1152,17 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
-                for call in (client.ping, lambda: client.query("scenes")):
+                for call in (
+                    client.requests.ping,
+                    lambda: client.requests.query("scenes"),
+                ):
                     try:
                         call()
                     except RuntimeError as exc:
                         refusals.append(exc)
                 done.set()
 
-            client.set_fallback_handler(on_trigger)
+            client.events.set_fallback_handler(on_trigger)
             client.connect()
             client.start_listener()
             assert done.wait(timeout=5)
@@ -1204,7 +1210,7 @@ class TestBackgroundListener:
 
         try:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
-            client.set_fallback_handler(lambda msg: received.append(msg))
+            client.events.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
 
@@ -1274,7 +1280,7 @@ class TestBackgroundListener:
             client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_hello(msg: RemoteEventHandlerInvocation) -> None:
-                client.send_scene(
+                client.requests.send_scene(
                     SceneMessage(
                         id="hello-scene",
                         elements=[
@@ -1286,11 +1292,11 @@ class TestBackgroundListener:
                 )
                 callback_fired.set()
 
-            client.set_fallback_handler(on_hello)
+            client.events.set_fallback_handler(on_hello)
             client.connect()
             client.start_listener()
             # Signal readiness (and trigger the flow) with a real menu write.
-            client.set_menu(
+            client.requests.set_menu(
                 [{"label": "Tools", "items": [{"label": "Hello", "id": "hello-world"}]}]
             )
             # Wait for the full pipeline to complete
@@ -1334,7 +1340,7 @@ class TestBackgroundListener:
             client.connect()
             client.start_listener()
             with pytest.raises(TimeoutError):
-                client.poll_event(timeout=0.2)
+                client.events.poll_event(timeout=0.2)
             client.close()
         finally:
             if server_conn:
