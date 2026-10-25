@@ -35,7 +35,7 @@ class WindowPreferences(Protocol):
         """The scale every font is drawn at."""
         ...
 
-    def set_decorated(self, decorated: bool) -> None:  # noqa: FBT001
+    def set_decorated(self, *, decorated: bool) -> None:
         """Toggle the window's title bar."""
 
     def set_opacity(self, opacity: float) -> None:

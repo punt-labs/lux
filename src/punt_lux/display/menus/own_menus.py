@@ -123,7 +123,7 @@ class OwnMenus:
                 ),
                 MenuItem.toggle(
                     "Borderless",
-                    lambda: self._settings.set_decorated(not decorated),
+                    lambda: self._settings.set_decorated(decorated=not decorated),
                     checked=not decorated,
                 ),
                 MenuSeparator(),

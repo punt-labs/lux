@@ -105,7 +105,7 @@ class WindowSettings:
             self._prefs, themes=tuple(hello_imgui.ImGuiTheme_)
         )
 
-    def set_decorated(self, decorated: bool) -> None:  # noqa: FBT001
+    def set_decorated(self, *, decorated: bool) -> None:
         """Toggle the window's title bar."""
         self._prefs = dataclasses.replace(self._prefs, decorated=decorated)
         self._glfw_window().set_decorated(decorated=decorated)

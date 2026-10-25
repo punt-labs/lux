@@ -38,7 +38,7 @@ class TestEachSettingReachesTheWindow:
     def test_decoration_is_held_and_applied(self, window: MagicMock) -> None:
         settings = WindowSettings()
 
-        settings.set_decorated(False)
+        settings.set_decorated(decorated=False)
 
         assert settings.decorated is False
         window.set_decorated.assert_called_once_with(decorated=False)

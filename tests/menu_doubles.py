@@ -816,7 +816,7 @@ class FakeSettings:
     def font_scale(self) -> float:
         return float(self._hooks["get_font_scale"]())
 
-    def set_decorated(self, decorated: bool) -> None:
+    def set_decorated(self, *, decorated: bool) -> None:
         self._hooks["on_decorated_toggled"](decorated)
 
     def set_opacity(self, opacity: float) -> None:
