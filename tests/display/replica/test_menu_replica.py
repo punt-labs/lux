@@ -437,7 +437,11 @@ class TestMenuClickRoutesToItsOwningHub:
         socket_listener.sender.send_to_client.return_value = True
         scenes = MagicMock()
         scenes.scene_to_owner = {}
-        delivery = InteractionDelivery(socket_listener=socket_listener, scenes=scenes)
+        delivery = InteractionDelivery(
+            socket_listener=socket_listener,
+            sender=socket_listener.sender,
+            scenes=scenes,
+        )
 
         delivery.deliver([event_for_a])
 

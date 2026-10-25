@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
 from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
+
+if TYPE_CHECKING:
+    from punt_lux.display.client_sender import ClientSender
 
 
 def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:
@@ -203,6 +206,7 @@ def _handlers(**overrides: Any) -> DisplayQueryHandlers:
         "get_current_theme": lambda: "imgui_colors_dark",
         "get_themes": list,
         "record_error": _ignore_error,
+        "sender": cast("ClientSender", None),  # nothing here answers a client
     }
     defaults.update(overrides)
     return DisplayQueryHandlers(**defaults)

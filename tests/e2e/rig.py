@@ -91,7 +91,7 @@ class InProcessLoop:
         """Return the client double the Hub re-push resolves to.
 
         ``HubInteractionDispatch.dispatch`` re-pushes the mutated scene through
-        ``client_registry.get()``; the conftest points ``get`` at this
+        ``client_registry.asks()``; the conftest points ``get`` at this
         double so the handler-driven re-push lands in the same replica the
         agent's own ``update`` re-pushes to — hermetic, no socket.
         """
@@ -174,7 +174,10 @@ class InProcessLoop:
 
     def inspect(self, scene_id: str) -> dict[str, object]:
         """Return the Display replica's enriched ``inspect_scene`` response."""
-        return self._server._scene_inspector.inspect(scene_id)
+        answer = self._server.query_router.handle_query(
+            "inspect_scene", {"scene_id": scene_id}
+        )
+        return answer.result
 
     def close(self) -> None:
         """Close both ends of the duplex and remove the temp dir; idempotent."""

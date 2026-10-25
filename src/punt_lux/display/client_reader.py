@@ -6,7 +6,7 @@ decrypted records OpenSSL buffered, reframing them, and dispatching each
 complete message is one cohesive concern -- distinct from the accept,
 identity, and send concerns the listener keeps. It reaches back into its
 host only to remove a departed client and to test whether one is still
-connected mid-dispatch, both narrowed to the :class:`ReaderHost` protocol.
+connected mid-dispatch, both narrowed to the :class:`ClientHost` protocol.
 """
 
 from __future__ import annotations
@@ -14,37 +14,25 @@ from __future__ import annotations
 import logging
 import socket
 import ssl
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.want_write_state import WantWriteState
 from punt_lux.protocol import HEADER_SIZE, MAX_MESSAGE_SIZE
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 if TYPE_CHECKING:
+    from punt_lux.display.client_host_port import ClientHost
     from punt_lux.display.client_registry import ClientRegistry
     from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
     from punt_lux.protocol import FrameReader
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ClientReader", "ReaderHost"]
+__all__ = ["ClientReader"]
 
 # One kernel read per pass; a promoted TLS socket's leftover records drain via
 # pending() in the same pass rather than waiting on the next select wake-up.
 _RECV_CHUNK = 65536
-
-
-@runtime_checkable
-class ReaderHost(Protocol):
-    """What :class:`ClientReader` needs from the listener that owns it."""
-
-    def remove_client(self, sock: socket.socket) -> None:
-        """Drop a departed or malformed client and clean up its per-fd state."""
-        ...
-
-    def is_client(self, sock: socket.socket) -> bool:
-        """Return whether ``sock`` is still a live registered client."""
-        ...
 
 
 @final
@@ -54,7 +42,7 @@ class ClientReader:
     _registry: ClientRegistry
     _want_write: WantWriteState
     _callbacks: SocketListenerCallbacks
-    _host: ReaderHost
+    _host: ClientHost
     __slots__ = ("_callbacks", "_host", "_registry", "_want_write")
 
     def __new__(
@@ -62,7 +50,7 @@ class ClientReader:
         *,
         registry: ClientRegistry,
         callbacks: SocketListenerCallbacks,
-        host: ReaderHost,
+        host: ClientHost,
     ) -> Self:
         self = super().__new__(cls)
         self._registry = registry

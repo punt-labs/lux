@@ -439,7 +439,7 @@ class TestContentRejectionFromUnidentifiedFd:
             server._handle_message(sock, ThemeMessage(theme="imgui_colors_light"))
 
         assert not any("Unknown theme" in r.message for r in caplog.records)
-        assert server._current_theme == "imgui_colors_dark"
+        assert server._settings.current_theme == "imgui_colors_dark"
 
     def test_theme_from_a_hub_kind_fd_still_applies(
         self, caplog: pytest.LogCaptureFixture

@@ -17,13 +17,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from punt_lux.display.auto_click import AutoClicker
+from punt_lux.display.client_queries import ClientQueries
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.exit_signal import ExitSignal
-from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
-from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.idle_screen import render_idle
@@ -37,34 +36,26 @@ from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
-from punt_lux.display.scene_inspector import SceneInspector
 from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
+from punt_lux.display.window_settings import WindowSettings
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
     CallbackMenuMessage,
     ConnectMessage,
     HubManifestMessage,
-    IntrospectRequest,
-    IntrospectResponse,
-    ListScenesRequest,
-    ListScenesResponse,
     MenuMessage,
-    PingMessage,
-    PongMessage,
-    QueryRequest,
     RemoteEventHandlerInvocation,
     SceneMessage,
-    ScreenshotRequest,
     ThemeMessage,
-    UnknownMessage,
 )
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
     from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.domain.identity import HubId
@@ -87,6 +78,7 @@ class RenderLoop:
 
     _socket_path: Path
     _socket_listener: SocketListener
+    _sender: ClientSender
     _scenes: SceneReplica
     _addressing: AddressRendering
     _event_queue: list[RemoteEventHandlerInvocation]
@@ -97,18 +89,14 @@ class RenderLoop:
     _widget_state: WidgetState
     _menus: MenuReplica
     _frame_info_button: FrameInfoButton
-    _themes: list[Any]
-    _decorated: bool
-    _opacity: float
-    _font_scale: float
     _fit_all_frames: bool
+    _settings: WindowSettings
     _test_auto_click: bool
     _start_time: float
-    _current_theme: str
     _current_scene_id: str | None
     _query_router: QueryRouter
     _display_queries: DisplayQueryHandlers
-    _scene_inspector: SceneInspector
+    _queries: ClientQueries
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
@@ -137,25 +125,21 @@ class RenderLoop:
         from punt_lux.display.replica.address_rendering import AddressRendering
 
         self._addressing = AddressRendering()
-        self._themes = []
-        self._decorated = True
-        self._opacity = 1.0
-        self._font_scale = 1.1
+        self._settings = WindowSettings()
         self._fit_all_frames = False
-        self._current_theme = "imgui_colors_dark"
         self._menus = MenuReplica(
             emit_event=self._emit_event,
             on_raise_frame=self._raise_frame,
             get_frames=lambda: self._scenes.frames,
             own=OwnMenus(
-                on_theme_selected=self._apply_theme,
-                on_decorated_toggled=self._on_decorated_toggled,
-                on_opacity_changed=self._on_opacity_changed,
-                on_font_scale_changed=self._on_font_scale_changed,
-                get_themes=lambda: self._themes,
-                get_decorated=lambda: self._decorated,
-                get_opacity=lambda: self._opacity,
-                get_font_scale=lambda: self._font_scale,
+                on_theme_selected=self._settings.apply_theme,
+                on_decorated_toggled=self._settings.set_decorated,
+                on_opacity_changed=self._settings.set_opacity,
+                on_font_scale_changed=self._settings.set_font_scale,
+                get_themes=lambda: self._settings.themes,
+                get_decorated=lambda: self._settings.decorated,
+                get_opacity=lambda: self._settings.opacity,
+                get_font_scale=lambda: self._settings.font_scale,
                 get_frames=lambda: self._scenes.frames,
                 addressing=self._addressing,
                 on_clear_all=self._clear_all,
@@ -180,9 +164,12 @@ class RenderLoop:
             on_client_disconnected=self._on_client_disconnected,
             on_error=self._query_router.record_error,
         )
-        self._socket_listener = SocketListener(socket_callbacks)
+        self._socket_listener, self._sender = SocketListener.with_sender(
+            socket_callbacks
+        )
         self._interaction_delivery = InteractionDelivery(
             socket_listener=self._socket_listener,
+            sender=self._sender,
             scenes=self._scenes,
         )
         self._identity = IdentityGuard(
@@ -197,7 +184,7 @@ class RenderLoop:
         )
         self._content_gate = ContentMessageGate(
             menus=self._menus,
-            apply_theme=self._apply_theme,
+            apply_theme=self._settings.apply_theme,
             identity=self._identity,
         )
         # Bind a fail-loud decode factory to the shared container-dispatch
@@ -238,31 +225,23 @@ class RenderLoop:
         )
 
         # Register display-specific query handlers that need ImGui state.
-        self._scene_inspector = SceneInspector(
+        self._display_queries = DisplayQueryHandlers(
+            get_start_time=lambda: self._start_time,
+            get_opacity=lambda: self._settings.opacity,
+            get_font_scale=lambda: self._settings.font_scale,
+            get_decorated=lambda: self._settings.decorated,
+            get_current_theme=lambda: self._settings.current_theme,
+            get_themes=lambda: self._settings.themes,
+            record_error=self._query_router.record_error,
+            sender=self._sender,
+        )
+        self._queries = ClientQueries(
+            sender=self._sender,
+            query_router=self._query_router,
+            display_queries=self._display_queries,
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
         )
-        self._display_queries = DisplayQueryHandlers(
-            get_start_time=lambda: self._start_time,
-            get_opacity=lambda: self._opacity,
-            get_font_scale=lambda: self._font_scale,
-            get_decorated=lambda: self._decorated,
-            get_current_theme=lambda: self._current_theme,
-            get_themes=lambda: self._themes,
-            record_error=self._query_router.record_error,
-        )
-        router = self._query_router
-        router.register_handler("inspect_scene", self._scene_inspector.inspect)
-        router.register_handler("screenshot", self._display_queries.screenshot)
-        router.register_handler(
-            "get_display_info", self._display_queries.get_display_info
-        )
-        router.register_handler(
-            "get_window_settings", self._display_queries.get_window_settings
-        )
-        router.register_handler("get_theme", self._display_queries.get_theme)
-        frames = FrameCommands(self._scenes)
-        router.register_handler("set_frame_state", frames.set_state)
         return self
 
     @property
@@ -362,7 +341,7 @@ class RenderLoop:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import hello_imgui, imgui
+        from imgui_bundle import imgui
 
         # Ensure docking is enabled (drag-merge frames into tabs).
         io = imgui.get_io()
@@ -370,14 +349,7 @@ class RenderLoop:
 
         set_regular_activation_policy()
 
-        # Suppress focus-stealing on every *reshow* after this one (a
-        # respawned display's later windows) — GLFW/HelloImGui cannot suppress
-        # the one focus grab macOS gives a freshly-created process's first
-        # show, a documented limit (display-crash-quarantine.md Question 3),
-        # not a defect this call is meant to close.
-        self._glfw_window().set_focus_on_show(focus=False)
-
-        self._themes = list(hello_imgui.ImGuiTheme_)
+        self._settings.start()
 
     def _on_frame(self) -> None:
         """Called every frame by ImGui.
@@ -387,7 +359,7 @@ class RenderLoop:
         waits and wedge the render thread past the ping timeout or the macOS "not
         responding" threshold. Sends past the budget defer, they do not block.
         """
-        sender = self._socket_listener.sender
+        sender = self._sender
         sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
         try:
             self._socket_listener.accept_connections()
@@ -429,21 +401,7 @@ class RenderLoop:
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
         self._paint_clock.swapped()
-        self._display_queries.after_swap(self._socket_listener)
-
-    def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
-        """Callback for MenuReplica: toggle window decoration."""
-        self._decorated = decorated
-        self._glfw_window().set_decorated(decorated=decorated)
-
-    def _on_opacity_changed(self, opacity: float) -> None:
-        """Callback for MenuReplica: change window opacity."""
-        self._opacity = opacity
-        self._glfw_window().set_opacity(opacity=opacity)
-
-    def _on_font_scale_changed(self, scale: float) -> None:
-        """Callback for MenuReplica: change font scale."""
-        self._font_scale = scale
+        self._queries.after_swap()
 
     def _clear_all(self) -> None:
         """Callback for MenuReplica: throw every frame out, then clear scenes
@@ -477,25 +435,6 @@ class RenderLoop:
     def _show_menus(self) -> None:
         self._menus.show_menus()
 
-    def _apply_theme(self, theme_name: str) -> None:
-        """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
-        from imgui_bundle import hello_imgui
-
-        for theme in self._themes:
-            if theme.name == theme_name:
-                hello_imgui.apply_theme(theme)
-                self._current_theme = theme_name
-                return
-        logger.warning("Unknown theme %r", theme_name)
-
-    @staticmethod
-    def _glfw_window() -> GlfwWindow:
-        """Return a control handle to the process's live GLFW window."""
-        from imgui_bundle import hello_imgui
-
-        address = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
-        return GlfwWindow(address)
-
     # -- socket callbacks ---------------------------------------------------
 
     def _on_client_disconnected(self, fd: int) -> None:
@@ -522,7 +461,7 @@ class RenderLoop:
         elif isinstance(msg, HubManifestMessage):
             self._handle_hub_manifest(sock, msg)
         else:
-            self._handle_readonly_message(sock, msg)
+            self._queries.handle(sock, msg)
 
     def _handle_clear(self) -> None:
         """Drop all scenes and reset per-frame state — the World-menu 'clear all'."""
@@ -530,22 +469,6 @@ class RenderLoop:
         self._scenes.clear_all()
         self._event_queue.clear()
         self._widget_state = WidgetState()
-
-    def _handle_readonly_message(self, sock: socket.socket, msg: Message) -> None:
-        """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
-        if isinstance(msg, PingMessage):
-            pong = PongMessage(ts=msg.ts, display_ts=time.time())
-            self._socket_listener.sender.reply_to_client(sock, pong)
-        elif isinstance(msg, IntrospectRequest):
-            self._handle_introspect(sock, msg)
-        elif isinstance(msg, ListScenesRequest):
-            self._handle_list_scenes(sock)
-        elif isinstance(msg, ScreenshotRequest):
-            self._display_queries.request_screenshot(sock, self._socket_listener)
-        elif isinstance(msg, QueryRequest):
-            self._handle_query(sock, msg)
-        elif isinstance(msg, UnknownMessage):
-            logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record identity, preempt a stale Hub, and note the Hub for cross-Hub
@@ -561,41 +484,6 @@ class RenderLoop:
     ) -> None:
         """Purge every scene a Hub manifest disowns (DES-068)."""
         self._hub_reconciliation.handle_manifest(sock, msg)
-
-    def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
-        """Return the element tree for a scene to the requesting client."""
-        qr = self._query_router.handle_query(
-            "inspect_scene", {"scene_id": msg.scene_id}
-        )
-        if qr.error is not None:
-            resp = IntrospectResponse(
-                scene_id=msg.scene_id,
-                error=qr.error,
-            )
-        else:
-            resp = IntrospectResponse(
-                scene_id=msg.scene_id,
-                elements=qr.result["elements"],
-            )
-        self._socket_listener.sender.reply_to_client(sock, resp)
-
-    def _handle_list_scenes(self, sock: socket.socket) -> None:
-        """Return the list of active scenes and frames."""
-        qr = self._query_router.handle_query("list_scenes", None)
-        if qr.error is not None:
-            resp = ListScenesResponse(scenes=[], frames=[])
-        else:
-            resp = ListScenesResponse(
-                scenes=qr.result["scenes"], frames=qr.result["frames"]
-            )
-        self._socket_listener.sender.reply_to_client(sock, resp)
-
-    # -- generic query dispatcher ------------------------------------------
-
-    def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
-        """Dispatch a generic QueryRequest to the registered handler."""
-        resp = self._query_router.handle_query(msg.method, msg.params)
-        self._socket_listener.sender.reply_to_client(sock, resp)
 
     @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
@@ -635,7 +523,7 @@ class RenderLoop:
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_listener.sender.reply_to_client(sock, ack)
+        self._sender.reply_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
@@ -671,7 +559,7 @@ class RenderLoop:
     def _render_scene(self) -> None:
         from imgui_bundle import imgui
 
-        imgui.get_style().font_scale_main = self._font_scale
+        imgui.get_style().font_scale_main = self._settings.font_scale
 
         # Provide a viewport-wide dock space so manual imgui.begin() windows
         # can be dragged into tabbed dock nodes by the user.
@@ -715,7 +603,8 @@ class RenderLoop:
         "no_scrollbar": "no_scrollbar",
     }
 
-    def _resolve_frame_flags(self, frame: Frame, imgui: Any) -> int:
+    @staticmethod
+    def _resolve_frame_flags(frame: Frame, imgui: Any) -> int:
         """Map frame flag names to an ImGui window flags bitmask."""
         result = 0
         if not frame.hints.flags:
@@ -723,7 +612,7 @@ class RenderLoop:
         for key, enabled in frame.hints.flags.items():
             if not enabled:
                 continue
-            attr = self._FLAG_MAP.get(key)
+            attr = RenderLoop._FLAG_MAP.get(key)
             if attr is None:
                 continue
             flag = getattr(imgui.WindowFlags_, attr, None)
@@ -741,8 +630,9 @@ class RenderLoop:
             frame.restore()
         return True
 
+    @staticmethod
     def _cascaded_frame_size(
-        self, frame: Frame, default_size: tuple[float, float]
+        frame: Frame, default_size: tuple[float, float]
     ) -> tuple[float, float]:
         """Return the frame's own initial size, or ``default_size`` if unset."""
         if not frame.initial_size:

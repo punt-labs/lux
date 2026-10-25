@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     import socket
     from collections.abc import Callable
 
-    from punt_lux.display.socket_server import SocketListener
+    from punt_lux.display.client_sender import ClientSender
 
 __all__ = ["ScreenshotQueue"]
 
@@ -27,12 +27,16 @@ class ScreenshotQueue:
     """Holds the requester of the screenshot taken at the next swap."""
 
     _capture: FramebufferCapture
+    _sender: ClientSender
     _waiting: socket.socket | None  # None = no screenshot waits for the next swap
-    __slots__ = ("_capture", "_waiting")
+    __slots__ = ("_capture", "_sender", "_waiting")
 
-    def __new__(cls, record_error: Callable[[str, str, str], None]) -> Self:
+    def __new__(
+        cls, record_error: Callable[[str, str, str], None], sender: ClientSender
+    ) -> Self:
         self = super().__new__(cls)
         self._capture = FramebufferCapture(record_error)
+        self._sender = sender
         self._waiting = None
         return self
 
@@ -46,20 +50,20 @@ class ScreenshotQueue:
         msg = "Use the dedicated screenshot_request message"
         raise RuntimeError(msg)
 
-    def request(self, sock: socket.socket, listener: SocketListener) -> None:
+    def request(self, sock: socket.socket) -> None:
         """Take a screenshot for ``sock`` at the next swap, or refuse it at once."""
         if self._waiting is not None:
             busy = ScreenshotResponse(
                 error="a screenshot is already waiting for the next frame"
             )
-            listener.sender.reply_to_client(sock, busy)
+            self._sender.reply_to_client(sock, busy)
             return
         self._waiting = sock
 
-    def after_swap(self, listener: SocketListener) -> None:
+    def after_swap(self) -> None:
         """Answer the waiting request, if any, with the frame just painted."""
         sock = self._waiting
         if sock is None:
             return
         self._waiting = None
-        listener.sender.reply_to_client(sock, self._capture.capture())
+        self._sender.reply_to_client(sock, self._capture.capture())
