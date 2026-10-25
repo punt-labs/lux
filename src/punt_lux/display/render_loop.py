@@ -382,13 +382,13 @@ class RenderLoop:
     def _on_frame(self) -> None:
         """Called every frame by ImGui.
 
-        A single bounded send deadline is armed for the whole frame so a burst
-        of Acks, Pongs, and query responses under Hub backpressure cannot stack
-        per-send waits and wedge the render thread past the ping timeout or the
-        macOS "not responding" threshold. Sends past the budget defer, they do
-        not block.
+        One bounded send deadline is armed for the whole frame so a burst of Acks,
+        Pongs, and query responses under Hub backpressure cannot stack per-send
+        waits and wedge the render thread past the ping timeout or the macOS "not
+        responding" threshold. Sends past the budget defer, they do not block.
         """
-        self._socket_listener.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
+        sender = self._socket_listener.sender
+        sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
         try:
             self._socket_listener.accept_connections()
             self._pump_cross_host()
@@ -396,7 +396,7 @@ class RenderLoop:
             self._render_scene()
             self._flush_events()
         finally:
-            self._socket_listener.clear_frame_deadline()
+            sender.clear_frame_deadline()
 
     def _pump_cross_host(self) -> None:
         """Advance the opt-in cross-host TLS listener one frame (DES-090 W10).
@@ -535,7 +535,7 @@ class RenderLoop:
         """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
         if isinstance(msg, PingMessage):
             pong = PongMessage(ts=msg.ts, display_ts=time.time())
-            self._socket_listener.reply_to_client(sock, pong)
+            self._socket_listener.sender.reply_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
@@ -577,7 +577,7 @@ class RenderLoop:
                 scene_id=msg.scene_id,
                 elements=qr.result["elements"],
             )
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket) -> None:
         """Return the list of active scenes and frames."""
@@ -588,14 +588,14 @@ class RenderLoop:
             resp = ListScenesResponse(
                 scenes=qr.result["scenes"], frames=qr.result["frames"]
             )
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
     def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
         """Dispatch a generic QueryRequest to the registered handler."""
         resp = self._query_router.handle_query(msg.method, msg.params)
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
@@ -635,7 +635,7 @@ class RenderLoop:
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_listener.reply_to_client(sock, ack)
+        self._socket_listener.sender.reply_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 

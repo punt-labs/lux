@@ -52,7 +52,7 @@ class ScreenshotQueue:
             busy = ScreenshotResponse(
                 error="a screenshot is already waiting for the next frame"
             )
-            listener.reply_to_client(sock, busy)
+            listener.sender.reply_to_client(sock, busy)
             return
         self._waiting = sock
 
@@ -62,4 +62,4 @@ class ScreenshotQueue:
         if sock is None:
             return
         self._waiting = None
-        listener.reply_to_client(sock, self._capture.capture())
+        listener.sender.reply_to_client(sock, self._capture.capture())
