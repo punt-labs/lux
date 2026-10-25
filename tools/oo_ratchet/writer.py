@@ -26,6 +26,7 @@ from .scorer import Scorer
 class BaselineWriter:
     """Apply never-loosening baseline updates and audited relaxations."""
 
+    _root: Path
     _baseline: Baseline
     _audit: AuditLog
     _git: GitRepo
@@ -33,6 +34,7 @@ class BaselineWriter:
 
     def __new__(cls, root: Path, git: GitRepo) -> Self:
         self = super().__new__(cls)
+        self._root = root
         self._baseline = Baseline(root)
         self._audit = AuditLog(root)
         self._git = git
@@ -75,7 +77,7 @@ class BaselineWriter:
             )
         else:
             diff = self._git.diff(base)
-            touched = diff.python_files()
+            touched = diff.python_files() | self._vanished(diff.renames)
             plan = UpdatePlan(
                 current,
                 touched,
@@ -83,6 +85,21 @@ class BaselineWriter:
                 parse_errors=touched & scorer.parse_errors,
             )
         return self._applier.apply(plan, source)
+
+    def _vanished(self, renames: dict[str, str]) -> frozenset[str]:
+        """Return baseline rows whose file is gone from the tree.
+
+        The merge-base diff cannot name a file created and deleted inside the
+        branch, so its row would outlive it. A rename source is excluded: its
+        row is the carried base for the rename target and is dropped only once
+        that target is written.
+        """
+        carried = frozenset(renames.values())
+        return frozenset(
+            p
+            for p in self._baseline.entries
+            if p not in carried and not (self._root / p).exists()
+        )
 
     def reconcile(
         self, scorer: Scorer, *, allow_ci_write: bool, source: str | None

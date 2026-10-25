@@ -444,6 +444,28 @@ class TestScopedUpdate:
         assert entry is not None
         assert entry["max_complexity"] == 1.0
 
+    def test_update_prunes_row_for_file_born_and_deleted_in_branch(
+        self, fx: GitFixture
+    ) -> None:
+        # A file created and deleted inside the branch never appears in the
+        # merge-base diff, yet its baseline row must leave with it.
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        fx.commit("base")
+        rows = json.loads((fx.root / ".oo-baseline.json").read_text())
+        rows["sub/gone.py"] = dict(rows["sub/w.py"])
+        fx.write_baseline(rows)
+        outcome = fx.writer().update(
+            fx.scorer(),
+            base_ref="HEAD",
+            require_base=False,
+            allow_ci_write=True,
+            source=None,
+        )
+        assert outcome.exit_code == 0
+        assert Baseline(fx.root).get("sub/gone.py") is None
+        assert "  files removed:  1" in outcome.lines
+
     def test_update_refuses_broken_touched_file_keeps_row(self, fx: GitFixture) -> None:
         # A touched file that is on disk but unparseable is not a deletion:
         # update must refuse and preserve its baseline row (Bugbot #2).
