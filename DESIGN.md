@@ -7814,7 +7814,33 @@ are added to `docs/listener_lifecycle.tex`.
   queues nothing, and an empty ledger (a deliberate stop while idle)
   charges nothing; a dial is charged at most once, and a later death on a
   new dial is charged again. Modelled in `docs/crash_attribution.tex`
-  (A1–A4, four fidelity controls). A dial the keepalive or isolation probe
+  (A1, A1w, A2–A4, and a fidelity control per defect).
+- **An ack means a frame survived the scene.** The display installs a scene
+  on receipt but holds its ack. It sends every held ack, in receipt order,
+  after the next completed buffer swap, whether or not the scene was visible.
+  A scene that crashes its install or the frame after it is still unacked
+  when the dial ends, so it is a suspect. An ack sent on receipt let a scene
+  that crashed while painting go uncharged; the review found it, and the
+  `ack_on_receipt` control reproduces it.
+- **Suspects outlive a Hub-ended dial.** The display keeps a departed dial's
+  scenes installed, so a scene held unacked when the Hub retires its dial can
+  still crash the display on the next one. A Hub-ended dial's unacked
+  scenes therefore join a carried suspect set. An ack read on any later dial
+  clears it, because that ack follows a swap after every scene the display
+  already held. A display-ended death charges its own ledger together with
+  the carried set. A Hub-ended dial itself still charges nothing.
+- **Every ack the display sent is read before the ledger is captured.** On a
+  display-ended retire, the socket is read to its end before the suspects are
+  taken, so a scene whose ack was in flight is not charged. The isolation
+  probe releases the next scene only once the previous scene's ack has been
+  read, never on a pong. The death queue has no bound that drops a death.
+- **Bounds.** A scene the user brings into view later (a background tab or
+  a restored frame) is acked before it is first painted, so a crash then is
+  not attributed. In batching mode a death may charge every scene written
+  since the last ack read, plus the carried set. Clearing the carried set on
+  an ack assumes a local socket that installs an earlier dial's scenes
+  before a later dial's; a cross-host transport must re-establish this
+  ordering. A dial the keepalive or isolation probe
   finds unresponsive is retired as ended by the display, so a scene can be
   struck when a loaded display misses its pings; the quarantine threshold
   and the isolation probe bound that cost, which is preferred to a display
