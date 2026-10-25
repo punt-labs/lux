@@ -184,4 +184,4 @@ class PresenceWrites:
             if updated is None:
                 return Registration.refused("declined")
             self._sessions[connection_id] = updated
-            return Registration.took(SessionWrite(session, updated, now))
+            return Registration.took(SessionWrite(session, updated, now), callback)
