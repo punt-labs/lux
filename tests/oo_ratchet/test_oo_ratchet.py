@@ -468,6 +468,23 @@ class TestScopedUpdate:
         last = (fx.root / ".oo-audit.jsonl").read_text().splitlines()[-1]
         assert json.loads(last)["removed"] == ["sub/gone.py"]
 
+    def test_rebaseline_audit_names_the_rows_it_removes(self, fx: GitFixture) -> None:
+        # A rebaseline replaces the whole baseline, dropping the row of every
+        # file no longer scored; the audit line must name them, not claim [].
+        fx.write("sub/w.py", GOOD)
+        fx.snapshot("sub")
+        fx.commit("base")
+        rows = json.loads((fx.root / ".oo-baseline.json").read_text())
+        rows["sub/gone.py"] = dict(rows["sub/w.py"])
+        fx.write_baseline(rows)
+        outcome = fx.writer().rebaseline(fx.scorer(), allow_ci_write=True, source=None)
+        assert outcome.exit_code == 0
+        assert Baseline(fx.root).get("sub/gone.py") is None
+        last = (fx.root / ".oo-audit.jsonl").read_text().splitlines()[-1]
+        entry = json.loads(last)
+        assert entry["verdict"] == "rebaseline"
+        assert entry["removed"] == ["sub/gone.py"]
+
     def test_update_refuses_broken_touched_file_keeps_row(self, fx: GitFixture) -> None:
         # A touched file that is on disk but unparseable is not a deletion:
         # update must refuse and preserve its baseline row (Bugbot #2).
