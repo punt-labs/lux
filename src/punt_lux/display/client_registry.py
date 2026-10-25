@@ -3,6 +3,7 @@ parallel dicts) a connected client's state lives in, per PY-OO-5."""
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub_id import HubId
@@ -52,6 +53,22 @@ class ClientRegistry:
     def client_connect_times(self) -> dict[int, float]:
         """Return fd-to-connect-timestamp mapping."""
         return self._client_connect_times
+
+    def report(self) -> dict[str, object]:
+        """The clients as the ``list_clients`` query reports them."""
+        now = time.time()
+        return {
+            "clients": [
+                {
+                    "connection_id": fd,
+                    "name": name,
+                    "connected_seconds": round(
+                        now - self._client_connect_times.get(fd, now), 1
+                    ),
+                }
+                for fd, name in self._client_names.items()
+            ]
+        }
 
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:

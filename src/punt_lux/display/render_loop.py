@@ -143,13 +143,7 @@ class RenderLoop:
             frame_for=self._scenes.frame, facts_for=self._scenes.owner_facts_for
         )
         # QueryRouter must precede SocketListener -- it supplies on_error.
-        self._query_router = QueryRouter(
-            scenes=self._scenes,
-            get_client_names=lambda: self._socket_listener.client_names,
-            get_client_connect_times=lambda: self._socket_listener.client_connect_times,
-            get_agent_menus=lambda: self._menus.agent_menus,
-            get_callback_menus=lambda: self._menus.callback_menus,
-        )
+        self._query_router = QueryRouter(self._scenes)
         socket_callbacks = SocketListenerCallbacks(
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
@@ -158,6 +152,10 @@ class RenderLoop:
         self._socket_listener, self._sender = SocketListener.with_sender(
             socket_callbacks
         )
+        self._query_router.register_handler(
+            "list_clients", self._socket_listener.client_report
+        )
+        self._query_router.register_handler("list_menus", self._menus.inventory_report)
         self._interaction_delivery = InteractionDelivery(
             socket_listener=self._socket_listener,
             sender=self._sender,

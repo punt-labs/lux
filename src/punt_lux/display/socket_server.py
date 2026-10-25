@@ -95,6 +95,10 @@ class SocketListener:
         """Return fd-to-connect-timestamp mapping."""
         return self._registry.client_connect_times
 
+    def client_report(self, **_kwargs: object) -> dict[str, object]:
+        """The connected clients, as the ``list_clients`` query reports them."""
+        return self._registry.report()
+
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
         """Return fd-to-socket mapping for O(1) lookup."""

@@ -10,19 +10,13 @@ from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
 
 
 def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:
-    """Build a QueryRouter with stub callables for testing."""
+    """Build a QueryRouter over a scene replica."""
     sm = (
         scenes
         if scenes is not None
         else SceneReplica(on_scene_replaced=lambda _i: None)
     )
-    return QueryRouter(
-        scenes=sm,
-        get_client_names=dict,
-        get_client_connect_times=dict,
-        get_agent_menus=list,
-        get_callback_menus=list,
-    )
+    return QueryRouter(sm)
 
 
 def _scene(scene_id: str, frame_id: str) -> SceneMessage:
