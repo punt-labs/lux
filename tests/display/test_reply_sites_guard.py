@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Self, final, get_args
 
 from punt_lux.protocol.messages import DisplayMessage
+from tests.class_references import ClassReferences, aliased_constructions
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
 _DISPLAY = _SRC / "punt_lux" / "display"
@@ -241,12 +242,8 @@ def _display_sources() -> dict[str, str]:
 
 
 def _constructions_of(source: str, name: str) -> int:
-    """How many times ``source`` calls ``name(...)``, bare or through a module."""
-    return sum(
-        1
-        for n in ast.walk(ast.parse(source))
-        if isinstance(n, ast.Call) and _callee(n) == name
-    )
+    """How many calls in ``source`` build a ``name``, however it was reached."""
+    return ClassReferences(source, name).constructions()
 
 
 def _constructed_names(source: str) -> set[str]:
@@ -308,12 +305,21 @@ class TestTheDoorsHaveOneOwner:
 
         assert built == {_SENDER_HOME: 1}
 
-    def test_a_second_construction_is_counted_in_either_spelling(self) -> None:
+    def test_a_second_construction_is_counted_in_every_spelling(self) -> None:
         for planted in (
             "def f(host):\n    return ClientSender(host)\n",
             "def f(host):\n    return client_sender.ClientSender(host)\n",
+            *aliased_constructions("punt_lux.display.client_sender", _SENDER),
         ):
             assert _constructions_of(planted, _SENDER) == 1, planted
+
+    def test_an_aliased_name_that_is_not_the_sender_is_not_counted(self) -> None:
+        planted = (
+            "from punt_lux.display.client_sender import Other as C\n"
+            "def f(host):\n    return C(host)\n"
+        )
+
+        assert _constructions_of(planted, _SENDER) == 0
 
     def test_a_module_that_only_annotates_the_sender_builds_none(self) -> None:
         planted = "def f(sender: ClientSender) -> None:\n    sender.go()\n"

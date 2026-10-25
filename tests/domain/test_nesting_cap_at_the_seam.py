@@ -11,7 +11,6 @@ write. Each test drives a door and expects the same refusal.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,6 +31,7 @@ from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.wire_tree import WireTreeDecoder
 from punt_lux.protocol.elements import ButtonElement, GroupElement, TreeElement
 from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
+from tests.class_references import ClassReferences, aliased_constructions
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -290,12 +290,7 @@ def _constructions_of(name: str) -> set[str]:
 
 
 def _builds(source: str, name: str) -> bool:
-    return any(
-        isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Name)
-        and call.func.id == name
-        for call in ast.walk(ast.parse(source))
-    )
+    return ClassReferences(source, name).constructions() > 0
 
 
 class TestTheCapIsAskedAtTheSeamAlone:
@@ -306,6 +301,12 @@ class TestTheCapIsAskedAtTheSeamAlone:
         assert _builds(
             "def f(roots):\n    return NestingCap().refusal(roots)\n", "NestingCap"
         )
+
+    def test_an_aliased_planted_asker_is_found(self) -> None:
+        for planted in aliased_constructions(
+            "punt_lux.domain.nesting_cap", "NestingCap"
+        ):
+            assert _builds(planted, "NestingCap"), planted
 
     def test_the_cap_has_no_per_kind_declaration_left(self) -> None:
         text = "\n".join(

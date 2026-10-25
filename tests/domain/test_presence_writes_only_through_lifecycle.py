@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from tests.class_references import ClassReferences, aliased_constructions
 from tests.source_imports import module_name, resolved_imports
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -247,13 +248,7 @@ def _methods_that_name(source: str, cls_name: str, attribute: str) -> set[str]:
 
 
 def _constructions_of(source: str, name: str) -> int:
-    return sum(
-        1
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == name
-    )
+    return ClassReferences(source, name).constructions()
 
 
 def _names_in(source: str) -> set[str]:
@@ -606,6 +601,12 @@ class TestTheRulesCanFail:
         source = "def f(roster):\n    return RosterRelease(roster._release_departed)\n"
 
         assert _constructions_of(source, "RosterRelease") == 1
+
+    def test_an_aliased_construction_of_the_release_is_counted(self) -> None:
+        for source in aliased_constructions(
+            "punt_lux.domain.hub.client_roster", "RosterRelease"
+        ):
+            assert _constructions_of(source, "RosterRelease") == 1, source
 
     def test_a_module_that_names_the_release_in_any_spelling_is_found(self) -> None:
         for source in (

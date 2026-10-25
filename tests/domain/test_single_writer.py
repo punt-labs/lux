@@ -29,6 +29,7 @@ import pytest
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.display_writer import DisplayWriter
+from tests.class_references import ClassReferences, aliased_constructions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -103,13 +104,7 @@ def _names(source: str) -> set[str]:
 
 
 def _constructions(source: str, name: str) -> int:
-    return sum(
-        1
-        for n in ast.walk(ast.parse(source))
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Name)
-        and n.func.id == name
-    )
+    return ClassReferences(source, name).constructions()
 
 
 def _calls_of(source: str, attribute: str) -> int:
@@ -245,6 +240,11 @@ class TestTheRulesCanFail:
         planted = "def f(g):\n    return DisplayWriter(g, None, None)\n"
 
         assert _constructions(planted, "DisplayWriter") == 1
+
+    @pytest.mark.parametrize("name", ["DisplayWriter", "WriteSeat"])
+    def test_an_aliased_construction_is_counted(self, name: str) -> None:
+        for planted in aliased_constructions("punt_lux.domain.hub.x", name):
+            assert _constructions(planted, name) == 1, planted
 
     def test_a_second_seat_taker_is_found(self) -> None:
         planted = "def f(clients):\n    return clients.take_writer()\n"

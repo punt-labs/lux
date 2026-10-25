@@ -20,7 +20,7 @@ import ast
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, cast, final
 
 import pytest
 
@@ -34,6 +34,7 @@ from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 from punt_lux.operations.models.scene_results import SceneShown
+from tests.class_references import ClassReferences
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
 
@@ -894,16 +895,51 @@ def _docstrings(tree: ast.Module) -> set[int]:
     return found
 
 
+def _static_text(node: ast.expr) -> str | None:
+    """The whole string ``node`` is when it is known without running the code."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _static_text(node.left), _static_text(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = [_static_text(part) for part in node.values]
+        return None if None in parts else "".join(cast("list[str]", parts))
+    return None
+
+
+def _leading_text(node: ast.expr) -> str:
+    """The text a string expression is known to begin with, folding ``a + b`` chains."""
+    if isinstance(node, ast.JoinedStr):
+        head = ""
+        for part in node.values:
+            if not (isinstance(part, ast.Constant) and isinstance(part.value, str)):
+                break
+            head += part.value
+        return head
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        whole = _static_text(node.left)
+        return (
+            _leading_text(node.left)
+            if whole is None
+            else whole + _leading_text(node.right)
+        )
+    return _static_text(node) or ""
+
+
 def _names_the_board_frame(source: str) -> list[int]:
-    """Lines whose code spells a scene or frame id of the board, literal or f-string."""
+    """Lines whose code spells a scene or frame id of the board.
+
+    A literal, an f-string, or a ``+`` chain that folds to one: ``"beads" + "-x"``
+    is the same id as ``"beads-x"``.
+    """
     tree = ast.parse(source)
     prose = _docstrings(tree)
     return [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and node.value.startswith(_BOARD_PREFIX)
+        if isinstance(node, ast.Constant | ast.JoinedStr | ast.BinOp)
+        and _leading_text(node).startswith(_BOARD_PREFIX)
         and id(node) not in prose
     ]
 
@@ -923,15 +959,12 @@ def _names_the_board(source: str) -> bool:
 
 
 def _builds_the_writing_adapter(source: str) -> bool:
-    """Whether the code asks ``ScopedBoardOps`` to bind a client: ``.for_client(``."""
-    return any(
-        isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "for_client"
-        and isinstance(call.func.value, ast.Name)
-        and call.func.value.id == "ScopedBoardOps"
-        for call in ast.walk(ast.parse(source))
-    )
+    """Whether the code asks ``ScopedBoardOps`` to bind a client: ``.for_client(``.
+
+    The class is followed through an aliased import and an assignment, so
+    ``from m import ScopedBoardOps as S`` then ``S.for_client(...)`` is found.
+    """
+    return ClassReferences(source, "ScopedBoardOps").method_calls("for_client") > 0
 
 
 def test_the_boards_frame_id_is_minted_in_one_module() -> None:
@@ -978,6 +1011,10 @@ def test_the_writing_adapter_is_bound_at_the_two_writers_alone() -> None:
             '    client.render_table(RenderTableRequest(frame_id="beads-lux"))'
         ),
         'FRAME = "beads-" + "lux"',
+        # the prefix split across a concatenation
+        'FRAME = "beads" + "-lux"',
+        'def f(p):\n    return "bea" + "ds-" + p',
+        'def f(p):\n    return f"beads" + f"-{p}"',
     ],
 )
 def test_a_module_that_spells_the_boards_frame_is_found(source: str) -> None:
@@ -1013,6 +1050,31 @@ def test_a_module_that_binds_the_writing_adapter_is_found() -> None:
         "def f(client):\n    return ScopedBoardOps.for_client(client)\n"
     )
     assert not _builds_the_writing_adapter("def f(client):\n    return client.sync\n")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from punt_lux.x import ScopedBoardOps as S\n"
+            "def f(c):\n    return S.for_client(c)\n"
+        ),
+        (
+            "import punt_lux.x as m\n"
+            "def f(c):\n    return m.ScopedBoardOps.for_client(c)\n"
+        ),
+        (
+            "import punt_lux.x as m\nS = m.ScopedBoardOps\n"
+            "def f(c):\n    return S.for_client(c)\n"
+        ),
+        (
+            "from punt_lux.x import ScopedBoardOps\n"
+            "S = ScopedBoardOps\nT = S\nx = T.for_client(1)\n"
+        ),
+    ],
+)
+def test_an_aliased_binding_of_the_writing_adapter_is_found(source: str) -> None:
+    assert _builds_the_writing_adapter(source)
 
 
 # --- P12 ------------------------------------------------------------------

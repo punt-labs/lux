@@ -565,6 +565,34 @@ class TestADeathTheRedialCouldNotUndo:
         assert not rig.store.is_quarantined(scene)
 
 
+class TestANewDeathOnANewDialIsChargedAgain:
+    """The once-per-death dedupe is per dial, not per scene or per run."""
+
+    def test_the_display_dying_again_on_a_new_dial_is_charged(
+        self, display: Display
+    ) -> None:
+        scene = SceneId("s1")
+        rig = _rig(display, scene)
+        batch = DrainedBatch(frozenset({scene}), shutting=False)
+
+        rig.clients.arm()
+        with pytest.raises(BatchSendError) as first:
+            rig.sender.push(batch)  # the death of dial A: charged
+        with pytest.raises(DisplayNotConnectedError) as still_down:
+            rig.sender.push(batch)  # the display stays down: not charged again
+        assert not isinstance(still_down.value, BatchSendError)
+
+        rig.dialer.down = False  # the display returns, on dial B
+        rig.clients.get()
+        rig.clients.arm()
+        with pytest.raises(BatchSendError) as second:
+            rig.sender.push(batch)  # the death of dial B: a new death, charged
+
+        assert second.value.suspect == frozenset({scene})
+        assert second.value.dial is not None
+        assert second.value.dial != first.value.dial
+
+
 class TestADeathTheReaderSawFirstIsStillAttributed:
     """The reader retires the dial before the send's own write finds it dead."""
 
