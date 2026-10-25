@@ -359,7 +359,9 @@ class TestOpenForListening:
     def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        assert connection.open(listening=True) is True
+        born = connection.open(listening=True)
+
+        assert born is connection.require()
 
         try:
             assert connection.has_reader
@@ -375,10 +377,46 @@ class TestOpenForListening:
         second = connection.open(listening=True)
 
         try:
-            assert (first, second) == (True, False)
+            assert (first is connection.require(), second) == (True, None)
             assert not connection.has_reader  # the existing dial was not re-made
         finally:
             connection.close()
+
+
+class TestTheStateLockNeverWaitsOnTheReaderSlot:
+    def test_reads_and_retirement_proceed_while_an_inline_read_holds_the_slot(
+        self,
+    ) -> None:
+        # The proven order is request lock, slot, state lock: nothing may take or
+        # wait on the slot while holding the state lock.
+        connection, _ = _opened()
+        generation = connection.require()
+        holding = threading.Event()
+        release = threading.Event()
+
+        def hold() -> None:
+            with generation.inline_reading():
+                holding.set()
+                release.wait(5.0)
+
+        holder = threading.Thread(target=hold, daemon=True)
+        holder.start()
+        assert holding.wait(3.0)
+        outcome: list[bool] = []
+
+        def under_the_state_lock() -> None:
+            outcome.append(connection.has_reader)
+            outcome.append(connection.is_open)
+            outcome.append(connection.close_if_current(generation))
+
+        worker = threading.Thread(target=under_the_state_lock, daemon=True)
+        worker.start()
+        worker.join(1.0)
+        release.set()
+        holder.join(3.0)
+
+        assert not worker.is_alive(), "a state-lock step waited on the reader slot"
+        assert outcome == [False, True, True]
 
 
 class TestReaderSlot:

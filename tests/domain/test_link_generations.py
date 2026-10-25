@@ -839,3 +839,72 @@ class TestAnInteractionReadInlineRunsOutsideTheLocks:
         assert pinging.wait()
         assert seen == [(False, True)]
         link.close()
+
+
+class TestAFailedListenerStartRetiresItsDial:
+    def test_connect_with_listen_retires_the_dial_it_made_when_the_start_fails(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = DisplayLink(dialer=display, auto_spawn=False, recv_timeout=3.0)
+
+        def refuse(_thread: threading.Thread) -> None:
+            raise RuntimeError("can't start new thread")
+
+        monkeypatch.setattr(threading.Thread, "start", refuse)
+        with pytest.raises(RuntimeError, match="can't start"):
+            link.connect(listen=True)
+
+        assert not link.is_connected, "a connected link with no reader repairs nothing"
+
+    def test_the_registry_redials_with_a_reader_after_a_failed_start(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        registry = ClientRegistry()
+        link = DisplayLink(dialer=display, auto_spawn=False, recv_timeout=3.0)
+        registry._client = link
+
+        with monkeypatch.context() as patched:
+
+            def refuse(_thread: threading.Thread) -> None:
+                raise RuntimeError("can't start new thread")
+
+            patched.setattr(threading.Thread, "start", refuse)
+            with pytest.raises(RuntimeError, match="can't start"):
+                registry.get()
+        assert not link.is_connected
+
+        registry.get()
+
+        assert display.dials == 2
+        assert link.listener_active
+        link.close()
+
+
+class TestAnInteractionRunsBeforeItsExchangeReturns:
+    def test_the_handler_has_run_by_the_time_the_ping_returns(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        returned = threading.Event()
+        ran_before_return: list[bool] = []
+        link.events.set_fallback_handler(
+            lambda _event: ran_before_return.append(not returned.is_set())
+        )
+
+        def ping() -> object:
+            try:
+                return link.requests.ping(timeout=3.0)
+            finally:
+                returned.set()
+
+        pinging = Call(ping)
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+        display.peer.send(
+            RemoteEventHandlerInvocation(element_id="b", action="click"),
+            PongMessage(ts=sent.ts),
+        )
+
+        assert pinging.wait()
+        assert ran_before_return == [True], "the click waited past its own exchange"
+        link.close()

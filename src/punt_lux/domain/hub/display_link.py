@@ -108,7 +108,8 @@ class DisplayLink:
         ``ReadyMessage``/``ConnectMessage`` handshake completes (delegated to
         :class:`HandshakeConnector`, which owns the socket-open and identity
         concern). With ``listen`` the reader is started on the dial just opened,
-        before anything is sent on it.
+        before anything is sent on it; if it cannot start, that dial is retired
+        and the error raised, so the next connect redials.
 
         Raises
         ------
@@ -116,8 +117,15 @@ class DisplayLink:
             If the display fails to start or the handshake times out.
         """
         dialed = self._connection.open(listening=listen)
-        if listen:
-            self._listener.start(born_claimed=dialed)
+        if not listen:
+            return
+        try:
+            self._listener.start(dialed)
+        except BaseException:
+            # A dial with no reader repairs nothing: retire the one this call made.
+            if dialed is not None:
+                self._connection.close_if_current(dialed)
+            raise
 
     def close(self) -> None:
         """Close the connection to the display server."""

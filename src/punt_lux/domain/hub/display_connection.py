@@ -78,16 +78,18 @@ class DisplayConnection:
             held = self._current
         return "not connected" if held is None else held.endpoint
 
-    def open(self, *, listening: bool = False) -> bool:
-        """Dial the display and complete the handshake; whether this call dialed.
+    def open(self, *, listening: bool = False) -> DialGeneration | None:
+        """Dial the display and complete the handshake; the dial this call made.
 
-        The dial runs outside the state lock. With ``listening`` the new dial is
-        born holding the listener's reader slot, so the listener never has to wait
-        for it. Raises :class:`DisplayNotConnectedError` if the display cannot be
-        reached or the handshake fails.
+        ``None`` if the connection was already open (no dial was made). The dial
+        runs outside the state lock. With ``listening`` the new dial is born
+        holding the listener's reader slot, so the listener never has to wait for
+        it; the caller starts the listener on the generation returned, never on
+        whatever is current by then. Raises :class:`DisplayNotConnectedError` if
+        the display cannot be reached or the handshake fails.
         """
         if self.is_open:
-            return False
+            return None
         fresh = DialGeneration(
             self._dialer.dial(self._connect_timeout),
             self.close_if_current,
@@ -96,9 +98,9 @@ class DisplayConnection:
         with self._state_lock:
             if self._current is None:
                 self._current = fresh
-                return True
+                return fresh
         fresh.shut()  # another caller dialed first; theirs stays
-        return False
+        return None
 
     def close(self) -> None:
         """Retire the current dial, if any."""

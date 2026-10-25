@@ -773,3 +773,24 @@ class TestReportingTheEnd:
             assert until(lambda: not rig.listener.alive)
 
         assert not [r for r in caplog.records if r.levelno >= logging.INFO]
+
+
+class TestABornClaimedDialReplacedInTheGap:
+    def test_start_for_a_replaced_dial_starts_nothing_on_its_replacement(self) -> None:
+        display = Display()
+        connection = DisplayConnection(display, 1.0)
+        listener = ListenerThread(connection, lambda _g, _m: None)
+        try:
+            born = connection.open(listening=True)
+            assert born is not None
+            connection.close()  # retired in the gap ...
+            connection.open()  # ... and replaced by a dial with no reader
+
+            with pytest.raises(ConnectionClosedError):
+                listener.start(born)
+
+            assert not listener.alive
+            assert not connection.has_reader
+        finally:
+            connection.close()
+            display.close()

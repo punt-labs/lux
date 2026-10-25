@@ -13,6 +13,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_reader import DialReader
 
 if TYPE_CHECKING:
@@ -73,20 +74,28 @@ class ListenerThread:
         """Whether the caller is the listener thread itself."""
         return self._thread is threading.current_thread()
 
-    def start(self, *, born_claimed: bool = False) -> None:
+    def start(self, born: DialGeneration | None = None) -> None:
         """Start a reader on the current dial; a no-op if it already has one.
 
-        ``born_claimed`` says the dial was made holding the reader slot for this
-        listener (``DisplayConnection.open(listening=True)``), so there is nothing
-        to claim and nothing to wait for.
+        ``born`` is the generation a ``DisplayConnection.open(listening=True)``
+        just made: it holds the reader slot for this listener already, so there is
+        nothing to claim or wait for, and the reader starts on exactly that dial.
+        If it was retired in the gap, :class:`ConnectionClosedError` is raised and
+        nothing starts on its replacement.
 
         A dial has one reader, ever: a thread that :meth:`stop` could not join has
         retired its dial, so the successor needs a new dial, and starting without
         one raises :class:`ConnectionClosedError`.
         """
-        generation = self._connection.require()
-        if not born_claimed and not generation.claim_reader():
-            return
+        if born is None:
+            generation = self._connection.require()
+            if not generation.claim_reader():
+                return
+        else:
+            generation = born
+            if generation.is_closed:
+                msg = f"the dial to {generation.endpoint} was retired before its reader"
+                raise ConnectionClosedError(msg)
         if self.alive:
             logger.error(
                 "Abandoning a listener thread that did not stop; starting a new one"
