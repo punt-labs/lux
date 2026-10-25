@@ -306,6 +306,18 @@ class SocketListener:
             return False
         return True
 
+    def reply_to_client(self, sock: socket.socket, msg: Message) -> None:
+        """Send a reply the client waits for, or end its connection.
+
+        The Hub matches replies to requests by order, so one dropped on a live
+        connection would shift every later one; an event, by contrast, is held
+        and retried (:meth:`send_to_client`'s defer).
+        """
+        if self.send_to_client(sock, msg) or sock not in self._clients:
+            return  # sent, or a dead peer send_to_client already removed
+        logger.warning("severing %s: %s missed its deadline", sock, type(msg).__name__)
+        self.remove_client(sock)
+
     def register_client_identity(
         self,
         fd: int,

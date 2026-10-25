@@ -477,7 +477,7 @@ class RenderLoop:
             logger.exception("Screenshot capture failed")
             self._query_router.record_error("error", str(exc), "screenshot")
             resp = ScreenshotResponse(error=str(exc))
-        self._socket_listener.send_to_client(sock, resp)
+        self._socket_listener.reply_to_client(sock, resp)
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
         """Callback for MenuReplica: toggle window decoration."""
@@ -583,7 +583,7 @@ class RenderLoop:
         """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
         if isinstance(msg, PingMessage):
             pong = PongMessage(ts=msg.ts, display_ts=time.time())
-            self._socket_listener.send_to_client(sock, pong)
+            self._socket_listener.reply_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
@@ -625,7 +625,7 @@ class RenderLoop:
                 scene_id=msg.scene_id,
                 elements=qr.result["elements"],
             )
-        self._socket_listener.send_to_client(sock, resp)
+        self._socket_listener.reply_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket) -> None:
         """Return the list of active scenes and frames."""
@@ -636,14 +636,14 @@ class RenderLoop:
             resp = ListScenesResponse(
                 scenes=qr.result["scenes"], frames=qr.result["frames"]
             )
-        self._socket_listener.send_to_client(sock, resp)
+        self._socket_listener.reply_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
     def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
         """Dispatch a generic QueryRequest to the registered handler."""
         resp = self._query_router.handle_query(msg.method, msg.params)
-        self._socket_listener.send_to_client(sock, resp)
+        self._socket_listener.reply_to_client(sock, resp)
 
     @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
@@ -683,7 +683,7 @@ class RenderLoop:
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_listener.send_to_client(sock, ack)
+        self._socket_listener.reply_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
