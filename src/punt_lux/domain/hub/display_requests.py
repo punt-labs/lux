@@ -244,3 +244,5 @@ class DisplayRequests:
             return cast("T | None", reply)
         finally:
             lock.release()
+            # Interactions an inline read held run here: no request lock, no slot.
+            self._replies.run_held()

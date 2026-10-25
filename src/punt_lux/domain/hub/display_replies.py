@@ -78,6 +78,10 @@ class DisplayReplies:
             if reply is not None:
                 return reply
 
+    def run_held(self) -> None:
+        """Run the interactions inline reads held; call with no request lock held."""
+        self._listener.run_held()
+
     def _read_inline(
         self, generation: DialGeneration, pending: Pending, deadline: float
     ) -> Message | None:
@@ -104,7 +108,7 @@ class DisplayReplies:
         """Route every message ``chunk`` completes; a raising reply ends the dial."""
         for msg in generation.messages(chunk):
             try:
-                self._listener.route(generation, msg)
+                self._listener.route(generation, msg, inline=True)
             except Exception:
                 if isinstance(msg, REPLY_TYPES):
                     raise

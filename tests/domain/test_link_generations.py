@@ -20,6 +20,7 @@ from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
@@ -32,6 +33,7 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
+    encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
 
@@ -736,4 +738,104 @@ class TestConnectCoordinatesTheDialAndItsListener:
         link.connect()
 
         assert not link.listener_active
+        link.close()
+
+
+class TestAnInlineReadThatFails:
+    def test_a_frame_of_an_admitted_type_that_cannot_be_decoded_retires_the_dial(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        display.peer.read(1)
+
+        display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id: KeyError
+
+        assert pinging.wait()
+        assert pinging.error is not None
+        assert not link.is_connected
+
+    def test_a_reply_whose_delivery_raises_retires_the_dial(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def explode(_sink: ReplySink, _msg: object) -> None:
+            raise RuntimeError("the sink blew up")
+
+        monkeypatch.setattr(ReplySink, "deliver", explode)
+        link = _linked(display, listening=False)
+        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+
+        display.peer.send(PongMessage(ts=sent.ts))
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, RuntimeError)
+        assert not link.is_connected
+
+
+class TestTheRegistryNeverWaitsOnTheReaderSlot:
+    def test_get_on_a_connected_link_returns_while_an_inline_read_holds_the_slot(
+        self, display: Display
+    ) -> None:
+        registry = ClientRegistry()
+        link = DisplayLink(dialer=display, auto_spawn=False, recv_timeout=3.0)
+        registry._client = link
+        link.connect()  # a dial with no reader, as a library caller leaves it
+        generation = link._connection.require()
+        holding = threading.Event()
+        release = threading.Event()
+
+        def hold_the_slot() -> None:
+            with generation.inline_reading():
+                holding.set()
+                release.wait(5.0)
+
+        holder = threading.Thread(target=hold_the_slot, daemon=True)
+        holder.start()
+        assert holding.wait(3.0)
+
+        getting = Call(registry.get)
+        try:
+            assert getting.wait(0.5), "get() waited on the reader slot under its lock"
+        finally:
+            release.set()
+            holder.join(3.0)
+            link.close()
+
+    def test_a_dial_the_registry_makes_already_has_its_reader(
+        self, display: Display
+    ) -> None:
+        registry = ClientRegistry()
+        link = DisplayLink(dialer=display, auto_spawn=False, recv_timeout=3.0)
+        registry._client = link
+
+        registry.get()
+
+        assert link.listener_active
+        link.close()
+
+
+class TestAnInteractionReadInlineRunsOutsideTheLocks:
+    def test_the_handler_runs_after_the_exchange_with_no_request_lock_or_slot_held(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        seen: list[tuple[bool, bool]] = []
+
+        def handler(_event: RemoteEventHandlerInvocation) -> None:
+            generation = link._connection.require()
+            with generation.inline_reading() as free:
+                seen.append((link.requests._ping_lock.locked(), free))
+
+        link.events.set_fallback_handler(handler)
+        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+
+        click = RemoteEventHandlerInvocation(element_id="b", action="click")
+        display.peer.send(click, PongMessage(ts=sent.ts))
+
+        assert pinging.wait()
+        assert seen == [(False, True)]
         link.close()

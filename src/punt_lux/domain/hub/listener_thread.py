@@ -73,15 +73,19 @@ class ListenerThread:
         """Whether the caller is the listener thread itself."""
         return self._thread is threading.current_thread()
 
-    def start(self) -> None:
+    def start(self, *, born_claimed: bool = False) -> None:
         """Start a reader on the current dial; a no-op if it already has one.
+
+        ``born_claimed`` says the dial was made holding the reader slot for this
+        listener (``DisplayConnection.open(listening=True)``), so there is nothing
+        to claim and nothing to wait for.
 
         A dial has one reader, ever: a thread that :meth:`stop` could not join has
         retired its dial, so the successor needs a new dial, and starting without
         one raises :class:`ConnectionClosedError`.
         """
         generation = self._connection.require()
-        if not generation.claim_reader():
+        if not born_claimed and not generation.claim_reader():
             return
         if self.alive:
             logger.error(

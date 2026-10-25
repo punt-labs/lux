@@ -355,6 +355,32 @@ class TestPollChunk:
                 dialer.peer.close()
 
 
+class TestOpenForListening:
+    def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
+        connection = DisplayConnection(_Dialer(), 1.0)
+
+        assert connection.open(listening=True) is True
+
+        try:
+            assert connection.has_reader
+            with connection.require().inline_reading() as free:
+                assert not free, "an inline read could slip in before the listener"
+        finally:
+            connection.close()
+
+    def test_open_says_whether_it_dialed(self) -> None:
+        connection = DisplayConnection(_Dialer(), 1.0)
+
+        first = connection.open()
+        second = connection.open(listening=True)
+
+        try:
+            assert (first, second) == (True, False)
+            assert not connection.has_reader  # the existing dial was not re-made
+        finally:
+            connection.close()
+
+
 class TestReaderSlot:
     def test_a_generation_has_one_reader_ever(self) -> None:
         connection, _ = _opened()

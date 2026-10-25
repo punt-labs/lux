@@ -115,9 +115,9 @@ class DisplayLink:
         DisplayNotConnectedError
             If the display fails to start or the handshake times out.
         """
-        self._connection.open()
+        dialed = self._connection.open(listening=listen)
         if listen:
-            self._listener.start()
+            self._listener.start(born_claimed=dialed)
 
     def close(self) -> None:
         """Close the connection to the display server."""

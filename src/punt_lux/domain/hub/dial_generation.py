@@ -54,6 +54,9 @@ class DialGeneration:
     _lock: threading.Lock
     _sink: ReplySink
     _frames: FrameReader
+    # A leaf: held only to read or change ``_reader``, never while taking another
+    # lock or doing I/O. ``claim_reader`` waits on it (an inline read's duration),
+    # so no caller may hold a lock the request model or the registry shares.
     _slot: threading.Condition
     # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
     _reader: Literal["none", "listener", "inline"]
@@ -75,6 +78,8 @@ class DialGeneration:
         cls,
         dial: HandshakeResult,
         retire: Callable[[DialGeneration], object],
+        *,
+        listening: bool = False,
     ) -> Self:
         self = super().__new__(cls)
         set_send_timeout(dial.sock)  # every dial path: a wedged peer ends a send
@@ -84,7 +89,9 @@ class DialGeneration:
         self._sink = ReplySink()
         self._frames = FrameReader()
         self._slot = threading.Condition()
-        self._reader = "none"
+        # Born holding the listener slot when asked: nobody else has seen this dial
+        # yet, so no inline read can be in flight when the listener claims it.
+        self._reader = "listener" if listening else "none"
         self._is_closed = False
         return self
 

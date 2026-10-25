@@ -39,12 +39,16 @@ class InboundRouter:
 
     _handlers: InteractionHandlers
     _events: queue.SimpleQueue[PolledEvent]
-    __slots__ = ("_events", "_handlers")
+    # Interactions an inline read decoded: they run later, on a thread that holds
+    # none of the request model's locks.
+    _held: queue.SimpleQueue[RemoteEventHandlerInvocation]
+    __slots__ = ("_events", "_handlers", "_held")
 
     def __new__(cls, handlers: InteractionHandlers) -> Self:
         self = super().__new__(cls)
         self._handlers = handlers
         self._events = queue.SimpleQueue()
+        self._held = queue.SimpleQueue()
         return self
 
     def next_event(self, timeout: float) -> PolledEvent:
@@ -54,13 +58,33 @@ class InboundRouter:
         """
         return self._events.get(timeout=timeout)
 
-    def route(self, generation: DialGeneration, msg: Message) -> None:
-        """Send ``msg``, read from ``generation``, to its destination by kind."""
+    def route(
+        self, generation: DialGeneration, msg: Message, *, inline: bool = False
+    ) -> None:
+        """Send ``msg``, read from ``generation``, to its destination by kind.
+
+        ``inline`` marks a message a caller waiting on the socket decoded while
+        holding request locks and the reader slot. Its interaction is held, not
+        run: a handler may reach the registry or the store, which no thread
+        holding those may do. :meth:`run_held` runs it afterwards.
+        """
         if isinstance(msg, RemoteEventHandlerInvocation):
-            self._handlers.run(msg)
+            if inline:
+                self._held.put(msg)
+            else:
+                self._handlers.run(msg)
         elif isinstance(msg, ObserverMessage):
             self._events.put(PolledEvent(topic=msg.topic, payload=msg.payload))
         elif isinstance(msg, REPLY_TYPES):
             generation.sink.deliver(msg)
         else:
             logger.debug("Dropping unhandled message: %s", type(msg).__name__)
+
+    def run_held(self) -> None:
+        """Run the interactions an inline read held, on the calling thread."""
+        while True:
+            try:
+                held = self._held.get_nowait()
+            except queue.Empty:
+                return
+            self._handlers.run(held)

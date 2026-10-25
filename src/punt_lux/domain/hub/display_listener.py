@@ -58,13 +58,21 @@ class DisplayListener:
         """Whether the caller is the reader thread itself."""
         return self._thread.is_current
 
-    def route(self, generation: DialGeneration, msg: Message) -> None:
-        """Route ``msg``, read from ``generation``, as the reader thread would."""
-        self._inbound.route(generation, msg)
+    def route(self, generation: DialGeneration, msg: Message, *, inline: bool) -> None:
+        """Route ``msg``, read from ``generation``, to where it is waited for.
 
-    def start(self) -> None:
+        ``inline`` marks a message a waiting caller decoded while holding request
+        locks: an interaction is then held (see :meth:`run_held`), not run.
+        """
+        self._inbound.route(generation, msg, inline=inline)
+
+    def run_held(self) -> None:
+        """Run the interactions an inline read held, outside every request lock."""
+        self._inbound.run_held()
+
+    def start(self, *, born_claimed: bool = False) -> None:
         """Start a reader on the current dial; a no-op if it already has one."""
-        self._thread.start()
+        self._thread.start(born_claimed=born_claimed)
 
     def stop(self) -> None:
         """Stop the reader and retire its dial, if running."""

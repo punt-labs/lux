@@ -91,11 +91,14 @@ class ClientRegistry:
         return self._client
 
     def _ensure_connected(self, client: DisplayLink) -> None:
-        """Connect/reconcile and start the listener, each only if not already."""
+        """Connect and reconcile if not connected.
+
+        A dial the registry makes starts its reader in the same step
+        (``connect(listen=True)``), so a connected link always has one and
+        nothing here waits for the reader slot under the registry lock.
+        """
         if not client.is_connected:
             self._connect_and_reconcile(client)
-        if not client.listener_active:
-            client.start_listener()
 
     def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
         """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
