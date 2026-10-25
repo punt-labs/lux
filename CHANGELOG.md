@@ -142,13 +142,25 @@
   "bd unavailable" board or logs a warning. The trust-anchor test now asserts
   the server's rejection of an unenrolled client rather than one client-side
   error form, which removes its flake.
-- **The Hub's display link survives a malformed frame and a stuck stop.** A
-  frame the Hub cannot decode is logged at ERROR with the display's endpoint
-  and the frame's first bytes, the messages decoded before it are still
-  delivered, and the connection is closed so the reconnect starts on a frame
-  boundary; previously the listener thread died silently and lost the batch.
-  A listener that would not stop in time is abandoned with an ERROR and a new
-  one started, instead of leaving nothing listening.
+- **A replaced display connection can no longer break its successor
+  (`lux-ghhf`, DES-102).** Each dial of the display is now a generation that
+  owns its socket, its reader and its pending replies, and dies whole. A
+  listener that could not be stopped in time used to keep reading its old
+  socket into the shared reply router, and on a read error closed the *new*
+  connection and failed its waiters. A reply now reaches only the generation
+  that asked for it: pongs are matched by timestamp, acks by a per-generation
+  ledger cross-checked against the scene id, and only a query that times out
+  retires its generation. Each reply kind has its own request lock, so a slow
+  query no longer blocks a ping. A display that stops reading ends a stuck send
+  within the one-second socket send timeout (applied as one to two seconds by
+  platform), which retires that connection and frees every writer queued
+  behind it. A frame the Hub cannot decode is logged at ERROR with the
+  display's endpoint and the frame's first bytes, the messages decoded before
+  it are still delivered, and the connection is closed so the reconnect starts
+  on a frame boundary. On the display side, a reply that cannot be sent ends
+  that client's connection instead of vanishing; events are still held and
+  retried. The design is model-checked in `docs/listener_lifecycle.tex`, and
+  its lock order is proven deadlock-free in `docs/listener_locks.tex`.
 - **The client host is recorded for every contact.** A session that shows a
   scene, subscribes or sets a menu without ever identifying now reports the
   host the Hub observed, instead of `unknown`. An empty transport address

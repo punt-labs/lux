@@ -7690,3 +7690,83 @@ session's listed entries (below), and a second take of the write surface is a
   callback entries a session lists, not only whether it earns a listing, so
   any change to them reads `revised`; the per-write overrides that restated
   this are gone.
+
+## DES-102: A Display Dial Is a Generation — Replies Reach Only the Dial That Asked
+
+**Status:** SETTLED (operator-ruled 2026-10-23, Option A; models accepted by jra:
+mission m-2026-10-23-024 for `docs/listener_lifecycle.tex`, mission
+m-2026-10-24-010 for `docs/listener_locks.tex`). Implementation mission
+m-2026-10-24-009 (worker rmh, evaluator gvr). Bead `lux-ghhf`. Builds on
+DES-093 (redial and pacing stay in `ClientRegistry`), DES-090 (the
+generation sits above the transport, TLS or not) and DES-101 (a lifecycle
+step is one operation under one lock).
+
+**Context.** The Hub held one `DisplayConnection` that every redial reused,
+one listener thread, and one reply router shared across dials. A listener
+that could not be stopped within its join timeout was abandoned and kept
+reading its old socket into the shared router. On a read failure or a
+malformed frame it called the broken-connection handler, which judged by
+`connection.is_open` (the current, replacement socket) and so closed the new
+connection and failed its waiters. Pongs and acks were matched by kind
+alone, so a late reply from a dead dial could satisfy a waiter on the live
+one. The defect class recurred across review rounds, so it was modelled
+(DES-038) before any code changed.
+
+**Decision.**
+
+- **One dial, one generation.** `DialGeneration` owns the socket, its frame
+  buffer, the socket lock `_lock`, its `ReplySink`, and the one reader slot,
+  and writes and reads only its own socket. It is retired whole: a retired
+  generation never delivers to anyone. Its counter is distinct from
+  DES-093's reconnect generation, which still paces redials.
+- **`DisplayConnection` knows only which dial is current.**
+  `close_if_current(g)` is the one retire step: a no-op unless `g` is
+  current, atomic with publication under the state lock. A reader reports
+  its own end through it, so an abandoned reader can never close a
+  successor.
+- **Replies reach only the dial that asked.** `ReplySink` holds what one dial
+  is owed. Acks are matched by a per-generation ledger in write order that
+  includes un-awaited replicated scenes, with a mandatory `scene_id`
+  cross-check (`ReplyOutOfOrderError`). Pongs are matched by a strictly
+  increasing timestamp and never retire. One query is in flight. Routing
+  never skips a reply.
+- **Only a query timeout retires.** A ping that times out, or a request-lock
+  wait that expires, sends and retires nothing; a ping that loses the lock is
+  `DisplayBusyError`, which liveness counts as alive. A write that raises
+  after its ledger entry retires its generation.
+- **One request lock per reply kind** (`DisplayRequests`), held across write
+  and wait, so a slow query no longer blocks a ping.
+- **`DisplayLink` coordinates; it does not forward.** It owns the dial's
+  lifecycle (`connect`, `close`, the listener) and exposes two typed,
+  read-only ports: `link.requests` (`DisplayRequests`) and `link.events`
+  (`DisplayListener`). Callers reach the port they need; nothing forwards a
+  request or event method.
+- **The display never drops a reply on a live connection.**
+  `SocketListener.reply_to_client` ends the client's connection when a reply
+  cannot be sent; events and `ReadyMessage` keep the hold-and-retry
+  semantics of `send_to_client`. The rule lives on the listener because it
+  already owns the defer policy and `remove_client`; a separate object owned
+  nothing but a back-reference to it.
+- **Lock order:** request lock, then state lock, then `_lock`, then the
+  reply-sink lock (a leaf). Proven deadlock-free at two and three threads in
+  `docs/listener_locks.tex`; the inverted control deadlocks. Two locks sit
+  above the model, `ClientRegistry._lock` and the store lock, and no model
+  lock is held while taking either: a query's timeout retire is
+  `close_if_current(g)` and never calls `ClientRegistry.drop()` under its
+  request lock.
+- **What ends a wedge.** A display that stops reading produces no end of
+  file, so nothing reports. Every generation's socket carries the one-second
+  send timeout (applied as one to two seconds by platform); a send that
+  times out raises, retires its generation, and releases every writer queued
+  behind it.
+
+**Rejected alternatives.** (a) Keep one connection and fence the abandoned
+listener with a stop flag only: the flag is read before a blocking `recv`,
+so a reader past the check still routes and reports into the successor.
+(b) Correlate replies with a request id on the wire (Option B): correct, but
+a protocol change both tiers and every client would carry, when per-dial
+generations close the defect with no wire change; the operator chose A.
+(c) Retire on any timeout: a slow-but-live display would be torn down by a
+ping, and a lock-wait expiry would retire a dial that never sent. (d) Keep the reply discipline in its own `ClientReplies` class: it
+owned no state but a back-reference, and pushed `socket_server.py` past the
+efferent-coupling cap.
