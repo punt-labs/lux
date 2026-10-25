@@ -623,7 +623,7 @@ class TestADeathTheHubEndedChargesNothing:
         assert rig.attribution.mode == "batching"
         assert deaths_of(rig.registry) == ()
 
-    def test_p5_an_inline_read_woken_by_the_hubs_retire_charges_nothing(
+    def test_p5_a_ping_waiting_on_the_reader_woken_by_the_hubs_retire_charges_nothing(
         self, display: Display
     ) -> None:
         rig = _rig(display, {"s1": "x"})
@@ -637,6 +637,21 @@ class TestADeathTheHubEndedChargesNothing:
         assert pinging.wait()
         assert isinstance(pinging.error, HubRetiredError)
         assert deaths_of(rig.registry) == ()
+
+    def test_p5_an_unlistened_inline_read_woken_by_the_hubs_retire_charges_nothing(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        writer_of(link).send_scene(_scene("s1"))  # written, never acked
+        dial = link.desk.asks().dial
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)  # the scene and the ping are read; the dial reads inline
+
+        link.drop_if_current(dial, cause="hub")
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, HubRetiredError)
+        assert deaths_of(link) == ()
 
     def test_only_a_display_end_queues_a_death(self, display: Display) -> None:
         link = _linked(display)
