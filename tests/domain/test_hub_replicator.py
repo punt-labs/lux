@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
+    from punt_lux.domain.hub.replicator_ports import ProbeVerdict
     from punt_lux.domain.hub.scene_snapshot import SceneReader
 
 _CONN = ConnectionId("repl-conn")
@@ -92,7 +93,7 @@ class _ProbeView:
         """The dial a probe goes out on, distinct from the one the sends use."""
         return self._sender.probe_dial
 
-    def confirm_alive(self, timeout: float) -> bool:
+    def confirm_alive(self, timeout: float) -> ProbeVerdict:
         """Answer as the sender does."""
         return self._sender.confirm_alive(timeout)
 
@@ -122,6 +123,7 @@ class _FakeSender:
     _gate: threading.Event | None
     _unacked: set[str]
     _deaths: list[DialDeath]
+    _unproved_probes: int
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
@@ -141,6 +143,7 @@ class _FakeSender:
         "_probe_dial",
         "_sent",
         "_unacked",
+        "_unproved_probes",
         "callback_submenus",
         "frames",
         "menus",
@@ -185,6 +188,7 @@ class _FakeSender:
         self._gate = None
         self._unacked = set()
         self._deaths = []
+        self._unproved_probes = 0
         self._lock = threading.Lock()
         self._sent = threading.Event()
         self._entered = threading.Event()
@@ -201,6 +205,10 @@ class _FakeSender:
         self._unacked = set()
         if owed:
             self._deaths.append(DialDeath(owed, "fake"))
+
+    def arm_unproved_probes(self, times: int) -> None:
+        """Make the next ``times`` probes find the dial busy through every try."""
+        self._unproved_probes = times
 
     def take_death(self) -> DialDeath | None:
         """Hand over the oldest recorded death, once."""
@@ -328,7 +336,7 @@ class _FakeSender:
         with self._lock:
             self.callback_submenus.append(list(submenus))
 
-    def confirm_alive(self, timeout: float) -> bool:
+    def confirm_alive(self, timeout: float) -> ProbeVerdict:
         """Report the display alive so long as no send has yet blown up.
 
         Mirrors ``DisplayRequests.confirm_alive``'s roundtrip semantics: crashes
@@ -341,7 +349,10 @@ class _FakeSender:
         one path where the probe genuinely earns its keep.
         """
         del timeout  # the fake answers instantly; the real link honours it
-        return not self._deferred_dead
+        if self._unproved_probes:
+            self._unproved_probes -= 1
+            return "unproved"
+        return "silent" if self._deferred_dead else "answered"
 
 
 class _FakeCallbackReader:
@@ -1917,3 +1928,61 @@ def test_an_idle_tick_that_raises_is_logged_and_the_worker_keeps_replicating(
         assert "idle tick failed" in caplog.text
     finally:
         repl.stop()
+
+
+def test_a_probe_that_proves_nothing_leaves_the_scenes_queued_and_names_the_scene(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Busy through every try is not proof and not death: the next scene is not sent
+    # on trust, the one sent stays queued, and the warning says which.
+    factory = HubStoreFactory()
+    store = factory.display
+    first = _seed(store, factory.lifecycle, "first")
+    second = _seed(store, factory.lifecycle, "second")
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
+    repl._attribution.attribute_death(frozenset({first}))  # isolation mode
+    sender.arm_unproved_probes(1)
+
+    with caplog.at_level(logging.WARNING):
+        pushed = repl._sender.push(DrainedBatch(frozenset({first, second}), False))
+
+    assert len(sender.shows) == 1, "the second scene was sent on trust"
+    assert sender.shows[0] in {"first", "second"}
+    assert set(pushed.deferred) == {first, second}
+    assert deaths_of(provider) == ()
+    assert provider.dropped == []
+    assert sender.shows[0] in caplog.text
+
+
+def test_the_replicator_queues_the_scenes_a_push_left_unsent() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    repl._attribution.attribute_death(frozenset({scene}))  # isolation mode
+    sender.arm_unproved_probes(1)
+
+    outcome = repl._push_cycle(DrainedBatch(frozenset({scene}), shutting=False))
+
+    assert outcome.outcome == "clean"
+    again = repl._signal.wait_and_drain(0.2, idle_tick_seconds=0.2)
+    assert scene in again.scenes
+
+
+def test_a_scene_a_recorded_death_takes_to_the_threshold_is_not_sent_by_that_push() -> (
+    None
+):
+    # Queued at discovery, charged first at the next push: the charge must come before
+    # the batch is filtered, or the scene its own death quarantines goes out once more.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    repl._attribution.attribute_death(frozenset({scene}))  # one strike already
+    sender._unacked = {"s1"}
+    sender.die()  # the second death, on record and not yet charged
+
+    repl._sender.push(DrainedBatch(frozenset({scene}), shutting=False))
+
+    assert store.is_quarantined(scene)
+    assert sender.shows == []
