@@ -151,6 +151,16 @@ class ClientReader:
             return
         for msg in messages:
             logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
-            self._callbacks.on_message(sock, msg)
+            try:
+                self._callbacks.on_message(sock, msg)
+            except Exception as exc:  # handler boundary: no reply may be skipped
+                # A request whose handling raised leaves no reply, and the Hub
+                # matches replies to requests by order, so the connection ends.
+                logger.exception(
+                    "Handling %s from fd %d failed", type(msg).__name__, fd
+                )
+                self._callbacks.on_error("error", str(exc), "message_handler")
+                self._host.remove_client(sock)
+                return
             if not self._host.is_client(sock):
                 return  # removed during handle (e.g. send failed)

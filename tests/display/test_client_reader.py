@@ -197,3 +197,28 @@ class TestRemovalPaths:
         sock = _inject(listener, _FakeSock(fd=503, data=bad))
         listener._reader.read(sock)
         assert sock not in listener.clients
+
+
+class TestAHandlerThatRaises:
+    def test_a_message_whose_handling_raises_severs_the_client(self) -> None:
+        errors: list[str] = []
+
+        def explode(_sock: object, _msg: object) -> None:
+            raise RuntimeError("scene handling failed before its ack")
+
+        listener = SocketListener(
+            SocketListenerCallbacks(
+                on_message=explode,
+                on_client_disconnected=lambda _fd: None,
+                on_error=lambda sev, _m, _c: errors.append(sev),
+            )
+        )
+        scene = SceneMessage(
+            id="s", elements=[TextElement(id="t", content="hi")], frame_id="s"
+        )
+        sock = _inject(listener, _FakeSock(fd=504, data=encode_message(scene)))
+
+        listener._reader.read(sock)  # must not raise
+
+        assert sock not in listener.clients
+        assert errors == ["error"]
