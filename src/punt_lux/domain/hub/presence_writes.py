@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.client_roster import ClientRoster
+    from punt_lux.domain.hub.client_roster import RosterRelease
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.hub.session_write import Attachment
@@ -42,7 +42,7 @@ class PresenceWrites:
     """Record, renew, discard, reap, and seat the registry's sessions."""
 
     _sessions: dict[ConnectionId, ClientSession]
-    _roster: ClientRoster
+    _roster: RosterRelease
     _lock: threading.Lock
     _clock: Callable[[], float]
     __slots__ = ("_clock", "_lock", "_roster", "_sessions")
@@ -50,7 +50,7 @@ class PresenceWrites:
     def __new__(
         cls,
         sessions: dict[ConnectionId, ClientSession],
-        roster: ClientRoster,
+        roster: RosterRelease,
         lock: threading.Lock,
         clock: Callable[[], float],
     ) -> Self:

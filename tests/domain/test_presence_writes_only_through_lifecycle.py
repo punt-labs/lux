@@ -10,7 +10,9 @@ The guard reads the source as syntax. A module reaches the surface by an import
 that resolves to the writes' module (absolute, relative, aliased, or of the module
 rather than the name), by taking it from the registry, or by holding the
 lifecycle's own handle on it; the registry's session state is written only by the
-writes, and the roster's renumbering is reached only by the writes. The lifecycle
+writes. The roster's renumbering is held by what exists, not by who is seen calling
+it: the write is the one method of ``RosterRelease``, built once, handed away once to
+the writes, and what readers are given can only name. The lifecycle
 uses its handle on the writes only as the receiver of a call, never handing it on.
 Each rule is exercised on planted source to prove it can fail.
 """
@@ -55,10 +57,13 @@ _DICT_MUTATORS = {
 _SESSION_STATE = "_sessions"
 _ROSTER_STATE = "_roster"
 _ROSTER_FILE = _SRC / "punt_lux" / "domain" / "hub" / "client_roster.py"
-# What the registry may ask of the roster: to name connections and to read the
-# names held. Every other public roster method renumbers survivors, which changes
-# the Clients menu's labels, so it is a presence write and the writes' alone.
-_ROSTER_READS = {"names_for", "held"}
+_ROSTER_REL = "src/punt_lux/domain/hub/client_roster.py"
+_NAMED_SESSIONS_REL = "src/punt_lux/domain/hub/named_sessions.py"
+# What the roster itself offers: to name connections, to read the names held, and to
+# hand its release away. The release is the one place a survivor is renumbered.
+_ROSTER_OWN = {"names_for", "held", "take_release"}
+# Who may name the release: its home and the writes that hold it.
+_RELEASE_NAMERS = {_ROSTER_REL, "src/punt_lux/domain/hub/presence_writes.py"}
 
 # The registry hands the surface out and the lifecycle takes it.
 _IMPORTERS = {
@@ -169,13 +174,13 @@ def _state_writes(source: str) -> list[tuple[str, int, str]]:
     return visitor.found
 
 
-def _roster_methods() -> set[str]:
-    """The public methods of ``ClientRoster``, read from its class body."""
-    tree = ast.parse(_ROSTER_FILE.read_text())
+def _roster_methods(source: str, name: str = "ClientRoster") -> set[str]:
+    """The public methods of a roster class, read from its class body."""
+    tree = ast.parse(source)
     cls = next(
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef) and node.name == "ClientRoster"
+        if isinstance(node, ast.ClassDef) and node.name == name
     )
     return {
         m.name
@@ -184,36 +189,52 @@ def _roster_methods() -> set[str]:
     }
 
 
-def _roster_calls(source: str, forbidden: set[str]) -> list[tuple[int, str]]:
-    """The calls of a forbidden roster method on a roster, by line and method.
+def _classes_that_drop_names(source: str) -> set[str]:
+    """The classes whose methods drop a name from the roster's holdings.
 
-    A call is on the roster when its receiver is reached through ``._roster``,
-    directly or through a name bound from it.
+    Dropping is ``self._names.drop(...)`` or popping a connection out of ``_key_of``:
+    the two steps that make a survivor's label move.
     """
-    tree = ast.parse(source)
-    bound = {
-        target.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(part, ast.Attribute) and part.attr == _ROSTER_STATE
-            for part in ast.walk(node.value)
-        )
-        for target in node.targets
-        if isinstance(target, ast.Name)
-    }
-    return [
-        (call.lineno, call.func.attr)
-        for call in ast.walk(tree)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr in forbidden
-        and any(
-            (isinstance(part, ast.Attribute) and part.attr == _ROSTER_STATE)
-            or (isinstance(part, ast.Name) and part.id in bound)
-            for part in ast.walk(call.func.value)
-        )
-    ]
+    found: set[str] = set()
+    for cls in ast.walk(ast.parse(source)):
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        for call in ast.walk(cls):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and (
+                    (call.func.attr == "drop" and _label(call.func.value) == "_names")
+                    or (
+                        call.func.attr == "pop" and _label(call.func.value) == "_key_of"
+                    )
+                )
+            ):
+                found.add(cls.name)
+    return found
+
+
+def _constructions_of(source: str, name: str) -> int:
+    return sum(
+        1
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == name
+    )
+
+
+def _names_in(source: str) -> set[str]:
+    """Every name the source uses, imports or reads off an object."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.ImportFrom | ast.Import):
+            found.update(alias.name.split(".")[-1] for alias in node.names)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
 
 
 def _handed_on_handles(source: str) -> list[int]:
@@ -297,18 +318,43 @@ def _outside_state_writers(root: Path) -> set[tuple[str, str]]:
     } - {_MAY_INITIALISE}
 
 
-def test_only_the_writes_reach_the_rosters_renumbering() -> None:
-    forbidden = _roster_methods() - _ROSTER_READS
-    assert forbidden, "the roster has no renumbering method left to guard"
+def test_the_roster_itself_only_names_and_hands_its_release_away() -> None:
+    assert _roster_methods(_ROSTER_FILE.read_text()) == _ROSTER_OWN
 
-    offenders = {
-        (rel, line, method)
+
+def test_only_the_release_drops_a_name_from_the_roster() -> None:
+    assert _classes_that_drop_names(_ROSTER_FILE.read_text()) == {"RosterRelease"}
+
+
+def test_the_release_is_built_once_by_the_roster_that_hands_it_away() -> None:
+    built = {
+        rel: count
         for rel, text in _files(_SRC)
-        if rel != _WRITES_FILE_REL
-        for line, method in _roster_calls(text, forbidden)
+        if (count := _constructions_of(text, "RosterRelease"))
     }
 
-    assert offenders == set()
+    assert built == {_ROSTER_REL: 1}
+
+
+def test_the_roster_s_release_is_taken_once_in_the_source() -> None:
+    callers = {
+        rel for rel, text in _files(_SRC) if _calls_attribute(text, "take_release")
+    }
+
+    assert callers == {_REGISTRY_FILE}
+
+
+def test_only_the_roster_and_the_writes_name_the_release() -> None:
+    namers = {rel for rel, text in _files(_SRC) if "RosterRelease" in _names_in(text)}
+
+    assert namers == _RELEASE_NAMERS
+
+
+def test_readers_of_the_roster_are_given_only_what_names() -> None:
+    named_sessions = (_ROOT / _NAMED_SESSIONS_REL).read_text()
+
+    assert "RosterNames" in _names_in(named_sessions)
+    assert "ClientRoster" not in _names_in(named_sessions)
 
 
 def test_the_lifecycle_only_calls_through_its_handle_on_the_writes() -> None:
@@ -459,32 +505,6 @@ class TestTheRulesCanFail:
         assert _calls_attribute("registry.take_writes()", "take_writes")
         assert _reads_attribute("self.lifecycle._writes.record(c)", "_writes")
 
-    def test_a_registry_method_that_renumbers_the_roster_is_found(self) -> None:
-        source = (
-            "class HubClientRegistry:\n"
-            "    def evict(self, cid):\n"
-            "        self._roster.release((cid,))\n"
-        )
-
-        assert _roster_calls(source, {"release"}) == [(3, "release")]
-
-    def test_a_renumbering_through_a_name_bound_from_the_roster_is_found(self) -> None:
-        source = (
-            "def f(registry, cid):\n"
-            "    roster = registry._roster\n"
-            "    roster.release((cid,))\n"
-        )
-
-        assert _roster_calls(source, {"release"}) == [(3, "release")]
-
-    def test_naming_through_the_roster_is_not_a_renumbering(self) -> None:
-        source = "def f(self, ids):\n    return self._roster.names_for(ids)\n"
-
-        assert _roster_calls(source, {"release"}) == []
-
-    def test_the_roster_s_own_methods_are_derived_from_its_class(self) -> None:
-        assert {"names_for", "held", "release"} <= _roster_methods()
-
     @pytest.mark.parametrize(
         "body",
         [
@@ -511,3 +531,39 @@ class TestTheRulesCanFail:
         )
 
         assert _handed_on_handles(source) == []
+
+    def test_a_method_that_drops_a_name_outside_the_release_is_found(self) -> None:
+        source = (
+            "class ClientRoster:\n"
+            "    def evict(self, cid):\n"
+            "        self._key_of.pop(cid)\n"
+            "class RosterRelease:\n"
+            "    def release(self, cid):\n"
+            "        self._names.drop(cid)\n"
+        )
+
+        assert _classes_that_drop_names(source) == {"ClientRoster", "RosterRelease"}
+
+    def test_a_planted_roster_method_enters_the_derived_set(self) -> None:
+        source = (
+            "class ClientRoster:\n"
+            "    def names_for(self, ids):\n"
+            "        return {}\n"
+            "    def release(self, departed):\n"
+            "        return frozenset()\n"
+        )
+
+        assert _roster_methods(source) == {"names_for", "release"}
+
+    def test_a_second_construction_of_the_release_is_counted(self) -> None:
+        source = "def f(roster):\n    return RosterRelease(roster, None, None)\n"
+
+        assert _constructions_of(source, "RosterRelease") == 1
+
+    def test_a_module_that_names_the_release_in_any_spelling_is_found(self) -> None:
+        for source in (
+            "from punt_lux.domain.hub.client_roster import RosterRelease\n",
+            "import punt_lux.domain.hub.client_roster as r\nx = r.RosterRelease\n",
+            "def f(release: RosterRelease) -> None:\n    release.release(())\n",
+        ):
+            assert "RosterRelease" in _names_in(source), source

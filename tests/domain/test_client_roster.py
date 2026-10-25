@@ -18,10 +18,13 @@ picture of who was live a moment ago — can take a name away or promote anybody
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.domain.hub.applet_name_format import format_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_roster import ClientRoster
+from punt_lux.domain.hub.client_roster import ClientRoster, RosterNames
 from punt_lux.domain.ids import ConnectionId
+from tests.roster_access import release_of
 
 
 def _identity(name: str, repo: str | None = None) -> ClientIdentity:
@@ -145,7 +148,7 @@ class TestStabilityWhileClientsAreTogether:
             }
         )
 
-        roster.release([ConnectionId("other")])
+        release_of(roster).release([ConnectionId("other")])
 
         assert roster.held()[ConnectionId("a")] == "lux"
         assert roster.held()[ConnectionId("b")] == "lux (2)"
@@ -155,7 +158,7 @@ class TestStabilityWhileClientsAreTogether:
         roster = ClientRoster()
         roster.names_for({ConnectionId("old"): _lux()})
 
-        roster.release([ConnectionId("old")])
+        release_of(roster).release([ConnectionId("old")])
         names = roster.names_for({ConnectionId("new"): _lux()})
 
         assert names == {ConnectionId("new"): "lux"}
@@ -174,7 +177,7 @@ class TestFallingBackToAFreedBase:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
 
         assert roster.held() == {ConnectionId("b"): "lux"}
 
@@ -182,7 +185,7 @@ class TestFallingBackToAFreedBase:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
         names = roster.names_for({ConnectionId("b"): _lux()})
 
         assert names == {ConnectionId("b"): "lux"}
@@ -191,7 +194,7 @@ class TestFallingBackToAFreedBase:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
         names = roster.names_for({ConnectionId("b"): _lux(), ConnectionId("c"): _lux()})
 
         assert names[ConnectionId("b")] == "lux"
@@ -215,7 +218,7 @@ class TestFallingBackToAFreedBase:
             }
         )
 
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
 
         assert roster.held() == {ConnectionId("b"): "lux", ConnectionId("c"): "lux (3)"}
 
@@ -230,8 +233,8 @@ class TestFallingBackToAFreedBase:
             }
         )
 
-        roster.release([ConnectionId("a")])
-        roster.release([ConnectionId("b")])
+        release_of(roster).release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("b")])
 
         assert roster.held() == {ConnectionId("c"): "lux"}
 
@@ -247,9 +250,11 @@ class TestFallingBackToAFreedBase:
         first, old = ConnectionId("first"), ConnectionId("old")
         roster.names_for({first: _lux(), ConnectionId("second"): _lux(), old: _lux()})
 
-        roster.release([ConnectionId("second")])  # frees "lux (2)", not the base
+        release_of(roster).release(
+            [ConnectionId("second")]
+        )  # frees "lux (2)", not the base
         roster.names_for({first: _lux(), ConnectionId("recent"): _lux()})
-        roster.release([first])  # frees the base itself
+        release_of(roster).release([first])  # frees the base itself
 
         assert roster.held()[ConnectionId("old")] == "lux"
         assert roster.held()[ConnectionId("recent")] == "lux (2)"
@@ -265,7 +270,7 @@ class TestFallingBackToAFreedBase:
             }
         )
 
-        roster.release([ConnectionId("b")])
+        release_of(roster).release([ConnectionId("b")])
 
         assert roster.held() == {ConnectionId("a"): "lux", ConnectionId("c"): "lux (3)"}
 
@@ -279,7 +284,7 @@ class TestFallingBackToAFreedBase:
             }
         )
 
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
 
         assert roster.held()[ConnectionId("vox")] == "voxd"
 
@@ -288,7 +293,7 @@ class TestFallingBackToAFreedBase:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        roster.release([ConnectionId("anonymous")])
+        release_of(roster).release([ConnectionId("anonymous")])
 
         assert roster.held() == {ConnectionId("a"): "lux", ConnectionId("b"): "lux (2)"}
 
@@ -326,8 +331,8 @@ class TestWhoMayTakeANameAway:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux()})
 
-        roster.release([ConnectionId("a")])
-        roster.release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
+        release_of(roster).release([ConnectionId("a")])
 
         assert roster.held() == {}
 
@@ -335,7 +340,7 @@ class TestWhoMayTakeANameAway:
         """An anonymous session is swept having never taken a name."""
         roster = ClientRoster()
 
-        roster.release([ConnectionId("never-identified")])
+        release_of(roster).release([ConnectionId("never-identified")])
 
         assert roster.held() == {}
 
@@ -423,7 +428,7 @@ class TestAppletGrouping:
             }
         )
 
-        roster.release([ConnectionId("beads")])
+        release_of(roster).release([ConnectionId("beads")])
 
         assert roster.held() == {ConnectionId("vox"): "lux"}
 
@@ -438,7 +443,7 @@ class TestAppletGrouping:
             }
         )
 
-        roster.release([ConnectionId("a-beads"), ConnectionId("a-vox")])
+        release_of(roster).release([ConnectionId("a-beads"), ConnectionId("a-vox")])
 
         assert roster.held() == {ConnectionId("b-beads"): "lux"}
 
@@ -463,7 +468,7 @@ class TestReleaseReportsWhoseNameMoved:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        moved = roster.release((ConnectionId("a"),))
+        moved = release_of(roster).release((ConnectionId("a"),))
 
         assert moved == frozenset({ConnectionId("b")})
         assert roster.held() == {ConnectionId("b"): "lux"}
@@ -472,18 +477,20 @@ class TestReleaseReportsWhoseNameMoved:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        assert roster.release((ConnectionId("b"),)) == frozenset()
+        assert release_of(roster).release((ConnectionId("b"),)) == frozenset()
 
     def test_a_departed_connection_is_never_among_the_moved(self) -> None:
         roster = ClientRoster()
         roster.names_for({ConnectionId("a"): _lux(), ConnectionId("b"): _lux()})
 
-        moved = roster.release((ConnectionId("a"), ConnectionId("b")))
+        moved = release_of(roster).release((ConnectionId("a"), ConnectionId("b")))
 
         assert moved == frozenset()
 
     def test_releasing_a_connection_never_named_reports_nobody(self) -> None:
-        assert ClientRoster().release((ConnectionId("ghost"),)) == frozenset()
+        assert (
+            release_of(ClientRoster()).release((ConnectionId("ghost"),)) == frozenset()
+        )
 
     def test_only_the_senior_numbered_survivor_moves(self) -> None:
         roster = ClientRoster()
@@ -495,7 +502,38 @@ class TestReleaseReportsWhoseNameMoved:
             }
         )
 
-        moved = roster.release((ConnectionId("a"),))
+        moved = release_of(roster).release((ConnectionId("a"),))
 
         assert moved == frozenset({ConnectionId("b")})
         assert roster.held()[ConnectionId("c")] == "lux (3)"
+
+
+class TestTheReleaseIsGivenAwayOnce:
+    """Renumbering survivors is presence; the roster hands the one write away once."""
+
+    def test_the_roster_gives_its_release_to_one_holder(self) -> None:
+        roster = ClientRoster()
+        roster.take_release()
+
+        with pytest.raises(ValueError, match="already handed"):
+            roster.take_release()
+
+    def test_the_release_it_gives_drops_what_the_roster_named(self) -> None:
+        roster = ClientRoster()
+        first, second = ConnectionId("first"), ConnectionId("second")
+        roster.names_for({first: _lux(), second: _lux()})
+
+        moved = roster.take_release().release([first])
+
+        assert moved == frozenset({second})
+        assert roster.held() == {second: "lux"}
+
+    def test_a_reader_s_view_of_the_roster_has_no_write(self) -> None:
+        # What the registry hands its readers is a ``RosterNames``: the protocol
+        # carries naming and nothing that renumbers.
+        names = {n for n in vars(RosterNames) if not n.startswith("_")}
+
+        assert names == {"names_for"}
+
+    def test_the_roster_itself_carries_no_release_method(self) -> None:
+        assert not hasattr(ClientRoster, "release")
