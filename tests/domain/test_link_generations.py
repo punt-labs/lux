@@ -1061,7 +1061,7 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
 
 
 def _ping_lock_is_held(link: DisplayLink) -> bool:
-    """Whether a ping made now finds the ping lock taken: it says busy and sends nothing."""
+    """Whether a ping made now finds the ping lock taken (busy, nothing sent)."""
     try:
         link.desk.asks().ping(timeout=0.05)
     except DisplayBusyError:
