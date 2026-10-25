@@ -18,6 +18,7 @@ import threading
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.connection_timing import CONNECTION_TIMING
+from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.liveness_pacing import LivenessPacing
 
 if TYPE_CHECKING:
@@ -25,7 +26,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DisplayLiveness", "KeepaliveClients", "KeepaliveConnection"]
+__all__ = [
+    "DisplayLiveness",
+    "KeepaliveClients",
+    "KeepaliveConnection",
+]
 
 # Bound the join at stop so a wedged final ping cannot hang shutdown.
 _STOP_JOIN_TIMEOUT = 3.0
@@ -41,10 +46,20 @@ class KeepaliveConnection(Protocol):
 
 
 @runtime_checkable
+class KeepaliveLink(Protocol):
+    """A display link, seen as the keepalive sees it: the port it pings through."""
+
+    @property
+    def requests(self) -> KeepaliveConnection:
+        """The link's outbound port."""
+        ...
+
+
+@runtime_checkable
 class KeepaliveClients(Protocol):
     """Hands out the display connection (reconnecting) and drops a dead one."""
 
-    def get(self) -> KeepaliveConnection:
+    def get(self) -> KeepaliveLink:
         """Return the connected client, reconnecting and re-registering if dropped."""
         ...
 
@@ -116,7 +131,11 @@ class DisplayLiveness:
 
         The re-probe spares a connection a concurrent reconnect just healed.
         """
-        if self._probe() or self._probe():
+        try:
+            proved = self._probe() or self._probe()
+        except DisplayBusyError:
+            return  # another ping holds the dial: nothing was learned this cycle
+        if proved:
             self._pacing.mark_connected()
             return
         self._pacing.mark_disconnected()
@@ -147,7 +166,7 @@ class DisplayLiveness:
         """Return whether a ``get`` + ping round-trip succeeded; ``check_once``
         logs the not-connected transition once, not on each failed probe."""
         try:
-            return self._clients.get().ping(self._ping_timeout) is not None
+            return self._clients.get().requests.ping(self._ping_timeout) is not None
         except (OSError, RuntimeError) as exc:
             logger.debug("liveness probe failed: %s", exc)
             return False

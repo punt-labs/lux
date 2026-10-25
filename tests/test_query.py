@@ -247,7 +247,7 @@ class TestClientQuery:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                resp = client.query("echo", {"key": "value"})
+                resp = client.requests.query("echo", {"key": "value"})
                 assert resp is not None
                 assert isinstance(resp, QueryResponse)
                 assert resp.method == "echo"
@@ -279,7 +279,7 @@ class TestClientQuery:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                resp = client.query("error_test")
+                resp = client.requests.query("error_test")
                 assert resp is not None
                 assert resp.error == "deliberate test error"
         finally:
@@ -338,7 +338,7 @@ class TestClientQuery:
             with DisplayLink(
                 sock_path, auto_spawn=False, connect_timeout=2.0, recv_timeout=0.3
             ) as client:
-                resp = client.query("anything", timeout=0.3)
+                resp = client.requests.query("anything", timeout=0.3)
                 assert resp is None
         finally:
             done_event.set()
@@ -367,7 +367,7 @@ class TestClientQuery:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 client.start_listener()
-                resp = client.query("echo", {"data": 42})
+                resp = client.requests.query("echo", {"data": 42})
                 assert resp is not None
                 assert resp.method == "echo"
                 assert resp.result == {"echo": {"data": 42}}
@@ -398,7 +398,7 @@ class TestClientQuery:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 # First: send a scene
-                ack = client.show(
+                ack = client.requests.show(
                     "s1",
                     elements=[TextElement(id="t1", content="hi")],
                 )
@@ -406,7 +406,7 @@ class TestClientQuery:
                 assert ack.scene_id == "s1"
 
                 # Second: send a query
-                resp = client.query("echo", {"after_scene": True})
+                resp = client.requests.query("echo", {"after_scene": True})
                 assert resp is not None
                 assert resp.method == "echo"
         finally:

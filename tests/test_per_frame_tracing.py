@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.display import renderers
 from punt_lux.display.render_loop import RenderLoop
-from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -72,5 +72,5 @@ def test_trace_still_reports_an_event_driven_call(
 
 def test_a_write_to_the_display_is_traced_and_a_read_of_it_is_not() -> None:
     """The trace belongs on ``send``, one line per event; a read loop would flood it."""
-    assert _is_traced(DisplayConnection, "send")
-    assert not _is_traced(DisplayConnection, "receive")
+    assert _is_traced(DialGeneration, "send")
+    assert not _is_traced(DialGeneration, "poll_chunk")

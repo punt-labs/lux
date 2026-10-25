@@ -103,7 +103,7 @@ class TestWalkingSkeleton:
                 # Send scene with image + 2 buttons
                 from punt_lux.protocol import ImageElement
 
-                ack = client.show(
+                ack = client.requests.show(
                     "e2e-scene-1",
                     elements=[
                         ImageElement(
@@ -122,7 +122,7 @@ class TestWalkingSkeleton:
                 assert ack.scene_id == "e2e-scene-1"
 
                 # Verify bidirectional communication with ping
-                pong = client.ping()
+                pong = client.requests.ping()
                 assert pong is not None
                 assert pong.ts is not None
         finally:
@@ -159,11 +159,11 @@ class TestWalkingSkeleton:
                 if len(events) == 2:
                     done.set()
 
-            client.set_fallback_handler(_on_click)
+            client.events.set_fallback_handler(_on_click)
             try:
                 client.connect()
                 client.start_listener()
-                ack = client.show(
+                ack = client.requests.show(
                     "e2e-click-test",
                     elements=[
                         TextElement(id="t1", content="Click test"),

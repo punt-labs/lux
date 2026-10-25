@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import queue
+import socket
 import threading
+from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.polled_event import PolledEvent
@@ -18,24 +21,35 @@ from punt_lux.protocol import (
     ObserverMessage,
     PongMessage,
     QueryResponse,
+    ReadyMessage,
     RemoteEventHandlerInvocation,
 )
 
-
-class _Alive:
-    """A listener that is running."""
-
-    @property
-    def alive(self) -> bool:
-        return True
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
-class _Dead:
-    """A listener that has exited."""
+@pytest.fixture
+def generation() -> Iterator[DialGeneration]:
+    ours, theirs = socket.socketpair()
+    made = DialGeneration(
+        HandshakeResult(sock=ours, endpoint="pair", ready=ReadyMessage()),
+        lambda _generation: True,
+    )
+    yield made
+    made.shut()
+    theirs.close()
 
-    @property
-    def alive(self) -> bool:
-        return False
+
+def _another() -> tuple[DialGeneration, socket.socket]:
+    ours, theirs = socket.socketpair()
+    return (
+        DialGeneration(
+            HandshakeResult(sock=ours, endpoint="other", ready=ReadyMessage()),
+            lambda _generation: True,
+        ),
+        theirs,
+    )
 
 
 def _click(
@@ -45,29 +59,35 @@ def _click(
 
 
 class TestInteractions:
-    def test_an_interaction_is_answered_by_the_handlers_it_was_given(self) -> None:
+    def test_an_interaction_is_answered_by_the_handlers_it_was_given(
+        self, generation: DialGeneration
+    ) -> None:
         handlers = InteractionHandlers()
         seen: list[str] = []
         handlers.set_fallback(lambda m: seen.append(m.action))
 
-        InboundRouter(handlers).route(_click())
+        InboundRouter(handlers).route(generation, _click())
 
         assert seen == ["click"]
 
-    def test_an_interaction_is_never_queued_as_an_event(self) -> None:
+    def test_an_interaction_is_never_queued_as_an_event(
+        self, generation: DialGeneration
+    ) -> None:
         router = InboundRouter(InteractionHandlers())
 
-        router.route(_click())
+        router.route(generation, _click())
 
         with pytest.raises(queue.Empty):
             router.next_event(0.01)
 
 
 class TestEvents:
-    def test_an_observer_message_queues_as_a_polled_event(self) -> None:
+    def test_an_observer_message_queues_as_a_polled_event(
+        self, generation: DialGeneration
+    ) -> None:
         router = InboundRouter(InteractionHandlers())
 
-        router.route(ObserverMessage(topic="t", payload={"k": 1}))
+        router.route(generation, ObserverMessage(topic="t", payload={"k": 1}))
 
         assert router.next_event(0.1) == PolledEvent(topic="t", payload={"k": 1})
 
@@ -75,66 +95,29 @@ class TestEvents:
         with pytest.raises(queue.Empty):
             InboundRouter(InteractionHandlers()).next_event(0.01)
 
-    def test_reset_discards_events_queued_before_it(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-        router.route(ObserverMessage(topic="t", payload={}))
-
-        router.reset()
-
-        with pytest.raises(queue.Empty):
-            router.next_event(0.01)
-
-
-class TestReplies:
-    def test_an_ack_is_handed_to_the_caller_waiting_for_one(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-        ack = AckMessage(scene_id="s1")
-
-        router.route(ack)
-
-        assert router.next_reply(AckMessage, 0.1, _Alive()) == ack
-
-    def test_a_pong_and_a_query_response_are_kept_apart(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-        pong = PongMessage(ts=1.0)
-        response = QueryResponse(method="m")
-
-        router.route(response)
-        router.route(pong)
-
-        assert router.next_reply(PongMessage, 0.1, _Alive()) == pong
-        assert router.next_reply(QueryResponse, 0.1, _Alive()) == response
-
-    def test_waiting_for_a_reply_that_never_comes_times_out_as_none(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-        assert router.next_reply(AckMessage, 0.01, _Alive()) is None
-        assert router.next_reply(PongMessage, 0.01, _Alive()) is None
-
-    def test_reset_discards_replies_a_dying_listener_left(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-        router.route(AckMessage(scene_id="stale"))
-
-        router.reset()
-
-        assert router.next_reply(AckMessage, 0.01, _Alive()) is None
-
-
-class TestUnroutableMessages:
-    def test_an_unhandled_kind_is_dropped_with_a_debug_log(
-        self, caplog: pytest.LogCaptureFixture
+    def test_an_event_outlives_the_dial_that_carried_it(
+        self, generation: DialGeneration
     ) -> None:
         router = InboundRouter(InteractionHandlers())
+        router.route(generation, ObserverMessage(topic="t", payload={}))
 
-        with caplog.at_level(logging.DEBUG):
-            router.route(HubManifestMessage(scene_ids=()))
+        generation.shut()
 
-        assert "Dropping unhandled message: HubManifestMessage" in caplog.text
-        with pytest.raises(queue.Empty):
-            router.next_event(0.01)
+        assert router.next_event(0.1) == PolledEvent(topic="t", payload={})
 
+    def test_an_event_a_straggler_routes_after_its_dial_ended_is_still_delivered(
+        self, generation: DialGeneration
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        generation.shut()
 
-class TestResetKeepsTheEventQueue:
-    def test_a_waiter_blocked_across_a_reset_still_hears_the_next_event(self) -> None:
+        router.route(generation, ObserverMessage(topic="late", payload={}))
+
+        assert router.next_event(0.1) == PolledEvent(topic="late", payload={})
+
+    def test_a_waiter_blocked_across_a_dial_s_end_hears_the_next_event(
+        self, generation: DialGeneration
+    ) -> None:
         router = InboundRouter(InteractionHandlers())
         heard: list[PolledEvent] = []
         waiting = threading.Event()
@@ -148,38 +131,76 @@ class TestResetKeepsTheEventQueue:
         waiting.wait(timeout=3)
         threading.Event().wait(0.1)
 
-        router.reset()
-        router.route(ObserverMessage(topic="t", payload={"k": "after"}))
+        generation.shut()
+        router.route(generation, ObserverMessage(topic="t", payload={"k": "after"}))
         waiter.join(timeout=5)
 
         assert heard == [PolledEvent(topic="t", payload={"k": "after"})]
 
 
-class TestAWaiterWatchesItsListener:
-    def test_a_listener_that_exited_fails_the_waiter_instead_of_timing_out(
-        self,
+class TestReplies:
+    def test_a_reply_goes_into_the_sink_of_the_generation_that_carried_it(
+        self, generation: DialGeneration
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        other, theirs = _another()
+        try:
+            mine = generation.sink.expect_pong(1.0)
+            theirs_waiting = other.sink.expect_pong(1.0)
+
+            router.route(generation, PongMessage(ts=1.0))
+
+            assert mine.reply == PongMessage(ts=1.0)
+            assert theirs_waiting.reply is None
+        finally:
+            other.shut()
+            theirs.close()
+
+    def test_a_reply_from_a_retired_generation_is_dropped_not_parked(
+        self, generation: DialGeneration
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        generation.shut()
+
+        router.route(generation, AckMessage(scene_id="late"))
+        router.route(generation, PongMessage(ts=1.0))
+        router.route(generation, QueryResponse(method="m"))
+
+        assert generation.sink.owed_acks == 0
+
+    def test_an_ack_a_waiter_is_owed_reaches_it(
+        self, generation: DialGeneration
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        owed = generation.sink.owe_ack("s1", awaited=True)
+
+        router.route(generation, AckMessage(scene_id="s1"))
+
+        assert owed.reply == AckMessage(scene_id="s1")
+
+    def test_a_pong_and_a_query_response_are_kept_apart(
+        self, generation: DialGeneration
+    ) -> None:
+        router = InboundRouter(InteractionHandlers())
+        ping = generation.sink.expect_pong(1.0)
+        query = generation.sink.expect_query()
+
+        router.route(generation, QueryResponse(method="m"))
+        router.route(generation, PongMessage(ts=1.0))
+
+        assert ping.reply == PongMessage(ts=1.0)
+        assert query.reply == QueryResponse(method="m")
+
+
+class TestUnroutableMessages:
+    def test_an_unhandled_kind_is_dropped_with_a_debug_log(
+        self, generation: DialGeneration, caplog: pytest.LogCaptureFixture
     ) -> None:
         router = InboundRouter(InteractionHandlers())
 
-        with pytest.raises(ConnectionClosedError, match="listener exited"):
-            router.next_reply(AckMessage, 5.0, _Dead())
+        with caplog.at_level(logging.DEBUG):
+            router.route(generation, HubManifestMessage(scene_ids=()))
 
-    def test_a_reply_already_queued_is_still_delivered_after_the_listener_exited(
-        self,
-    ) -> None:
-        router = InboundRouter(InteractionHandlers())
-        ack = AckMessage(scene_id="s")
-        router.route(ack)
-
-        assert router.next_reply(AckMessage, 5.0, _Dead()) == ack
-
-    def test_a_typed_reply_wait_fails_the_same_way(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-
-        with pytest.raises(ConnectionClosedError):
-            router.next_reply(PongMessage, 5.0, _Dead())
-
-    def test_a_live_listener_with_nothing_to_say_times_out_quietly(self) -> None:
-        router = InboundRouter(InteractionHandlers())
-
-        assert router.next_reply(AckMessage, 0.05, _Alive()) is None
+        assert "Dropping unhandled message: HubManifestMessage" in caplog.text
+        with pytest.raises(queue.Empty):
+            router.next_event(0.01)

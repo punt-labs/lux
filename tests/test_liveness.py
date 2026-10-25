@@ -9,7 +9,11 @@ import time
 
 import pytest
 
-from punt_lux.domain.hub.liveness import DisplayLiveness, KeepaliveConnection
+from punt_lux.domain.hub.display_busy import DisplayBusyError
+from punt_lux.domain.hub.liveness import (
+    DisplayLiveness,
+    KeepaliveLink,
+)
 from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from punt_lux.protocol import PongMessage
 
@@ -24,6 +28,11 @@ class _FakeConnection:
     """
 
     _results: list[PongMessage | Exception | None]
+
+    @property
+    def requests(self) -> _FakeConnection:
+        """The outbound port: this fake is its own."""
+        return self
 
     def __new__(cls, results: list[PongMessage | Exception | None]) -> _FakeConnection:
         self = super().__new__(cls)
@@ -40,18 +49,18 @@ class _FakeConnection:
 class _FakeClients:
     """A keepalive client provider counting ``get``/``drop`` against a connection."""
 
-    _connection: KeepaliveConnection
+    _connection: KeepaliveLink
     get_calls: int
     drop_calls: int
 
-    def __new__(cls, connection: KeepaliveConnection) -> _FakeClients:
+    def __new__(cls, connection: KeepaliveLink) -> _FakeClients:
         self = super().__new__(cls)
         self._connection = connection
         self.get_calls = 0
         self.drop_calls = 0
         return self
 
-    def get(self) -> KeepaliveConnection:
+    def get(self) -> KeepaliveLink:
         self.get_calls += 1
         return self._connection
 
@@ -79,6 +88,15 @@ class TestCheckOnce:
         DisplayLiveness(clients).check_once()
         assert clients.drop_calls == 0  # the recovered connection is spared
         assert clients.get_calls == 2  # probe, then the sparing re-probe
+
+    def test_a_busy_display_is_not_a_dead_one(self) -> None:
+        # Another ping holds the dial: nothing was sent, so nothing was learned.
+        clients = _FakeClients(
+            _FakeConnection([DisplayBusyError("a ping is in flight")])
+        )
+        DisplayLiveness(clients).check_once()
+        assert clients.drop_calls == 0
+        assert clients.get_calls == 1
 
     def test_twice_failed_probe_drops_and_reconnects(self) -> None:
         # Both probes fail (genuinely dead), then a pong once reconnected.
@@ -114,7 +132,7 @@ class _AlwaysFailingClients:
 
     __slots__ = ()
 
-    def get(self) -> KeepaliveConnection:
+    def get(self) -> KeepaliveLink:
         msg = "connect refused"
         raise RuntimeError(msg)
 

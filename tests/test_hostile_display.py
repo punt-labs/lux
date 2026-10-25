@@ -12,6 +12,8 @@ import base64
 import pickle
 import socket
 import struct
+import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -171,7 +173,7 @@ class TestScenesFromADisplay:
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
-                link.ping(timeout=2.0)
+                link.requests.ping(timeout=2.0)
             assert not link.is_connected
         assert unpickled == []
 
@@ -184,7 +186,7 @@ class TestScenesFromADisplay:
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
             with pytest.raises(ValueError, match="not accepted"):
-                link.show("s", [])
+                link.requests.show("s", [])
             assert not link.is_connected
         assert unpickled == []
 
@@ -250,11 +252,31 @@ class TestDeepFrames:
     )
     def test_unterminated_strings_cost_linear_work(self, unit: bytes) -> None:
         # A quote-matching regex retried from every quote is quadratic in the
-        # payload: this size would not finish, so completing is the bound.
-        payload = b'{"k": "' + unit * (4 * 1024 * 1024 // len(unit))
+        # payload: this size would not finish. The regex holds the GIL while it
+        # runs, so no in-process timeout can fire; a child process under a hard
+        # deadline turns a regression into a failure instead of a hang.
+        script = (
+            "import sys\n"
+            "from punt_lux.protocol.json_payload import JsonPayload\n"
+            f"unit = {unit!r}\n"
+            'payload = b\'{"k": "\' + unit * (4 * 1024 * 1024 // len(unit))\n'
+            "try:\n"
+            "    JsonPayload(payload).as_object()\n"
+            "except ValueError:\n"
+            "    sys.exit(0)\n"
+            "sys.exit(1)\n"
+        )
 
-        with pytest.raises(ValueError):
-            JsonPayload(payload).as_object()
+        try:
+            done = subprocess.run(
+                [sys.executable, "-I", "-c", script], timeout=_LINEAR_DEADLINE
+            )
+        except subprocess.TimeoutExpired:
+            pytest.fail(
+                f"decoding an unterminated string took over {_LINEAR_DEADLINE}s"
+            )
+
+        assert done.returncode == 0
 
     def test_recursion_error_from_the_decoder_becomes_a_value_error(
         self, monkeypatch: pytest.MonkeyPatch
@@ -266,6 +288,10 @@ class TestDeepFrames:
 
         with pytest.raises(ValueError, match="nests too deeply"):
             JsonPayload(b"{}").as_object()
+
+
+# Linear decoding of the 4 MiB payload takes a fraction of a second.
+_LINEAR_DEADLINE = 30.0
 
 
 def _nest(depth: int) -> list[object]:

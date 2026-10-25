@@ -1,44 +1,27 @@
 """The Hub's connection to the display process.
 
-:class:`DisplayLink` is a context manager over a Unix socket that performs
-the ``ReadyMessage`` handshake and exposes typed methods for scenes, pings,
-and queries. :meth:`set_fallback_handler` + :meth:`start_listener` enable
-push-based dispatch on the listener thread; acks, pongs, and query responses route to
-the queues :meth:`show`, :meth:`ping`, and :meth:`query` consume, and
-:class:`ObserverMessage` frames queue as :class:`PolledEvent` for
-:meth:`poll_event`.
+:class:`DisplayLink` coordinates one dial's lifecycle across its parts: it opens
+the dial (the ``ReadyMessage`` handshake), starts and stops the listener on it,
+and closes it. What the Hub sends and waits for is
+:attr:`~DisplayLink.requests`; what the display pushes (business events,
+interactions) is :attr:`~DisplayLink.events`. Each is a port: callers use that one
+object's surface.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_replies import DisplayReplies
+from punt_lux.domain.hub.display_listener import DisplayListener
+from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.protocol import (
-    AckMessage,
-    CallbackMenuMessage,
-    HubManifestMessage,
-    MenuMessage,
-    PingMessage,
-    PongMessage,
-    QueryRequest,
-    QueryResponse,
-    ReadyMessage,
-    RemoteEventHandlerInvocation,
-    SceneMessage,
-)
+from punt_lux.protocol import ReadyMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.display_dialer import DisplayDialer
-    from punt_lux.polled_event import PolledEvent
-    from punt_lux.protocol import Element
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +46,8 @@ class DisplayLink:
     """
 
     _connection: DisplayConnection
-    _replies: DisplayReplies
+    _listener: DisplayListener
+    _requests: DisplayRequests
 
     def __new__(
         cls,
@@ -86,13 +70,14 @@ class DisplayLink:
             ),
             connect_timeout,
         )
-        self._replies = DisplayReplies(self._connection, recv_timeout)
+        self._listener = DisplayListener(self._connection, recv_timeout)
+        self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
         return self
 
     # -- context manager ---------------------------------------------------
 
     def __enter__(self) -> DisplayLink:
-        self.connect()
+        self._connection.open()
         return self
 
     def __exit__(self, *_: object) -> None:
@@ -108,160 +93,74 @@ class DisplayLink:
     @property
     def listener_active(self) -> bool:
         """Whether the background listener thread is running."""
-        return self._replies.listening
+        return self._listener.listening
 
     @property
     def ready_message(self) -> ReadyMessage | None:
         """The ``ReadyMessage`` received during handshake, or ``None``."""
         return self._connection.ready
 
-    def connect(self) -> None:
-        """Connect to the display server.
+    def connect(self, *, listen: bool = False) -> None:
+        """Connect to the display server, and start the listener on the new dial.
 
         No-op if already connected.  If *auto_spawn* is enabled and no
         display is running, spawns one first.  Blocks until the
         ``ReadyMessage``/``ConnectMessage`` handshake completes (delegated to
         :class:`HandshakeConnector`, which owns the socket-open and identity
-        concern). The caller starts the listener.
+        concern). With ``listen`` the reader is started on the dial just opened,
+        before anything is sent on it; if it cannot start, that dial is retired
+        and the error raised, so the next connect redials.
 
         Raises
         ------
         DisplayNotConnectedError
             If the display fails to start or the handshake times out.
         """
-        if self._connection.is_open:
+        dialed = self._connection.open(listening=listen)
+        if not listen:
             return
-        self._connection.open()
+        try:
+            self._listener.start(dialed)
+        except BaseException:
+            # A dial with no reader repairs nothing: retire the one this call made.
+            if dialed is not None:
+                self._connection.close_if_current(dialed)
+            raise
 
     def close(self) -> None:
         """Close the connection to the display server."""
-        self.stop_listener()
-        self._replies.end()
-
-    # -- callback registration ---------------------------------------------
-
-    def set_fallback_handler(
-        self,
-        handler: Callable[[RemoteEventHandlerInvocation], None],
-    ) -> None:
-        """Install the handler every interaction the display reports is given to.
-
-        Called by the Hub to route display-side clicks through Hub-side element
-        dispatch; with none installed an interaction is dropped.
-        """
-        self._replies.set_fallback(handler)
+        self._listener.stop()
+        self._connection.close()
 
     # -- background listener -----------------------------------------------
 
     def start_listener(self) -> None:
-        """Start the background listener thread.
+        """Start the background listener thread on the current dial.
 
-        The listener reads incoming messages from the socket and
-        dispatches them by kind: ``RemoteEventHandlerInvocation`` runs the
-        fallback handler (none installed: it is dropped); ``ObserverMessage``
-        payloads queue
-        for :meth:`poll_event`; ``AckMessage``, ``PongMessage``, and
-        ``QueryResponse`` route to their per-type queues for
-        :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
-        kinds are dropped with a debug log.
-
-        Safe to call multiple times — no-ops if already running.
+        The listener reads what the display sends and routes it: interactions to
+        the fallback handler, business events to :attr:`events`' queue, replies to
+        the request that waits for them. Safe to call multiple times: a no-op if
+        the current dial already has a reader. Raises
+        :class:`ConnectionClosedError` if not connected.
         """
-        self._replies.start()
+        self._listener.start()
 
     def stop_listener(self) -> None:
-        """Stop the background listener thread, if running."""
-        self._replies.stop()
+        """Stop the background listener thread, if running, and retire its dial.
 
-    # -- sending -----------------------------------------------------------
-
-    def show(
-        self,
-        scene_id: str,
-        elements: list[Element],
-        *,
-        title: str | None = None,
-        layout: Literal["single", "rows", "columns", "grid"] = "single",
-        frame_id: str | None = None,
-        frame_title: str | None = None,
-        frame_size: tuple[int, int] | None = None,
-        frame_flags: dict[str, bool] | None = None,
-        frame_layout: Literal["tab", "stack"] | None = None,
-    ) -> AckMessage | None:
-        """Send a scene to the display and wait for acknowledgement.
-
-        Every scene is framed: an omitted *frame_id* self-frames by *scene_id* (as
-        the Hub does), so a bare ``show`` still lands in a named frame. Returns the
-        :class:`AckMessage` or ``None`` on timeout.
+        A reader lives and dies with its dial: a caller that stops its listener
+        and wants another must reconnect first.
         """
-        presentation = ScenePresentation(
-            frame_id=frame_id if frame_id is not None else scene_id,
-            title=title,
-            layout=layout,
-            frame_title=frame_title,
-            frame_size=frame_size,
-            frame_flags=frame_flags,
-            frame_layout=frame_layout,
-        )
-        self.send_scene(presentation.message(scene_id, elements))
-        return self._replies.typed(AckMessage, None)
+        self._listener.stop()
 
-    def send_scene(self, message: SceneMessage) -> None:
-        """Send a built scene without waiting for an ack."""
-        self._connection.send(message)
+    # -- ports -------------------------------------------------------------
 
-    def set_menu(self, menus: list[dict[str, Any]]) -> None:
-        """Set custom menu bar entries."""
-        self._connection.send(MenuMessage(menus=menus))
+    @property
+    def requests(self) -> DisplayRequests:
+        """What the Hub sends the display, and the answers it waits for."""
+        return self._requests
 
-    def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
-        """Replace the display's Clients menu (Hub-composed)."""
-        self._connection.send(CallbackMenuMessage(submenus=submenus))
-
-    def send_manifest(self, scene_ids: Sequence[str]) -> None:
-        """Declare the Hub's complete live-scene set to the display (DES-068).
-
-        Meaningful only for a ``kind="hub"`` connection, sent immediately
-        after identifying and before any scene content. The display purges
-        every scene it cannot attribute to this connection that the
-        manifest does not name.
-        """
-        self._connection.send(HubManifestMessage(scene_ids=tuple(scene_ids)))
-
-    def probe_alive(self, timeout: float) -> bool:
-        """Return whether the display responded to a ping within ``timeout``.
-
-        The :class:`DisplaySender` liveness probe the replicator's isolation
-        loop calls between successive singleton sends, so a crash caused by
-        scene N attributes to N (not N+1). A None pong (timed out) or any
-        socket error the underlying send raises means the display did not
-        respond in time; the caller treats that as a failure of the scene
-        just sent.
-        """
-        return self.ping(timeout=timeout) is not None
-
-    def ping(self, timeout: float | None = None) -> PongMessage | None:
-        """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
-        self._connection.send(PingMessage(ts=time.time()))
-        return self._replies.typed(PongMessage, timeout)
-
-    def query(
-        self,
-        method: str,
-        params: dict[str, Any] | None = None,
-        timeout: float | None = None,
-    ) -> QueryResponse | None:
-        """Send a generic query and wait for the response."""
-        self._connection.send(QueryRequest(method=method, params=params or {}))
-        return self._replies.typed(QueryResponse, timeout)
-
-    # -- receiving ---------------------------------------------------------
-
-    def poll_event(self, timeout: float | None = None) -> PolledEvent:
-        """Block for the next subscribed business event (a :class:`PolledEvent`).
-
-        Raises ``TimeoutError`` after ``timeout`` seconds (default
-        ``recv_timeout``); requires an active listener (observer messages are
-        push-only).
-        """
-        return self._replies.event(timeout)
+    @property
+    def events(self) -> DisplayListener:
+        """What the display pushes: business events and interactions."""
+        return self._listener

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import ClassVar, Self
 
@@ -61,8 +62,12 @@ class AuditLog:
         source: str | None,
         commit: str | None,
         reason: str | None = None,
+        removed: Iterable[str] = (),
     ) -> None:
         """Append one verdict entry, recording its source (PR/bead ref).
+
+        ``removed`` names the baseline rows this write deleted, sorted, so
+        every row that leaves the baseline is accounted for in the log.
 
         ``reason`` carries the human justification for a ``relaxed`` or
         ``rebaseline-files`` verdict; it is an audit marker, not an
@@ -83,6 +88,7 @@ class AuditLog:
         if reason is not None:
             entry["reason"] = reason
         entry["deltas"] = deltas
+        entry["removed"] = sorted(removed)
         with self._path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

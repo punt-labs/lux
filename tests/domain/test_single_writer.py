@@ -15,15 +15,17 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 
 # The only modules allowed to reference the display send surface: the client that
-# defines it and the replicator's send path (replicator + the presentation it
-# drives). Every other module — every MCP tool, every click dispatch, every
-# Hub-hosted app, and now the ``lux show`` CLI, which reaches luxd over REST
-# rather than the display socket — must go through the store and the dirty
+# defines it (and its outbound half, ``DisplayRequests``) and the replicator's
+# send path (replicator + the presentation it drives). Every other module --
+# every MCP tool, every click dispatch, every Hub-hosted app, and now the
+# ``lux show`` CLI, which reaches luxd over REST rather than the display socket --
+# must go through the store and the dirty
 # signal, so the guard scans the whole package and a new Hub-side sender cannot
 # slip in through a module an enumerated list would have forgotten.
 _SENDER_MODULES = frozenset(
     {
         "domain/hub/display_link.py",
+        "domain/hub/display_requests.py",
         "domain/hub/scene_presentation.py",
         "domain/hub/replicator.py",
     }

@@ -1391,11 +1391,10 @@ class CouplingRatchet:
                 deltas[fpath] = file_deltas
 
         # Remove deleted files
-        removed_count = 0
-        for fpath in list(new_baseline):
-            if fpath not in current_by_file:
-                del new_baseline[fpath]
-                removed_count += 1
+        removed = sorted(p for p in new_baseline if p not in current_by_file)
+        for fpath in removed:
+            del new_baseline[fpath]
+        removed_count = len(removed)
 
         self._save_baseline(new_baseline)
 
@@ -1407,6 +1406,7 @@ class CouplingRatchet:
             files_regressed=len({f for f, _ in refused}),
             verdict="pass" if not refused else "fail",
             deltas=deltas,
+            removed=removed,
         )
 
         _writeln(f"\nBaseline updated: {self._baseline_path}")
@@ -1651,6 +1651,7 @@ class CouplingRatchet:
         # justification; "update" and "rebaseline" score the whole target
         # mechanically and have no per-invocation reason to record.
         reason: str | None = None,
+        removed: list[str] | None = None,
     ) -> None:
         commit = self._git_commit_short()
         entry: dict[str, object] = {
@@ -1669,6 +1670,10 @@ class CouplingRatchet:
         if reason is not None:
             entry["reason"] = reason
         entry["deltas"] = deltas
+        # Only "update" prunes rows; it names them so every row that leaves
+        # the baseline is accounted for in the log.
+        if removed is not None:
+            entry["removed"] = removed
         with self._audit_path.open("a") as f:
             f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 

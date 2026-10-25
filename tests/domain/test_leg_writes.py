@@ -25,10 +25,13 @@ def _write() -> SessionWrite:
     return SessionWrite.recorded(None, 0.0, _agent(), UNOBSERVED)
 
 
+_BEADS = SessionCallback(id="beads", label="Beads")
+
+
 def _held(callbacks: bool) -> ClientSession:
     session = ClientSession(0.0).with_identity(_agent()).attached(_Leg())
     if callbacks:
-        session = session.with_callback(SessionCallback(id="beads", label="Beads"))
+        session = session.with_callback(_BEADS)
     return session
 
 
@@ -36,7 +39,7 @@ class TestRegistration:
     def test_a_registration_that_took_carries_its_write(self) -> None:
         write = SessionWrite(None, _held(callbacks=True), 0.0)
 
-        registration = Registration.took(write)
+        registration = Registration.took(write, _BEADS)
 
         assert (registration.outcome, registration.write) == ("registered", write)
 
@@ -52,9 +55,13 @@ class TestRegistration:
         with pytest.raises(ValueError, match="disagree"):
             Registration("registered", None)
 
+    def test_a_refusal_carrying_a_callback_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="disagree"):
+            Registration("declined", None, _BEADS)
+
     def test_a_refusal_with_a_write_is_refused(self) -> None:
         with pytest.raises(ValueError, match="disagree"):
-            Registration("declined", _write())
+            Registration("declined", _write(), _BEADS)
 
     def test_a_registered_outcome_whose_write_stored_no_callback_is_refused(
         self,
@@ -62,16 +69,27 @@ class TestRegistration:
         session = _held(callbacks=False)
 
         with pytest.raises(ValueError, match="disagree"):
-            Registration("registered", SessionWrite(session, session, 0.0))
+            Registration("registered", SessionWrite(session, session, 0.0), _BEADS)
 
     def test_a_registered_outcome_whose_write_stored_a_callback_is_accepted(
         self,
     ) -> None:
         session = _held(callbacks=True)
 
-        registration = Registration("registered", SessionWrite(None, session, 0.0))
+        registration = Registration(
+            "registered", SessionWrite(None, session, 0.0), _BEADS
+        )
 
         assert registration.outcome == "registered"
+
+    def test_a_no_op_write_cannot_claim_a_callback_the_session_does_not_hold(
+        self,
+    ) -> None:
+        session = _held(callbacks=True)
+        other = SessionCallback(id="other", label="Other")
+
+        with pytest.raises(ValueError, match="disagree"):
+            Registration("registered", SessionWrite(session, session, 0.0), other)
 
 
 class TestDetachment:

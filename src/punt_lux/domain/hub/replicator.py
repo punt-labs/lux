@@ -342,7 +342,7 @@ class HubReplicator:
             # state wins even if a change landed after this batch was drained.
             bar = self._menu_reader.wire_snapshot()
             callback_menus = self._callback_reader.callback_menu_wire()
-            sender = self._clients.get()
+            sender = self._clients.get().requests
             sender.set_menu([dict(menu) for menu in bar])
             sender.set_callback_menus(callback_menus)
         if self._attribution.mode == "isolating":
@@ -376,7 +376,7 @@ class HubReplicator:
             self._current_suspect = frozenset({scene_id})
             if self._send_scene(scene_id):
                 emptied.append(scene_id)
-            if not self._clients.get().probe_alive(_PROBE_TIMEOUT_SECONDS):
+            if not self._clients.get().requests.probe_alive(_PROBE_TIMEOUT_SECONDS):
                 msg = f"display did not ack probe after sending {scene_id!r}"
                 raise OSError(msg)
         return tuple(emptied)
@@ -390,7 +390,7 @@ class HubReplicator:
         the display's cached snapshot alone rather than blanking it.
         """
         snapshot = self._reader.snapshot(scene_id)
-        snapshot.push(self._clients.get(), self._owner_facts)
+        snapshot.push(self._clients.get().requests, self._owner_facts)
         return snapshot.is_empty
 
     def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:

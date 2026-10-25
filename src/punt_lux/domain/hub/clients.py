@@ -91,11 +91,14 @@ class ClientRegistry:
         return self._client
 
     def _ensure_connected(self, client: DisplayLink) -> None:
-        """Connect/reconcile and start the listener, each only if not already."""
+        """Connect and reconcile if not connected.
+
+        A dial the registry makes starts its reader in the same step
+        (``connect(listen=True)``), so a connected link always has one and
+        nothing here waits for the reader slot under the registry lock.
+        """
         if not client.is_connected:
             self._connect_and_reconcile(client)
-        if not client.listener_active:
-            client.start_listener()
 
     def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
         """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
@@ -148,7 +151,6 @@ class ClientRegistry:
             if self._client is not None:
                 self._client.close()
                 self._connect_and_reconcile(self._client)
-                self._client.start_listener()
 
     def _connect_and_reconcile(self, client: DisplayLink) -> None:
         """Connect a fresh socket, then declare and repaint the Hub's holdings.
@@ -157,10 +159,10 @@ class ClientRegistry:
         manifest is never forgotten, every manifested scene plus the menu is
         marked dirty, and a failed ``send_manifest`` force-closes the link.
         """
-        client.connect()
+        client.connect(listen=True)
         scene_ids = hub_display.live_scene_ids()
         try:
-            client.send_manifest(scene_ids)
+            client.requests.send_manifest(scene_ids)
         except OSError:
             client.close()
             raise
@@ -173,7 +175,7 @@ class ClientRegistry:
         client = self._ensure_client()
         if self._apps_registered_for == id(client):
             return
-        client.set_fallback_handler(HubInteractionDispatch.dispatch)
+        client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
         self._apps_registered_for = id(client)
 
 

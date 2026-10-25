@@ -57,9 +57,21 @@ class _FakeClient:
         self._fail_send_manifest_once = fail_send_manifest_once
         return self
 
-    def connect(self) -> None:
+    @property
+    def requests(self) -> _FakeClient:
+        """The outbound port: this fake is its own."""
+        return self
+
+    @property
+    def events(self) -> _FakeClient:
+        """The push port: this fake is its own."""
+        return self
+
+    def connect(self, *, listen: bool = False) -> None:
         self.connect_calls += 1
         self._connected = True
+        if listen:
+            self.start_listener_calls += 1
 
     def close(self) -> None:
         self.close_calls += 1
@@ -154,7 +166,7 @@ def test_with_reconnect_wraps_reconnect_failure() -> None:
     registry = ClientRegistry()
 
     class _UnreconnectableClient(_FakeClient):
-        def connect(self) -> None:
+        def connect(self, *, listen: bool = False) -> None:
             raise OSError("reconnect refused")
 
     fake = _UnreconnectableClient()
