@@ -1554,6 +1554,14 @@ lrun $\land$ lgen\,t = curGen $\land$ bufr\,t $\ne \emptyset$}) is reachable
 (\texttt{Dial; StartListener; SendNoWait; Feed; Close}), and so is a waiter
 that consumes a reply parked before the mark.
 
+L10 and L11 are not consequences of a safety property the earlier invariants
+already stated; they encode the rulings R1 and R7 themselves.  Closing a
+successor (L10) costs a redial and a repaint, which is a loss of liveness, not
+a breach of safety, and a late delivery (L11) does not cross generations, which
+L1 and L5 already forbid.  The two invariants hold because the guards were
+written to the rulings, and they are the place to look if a ruling is ever
+revised.
+
 \paragraph{Deadlock-freedom, and the lock order the model assumes.}
 The model has no lock-acquisition steps, because it makes the critical
 sections it needs atomic.  What it checks is that \emph{no state other than
