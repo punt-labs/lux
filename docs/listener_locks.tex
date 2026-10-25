@@ -13,6 +13,14 @@
 %   rp, rs, rq  the request locks, one per reply kind: pong (ping), ack
 %               (show), query.  A request holds its kind's lock from the
 %               write to its consumption or failure.
+%   sl          the generation's reader slot (DialGeneration._slot, the claim
+%               on _reader).  The Condition's mutex is a leaf held for a flag
+%               test; what is modelled is the CLAIM, which an inline read holds
+%               from taking the slot to giving it back, and which claim_reader
+%               waits out.  Held, the claim covers lk (the recv), qu (the
+%               route) and the retire (st, qu); never a request lock taken
+%               afterwards, never a handler (those run after the claim and the
+%               request lock are released: run_held).
 %   st          the generation state lock: curGen, held, started, detaching a
 %               sink.  Field updates only; never I/O, never a dial.
 %   lk          the connection's _lock: one sendall or one recv.
@@ -21,12 +29,13 @@
 %               critical section.  The queues are modelled as one lock: two
 %               queue locks are never held together, so one stands for all.
 %
-% THE FIXED ORDER:  request lock < st < lk < qu.  The edges that occur are
-% request -> lk, lk -> qu, request -> st, request -> qu, st -> qu.  A rank
+% THE FIXED ORDER:  request lock < sl < st < lk < qu.  The edges that occur are
+% request -> lk, lk -> qu, request -> st, request -> qu, st -> qu, and those the
+% slot adds: request -> sl, sl -> lk, sl -> st, sl -> qu.  A rank
 % function over the locks is strictly increasing along every edge, so the
 % acquisition graph is acyclic.
 %
-% The model is not that argument.  It runs the six programs below, each as a
+% The model is not that argument.  It runs the eight programs below, each as a
 % thread of acquire / release / I/O steps over the locks, against every
 % interleaving, and asks ProB for a state in which some thread is not done and
 % none can move.
@@ -71,6 +80,17 @@
 % retire is close_if_current(g) inside the link and never calls
 % ClientRegistry.drop() while holding rq.
 %
+% THE SLOT IS NEVER WAITED ON UNDER THE REGISTRY OR STORE LOCK.  claim_reader
+% is the one wait on it (it outlasts an inline read, up to that read's
+% deadline).  The registry's dial is born holding the listener's slot
+% (DisplayConnection.open(listening=True), ListenerThread.start(born_claimed)):
+% no inline read can be in flight on a dial nobody has yet seen, and a dial
+% that already has a listener answers claim_reader at once, so the wait is
+% reachable only on a library dial made without a listener, outside the
+% registry.  An inline read's interactions are held and run after its request
+% lock and slot are released, so no handler, and nothing above the model,
+% runs under the claim.
+%
 % THE PROGRAMS (the number of steps is the index of the program counter):
 %   pingC   rp; lk{write}; qu{wait}; release rp
 %   showC   rs; lk{write; qu{ledger append}}; qu{wait}; release rs
@@ -81,6 +101,12 @@
 %           (select outside lk, recv under it: lk alone, for the recv only);
 %           then qu{route the reply}
 %   report  st{qu{retire}}; shutdown outside st
+%   inlineR a caller's inline read (rule 23), under its request lock:
+%           rq; sl; lk{recv}; qu{route}; st{qu{retire}}; shutdown outside st;
+%           release sl; release rq.  (The retire step is the failure path;
+%           the model runs it unconditionally, a superset.)
+%   lstart  claim_reader: sl{wait for an inline claim to end}; release; it
+%           holds nothing else, and starts no thread under the claim
 % A wait releases its queue lock inside Condition.wait; it is the acquire /
 % release pair on qu.  The marker-like leaves that hold nothing else are not
 % modelled.
@@ -117,7 +143,7 @@ replicator's \texttt{send\_scene}, the reader, the report.  Two suffice for a
 cycle; three give every pair a third party.
 
 \begin{zed}
-  LOCK ::= rp | rs | rq | lk | st | qu
+  LOCK ::= rp | rs | rq | sl | lk | st | qu
 \end{zed}
 
 \begin{zed}
@@ -125,7 +151,7 @@ cycle; three give every pair a third party.
 \end{zed}
 
 \begin{zed}
-  PROG ::= pingC | showC | queryC | sendS | reader | report
+  PROG ::= pingC | showC | queryC | sendS | reader | report | inlineR | lstart
 \end{zed}
 
 \begin{zed}
@@ -140,10 +166,10 @@ Steps: acquire or release a lock, do I/O under the connection's lock, shut the
 socket down, finish.
 
 \begin{axdef}
-  lvl : LOCK \fun 1 \upto 4
+  lvl : LOCK \fun 1 \upto 5
 \where
-  lvl = \{ rp \mapsto 1, rs \mapsto 1, rq \mapsto 1, st \mapsto 2,
-    lk \mapsto 3, qu \mapsto 4 \}
+  lvl = \{ rp \mapsto 1, rs \mapsto 1, rq \mapsto 1, sl \mapsto 2,
+    st \mapsto 3, lk \mapsto 4, qu \mapsto 5 \}
 \end{axdef}
 
 The order of the fixed design: a request lock, then the state lock, then the
@@ -152,8 +178,8 @@ a premise of the model: it is the standard the flag \texttt{orderBroken}
 measures each acquisition against.
 
 \begin{axdef}
-  act : PROG \cross (1 \upto 13) \pfun ACT \\
-  lck : PROG \cross (1 \upto 13) \pfun LOCK
+  act : PROG \cross (1 \upto 15) \pfun ACT \\
+  lck : PROG \cross (1 \upto 15) \pfun LOCK
 \where
   act = \{ (pingC, 1) \mapsto grab, (pingC, 2) \mapsto grab, (pingC, 3) \mapsto io,
     (pingC, 4) \mapsto drop, (pingC, 5) \mapsto grab, (pingC, 6) \mapsto drop,
@@ -172,7 +198,13 @@ measures each acquisition against.
     (reader, 1) \mapsto grab, (reader, 2) \mapsto drop, (reader, 3) \mapsto grab,
     (reader, 4) \mapsto drop, (reader, 5) \mapsto fin,
     (report, 1) \mapsto grab, (report, 2) \mapsto grab, (report, 3) \mapsto drop,
-    (report, 4) \mapsto drop, (report, 5) \mapsto sd, (report, 6) \mapsto fin \} \\
+    (report, 4) \mapsto drop, (report, 5) \mapsto sd, (report, 6) \mapsto fin,
+    (inlineR, 1) \mapsto grab, (inlineR, 2) \mapsto grab, (inlineR, 3) \mapsto grab,
+    (inlineR, 4) \mapsto io, (inlineR, 5) \mapsto drop, (inlineR, 6) \mapsto grab,
+    (inlineR, 7) \mapsto drop, (inlineR, 8) \mapsto grab, (inlineR, 9) \mapsto grab,
+    (inlineR, 10) \mapsto drop, (inlineR, 11) \mapsto drop, (inlineR, 12) \mapsto sd,
+    (inlineR, 13) \mapsto drop, (inlineR, 14) \mapsto drop, (inlineR, 15) \mapsto fin,
+    (lstart, 1) \mapsto grab, (lstart, 2) \mapsto drop, (lstart, 3) \mapsto fin \} \\
   lck = \{ (pingC, 1) \mapsto rp, (pingC, 2) \mapsto lk, (pingC, 4) \mapsto lk,
     (pingC, 5) \mapsto qu, (pingC, 6) \mapsto qu, (pingC, 7) \mapsto rp,
     (showC, 1) \mapsto rs, (showC, 2) \mapsto lk, (showC, 4) \mapsto qu,
@@ -187,7 +219,12 @@ measures each acquisition against.
     (reader, 1) \mapsto lk, (reader, 2) \mapsto lk, (reader, 3) \mapsto qu,
     (reader, 4) \mapsto qu,
     (report, 1) \mapsto st, (report, 2) \mapsto qu, (report, 3) \mapsto qu,
-    (report, 4) \mapsto st \}
+    (report, 4) \mapsto st,
+    (inlineR, 1) \mapsto rq, (inlineR, 2) \mapsto sl, (inlineR, 3) \mapsto lk,
+    (inlineR, 5) \mapsto lk, (inlineR, 6) \mapsto qu, (inlineR, 7) \mapsto qu,
+    (inlineR, 8) \mapsto st, (inlineR, 9) \mapsto qu, (inlineR, 10) \mapsto qu,
+    (inlineR, 11) \mapsto st, (inlineR, 13) \mapsto sl, (inlineR, 14) \mapsto rq,
+    (lstart, 1) \mapsto sl, (lstart, 2) \mapsto sl \}
 \end{axdef}
 
 The programs, one row of \texttt{act} and \texttt{lck} per step.  A ping holds
@@ -200,10 +237,20 @@ lock; the reader's \texttt{recv} holds \texttt{\_lock} alone and routes the
 reply under a queue lock afterwards; the report retires under the state lock
 and shuts the socket down outside it.
 
+The reader slot, \texttt{sl}, ranks between the request locks and the state
+lock.  An inline read takes it after its request lock, holds it across the
+\texttt{recv} under \texttt{\_lock}, the routing under a queue lock and, on
+failure, the retire under the state lock, and gives it back before the request
+lock.  Its interactions are not run under it: they are held and run once both
+are released, so no handler, and nothing above the model, executes while the
+slot is claimed.  The listener's start, \texttt{claim\_reader}, takes the slot
+holding nothing else and waits only for an inline claim to end.  Nothing in
+the model takes a lock of lower rank while holding \texttt{sl}.
+
 \begin{schema}{LS}
   ts : T \fun TST \\
   pr : T \fun PROG \\
-  pc : T \fun 1 \upto 13 \\
+  pc : T \fun 1 \upto 15 \\
   owner : LOCK \pfun T \\
   wedged : FSTATE \\
   shut : FSTATE \\
@@ -280,6 +327,15 @@ Two locks lie above the model's set and outside it: the
 while taking either of them; in particular a query's timeout retire is
 \texttt{close\_if\_current(g)} inside the link, and never calls
 \texttt{ClientRegistry.drop()} while holding the request lock.
+
+The reader slot is never waited on under the registry lock or the store lock.
+\texttt{claim\_reader} is the one wait on it, and it can last as long as an
+inline read.  The registry's dial is born holding the listener's slot
+(\texttt{DisplayConnection.open(listening=True)}, then
+\texttt{ListenerThread.start(born\_claimed=True)}): no inline read can be in
+flight on a dial nobody has yet seen, and a dial that already has a listener
+answers \texttt{claim\_reader} at once.  The wait is therefore reachable only
+on a library dial made without a listener, outside the registry.
 
 \begin{schema}{AcquireOrdered}
   \Delta LS \\
@@ -421,11 +477,23 @@ The acquisition graph is acyclic, and the wedge adds no edge into the report.
     -goal "orderBroken = fset" -p MAX_OPERATIONS 200 -card T 3
 \end{verbatim}
 
-At two threads: 3267 states, 6433 transitions, no counter example,
-\texttt{deadlocked:0}, ten of ten operations covered.  At three: 150552
-states, 417164 transitions, no counter example, \texttt{deadlocked:0}, all
+At two threads: 5565 states, 10901 transitions, no counter example,
+\texttt{deadlocked:0}, ten of ten operations covered.  At three: 328386
+states, 910816 transitions, no counter example, \texttt{deadlocked:0}, all
 covered.  The goal \texttt{orderBroken = fset}, searched at three threads with
-the deadlock check off, is not found in 150551 states analysed.  The control,
+the deadlock check off, is not found in 328385 states analysed.  The control,
 \texttt{listener\_locks\_inverted\_buggy.tex}, deadlocks and reaches the goal.
+
+Two reversals of the slot were tried as scratch variants, not kept.  Reverse
+the slot against \texttt{\_lock} in the inline read alone (\texttt{lk} before
+\texttt{sl}): no deadlock at two threads, 5544 states, because no other program
+takes the slot while holding anything, so there is no opposing edge to close a
+cycle; \texttt{orderBroken} would be set, which is what that flag is for.  Take
+the slot under the state lock in the listener's start (\texttt{st} before
+\texttt{sl}), against the inline read's \texttt{sl} before \texttt{st}: ProB
+finds a deadlock at twelve steps (the inline read holds the slot and wants the
+state lock, the start holds the state lock and wants the slot).  The slot
+therefore cannot be taken, or waited on, under the state lock, nor under any
+lock above the model.
 
 \end{document}
