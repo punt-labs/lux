@@ -63,6 +63,16 @@ class ClientRegistry:
         self._readers[fd] = FrameReader()
         self._fd_to_client[fd] = sock
 
+    def fd_of(self, sock: socket.socket) -> int | None:
+        """Return the fd ``sock`` was registered under, or ``None`` if it never was.
+
+        The registered fd, not ``sock.fileno()``: a socket closed before it was
+        removed no longer reports one, and its per-fd state must still be found.
+        """
+        return next(
+            (fd for fd, held in self._fd_to_client.items() if held is sock), None
+        )
+
     def reader_for(self, fd: int) -> FrameReader | None:
         """Return this fd's reader, or ``None`` once it has been forgotten."""
         return self._readers.get(fd)

@@ -25,7 +25,7 @@ from punt_lux.display.replica.menu_replica import MenuReplica
 from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
+    from collections.abc import Callable, Collection, Iterable
 
 __all__ = [
     "SEPARATOR",
@@ -772,18 +772,69 @@ def ignore(*_args: object) -> None:
     """Accept whatever the display reports and do nothing with it."""
 
 
+_SETTING_KEYS = (
+    "on_theme_selected",
+    "on_decorated_toggled",
+    "on_opacity_changed",
+    "on_font_scale_changed",
+    "get_themes",
+    "get_decorated",
+    "get_opacity",
+    "get_font_scale",
+)
+
+
+class FakeSettings:
+    """Window settings read through getters and changed through callbacks."""
+
+    def __init__(self, **hooks: Callable[..., Any]) -> None:
+        defaults: dict[str, Callable[..., Any]] = {
+            "on_theme_selected": ignore,
+            "on_decorated_toggled": ignore,
+            "on_opacity_changed": ignore,
+            "on_font_scale_changed": ignore,
+            "get_themes": list,
+            "get_decorated": lambda: True,
+            "get_opacity": lambda: 1.0,
+            "get_font_scale": lambda: 1.0,
+        }
+        self._hooks = defaults | hooks
+
+    @property
+    def themes(self) -> list[Any]:
+        return list(self._hooks["get_themes"]())
+
+    @property
+    def decorated(self) -> bool:
+        return bool(self._hooks["get_decorated"]())
+
+    @property
+    def opacity(self) -> float:
+        return float(self._hooks["get_opacity"]())
+
+    @property
+    def font_scale(self) -> float:
+        return float(self._hooks["get_font_scale"]())
+
+    def set_decorated(self, decorated: bool) -> None:
+        self._hooks["on_decorated_toggled"](decorated)
+
+    def set_opacity(self, opacity: float) -> None:
+        self._hooks["on_opacity_changed"](opacity)
+
+    def set_font_scale(self, scale: float) -> None:
+        self._hooks["on_font_scale_changed"](scale)
+
+    def apply_theme(self, theme_name: str) -> None:
+        self._hooks["on_theme_selected"](theme_name)
+
+
 def make_menu_replica(**overrides: Any) -> MenuReplica:
     """Build a MenuReplica whose collaborators are all doubles."""
+    hooks = {k: overrides.pop(k) for k in _SETTING_KEYS if k in overrides}
     defaults: dict[str, Any] = {
         "emit_event": ignore,
-        "on_theme_selected": ignore,
-        "on_decorated_toggled": ignore,
-        "on_opacity_changed": ignore,
-        "on_font_scale_changed": ignore,
-        "get_themes": list,
-        "get_decorated": lambda: True,
-        "get_opacity": lambda: 1.0,
-        "get_font_scale": lambda: 1.0,
+        "settings": FakeSettings(**hooks),
         "get_frames": dict,
         "addressing": AddressRendering(),
         "on_clear_all": ignore,

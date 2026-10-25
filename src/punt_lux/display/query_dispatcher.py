@@ -6,18 +6,12 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self
 
 from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica import SceneReplica
-from punt_lux.display.screenshot_queue import ScreenshotQueue
 from punt_lux.protocol import QueryResponse
-
-if TYPE_CHECKING:
-    import socket
-
-    from punt_lux.display.client_sender import ClientSender
 
 logger = logging.getLogger(__name__)
 
@@ -183,98 +177,3 @@ class QueryRouter:
         """Query handler for display_state: curated widget/frame facts, unkeyed."""
         sm = self._scenes
         return {"scenes": sm.all_widget_snapshots(), "frames": sm.frame_presentations()}
-
-
-class DisplayQueryHandlers:
-    """The generic-query handlers RenderLoop registers for ImGui/window facts.
-
-    Reads through getter callables (the ``OwnMenus`` idiom) rather than
-    holding RenderLoop's fields directly, so this class needs no reference
-    back to it. It also owns the one screenshot request waiting for the next
-    swap, because it already answers the screenshot query: the request's own
-    handling is ``request_screenshot``, and ``after_swap`` is the hook the render
-    loop calls on this owner once the frame is swapped.
-    """
-
-    _get_start_time: Callable[[], float]
-    _get_opacity: Callable[[], float]
-    _get_font_scale: Callable[[], float]
-    _get_decorated: Callable[[], bool]
-    _get_current_theme: Callable[[], str]
-    _get_themes: Callable[[], Sequence[Any]]
-    _screenshots: ScreenshotQueue
-
-    def __new__(
-        cls,
-        *,
-        get_start_time: Callable[[], float],
-        get_opacity: Callable[[], float],
-        get_font_scale: Callable[[], float],
-        get_decorated: Callable[[], bool],
-        get_current_theme: Callable[[], str],
-        get_themes: Callable[[], Sequence[Any]],
-        record_error: Callable[[str, str, str], None],
-        sender: ClientSender,
-    ) -> Self:
-        self = super().__new__(cls)
-        self._get_start_time = get_start_time
-        self._get_opacity = get_opacity
-        self._get_font_scale = get_font_scale
-        self._get_decorated = get_decorated
-        self._get_current_theme = get_current_theme
-        self._get_themes = get_themes
-        self._screenshots = ScreenshotQueue(record_error, sender)
-        return self
-
-    def request_screenshot(self, sock: socket.socket) -> None:
-        """Queue a screenshot for ``sock`` at the next swap (see ScreenshotQueue)."""
-        self._screenshots.request(sock)
-
-    def after_swap(self) -> None:
-        """Answer the queued screenshot, if any, now the frame has been swapped."""
-        self._screenshots.after_swap()
-
-    def screenshot(self, **kwargs: Any) -> dict[str, Any]:
-        """Query handler for screenshot: refused, see the screenshot queue."""
-        return self._screenshots.refuse_generic_query(**kwargs)
-
-    def get_display_info(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return display server metadata."""
-        import os
-
-        from imgui_bundle import hello_imgui
-
-        from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-
-        backend = str(hello_imgui.get_runner_params().renderer_backend_type)
-        screen_size = (
-            hello_imgui.get_runner_params().app_window_params.window_geometry.size
-        )
-        return {
-            "backend": backend,
-            "window_width": screen_size[0],
-            "window_height": screen_size[1],
-            "fps": round(hello_imgui.frame_rate(), 1),
-            "pid": os.getpid(),
-            "uptime_seconds": round(time.time() - self._get_start_time(), 1),
-            "protocol_version": "1.0",
-            "element_kinds": len(DEFAULT_ABC_REGISTRY.all_kinds),
-        }
-
-    def get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return opacity, the stored 0.5-3.0 font scale, decoration, and idle rate."""
-        from imgui_bundle import hello_imgui
-
-        return {
-            "opacity": self._get_opacity(),
-            "font_scale": self._get_font_scale(),
-            "decorated": self._get_decorated(),
-            "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
-        }
-
-    def get_theme(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return the current theme and the switchable themes as bare names."""
-        return {
-            "current": self._get_current_theme(),
-            "available": [t.name for t in self._get_themes() if t.name != "count"],
-        }

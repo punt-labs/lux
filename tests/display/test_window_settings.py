@@ -100,3 +100,34 @@ class TestThemes:
 
         assert settings.current_theme == "imgui_colors_dark"
         assert "Unknown theme" in caplog.text
+
+
+class TestReports:
+    def test_the_theme_report_names_the_current_theme_and_the_switchable_ones(
+        self, window: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        light = SimpleNamespace(name="imgui_colors_light")
+        count = SimpleNamespace(name="count")  # the sentinel, excluded
+        monkeypatch.setattr(hello_imgui, "ImGuiTheme_", [light, count])
+        settings = WindowSettings()
+        settings.start()
+
+        assert settings.theme_report() == {
+            "current": "imgui_colors_dark",
+            "available": ["imgui_colors_light"],
+        }
+
+    def test_the_window_report_carries_every_setting_and_the_idle_rate(
+        self, window: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        runner = SimpleNamespace(fps_idling=SimpleNamespace(fps_idle=9.0))
+        monkeypatch.setattr(hello_imgui, "get_runner_params", lambda: runner)
+        settings = WindowSettings()
+        settings.set_opacity(0.5)
+
+        assert settings.window_report() == {
+            "opacity": 0.5,
+            "font_scale": 1.1,
+            "decorated": True,
+            "fps_idle": 9.0,
+        }

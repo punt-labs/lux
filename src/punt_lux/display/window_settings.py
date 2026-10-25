@@ -76,6 +76,22 @@ class WindowSettings:
         """The snake_case name of the theme in force."""
         return self._prefs.current_theme
 
+    def window_report(self, **_kwargs: object) -> dict[str, object]:
+        """Report opacity, the stored 0.5-3.0 font scale, decoration, and idle rate."""
+        return {
+            "opacity": self._prefs.opacity,
+            "font_scale": self._prefs.font_scale,
+            "decorated": self._prefs.decorated,
+            "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
+        }
+
+    def theme_report(self, **_kwargs: object) -> dict[str, object]:
+        """Report the current theme and the switchable themes as bare names."""
+        return {
+            "current": self._prefs.current_theme,
+            "available": [t.name for t in self._prefs.themes if t.name != "count"],
+        }
+
     def start(self) -> None:
         """Once the window exists: learn its themes, and stop reshows stealing focus.
 

@@ -29,6 +29,7 @@ from punt_lux.display.menus.windows_menu import WindowsMenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.display.menus.window_preferences import WindowPreferences
     from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
@@ -47,44 +48,19 @@ _OPACITY_MATCH = 0.05
 class OwnMenus:
     """Build the display's own menus from the state and commands it is given.
 
-    Receives callbacks for user selections (theme, opacity, and the rest) but
-    does not own the state those callbacks mutate.
+    Reads the window's settings and tells them what the user chose; it does not own
+    that state.
     """
 
-    _on_theme_selected: Callable[[str], None]
-    _on_decorated_toggled: Callable[[bool], None]
-    _on_opacity_changed: Callable[[float], None]
-    _on_font_scale_changed: Callable[[float], None]
-    _get_themes: Callable[[], list[Any]]
-    _get_decorated: Callable[[], bool]
-    _get_opacity: Callable[[], float]
-    _get_font_scale: Callable[[], float]
+    _settings: WindowPreferences
     _windows: WindowsMenu
     _chrome: WindowChromeCommands
-    __slots__ = (
-        "_chrome",
-        "_get_decorated",
-        "_get_font_scale",
-        "_get_opacity",
-        "_get_themes",
-        "_on_decorated_toggled",
-        "_on_font_scale_changed",
-        "_on_opacity_changed",
-        "_on_theme_selected",
-        "_windows",
-    )
+    __slots__ = ("_chrome", "_settings", "_windows")
 
     def __new__(
         cls,
         *,
-        on_theme_selected: Callable[[str], None],
-        on_decorated_toggled: Callable[[bool], None],
-        on_opacity_changed: Callable[[float], None],
-        on_font_scale_changed: Callable[[float], None],
-        get_themes: Callable[[], list[Any]],
-        get_decorated: Callable[[], bool],
-        get_opacity: Callable[[], float],
-        get_font_scale: Callable[[], float],
+        settings: WindowPreferences,
         get_frames: Callable[[], Mapping[str, Frame]],
         addressing: AddressRendering,
         on_clear_all: Callable[[], None],
@@ -93,14 +69,7 @@ class OwnMenus:
         chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
-        self._on_theme_selected = on_theme_selected
-        self._on_decorated_toggled = on_decorated_toggled
-        self._on_opacity_changed = on_opacity_changed
-        self._on_font_scale_changed = on_font_scale_changed
-        self._get_themes = get_themes
-        self._get_decorated = get_decorated
-        self._get_opacity = get_opacity
-        self._get_font_scale = get_font_scale
+        self._settings = settings
         self._windows = WindowsMenu(
             get_frames=get_frames,
             addressing=addressing,
@@ -141,7 +110,7 @@ class OwnMenus:
 
     def _settings_menu(self) -> Submenu:
         """Build the Settings submenu: theme, window chrome, opacity."""
-        decorated = self._get_decorated()
+        decorated = self._settings.decorated
         return Submenu(
             "Settings",
             [
@@ -154,7 +123,7 @@ class OwnMenus:
                 ),
                 MenuItem.toggle(
                     "Borderless",
-                    lambda: self._on_decorated_toggled(not decorated),
+                    lambda: self._settings.set_decorated(not decorated),
                     checked=not decorated,
                 ),
                 MenuSeparator(),
@@ -164,13 +133,13 @@ class OwnMenus:
 
     def _theme_menu(self) -> Submenu:
         """Build the theme picker from the themes the display offers."""
-        return Submenu("Theme", [self._theme_item(t) for t in self._get_themes()])
+        return Submenu("Theme", [self._theme_item(t) for t in self._settings.themes])
 
     def _theme_item(self, theme: Any) -> MenuItem:
         """Build one theme choice; selecting it applies that theme."""
         name = str(theme.name)
         return MenuItem(
-            name.replace("_", " ").title(), lambda: self._on_theme_selected(name)
+            name.replace("_", " ").title(), lambda: self._settings.apply_theme(name)
         )
 
     def _opacity_menu(self) -> Submenu:
@@ -180,9 +149,9 @@ class OwnMenus:
     def _opacity_item(self, percent: int) -> MenuItem:
         """Build one opacity preset; selecting it applies that opacity."""
         value = percent / 100.0
-        in_effect = abs(self._get_opacity() - value) < _OPACITY_MATCH
+        in_effect = abs(self._settings.opacity - value) < _OPACITY_MATCH
         return MenuItem.toggle(
-            f"{percent}%", lambda: self._on_opacity_changed(value), checked=in_effect
+            f"{percent}%", lambda: self._settings.set_opacity(value), checked=in_effect
         )
 
     def _help_menu(self) -> Submenu:
@@ -191,8 +160,8 @@ class OwnMenus:
 
     def _step_font(self, delta: float) -> None:
         """Step the font scale by *delta*, held inside the supported range."""
-        scale = round(self._get_font_scale() + delta, 1)
-        self._on_font_scale_changed(min(max(scale, _FONT_MIN), _FONT_MAX))
+        scale = round(self._settings.font_scale + delta, 1)
+        self._settings.set_font_scale(min(max(scale, _FONT_MIN), _FONT_MAX))
 
     def _toggle_top_most(self) -> None:
         """Flip whether the window floats above other applications."""

@@ -1500,6 +1500,22 @@ class TestListScenes:
         assert restored.scenes == scenes
         assert restored.frames == frames
 
+    def test_list_scenes_response_error_roundtrip(self) -> None:
+        original = ListScenesResponse(error="the listing failed")
+        d = message_to_dict(original)
+        assert d["error"] == "the listing failed"
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.error == "the listing failed"
+        assert restored.scenes == []
+
+    def test_list_scenes_response_without_an_error_carries_no_error_key(self) -> None:
+        d = message_to_dict(ListScenesResponse())
+        assert "error" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.error is None
+
     def test_list_scenes_response_empty_roundtrip(self) -> None:
         original = ListScenesResponse()
         d = message_to_dict(original)

@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
-import pytest
-
-from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
+from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
-
-if TYPE_CHECKING:
-    from punt_lux.display.client_sender import ClientSender
 
 
 def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:
@@ -190,53 +185,3 @@ class TestDisplayStateQuery:
         qd = _make_dispatcher()
         result = qd.handle_query("display_state", {}).result
         assert result == {"scenes": {}, "frames": []}
-
-
-def _ignore_error(_severity: str, _message: str, _context: str) -> None:
-    """A ``record_error`` that records nothing."""
-
-
-def _handlers(**overrides: Any) -> DisplayQueryHandlers:
-    """Build a DisplayQueryHandlers with stub getters, any overridden."""
-    defaults: dict[str, Any] = {
-        "get_start_time": lambda: 0.0,
-        "get_opacity": lambda: 1.0,
-        "get_font_scale": lambda: 1.1,
-        "get_decorated": lambda: True,
-        "get_current_theme": lambda: "imgui_colors_dark",
-        "get_themes": list,
-        "record_error": _ignore_error,
-        "sender": cast("ClientSender", None),  # nothing here answers a client
-    }
-    defaults.update(overrides)
-    return DisplayQueryHandlers(**defaults)
-
-
-class TestScreenshotHandler:
-    def test_refuses_the_generic_query_path(self) -> None:
-        """Screenshots need GL context; the dedicated request message is required."""
-        with pytest.raises(RuntimeError, match="screenshot_request"):
-            _handlers().screenshot()
-
-
-class TestGetThemeHandler:
-    def test_reports_the_current_theme_and_available_names(self) -> None:
-        theme = type("Theme", (), {"name": "imgui_colors_light"})()
-        count = type("Theme", (), {"name": "count"})()  # the sentinel, excluded
-
-        result = _handlers(
-            get_current_theme=lambda: "imgui_colors_light",
-            get_themes=lambda: [theme, count],
-        ).get_theme()
-
-        assert result == {
-            "current": "imgui_colors_light",
-            "available": ["imgui_colors_light"],
-        }
-
-
-# get_window_settings and get_display_info both read the live ImGui runner
-# via hello_imgui, which requires a real GL context (HelloImGui::Run()) --
-# the same reason the original _query_get_display_info was never unit
-# tested headless. Their pure inputs (opacity/font_scale/decorated/theme
-# getters) are exercised through the other handlers above.

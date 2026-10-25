@@ -1085,13 +1085,45 @@ class TestWantWriteCleanup:
 
 
 class TestAWriteSelectNeverRaisesOnADepartedClient:
-    def test_a_tracked_fd_with_no_socket_left_is_skipped(self) -> None:
+    def test_a_tracked_fd_with_no_socket_left_is_logged_and_forgotten(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         state = WantWriteState()
         state.set(5, wants=True)
         state.set(6, wants=True)
         live = cast("socket.socket", object())
 
-        assert state.sockets({6: live}) == [live]
+        with caplog.at_level("WARNING"):
+            assert state.sockets({6: live}) == [live]
+
+        assert "fd 5" in caplog.text
+        assert state.sockets({}) == [], "the stale fd was dropped, not kept"
+        assert "fd 6" in caplog.text  # and now 6 has no socket either
+
+    def test_a_client_closed_before_it_was_removed_is_still_forgotten_by_its_fd(
+        self,
+    ) -> None:
+        gone: list[int] = []
+        server = SocketListener(
+            SocketListenerCallbacks(
+                on_message=_noop_message,
+                on_client_disconnected=gone.append,
+                on_error=_noop_error,
+            )
+        )
+        ours, theirs = socket.socketpair()
+        fd = ours.fileno()
+        server._registry.register_connection(fd, ours)
+        server._clients.append(ours)
+        server._reader._want_write.set(fd, wants=True)
+        ours.close()  # closed early: fileno() now reports -1
+
+        server.remove_client(ours)
+
+        theirs.close()
+        assert gone == [fd]
+        assert fd not in server._registry.fd_to_client
+        assert fd not in server._reader._want_write._fds
 
 
 class TestAReplyHasOneDoor:

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     import socket
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["WantWriteState"]
 
@@ -43,7 +46,15 @@ class WantWriteState:
     def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
         """Return the live sockets among the tracked fds, for a write-select.
 
-        A tracked fd with no socket left is skipped: its client departed (closed
-        before it could be forgotten) and there is nothing to watch.
+        A tracked fd with no socket left is a client that departed without being
+        forgotten. That should not happen (removal forgets by the registered fd), so
+        it is logged, and dropped here so a reused fd number is never mistaken for it.
         """
-        return [fd_to_client[fd] for fd in self._fds if fd in fd_to_client]
+        live: list[socket.socket] = []
+        for fd in list(self._fds):
+            if fd in fd_to_client:
+                live.append(fd_to_client[fd])
+            else:
+                logger.warning("fd %d wants write but has no client; forgetting it", fd)
+                self._fds.discard(fd)
+        return live
