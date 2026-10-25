@@ -8,14 +8,17 @@ own private state, here and nowhere else.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_link import DisplayLink
     from punt_lux.domain.hub.display_writer import DisplayWriter
 
-__all__ = ["generation_of", "writer_of"]
+__all__ = ["generation_of", "holding_the_scene_lock", "writer_of"]
 
 
 def writer_of(link: DisplayLink) -> DisplayWriter:
@@ -26,3 +29,10 @@ def writer_of(link: DisplayLink) -> DisplayWriter:
 def generation_of(link: DisplayLink) -> DialGeneration:
     """The generation behind ``link``'s current dial."""
     return link._connection.require()  # test seam: production holds only refs
+
+
+@contextlib.contextmanager
+def holding_the_scene_lock(link: DisplayLink) -> Generator[None]:
+    """Hold ``link``'s scene request lock, as a scene that never gets its ack does."""
+    with link._desk._exchange.exclusive("scene"):  # test seam: the desk hands out none
+        yield

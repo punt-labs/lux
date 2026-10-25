@@ -70,8 +70,3 @@ class RequestDesk:
         :meth:`~punt_lux.domain.hub.display_connection.DisplayConnection.require`).
         """
         return DisplayRequests.pinned(self._exchange)
-
-    @property
-    def exchange(self) -> RequestExchange:
-        """The exchange the ports share, for a test that must hold a request lock."""
-        return self._exchange

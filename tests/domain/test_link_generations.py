@@ -22,9 +22,12 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
 )
 from punt_lux.domain.hub.display_busy import DisplayBusyError
+from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_listener import DisplayListener
+from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.domain.hub.request_exchange import RequestExchange
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
@@ -40,7 +43,7 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
-from tests.link_access import generation_of, writer_of
+from tests.link_access import generation_of, holding_the_scene_lock, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -533,7 +536,7 @@ class TestBusyIsNotDead:
     ) -> None:
         link = _linked(display, recv_timeout=0.1)
         # another scene holds the dial
-        with link._desk.exchange.exclusive("scene"), pytest.raises(DisplayBusyError):
+        with holding_the_scene_lock(link), pytest.raises(DisplayBusyError):
             writer_of(link).show("second", [])
 
         assert link.is_connected
@@ -1057,6 +1060,15 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
         link.close()
 
 
+def _ping_lock_is_held(link: DisplayLink) -> bool:
+    """Whether a ping made now finds the ping lock taken: it says busy and sends nothing."""
+    try:
+        link.desk.asks().ping(timeout=0.05)
+    except DisplayBusyError:
+        return True
+    return False
+
+
 class TestAnInteractionReadInlineRunsOutsideTheLocks:
     def test_the_handler_runs_after_the_exchange_with_no_request_lock_or_slot_held(
         self, display: Display
@@ -1065,9 +1077,8 @@ class TestAnInteractionReadInlineRunsOutsideTheLocks:
         seen: list[tuple[bool, bool]] = []
 
         def handler(_event: RemoteEventHandlerInvocation) -> None:
-            generation = link._connection.require()
-            with generation.inline_reading() as free:
-                seen.append((link._desk.exchange._locks["ping"].locked(), free))
+            with generation_of(link).inline_reading() as free:
+                seen.append((_ping_lock_is_held(link), free))
 
         link.events.set_fallback_handler(handler)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
@@ -1261,19 +1272,26 @@ class TestDeclaringWhatTheHubHolds:
 
 class TestAPingIsStampedUnderItsLock:
     def test_a_stamp_without_the_ping_lock_is_refused(self, display: Display) -> None:
-        link = _linked(display)
+        connection = DisplayConnection(display, 1.0)
+        exchange = RequestExchange(
+            connection,
+            DisplayReplies(connection, DisplayListener(connection, 1.0)),
+            1.0,
+        )
 
         with pytest.raises(RuntimeError, match="ping lock"):
-            link._desk.exchange.next_ping_ts()
+            exchange.next_ping_ts()
 
-        link.close()
-
-    def test_stamps_under_the_lock_only_ever_rise(self, display: Display) -> None:
+    def test_the_stamps_pings_carry_only_ever_rise(self, display: Display) -> None:
         link = _linked(display)
-        exchange = link._desk.exchange
+        stamps: list[float] = []
+        for _ in range(3):
+            pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+            (sent,) = display.peer.read(1)
+            assert isinstance(sent, PingMessage)
+            stamps.append(sent.ts)
+            display.peer.send(PongMessage(ts=sent.ts))
+            assert pinging.wait()
 
-        with exchange.exclusive("ping"):
-            first, second = exchange.next_ping_ts(), exchange.next_ping_ts()
-
-        assert second > first
+        assert stamps == sorted(set(stamps))
         link.close()
