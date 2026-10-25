@@ -3,7 +3,7 @@
 The Hub matches a reply to its request by order, so a reply the display cannot send
 must end the connection (``reply_to_client``), never be deferred and forgotten, and
 never be built and dropped. The doors are closed in the code first: ``send_to_client``
-refuses anything but an event (``tests/display/test_socket_server.py``), and one
+takes an event by its type (``tests/display/test_socket_server.py``), and one
 function writes a byte to a client. This guard reads the sources for the rest. The
 reply kinds are not listed: they are every message the display constructs, less the
 kinds its interaction sender sends. A reply is *made* by constructing one or by
@@ -147,15 +147,24 @@ class ReplySiteScan:
         """Return what ``source`` (display module ``module``) does that it must not."""
         found: list[str] = []
         tree = ast.parse(source)
+        spelled = self._spellings(source)
         for func in _functions(tree):
             found += self._doors(func, module)
-            found += self._fates(func, module)
+            found += self._fates(func, module, spelled)
         if module == _EVENT_SENDER:
             found += [
                 f"{module}: names the reply {name}"
-                for name in sorted(self._names(tree) & self._replies)
+                for name in sorted(self._names(tree) & (self._replies | spelled))
             ]
         return found
+
+    def _spellings(self, source: str) -> frozenset[str]:
+        """The local names ``source`` binds to a reply class: renames, not new kinds."""
+        return frozenset(
+            alias
+            for reply in self._replies
+            for alias in ClassReferences(source, reply).aliases
+        )
 
     @staticmethod
     def _doors(func: _Func, module: str) -> list[str]:
@@ -171,9 +180,9 @@ class ReplySiteScan:
             found.append(f"{module}.{func.name}: writes to a client outside the doors")
         return found
 
-    def _fates(self, func: _Func, module: str) -> list[str]:
+    def _fates(self, func: _Func, module: str, spelled: frozenset[str]) -> list[str]:
         """Every made reply must go into ``reply_to_client`` or be returned."""
-        makers = set(self._makers)
+        makers = set(self._makers) | spelled
         parent = _parents(func)
         bound = _reply_vars(func, makers)
         found: list[str] = []
@@ -246,24 +255,19 @@ def _constructions_of(source: str, name: str) -> int:
     return ClassReferences(source, name).constructions()
 
 
-def _constructed_names(source: str) -> set[str]:
-    return {
-        n.func.id
-        for n in ast.walk(ast.parse(source))
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
-
-
 def _reply_names(sources: dict[str, str]) -> frozenset[str]:
     wire = {cls.__name__ for cls in get_args(DisplayMessage)}
-    built = set[str]()
-    for source in sources.values():
-        built |= _constructed_names(source) & wire
+    built = {
+        name
+        for source in sources.values()
+        for name in wire
+        if _constructions_of(source, name)
+    }
     events = {
-        n.id
-        for n in ast.walk(ast.parse(sources[_EVENT_SENDER]))
-        if isinstance(n, ast.Name)
-    } & wire
+        name
+        for name in wire
+        if ClassReferences(sources[_EVENT_SENDER], name).mentioned()
+    }
     return frozenset(built - events)
 
 
@@ -337,6 +341,43 @@ class TestTheGuardFailsOnAPlantedViolation:
         )
 
         assert self._SCAN.violations(planted, "render_loop") != []
+
+    def test_an_aliased_reply_built_and_dropped(self) -> None:
+        for planted in (
+            (
+                "from punt_lux.protocol import PongMessage as P\n"
+                "def handle(self, sock, msg):\n    P(ts=msg.ts)\n"
+            ),
+            (
+                "import punt_lux.protocol as proto\nC = proto.PongMessage\n"
+                "def handle(self, sock, msg):\n    C(ts=msg.ts)\n"
+            ),
+            (
+                "import punt_lux.protocol as proto\n"
+                "def handle(self, sock, msg):\n    proto.PongMessage(ts=msg.ts)\n"
+            ),
+        ):
+            assert self._SCAN.violations(planted, "render_loop") != [], planted
+
+    def test_an_aliased_reply_that_lands_is_clean(self) -> None:
+        planted = (
+            "from punt_lux.protocol import PongMessage as P\n"
+            "def handle(self, sock, msg):\n"
+            "    self._socket_listener.reply_to_client(sock, P(ts=msg.ts))\n"
+        )
+
+        assert self._SCAN.violations(planted, "render_loop") == []
+
+    def test_an_aliased_reply_is_found_as_one_the_display_makes(self) -> None:
+        planted = {
+            _EVENT_SENDER: "def f():\n    pass\n",
+            "x": (
+                "from punt_lux.protocol import PongMessage as P\n"
+                "def f():\n    P(ts=1)\n"
+            ),
+        }
+
+        assert "PongMessage" in _reply_names(planted)
 
     def test_a_reply_built_and_never_sent(self) -> None:
         planted = "def handle(self, sock):\n    AckMessage(scene_id='s')\n"

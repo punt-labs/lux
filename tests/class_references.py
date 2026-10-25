@@ -59,6 +59,15 @@ class ClassReferences:
             if isinstance(node, ast.Call) and self._reaches(node.func)
         )
 
+    def mentioned(self) -> bool:
+        """Whether the source refers to the class in any spelling, built or not."""
+        return any(
+            (isinstance(node, ast.Name) and node.id in self._aliases)
+            or (isinstance(node, ast.Attribute) and node.attr == self._name)
+            or (isinstance(node, ast.alias) and node.name == self._name)
+            for node in ast.walk(self._tree)
+        )
+
     def method_calls(self, method: str) -> int:
         """How many calls are ``<the class, any spelling>.<method>(...)``."""
         return sum(
