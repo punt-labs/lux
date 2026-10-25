@@ -1,8 +1,12 @@
-"""WriteSeam — realize a field mutation over the authoritative store.
+"""WriteSeam — the one seam every element write to the store goes through.
 
 A field patch on an ABC element is patched in place. This resolves the target at
 the store index, hands the write path a ``FieldRealization``, and rejects a
-target that is not a mutable ABC element.
+target that is not a mutable ABC element. It is also where the nesting cap is
+judged, for every kind of write: an install, an ``update`` batch and a store-level
+property write each ask it, and it decides by comparing an element's own wire depth
+before and after, so a write that deepens the wire form is judged whatever field or
+payload deepened it.
 """
 
 from __future__ import annotations
@@ -12,11 +16,13 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
+from punt_lux.domain.hub.write_errors import NestingExceededError
 from punt_lux.domain.nesting_cap import NestingCap
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.ids import ElementId, SceneId
@@ -52,8 +58,8 @@ class WriteSeam:
         and structural ``children``/``tabs``); the target is then patched in place.
         """
         FieldGate.reject(element_id, fields)
-        element = self._require_abc(scene_id, element_id)
-        return AbcFieldRealization(element, fields)
+        element = self._index.lookup(scene_id, element_id)
+        return AbcFieldRealization(self._mutable(element, scene_id, element_id), fields)
 
     def nesting_refusal(
         self, scene_id: SceneId, realizations: Sequence[FieldRealization]
@@ -61,17 +67,22 @@ class WriteSeam:
         """Why the scene, with every realization applied at once, would nest too deeply.
 
         Judged on the whole batch before any of it is committed, so a refused batch
-        changes nothing and no observer hears of it. Only a patch to a field that
-        can hold elements can deepen the tree, so a batch with none is not projected
-        at all; the rest are judged together.
+        changes nothing and no observer hears of it. The cap decides; the seam only
+        hands it each target as it is and as it would become.
         """
-        deepening = [r for r in realizations if r.can_deepen()]
-        if not deepening:
-            return None
-        return NestingCap().refusal_if_patched(
-            self._index.scene_roots(scene_id),
-            dict(r.projected() for r in deepening),
-        )
+        try:
+            writes = [(r.current(), r.projected()[1]) for r in realizations]
+            return NestingCap().refusal_of_writes(
+                self._index.scene_roots(scene_id), writes
+            )
+        except RecursionError:  # a form too deep to build or measure is past the cap
+            return NestingCap.reason()
+
+    def require_within_cap(self, roots: Sequence[WireElement]) -> None:
+        """Raise :class:`NestingExceededError` if ``roots`` would nest too deeply."""
+        reason = NestingCap().refusal(roots)
+        if reason is not None:
+            raise NestingExceededError(reason)
 
     def is_present(self, scene_id: SceneId, element_id: ElementId) -> bool:
         """Return whether ``element_id`` is installed — lets removal stay idempotent."""
@@ -89,14 +100,23 @@ class WriteSeam:
         The store-level ``SetProperty`` primitive. The field gate runs first: a
         forbidden field (immutable, or structural ``children``/``tabs``) never
         reaches the store, since installing and evicting children is work only
-        ``show`` performs.
+        ``show`` performs. A write that would nest the scene past the cap raises
+        :class:`NestingExceededError` and changes nothing.
         """
         FieldGate.reject(element_id, {field: value})
-        self._require_abc(scene_id, element_id).apply_patch({field: value})
+        target = self._index.lookup(scene_id, element_id)
+        element = self._mutable(target, scene_id, element_id)
+        realization = AbcFieldRealization(element, {field: value})
+        refusal = self.nesting_refusal(scene_id, [realization])
+        if refusal is not None:
+            raise NestingExceededError(refusal)
+        element.apply_patch({field: value})
 
-    def _require_abc(self, scene_id: SceneId, element_id: ElementId) -> AbcElement:
-        """Return the target, requiring it be a mutable ABC element."""
-        element = self._index.lookup(scene_id, element_id)
+    @staticmethod
+    def _mutable(
+        element: WireElement, scene_id: SceneId, element_id: ElementId
+    ) -> AbcElement:
+        """Return the looked-up target, requiring it be a mutable ABC element."""
         if not isinstance(element, AbcElement):
             msg = (
                 f"write target {str(element_id)!r} in scene {str(scene_id)!r} "

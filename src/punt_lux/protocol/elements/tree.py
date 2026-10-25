@@ -5,7 +5,7 @@ Selection lives behind ``tree_selection_facade`` (PL-CU-1); codec in ``tree_code
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
+from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
@@ -33,8 +33,6 @@ class TreeElement(Element):
 
     PY-TS-14 OK: only ``tooltip`` is ``str | None``; every other field is total.
     """
-
-    NESTING_FIELDS: ClassVar[frozenset[str]] = frozenset({"nodes"})
 
     _id: str
     _label: str

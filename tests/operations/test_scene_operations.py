@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub import field_realization
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.field_realization import AbcFieldRealization
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -37,9 +36,11 @@ from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import pytest
 
-    from punt_lux.domain.element_abc import Element as AbcElement
+    from punt_lux.domain.element import Element as WireElement
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope.in_process(_CONNECTION)
@@ -829,19 +830,23 @@ class TestAnUpdateCannotNestPastTheCap:
         assert recorder.dirtied == [_scoped("s1")]
 
 
-class TestAnUpdateProjectsOnlyWhatCanDeepenTheTree:
-    """A patch that cannot nest deeper costs no projection of the scene."""
+class TestAnUpdateProjectsTheSceneOnlyWhenAnElementGotDeeper:
+    """A patch that leaves every element's own wire depth alone costs no projection."""
 
     @staticmethod
     def _count_projections(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls: list[str] = []
-        real = AbcFieldRealization.projected
+        real = NestingCap.refusal_if_patched
 
-        def spy(self: AbcFieldRealization) -> tuple[str, AbcElement]:
+        def spy(
+            self: NestingCap,
+            roots: Sequence[WireElement],
+            patched: Mapping[str, WireElement],
+        ) -> str | None:
             calls.append("projected")
-            return real(self)
+            return real(self, roots, patched)
 
-        monkeypatch.setattr(AbcFieldRealization, "projected", spy)
+        monkeypatch.setattr(NestingCap, "refusal_if_patched", spy)
         return calls
 
     def test_a_scalar_patch_is_not_projected(

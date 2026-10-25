@@ -157,6 +157,31 @@ class _Panel(AbcElement):
         return self._id
 
     @property
+    def kind(self) -> str:
+        """The wire discriminator: a panel is a plain box on the wire."""
+        return "panel"
+
+    @property
+    def tooltip(self) -> str | None:
+        """A panel carries no tooltip."""
+        return None
+
+    def to_dict(self) -> dict[str, object]:
+        """The panel's wire form: itself and its children's, as the cap measures it."""
+        return {
+            "kind": self.kind,
+            "id": self._id,
+            "children": [
+                cast("WireElement", c).to_dict() for c in self._children_tuple
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        """Unused: the test builds panels directly."""
+        raise NotImplementedError(d)
+
+    @property
     def children(self) -> tuple[AbcElement, ...]:
         """Return the panel's child tuple (read-only view)."""
         return self._children_tuple

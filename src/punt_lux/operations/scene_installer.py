@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.write_errors import NestingExceededError
 from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
@@ -62,13 +63,18 @@ class SceneInstaller:
         if isinstance(scoped, OpError):
             return scoped
         left = self._display.frames.presentation_for(scoped.scene_id).frame_id
-        self._display.show_scene(
-            owner,
-            scoped.scene_id,
-            scoped.elements,
-            scoped.presentation,
-            ttl_seconds=scoped.ttl_seconds,
-        )
+        try:
+            self._display.show_scene(
+                owner,
+                scoped.scene_id,
+                scoped.elements,
+                scoped.presentation,
+                ttl_seconds=scoped.ttl_seconds,
+            )
+        except (
+            NestingExceededError
+        ) as exc:  # the store refused it whole: nothing dropped
+            return OpError(code="rejected", reason=exc.reason)
         self._replicator.mark_dirty(scoped.scene_id)
         self._resend_survivors(left, scoped.presentation.frame_id)
         return SceneShown(scene_id=submission.name)

@@ -11,9 +11,7 @@ from __future__ import annotations
 from typing import cast
 
 from punt_lux.display.scene_inspection import SceneInspection
-from punt_lux.domain.ids import SceneId
 from punt_lux.domain.nesting_cap import NestingCap
-from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.protocol import (
     FrameReader,
     QueryResponse,
@@ -24,6 +22,7 @@ from punt_lux.protocol.elements import GroupElement, TreeElement
 from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING, MAX_NESTING
 from punt_lux.protocol.messages import message_to_dict
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from tests.domain.wire_doubles import WireOnly
 
 
 def _chain(levels: int) -> GroupElement:
@@ -45,16 +44,13 @@ class TestTheHubRefusesWhatNoReplyCouldCarry:
     def test_a_scene_nested_past_the_cap_is_refused_with_the_reason(self) -> None:
         deep = _chain(MAX_ELEMENT_NESTING)  # two brackets a level: far past the cap
 
-        reason = SubmissionGate().first_rejection(SceneId("s"), [deep])
+        reason = NestingCap().refusal([deep])
 
         assert reason is not None
         assert str(MAX_ELEMENT_NESTING) in reason
 
     def test_a_scene_at_the_cap_is_accepted(self) -> None:
-        assert (
-            SubmissionGate().first_rejection(SceneId("s"), [_deepest_within_the_cap()])
-            is None
-        )
+        assert NestingCap().refusal([_deepest_within_the_cap()]) is None
 
     def test_the_deepest_accepted_scene_s_inspection_reply_is_decoded(self) -> None:
         tree = _deepest_within_the_cap()
@@ -146,16 +142,6 @@ class TestTheEnvelopeIsPinnedToTheDeepestRealReply:
         assert observed + 1 >= MAX_NESTING - MAX_ELEMENT_NESTING
 
 
-class _Wire:
-    """An element that is nothing but a wire form."""
-
-    def __init__(self, wire: dict[str, object]) -> None:
-        self._wire = wire
-
-    def to_dict(self) -> dict[str, object]:
-        return self._wire
-
-
 def _nested_lists(levels: int) -> object:
     value: object = []
     for _ in range(levels - 1):
@@ -170,15 +156,15 @@ def _group(element_id: str, children: object) -> dict[str, object]:
 class TestABatchIsJudgedAsAWhole:
     """Patches that nest inside one another are measured with each other in place."""
 
-    _ROOT = _Wire(_group("outer", [_group("inner", [])]))
+    _ROOT = WireOnly(_group("outer", [_group("inner", [])]))
 
-    def _inner_at_the_cap(self) -> _Wire:
+    def _inner_at_the_cap(self) -> WireOnly:
         # object + children list + (levels - 1) more: 2 above it, so exactly the cap.
-        return _Wire(_group("inner", _nested_lists(MAX_ELEMENT_NESTING - 3)))
+        return WireOnly(_group("inner", _nested_lists(MAX_ELEMENT_NESTING - 3)))
 
-    def _outer_that_wraps_its_child(self) -> _Wire:
+    def _outer_that_wraps_its_child(self) -> WireOnly:
         # The same child, four brackets deeper under its parent than before.
-        return _Wire(_group("outer", [[[[_group("inner", [])]]]]))
+        return WireOnly(_group("outer", [[[[_group("inner", [])]]]]))
 
     def test_each_patch_alone_is_within_the_cap(self) -> None:
         cap = NestingCap()
@@ -218,15 +204,43 @@ class TestABatchIsJudgedAsAWhole:
         assert reason is not None
 
     def test_patches_in_different_branches_do_not_add(self) -> None:
-        root = _Wire(_group("outer", [_group("a", []), _group("b", [])]))
+        root = WireOnly(_group("outer", [_group("a", []), _group("b", [])]))
         deep = MAX_ELEMENT_NESTING - 3
 
         reason = NestingCap().refusal_if_patched(
             [root],
             {
-                "a": _Wire(_group("a", _nested_lists(deep))),
-                "b": _Wire(_group("b", _nested_lists(deep))),
+                "a": WireOnly(_group("a", _nested_lists(deep))),
+                "b": WireOnly(_group("b", _nested_lists(deep))),
             },
         )
 
         assert reason is None
+
+
+class TestAFormTooDeepToEncodeIsRefusedNotRaised:
+    """A ``RecursionError`` while measuring is the cap's refusal, on every path."""
+
+    @staticmethod
+    def _unencodable() -> WireOnly:
+        return WireOnly({"kind": "box", "id": "x"}, encode_error=RecursionError())
+
+    def test_a_root_that_cannot_encode_is_refused(self) -> None:
+        reason = NestingCap().refusal([self._unencodable()])
+
+        assert reason == NestingCap.reason()
+
+    def test_a_patched_element_that_cannot_encode_is_refused(self) -> None:
+        root = WireOnly(_group("outer", [_group("x", [])]))
+
+        reason = NestingCap().refusal_if_patched([root], {"x": self._unencodable()})
+
+        assert reason == NestingCap.reason()
+
+    def test_a_root_that_cannot_encode_under_a_patch_is_refused(self) -> None:
+        reason = NestingCap().refusal_if_patched([self._unencodable()], {})
+
+        assert reason == NestingCap.reason()
+
+    def test_the_depth_of_a_form_that_cannot_encode_is_past_the_cap(self) -> None:
+        assert NestingCap().depth(self._unencodable()) > MAX_ELEMENT_NESTING

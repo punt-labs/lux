@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any, Self, cast, final
 
-__all__ = ["MAX_NESTING", "JsonPayload"]
+__all__ = ["MAX_ELEMENT_NESTING", "MAX_NESTING", "JsonPayload"]
 
 # Brackets one element's wire form may nest: a container adds two a level (its
 # object and its children array), and some leaves nest their own data (a tree's

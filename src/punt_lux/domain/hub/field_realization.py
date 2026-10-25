@@ -16,15 +16,19 @@ from typing import (
     TYPE_CHECKING,
     Protocol,
     Self,
+    cast,
     final,
 )
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.write_result import WriteRejected
+from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.domain.validation import ValidationReport
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from punt_lux.domain.element import Element as WireElement
 
 __all__ = ["AbcFieldRealization", "FieldRealization"]
 
@@ -41,11 +45,11 @@ class FieldRealization(Protocol):
         """Return why the patch may not be written, or ``None`` if it may."""
         ...
 
-    def can_deepen(self) -> bool:
-        """Whether the patch names a field that can hold nested elements."""
+    def current(self) -> WireElement:
+        """The target as the store holds it now."""
         ...
 
-    def projected(self) -> tuple[str, object]:
+    def projected(self) -> tuple[str, WireElement]:
         """The target's id and the element it would become, without applying it."""
         ...
 
@@ -90,30 +94,46 @@ class AbcFieldRealization:
         value, and a self-validation failure all surface here as the agent-facing
         reason; any other exception is an internal bug and propagates.
         """
+        return self._unknown_field() or self._invalid_once_patched()
+
+    def _unknown_field(self) -> WriteRejected | None:
         for key in self._fields:
             if not callable(getattr(self._element, f"_set_{key}", None)):
                 return WriteRejected(
                     f"cannot set unknown field {key!r} on element {self._element.id!r}"
                 )
+        return None
+
+    def _invalid_once_patched(self) -> WriteRejected | None:
         try:
             errors = self._patched_copy().validate()
         except (ValueError, TypeError) as exc:
             return WriteRejected(str(exc))
-        if errors:
-            return WriteRejected(ValidationReport(errors).describe())
-        return None
+        except RecursionError:  # a form too deep to even build is past the cap
+            return WriteRejected(NestingCap.reason())
+        return WriteRejected(ValidationReport(errors).describe()) if errors else None
 
-    def can_deepen(self) -> bool:
-        """Whether the element declares a patched field can hold nested elements."""
-        return self._element.patches_nested_content(self._fields)
+    def current(self) -> WireElement:
+        """The element as the store holds it, untouched."""
+        return self._wire(self._element)
 
-    def projected(self) -> tuple[str, AbcElement]:
+    def projected(self) -> tuple[str, WireElement]:
         """The element's id and what it would be once the patch is applied.
 
         A throwaway deep copy, made once and shared with ``rejection``: the element
         itself, and any observer of it, is untouched.
         """
-        return self._element.id, self._patched_copy()
+        return self._element.id, self._wire(self._patched_copy())
+
+    @staticmethod
+    def _wire(element: AbcElement) -> WireElement:
+        """The ABC element seen through its wire contract.
+
+        Every ABC kind the store holds has a wire form (``to_dict``); the ABC base
+        leaves it to the kind, so a kind without one fails loudly where the cap
+        asks for it, never passes unmeasured.
+        """
+        return cast("WireElement", element)
 
     def _patched_copy(self) -> AbcElement:
         if self._patched is None:

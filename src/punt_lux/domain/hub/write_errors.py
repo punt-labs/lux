@@ -20,7 +20,7 @@ from typing import Literal
 
 from punt_lux.domain.ids import ElementId
 
-__all__ = ["ImmutableFieldError", "MalformedPatchError"]
+__all__ = ["ImmutableFieldError", "MalformedPatchError", "NestingExceededError"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,3 +63,18 @@ class ImmutableFieldError(ValueError):
             f"cannot set immutable field {self.field!r} on element "
             f"{str(self.element_id)!r}; {self.field} is fixed at install"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class NestingExceededError(ValueError):
+    """Raised when a write would nest an element's wire form past the cap.
+
+    The write seam raises it for an install and a store-level property write; the
+    ``update`` path reports the same ``reason`` as a ``WriteRejected`` and the install
+    door as a rejection, so the agent reads one message whichever door it used.
+    """
+
+    reason: str
+
+    def __str__(self) -> str:
+        return self.reason
