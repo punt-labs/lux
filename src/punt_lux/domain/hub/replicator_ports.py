@@ -19,6 +19,7 @@ from punt_lux.domain.hub.scene_presentation import ScenePusher
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.ids import SceneId
 
 __all__ = [
@@ -97,6 +98,11 @@ class SenderPort(Protocol):
         """The link's outbound port."""
         ...
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The current dial: what a failed send names to drop."""
+        ...
+
 
 @runtime_checkable
 class ClientProvider(ReconnectWaiter, Protocol):
@@ -106,8 +112,8 @@ class ClientProvider(ReconnectWaiter, Protocol):
         """Return the link; raises ``DisplayNotConnectedError`` if never connected."""
         ...
 
-    def drop(self) -> None:
-        """Close the current connection so the next ``get`` binds a fresh one."""
+    def drop(self, generation: DialGeneration) -> None:
+        """Retire ``generation`` if still current, so the next ``get`` binds afresh."""
 
     def request_stop(self) -> None:
         """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""

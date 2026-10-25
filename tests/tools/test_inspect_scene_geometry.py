@@ -32,9 +32,12 @@ from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 from punt_lux.tools import read_tools
+from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     import pytest
+
+    from punt_lux.domain.hub.dial_generation import DialGeneration
 
 _GEOMETRY_REPLY: dict[str, object] = {
     "scene_id": "s1",
@@ -84,6 +87,11 @@ class _StubClient:
     def requests(self) -> _StubClient:
         """The outbound port: this stub is its own."""
         return self
+
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed request would name; the stub has no real one."""
+        return fake_dial()
 
     def query(self, method: str, params: dict[str, object]) -> _Reply:
         return _Reply(_GEOMETRY_REPLY)

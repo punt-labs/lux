@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_listener import DisplayListener
@@ -21,7 +21,9 @@ from punt_lux.domain.hub.handshake_connector import HandshakeConnector
 from punt_lux.protocol import ReadyMessage
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_dialer import DisplayDialer
+    from punt_lux.domain.hub.event_port import EventPort
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ __all__ = ["DEFAULT_RECV_TIMEOUT", "DisplayLink"]
 DEFAULT_RECV_TIMEOUT = 5.0
 
 
+@final
 class DisplayLink:
     """Client for the Lux display server.
 
@@ -42,7 +45,9 @@ class DisplayLink:
     a deliberately wrong-looking name, since the display rejects a
     ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
     the display server when not running. ``connect_timeout`` bounds the wait
-    for the display; ``recv_timeout`` is the default for :meth:`recv`.
+    for the display; ``recv_timeout`` is the default budget for a request's
+    wait and for :meth:`~EventPort.poll_event`. A link over another dialer (a
+    cross-host connector) is made with :meth:`over`.
     """
 
     _connection: DisplayConnection
@@ -58,18 +63,26 @@ class DisplayLink:
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
-        dialer: DisplayDialer | None = None,  # None = default AF_UNIX dialer (PY-TS-14)
     ) -> Self:
-        self = super().__new__(cls)
-        # An injected dialer (a cross-host CrossHostConnector built by
-        # CrossHostEndpoint.dial) overrides the default AF_UNIX one.
-        self._connection = DisplayConnection(
-            dialer
-            or HandshakeConnector(
+        return cls.over(
+            HandshakeConnector(
                 name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn
             ),
-            connect_timeout,
+            connect_timeout=connect_timeout,
+            recv_timeout=recv_timeout,
         )
+
+    @classmethod
+    def over(
+        cls,
+        dialer: DisplayDialer,
+        *,
+        connect_timeout: float = 5.0,
+        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+    ) -> Self:
+        """Make a link that dials through ``dialer`` (a cross-host connector)."""
+        self = super().__new__(cls)
+        self._connection = DisplayConnection(dialer, connect_timeout)
         self._listener = DisplayListener(self._connection, recv_timeout)
         self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
         return self
@@ -89,6 +102,23 @@ class DisplayLink:
     def is_connected(self) -> bool:
         """Whether the client has an active socket connection."""
         return self._connection.is_open
+
+    @property
+    def dial(self) -> DialGeneration:
+        """The current dial, to name in :meth:`drop_if_current` after a failure.
+
+        Raises :class:`~punt_lux.domain.hub.connection_closed.ConnectionClosedError`
+        when the link is not connected.
+        """
+        return self._connection.require()
+
+    def drop_if_current(self, generation: DialGeneration) -> bool:
+        """Retire ``generation`` if it is still the current dial; whether it was.
+
+        What a caller that saw its own dial fail asks for: it never closes a
+        newer dial that replaced the one that failed.
+        """
+        return self._connection.close_if_current(generation, cause="hub")
 
     @property
     def listener_active(self) -> bool:
@@ -116,15 +146,18 @@ class DisplayLink:
         DisplayNotConnectedError
             If the display fails to start or the handshake times out.
         """
-        dialed = self._connection.open(listening=listen)
         if not listen:
+            self._connection.open()
+            return
+        dialed = self._connection.open_listening()
+        if dialed is None:  # already connected: give it a reader if it lacks one
+            self._listener.start()
             return
         try:
-            self._listener.start(dialed)
+            self._listener.start_on(dialed)
         except BaseException:
             # A dial with no reader repairs nothing: retire the one this call made.
-            if dialed is not None:
-                self._connection.close_if_current(dialed)
+            self._connection.close_if_current(dialed, cause="hub")
             raise
 
     def close(self) -> None:
@@ -161,6 +194,6 @@ class DisplayLink:
         return self._requests
 
     @property
-    def events(self) -> DisplayListener:
+    def events(self) -> EventPort:
         """What the display pushes: business events and interactions."""
         return self._listener

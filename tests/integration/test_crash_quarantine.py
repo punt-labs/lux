@@ -37,9 +37,12 @@ from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
+from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from punt_lux.domain.hub.dial_generation import DialGeneration
 
 
 pytestmark = pytest.mark.integration
@@ -69,6 +72,11 @@ class _FaultInjectingSender:
     def requests(self) -> _FaultInjectingSender:
         """The outbound port: this fake is its own."""
         return self
+
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed send names when it asks for the drop."""
+        return fake_dial()
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -129,7 +137,7 @@ class _Provider:
             self._needs_reconcile = False
         return self._sender
 
-    def drop(self) -> None:
+    def drop(self, generation: DialGeneration) -> None:
         self._needs_reconcile = True
 
     @property

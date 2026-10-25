@@ -11,16 +11,22 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, cast
 
+import pytest
+
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.display_busy import DisplayBusyError
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
     DisplayReplied,
 )
+from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.clients import ClientRegistry
+    from punt_lux.domain.hub.dial_generation import DialGeneration
 
 
 class _Response:
@@ -66,12 +72,18 @@ class _Client:
     _ping_reply: object
     _raise: Exception | None
     _ping_delay: float
+    _dial: DialGeneration
     ping_timeout: float | None
 
     @property
     def requests(self) -> _Client:
         """The outbound port: this fake is its own."""
         return self
+
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed request names when it asks for the drop."""
+        return self._dial
 
     def __new__(
         cls,
@@ -87,6 +99,7 @@ class _Client:
         self._raise = error
         self._ping_delay = ping_delay
         self.ping_timeout = None
+        self._dial = fake_dial()
         return self
 
     def query(self, method: str, params: dict[str, object]) -> object:
@@ -109,7 +122,7 @@ class _Registry:
     _client: _Client
     _connect_error: Exception | None
     is_connected: bool
-    drops: int
+    drops: list[DialGeneration]
 
     def __new__(
         cls,
@@ -122,16 +135,21 @@ class _Registry:
         self._client = client
         self._connect_error = connect_error
         self.is_connected = is_connected
-        self.drops = 0
+        self.drops = []
         return self
+
+    @property
+    def client_dial(self) -> DialGeneration:
+        """The dial the client's requests go out on."""
+        return self._client.dial
 
     def get(self) -> _Client:
         if self._connect_error is not None:
             raise self._connect_error
         return self._client
 
-    def drop(self) -> None:
-        self.drops += 1
+    def drop(self, generation: DialGeneration) -> None:
+        self.drops.append(generation)
 
 
 def _conn(registry: _Registry, *, running: bool = True) -> HubDisplayConnection:
@@ -154,18 +172,20 @@ def test_query_maps_a_send_failure_to_timeout_and_drops() -> None:
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
     assert reply.code == "timeout"
-    assert registry.drops == 1
+    assert registry.drops == [registry.client_dial]
 
 
-def test_query_maps_a_failed_reconnect_to_unavailable_and_drops() -> None:
+def test_query_maps_a_failed_reconnect_to_unavailable_and_drops_nothing() -> None:
     # ClientRegistry.get -> DisplayLink.connect raises RuntimeError when the
     # display dies between the liveness check and the get; it must fold into a
     # typed display_unavailable, not escape as an untyped tool exception.
-    registry = _Registry(_Client(), connect_error=RuntimeError("Cannot connect"))
+    registry = _Registry(
+        _Client(), connect_error=DisplayNotConnectedError("Cannot connect")
+    )
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
-    assert registry.drops == 1
+    assert registry.drops == []  # no dial was made, so there is none to drop
 
 
 def test_query_maps_a_none_reply_to_timeout() -> None:
@@ -217,12 +237,14 @@ def test_ping_without_a_timestamp_is_an_error_not_a_zero_rtt() -> None:
     assert reply.message == "pong carried no timestamp"
 
 
-def test_ping_maps_a_failed_reconnect_to_unavailable() -> None:
-    registry = _Registry(_Client(), connect_error=RuntimeError("Cannot connect"))
+def test_ping_maps_a_failed_reconnect_to_unavailable_and_drops_nothing() -> None:
+    registry = _Registry(
+        _Client(), connect_error=DisplayNotConnectedError("Cannot connect")
+    )
     reply = _conn(registry).ping(None)
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
-    assert registry.drops == 1
+    assert registry.drops == []  # no dial was made, so there is none to drop
 
 
 def test_is_connected_delegates_to_the_registry() -> None:
@@ -237,7 +259,7 @@ def test_query_maps_a_closed_connection_to_unavailable_and_drops() -> None:
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
-    assert registry.drops == 1
+    assert registry.drops == [registry.client_dial]
 
 
 def test_ping_maps_a_closed_connection_to_unavailable_and_drops() -> None:
@@ -245,4 +267,37 @@ def test_ping_maps_a_closed_connection_to_unavailable_and_drops() -> None:
     reply = _conn(registry).ping(None)
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
-    assert registry.drops == 1
+    assert registry.drops == [registry.client_dial]
+
+
+def test_ping_that_lost_the_lock_to_another_ping_is_a_timeout_and_keeps_the_dial() -> (
+    None
+):
+    registry = _Registry(_Client(error=DisplayBusyError("a ping is in flight")))
+    reply = _conn(registry).ping(0.1)
+    assert isinstance(reply, DisplayFault)
+    assert reply.code == "timeout"
+    assert registry.drops == []
+
+
+def test_query_that_lost_the_lock_to_another_query_keeps_the_dial() -> None:
+    registry = _Registry(_Client(error=DisplayBusyError("a query is in flight")))
+    reply = _conn(registry).query("get_theme", {})
+    assert isinstance(reply, DisplayFault)
+    assert reply.code == "timeout"
+    assert registry.drops == []
+
+
+@pytest.mark.parametrize("call", ["query", "ping"])
+def test_a_runtime_error_that_is_not_a_missing_display_is_not_swallowed(
+    call: str,
+) -> None:
+    # A programming error (say, waiting for a reply on the listener thread)
+    # must surface, not read as "no display" and tear the connection down.
+    registry = _Registry(_Client(error=RuntimeError("Cannot wait for a reply")))
+    conn = _conn(registry)
+
+    with pytest.raises(RuntimeError, match="Cannot wait"):
+        conn.query("get_theme", {}) if call == "query" else conn.ping(None)
+
+    assert registry.drops == []

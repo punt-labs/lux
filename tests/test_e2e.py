@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
 
 
@@ -116,7 +117,9 @@ class TestWalkingSkeleton:
                         ButtonElement(id="btn-ok", label="OK", action="ok"),
                         ButtonElement(id="btn-cancel", label="Cancel", action="cancel"),
                     ],
-                    title="E2E Test",
+                    presentation=ScenePresentation(
+                        frame_id="e2e-scene-1", title="E2E Test"
+                    ),
                 )
                 assert ack is not None
                 assert ack.scene_id == "e2e-scene-1"

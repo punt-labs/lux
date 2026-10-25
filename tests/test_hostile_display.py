@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import (
@@ -172,8 +173,9 @@ class TestScenesFromADisplay:
         display = hostile(_scene_frame(), True)
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
-            with pytest.raises(ValueError, match="not accepted"):
+            with pytest.raises(ConnectionClosedError) as refused:
                 link.requests.ping(timeout=2.0)
+            assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []
 
@@ -185,8 +187,9 @@ class TestScenesFromADisplay:
         display = hostile(_scene_frame(), True)
         with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
             link.connect()
-            with pytest.raises(ValueError, match="not accepted"):
+            with pytest.raises(ConnectionClosedError) as refused:
                 link.requests.show("s", [])
+            assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []
 

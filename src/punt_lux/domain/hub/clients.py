@@ -18,6 +18,7 @@ from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
 
 logger = logging.getLogger(__name__)
@@ -126,11 +127,11 @@ class ClientRegistry:
             self._stop_requested = True
             self._reconnect_cond.notify_all()
 
-    def drop(self) -> None:
-        """Close the client so the next ``get`` reconnects, not reuses a stale fd."""
+    def drop(self, generation: DialGeneration) -> None:
+        """Retire the dial a caller saw fail, unless a redial already replaced it."""
         with self._lock:
             if self._client is not None:
-                self._client.close()
+                self._client.drop_if_current(generation)
 
     def with_reconnect[T](self, fn: Callable[[], T]) -> T:
         """Run ``fn``; on ``OSError`` close, reconnect, restart listener, retry once."""

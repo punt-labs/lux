@@ -45,7 +45,7 @@ def _live_scene_ids(sock_path: Path) -> set[str]:
     """
     with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as probe:
         sock = (
-            probe._connection.require().socket
+            probe._connection.require()._dial.sock
         )  # test-only reach-through: raw round-trip
         send_message(sock, ListScenesRequest())
         resp = recv_message(sock, DISPLAY_VOCABULARY, timeout=5.0)

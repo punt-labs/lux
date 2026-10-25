@@ -6,37 +6,48 @@ import errno
 import logging
 import threading
 import time
+from typing import TYPE_CHECKING
 
 import pytest
 
 from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.domain.hub.liveness import (
-    DisplayLiveness,
-    KeepaliveLink,
-)
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.keepalive_ports import KeepaliveLink
+from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from punt_lux.protocol import PongMessage
+from tests.dial_double import fake_dial
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_generation import DialGeneration
 
 
 class _FakeConnection:
     """A connection whose ``ping`` replays a scripted sequence of outcomes.
 
     Each entry is a ``PongMessage`` (a live pong), ``None`` (unresponsive), or an
-    exception — ``OSError`` (a dead socket on the send) or ``RuntimeError`` (a
-    connect failure ``ClientRegistry`` wraps). The last entry repeats once the
+    exception — ``OSError`` (a dead socket on the send) or
+    ``DisplayNotConnectedError`` (a connect failure). The last entry repeats once the
     script is exhausted, so a reconnected connection keeps answering.
     """
 
     _results: list[PongMessage | Exception | None]
+    _dial: DialGeneration
 
     @property
     def requests(self) -> _FakeConnection:
         """The outbound port: this fake is its own."""
         return self
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed probe names when it asks for the drop."""
+        return self._dial
+
     def __new__(cls, results: list[PongMessage | Exception | None]) -> _FakeConnection:
         self = super().__new__(cls)
         self._results = results
+        self._dial = fake_dial()
         return self
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
@@ -52,20 +63,23 @@ class _FakeClients:
     _connection: KeepaliveLink
     get_calls: int
     drop_calls: int
+    dropped: list[DialGeneration]
 
     def __new__(cls, connection: KeepaliveLink) -> _FakeClients:
         self = super().__new__(cls)
         self._connection = connection
         self.get_calls = 0
         self.drop_calls = 0
+        self.dropped = []
         return self
 
     def get(self) -> KeepaliveLink:
         self.get_calls += 1
         return self._connection
 
-    def drop(self) -> None:
+    def drop(self, generation: DialGeneration) -> None:
         self.drop_calls += 1
+        self.dropped.append(generation)
 
 
 def _pong() -> PongMessage:
@@ -89,20 +103,36 @@ class TestCheckOnce:
         assert clients.drop_calls == 0  # the recovered connection is spared
         assert clients.get_calls == 2  # probe, then the sparing re-probe
 
-    def test_a_busy_display_is_not_a_dead_one(self) -> None:
-        # Another ping holds the dial: nothing was sent, so nothing was learned.
+    def test_a_busy_display_is_alive_not_dead(self) -> None:
+        # Another ping holds the dial: it is probing the display already, so the
+        # display counts as alive, with no drop and no second probe.
         clients = _FakeClients(
             _FakeConnection([DisplayBusyError("a ping is in flight")])
         )
-        DisplayLiveness(clients).check_once()
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker._pacing.mark_disconnected()
+        worker.check_once()
         assert clients.drop_calls == 0
         assert clients.get_calls == 1
+        assert worker._pacing.interval(1.0) == 1.0, "busy marks the display connected"
+
+    def test_a_busy_reprobe_after_the_drop_is_alive_and_raises_nothing(self) -> None:
+        # Two failed probes, a drop, then the re-probe finds a ping in flight:
+        # the display is alive, so the cycle ends connected instead of failing.
+        clients = _FakeClients(
+            _FakeConnection([None, None, DisplayBusyError("a ping is in flight")])
+        )
+        worker = DisplayLiveness(clients, interval=1.0)
+        worker.check_once()  # must not raise
+        assert clients.drop_calls == 1
+        assert worker._pacing.interval(1.0) == 1.0
 
     def test_twice_failed_probe_drops_and_reconnects(self) -> None:
         # Both probes fail (genuinely dead), then a pong once reconnected.
         clients = _FakeClients(_FakeConnection([None, None, _pong()]))
         DisplayLiveness(clients).check_once()
         assert clients.drop_calls == 1  # the dead connection was dropped
+        assert clients.dropped == [clients._connection.dial]  # the dial that was pinged
         assert clients.get_calls == 3  # probe, re-probe, then reconnect
 
     def test_dead_socket_ping_is_caught_not_escaped(self) -> None:
@@ -114,12 +144,16 @@ class TestCheckOnce:
         assert clients.drop_calls == 0  # re-probe recovered — no drop
 
     def test_connect_runtime_error_is_caught_not_escaped(self) -> None:
-        # ClientRegistry wraps connect failures (refused, spawn, handshake timeout)
-        # in RuntimeError. _probe must catch it, or one tick kills the worker for
-        # the life of luxd. Twice-failed, then reconnected.
+        # ClientRegistry surfaces connect failures (refused, spawn, handshake
+        # timeout) as DisplayNotConnectedError. _probe must catch it, or one tick
+        # kills the worker for the life of luxd. Twice-failed, then reconnected.
         clients = _FakeClients(
             _FakeConnection(
-                [RuntimeError("connect refused"), RuntimeError("still"), _pong()]
+                [
+                    DisplayNotConnectedError("connect refused"),
+                    DisplayNotConnectedError("still"),
+                    _pong(),
+                ]
             )
         )
         DisplayLiveness(clients).check_once()  # must not raise
@@ -134,9 +168,9 @@ class _AlwaysFailingClients:
 
     def get(self) -> KeepaliveLink:
         msg = "connect refused"
-        raise RuntimeError(msg)
+        raise DisplayNotConnectedError(msg)
 
-    def drop(self) -> None:
+    def drop(self, generation: DialGeneration) -> None:
         """No connection was ever held, so there is nothing to close."""
 
 

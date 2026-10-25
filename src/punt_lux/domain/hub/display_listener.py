@@ -70,9 +70,13 @@ class DisplayListener:
         """Run the interactions an inline read held, outside every request lock."""
         self._inbound.run_held()
 
-    def start(self, born: DialGeneration | None = None) -> None:
+    def start(self) -> None:
         """Start a reader on the current dial; a no-op if it already has one."""
-        self._thread.start(born)
+        self._thread.start()
+
+    def start_on(self, born: DialGeneration) -> None:
+        """Start a reader on ``born``, a dial made holding the listener's slot."""
+        self._thread.start_on(born)
 
     def stop(self) -> None:
         """Stop the reader and retire its dial, if running."""

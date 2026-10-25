@@ -139,15 +139,15 @@ class TestRequire:
     def test_a_redial_makes_a_new_generation_that_carries_nothing_over(self) -> None:
         connection, _ = _opened()
         first = connection.require()
-        first.sink.owe_ack("s", awaited=False)
+        first.send_scene(SceneMessage(id="s", elements=[], frame_id="s"), awaited=False)
 
         connection.close()
         connection.open()
         second = connection.require()
         try:
             assert second is not first
-            assert second.sink is not first.sink
-            assert second.sink.owed_acks == 0
+            assert first.owed_acks == 0, "the retired dial's ledger went with it"
+            assert second.owed_acks == 0
         finally:
             connection.close()
 
@@ -157,7 +157,7 @@ class TestCloseIfCurrent:
         connection, _ = _opened()
         generation = connection.require()
 
-        assert connection.close_if_current(generation) is True
+        assert connection.close_if_current(generation, cause="hub") is True
 
         assert not connection.is_open
         assert generation.is_closed
@@ -169,7 +169,7 @@ class TestCloseIfCurrent:
         connection.open()
         replacement = connection.require()
         try:
-            assert connection.close_if_current(stale) is False
+            assert connection.close_if_current(stale, cause="hub") is False
             assert connection.is_open
             assert not replacement.is_closed
         finally:
@@ -178,9 +178,9 @@ class TestCloseIfCurrent:
     def test_closing_twice_is_a_no_op_the_second_time(self) -> None:
         connection, _ = _opened()
         generation = connection.require()
-        connection.close_if_current(generation)
+        connection.close_if_current(generation, cause="hub")
 
-        assert connection.close_if_current(generation) is False
+        assert connection.close_if_current(generation, cause="hub") is False
 
 
 class TestShutdown:
@@ -216,7 +216,9 @@ class TestShutdown:
         sender.join(0.3)
         assert sender.is_alive(), "the peer reads nothing, so the write wedges"
 
-        assert connection.close_if_current(generation)  # needs no socket lock
+        assert connection.close_if_current(
+            generation, cause="hub"
+        )  # needs no socket lock
 
         sender.join(3.0)
         assert not sender.is_alive()
@@ -272,9 +274,9 @@ class TestSend:
                 SceneMessage(id="s", elements=[], frame_id="s"), awaited=True
             )
 
-            assert generation.sink.owed_acks == 1
-            generation.sink.deliver(AckMessage(scene_id="s"))
-            assert owed.reply == AckMessage(scene_id="s")
+            assert generation.owed_acks == 1
+            generation.deliver(AckMessage(scene_id="s"))
+            assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s")
         finally:
             connection.close()
             if dialer.peer is not None:
@@ -293,7 +295,7 @@ class TestSend:
                     SceneMessage(id="s", elements=[], frame_id="s"), awaited=False
                 )
 
-        assert generation.sink.owed_acks == 0
+        assert generation.owed_acks == 0
 
 
 class TestPollChunk:
@@ -359,7 +361,7 @@ class TestOpenForListening:
     def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        born = connection.open(listening=True)
+        born = connection.open_listening()
 
         assert born is connection.require()
 
@@ -370,15 +372,15 @@ class TestOpenForListening:
         finally:
             connection.close()
 
-    def test_open_says_whether_it_dialed(self) -> None:
+    def test_open_listening_says_whether_it_dialed(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        first = connection.open()
-        second = connection.open(listening=True)
+        connection.open()
+        second = connection.open_listening()
 
         try:
-            assert (first is connection.require(), second) == (True, None)
-            assert not connection.has_reader  # the existing dial was not re-made
+            assert second is None  # the dial already open was not re-made
+            assert not connection.has_reader
         finally:
             connection.close()
 
@@ -407,7 +409,7 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         def under_the_state_lock() -> None:
             outcome.append(connection.has_reader)
             outcome.append(connection.is_open)
-            outcome.append(connection.close_if_current(generation))
+            outcome.append(connection.close_if_current(generation, cause="hub"))
 
         worker = threading.Thread(target=under_the_state_lock, daemon=True)
         worker.start()

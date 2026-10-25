@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import TextElement
 
@@ -68,7 +69,9 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
             ack = client.requests.show(
                 "lifecycle-smoke",
                 elements=[TextElement(id="t1", content="Hello, lifecycle.")],
-                title="Lifecycle Smoke",
+                presentation=ScenePresentation(
+                    frame_id="lifecycle-smoke", title="Lifecycle Smoke"
+                ),
             )
             assert ack is not None
             assert ack.scene_id == "lifecycle-smoke"

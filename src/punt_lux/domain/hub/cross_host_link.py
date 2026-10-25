@@ -52,16 +52,13 @@ class CrossHostEndpoint:
         ``AF_UNIX`` leg; only the injected dialer differs (``system.tex``
         §"Connect, cross-host").
         """
-        return DisplayLink(
-            name=name,
-            kind="hub",
-            auto_spawn=False,
-            connect_timeout=connect_timeout,
-            recv_timeout=recv_timeout,
-            dialer=CrossHostConnector(
+        return DisplayLink.over(
+            CrossHostConnector(
                 host=self._host,
                 port=self._port,
                 ssl_context=self._ssl_context,
                 name=name,
             ),
+            connect_timeout=connect_timeout,
+            recv_timeout=recv_timeout,
         )

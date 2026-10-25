@@ -10,10 +10,10 @@ the frame-expiry sweep that also drives it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.clients import client_registry
-from punt_lux.domain.hub.liveness import DisplayLiveness, KeepaliveClients
+from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.replicator_instance import hub_replicator
 
 if TYPE_CHECKING:
@@ -53,9 +53,6 @@ class DisplayWorkers:
         self._replicator.stop()
 
 
-# DisplayLink's ``requests`` port satisfies KeepaliveConnection (it has ``ping``); the
-# cast bridges the registry's concrete return type to the keepalive's port.
-display_workers = DisplayWorkers(
-    hub_replicator,
-    DisplayLiveness(cast("KeepaliveClients", client_registry)),
-)
+# The registry satisfies the keepalive's ``KeepaliveClients`` port structurally:
+# its link's ``requests`` has ``ping``, its link names the current ``dial``.
+display_workers = DisplayWorkers(hub_replicator, DisplayLiveness(client_registry))

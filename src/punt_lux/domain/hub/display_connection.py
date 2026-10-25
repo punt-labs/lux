@@ -16,12 +16,13 @@ share no socket state of their own.
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_generation import DialGeneration
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.protocol import ReadyMessage
 
@@ -78,22 +79,59 @@ class DisplayConnection:
             held = self._current
         return "not connected" if held is None else held.endpoint
 
-    def open(self, *, listening: bool = False) -> DialGeneration | None:
-        """Dial the display and complete the handshake; the dial this call made.
+    def open(self) -> None:
+        """Dial the display and complete the handshake; a no-op if already open.
 
-        ``None`` if the connection was already open (no dial was made). The dial
-        runs outside the state lock. With ``listening`` the new dial is born
-        holding the listener's reader slot, so the listener never has to wait for
-        it; the caller starts the listener on the generation returned, never on
-        whatever is current by then. Raises :class:`DisplayNotConnectedError` if
-        the display cannot be reached or the handshake fails.
+        The dial runs outside the state lock. Raises
+        :class:`DisplayNotConnectedError` if the display cannot be reached or the
+        handshake fails.
         """
+        self._dial("none")
+
+    def open_listening(self) -> DialGeneration | None:
+        """Dial the display, the new dial born holding the listener's reader slot.
+
+        Returns the dial this call made, or ``None`` if the connection was already
+        open (no dial was made). The listener never has to wait for a dial born
+        this way; the caller starts it on the generation returned, never on
+        whatever is current by then.
+        """
+        return self._dial("listener")
+
+    def close(self) -> None:
+        """Retire the current dial, if any: the Hub's own deliberate close."""
+        with self._state_lock:
+            held = self._current
+            self._current = None
+            if held is not None:
+                held.mark_closed("hub")
+        if held is not None:
+            held.shut()
+
+    def close_if_current(
+        self, generation: DialGeneration, *, cause: RetireCause
+    ) -> bool:
+        """Retire ``generation`` if it is still the current dial; whether it was.
+
+        Atomic with the dial's publication: no interleaving closes a dial made
+        after the check. ``cause`` says who ended it, for whoever finds it gone.
+        """
+        with self._state_lock:
+            if self._current is not generation:
+                return False
+            self._current = None
+            generation.mark_closed(cause)
+        generation.shut()
+        return True
+
+    def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:
+        """Dial and publish a generation with ``reader``; ``None`` if already open."""
         if self.is_open:
             return None
         fresh = DialGeneration(
             self._dialer.dial(self._connect_timeout),
-            self.close_if_current,
-            listening=listening,
+            lambda generation, cause: self.close_if_current(generation, cause=cause),
+            reader=reader,
         )
         with self._state_lock:
             if self._current is None:
@@ -101,30 +139,6 @@ class DisplayConnection:
                 return fresh
         fresh.shut()  # another caller dialed first; theirs stays
         return None
-
-    def close(self) -> None:
-        """Retire the current dial, if any."""
-        with self._state_lock:
-            held = self._current
-            self._current = None
-            if held is not None:
-                held.mark_closed()
-        if held is not None:
-            held.shut()
-
-    def close_if_current(self, generation: DialGeneration) -> bool:
-        """Retire ``generation`` if it is still the current dial; whether it was.
-
-        Atomic with the dial's publication: no interleaving closes a dial made
-        after the check.
-        """
-        with self._state_lock:
-            if self._current is not generation:
-                return False
-            self._current = None
-            generation.mark_closed()
-        generation.shut()
-        return True
 
     def require(self) -> DialGeneration:
         """Return the current dial, or raise if the connection is not open."""

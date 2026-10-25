@@ -20,9 +20,11 @@ from punt_lux.protocol import (
     HubManifestMessage,
     ObserverMessage,
     PongMessage,
+    QueryRequest,
     QueryResponse,
     ReadyMessage,
     RemoteEventHandlerInvocation,
+    SceneMessage,
 )
 
 if TYPE_CHECKING:
@@ -34,7 +36,7 @@ def generation() -> Iterator[DialGeneration]:
     ours, theirs = socket.socketpair()
     made = DialGeneration(
         HandshakeResult(sock=ours, endpoint="pair", ready=ReadyMessage()),
-        lambda _generation: True,
+        lambda _generation, _cause: True,
     )
     yield made
     made.shut()
@@ -46,7 +48,7 @@ def _another() -> tuple[DialGeneration, socket.socket]:
     return (
         DialGeneration(
             HandshakeResult(sock=ours, endpoint="other", ready=ReadyMessage()),
-            lambda _generation: True,
+            lambda _generation, _cause: True,
         ),
         theirs,
     )
@@ -145,13 +147,13 @@ class TestReplies:
         router = InboundRouter(InteractionHandlers())
         other, theirs = _another()
         try:
-            mine = generation.sink.expect_pong(1.0)
-            theirs_waiting = other.sink.expect_pong(1.0)
+            mine = generation.send_ping(1.0)
+            theirs_waiting = other.send_ping(1.0)
 
             router.route(generation, PongMessage(ts=1.0))
 
-            assert mine.reply == PongMessage(ts=1.0)
-            assert theirs_waiting.reply is None
+            assert generation.await_reply(mine, 0.0) == PongMessage(ts=1.0)
+            assert other.await_reply(theirs_waiting, 0.0) is None
         finally:
             other.shut()
             theirs.close()
@@ -166,30 +168,32 @@ class TestReplies:
         router.route(generation, PongMessage(ts=1.0))
         router.route(generation, QueryResponse(method="m"))
 
-        assert generation.sink.owed_acks == 0
+        assert generation.owed_acks == 0
 
     def test_an_ack_a_waiter_is_owed_reaches_it(
         self, generation: DialGeneration
     ) -> None:
         router = InboundRouter(InteractionHandlers())
-        owed = generation.sink.owe_ack("s1", awaited=True)
+        owed = generation.send_scene(
+            SceneMessage(id="s1", elements=[], frame_id="s1"), awaited=True
+        )
 
         router.route(generation, AckMessage(scene_id="s1"))
 
-        assert owed.reply == AckMessage(scene_id="s1")
+        assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s1")
 
     def test_a_pong_and_a_query_response_are_kept_apart(
         self, generation: DialGeneration
     ) -> None:
         router = InboundRouter(InteractionHandlers())
-        ping = generation.sink.expect_pong(1.0)
-        query = generation.sink.expect_query()
+        ping = generation.send_ping(1.0)
+        query = generation.send_query(QueryRequest(method="m"))
 
         router.route(generation, QueryResponse(method="m"))
         router.route(generation, PongMessage(ts=1.0))
 
-        assert ping.reply == PongMessage(ts=1.0)
-        assert query.reply == QueryResponse(method="m")
+        assert generation.await_reply(ping, 0.0) == PongMessage(ts=1.0)
+        assert generation.await_reply(query, 0.0) == QueryResponse(method="m")
 
 
 class TestUnroutableMessages:

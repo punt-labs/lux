@@ -12,16 +12,22 @@ between the write and the wait fails the waiter instead of handing it the new
 dial's reply.
 
 Lock order: a request lock, then the connection's state lock, then the dial's
-socket lock, then the sink's lock; a caller holds at most one request lock. A
-budget that runs out while waiting for a request lock sends nothing and retires
-nothing, and a liveness ping never queues behind a query.
+socket lock, then the sink's lock; a caller holds at most one request lock.
+
+Each request has two budgets, spent one after the other: the wait for its request
+lock, and, once the lock is held, the wait for the reply, which gets its full
+timeout from the send. A lock wait that spends its budget raises
+:class:`DisplayBusyError`, sends nothing and retires nothing: another request of
+the kind holds the dial, which says nothing of the display. A liveness ping never
+queues behind a query.
 """
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Literal, Self, cast, final
+from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.display_replies import DisplayReplies
@@ -31,20 +37,18 @@ from punt_lux.protocol import (
     CallbackMenuMessage,
     HubManifestMessage,
     MenuMessage,
-    PingMessage,
     PongMessage,
     QueryRequest,
     QueryResponse,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Generator, Sequence
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.display_listener import DisplayListener
     from punt_lux.domain.hub.reply_sink import Pending
-    from punt_lux.domain.hub.scene_presentation import SceneLayout
     from punt_lux.protocol import Element, Message, SceneMessage
 
 __all__ = ["DisplayRequests"]
@@ -92,44 +96,23 @@ class DisplayRequests:
         self,
         scene_id: str,
         elements: list[Element],
-        *,
-        title: str | None = None,
-        layout: SceneLayout = "single",
-        frame_id: str | None = None,
-        frame_title: str | None = None,
-        frame_size: tuple[int, int] | None = None,
-        frame_flags: dict[str, bool] | None = None,
-        frame_layout: Literal["tab", "stack"] | None = None,
+        presentation: ScenePresentation | None = None,  # None: framed by its own id
     ) -> AckMessage | None:
         """Send a scene to the display and wait for acknowledgement.
 
-        Every scene is framed: an omitted *frame_id* self-frames by *scene_id* (as
-        the Hub does), so a bare ``show`` still lands in a named frame. Returns the
-        :class:`AckMessage` or ``None`` on timeout. The ack is matched by position
-        among the acks owed, so scenes written without a wait (the replicator's) are
-        accounted for. A timeout keeps the dial; the ack still owed is dropped when
-        it arrives.
+        Every scene is framed: an omitted *presentation* self-frames by *scene_id*
+        (as the Hub does), so a bare ``show`` still lands in a named frame. Returns
+        the :class:`AckMessage` or ``None`` on timeout. The ack is matched by
+        position among the acks owed, so scenes written without a wait (the
+        replicator's) are accounted for. A timeout keeps the dial; the ack still
+        owed is dropped when it arrives. Raises :class:`DisplayBusyError` if
+        another scene held the dial for the whole lock-wait budget.
         """
-        presentation = ScenePresentation(
-            frame_id=frame_id if frame_id is not None else scene_id,
-            title=title,
-            layout=layout,
-            frame_title=frame_title,
-            frame_size=frame_size,
-            frame_flags=frame_flags,
-            frame_layout=frame_layout,
-        )
-        msg = presentation.message(scene_id, elements)
-
-        def send(generation: DialGeneration) -> Pending:
-            return generation.send_scene(msg, awaited=True)
-
-        try:
-            return self._exchange(
-                self._scene_lock, AckMessage, None, send, retires=False
-            )
-        except DisplayBusyError:
-            return None
+        framed = presentation or ScenePresentation(frame_id=scene_id)
+        msg = framed.message(scene_id, elements)
+        with self._exclusive(self._scene_lock, "scene") as generation:
+            pending = generation.send_scene(msg, awaited=True)
+            return self._answer(generation, pending, self._budget)
 
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack.
@@ -172,13 +155,14 @@ class DisplayRequests:
         """Ping the display; its pong, or ``None`` if none came in time.
 
         Raises :class:`DisplayBusyError` if another ping held the dial for the
-        whole budget: nothing was sent, so nothing is known of the display. A ping
-        that times out keeps its dial: a late pong is dropped, never matched to
-        the next ping, whose ``ts`` differs.
+        whole lock-wait budget: nothing was sent, so nothing is known of the
+        display. A ping that times out keeps its dial: a late pong is dropped,
+        never matched to the next ping, whose ``ts`` differs.
         """
-        return self._exchange(
-            self._ping_lock, PongMessage, timeout, self._send_ping, retires=False
-        )
+        budget = self._budget if timeout is None else timeout
+        with self._exclusive(self._ping_lock, "ping", budget) as generation:
+            self._last_ts = ts = max(time.time(), self._last_ts + _TS_STEP)
+            return self._answer(generation, generation.send_ping(ts), budget)
 
     def query(
         self,
@@ -190,63 +174,53 @@ class DisplayRequests:
 
         Nothing on the wire says which query a response answers, so a query that
         times out retires its dial: the response, if it ever comes, can no longer
-        be taken for the next query's.
+        be taken for the next query's. Raises :class:`DisplayBusyError` if another
+        query held the dial for the whole lock-wait budget; nothing was sent and
+        the dial is untouched.
         """
+        budget = self._budget if timeout is None else timeout
         request = QueryRequest(method=method, params=params or {})
-
-        def send(generation: DialGeneration) -> Pending:
-            pending = generation.sink.expect_query()
-            generation.send(request)
-            return pending
-
-        try:
-            return self._exchange(
-                self._query_lock, QueryResponse, timeout, send, retires=True
-            )
-        except DisplayBusyError:
-            return None
+        with self._exclusive(self._query_lock, "query", budget) as generation:
+            response = self._answer(generation, generation.send_query(request), budget)
+            if response is None:
+                self._connection.close_if_current(generation, cause="hub")
+            return response
 
     def _send(self, msg: Message) -> None:
         """Write ``msg`` to the current dial; no reply is owed."""
         self._connection.require().send(msg)
 
-    def _send_ping(self, generation: DialGeneration) -> Pending:
-        """Register the ping in flight, then write it; under the ping lock."""
-        self._last_ts = ts = max(time.time(), self._last_ts + _TS_STEP)
-        pending = generation.sink.expect_pong(ts)
-        generation.send(PingMessage(ts=ts))
-        return pending
+    @contextlib.contextmanager
+    def _exclusive(
+        self, lock: threading.Lock, kind: str, budget: float | None = None
+    ) -> Generator[DialGeneration]:
+        """Hold ``lock``, yielding the current dial; busy if the wait spends ``budget``.
 
-    def _exchange[T: Message](
-        self,
-        lock: threading.Lock,
-        expected: type[T],
-        timeout: float | None,
-        send: Callable[[DialGeneration], Pending],
-        *,
-        retires: bool,
-    ) -> T | None:
-        """Hold ``lock`` across ``send`` and the wait for the reply it elicits.
-
-        Any interaction the wait decoded inline runs on this thread before this
-        call returns, after the request lock and the reader slot are released.
+        Any interaction an inline wait decoded runs on this thread when the block
+        ends, after the request lock and the reader slot are released.
         """
-        budget = self._budget if timeout is None else timeout
-        deadline = time.monotonic() + budget
-        if not lock.acquire(timeout=max(budget, 0.0)):
-            msg = f"a {expected.__name__} request is already in flight"
-            raise DisplayBusyError(msg)  # the lock's wait spent the budget
+        wait = self._budget if budget is None else budget
+        if not lock.acquire(timeout=max(wait, 0.0)):
+            msg = f"a {kind} request is already in flight"
+            raise DisplayBusyError(msg)
         try:
-            generation = self._connection.require()
-            pending = send(generation)
-            try:
-                reply = self._replies.await_reply(generation, pending, deadline)
-            finally:
-                generation.sink.abandon(pending)
-            if reply is None and retires:
-                self._connection.close_if_current(generation)
-            return cast("T | None", reply)
+            yield self._connection.require()
         finally:
             lock.release()
             # Interactions an inline read held run here: no request lock, no slot.
             self._replies.run_held()
+
+    def _answer[R: Message](
+        self, generation: DialGeneration, pending: Pending[object, R], budget: float
+    ) -> R | None:
+        """Wait ``budget`` for ``pending``'s reply on the dial the request went out on.
+
+        The wait starts now, from the send: the time spent queued for the request
+        lock was a separate budget.
+        """
+        try:
+            return self._replies.await_reply(
+                generation, pending, time.monotonic() + budget
+            )
+        finally:
+            generation.abandon(pending)

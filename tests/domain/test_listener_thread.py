@@ -23,6 +23,7 @@ from punt_lux.protocol import (
     AckMessage,
     ObserverMessage,
     PongMessage,
+    SceneMessage,
     encode_frame,
     encode_message,
 )
@@ -31,6 +32,7 @@ from tests.domain.display_double import Display, until
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.protocol import Message
 
 
@@ -223,7 +225,7 @@ class TestAReaderLivesAndDiesWithItsDial:
         made = _Rig(route)
         try:
             old = made.connection.require()
-            old.sink.owe_ack("s", awaited=True)
+            old.send_scene(_scene("s"), awaited=True)
             made.listener.start()
             made.display.peer.send_raw(_event() + encode_message(_ack("s")))
             assert entered.wait(3)
@@ -231,12 +233,12 @@ class TestAReaderLivesAndDiesWithItsDial:
             made.listener.stop()
             made.connection.open()
             fresh = made.connection.require()
-            owed = fresh.sink.owe_ack("t", awaited=True)
+            owed = fresh.send_scene(_scene("t"), awaited=True)
             release.set()
 
             assert until(lambda: not made.listener.alive)
-            fresh.sink.deliver(_ack("t"))
-            assert owed.reply == _ack("t")
+            fresh.deliver(_ack("t"))
+            assert fresh.await_reply(owed, 0.0) == _ack("t")
         finally:
             release.set()
             made.close()
@@ -244,6 +246,10 @@ class TestAReaderLivesAndDiesWithItsDial:
 
 def _ack(scene_id: str) -> Message:
     return AckMessage(scene_id=scene_id)
+
+
+def _scene(scene_id: str) -> SceneMessage:
+    return SceneMessage(id=scene_id, elements=[], frame_id=scene_id)
 
 
 class _Stalled:
@@ -288,12 +294,12 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             assert made.listener.alive
             made.connection.open()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(1.0)
+            waiting = fresh.send_ping(1.0)
             stalled.release.set()
 
             assert until(lambda: not made.listener.alive)
             assert stalled.routed[0][0] is old
-            assert waiting.reply is None  # the new dial's waiter was not answered
+            assert not fresh.answered(waiting)  # the new dial's waiter was not answered
             assert made.connection.require() is fresh
         finally:
             stalled.release.set()
@@ -310,11 +316,11 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             made.listener.stop()
             made.connection.open()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(7.0)
+            waiting = fresh.send_ping(7.0)
             stalled.release.set()
             assert until(lambda: not made.listener.alive)
 
-            assert fresh.sink.await_reply(waiting, 0.2) is None
+            assert fresh.await_reply(waiting, 0.2) is None
         finally:
             stalled.release.set()
             made.close()
@@ -421,13 +427,13 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             made.connection.open()
             made.listener.start()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(1.0)
+            waiting = fresh.send_ping(1.0)
             assert made.listener.alive
 
             made.display.peer.close()  # the new dial's display goes away
 
             with pytest.raises(ConnectionClosedError):
-                fresh.sink.await_reply(waiting, 3.0)
+                fresh.await_reply(waiting, 3.0)
         finally:
             stalled.release.set()
             made.close()
@@ -441,15 +447,15 @@ class TestAStaleReportCannotTouchTheReplacement:
         rig.connection.close()
         rig.connection.open()
         fresh = rig.connection.require()
-        waiting = fresh.sink.expect_pong(1.0)
+        waiting = fresh.send_ping(1.0)
         answered: list[object] = []
         waiter = threading.Thread(
-            target=lambda: answered.append(fresh.sink.await_reply(waiting, 3.0))
+            target=lambda: answered.append(fresh.await_reply(waiting, 3.0))
         )
         waiter.start()
 
-        assert rig.connection.close_if_current(stale) is False
-        fresh.sink.deliver(PongMessage(ts=1.0))
+        assert rig.connection.close_if_current(stale, cause="hub") is False
+        fresh.deliver(PongMessage(ts=1.0))
         waiter.join(3.0)
 
         assert answered == [PongMessage(ts=1.0)]
@@ -478,16 +484,16 @@ class TestAStaleReportCannotTouchTheReplacement:
         redialer = threading.Thread(target=redial)
         real_mark_closed = DialGeneration.mark_closed
 
-        def paused_mark_closed(generation: DialGeneration) -> None:
+        def paused_mark_closed(generation: DialGeneration, cause: RetireCause) -> None:
             if generation is old:
                 redialer.start()
                 assert redial_started.wait(3.0)
                 assert not redial_done.wait(0.3), "the redial ran between check and act"
-            real_mark_closed(generation)
+            real_mark_closed(generation, cause)
 
         monkeypatch.setattr(DialGeneration, "mark_closed", paused_mark_closed)
         try:
-            assert connection.close_if_current(old) is True
+            assert connection.close_if_current(old, cause="hub") is True
             redialer.join(3.0)
 
             assert redial_done.is_set()
@@ -781,13 +787,13 @@ class TestABornClaimedDialReplacedInTheGap:
         connection = DisplayConnection(display, 1.0)
         listener = ListenerThread(connection, lambda _g, _m: None)
         try:
-            born = connection.open(listening=True)
+            born = connection.open_listening()
             assert born is not None
             connection.close()  # retired in the gap ...
             connection.open()  # ... and replaced by a dial with no reader
 
             with pytest.raises(ConnectionClosedError):
-                listener.start(born)
+                listener.start_on(born)
 
             assert not listener.alive
             assert not connection.has_reader

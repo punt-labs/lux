@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
@@ -85,6 +86,7 @@ class SendRecovery:
         *,
         wedged: bool,
         suspect: frozenset[SceneId],
+        dial: DialGeneration | None,
         render_error: str | None = None,
     ) -> None:
         """Attribute the death, heal the display, then re-mark the failed batch.
@@ -106,6 +108,9 @@ class SendRecovery:
         threshold is quarantined, and therefore excluded from replication,
         before the re-mark below.
 
+        ``dial`` is the dial the failed send went out on (``None`` if none was
+        had); only it is dropped, and only if no redial has replaced it.
+
         ``get()`` right after ``drop()`` is the one DES-068 connect-success hook
         (``ClientRegistry._connect_and_reconcile``): it declares the fresh
         connection's manifest and marks every live scene plus the menu dirty, so
@@ -121,7 +126,27 @@ class SendRecovery:
         if wedged:
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
-        self._clients.drop()
+        self._drop(dial)
+        self._redial(batch)
+
+    def reconnect(self, batch: DrainedBatch) -> None:
+        """Redial and repaint after the Hub itself retired the dial.
+
+        A retire by the Hub's own policy says nothing about the display: nothing
+        is attributed to the batch's scenes, reaped or dropped.
+        """
+        if batch.shutting:
+            logger.warning("replicator shutdown flush failed; display left as-is")
+            return
+        self._redial(batch)
+
+    def _drop(self, dial: DialGeneration | None) -> None:
+        """Drop the dial the failed send used, if one was had."""
+        if dial is not None:
+            self._clients.drop(dial)
+
+    def _redial(self, batch: DrainedBatch) -> None:
+        """Get a fresh dial, then re-queue the batch's scenes and the menu."""
         self._clients.get()
         self._requeue(batch.scenes, menus_dirty=True)
 

@@ -18,6 +18,10 @@ import pytest
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
@@ -38,11 +42,13 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
+from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
     from punt_lux.domain.hub.scene_snapshot import SceneReader
 
@@ -93,10 +99,12 @@ class _FakeSender:
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
+    _dial: DialGeneration
     __slots__ = (
         "_crasher",
         "_defer_after",
         "_deferred_dead",
+        "_dial",
         "_entered",
         "_fail",
         "_fail_scene",
@@ -118,6 +126,11 @@ class _FakeSender:
         """The outbound port: this fake is its own."""
         return self
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed send names when it asks for the drop."""
+        return self._dial
+
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.shows = []
@@ -132,6 +145,7 @@ class _FakeSender:
         self._fail_scene = None
         self._crasher = None
         self._deferred_dead = False
+        self._dial = fake_dial()
         self._defer_after = None
         self._gate = None
         self._lock = threading.Lock()
@@ -300,6 +314,7 @@ class _FakeProvider:
     _block_until_stop: bool
     _stop_event: threading.Event
     drops: int
+    dropped: list[DialGeneration]
     reconnect_waits: list[float]
     stop_requests: int
     __slots__ = (
@@ -311,6 +326,7 @@ class _FakeProvider:
         "_sender",
         "_stop_event",
         "_unreachable",
+        "dropped",
         "drops",
         "reconnect_waits",
         "stop_requests",
@@ -329,6 +345,7 @@ class _FakeProvider:
         self._block_until_stop = False
         self._stop_event = threading.Event()
         self.drops = 0
+        self.dropped = []
         self.reconnect_waits = []
         self.stop_requests = 0
         return self
@@ -372,8 +389,9 @@ class _FakeProvider:
             self._needs_reconcile = False
         return self._sender
 
-    def drop(self) -> None:
+    def drop(self, generation: DialGeneration) -> None:
         self.drops += 1
+        self.dropped.append(generation)
         self._needs_reconcile = True
 
     def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
@@ -785,6 +803,43 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
         assert lifecycle_spy.calls == []  # nothing killed — the peer was already gone
         assert provider.drops == 1
         assert sender.shows == ["s1"]
+    finally:
+        repl.stop()
+
+
+def test_a_dial_the_hub_retired_is_reconnected_without_blaming_the_scene() -> None:
+    # A query timeout or a reply out of order ended the dial under this send: the
+    # display did not die, so no strike, no reap, no isolation; just redial and
+    # repaint.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, provider, lifecycle_spy = _replicator(store, factory.clients)
+    sender.arm_failure(HubRetiredError("a query timeout retired the dial"))
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(3.0)
+        assert sender.shows == ["s1"]  # repainted after the redial
+        assert lifecycle_spy.calls == []
+        assert provider.dropped == []  # the dial was already gone
+        assert repl._attribution.mode == "batching"
+    finally:
+        repl.stop()
+
+
+def test_a_dial_the_display_closed_is_still_blamed_on_the_batch() -> None:
+    # Contrast: the display's own end of the stream is evidence it died.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
+    sender.arm_failure(ConnectionClosedError("the display closed the connection"))
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+        assert provider.dropped == [sender.dial]  # the dial the send went out on
     finally:
         repl.stop()
 

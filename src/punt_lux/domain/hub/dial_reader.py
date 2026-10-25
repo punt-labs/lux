@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     import threading
     from collections.abc import Callable
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.protocol import Message
@@ -71,27 +72,35 @@ class DialReader:
         and not on re-testing the stopping flag before the report.
         """
         generation = self._generation
+        cause: RetireCause = "hub"  # the Hub's own stop, or a stream it gave up on
         try:
             while not self._stopping.is_set() and not generation.is_closed:
                 try:
                     data = generation.poll_chunk(_POLL_SECONDS)
                 except (ConnectionClosedError, OSError, ValueError) as exc:
-                    self._read_ended(exc)
+                    if self._read_ended(exc):
+                        cause = "display"
                     break
                 if data is not None and not self._routed(data):
                     break
         finally:
-            self._connection.close_if_current(generation)
+            self._connection.close_if_current(generation, cause=cause)
 
-    def _read_ended(self, exc: Exception) -> None:
-        """Say why a read ended; a deliberate close is not a break."""
+    def _read_ended(self, exc: Exception) -> bool:
+        """Say why a read ended; whether the display ended it.
+
+        A deliberate close (the Hub's own, or a dial retired under the read) is
+        not the display's doing and not a break.
+        """
         endpoint = self._generation.endpoint
         if self._stopping.is_set() or self._generation.is_closed:
             logger.debug("Listener exiting: the connection was closed (%s)", exc)
-        elif isinstance(exc, ConnectionClosedError):
+            return False
+        if isinstance(exc, ConnectionClosedError):
             logger.info("Listener exiting: display %s closed the connection", endpoint)
         else:
             logger.warning("Listener exiting: read from %s failed: %s", endpoint, exc)
+        return True
 
     def _routed(self, data: bytes) -> bool:
         """Route every message ``data`` completes, each as it is decoded.
@@ -104,7 +113,8 @@ class DialReader:
         """
         generation = self._generation
         messages = generation.messages(data)
-        while not self._stopping.is_set():
+        # A retired dial delivers nothing: the rest of the chunk is not routed.
+        while not self._stopping.is_set() and not generation.is_closed:
             try:
                 msg = next(messages, None)
             except Exception:  # wire boundary: any decoder failure ends the stream

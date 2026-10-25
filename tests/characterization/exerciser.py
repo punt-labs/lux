@@ -45,7 +45,7 @@ import asyncio
 import contextlib
 import unittest.mock as mock
 from collections.abc import Callable, Coroutine, Generator, Mapping
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastmcp.exceptions import ToolError
 
@@ -71,6 +71,10 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.tools.server import _session_key
+from tests.dial_double import fake_dial
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_generation import DialGeneration
 
 __all__ = ["ToolCallError", "ToolExerciser"]
 
@@ -129,6 +133,11 @@ class _StubClient:
     def requests(self) -> _StubClient:
         """The outbound port: this stub is its own."""
         return self
+
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a failed request would name; the stub has no real one."""
+        return fake_dial()
 
     def __new__(cls, spec: Mapping[str, Mapping[str, Any]]) -> _StubClient:
         self = super().__new__(cls)

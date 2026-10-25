@@ -14,6 +14,7 @@ import pytest
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import (
     AckMessage,
@@ -132,7 +133,7 @@ class TestConnect:
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
             assert (
-                applied_to is client._connection.require().socket
+                applied_to is client._connection.require()._dial.sock
             )  # its own connected fd, not any socket
             client.close()
         finally:
@@ -341,7 +342,7 @@ class TestSendMessages:
                 ack = client.requests.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
-                    title="Test",
+                    presentation=ScenePresentation(frame_id="s1", title="Test"),
                 )
                 assert ack is not None
                 assert ack.scene_id == "s1"
@@ -929,9 +930,7 @@ class TestBackgroundListener:
             client.connect()
             client.start_listener()
             began = time.monotonic()
-            with pytest.raises(
-                ConnectionClosedError, match="closed while a reply was pending"
-            ):
+            with pytest.raises(ConnectionClosedError, match="was closed"):
                 client.requests.ping(timeout=4.0)
             assert time.monotonic() - began < 3.0
             assert not client.is_connected

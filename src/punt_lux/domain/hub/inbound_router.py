@@ -76,7 +76,7 @@ class InboundRouter:
         elif isinstance(msg, ObserverMessage):
             self._events.put(PolledEvent(topic=msg.topic, payload=msg.payload))
         elif isinstance(msg, REPLY_TYPES):
-            generation.sink.deliver(msg)
+            generation.deliver(msg)
         else:
             logger.debug("Dropping unhandled message: %s", type(msg).__name__)
 
