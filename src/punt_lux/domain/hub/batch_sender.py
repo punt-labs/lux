@@ -77,14 +77,7 @@ class _InFlight:
         self._dial = dial
 
     def failed(self, cause: OSError) -> BatchSendError:
-        """The error that charges ``cause`` to what is in flight now.
-
-        A death the display caused is charged against its dial once: the dial is
-        marked, so a later send that finds the same dial's end with no dial to
-        redial (:meth:`BatchSender._connected`) does not charge it again.
-        """
-        if self._dial is not None and not isinstance(cause, HubRetiredError):
-            self._dial.claim_blame()
+        """The error that charges ``cause`` to what is in flight now."""
         return BatchSendError(cause, self._suspect, self._dial)
 
 
@@ -99,9 +92,13 @@ class BatchSender:
     _seat: WriteSeatPort
     _attribution: CrashAttribution
     _owner_facts: FrameOwnerFactsReader
+    # The dial whose end was last charged to a send: a display that stays down must
+    # not be charged for it again every cycle. None until a death was charged.
+    _charged: DialRef | None
     __slots__ = (
         "_attribution",
         "_callback_reader",
+        "_charged",
         "_clients",
         "_menu_reader",
         "_owner_facts",
@@ -127,6 +124,7 @@ class BatchSender:
         self._seat = writes
         self._attribution = attribution
         self._owner_facts = owner_facts
+        self._charged = None
         return self
 
     def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
@@ -146,7 +144,10 @@ class BatchSender:
         try:
             return self._push(batch, flight)
         except OSError as exc:
-            raise flight.failed(exc) from exc
+            failure = flight.failed(exc)
+            if failure.dial is not None and not isinstance(exc, HubRetiredError):
+                self._charged = failure.dial  # a display death, charged once
+            raise failure from exc
 
     def _push(self, batch: DrainedBatch, flight: _InFlight) -> tuple[SceneId, ...]:
         scenes = frozenset(
@@ -221,7 +222,7 @@ class BatchSender:
         try:
             return self._clients.get()
         except DisplayLostError as lost:
-            if lost.dial.is_blamed:
+            if lost.dial == self._charged:
                 raise
             flight.on(lost.dial)
             msg = "the display closed the connection and could not be redialed"

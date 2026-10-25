@@ -16,7 +16,6 @@ from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_writer import WriteSeat
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
@@ -131,7 +130,9 @@ class ClientRegistry:
         The Hub ends it by its own policy: a sender that finds it gone blames
         nothing on what it was sending.
         """
-        self._drop(dial, "hub")
+        with self._lock:
+            if self._client is not None:
+                self._client.drop_if_current(dial, cause="hub")
 
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire a dial that is open but does not answer, unless a redial replaced it.
@@ -139,12 +140,9 @@ class ClientRegistry:
         An unanswering dial is evidence about the display, so it is the display's
         end: a sender pinned to it that finds it gone is charged to what it sent.
         """
-        self._drop(dial, "display")
-
-    def _drop(self, dial: DialRef, cause: RetireCause) -> None:
         with self._lock:
             if self._client is not None:
-                self._client.drop_if_current(dial, cause=cause)
+                self._client.drop_if_current(dial, cause="display")
 
     def take_writer(self) -> WriteSeat:
         """Hand over the display's write seat, once: its holder is the one writer."""

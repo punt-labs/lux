@@ -243,8 +243,7 @@ class TestARedialThatFindsNobodyHome:
         with pytest.raises(DisplayLostError) as lost:
             link.connect()
 
-        assert lost.value.dial is not None
-        assert not dial.is_blamed
+        assert lost.value.dial == dial
 
     def test_after_the_hub_ended_the_last_dial_it_is_plain_not_connected(
         self, display: Display
@@ -272,13 +271,19 @@ class TestARedialThatFindsNobodyHome:
 
         assert not isinstance(caught.value, DisplayLostError)
 
-    def test_a_dial_is_charged_once(self, display: Display) -> None:
+    def test_two_names_for_one_dial_are_equal_and_two_dials_are_not(
+        self, display: Display
+    ) -> None:
         link = _linked(display)
-        dial = link.desk.asks().dial
+        first = link.desk.asks().dial
+        again = link.desk.asks().dial
+        link.close()
+        link.connect()
 
-        assert dial.claim_blame()
-        assert not dial.claim_blame()
-        assert dial.is_blamed
+        assert first == again
+        assert hash(first) == hash(again)
+        assert first != link.desk.asks().dial
+        assert first != "a dial"
 
 
 class TestTheCauseFollowsTheLastDial:

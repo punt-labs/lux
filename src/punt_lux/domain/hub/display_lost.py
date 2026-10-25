@@ -8,6 +8,7 @@ dial the display ended: whoever attributes the death does it once, against that 
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
@@ -18,17 +19,12 @@ if TYPE_CHECKING:
 __all__ = ["DisplayLostError"]
 
 
+@dataclass(eq=False)  # an exception cannot be frozen: it gets a traceback attached
 class DisplayLostError(DisplayNotConnectedError):
     """No display answered the redial, after the last dial was ended by the display."""
 
-    _dial: DialRef
+    reason: str  # why the redial failed
+    dial: DialRef  # the dial the display ended: what the death is attributed against
 
-    def __new__(cls, message: str, dial: DialRef) -> DisplayLostError:
-        self = super().__new__(cls, message)
-        self._dial = dial
-        return self
-
-    @property
-    def dial(self) -> DialRef:
-        """The dial the display ended: what the death is attributed against."""
-        return self._dial
+    def __str__(self) -> str:
+        return self.reason

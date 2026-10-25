@@ -3,7 +3,8 @@
 A request that fails says which dial it failed on by handing back this reference,
 and the retirement it asks for is made in the connection that owns the dial: the
 reference carries no socket, no write and no read, so naming a dial confers no
-power over it.
+power over it. Two references to one dial are equal, so whoever remembers a dial
+(to charge its death once) can tell it again.
 """
 
 from __future__ import annotations
@@ -30,14 +31,14 @@ class DialRef:
         self._generation = generation
         return self
 
-    @property
-    def is_blamed(self) -> bool:
-        """Whether this dial's end has already been charged to a sender."""
-        return self._generation.is_blamed
+    def __eq__(self, other: object) -> bool:
+        """Two references name the same dial when they name the same generation."""
+        if not isinstance(other, DialRef):
+            return NotImplemented
+        return self._generation is other._generation
 
-    def claim_blame(self) -> bool:
-        """Charge this dial's end to a sender; ``False`` if it was already charged."""
-        return self._generation.claim_blame()
+    def __hash__(self) -> int:
+        return id(self._generation)
 
     def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
         """Retire this dial in ``connection`` if it is still the current one.

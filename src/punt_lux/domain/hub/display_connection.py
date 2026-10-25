@@ -46,15 +46,17 @@ class DisplayConnection:
     # None = not connected. The generation holds the socket, its endpoint and its
     # ready message: one handshake's result, coming and going together.
     _current: DialGeneration | None
-    # The last dial retired, kept after it is gone: a caller that finds no dial
-    # learns from it whether the display or the Hub ended it. None until the first
-    # retirement, which is what "never opened" means.
+    # Who ended the last dial, and which dial it was, kept after it is gone: a caller
+    # that finds no dial learns from them whether the display or the Hub ended it.
+    # None until the first retirement, which is what "never opened" means.
+    _last_ended: RetireCause | None
     _last: DialGeneration | None
     __slots__ = (
         "_connect_timeout",
         "_current",
         "_dialer",
         "_last",
+        "_last_ended",
         "_state_lock",
     )
 
@@ -65,6 +67,7 @@ class DisplayConnection:
         self._state_lock = threading.Lock()
         self._current = None
         self._last = None
+        self._last_ended = None
         return self
 
     @property
@@ -124,6 +127,7 @@ class DisplayConnection:
             if held is not None:
                 held.mark_closed("hub")
                 self._last = held
+                self._last_ended = "hub"
         if held is not None:
             held.shut()
 
@@ -140,6 +144,7 @@ class DisplayConnection:
                 return False
             self._current = None
             self._last = generation
+            self._last_ended = cause
             generation.mark_closed(cause)
         generation.shut()
         return True
@@ -171,8 +176,8 @@ class DisplayConnection:
             return self._dialer.dial(self._connect_timeout)
         except DisplayNotConnectedError as exc:
             with self._state_lock:
-                last = self._last
-            if last is None or last.ended_by != "display":
+                last, ended = self._last, self._last_ended
+            if last is None or ended != "display":
                 raise
             msg = f"{exc}; the display had closed the last connection"
             raise DisplayLostError(msg, RequestExchange.name(last)) from exc
@@ -187,7 +192,7 @@ class DisplayConnection:
         """
         with self._state_lock:
             held = self._current
-            ended = None if self._last is None else self._last.ended_by
+            ended = self._last_ended
         if held is not None:
             return held
         if ended == "display":
