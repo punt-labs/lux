@@ -140,9 +140,11 @@ class TestTheClientIsMadeOnce:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         fake = _FakeClient()
-        monkeypatch.setattr(
-            DisplayLink, "to_socket", classmethod(lambda _cls, **_kw: fake)
-        )
+
+        def to_socket(_cls: type[DisplayLink], /, **_options: object) -> _FakeClient:
+            return fake
+
+        monkeypatch.setattr(DisplayLink, "to_socket", classmethod(to_socket))
         registry = ClientRegistry()
 
         registry.asks()
