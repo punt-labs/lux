@@ -226,7 +226,11 @@ class DisplayRequests:
         *,
         retires: bool,
     ) -> T | None:
-        """Hold ``lock`` across ``send`` and the wait for the reply it elicits."""
+        """Hold ``lock`` across ``send`` and the wait for the reply it elicits.
+
+        Any interaction the wait decoded inline runs on this thread before this
+        call returns, after the request lock and the reader slot are released.
+        """
         budget = self._budget if timeout is None else timeout
         deadline = time.monotonic() + budget
         if not lock.acquire(timeout=max(budget, 0.0)):
