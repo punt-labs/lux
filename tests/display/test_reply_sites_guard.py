@@ -73,14 +73,28 @@ class ReplyMakers:
     def __new__(cls, replies: frozenset[str], sources: dict[str, str]) -> Self:
         self = super().__new__(cls)
         makers = set(replies)
-        funcs = [f for src in sources.values() for f in _functions(ast.parse(src))]
+        # Each module's own spellings of a reply class count as makers in that module.
+        modules = [
+            (
+                {
+                    alias
+                    for reply in replies
+                    for alias in ClassReferences(src, reply).aliases
+                },
+                _functions(ast.parse(src)),
+            )
+            for src in sources.values()
+        ]
         grown = True
         while grown:
             grown = False
-            for func in funcs:
-                if func.name not in makers and cls._returns_a_reply(func, makers):
-                    makers.add(func.name)
-                    grown = True
+            for spelled, funcs in modules:
+                for func in funcs:
+                    if func.name not in makers and cls._returns_a_reply(
+                        func, makers | spelled
+                    ):
+                        makers.add(func.name)
+                        grown = True
         self._names = frozenset(makers)
         return self
 
@@ -422,6 +436,22 @@ class TestTheGuardFailsOnAPlantedViolation:
         )
 
         assert self._SCAN.violations(planted, "render_loop") == []
+
+    def test_an_aliased_reply_built_in_a_helper_that_returns_it_is_a_maker(
+        self,
+    ) -> None:
+        planted = (
+            "from punt_lux.protocol import PongMessage as P\n"
+            "def make(ts):\n    return P(ts=ts)\n"
+            "def handle(self, sock, msg):\n    make(msg.ts)\n"
+        )
+        replies = self._SCAN._replies
+
+        makers = ReplyMakers(replies, {"x": planted}).names
+        scan = ReplySiteScan(replies, makers)
+
+        assert "make" in makers
+        assert scan.violations(planted, "render_loop") != []
 
     def test_a_reply_a_caller_discards(self) -> None:
         makers = frozenset({"AckMessage", "PongMessage", "QueryResponse", "capture"})
