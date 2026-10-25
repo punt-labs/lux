@@ -239,6 +239,7 @@ class BaselineWriter:
         if blocked is not None:
             return blocked
         current = Baseline.metrics_by_file(scorer.results)
+        removed = self._baseline.entries.keys() - current.keys()
         self._baseline.save(current)
         self._audit.append(
             files_scored=len(current),
@@ -248,6 +249,7 @@ class BaselineWriter:
             deltas={},
             source=source,
             commit=self._git.short_head(),
+            removed=removed,
         )
         return Outcome.passed(
             f"\nBaseline reset: {self._baseline.path}",

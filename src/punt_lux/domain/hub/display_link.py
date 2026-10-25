@@ -2,26 +2,28 @@
 
 :class:`DisplayLink` coordinates one dial's lifecycle across its parts: it opens
 the dial (the ``ReadyMessage`` handshake), starts and stops the listener on it,
-and closes it. What the Hub sends and waits for is
-:attr:`~DisplayLink.requests`; what the display pushes (business events,
-interactions) is :attr:`~DisplayLink.events`. Each is a port: callers use that one
-object's surface.
+and closes it. What the Hub asks and waits for is
+:attr:`~DisplayLink.desk` (its asks, its manifest, and the one seat writers are
+made at); what the display pushes (business events, interactions) is
+:attr:`~DisplayLink.events`. Each is a port: callers use that one object's surface.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_listener import DisplayListener
-from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
-from punt_lux.protocol import ReadyMessage
+from punt_lux.domain.hub.request_desk import RequestDesk
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
+    from punt_lux.domain.hub.event_port import EventPort
 
 logger = logging.getLogger(__name__)
 
@@ -32,24 +34,36 @@ __all__ = ["DEFAULT_RECV_TIMEOUT", "DisplayLink"]
 DEFAULT_RECV_TIMEOUT = 5.0
 
 
+@final
 class DisplayLink:
     """Client for the Lux display server.
 
-    ``socket_path`` is the Unix socket path (``None`` uses the default).
-    ``name`` is the identity this connection declares in its
-    ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
-    a manifest (DES-068); ``"test"`` (default) is the read-only backdoor --
-    a deliberately wrong-looking name, since the display rejects a
-    ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
-    the display server when not running. ``connect_timeout`` bounds the wait
-    for the display; ``recv_timeout`` is the default for :meth:`recv`.
+    A link dials through a ``dialer`` (a cross-host connector, say);
+    :meth:`to_socket` makes the usual one, to the display's Unix socket.
+    ``connect_timeout`` bounds the wait for the display; ``recv_timeout`` is the
+    default budget for a request's wait and for
+    :meth:`~punt_lux.domain.hub.event_port.EventPort.poll_event`.
     """
 
     _connection: DisplayConnection
     _listener: DisplayListener
-    _requests: DisplayRequests
+    _desk: RequestDesk
 
     def __new__(
+        cls,
+        dialer: DisplayDialer,
+        *,
+        connect_timeout: float = 5.0,
+        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._connection = DisplayConnection(dialer, connect_timeout)
+        self._listener = DisplayListener(self._connection, recv_timeout)
+        self._desk = RequestDesk(self._connection, self._listener, recv_timeout)
+        return self
+
+    @classmethod
+    def to_socket(
         cls,
         socket_path: str | Path | None = None,
         *,
@@ -58,21 +72,23 @@ class DisplayLink:
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
-        dialer: DisplayDialer | None = None,  # None = default AF_UNIX dialer (PY-TS-14)
     ) -> Self:
-        self = super().__new__(cls)
-        # An injected dialer (a cross-host CrossHostConnector built by
-        # CrossHostEndpoint.dial) overrides the default AF_UNIX one.
-        self._connection = DisplayConnection(
-            dialer
-            or HandshakeConnector(
+        """Make a link to the display's Unix socket (the default path if ``None``).
+
+        ``name`` is the identity the connection declares in its
+        ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
+        a manifest (DES-068); ``"test"`` (default) is the read-only backdoor -- a
+        deliberately wrong-looking name, since the display rejects a
+        ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
+        the display server when it is not running.
+        """
+        return cls(
+            HandshakeConnector(
                 name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn
             ),
-            connect_timeout,
+            connect_timeout=connect_timeout,
+            recv_timeout=recv_timeout,
         )
-        self._listener = DisplayListener(self._connection, recv_timeout)
-        self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
-        return self
 
     # -- context manager ---------------------------------------------------
 
@@ -90,15 +106,14 @@ class DisplayLink:
         """Whether the client has an active socket connection."""
         return self._connection.is_open
 
-    @property
-    def listener_active(self) -> bool:
-        """Whether the background listener thread is running."""
-        return self._listener.listening
+    def drop_if_current(self, dial: DialRef, *, cause: RetireCause) -> bool:
+        """Retire ``dial`` if it is still the current dial; whether it was.
 
-    @property
-    def ready_message(self) -> ReadyMessage | None:
-        """The ``ReadyMessage`` received during handshake, or ``None``."""
-        return self._connection.ready
+        What a caller that saw its own dial fail asks for: it never closes a
+        newer dial that replaced the one that failed. ``cause`` says who ended it,
+        for whoever finds it gone.
+        """
+        return dial.retire_in(self._connection, cause=cause)
 
     def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.
@@ -116,15 +131,18 @@ class DisplayLink:
         DisplayNotConnectedError
             If the display fails to start or the handshake times out.
         """
-        dialed = self._connection.open(listening=listen)
         if not listen:
+            self._connection.open()
+            return
+        dialed = self._connection.open_listening()
+        if dialed is None:  # already connected: give it a reader if it lacks one
+            self._listener.start()
             return
         try:
-            self._listener.start(dialed)
+            self._listener.start_on(dialed)
         except BaseException:
             # A dial with no reader repairs nothing: retire the one this call made.
-            if dialed is not None:
-                self._connection.close_if_current(dialed)
+            self._connection.close_if_current(dialed, cause="hub")
             raise
 
     def close(self) -> None:
@@ -132,35 +150,12 @@ class DisplayLink:
         self._listener.stop()
         self._connection.close()
 
-    # -- background listener -----------------------------------------------
-
-    def start_listener(self) -> None:
-        """Start the background listener thread on the current dial.
-
-        The listener reads what the display sends and routes it: interactions to
-        the fallback handler, business events to :attr:`events`' queue, replies to
-        the request that waits for them. Safe to call multiple times: a no-op if
-        the current dial already has a reader. Raises
-        :class:`ConnectionClosedError` if not connected.
-        """
-        self._listener.start()
-
-    def stop_listener(self) -> None:
-        """Stop the background listener thread, if running, and retire its dial.
-
-        A reader lives and dies with its dial: a caller that stops its listener
-        and wants another must reconnect first.
-        """
-        self._listener.stop()
-
-    # -- ports -------------------------------------------------------------
+    @property
+    def desk(self) -> RequestDesk:
+        """Where requests are made: the asks, the manifest, and the one write seat."""
+        return self._desk
 
     @property
-    def requests(self) -> DisplayRequests:
-        """What the Hub sends the display, and the answers it waits for."""
-        return self._requests
-
-    @property
-    def events(self) -> DisplayListener:
+    def events(self) -> EventPort:
         """What the display pushes: business events and interactions."""
         return self._listener

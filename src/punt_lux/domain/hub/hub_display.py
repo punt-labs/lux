@@ -320,17 +320,18 @@ class HubDisplay:
         normal ``apply(AddElement(...))`` path, rebuilding ownership, observers, and
         child indexes in one place. The latest show defines the whole scene, so an
         orphan from a departed session is cleared, never stranded beside new roots.
-        A write registers nobody: a session comes only from its own arrival.
+        A write registers nobody: a session comes only from its own arrival. A root
+        nested past the cap raises ``NestingExceededError`` before anything drops.
 
-        A wholesale replace is a *different tree*, presumed fixed, so it lifts
-        any quarantine the scene carried — the normal recovery path an owner
-        takes after reading a quarantine record and fixing the offending
-        element. Routes through the eviction adapter so the observer cascade
-        (in particular, resetting the attribution tally so a re-crash needs
-        the full threshold again) fires here exactly as it does for a frame
-        close or a TTL expiry.
+        A wholesale replace is a *different tree*, presumed fixed, so it lifts any
+        quarantine the scene carried — the owner's recovery after reading a
+        quarantine record and fixing the element. It routes through the eviction
+        adapter so the observer cascade (resetting the attribution tally, so a
+        re-crash needs the full threshold again) fires as it does for a frame close
+        or a TTL expiry.
         """
         with self._lock.write():
+            self._seam.require_within_cap(roots)  # before any root is dropped
             self._eviction.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(
@@ -366,27 +367,25 @@ class HubDisplay:
     ) -> None:
         """Commit a state change to the index. Owner is the caller.
 
-        ``AddElement`` installs the root then recurses into composite children via
-        the Composite Protocol, so a child Button buried in a Dialog lands in the
-        index and later clicks — keyed by ``(scene, element_id)`` — resolve.
-
-        ``SetProperty`` and ``RemoveElement`` mutate an already-installed element and
-        require the caller to own it, mirroring ``Display.apply``'s ownership
-        enforcement so a misbehaving client cannot evict another client's state.
+        ``AddElement`` installs the root then recurses into its children, so a Button
+        buried in a Dialog lands in the index and later clicks resolve. ``SetProperty``
+        and ``RemoveElement`` mutate an installed element and require the caller to
+        own it, so a misbehaving client cannot evict another client's state. A write
+        that nests an element past the cap raises ``NestingExceededError``.
 
         Three things happen in order, one atomic step: the caller's own lease
-        renews first if it already holds one (a write still registers
-        nobody — an unregistered or already-departed caller proceeds
-        unregistered, as always). Every *other* lapsed connection is then
-        departed and released. Only then does the ownership check run — so
-        any live claimant is never blocked by a grip this same step just let
-        go of.
+        renews first if it already holds one (a write still registers nobody — an
+        unregistered or departed caller proceeds unregistered, as always). Every
+        *other* lapsed connection is then departed and released. Only then does the
+        ownership check run, so a live claimant is never blocked by a grip this
+        same step just let go of.
         """
         with self._lock.write():
             self._lifecycle.contact(scope)
             self._lifecycle.depart_lapsed(frozenset({scope.connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
+                    self._seam.require_within_cap([elem])
                     session = self._clients.session_of(scope.connection_id)
                     owner = Owner.from_session(scope.connection_id, session)
                     self._installer.install(sid, elem, parent_id=pid, owner=owner)

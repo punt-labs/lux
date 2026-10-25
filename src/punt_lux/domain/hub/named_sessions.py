@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from punt_lux.domain.hub.client_roster import ClientRoster
+    from punt_lux.domain.hub.client_roster import RosterNames
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.ids import ConnectionId
@@ -103,7 +103,7 @@ class NamedSessions:
 
     @classmethod
     def over(
-        cls, sessions: Mapping[ConnectionId, ClientSession], roster: ClientRoster
+        cls, sessions: Mapping[ConnectionId, ClientSession], roster: RosterNames
     ) -> Self:
         """Name every identified session in *sessions* and hold the two together.
 

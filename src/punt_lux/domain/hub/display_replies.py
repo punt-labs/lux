@@ -16,7 +16,11 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
+from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -48,17 +52,17 @@ class DisplayReplies:
         self._listener = listener
         return self
 
-    def await_reply(
-        self, generation: DialGeneration, pending: Pending, deadline: float
-    ) -> Message | None:
+    def await_reply[R: Message](
+        self, generation: DialGeneration, pending: Pending[object, R], deadline: float
+    ) -> R | None:
         """Wait until ``deadline`` for ``pending``'s reply on ``generation``.
 
         ``None`` on the deadline. Raises ``RuntimeError`` on the listener thread
         (it is the only producer of the replies this would wait for, so the wait
-        could never end), :class:`ConnectionClosedError` when the dial is retired
-        while waiting, and the decoder's error (after retiring the dial) for a
-        frame a display may not send or that cannot be decoded: a peer that sent
-        one cannot be trusted with the rest of the stream.
+        could never end) and :class:`ConnectionClosedError` when the dial is
+        retired while waiting, or after it was retired for a frame a display may
+        not send, a reply out of order, or a frame that cannot be decoded: a peer
+        that did one of those cannot be trusted with the rest of the stream.
         """
         if self._listener.is_current:
             err = "Cannot wait for a reply from the listener thread"
@@ -66,15 +70,13 @@ class DisplayReplies:
         while True:
             remaining = deadline - time.monotonic()
             if generation.has_reader:
-                return generation.sink.await_reply(pending, remaining)
+                return generation.await_reply(pending, remaining)
             with generation.inline_reading() as granted:
                 if granted:
                     return self._read_inline(generation, pending, deadline)
             if remaining <= 0:
                 return None
-            reply = generation.sink.await_reply(
-                pending, min(remaining, _SLOT_RETRY_SECONDS)
-            )
+            reply = generation.await_reply(pending, min(remaining, _SLOT_RETRY_SECONDS))
             if reply is not None:
                 return reply
 
@@ -82,16 +84,16 @@ class DisplayReplies:
         """Run the interactions inline reads held; call with no request lock held."""
         self._listener.run_held()
 
-    def _read_inline(
-        self, generation: DialGeneration, pending: Pending, deadline: float
-    ) -> Message | None:
+    def _read_inline[R: Message](
+        self, generation: DialGeneration, pending: Pending[object, R], deadline: float
+    ) -> R | None:
         """Read ``generation``'s socket until ``pending`` is answered or time is up.
 
         The same routing the listener applies, so the ack ledger stays in step
         with the wire. A failed read or an undecodable frame retires the dial, as
-        the reader would.
+        the reader would, naming who ended it the way the reader does.
         """
-        while pending.reply is None:
+        while not generation.answered(pending):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
@@ -99,14 +101,39 @@ class DisplayReplies:
                 chunk = generation.poll_chunk(remaining)
                 if chunk is not None:
                     self._route_inline(generation, chunk)
-            except Exception:  # re-raised: the dial's stream cannot be trusted
-                self._connection.close_if_current(generation)
+            except (ConnectionClosedError, OSError):
+                # The display's end, or our own retirement: either way it is over.
+                self._connection.close_if_current(generation, cause="display")
                 raise
-        return pending.reply
+            except ReplyOutOfOrderError as exc:
+                # The stream skewed: the Hub gives up on a dial it can no longer
+                # match replies on, and the display is not blamed for it.
+                self._connection.close_if_current(generation, cause="hub")
+                msg = f"{generation.endpoint} sent a reply nobody was owed"
+                raise HubRetiredError(msg) from exc
+            except (ValueError, KeyError, TypeError) as exc:
+                # A frame the stream cannot be trusted past: the display sent it,
+                # so the display ended the dial, and the caller learns it as one.
+                self._connection.close_if_current(generation, cause="display")
+                msg = f"{generation.endpoint} sent a frame that broke its stream"
+                raise ConnectionClosedError(msg) from exc
+            except Exception:  # re-raised: the dial's stream cannot be trusted
+                self._connection.close_if_current(generation, cause="hub")
+                raise
+        return generation.await_reply(pending, 0.0)
 
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
-        """Route every message ``chunk`` completes; a raising reply ends the dial."""
+        """Route every message ``chunk`` completes; a raising reply ends the dial.
+
+        A retired dial stops routing the rest of its chunk: nothing after the point
+        the stream was given up on can be matched to a request, and a reply it was
+        owed is refused by its sink. Events and interactions are link-level, not
+        the dial's: one already routed (or held, see ``run_held``) is delivered
+        whichever dial carried it (rule 16).
+        """
         for msg in generation.messages(chunk):
+            if generation.is_closed:
+                return  # a retired dial routes nothing more
             try:
                 self._listener.route(generation, msg, inline=True)
             except Exception:

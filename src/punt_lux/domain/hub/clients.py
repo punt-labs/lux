@@ -6,9 +6,7 @@ the per-process menu-app guard.
 
 from __future__ import annotations
 
-import logging
 import threading
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -18,9 +16,9 @@ from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.domain.hub.display_writer import WriteSeat
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["ClientRegistry", "client_registry"]
 
@@ -85,7 +83,7 @@ class ClientRegistry:
     def _ensure_client(self) -> DisplayLink:
         """Create the lazy client on first use; its own service unit supervises."""
         if self._client is None:
-            self._client = DisplayLink(
+            self._client = DisplayLink.to_socket(
                 name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
             )
         return self._client
@@ -126,45 +124,44 @@ class ClientRegistry:
             self._stop_requested = True
             self._reconnect_cond.notify_all()
 
-    def drop(self) -> None:
-        """Close the client so the next ``get`` reconnects, not reuses a stale fd."""
+    def drop(self, dial: DialRef) -> None:
+        """Retire the dial a caller saw fail, unless a redial already replaced it.
+
+        The Hub ends it by its own policy: a sender that finds it gone blames
+        nothing on what it was sending.
+        """
         with self._lock:
             if self._client is not None:
-                self._client.close()
+                self._client.drop_if_current(dial, cause="hub")
 
-    def with_reconnect[T](self, fn: Callable[[], T]) -> T:
-        """Run ``fn``; on ``OSError`` close, reconnect, restart listener, retry once."""
-        try:
-            return fn()
-        except OSError as exc:
-            logger.info("Connection lost (%s), reconnecting", type(exc).__name__)
-            try:
-                self._reconnect_after_loss()
-            except (OSError, RuntimeError) as reconnect_exc:
-                msg = f"Reconnect failed after connection loss: {reconnect_exc}"
-                raise RuntimeError(msg) from exc
-            return fn()
+    def drop_unresponsive(self, dial: DialRef) -> None:
+        """Retire a dial that is open but does not answer, unless a redial replaced it.
 
-    def _reconnect_after_loss(self) -> None:
-        """Close and reconnect the client, holding ``_lock`` for the retry."""
+        An unanswering dial is evidence about the display, so it is the display's
+        end: a sender pinned to it that finds it gone is charged to what it sent.
+        """
         with self._lock:
             if self._client is not None:
-                self._client.close()
-                self._connect_and_reconcile(self._client)
+                self._client.drop_if_current(dial, cause="display")
+
+    def take_writer(self) -> WriteSeat:
+        """Hand over the display's write seat, once: its holder is the one writer."""
+        with self._lock:
+            return self._ensure_client().desk.take_seat()
 
     def _connect_and_reconcile(self, client: DisplayLink) -> None:
         """Connect a fresh socket, then declare and repaint the Hub's holdings.
 
         The one choke point every fresh connect runs through (DES-068): the
         manifest is never forgotten, every manifested scene plus the menu is
-        marked dirty, and a failed ``send_manifest`` force-closes the link.
+        marked dirty, and a failed ``declare`` force-closes the link.
         """
         client.connect(listen=True)
         scene_ids = hub_display.live_scene_ids()
         try:
-            client.requests.send_manifest(scene_ids)
+            client.desk.declare(scene_ids)
         except OSError:
-            client.close()
+            client.close()  # a manifest that cannot be sent closes the link
             raise
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)

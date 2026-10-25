@@ -434,11 +434,13 @@ class TestMenuClickRoutesToItsOwningHub:
             hub_a.wire_token: 9,
             hub_b.wire_token: 10,
         }.get
-        socket_listener.send_to_client.return_value = True
+        socket_listener.sender.send_to_client.return_value = True
         scenes = MagicMock()
         scenes.scene_to_owner = {}
         delivery = InteractionDelivery(socket_listener=socket_listener, scenes=scenes)
 
         delivery.deliver([event_for_a])
 
-        socket_listener.send_to_client.assert_called_once_with(a_sock, event_for_a)
+        socket_listener.sender.send_to_client.assert_called_once_with(
+            a_sock, event_for_a
+        )

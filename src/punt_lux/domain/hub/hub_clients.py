@@ -69,7 +69,9 @@ class HubClientRegistry:
             msg = "the presence writes were already handed to a lifecycle"
             raise ValueError(msg)
         self._writes_taken = True
-        return PresenceWrites(self._sessions, self._roster, self._lock, self._clock)
+        return PresenceWrites(
+            self._sessions, self._roster.take_release(), self._lock, self._clock
+        )
 
     def session_of(self, connection_id: ConnectionId) -> ClientSession | None:
         """Return the connection's raw session, or ``None``, with no lease filter."""

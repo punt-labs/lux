@@ -25,6 +25,7 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId
+from tests.roster_access import release_of
 
 
 @final
@@ -289,7 +290,7 @@ class TestWhatANameIs:
         second = ("second", _session("claude", "/w/lux", _beads()))
         _menus(first, second, roster=roster)
 
-        roster.release([ConnectionId("first")])
+        release_of(roster).release([ConnectionId("first")])
         menus = _menus(second, roster=roster)
 
         assert _labels_under(_clients_menu(menus)) == ["lux"]
@@ -326,7 +327,7 @@ class TestWhatANameIs:
         # The first goes — the registry says so as it removes the session — and a
         # newcomer arrives on the repository it named. The survivor has the base
         # by then, so the newcomer is the one that is numbered.
-        roster.release([ConnectionId("first")])
+        release_of(roster).release([ConnectionId("first")])
         third = ("third", _session("claude", "/w/lux", _beads()))
         menus = _menus(second, third, roster=roster)
 

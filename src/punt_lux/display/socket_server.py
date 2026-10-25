@@ -7,29 +7,23 @@ import errno
 import logging
 import select
 import socket
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Self
 
-from punt_lux.bounded_send import BoundedSend
 from punt_lux.display.client_reader import ClientReader
 from punt_lux.display.client_registry import ClientRegistry
+from punt_lux.display.client_sender import ClientSender
 from punt_lux.display.nonblocking import Nonblocking
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import ReadyMessage, encode_message
+from punt_lux.protocol import ReadyMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.identity import HubId
-    from punt_lux.protocol.messages import Message
 
 __all__ = ["SocketListener", "SocketListenerCallbacks"]
 
 logger = logging.getLogger(__name__)
-
-# A full buffer drains in tens of ms once the peer reads -- this only bounds
-# a genuinely stuck peer, absent a caller deadline.
-_ONE_OFF_SEND_BUDGET = 1.0
 
 # EADDRINUSE (Linux) / EEXIST (macOS/BSD): a concurrent binder won the race.
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
@@ -39,41 +33,6 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 _LISTEN_BACKLOG = 128
 
 
-class WantWriteState:
-    """Fds whose non-blocking ``recv()`` awaits writability (a TLS event, not death).
-
-    A TLS ``recv()`` on a non-blocking socket can raise
-    ``ssl.SSLWantWriteError``: OpenSSL needs to *write* (a renegotiation
-    record) before it can finish the read. That fd must be watched for
-    writability on the next poll, not treated as readable-only. Owned by
-    :class:`ClientReader` but defined here so both classes share one module.
-    """
-
-    _fds: set[int]
-    __slots__ = ("_fds",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._fds = set()
-        return self
-
-    def set(self, fd: int, *, wants: bool) -> None:
-        """Track (``wants``) or clear (``not wants``) ``fd``'s want-write flag.
-
-        Clearing an untracked fd is a no-op, so the read path can clear
-        unconditionally at the top of every read without a membership test.
-        """
-        (self._fds.add if wants else self._fds.discard)(fd)
-
-    def clear(self) -> None:
-        """Drop every tracked fd -- shutdown, not one departure."""
-        self._fds.clear()
-
-    def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
-        """Return the live sockets among the tracked fds, for a write-select."""
-        return list(map(fd_to_client.__getitem__, self._fds))
-
-
 class SocketListener:
     """Accept/poll/read/send/remove clients; reactions delegate to callbacks."""
 
@@ -81,7 +40,7 @@ class SocketListener:
     _clients: list[socket.socket]
     _registry: ClientRegistry
     _callbacks: SocketListenerCallbacks
-    _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
+    _sender: ClientSender
     _reader: ClientReader
 
     def __new__(cls, callbacks: SocketListenerCallbacks) -> Self:
@@ -90,10 +49,9 @@ class SocketListener:
         self._clients = []
         self._registry = ClientRegistry()
         self._callbacks = callbacks
-        self._frame_deadline = None
+        self._sender = ClientSender(self)
         self._reader = ClientReader(
             registry=self._registry,
-            want_write=WantWriteState(),
             callbacks=callbacks,
             host=self,
         )
@@ -135,20 +93,10 @@ class SocketListener:
         """Return how many clients are currently connected."""
         return len(self._clients)
 
-    # -- frame-scoped send budget -------------------------------------------
-
     @property
-    def frame_deadline(self) -> float | None:
-        """Return the deadline armed by :meth:`set_frame_deadline`, if any."""
-        return self._frame_deadline
-
-    def set_frame_deadline(self, deadline: float) -> None:
-        """Bound every deadline-less send this frame against backpressure wedges."""
-        self._frame_deadline = deadline
-
-    def clear_frame_deadline(self) -> None:
-        """Restore the one-off send budget for post-frame sends (screenshot, etc.)."""
-        self._frame_deadline = None
+    def sender(self) -> ClientSender:
+        """What is sent to the clients: interactions, replies and the frame budget."""
+        return self._sender
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -237,7 +185,7 @@ class SocketListener:
         self._clients.append(conn)
         self._registry.register_connection(fd, conn)
         logger.debug("Client connected (total: %d)", self.client_count)
-        self.send_to_client(conn, ReadyMessage())
+        self._sender.reply_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
         """Read + dispatch from readable clients, plus any ``recv()``-wants-write fd."""
@@ -279,44 +227,6 @@ class SocketListener:
         except OSError:
             fd = -1
         return fd if fd >= 0 else None
-
-    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
-        """Send ``msg`` to ``sock``; return whether it landed before its deadline.
-
-        A caller-less send uses the armed frame deadline or its own one-off
-        budget. A slow-but-alive peer (``BlockingIOError``) keeps the client and
-        defers; only a dead peer (``OSError``) removes it.
-        """
-        deadline = (
-            self._frame_deadline
-            if self._frame_deadline is not None
-            else time.monotonic() + _ONE_OFF_SEND_BUDGET
-        )
-        try:
-            BoundedSend().send(sock, encode_message(msg), deadline)
-        except BlockingIOError:
-            return False  # alive but slow past the deadline -- defer, do not remove
-        except (ConnectionError, OSError) as exc:
-            logger.warning(
-                "send failed (%s); dropped %s, removing client",
-                type(exc).__name__,
-                type(msg).__name__,
-            )
-            self.remove_client(sock)
-            return False
-        return True
-
-    def reply_to_client(self, sock: socket.socket, msg: Message) -> None:
-        """Send a reply the client waits for, or end its connection.
-
-        The Hub matches replies to requests by order, so one dropped on a live
-        connection would shift every later one; an event, by contrast, is held
-        and retried (:meth:`send_to_client`'s defer).
-        """
-        if self.send_to_client(sock, msg) or sock not in self._clients:
-            return  # sent, or a dead peer send_to_client already removed
-        logger.warning("severing %s: %s missed its deadline", sock, type(msg).__name__)
-        self.remove_client(sock)
 
     def register_client_identity(
         self,

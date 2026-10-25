@@ -81,7 +81,7 @@ class InteractionDelivery:
         target = self._socket_listener.fd_to_client.get(owner_fd)
         if target is None:
             return "blocked"
-        sent = self._socket_listener.send_to_client(target, event)
+        sent = self._socket_listener.sender.send_to_client(target, event)
         return "sent" if sent else "blocked"
 
     @staticmethod

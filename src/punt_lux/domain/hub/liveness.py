@@ -15,56 +15,22 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.connection_timing import CONNECTION_TIMING
-from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.liveness_pacing import LivenessPacing
+from punt_lux.domain.hub.liveness_probe import LivenessProbe
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import PongMessage
+    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.domain.hub.keepalive_ports import KeepaliveClients
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-    "DisplayLiveness",
-    "KeepaliveClients",
-    "KeepaliveConnection",
-]
+__all__ = ["DisplayLiveness"]
 
 # Bound the join at stop so a wedged final ping cannot hang shutdown.
 _STOP_JOIN_TIMEOUT = 3.0
-
-
-@runtime_checkable
-class KeepaliveConnection(Protocol):
-    """The one capability the keepalive needs of a connection: a ping round-trip."""
-
-    def ping(self, timeout: float | None = ...) -> PongMessage | None:
-        """Send a ping and return the pong, or ``None`` if none arrived in time."""
-        ...
-
-
-@runtime_checkable
-class KeepaliveLink(Protocol):
-    """A display link, seen as the keepalive sees it: the port it pings through."""
-
-    @property
-    def requests(self) -> KeepaliveConnection:
-        """The link's outbound port."""
-        ...
-
-
-@runtime_checkable
-class KeepaliveClients(Protocol):
-    """Hands out the display connection (reconnecting) and drops a dead one."""
-
-    def get(self) -> KeepaliveLink:
-        """Return the connected client, reconnecting and re-registering if dropped."""
-        ...
-
-    def drop(self) -> None:
-        """Close the current connection so the next ``get`` binds a fresh one."""
 
 
 @final
@@ -77,7 +43,7 @@ class DisplayLiveness:
 
     _clients: KeepaliveClients
     _interval: float
-    _ping_timeout: float
+    _probe: LivenessProbe
     _stop: threading.Event
     _thread: threading.Thread | None
     _pacing: LivenessPacing
@@ -85,7 +51,7 @@ class DisplayLiveness:
         "_clients",
         "_interval",
         "_pacing",
-        "_ping_timeout",
+        "_probe",
         "_stop",
         "_thread",
     )
@@ -99,7 +65,7 @@ class DisplayLiveness:
         self = super().__new__(cls)
         self._clients = clients
         self._interval = interval
-        self._ping_timeout = ping_timeout
+        self._probe = LivenessProbe(clients, ping_timeout)
         self._stop = threading.Event()
         self._thread = None
         self._pacing = LivenessPacing()
@@ -131,21 +97,21 @@ class DisplayLiveness:
 
         The re-probe spares a connection a concurrent reconnect just healed.
         """
-        try:
-            proved = self._probe() or self._probe()
-        except DisplayBusyError:
-            return  # another ping holds the dial: nothing was learned this cycle
-        if proved:
+        probe = self._probe.run()
+        if not probe.alive:
+            probe = self._probe.run()
+        if probe.alive:
             self._pacing.mark_connected()
             return
         self._pacing.mark_disconnected()
-        self._reconnect()
+        self._reconnect(probe.dial)
 
-    def _reconnect(self) -> None:
-        """Drop the dead connection and re-probe -- a live probe marks
-        connected at once, sparing a further disconnected-interval cycle."""
-        self._clients.drop()
-        if self._probe():
+    def _reconnect(self, dial: DialRef | None) -> None:
+        """Drop the dead dial and re-probe -- a live probe marks connected at
+        once, sparing a further disconnected-interval cycle."""
+        if dial is not None:  # None: the probe never got a dial, nothing to drop
+            self._clients.drop_unresponsive(dial)
+        if self._probe.run().alive:
             self._pacing.mark_connected()
 
     def _run(self) -> None:
@@ -161,12 +127,3 @@ class DisplayLiveness:
             except Exception:
                 logger.exception("liveness cycle failed; continuing")
             interval = self._pacing.interval(self._interval)
-
-    def _probe(self) -> bool:
-        """Return whether a ``get`` + ping round-trip succeeded; ``check_once``
-        logs the not-connected transition once, not on each failed probe."""
-        try:
-            return self._clients.get().requests.ping(self._ping_timeout) is not None
-        except (OSError, RuntimeError) as exc:
-            logger.debug("liveness probe failed: %s", exc)
-            return False

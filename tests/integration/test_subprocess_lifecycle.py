@@ -22,8 +22,10 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import TextElement
+from tests.link_access import writer_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -57,7 +59,7 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
 
         # Scenes need a declared Hub identity: the default "test" connection is
         # the read-only backdoor and the display rejects its SceneMessage.
-        with DisplayLink(
+        with DisplayLink.to_socket(
             sock_path,
             name="lifecycle-smoke",
             kind="hub",
@@ -65,10 +67,12 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
             connect_timeout=5.0,
         ) as client:
             assert client.is_connected
-            ack = client.requests.show(
+            ack = writer_of(client).show(
                 "lifecycle-smoke",
                 elements=[TextElement(id="t1", content="Hello, lifecycle.")],
-                title="Lifecycle Smoke",
+                presentation=ScenePresentation(
+                    frame_id="lifecycle-smoke", title="Lifecycle Smoke"
+                ),
             )
             assert ack is not None
             assert ack.scene_id == "lifecycle-smoke"

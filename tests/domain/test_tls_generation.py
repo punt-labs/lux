@@ -108,10 +108,10 @@ def test_a_frame_goes_each_way_over_the_tls_dial(tls: _TlsDisplay) -> None:
 def test_a_reply_larger_than_one_tls_record_is_read_whole_inline(
     tls: _TlsDisplay,
 ) -> None:
-    link = DisplayLink(dialer=tls, auto_spawn=False, recv_timeout=5.0)
+    link = DisplayLink(tls, recv_timeout=5.0)
     link.connect()
     big = QueryResponse(method="m", result={"blob": "x" * 200_000})
-    querying = Call(lambda: link.requests.query("m", timeout=5.0))
+    querying = Call(lambda: link.desk.asks().query("m", timeout=5.0))
     assert isinstance(tls.peer.read(1)[0], QueryRequest)
 
     tls.peer.send(big)
@@ -142,7 +142,7 @@ def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
     assert sender.is_alive(), "the display reads nothing, so the write wedges"
 
     began = time.monotonic()
-    assert connection.close_if_current(generation)
+    assert connection.close_if_current(generation, cause="hub")
     sender.join(5.0)
 
     assert not sender.is_alive()

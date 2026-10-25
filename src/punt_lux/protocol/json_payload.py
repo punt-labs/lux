@@ -6,10 +6,21 @@ import json
 import re
 from typing import Any, Self, cast, final
 
-__all__ = ["MAX_NESTING", "JsonPayload"]
+__all__ = ["MAX_ELEMENT_NESTING", "MAX_NESTING", "JsonPayload"]
 
-# Messages nest under ten levels; the bound only keeps frames off the recursion limit.
-MAX_NESTING = 32
+# Brackets one element's wire form may nest: a container adds two a level (its
+# object and its children array), and some leaves nest their own data (a tree's
+# nodes). 48 allows twenty-odd containers inside each other. The Hub refuses a
+# scene past it (domain/nesting_cap.py), so the guard below never meets a reply it
+# must refuse.
+MAX_ELEMENT_NESTING = 48
+# The deepest frame is a display's inspect_scene reply: the response object, its
+# result object, the element_paths array, one record and its props -- five
+# brackets -- around an element's own wire form, which the Hub caps at
+# MAX_ELEMENT_NESTING when it accepts the scene. Hub-to-display messages carry
+# elements pickled and nest far less.
+_ENVELOPE_NESTING = 5
+MAX_NESTING = MAX_ELEMENT_NESTING + _ENVELOPE_NESTING
 # Unterminated strings run to the end; possessive repetition keeps the scan linear.
 _STRINGS = re.compile(rb'"(?:[^"\\]++|\\.)*+(?:"|\\?\Z)', re.DOTALL)
 _BRACKETS = re.compile(rb"[\[\]{}]")

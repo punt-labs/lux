@@ -20,12 +20,17 @@ from punt_lux.display import RenderLoop
 from punt_lux.protocol import (
     AckMessage,
     FrameReader,
+    IntrospectRequest,
+    ListScenesRequest,
     PingMessage,
     PongMessage,
     QueryRequest,
     QueryResponse,
+    ReadyMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
+    ScreenshotRequest,
+    ScreenshotResponse,
     TextElement,
 )
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
@@ -66,6 +71,9 @@ class _Peer:
     def unblock(self) -> None:
         """The Hub reads again."""
         self._blocked = False
+
+    def setblocking(self, flag: bool) -> None:
+        """Accept the non-blocking mode the listener puts every client in."""
 
     def fileno(self) -> int:
         return _FD
@@ -133,6 +141,14 @@ class TestAHubThatReads:
         responses = [r for r in peer.replies() if isinstance(r, QueryResponse)]
         assert len(responses) == 2
 
+    def test_a_ready_message_reaches_a_client_that_reads(self) -> None:
+        loop = RenderLoop("/tmp/test-lux-replies.sock")
+        peer = _Peer()
+
+        loop._socket_listener.promote_connection(cast("socket.socket", peer))
+
+        assert peer.replies() == [ReadyMessage()]
+
     def test_a_scene_from_a_client_that_is_not_a_hub_is_not_acked(self) -> None:
         # A Hub link is never rejected, so the ack-per-scene rule does not bend;
         # a client the display refuses gets no ack, and is not a Hub's connection.
@@ -144,6 +160,30 @@ class TestAHubThatReads:
         loop._handle_message(sock, _scene("refused"))
 
         assert [r for r in peer.replies() if isinstance(r, AckMessage)] == []
+
+
+class TestAScreenshotIsNeverOverwritten:
+    def test_a_second_request_while_one_waits_for_the_swap_is_answered_with_an_error(
+        self,
+    ) -> None:
+        loop, peer, sock = _hub_client()
+        loop._handle_message(sock, ScreenshotRequest())
+
+        loop._handle_message(sock, ScreenshotRequest())
+
+        answered = [r for r in peer.replies() if isinstance(r, ScreenshotResponse)]
+        assert len(answered) == 1, "the superseded request is answered at once"
+        assert answered[0].error is not None
+
+    def test_the_first_request_is_still_answered_after_the_swap(self) -> None:
+        loop, peer, sock = _hub_client()
+        loop._handle_message(sock, ScreenshotRequest())
+        loop._handle_message(sock, ScreenshotRequest())
+
+        loop._on_after_swap()
+
+        answered = [r for r in peer.replies() if isinstance(r, ScreenshotResponse)]
+        assert len(answered) == 2, "one reply per request, none dropped"
 
 
 class TestAHubThatDoesNotRead:
@@ -175,6 +215,49 @@ class TestAHubThatDoesNotRead:
         loop._handle_message(sock, QueryRequest(method="list_scenes"))
 
         assert peer.closed
+        assert sock not in loop._socket_listener.clients
+
+    def test_an_introspect_response_that_cannot_be_sent_severs_the_connection(
+        self,
+    ) -> None:
+        loop, peer, sock = _hub_client(blocked=True)
+
+        loop._handle_message(sock, IntrospectRequest(scene_id="none"))
+
+        assert peer.closed
+        assert sock not in loop._socket_listener.clients
+
+    def test_a_list_scenes_response_that_cannot_be_sent_severs_the_connection(
+        self,
+    ) -> None:
+        loop, peer, sock = _hub_client(blocked=True)
+
+        loop._handle_message(sock, ListScenesRequest())
+
+        assert peer.closed
+        assert sock not in loop._socket_listener.clients
+
+    def test_a_screenshot_response_that_cannot_be_sent_severs_the_connection(
+        self,
+    ) -> None:
+        loop, peer, sock = _hub_client(blocked=True)
+        loop._handle_message(sock, ScreenshotRequest())
+
+        loop._on_after_swap()
+
+        assert peer.closed
+        assert sock not in loop._socket_listener.clients
+
+    def test_a_ready_message_that_cannot_be_sent_severs_the_new_connection(
+        self,
+    ) -> None:
+        loop = RenderLoop("/tmp/test-lux-replies.sock")
+        peer = _Peer(blocked=True)
+        sock = cast("socket.socket", peer)
+
+        loop._socket_listener.promote_connection(sock)
+
+        assert peer.closed, "a greeting the dialer never gets must not leave it waiting"
         assert sock not in loop._socket_listener.clients
 
     def test_n_scenes_into_a_full_buffer_never_leave_a_connection_with_a_gap(

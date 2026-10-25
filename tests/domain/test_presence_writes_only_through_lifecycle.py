@@ -10,7 +10,11 @@ The guard reads the source as syntax. A module reaches the surface by an import
 that resolves to the writes' module (absolute, relative, aliased, or of the module
 rather than the name), by taking it from the registry, or by holding the
 lifecycle's own handle on it; the registry's session state is written only by the
-writes. Each rule is exercised on planted source to prove it can fail.
+writes. The roster's renumbering is held by what exists, not by who is seen calling
+it: the write is the one method of ``RosterRelease``, built once, handed away once to
+the writes, and what readers are given can only name. The lifecycle
+uses its handle on the writes only as the receiver of a call, never handing it on.
+Each rule is exercised on planted source to prove it can fail.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from tests.class_references import ClassReferences, aliased_constructions
 from tests.source_imports import module_name, resolved_imports
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +57,16 @@ _DICT_MUTATORS = {
 }
 _SESSION_STATE = "_sessions"
 _ROSTER_STATE = "_roster"
+_ROSTER_FILE = _SRC / "punt_lux" / "domain" / "hub" / "client_roster.py"
+_ROSTER_REL = "src/punt_lux/domain/hub/client_roster.py"
+_NAMED_SESSIONS_REL = "src/punt_lux/domain/hub/named_sessions.py"
+# What the roster itself offers: to name connections, to read the names held, and to
+# hand its release away. The release is the one place a survivor is renumbered.
+_ROSTER_OWN = {"names_for", "held", "take_release"}
+# The roster's one write, private to it: the release is the only way to ask for it.
+_ROSTER_DROP = "_release_departed"
+# Who may name the release: its home and the writes that hold it.
+_RELEASE_NAMERS = {_ROSTER_REL, "src/punt_lux/domain/hub/presence_writes.py"}
 
 # The registry hands the surface out and the lifecycle takes it.
 _IMPORTERS = {
@@ -162,6 +177,113 @@ def _state_writes(source: str) -> list[tuple[str, int, str]]:
     return visitor.found
 
 
+def _roster_methods(source: str, name: str = "ClientRoster") -> set[str]:
+    """The public methods of a roster class, read from its class body."""
+    tree = ast.parse(source)
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+    return {
+        m.name
+        for m in cls.body
+        if isinstance(m, ast.FunctionDef) and not m.name.startswith("_")
+    }
+
+
+def _drops_names(node: ast.AST) -> bool:
+    """Whether ``node`` drops a name from the roster's holdings.
+
+    Dropping is ``self._names.drop(...)`` or popping a connection out of ``_key_of``:
+    the two steps that make a survivor's label move.
+    """
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and (
+            (call.func.attr == "drop" and _label(call.func.value) == "_names")
+            or (call.func.attr == "pop" and _label(call.func.value) == "_key_of")
+        )
+        for call in ast.walk(node)
+    )
+
+
+def _classes_that_drop_names(source: str) -> set[str]:
+    """The classes whose methods drop a name from the roster's holdings."""
+    return {
+        cls.name
+        for cls in ast.walk(ast.parse(source))
+        if isinstance(cls, ast.ClassDef) and _drops_names(cls)
+    }
+
+
+def _methods_that_drop_names(source: str, name: str) -> set[str]:
+    """The methods of class ``name`` that drop a name from the roster's holdings."""
+    cls = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+    return {
+        m.name for m in cls.body if isinstance(m, ast.FunctionDef) and _drops_names(m)
+    }
+
+
+def _methods_that_name(source: str, cls_name: str, attribute: str) -> set[str]:
+    """The methods of class ``cls_name`` that read ``<expr>.<attribute>``."""
+    cls = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.ClassDef) and node.name == cls_name
+    )
+    return {
+        m.name
+        for m in cls.body
+        if isinstance(m, ast.FunctionDef)
+        and any(
+            isinstance(n, ast.Attribute) and n.attr == attribute for n in ast.walk(m)
+        )
+    }
+
+
+def _constructions_of(source: str, name: str) -> int:
+    return ClassReferences(source, name).constructions()
+
+
+def _names_in(source: str) -> set[str]:
+    """Every name the source uses, imports or reads off an object."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.ImportFrom | ast.Import):
+            found.update(alias.name.split(".")[-1] for alias in node.names)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
+
+
+def _handed_on_handles(source: str) -> list[int]:
+    """The lines where ``._writes`` is used other than as the receiver of a call."""
+    tree = ast.parse(source)
+    receivers = {
+        id(call.func.value)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Attribute)
+    }
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "_writes"
+        and not isinstance(node.ctx, ast.Store)
+        and id(node) not in receivers
+    ]
+
+
 def _derived_writes() -> tuple[set[str], set[str]]:
     """The public methods of ``PresenceWrites`` that write, and those that only read."""
     tree = ast.parse(_WRITES_FILE.read_text())
@@ -221,6 +343,65 @@ def _outside_state_writers(root: Path) -> set[tuple[str, str]]:
         for method, _, receiver in _state_writes(text)
         if receiver == "other" or rel == _REGISTRY_FILE
     } - {_MAY_INITIALISE}
+
+
+def test_the_roster_itself_only_names_and_hands_its_release_away() -> None:
+    assert _roster_methods(_ROSTER_FILE.read_text()) == _ROSTER_OWN
+
+
+def test_only_the_roster_drops_a_name_and_in_one_private_method() -> None:
+    source = _ROSTER_FILE.read_text()
+
+    assert _classes_that_drop_names(source) == {"ClientRoster"}
+    assert _methods_that_drop_names(source, "ClientRoster") == {_ROSTER_DROP}
+
+
+def test_the_roster_s_drop_is_reached_only_through_the_release_it_hands_away() -> None:
+    readers = {
+        rel for rel, text in _files(_SRC) if _reads_attribute(text, _ROSTER_DROP)
+    }
+
+    assert readers == {_ROSTER_REL}
+    assert _methods_that_name(
+        _ROSTER_FILE.read_text(), "ClientRoster", _ROSTER_DROP
+    ) == {"take_release"}
+
+
+def test_the_release_is_built_once_by_the_roster_that_hands_it_away() -> None:
+    built = {
+        rel: count
+        for rel, text in _files(_SRC)
+        if (count := _constructions_of(text, "RosterRelease"))
+    }
+
+    assert built == {_ROSTER_REL: 1}
+
+
+def test_the_roster_s_release_is_taken_once_in_the_source() -> None:
+    callers = {
+        rel for rel, text in _files(_SRC) if _calls_attribute(text, "take_release")
+    }
+
+    assert callers == {_REGISTRY_FILE}
+
+
+def test_only_the_roster_and_the_writes_name_the_release() -> None:
+    namers = {rel for rel, text in _files(_SRC) if "RosterRelease" in _names_in(text)}
+
+    assert namers == _RELEASE_NAMERS
+
+
+def test_readers_of_the_roster_are_given_only_what_names() -> None:
+    named_sessions = (_ROOT / _NAMED_SESSIONS_REL).read_text()
+
+    assert "RosterNames" in _names_in(named_sessions)
+    assert "ClientRoster" not in _names_in(named_sessions)
+
+
+def test_the_lifecycle_only_calls_through_its_handle_on_the_writes() -> None:
+    lifecycle = (_ROOT / _LIFECYCLE).read_text()
+
+    assert _handed_on_handles(lifecycle) == []
 
 
 def test_the_write_set_is_exactly_the_writes_public_methods() -> None:
@@ -364,3 +545,73 @@ class TestTheRulesCanFail:
     def test_taking_the_writes_through_another_module_is_found(self) -> None:
         assert _calls_attribute("registry.take_writes()", "take_writes")
         assert _reads_attribute("self.lifecycle._writes.record(c)", "_writes")
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Helper(self._writes)",
+            "handle = self._writes",
+            "return self._writes",
+            "register(callback=self._writes)",
+        ],
+    )
+    def test_handing_the_writes_handle_on_is_found(self, body: str) -> None:
+        source = f"class C:\n    def f(self):\n        {body}\n"
+
+        assert _handed_on_handles(source) == [3]
+
+    def test_calling_through_the_handle_and_storing_it_are_not_handing_on(self) -> None:
+        source = (
+            "class C:\n"
+            "    def __new__(cls, writes):\n"
+            "        self = super().__new__(cls)\n"
+            "        self._writes = writes\n"
+            "        return self\n"
+            "    def f(self, c):\n"
+            "        return self._writes.record(c)\n"
+        )
+
+        assert _handed_on_handles(source) == []
+
+    def test_a_method_that_drops_a_name_outside_the_release_is_found(self) -> None:
+        source = (
+            "class ClientRoster:\n"
+            "    def evict(self, cid):\n"
+            "        self._key_of.pop(cid)\n"
+            "class RosterRelease:\n"
+            "    def release(self, cid):\n"
+            "        self._names.drop(cid)\n"
+        )
+
+        assert _classes_that_drop_names(source) == {"ClientRoster", "RosterRelease"}
+        assert _methods_that_drop_names(source, "ClientRoster") == {"evict"}
+
+    def test_a_planted_roster_method_enters_the_derived_set(self) -> None:
+        source = (
+            "class ClientRoster:\n"
+            "    def names_for(self, ids):\n"
+            "        return {}\n"
+            "    def release(self, departed):\n"
+            "        return frozenset()\n"
+        )
+
+        assert _roster_methods(source) == {"names_for", "release"}
+
+    def test_a_second_construction_of_the_release_is_counted(self) -> None:
+        source = "def f(roster):\n    return RosterRelease(roster._release_departed)\n"
+
+        assert _constructions_of(source, "RosterRelease") == 1
+
+    def test_an_aliased_construction_of_the_release_is_counted(self) -> None:
+        for source in aliased_constructions(
+            "punt_lux.domain.hub.client_roster", "RosterRelease"
+        ):
+            assert _constructions_of(source, "RosterRelease") == 1, source
+
+    def test_a_module_that_names_the_release_in_any_spelling_is_found(self) -> None:
+        for source in (
+            "from punt_lux.domain.hub.client_roster import RosterRelease\n",
+            "import punt_lux.domain.hub.client_roster as r\nx = r.RosterRelease\n",
+            "def f(release: RosterRelease) -> None:\n    release.release(())\n",
+        ):
+            assert "RosterRelease" in _names_in(source), source

@@ -3,10 +3,12 @@
 The replicator is the sole writer to the display, but it does not own the
 socket or the process. It reaches them through structural ports so the
 concurrency logic is tested against fakes, not a live socket: ``DisplaySender``
-(the fire-and-forget send surface), ``ClientProvider`` (hands out the sender,
-drops a dead one, waits), ``DisplayLifecycle`` (kills a wedged display; its
-service unit respawns it), and ``DirtyMarker`` (the queue-only side a
-fresh-connect hook marks after declaring its manifest, DES-068).
+(the fire-and-forget send surface, pinned to one dial), ``WriteSeatPort`` (where
+senders are made), ``DisplayProbe`` (the isolation loop's ping, pinned to one
+dial), ``ClientProvider`` (connects, hands out the seat once, drops a dead dial,
+waits), ``DisplayLifecycle`` (kills a wedged display; its service unit respawns
+it), and ``DirtyMarker`` (the queue-only side a fresh-connect hook marks after
+declaring its manifest, DES-068).
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from punt_lux.domain.hub.scene_presentation import ScenePusher
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.ids import SceneId
 
 __all__ = [
@@ -26,9 +29,12 @@ __all__ = [
     "ClientProvider",
     "DirtyMarker",
     "DisplayLifecycle",
+    "DisplayProbe",
     "DisplaySender",
     "MenuReader",
+    "ProbeDesk",
     "SenderPort",
+    "WriteSeatPort",
 ]
 
 
@@ -65,8 +71,14 @@ class DisplaySender(ScenePusher, Protocol):
 
     Extends ``ScenePusher`` (``send_scene``) with the two menu writes so the
     replicator is the sole writer of the menu state: ``set_menu`` for the agent
-    menu bar and ``set_callback_menus`` for the ``Clients`` menu.
+    menu bar and ``set_callback_menus`` for the ``Clients`` menu. It is pinned to
+    one dial, which a failed send names to drop.
     """
+
+    @property
+    def dial(self) -> DialRef:
+        """The dial every send goes out on: what a failed send names to drop."""
+        ...
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""
@@ -74,40 +86,71 @@ class DisplaySender(ScenePusher, Protocol):
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu."""
 
-    def probe_alive(self, timeout: float) -> bool:
-        """Return whether the display responded to a ping within ``timeout``.
 
-        Used by ``HubReplicator``'s isolation-mode loop as a synchronous
-        liveness check between consecutive singleton probes: a scene N whose
-        render crashed the display surfaces as a broken pipe on the *next*
-        write, so without a roundtrip in between, the death would attribute to
-        scene N+1 rather than scene N (the real culprit). Raising
-        OSError/BlockingIOError is also a "no" — the caller propagates either
-        as a failure of the last scene sent.
+@runtime_checkable
+class WriteSeatPort(Protocol):
+    """Where senders are made: the replicator's one way to write to the display."""
+
+    def current(self) -> DisplaySender:
+        """A sender pinned to the dial that is current now."""
+        ...
+
+
+@runtime_checkable
+class DisplayProbe(Protocol):
+    """The isolation loop's ping of the display, pinned to one dial."""
+
+    @property
+    def dial(self) -> DialRef:
+        """The dial the probe goes out on: what a failed probe names to drop."""
+        ...
+
+    def confirm_alive(self, timeout: float) -> bool:
+        """Return whether the display answered a ping of its own within ``timeout``.
+
+        The synchronous liveness check between consecutive singleton sends: a
+        scene N whose render crashed the display surfaces as a broken pipe on the
+        *next* write, so without a roundtrip in between, the death would attribute
+        to scene N+1 rather than scene N (the real culprit). A busy dial is not
+        proof, so it answers ``False``; raising OSError/BlockingIOError is also a
+        "no" -- the caller propagates either as a failure of the last scene sent.
         """
         ...
 
 
 @runtime_checkable
+class ProbeDesk(Protocol):
+    """Where the replicator makes its probes."""
+
+    def asks(self) -> DisplayProbe:
+        """A probe pinned to the dial that is current now."""
+        ...
+
+
+@runtime_checkable
 class SenderPort(Protocol):
-    """A display link, seen as the replicator sees it: the port it sends through."""
+    """A display link, seen as the replicator sees it: the probe it pings through."""
 
     @property
-    def requests(self) -> DisplaySender:
-        """The link's outbound port."""
+    def desk(self) -> ProbeDesk:
+        """Where the link's requests are made."""
         ...
 
 
 @runtime_checkable
 class ClientProvider(ReconnectWaiter, Protocol):
-    """Hands out the one display connection, drops a dead one, and waits."""
+    """Connects the display, hands out its write seat once, drops a dead dial, waits."""
 
     def get(self) -> SenderPort:
-        """Return the link; raises ``DisplayNotConnectedError`` if never connected."""
+        """Return the link, connected; ``DisplayNotConnectedError`` if it cannot be."""
         ...
 
-    def drop(self) -> None:
-        """Close the current connection so the next ``get`` binds a fresh one."""
+    def take_writer(self) -> WriteSeatPort:
+        """Hand over the seat senders are made at; asked once, by the one writer."""
+        ...
+
+    def drop(self, dial: DialRef) -> None:
+        """Retire ``dial`` if still current, so the next ``get`` binds afresh."""
 
     def request_stop(self) -> None:
         """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""

@@ -16,8 +16,6 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
-from PIL import Image
-
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
@@ -60,7 +58,6 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
-    ScreenshotResponse,
     ThemeMessage,
     UnknownMessage,
 )
@@ -105,7 +102,6 @@ class RenderLoop:
     _opacity: float
     _font_scale: float
     _fit_all_frames: bool
-    _screenshot_pending: socket.socket | None
     _test_auto_click: bool
     _start_time: float
     _current_theme: str
@@ -231,7 +227,6 @@ class RenderLoop:
         self._textures = TextureCache()
         self._paint_clock = PaintClock()
         self._widget_state = WidgetState()  # active scene's state (swapped)
-        self._screenshot_pending = None
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
         self._current_scene_id = None
@@ -254,6 +249,7 @@ class RenderLoop:
             get_decorated=lambda: self._decorated,
             get_current_theme=lambda: self._current_theme,
             get_themes=lambda: self._themes,
+            record_error=self._query_router.record_error,
         )
         router = self._query_router
         router.register_handler("inspect_scene", self._scene_inspector.inspect)
@@ -386,13 +382,13 @@ class RenderLoop:
     def _on_frame(self) -> None:
         """Called every frame by ImGui.
 
-        A single bounded send deadline is armed for the whole frame so a burst
-        of Acks, Pongs, and query responses under Hub backpressure cannot stack
-        per-send waits and wedge the render thread past the ping timeout or the
-        macOS "not responding" threshold. Sends past the budget defer, they do
-        not block.
+        One bounded send deadline is armed for the whole frame so a burst of Acks,
+        Pongs, and query responses under Hub backpressure cannot stack per-send
+        waits and wedge the render thread past the ping timeout or the macOS "not
+        responding" threshold. Sends past the budget defer, they do not block.
         """
-        self._socket_listener.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
+        sender = self._socket_listener.sender
+        sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
         try:
             self._socket_listener.accept_connections()
             self._pump_cross_host()
@@ -400,7 +396,7 @@ class RenderLoop:
             self._render_scene()
             self._flush_events()
         finally:
-            self._socket_listener.clear_frame_deadline()
+            sender.clear_frame_deadline()
 
     def _pump_cross_host(self) -> None:
         """Advance the opt-in cross-host TLS listener one frame (DES-090 W10).
@@ -433,51 +429,7 @@ class RenderLoop:
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
         self._paint_clock.swapped()
-        if self._screenshot_pending is not None:
-            sock = self._screenshot_pending
-            self._screenshot_pending = None
-            self._capture_screenshot(sock)
-
-    def _capture_screenshot(self, sock: socket.socket) -> None:
-        """Capture the OpenGL framebuffer after swap and send the path back.
-
-        Called from ``_on_after_swap`` so GL_FRONT contains the fully
-        rendered frame. Uses ``glReadPixels`` with Retina scale factor.
-        """
-        import os
-        import tempfile
-
-        import OpenGL.GL as GL
-        from imgui_bundle import hello_imgui, imgui
-
-        try:
-            scale = hello_imgui.final_app_window_screenshot_framebuffer_scale()
-            io = imgui.get_io()
-            fb_width = int(io.display_size.x * scale)
-            fb_height = int(io.display_size.y * scale)
-            GL.glReadBuffer(GL.GL_FRONT)
-            GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
-            data = GL.glReadPixels(
-                0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
-            )
-
-            image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
-            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-
-            tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            fd, path = tempfile.mkstemp(
-                suffix=".png", prefix="lux-screenshot-", dir=str(tmp_dir)
-            )
-            os.close(fd)
-            image.save(path)
-
-            resp = ScreenshotResponse(path=path)
-        except Exception as exc:
-            logger.exception("Screenshot capture failed")
-            self._query_router.record_error("error", str(exc), "screenshot")
-            resp = ScreenshotResponse(error=str(exc))
-        self._socket_listener.reply_to_client(sock, resp)
+        self._display_queries.after_swap(self._socket_listener)
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
         """Callback for MenuReplica: toggle window decoration."""
@@ -583,13 +535,13 @@ class RenderLoop:
         """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
         if isinstance(msg, PingMessage):
             pong = PongMessage(ts=msg.ts, display_ts=time.time())
-            self._socket_listener.reply_to_client(sock, pong)
+            self._socket_listener.sender.reply_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
             self._handle_list_scenes(sock)
         elif isinstance(msg, ScreenshotRequest):
-            self._screenshot_pending = sock
+            self._display_queries.request_screenshot(sock, self._socket_listener)
         elif isinstance(msg, QueryRequest):
             self._handle_query(sock, msg)
         elif isinstance(msg, UnknownMessage):
@@ -625,7 +577,7 @@ class RenderLoop:
                 scene_id=msg.scene_id,
                 elements=qr.result["elements"],
             )
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket) -> None:
         """Return the list of active scenes and frames."""
@@ -636,14 +588,14 @@ class RenderLoop:
             resp = ListScenesResponse(
                 scenes=qr.result["scenes"], frames=qr.result["frames"]
             )
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
     def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
         """Dispatch a generic QueryRequest to the registered handler."""
         resp = self._query_router.handle_query(msg.method, msg.params)
-        self._socket_listener.reply_to_client(sock, resp)
+        self._socket_listener.sender.reply_to_client(sock, resp)
 
     @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
@@ -683,7 +635,7 @@ class RenderLoop:
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_listener.reply_to_client(sock, ack)
+        self._socket_listener.sender.reply_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 

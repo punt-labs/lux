@@ -6,12 +6,18 @@ import logging
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica import SceneReplica
+from punt_lux.display.screenshot_queue import ScreenshotQueue
 from punt_lux.protocol import QueryResponse
+
+if TYPE_CHECKING:
+    import socket
+
+    from punt_lux.display.socket_server import SocketListener
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +190,10 @@ class DisplayQueryHandlers:
 
     Reads through getter callables (the ``OwnMenus`` idiom) rather than
     holding RenderLoop's fields directly, so this class needs no reference
-    back to it.
+    back to it. It also owns the one screenshot request waiting for the next
+    swap, because it already answers the screenshot query: the request's own
+    handling is ``request_screenshot``, and ``after_swap`` is the hook the render
+    loop calls on this owner once the frame is swapped.
     """
 
     _get_start_time: Callable[[], float]
@@ -193,6 +202,7 @@ class DisplayQueryHandlers:
     _get_decorated: Callable[[], bool]
     _get_current_theme: Callable[[], str]
     _get_themes: Callable[[], Sequence[Any]]
+    _screenshots: ScreenshotQueue
 
     def __new__(
         cls,
@@ -203,6 +213,7 @@ class DisplayQueryHandlers:
         get_decorated: Callable[[], bool],
         get_current_theme: Callable[[], str],
         get_themes: Callable[[], Sequence[Any]],
+        record_error: Callable[[str, str, str], None],
     ) -> Self:
         self = super().__new__(cls)
         self._get_start_time = get_start_time
@@ -211,16 +222,20 @@ class DisplayQueryHandlers:
         self._get_decorated = get_decorated
         self._get_current_theme = get_current_theme
         self._get_themes = get_themes
+        self._screenshots = ScreenshotQueue(record_error)
         return self
 
-    def screenshot(self, **_kwargs: Any) -> dict[str, Any]:
-        """Query handler for screenshot.
+    def request_screenshot(self, sock: socket.socket, listener: SocketListener) -> None:
+        """Queue a screenshot for ``sock`` at the next swap (see ScreenshotQueue)."""
+        self._screenshots.request(sock, listener)
 
-        Screenshots require GL context (post-swap capture). The generic
-        query path cannot defer to the frame loop.
-        """
-        msg = "Use the dedicated screenshot_request message"
-        raise RuntimeError(msg)
+    def after_swap(self, listener: SocketListener) -> None:
+        """Answer the queued screenshot, if any, now the frame has been swapped."""
+        self._screenshots.after_swap(listener)
+
+    def screenshot(self, **kwargs: Any) -> dict[str, Any]:
+        """Query handler for screenshot: refused, see the screenshot queue."""
+        return self._screenshots.refuse_generic_query(**kwargs)
 
     def get_display_info(self, **_kwargs: Any) -> dict[str, Any]:
         """Return display server metadata."""

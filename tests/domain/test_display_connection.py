@@ -8,7 +8,10 @@ from typing import Self, final
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -132,22 +135,71 @@ class TestRequire:
 
     def test_raises_when_never_connected(self) -> None:
         with pytest.raises(
-            ConnectionClosedError, match="open\\(\\) the display connection"
+            DisplayNotConnectedError, match="open\\(\\) the display connection"
         ):
             DisplayConnection(_Dialer(), 1.0).require()
+
+    def test_a_dial_the_hub_dropped_is_a_hub_retirement_for_whoever_asks_next(
+        self,
+    ) -> None:
+        # The replicator may fetch the dial just as another thread drops it; the
+        # display said nothing, so recovery must not blame the batch for it.
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="hub")
+
+        with pytest.raises(HubRetiredError):
+            connection.require()
+
+    def test_a_connection_never_opened_is_not_a_display_death_either(self) -> None:
+        # Nothing was dialed, so there is nothing for the display to have ended: the
+        # error is not a closed connection a sender could blame its batch for.
+        with pytest.raises(DisplayNotConnectedError) as caught:
+            DisplayConnection(_Dialer(), 1.0).require()
+
+        assert not isinstance(caught.value, ConnectionClosedError)
+
+    def test_a_dial_the_display_ended_is_a_plain_closed_connection_for_whoever_asks(
+        self,
+    ) -> None:
+        # The reader saw the display die and retired the dial before the sender
+        # reached it: the sender still learns the display ended it, so the death is
+        # charged to what it was sending.
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+
+        with pytest.raises(ConnectionClosedError) as caught:
+            connection.require()
+
+        assert not isinstance(caught.value, HubRetiredError)
+
+    def test_the_cause_is_the_last_retirements(self) -> None:
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+        connection.open()
+        connection.close()  # the Hub's own close of the next dial
+
+        with pytest.raises(HubRetiredError):
+            connection.require()
+
+    def test_a_live_dial_is_returned_whatever_ended_the_one_before(self) -> None:
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+        connection.open()
+
+        assert connection.require() is not None
 
     def test_a_redial_makes_a_new_generation_that_carries_nothing_over(self) -> None:
         connection, _ = _opened()
         first = connection.require()
-        first.sink.owe_ack("s", awaited=False)
+        first.send_scene(SceneMessage(id="s", elements=[], frame_id="s"), awaited=False)
 
         connection.close()
         connection.open()
         second = connection.require()
         try:
             assert second is not first
-            assert second.sink is not first.sink
-            assert second.sink.owed_acks == 0
+            assert first.owed_acks == 0, "the retired dial's ledger went with it"
+            assert second.owed_acks == 0
         finally:
             connection.close()
 
@@ -157,7 +209,7 @@ class TestCloseIfCurrent:
         connection, _ = _opened()
         generation = connection.require()
 
-        assert connection.close_if_current(generation) is True
+        assert connection.close_if_current(generation, cause="hub") is True
 
         assert not connection.is_open
         assert generation.is_closed
@@ -169,7 +221,7 @@ class TestCloseIfCurrent:
         connection.open()
         replacement = connection.require()
         try:
-            assert connection.close_if_current(stale) is False
+            assert connection.close_if_current(stale, cause="hub") is False
             assert connection.is_open
             assert not replacement.is_closed
         finally:
@@ -178,9 +230,9 @@ class TestCloseIfCurrent:
     def test_closing_twice_is_a_no_op_the_second_time(self) -> None:
         connection, _ = _opened()
         generation = connection.require()
-        connection.close_if_current(generation)
+        connection.close_if_current(generation, cause="hub")
 
-        assert connection.close_if_current(generation) is False
+        assert connection.close_if_current(generation, cause="hub") is False
 
 
 class TestShutdown:
@@ -216,7 +268,9 @@ class TestShutdown:
         sender.join(0.3)
         assert sender.is_alive(), "the peer reads nothing, so the write wedges"
 
-        assert connection.close_if_current(generation)  # needs no socket lock
+        assert connection.close_if_current(
+            generation, cause="hub"
+        )  # needs no socket lock
 
         sender.join(3.0)
         assert not sender.is_alive()
@@ -272,9 +326,27 @@ class TestSend:
                 SceneMessage(id="s", elements=[], frame_id="s"), awaited=True
             )
 
-            assert generation.sink.owed_acks == 1
-            generation.sink.deliver(AckMessage(scene_id="s"))
-            assert owed.reply == AckMessage(scene_id="s")
+            assert generation.owed_acks == 1
+            generation.deliver(AckMessage(scene_id="s"))
+            assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s")
+        finally:
+            connection.close()
+            if dialer.peer is not None:
+                dialer.peer.close()
+
+    def test_a_second_ping_in_flight_is_refused_and_leaves_the_dial_open(self) -> None:
+        # A bookkeeping error before anything was written says nothing of the
+        # stream, so it must not retire a healthy dial.
+        connection, dialer = _opened()
+        generation = connection.require()
+        try:
+            generation.send_ping(1.0)
+
+            with pytest.raises(RuntimeError, match="already in flight"):
+                generation.send_ping(2.0)
+
+            assert not generation.is_closed
+            assert connection.is_open
         finally:
             connection.close()
             if dialer.peer is not None:
@@ -293,7 +365,7 @@ class TestSend:
                     SceneMessage(id="s", elements=[], frame_id="s"), awaited=False
                 )
 
-        assert generation.sink.owed_acks == 0
+        assert generation.owed_acks == 0
 
 
 class TestPollChunk:
@@ -359,7 +431,7 @@ class TestOpenForListening:
     def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        born = connection.open(listening=True)
+        born = connection.open_listening()
 
         assert born is connection.require()
 
@@ -370,15 +442,15 @@ class TestOpenForListening:
         finally:
             connection.close()
 
-    def test_open_says_whether_it_dialed(self) -> None:
+    def test_open_listening_says_whether_it_dialed(self) -> None:
         connection = DisplayConnection(_Dialer(), 1.0)
 
-        first = connection.open()
-        second = connection.open(listening=True)
+        connection.open()
+        second = connection.open_listening()
 
         try:
-            assert (first is connection.require(), second) == (True, None)
-            assert not connection.has_reader  # the existing dial was not re-made
+            assert second is None  # the dial already open was not re-made
+            assert not connection.has_reader
         finally:
             connection.close()
 
@@ -407,7 +479,7 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         def under_the_state_lock() -> None:
             outcome.append(connection.has_reader)
             outcome.append(connection.is_open)
-            outcome.append(connection.close_if_current(generation))
+            outcome.append(connection.close_if_current(generation, cause="hub"))
 
         worker = threading.Thread(target=under_the_state_lock, daemon=True)
         worker.start()

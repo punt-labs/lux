@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import (
@@ -34,6 +35,7 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.json_payload import MAX_NESTING, JsonPayload
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from tests.link_access import writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -157,7 +159,9 @@ class TestScenesFromADisplay:
     ) -> None:
         display = hostile(_scene_frame(), False)
         # The scene arrives where the ReadyMessage should: send it on accept.
-        link = DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0)
+        link = DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        )
 
         with pytest.raises(ValueError, match="not accepted"):
             link.connect()
@@ -170,10 +174,13 @@ class TestScenesFromADisplay:
         unpickled: list[bytes],
     ) -> None:
         display = hostile(_scene_frame(), True)
-        with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
+        with DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        ) as link:
             link.connect()
-            with pytest.raises(ValueError, match="not accepted"):
-                link.requests.ping(timeout=2.0)
+            with pytest.raises(ConnectionClosedError) as refused:
+                link.desk.asks().ping(timeout=2.0)
+            assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []
 
@@ -183,10 +190,13 @@ class TestScenesFromADisplay:
         unpickled: list[bytes],
     ) -> None:
         display = hostile(_scene_frame(), True)
-        with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
+        with DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        ) as link:
             link.connect()
-            with pytest.raises(ValueError, match="not accepted"):
-                link.requests.show("s", [])
+            with pytest.raises(ConnectionClosedError) as refused:
+                writer_of(link).show("s", [])
+            assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []
 

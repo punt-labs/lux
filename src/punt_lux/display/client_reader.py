@@ -16,13 +16,13 @@ import socket
 import ssl
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.display.want_write_state import WantWriteState
 from punt_lux.protocol import HEADER_SIZE, MAX_MESSAGE_SIZE
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 if TYPE_CHECKING:
     from punt_lux.display.client_registry import ClientRegistry
     from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
-    from punt_lux.display.socket_server import WantWriteState
     from punt_lux.protocol import FrameReader
 
 logger = logging.getLogger(__name__)
@@ -61,13 +61,12 @@ class ClientReader:
         cls,
         *,
         registry: ClientRegistry,
-        want_write: WantWriteState,
         callbacks: SocketListenerCallbacks,
         host: ReaderHost,
     ) -> Self:
         self = super().__new__(cls)
         self._registry = registry
-        self._want_write = want_write
+        self._want_write = WantWriteState()
         self._callbacks = callbacks
         self._host = host
         return self

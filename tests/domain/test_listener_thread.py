@@ -14,7 +14,9 @@ import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_reader import DialReader
 from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.domain.hub.listener_thread import ListenerThread
@@ -23,6 +25,7 @@ from punt_lux.protocol import (
     AckMessage,
     ObserverMessage,
     PongMessage,
+    SceneMessage,
     encode_frame,
     encode_message,
 )
@@ -31,6 +34,7 @@ from tests.domain.display_double import Display, until
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.protocol import Message
 
 
@@ -141,7 +145,7 @@ class TestLifecycle:
             DisplayConnection(Display(), 1.0), lambda _g, _m: None
         )
 
-        with pytest.raises(ConnectionClosedError):
+        with pytest.raises(DisplayNotConnectedError):
             listener.start()
 
     def test_exits_when_the_display_closes_the_connection(self, rig: _Rig) -> None:
@@ -223,7 +227,7 @@ class TestAReaderLivesAndDiesWithItsDial:
         made = _Rig(route)
         try:
             old = made.connection.require()
-            old.sink.owe_ack("s", awaited=True)
+            old.send_scene(_scene("s"), awaited=True)
             made.listener.start()
             made.display.peer.send_raw(_event() + encode_message(_ack("s")))
             assert entered.wait(3)
@@ -231,12 +235,12 @@ class TestAReaderLivesAndDiesWithItsDial:
             made.listener.stop()
             made.connection.open()
             fresh = made.connection.require()
-            owed = fresh.sink.owe_ack("t", awaited=True)
+            owed = fresh.send_scene(_scene("t"), awaited=True)
             release.set()
 
             assert until(lambda: not made.listener.alive)
-            fresh.sink.deliver(_ack("t"))
-            assert owed.reply == _ack("t")
+            fresh.deliver(_ack("t"))
+            assert fresh.await_reply(owed, 0.0) == _ack("t")
         finally:
             release.set()
             made.close()
@@ -244,6 +248,10 @@ class TestAReaderLivesAndDiesWithItsDial:
 
 def _ack(scene_id: str) -> Message:
     return AckMessage(scene_id=scene_id)
+
+
+def _scene(scene_id: str) -> SceneMessage:
+    return SceneMessage(id=scene_id, elements=[], frame_id=scene_id)
 
 
 class _Stalled:
@@ -288,12 +296,12 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             assert made.listener.alive
             made.connection.open()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(1.0)
+            waiting = fresh.send_ping(1.0)
             stalled.release.set()
 
             assert until(lambda: not made.listener.alive)
             assert stalled.routed[0][0] is old
-            assert waiting.reply is None  # the new dial's waiter was not answered
+            assert not fresh.answered(waiting)  # the new dial's waiter was not answered
             assert made.connection.require() is fresh
         finally:
             stalled.release.set()
@@ -310,11 +318,11 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             made.listener.stop()
             made.connection.open()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(7.0)
+            waiting = fresh.send_ping(7.0)
             stalled.release.set()
             assert until(lambda: not made.listener.alive)
 
-            assert fresh.sink.await_reply(waiting, 0.2) is None
+            assert fresh.await_reply(waiting, 0.2) is None
         finally:
             stalled.release.set()
             made.close()
@@ -421,13 +429,13 @@ class TestAStoppedReaderIsConfinedToItsOwnGeneration:
             made.connection.open()
             made.listener.start()
             fresh = made.connection.require()
-            waiting = fresh.sink.expect_pong(1.0)
+            waiting = fresh.send_ping(1.0)
             assert made.listener.alive
 
             made.display.peer.close()  # the new dial's display goes away
 
             with pytest.raises(ConnectionClosedError):
-                fresh.sink.await_reply(waiting, 3.0)
+                fresh.await_reply(waiting, 3.0)
         finally:
             stalled.release.set()
             made.close()
@@ -441,15 +449,15 @@ class TestAStaleReportCannotTouchTheReplacement:
         rig.connection.close()
         rig.connection.open()
         fresh = rig.connection.require()
-        waiting = fresh.sink.expect_pong(1.0)
+        waiting = fresh.send_ping(1.0)
         answered: list[object] = []
         waiter = threading.Thread(
-            target=lambda: answered.append(fresh.sink.await_reply(waiting, 3.0))
+            target=lambda: answered.append(fresh.await_reply(waiting, 3.0))
         )
         waiter.start()
 
-        assert rig.connection.close_if_current(stale) is False
-        fresh.sink.deliver(PongMessage(ts=1.0))
+        assert rig.connection.close_if_current(stale, cause="hub") is False
+        fresh.deliver(PongMessage(ts=1.0))
         waiter.join(3.0)
 
         assert answered == [PongMessage(ts=1.0)]
@@ -478,16 +486,16 @@ class TestAStaleReportCannotTouchTheReplacement:
         redialer = threading.Thread(target=redial)
         real_mark_closed = DialGeneration.mark_closed
 
-        def paused_mark_closed(generation: DialGeneration) -> None:
+        def paused_mark_closed(generation: DialGeneration, cause: RetireCause) -> None:
             if generation is old:
                 redialer.start()
                 assert redial_started.wait(3.0)
                 assert not redial_done.wait(0.3), "the redial ran between check and act"
-            real_mark_closed(generation)
+            real_mark_closed(generation, cause)
 
         monkeypatch.setattr(DialGeneration, "mark_closed", paused_mark_closed)
         try:
-            assert connection.close_if_current(old) is True
+            assert connection.close_if_current(old, cause="hub") is True
             redialer.join(3.0)
 
             assert redial_done.is_set()
@@ -513,6 +521,57 @@ class TestAFailedThreadStart:
         assert not rig.connection.has_reader
         assert not rig.listener.started
         assert rig.connection.require().claim_reader()  # the slot is free again
+
+
+class TestTheRunIsPublishedBeforeTheThreadCanUseIt:
+    def test_a_route_that_fires_as_the_thread_starts_knows_it_is_the_listener(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[bool] = []
+        real_start = threading.Thread.start
+
+        def start_then_let_it_run(thread: threading.Thread) -> None:
+            real_start(thread)
+            time.sleep(0.3)  # the reader runs before ``start`` returns to its caller
+
+        holder: list[_Rig] = []
+        made = _Rig(lambda _g, _m: seen.append(holder[0].listener.is_current))
+        holder.append(made)
+        try:
+            made.display.peer.send_raw(_pong(1.0))
+            monkeypatch.setattr(threading.Thread, "start", start_then_let_it_run)
+
+            made.listener.start()
+
+            assert until(lambda: bool(seen))
+            assert seen == [True], "the listener thread did not know itself"
+        finally:
+            monkeypatch.undo()
+            made.close()
+
+    def test_a_stop_while_the_thread_is_starting_finds_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_start = threading.Thread.start
+        holder: list[_Rig] = []
+        stopped: list[bool] = []
+
+        def start_then_stop(thread: threading.Thread) -> None:
+            real_start(thread)
+            holder[0].listener.stop()  # arrives inside the start window
+            stopped.append(not holder[0].connection.is_open)
+
+        made = _Rig()
+        holder.append(made)
+        try:
+            monkeypatch.setattr(threading.Thread, "start", start_then_stop)
+
+            made.listener.start()
+
+            assert stopped == [True], "stop() did not see the run and retire its dial"
+        finally:
+            monkeypatch.undo()
+            made.close()
 
 
 class TestForeignMessages:
@@ -781,16 +840,41 @@ class TestABornClaimedDialReplacedInTheGap:
         connection = DisplayConnection(display, 1.0)
         listener = ListenerThread(connection, lambda _g, _m: None)
         try:
-            born = connection.open(listening=True)
+            born = connection.open_listening()
             assert born is not None
             connection.close()  # retired in the gap ...
             connection.open()  # ... and replaced by a dial with no reader
 
             with pytest.raises(ConnectionClosedError):
-                listener.start(born)
+                listener.start_on(born)
 
             assert not listener.alive
             assert not connection.has_reader
         finally:
             connection.close()
             display.close()
+
+
+class TestTheReaderLoopStopsOnItsDialsRetirement:
+    """The loop ends on ``generation.is_closed``, not only on its stopping flag."""
+
+    def test_a_reader_started_on_a_retired_dial_reads_and_routes_nothing(
+        self, rig: _Rig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        generation = rig.connection.require()
+        reads: list[float] = []
+
+        def spy(self: DialGeneration, timeout: float) -> bytes | None:
+            reads.append(timeout)
+            msg = "read after the retirement"
+            raise ConnectionClosedError(msg)
+
+        monkeypatch.setattr(DialGeneration, "poll_chunk", spy)
+        generation.mark_closed("hub")  # retired; its stopping flag was never set
+        rig.display.peer.send_raw(_pong(1.0))
+        reader = DialReader(rig.connection, generation, rig._record, threading.Event())
+
+        reader.run()
+
+        assert reads == [], "the loop read a dial that was already retired"
+        assert rig.routed == []

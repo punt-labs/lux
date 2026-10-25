@@ -1,10 +1,4 @@
-"""``ClientRegistry`` — reconnect listener restart and the DES-068 connect hook.
-
-The original ``with_reconnect`` reconnected the socket but never
-restarted the background listener. Push-mode callers (the fallback handler,
-``poll_event`` blocked on ``_event_queue``) silently stopped receiving frames
-after the first ``OSError`` recovered by the registry — the socket was healthy,
-the listener thread was dead.
+"""``ClientRegistry`` — the one connect, and the DES-068 connect hook.
 
 ``_connect_and_reconcile`` is the one choke point every fresh low-level
 connect passes through (DES-068): it sends the manifest and marks the
@@ -15,6 +9,7 @@ gets repainted, not just told.
 
 from __future__ import annotations
 
+import inspect
 import threading
 import time
 from typing import Self
@@ -58,11 +53,6 @@ class _FakeClient:
         return self
 
     @property
-    def requests(self) -> _FakeClient:
-        """The outbound port: this fake is its own."""
-        return self
-
-    @property
     def events(self) -> _FakeClient:
         """The push port: this fake is its own."""
         return self
@@ -77,10 +67,13 @@ class _FakeClient:
         self.close_calls += 1
         self._connected = False
 
-    def start_listener(self) -> None:
-        self.start_listener_calls += 1
+    @property
+    def desk(self) -> _FakeClient:
+        """The request desk: this fake is its own."""
+        return self
 
-    def send_manifest(self, scene_ids: tuple[str, ...]) -> None:
+    def declare(self, scene_ids: tuple[str, ...]) -> None:
+        """Write the manifest; it fails once if told to."""
         if self._fail_send_manifest_once:
             self._fail_send_manifest_once = False
             err = "simulated manifest send failure"
@@ -120,84 +113,8 @@ class _FakeMarker:
 
 
 def _install_client(registry: ClientRegistry, fake: _FakeClient) -> None:
-    """Plant ``fake`` into ``registry`` so ``with_reconnect`` finds it."""
+    """Plant ``fake`` into ``registry`` as the link its ``get`` connects."""
     registry._client = fake  # type: ignore[assignment]  # test-only duck type
-
-
-def test_with_reconnect_restarts_listener_after_oserror() -> None:
-    """A successful reconnect must restart the background listener."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
-
-    calls = 0
-
-    def fn() -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise BrokenPipeError("simulated socket loss")
-        return "ok"
-
-    result = registry.with_reconnect(fn)
-
-    assert result == "ok"
-    assert fake.close_calls == 1
-    assert fake.connect_calls == 1
-    assert fake.start_listener_calls == 1
-
-
-def test_with_reconnect_no_listener_restart_on_happy_path() -> None:
-    """If ``fn`` succeeds, no reconnect cycle runs."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
-
-    result = registry.with_reconnect(lambda: "ok")
-
-    assert result == "ok"
-    assert fake.close_calls == 0
-    assert fake.connect_calls == 0
-    assert fake.start_listener_calls == 0
-
-
-def test_with_reconnect_wraps_reconnect_failure() -> None:
-    """A failed reconnect raises ``RuntimeError`` chained from the original."""
-    registry = ClientRegistry()
-
-    class _UnreconnectableClient(_FakeClient):
-        def connect(self, *, listen: bool = False) -> None:
-            raise OSError("reconnect refused")
-
-    fake = _UnreconnectableClient()
-    _install_client(registry, fake)
-
-    def fn() -> str:
-        raise ConnectionResetError("simulated socket loss")
-
-    with pytest.raises(RuntimeError, match="Reconnect failed"):
-        registry.with_reconnect(fn)
-    assert fake.start_listener_calls == 0
-
-
-def test_with_reconnect_sends_the_manifest_on_the_fresh_connect() -> None:
-    """The one choke point fires on ``with_reconnect``'s retry connect too."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
-
-    calls = 0
-
-    def fn() -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise BrokenPipeError("simulated socket loss")
-        return "ok"
-
-    registry.with_reconnect(fn)
-
-    assert fake.manifests_sent == [()]  # the singleton HubDisplay starts empty
 
 
 class TestConnectAndReconcile:
@@ -536,3 +453,19 @@ def test_request_stop_is_a_no_op_for_a_registry_with_no_parked_waiter() -> None:
     registry = ClientRegistry()
     registry.request_stop()
     assert registry.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
+
+
+class TestDropHasNoFormWithoutADial:
+    """A drop names the dial that failed; none drops "whatever is current"."""
+
+    def test_the_dial_is_a_required_parameter(self) -> None:
+        params = inspect.signature(ClientRegistry.drop).parameters
+
+        assert list(params) == ["self", "dial"]
+        assert params["dial"].default is inspect.Parameter.empty
+
+    def test_a_drop_naming_nothing_is_refused(self) -> None:
+        registry = ClientRegistry()
+
+        with pytest.raises(TypeError):
+            registry.drop()  # type: ignore[call-arg]  # the refusal under test

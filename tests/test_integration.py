@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import writer_of
 
 NUM_RAPID_SCENES = 100
 
@@ -178,13 +179,13 @@ class TestRapidSceneUpdates:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
-                    ack = client.requests.show(
+                    ack = writer_of(client).show(
                         scene_id,
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -226,11 +227,11 @@ class TestRapidSceneUpdates:
 
         try:
             t0 = time.monotonic()
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
-                    ack = client.requests.show(
+                    ack = writer_of(client).show(
                         f"s{seq}",
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -278,7 +279,9 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
             assert client.is_connected
             client.close()
@@ -312,10 +315,10 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
+                client.connect(listen=True)
                 client_connected.set()
                 with pytest.raises(TimeoutError):
                     client.events.poll_event(timeout=2.0)
@@ -358,10 +361,10 @@ class TestReconnection:
             t1.start()
             assert ready1.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
-                ack = client1.requests.show(
+                ack = writer_of(client1).show(
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
                 )
@@ -393,10 +396,10 @@ class TestReconnection:
             t2.start()
             assert ready2.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
-                ack = client2.requests.show(
+                ack = writer_of(client2).show(
                     "s2",
                     elements=[TextElement(id="t1", content="second")],
                 )

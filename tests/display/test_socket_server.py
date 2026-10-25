@@ -19,14 +19,16 @@ from punt_lux.display.socket_server import SocketListener
 from punt_lux.domain.identity import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
+    AckMessage,
+    PongMessage,
     ReadyMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
     recv_message,
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import (
-    CLIENT_VOCABULARY,
     DISPLAY_VOCABULARY,
 )
 
@@ -369,8 +371,14 @@ class TestHubIdentity:
             server.shutdown()
 
 
+def _event() -> RemoteEventHandlerInvocation:
+    return RemoteEventHandlerInvocation(
+        element_id="b", action="click", scene_id="s1", ts=1.0
+    )
+
+
 class TestSendToClient:
-    """SocketListener.send_to_client delivers messages over the wire."""
+    """SocketListener.send_to_client delivers interactions over the wire."""
 
     def test_send_to_client(self) -> None:
         tmpdir = _make_tmpdir()
@@ -386,19 +394,13 @@ class TestSendToClient:
                 ready = recv_message(client, DISPLAY_VOCABULARY, timeout=2.0)
                 assert isinstance(ready, ReadyMessage)
 
-                # Now send a custom message
+                # Now send an interaction
                 conn = server.clients[0]
-                scene = SceneMessage(
-                    id="s2",
-                    elements=[TextElement(id="t2", content="world")],
-                    frame_id="s2",
-                )
-                server.send_to_client(conn, scene)
+                event = _event()
+                server.sender.send_to_client(conn, event)
 
-                msg = recv_message(client, CLIENT_VOCABULARY, timeout=2.0)
-                assert isinstance(msg, SceneMessage)
-                assert msg.id == "s2"
-                assert len(msg.elements) == 1
+                msg = recv_message(client, DISPLAY_VOCABULARY, timeout=2.0)
+                assert msg == event
             finally:
                 client.close()
         finally:
@@ -504,7 +506,7 @@ class TestSendClientLifecycle:
         client = _FakeClient(fd=4321, eagain_before=3)
         sock = _inject_client(server, client)
 
-        delivered = server.send_to_client(sock, ReadyMessage())
+        delivered = server.sender.send_to_client(sock, _event())
 
         assert delivered is True
         assert client.sent  # the message bytes landed after the would-blocks
@@ -517,7 +519,7 @@ class TestSendClientLifecycle:
         client = _FakeClient(fd=4322, fail_with=BrokenPipeError(errno.EPIPE, "gone"))
         sock = _inject_client(server, client)
 
-        delivered = server.send_to_client(sock, ReadyMessage())
+        delivered = server.sender.send_to_client(sock, _event())
 
         assert delivered is False
         assert client.closed
@@ -537,7 +539,7 @@ class TestSendClientLifecycle:
         client = _FakeClient(fd=4323, eagain_before=1_000_000)
         sock = _inject_client(server, client)
 
-        delivered = server.send_to_client(sock, ReadyMessage())
+        delivered = server.sender.send_to_client(sock, _event())
 
         assert delivered is False  # unsent this frame
         assert not client.closed  # ...but the alive peer is kept
@@ -556,7 +558,7 @@ class TestSendClientLifecycle:
         client = _FakeClient(fd=4324, fail_with=TornStreamError("stream torn"))
         sock = _inject_client(server, client)
 
-        delivered = server.send_to_client(sock, ReadyMessage())
+        delivered = server.sender.send_to_client(sock, _event())
 
         assert delivered is False
         assert client.closed  # the torn stream is severed
@@ -591,9 +593,9 @@ class TestFrameDeadline:
         client = _FakeClient(fd=5001, eagain_before=1_000_000)
         sock = _inject_client(server, client)
 
-        server.set_frame_deadline(time.monotonic() - 1.0)  # already past
+        server.sender.set_frame_deadline(time.monotonic() - 1.0)  # already past
         start = time.monotonic()
-        delivered = server.send_to_client(sock, ReadyMessage())
+        delivered = server.sender.send_to_client(sock, _event())
         elapsed = time.monotonic() - start
 
         assert delivered is False  # deferred, not delivered
@@ -606,14 +608,14 @@ class TestFrameDeadline:
     def test_clear_frame_deadline_restores_one_off_budget(self) -> None:
         """After ``clear_frame_deadline`` a deadline-less send takes the 1s one-off."""
         server = _make_server()
-        server.set_frame_deadline(time.monotonic() - 1.0)
-        server.clear_frame_deadline()
+        server.sender.set_frame_deadline(time.monotonic() - 1.0)
+        server.sender.clear_frame_deadline()
         client = _FakeClient(fd=5002)
         sock = _inject_client(server, client)
 
         # No wait needed: the fake accepts on the first send. Just prove the send
         # succeeds — proving the deadline reset by absence of the immediate defer.
-        assert server.send_to_client(sock, ReadyMessage()) is True
+        assert server.sender.send_to_client(sock, _event()) is True
 
 
 class _BindRaises:
@@ -1073,3 +1075,45 @@ class TestWantWriteCleanup:
         server._registry.register_connection(781, reused_sock)
 
         server.poll_clients()  # must not raise KeyError on the stale fd
+
+
+class TestAReplyHasOneDoor:
+    """A reply leaves only through ``reply_to_client``; no other door lets one out."""
+
+    @pytest.mark.parametrize(
+        "reply", [AckMessage(scene_id="s"), PongMessage(ts=1.0), ReadyMessage()]
+    )
+    def test_send_to_client_refuses_a_reply_and_writes_nothing(
+        self, reply: Message
+    ) -> None:
+        server = _make_server()
+        client = _FakeClient(fd=7001)
+        sock = _inject_client(server, client)
+
+        with pytest.raises(TypeError, match="reply_to_client"):
+            server.sender.send_to_client(sock, reply)
+
+        assert not client.sent
+        assert sock in server.clients
+
+    def test_reply_to_client_sends_a_reply(self) -> None:
+        server = _make_server()
+        client = _FakeClient(fd=7002)
+        sock = _inject_client(server, client)
+
+        server.sender.reply_to_client(sock, PongMessage(ts=1.0))
+
+        assert client.sent
+
+    def test_a_reply_that_missed_its_deadline_severs_the_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        server = _make_server()
+        client = _FakeClient(fd=7003, eagain_before=1_000_000)
+        sock = _inject_client(server, client)
+
+        server.sender.reply_to_client(sock, PongMessage(ts=1.0))
+
+        assert sock not in server.clients
+        assert client.closed

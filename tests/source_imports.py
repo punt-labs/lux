@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def module_name(relpath: str) -> str:
@@ -35,3 +39,62 @@ def resolved_imports(source: str, module: str, *, is_package: bool = False) -> s
             bound.add(origin)
             bound.update(f"{origin}.{alias.name}" for alias in node.names)
     return bound
+
+
+def module_file(src: Path, dotted: str) -> Path | None:
+    """The source file ``dotted`` is imported from under ``src``, or ``None``."""
+    base = src.joinpath(*dotted.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def import_closure(
+    src: Path, roots: Iterable[str], *, within: str
+) -> dict[str, frozenset[str]]:
+    """The modules under ``within`` reached from ``roots``, each with what it imports.
+
+    Every import counts, deferred or annotation-only: a module that names another
+    in an import depends on it. Only edges to modules that exist under ``src`` and
+    sit under ``within`` are followed and kept.
+    """
+    closure: dict[str, frozenset[str]] = {}
+    pending = list(roots)
+    while pending:
+        dotted = pending.pop()
+        if dotted in closure:
+            continue
+        path = module_file(src, dotted)
+        if path is None:
+            continue
+        bound = resolved_imports(
+            path.read_text(encoding="utf-8"),
+            dotted,
+            is_package=path.name == "__init__.py",
+        )
+        edges = frozenset(
+            name
+            for name in bound
+            if name != dotted
+            and (name == within or name.startswith(f"{within}."))
+            and module_file(src, name) is not None
+        )
+        closure[dotted] = edges
+        pending.extend(edges)
+    return closure
+
+
+def modules_calling(src: Path, *, within: str, attr: str) -> frozenset[str]:
+    """The modules under ``within`` that call ``<expr>.<attr>(...)`` anywhere."""
+    found: set[str] = set()
+    for path in sorted(src.joinpath(*within.split(".")).rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == attr
+            for node in ast.walk(tree)
+        ):
+            found.add(module_name(path.relative_to(src).as_posix()))
+    return frozenset(found)

@@ -19,7 +19,9 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
+from tests.link_access import generation_of, writer_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -94,16 +96,16 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=5.0
             ) as client:
                 assert client.is_connected
-                assert client.ready_message is not None
+                assert generation_of(client).ready is not None
 
                 # Send scene with image + 2 buttons
                 from punt_lux.protocol import ImageElement
 
-                ack = client.requests.show(
+                ack = writer_of(client).show(
                     "e2e-scene-1",
                     elements=[
                         ImageElement(
@@ -116,13 +118,15 @@ class TestWalkingSkeleton:
                         ButtonElement(id="btn-ok", label="OK", action="ok"),
                         ButtonElement(id="btn-cancel", label="Cancel", action="cancel"),
                     ],
-                    title="E2E Test",
+                    presentation=ScenePresentation(
+                        frame_id="e2e-scene-1", title="E2E Test"
+                    ),
                 )
                 assert ack is not None
                 assert ack.scene_id == "e2e-scene-1"
 
                 # Verify bidirectional communication with ping
-                pong = client.requests.ping()
+                pong = client.desk.asks().ping()
                 assert pong is not None
                 assert pong.ts is not None
         finally:
@@ -150,7 +154,9 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=5.0
+            )
             events: list[RemoteEventHandlerInvocation] = []
             done = threading.Event()
 
@@ -162,8 +168,8 @@ class TestWalkingSkeleton:
             client.events.set_fallback_handler(_on_click)
             try:
                 client.connect()
-                client.start_listener()
-                ack = client.requests.show(
+                client.connect(listen=True)
+                ack = writer_of(client).show(
                     "e2e-click-test",
                     elements=[
                         TextElement(id="t1", content="Click test"),
