@@ -178,3 +178,5 @@
 {"ts":"2026-10-25T17:08:45Z","commit":"da29eee5","files_scored":774,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{},"removed":[]}
 {"ts":"2026-10-25T17:09:08Z","commit":"da29eee5","files_scored":1,"files_improved":0,"files_regressed":1,"verdict":"rebaseline-files","reason":"Round-4 r2 (gvr M1): the write seam, which indexes scene roots, asks NestingCap whether a patch batch's projected scene exceeds the cap (one efferent edge). Within cap. Leader bless under DES-096/097.","deltas":{"src/punt_lux/domain/hub/write_seam.py":{"efferent_coupling":[3.0,4.0],"public_names":[1.0,1.0],"circular_imports":[0.0,0.0],"max_lcom":[0.6,0.533],"avg_lcom":[0.6,0.533]}}}
 {"ts":"2026-10-25T17:09:19Z","commit":"da29eee5","files_scored":774,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{},"removed":[]}
+{"ts":"2026-10-25T17:26:51Z","commit":"655656c4","files_scored":774,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{},"removed":[]}
+{"ts":"2026-10-25T17:27:35Z","commit":"655656c4","files_scored":774,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{},"removed":[]}
