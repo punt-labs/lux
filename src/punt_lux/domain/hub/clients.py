@@ -86,7 +86,7 @@ class ClientRegistry:
     def _ensure_client(self) -> DisplayLink:
         """Create the lazy client on first use; its own service unit supervises."""
         if self._client is None:
-            self._client = DisplayLink(
+            self._client = DisplayLink.to_socket(
                 name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
             )
         return self._client

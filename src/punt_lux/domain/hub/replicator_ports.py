@@ -69,6 +69,11 @@ class DisplaySender(ScenePusher, Protocol):
     menu bar and ``set_callback_menus`` for the ``Clients`` menu.
     """
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a send goes out on: what a failed send names to drop."""
+        ...
+
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""
 
@@ -96,11 +101,6 @@ class SenderPort(Protocol):
     @property
     def requests(self) -> DisplaySender:
         """The link's outbound port."""
-        ...
-
-    @property
-    def dial(self) -> DialGeneration:
-        """The current dial: what a failed send names to drop."""
         ...
 
 

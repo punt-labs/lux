@@ -106,7 +106,7 @@ class DisplayListener:
             self._connection.require()
             err = (
                 "poll_event requires an active listener — "
-                "call start_listener() after connect()"
+                "connect with listen=True first"
             )
             raise RuntimeError(err)
         t = self._budget if timeout is None else timeout

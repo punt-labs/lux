@@ -148,9 +148,9 @@ class BatchSender:
 
     def _sender(self) -> DisplaySender:
         """The display's send port, noting the dial a failure of it would name."""
-        link = self._clients.get()
-        self._dial = link.dial
-        return link.requests
+        port = self._clients.get().requests
+        self._dial = port.dial
+        return port
 
     def _send_scene(self, scene_id: SceneId) -> bool:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).

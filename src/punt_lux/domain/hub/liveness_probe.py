@@ -48,13 +48,13 @@ class LivenessProbe:
     def run(self) -> Probe:
         """Ping once; the caller logs the not-connected transition, not each probe."""
         try:
-            link = self._clients.get()
-            dial = link.dial
+            port = self._clients.get().requests
+            dial = port.dial
         except (OSError, DisplayNotConnectedError) as exc:
             logger.debug("liveness probe failed: %s", exc)
             return Probe(alive=False, dial=None)
         try:
-            alive = link.requests.ping(self._timeout) is not None
+            alive = port.ping(self._timeout) is not None
         except DisplayBusyError:
             alive = True
         except (OSError, DisplayNotConnectedError) as exc:

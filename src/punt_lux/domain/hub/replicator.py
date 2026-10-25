@@ -30,9 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.batch_sender import BatchSender
-from punt_lux.domain.hub.connection_closed import HubRetiredError
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
@@ -152,11 +150,9 @@ class HubReplicator:
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
         # A second, independently-tuned pacer for the never-connected case.
-        self._disconnected_retry = DisconnectedRetry(
-            BackoffConfig(
-                base_delay=_DISCONNECTED_BASE_DELAY_SECONDS,
-                max_delay=_DISCONNECTED_MAX_DELAY_SECONDS,
-            )
+        self._disconnected_retry = DisconnectedRetry.paced(
+            base_delay=_DISCONNECTED_BASE_DELAY_SECONDS,
+            max_delay=_DISCONNECTED_MAX_DELAY_SECONDS,
         )
         return self
 
@@ -279,8 +275,8 @@ class HubReplicator:
         it paces the disconnected backoff, not the wedged one -- every OTHER
         ``RuntimeError`` (a mid-send teardown, a listener-thread guard) is NOT
         this condition and propagates to the caller's outer guard instead.
-        ``BlockingIOError`` (send timeout) is a wedged display, reaped and
-        respawned; ``OSError`` (dead peer) only reconnects -- either way the
+        ``OSError`` is healed by ``SendRecovery`` (a wedged display reaped, a
+        dead peer reconnected, a Hub-retired dial redialed without blame); a
         death is attributed to the sender's suspect, set immediately before each
         send that can raise."""
         since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
@@ -291,28 +287,12 @@ class HubReplicator:
             if not batch.shutting:
                 self._disconnected_retry.wait(self._clients, since_gen=since_gen)
             return _CycleOutcome(outcome="disconnected")
-        except BlockingIOError as exc:
-            self._recovery.recover(
-                batch,
-                wedged=True,
-                suspect=self._sender.suspect,
-                dial=self._sender.dial,
-                render_error=str(exc),
-            )
-            return _CycleOutcome(outcome="recovered")
-        except HubRetiredError:
-            # The Hub's own policy ended the dial under this send (a query that
-            # timed out, a reply out of order): the display did not die, so no
-            # scene is charged for it. Redial and repaint.
-            self._recovery.reconnect(batch)
-            return _CycleOutcome(outcome="recovered")
         except OSError as exc:
             self._recovery.recover(
                 batch,
-                wedged=False,
+                failure=exc,
                 suspect=self._sender.suspect,
                 dial=self._sender.dial,
-                render_error=str(exc),
             )
             return _CycleOutcome(outcome="recovered")
         return _CycleOutcome(outcome="clean", emptied=emptied)

@@ -132,7 +132,9 @@ class TestCheckOnce:
         clients = _FakeClients(_FakeConnection([None, None, _pong()]))
         DisplayLiveness(clients).check_once()
         assert clients.drop_calls == 1  # the dead connection was dropped
-        assert clients.dropped == [clients._connection.dial]  # the dial that was pinged
+        assert clients.dropped == [
+            clients._connection.requests.dial
+        ]  # the dial that was pinged
         assert clients.get_calls == 3  # probe, re-probe, then reconnect
 
     def test_dead_socket_ping_is_caught_not_escaped(self) -> None:

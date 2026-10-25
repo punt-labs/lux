@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.hub.backoff_config import BackoffConfig
+from punt_lux.domain.hub.connection_closed import HubRetiredError
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
@@ -164,7 +165,9 @@ def test_a_wedged_display_is_reaped_then_respawned_then_remarked(
 ) -> None:
     monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
     recovery, provider, lifecycle, signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert lifecycle.calls == ["reap"]  # kill; the service unit respawns it
     assert provider.drops == 1
     assert signal.added == [_SCENE]  # the failed batch's own scenes re-marked
@@ -172,7 +175,9 @@ def test_a_wedged_display_is_reaped_then_respawned_then_remarked(
 
 def test_a_dead_peer_reconnects_without_reaping() -> None:
     recovery, provider, lifecycle, signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert lifecycle.calls == []  # nothing killed
     assert provider.drops == 1
     assert signal.added == [_SCENE]
@@ -186,7 +191,9 @@ def test_recover_calls_get_right_after_drop() -> None:
     manifest and marks every live scene dirty on a fresh connect.
     """
     recovery, provider, _lifecycle, _signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert provider.calls == ["drop", "get"]
 
 
@@ -199,7 +206,9 @@ def test_recovery_re_marks_the_menu_even_for_a_scene_only_batch(
     # the current bar (or a harmless blank if none is set).
     monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
     recovery, _provider, _lifecycle, signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert signal.menu_marks == 1  # the menu is re-marked anyway
     assert signal.added == [_SCENE]
 
@@ -211,7 +220,10 @@ def test_a_shutdown_flush_heals_nothing() -> None:
     # the caller cannot bypass the policy.
     recovery, provider, lifecycle, signal, attribution = _recovery()
     recovery.recover(
-        _SHUTTING_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL
+        _SHUTTING_BATCH,
+        failure=BlockingIOError(),
+        suspect=frozenset({_SCENE}),
+        dial=_DIAL,
     )
     assert lifecycle.calls == []
     assert provider.drops == 0
@@ -246,8 +258,12 @@ def test_recover_attributes_the_death_to_the_given_suspect_set() -> None:
     # isolation-probed scene), not the batch's own scene set unconditionally.
     other = SceneId("other")
     recovery, _provider, _lifecycle, _signal, attribution = _recovery()
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({other}), dial=_DIAL)
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({other}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({other}), dial=_DIAL
+    )
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({other}), dial=_DIAL
+    )
     assert attribution.is_quarantined(other)
     assert not attribution.is_quarantined(_SCENE)
 
@@ -256,8 +272,12 @@ def test_a_wedged_recovery_paces_the_respawn(monkeypatch: pytest.MonkeyPatch) ->
     slept: list[float] = []
     monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", slept.append)
     recovery, _provider, _lifecycle, _signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert slept == [1.0, 2.0]  # paced, not a flat delay
 
 
@@ -270,21 +290,29 @@ def test_reset_backoff_if_stable_is_a_no_op_when_time_never_advances(
     slept: list[float] = []
     monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", slept.append)
     recovery, _provider, _lifecycle, _signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     recovery.reset_backoff_if_stable()
-    recovery.recover(_BATCH, wedged=True, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=BlockingIOError(), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert slept == [1.0, 2.0]
 
 
 def test_recovery_drops_the_dial_the_failed_send_went_out_on() -> None:
     recovery, provider, _lifecycle, _signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({_SCENE}), dial=_DIAL)
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({_SCENE}), dial=_DIAL
+    )
     assert provider.dropped == [_DIAL]  # that dial, never "whatever is current"
 
 
 def test_recovery_with_no_dial_drops_nothing_but_still_reconnects() -> None:
     recovery, provider, _lifecycle, signal, _attribution = _recovery()
-    recovery.recover(_BATCH, wedged=False, suspect=frozenset({_SCENE}), dial=None)
+    recovery.recover(
+        _BATCH, failure=OSError("reset"), suspect=frozenset({_SCENE}), dial=None
+    )
     assert provider.dropped == []
     assert provider.gets == 1
     assert signal.added == [_SCENE]
@@ -294,8 +322,18 @@ def test_a_dial_the_hub_retired_is_reconnected_without_blaming_a_scene() -> None
     # The Hub's own policy ended the dial (a query timeout, a reply out of order):
     # the display did not die, so no strike, no reap, no drop of a dial already gone.
     recovery, provider, lifecycle, signal, attribution = _recovery()
-    recovery.reconnect(_BATCH)
-    recovery.reconnect(_BATCH)
+    recovery.recover(
+        _BATCH,
+        failure=HubRetiredError("retired"),
+        suspect=frozenset({_SCENE}),
+        dial=_DIAL,
+    )
+    recovery.recover(
+        _BATCH,
+        failure=HubRetiredError("retired"),
+        suspect=frozenset({_SCENE}),
+        dial=_DIAL,
+    )
     assert not attribution.is_quarantined(_SCENE)
     assert lifecycle.calls == []
     assert provider.dropped == []
@@ -306,6 +344,11 @@ def test_a_dial_the_hub_retired_is_reconnected_without_blaming_a_scene() -> None
 
 def test_a_shutdown_flush_does_not_reconnect_a_retired_dial() -> None:
     recovery, provider, _lifecycle, signal, _attribution = _recovery()
-    recovery.reconnect(_SHUTTING_BATCH)
+    recovery.recover(
+        _SHUTTING_BATCH,
+        failure=HubRetiredError("retired"),
+        suspect=frozenset({_SCENE}),
+        dial=_DIAL,
+    )
     assert provider.gets == 0
     assert signal.added == []

@@ -189,7 +189,7 @@ class TestCrossHostConnect:
             link.connect()
             assert link.is_connected
             server.close()
-            assert isinstance(link.ready_message, ReadyMessage)
+            assert isinstance(link.requests.dial.ready, ReadyMessage)
             assert [type(m).__name__ for m in server.received] == ["ConnectMessage"]
         finally:
             link.close()

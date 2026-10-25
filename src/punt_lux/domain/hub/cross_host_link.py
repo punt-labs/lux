@@ -52,7 +52,7 @@ class CrossHostEndpoint:
         ``AF_UNIX`` leg; only the injected dialer differs (``system.tex``
         §"Connect, cross-host").
         """
-        return DisplayLink.over(
+        return DisplayLink(
             CrossHostConnector(
                 host=self._host,
                 port=self._port,

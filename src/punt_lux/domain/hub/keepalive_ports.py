@@ -23,6 +23,11 @@ class KeepaliveConnection(Protocol):
         """
         ...
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial a ping goes out on: what a failed probe names to drop."""
+        ...
+
 
 @runtime_checkable
 class KeepaliveLink(Protocol):
@@ -31,11 +36,6 @@ class KeepaliveLink(Protocol):
     @property
     def requests(self) -> KeepaliveConnection:
         """The link's outbound port."""
-        ...
-
-    @property
-    def dial(self) -> DialGeneration:
-        """The current dial: what a failed probe names when it asks for the drop."""
         ...
 
 

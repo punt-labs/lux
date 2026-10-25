@@ -57,10 +57,10 @@ def _scene(scene_id: str) -> SceneMessage:
 def _linked(
     display: Display, *, listening: bool = True, recv_timeout: float = 3.0
 ) -> DisplayLink:
-    link = DisplayLink.over(display, recv_timeout=recv_timeout)
+    link = DisplayLink(display, recv_timeout=recv_timeout)
     link.connect()
     if listening:
-        link.start_listener()
+        link.connect(listen=True)
     return link
 
 
@@ -206,7 +206,7 @@ class TestAQueryThatTimesOutRetiresItsDial:
             display.peers[0].send(QueryResponse(method="m", result={"late": True}))
 
         link.connect()
-        link.start_listener()
+        link.connect(listen=True)
         again = Call(lambda: link.requests.query("m", timeout=3.0))
         display.peers[1].read(1)
         display.peers[1].send(QueryResponse(method="m", result={"own": True}))
@@ -291,7 +291,7 @@ class TestARedialBetweenSendAndWait:
 
         link.close()
         link.connect()
-        link.start_listener()
+        link.connect(listen=True)
         display.peers[1].send(PongMessage(ts=sent.ts))
 
         assert call.wait()
@@ -327,7 +327,7 @@ class TestAWriteThatRaises:
         assert not link.is_connected
 
         link.connect()
-        link.start_listener()
+        link.connect(listen=True)
         shown = Call(lambda: link.requests.show("next", []))
         display.peers[1].read(1)
         display.peers[1].send(AckMessage(scene_id="next"))
@@ -343,7 +343,7 @@ class TestAStoppedListenerEndsItsDial:
     ) -> None:
         link = _linked(display)
 
-        link.stop_listener()
+        link.close()
 
         assert not link.is_connected
 
@@ -354,7 +354,7 @@ class TestAStoppedListenerEndsItsDial:
         call = Call(lambda: link.requests.ping(timeout=3.0))
         display.peer.read(1)
 
-        link.stop_listener()
+        link.close()
 
         assert call.wait(1.0)
         assert isinstance(call.error, ConnectionClosedError)
@@ -510,7 +510,7 @@ class TestOneReaderPerDial:
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
-        starting = Call(link.start_listener)
+        starting = Call(lambda: link.connect(listen=True))
         assert not starting.wait(0.3), (
             "the inline read holds the dial's one reader slot"
         )
@@ -518,7 +518,7 @@ class TestOneReaderPerDial:
 
         assert pinging.wait()
         assert starting.wait()
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         assert display.sockets[0].reader_overlaps == 0
         link.close()
 
@@ -575,7 +575,7 @@ class TestAnInlineReadRoutesWhatTheListenerWould:
         )
 
         assert pinging.wait()
-        link.start_listener()
+        link.connect(listen=True)
         assert link.events.poll_event(1.0).topic == "t"
         link.close()
 
@@ -655,7 +655,7 @@ class TestEveryRetirementReachesTheRegistry:
     @staticmethod
     def _registry(display: Display) -> tuple[ClientRegistry, DisplayLink]:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
         registry.get()
         return registry, link
@@ -674,7 +674,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
     def test_a_query_that_times_out(self, display: Display) -> None:
@@ -683,7 +683,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
     def test_a_torn_write(self, display: Display) -> None:
@@ -694,7 +694,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
 
@@ -704,7 +704,7 @@ class TestDropNamesTheDialThatFailed:
     @staticmethod
     def _registry(display: Display) -> tuple[ClientRegistry, DisplayLink]:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
         registry.get()
         return registry, link
@@ -713,7 +713,7 @@ class TestDropNamesTheDialThatFailed:
         self, display: Display
     ) -> None:
         registry, link = self._registry(display)
-        failed = link.dial
+        failed = link.requests.dial
         link._connection.close()  # another thread retired it and redialed
         registry.get()
 
@@ -726,7 +726,7 @@ class TestDropNamesTheDialThatFailed:
     def test_a_drop_for_the_current_dial_closes_it(self, display: Display) -> None:
         registry, link = self._registry(display)
 
-        registry.drop(link.dial)
+        registry.drop(link.requests.dial)
 
         assert not link.is_connected
         link.close()
@@ -734,9 +734,9 @@ class TestDropNamesTheDialThatFailed:
     def test_a_drop_in_a_registry_with_no_link_touches_no_other_link(self) -> None:
         registry = ClientRegistry()
         display = Display()
-        link = DisplayLink.over(display)
+        link = DisplayLink(display)
         link.connect()
-        generation = link.dial
+        generation = link.requests.dial
 
         registry.drop(generation)  # no client in this registry: nothing to retire
 
@@ -750,7 +750,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.dial
+        dial = link.requests.dial
 
         display.peer.close()
         assert until(lambda: not link.is_connected)
@@ -763,7 +763,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.dial
+        dial = link.requests.dial
 
         assert link.requests.query("m", timeout=0.1) is None
 
@@ -774,7 +774,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.dial
+        dial = link.requests.dial
 
         display.peer.send(AckMessage(scene_id="unsolicited"))
         assert until(lambda: not link.is_connected)
@@ -786,7 +786,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.dial
+        dial = link.requests.dial
 
         link.close()
 
@@ -834,7 +834,7 @@ class TestRegistryLocksAreNotHeldUnderTheModelsLocks:
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
         registry.get()
 
@@ -852,19 +852,19 @@ class TestConnectCoordinatesTheDialAndItsListener:
     def test_connect_with_listen_starts_the_reader_on_the_new_dial(
         self, display: Display
     ) -> None:
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
 
         link.connect(listen=True)
 
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
     def test_connect_alone_starts_no_reader(self, display: Display) -> None:
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
 
         link.connect()
 
-        assert not link.listener_active
+        assert not link.requests.dial.has_reader
         link.close()
 
 
@@ -906,7 +906,7 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
         self, display: Display
     ) -> None:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
         link.connect()  # a dial with no reader, as a library caller leaves it
         generation = link._connection.require()
@@ -934,12 +934,12 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
         self, display: Display
     ) -> None:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
 
         registry.get()
 
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
 
@@ -972,7 +972,7 @@ class TestAFailedListenerStartRetiresItsDial:
     def test_connect_with_listen_retires_the_dial_it_made_when_the_start_fails(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
 
         def refuse(_thread: threading.Thread) -> None:
             raise RuntimeError("can't start new thread")
@@ -987,7 +987,7 @@ class TestAFailedListenerStartRetiresItsDial:
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         registry = ClientRegistry()
-        link = DisplayLink.over(display, recv_timeout=3.0)
+        link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
 
         with monkeypatch.context() as patched:
@@ -1003,7 +1003,7 @@ class TestAFailedListenerStartRetiresItsDial:
         registry.get()
 
         assert display.dials == 2
-        assert link.listener_active
+        assert link.requests.dial.has_reader
         link.close()
 
 

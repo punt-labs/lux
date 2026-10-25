@@ -244,7 +244,7 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 resp = client.requests.query("echo", {"key": "value"})
@@ -276,7 +276,7 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 resp = client.requests.query("error_test")
@@ -335,7 +335,7 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0, recv_timeout=0.3
             ) as client:
                 resp = client.requests.query("anything", timeout=0.3)
@@ -363,10 +363,10 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
+                client.connect(listen=True)
                 resp = client.requests.query("echo", {"data": 42})
                 assert resp is not None
                 assert resp.method == "echo"
@@ -394,7 +394,7 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 # First: send a scene

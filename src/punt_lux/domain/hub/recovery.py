@@ -37,6 +37,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import HubRetiredError
+
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -84,12 +86,11 @@ class SendRecovery:
         self,
         batch: DrainedBatch,
         *,
-        wedged: bool,
+        failure: OSError,
         suspect: frozenset[SceneId],
         dial: DialGeneration | None,
-        render_error: str | None = None,
     ) -> None:
-        """Attribute the death, heal the display, then re-mark the failed batch.
+        """Heal the display after ``failure``, then re-mark the failed batch.
 
         A shutdown flush — the batch's shutting flag — is best-effort: it logs and
         leaves the display as-is rather than reaping or reconnecting, since the
@@ -97,21 +98,25 @@ class SendRecovery:
         purpose, not crashing. Reading the flag from the batch here makes that
         policy unbypassable by the caller.
 
+        A ``failure`` that is a :class:`HubRetiredError` says nothing about the
+        display (the Hub's own policy ended the dial), so nothing is attributed,
+        reaped or dropped: the dial is redialed and the batch repainted. Any other
+        failure is a death: a ``BlockingIOError`` (a send timeout) is a wedged
+        display, killed so its service unit respawns it; any other ``OSError`` is
+        a dead peer, only dropped.
+
         ``suspect`` is whatever the caller determined was in flight when the send
         failed: the whole batch in batching mode, or the one scene being probed in
-        isolation mode (display-crash-quarantine.md Question 1). ``render_error``
-        is the message of the exception that surfaced the death (an OSError /
-        BlockingIOError from the failed send or probe); the attribution passes
-        it into the ``QuarantineRecord`` so an agent whose scene later crosses
-        the threshold sees WHY it was quarantined, not just that it was.
-        Attributing runs before healing so a scene that just reached the
-        threshold is quarantined, and therefore excluded from replication,
-        before the re-mark below.
+        isolation mode (display-crash-quarantine.md Question 1). The attribution
+        records ``failure``'s message in the ``QuarantineRecord`` so an agent whose
+        scene later crosses the threshold sees WHY it was quarantined. Attributing
+        runs before healing so a scene that just reached the threshold is
+        quarantined, and therefore excluded from replication, before the re-mark.
 
         ``dial`` is the dial the failed send went out on (``None`` if none was
         had); only it is dropped, and only if no redial has replaced it.
 
-        ``get()`` right after ``drop()`` is the one DES-068 connect-success hook
+        ``get()`` after the heal is the one DES-068 connect-success hook
         (``ClientRegistry._connect_and_reconcile``): it declares the fresh
         connection's manifest and marks every live scene plus the menu dirty, so
         this class does not enumerate live scenes itself. It only re-queues the
@@ -122,33 +127,21 @@ class SendRecovery:
         if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
             return
-        self._attribution.attribute_death(suspect, render_error=render_error)
-        if wedged:
+        if not isinstance(failure, HubRetiredError):
+            self._heal(failure, suspect, dial)
+        self._clients.get()
+        self._repaint(batch)
+
+    def _heal(
+        self, failure: OSError, suspect: frozenset[SceneId], dial: DialGeneration | None
+    ) -> None:
+        """Attribute the death to ``suspect``, reap a wedged display, drop the dial."""
+        self._attribution.attribute_death(suspect, render_error=str(failure))
+        if isinstance(failure, BlockingIOError):
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
-        self._drop(dial)
-        self._redial(batch)
-
-    def reconnect(self, batch: DrainedBatch) -> None:
-        """Redial and repaint after the Hub itself retired the dial.
-
-        A retire by the Hub's own policy says nothing about the display: nothing
-        is attributed to the batch's scenes, reaped or dropped.
-        """
-        if batch.shutting:
-            logger.warning("replicator shutdown flush failed; display left as-is")
-            return
-        self._redial(batch)
-
-    def _drop(self, dial: DialGeneration | None) -> None:
-        """Drop the dial the failed send used, if one was had."""
         if dial is not None:
             self._clients.drop(dial)
-
-    def _redial(self, batch: DrainedBatch) -> None:
-        """Get a fresh dial, then re-queue the batch's scenes and the menu."""
-        self._clients.get()
-        self._requeue(batch.scenes, menus_dirty=True)
 
     def reset_backoff_if_stable(self) -> None:
         """Reset the respawn backoff once the Display has served stably.
@@ -162,15 +155,16 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        self._requeue(batch.scenes, menus_dirty=batch.menus_dirty)
-
-    def _requeue(self, scenes: frozenset[SceneId], *, menus_dirty: bool) -> None:
-        """Re-mark scenes and the menu flag onto the signal.
-
-        When set, the menu flag makes the worker read the registry fresh at the
-        next send, so a change during the failed send wins. The heal path always
-        sets it; restore only when the batch itself carried one.
-        """
-        if menus_dirty:
+        if batch.menus_dirty:
             self._signal.mark_menus()
-        self._signal.add_all(scenes)
+        self._signal.add_all(batch.scenes)
+
+    def _repaint(self, batch: DrainedBatch) -> None:
+        """Re-mark the batch's scenes and the menu so the fresh display repaints.
+
+        The menu flag makes the worker read the registry fresh at the next send,
+        so a change during the failed send wins. The heal path always sets it;
+        ``restore`` only when the batch itself carried one.
+        """
+        self._signal.mark_menus()
+        self._signal.add_all(batch.scenes)

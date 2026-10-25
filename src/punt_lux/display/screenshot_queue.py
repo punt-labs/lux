@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.framebuffer_capture import FramebufferCapture
 from punt_lux.protocol import ScreenshotResponse
 
 if TYPE_CHECKING:
@@ -25,34 +26,40 @@ __all__ = ["ScreenshotQueue"]
 class ScreenshotQueue:
     """Holds the requester of the screenshot taken at the next swap."""
 
-    _listener: SocketListener
-    _capture: Callable[[], ScreenshotResponse]
+    _capture: FramebufferCapture
     _waiting: socket.socket | None  # None = no screenshot waits for the next swap
-    __slots__ = ("_capture", "_listener", "_waiting")
+    __slots__ = ("_capture", "_waiting")
 
-    def __new__(
-        cls, listener: SocketListener, capture: Callable[[], ScreenshotResponse]
-    ) -> Self:
+    def __new__(cls, record_error: Callable[[str, str, str], None]) -> Self:
         self = super().__new__(cls)
-        self._listener = listener
-        self._capture = capture
+        self._capture = FramebufferCapture(record_error)
         self._waiting = None
         return self
 
-    def request(self, sock: socket.socket) -> None:
+    @staticmethod
+    def refuse_generic_query(**_kwargs: object) -> dict[str, object]:
+        """Answer the generic ``screenshot`` query: it cannot be deferred to a swap.
+
+        A capture needs the GL context after a buffer swap, which the generic
+        query path cannot wait for; the dedicated request message is queued here.
+        """
+        msg = "Use the dedicated screenshot_request message"
+        raise RuntimeError(msg)
+
+    def request(self, sock: socket.socket, listener: SocketListener) -> None:
         """Take a screenshot for ``sock`` at the next swap, or refuse it at once."""
         if self._waiting is not None:
             busy = ScreenshotResponse(
                 error="a screenshot is already waiting for the next frame"
             )
-            self._listener.reply_to_client(sock, busy)
+            listener.reply_to_client(sock, busy)
             return
         self._waiting = sock
 
-    def after_swap(self) -> None:
+    def after_swap(self, listener: SocketListener) -> None:
         """Answer the waiting request, if any, with the frame just painted."""
         sock = self._waiting
         if sock is None:
             return
         self._waiting = None
-        self._listener.reply_to_client(sock, self._capture())
+        listener.reply_to_client(sock, self._capture.capture())

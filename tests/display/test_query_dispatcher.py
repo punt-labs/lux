@@ -189,6 +189,10 @@ class TestDisplayStateQuery:
         assert result == {"scenes": {}, "frames": []}
 
 
+def _ignore_error(_severity: str, _message: str, _context: str) -> None:
+    """A ``record_error`` that records nothing."""
+
+
 def _handlers(**overrides: Any) -> DisplayQueryHandlers:
     """Build a DisplayQueryHandlers with stub getters, any overridden."""
     defaults: dict[str, Any] = {
@@ -198,6 +202,7 @@ def _handlers(**overrides: Any) -> DisplayQueryHandlers:
         "get_decorated": lambda: True,
         "get_current_theme": lambda: "imgui_colors_dark",
         "get_themes": list,
+        "record_error": _ignore_error,
     }
     defaults.update(overrides)
     return DisplayQueryHandlers(**defaults)

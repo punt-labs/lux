@@ -108,7 +108,7 @@ def test_a_frame_goes_each_way_over_the_tls_dial(tls: _TlsDisplay) -> None:
 def test_a_reply_larger_than_one_tls_record_is_read_whole_inline(
     tls: _TlsDisplay,
 ) -> None:
-    link = DisplayLink.over(tls, recv_timeout=5.0)
+    link = DisplayLink(tls, recv_timeout=5.0)
     link.connect()
     big = QueryResponse(method="m", result={"blob": "x" * 200_000})
     querying = Call(lambda: link.requests.query("m", timeout=5.0))

@@ -178,7 +178,7 @@ class TestRapidSceneUpdates:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 acked_ids: list[str] = []
@@ -226,7 +226,7 @@ class TestRapidSceneUpdates:
 
         try:
             t0 = time.monotonic()
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
@@ -278,7 +278,9 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
             assert client.is_connected
             client.close()
@@ -312,10 +314,10 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
+                client.connect(listen=True)
                 client_connected.set()
                 with pytest.raises(TimeoutError):
                     client.events.poll_event(timeout=2.0)
@@ -358,7 +360,7 @@ class TestReconnection:
             t1.start()
             assert ready1.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
                 ack = client1.requests.show(
@@ -393,7 +395,7 @@ class TestReconnection:
             t2.start()
             assert ready2.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
                 ack = client2.requests.show(

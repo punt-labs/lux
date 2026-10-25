@@ -77,9 +77,6 @@ class _FakeClient:
         self.close_calls += 1
         self._connected = False
 
-    def start_listener(self) -> None:
-        self.start_listener_calls += 1
-
     def send_manifest(self, scene_ids: tuple[str, ...]) -> None:
         if self._fail_send_manifest_once:
             self._fail_send_manifest_once = False

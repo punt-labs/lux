@@ -18,7 +18,6 @@ from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_listener import DisplayListener
 from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
-from punt_lux.protocol import ReadyMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -38,6 +37,8 @@ DEFAULT_RECV_TIMEOUT = 5.0
 class DisplayLink:
     """Client for the Lux display server.
 
+    A link dials through a ``dialer`` (a cross-host connector, say);
+    :meth:`to_socket` makes the usual one, to the display's Unix socket.
     ``socket_path`` is the Unix socket path (``None`` uses the default).
     ``name`` is the identity this connection declares in its
     ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
@@ -56,6 +57,20 @@ class DisplayLink:
 
     def __new__(
         cls,
+        dialer: DisplayDialer,
+        *,
+        connect_timeout: float = 5.0,
+        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._connection = DisplayConnection(dialer, connect_timeout)
+        self._listener = DisplayListener(self._connection, recv_timeout)
+        self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
+        return self
+
+    @classmethod
+    def to_socket(
+        cls,
         socket_path: str | Path | None = None,
         *,
         name: str | None = None,
@@ -64,28 +79,14 @@ class DisplayLink:
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
     ) -> Self:
-        return cls.over(
+        """Make a link to the display's Unix socket (the default path if ``None``)."""
+        return cls(
             HandshakeConnector(
                 name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn
             ),
             connect_timeout=connect_timeout,
             recv_timeout=recv_timeout,
         )
-
-    @classmethod
-    def over(
-        cls,
-        dialer: DisplayDialer,
-        *,
-        connect_timeout: float = 5.0,
-        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
-    ) -> Self:
-        """Make a link that dials through ``dialer`` (a cross-host connector)."""
-        self = super().__new__(cls)
-        self._connection = DisplayConnection(dialer, connect_timeout)
-        self._listener = DisplayListener(self._connection, recv_timeout)
-        self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
-        return self
 
     # -- context manager ---------------------------------------------------
 
@@ -103,15 +104,6 @@ class DisplayLink:
         """Whether the client has an active socket connection."""
         return self._connection.is_open
 
-    @property
-    def dial(self) -> DialGeneration:
-        """The current dial, to name in :meth:`drop_if_current` after a failure.
-
-        Raises :class:`~punt_lux.domain.hub.connection_closed.ConnectionClosedError`
-        when the link is not connected.
-        """
-        return self._connection.require()
-
     def drop_if_current(self, generation: DialGeneration) -> bool:
         """Retire ``generation`` if it is still the current dial; whether it was.
 
@@ -119,16 +111,6 @@ class DisplayLink:
         newer dial that replaced the one that failed.
         """
         return self._connection.close_if_current(generation, cause="hub")
-
-    @property
-    def listener_active(self) -> bool:
-        """Whether the background listener thread is running."""
-        return self._listener.listening
-
-    @property
-    def ready_message(self) -> ReadyMessage | None:
-        """The ``ReadyMessage`` received during handshake, or ``None``."""
-        return self._connection.ready
 
     def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.
@@ -164,27 +146,6 @@ class DisplayLink:
         """Close the connection to the display server."""
         self._listener.stop()
         self._connection.close()
-
-    # -- background listener -----------------------------------------------
-
-    def start_listener(self) -> None:
-        """Start the background listener thread on the current dial.
-
-        The listener reads what the display sends and routes it: interactions to
-        the fallback handler, business events to :attr:`events`' queue, replies to
-        the request that waits for them. Safe to call multiple times: a no-op if
-        the current dial already has a reader. Raises
-        :class:`ConnectionClosedError` if not connected.
-        """
-        self._listener.start()
-
-    def stop_listener(self) -> None:
-        """Stop the background listener thread, if running, and retire its dial.
-
-        A reader lives and dies with its dial: a caller that stops its listener
-        and wants another must reconnect first.
-        """
-        self._listener.stop()
 
     # -- ports -------------------------------------------------------------
 

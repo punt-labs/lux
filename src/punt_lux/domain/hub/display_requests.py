@@ -114,6 +114,15 @@ class DisplayRequests:
             pending = generation.send_scene(msg, awaited=True)
             return self._answer(generation, pending, self._budget)
 
+    @property
+    def dial(self) -> DialGeneration:
+        """The dial the next request goes out on: what a failure names to drop.
+
+        Raises :class:`~punt_lux.domain.hub.connection_closed.ConnectionClosedError`
+        when not connected.
+        """
+        return self._connection.require()
+
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack.
 

@@ -158,7 +158,9 @@ class TestScenesFromADisplay:
     ) -> None:
         display = hostile(_scene_frame(), False)
         # The scene arrives where the ReadyMessage should: send it on accept.
-        link = DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0)
+        link = DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        )
 
         with pytest.raises(ValueError, match="not accepted"):
             link.connect()
@@ -171,7 +173,9 @@ class TestScenesFromADisplay:
         unpickled: list[bytes],
     ) -> None:
         display = hostile(_scene_frame(), True)
-        with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
+        with DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        ) as link:
             link.connect()
             with pytest.raises(ConnectionClosedError) as refused:
                 link.requests.ping(timeout=2.0)
@@ -185,7 +189,9 @@ class TestScenesFromADisplay:
         unpickled: list[bytes],
     ) -> None:
         display = hostile(_scene_frame(), True)
-        with DisplayLink(display.path, auto_spawn=False, connect_timeout=2.0) as link:
+        with DisplayLink.to_socket(
+            display.path, auto_spawn=False, connect_timeout=2.0
+        ) as link:
             link.connect()
             with pytest.raises(ConnectionClosedError) as refused:
                 link.requests.show("s", [])

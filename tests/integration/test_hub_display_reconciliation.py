@@ -43,7 +43,9 @@ def _live_scene_ids(sock_path: Path) -> set[str]:
     A plain, unidentified connection: ``list_scenes`` requires no identity,
     matching the introspection surface's own contract.
     """
-    with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as probe:
+    with DisplayLink.to_socket(
+        sock_path, auto_spawn=False, connect_timeout=5.0
+    ) as probe:
         sock = (
             probe._connection.require()._dial.sock
         )  # test-only reach-through: raw round-trip
@@ -84,7 +86,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
         # The first "luxd": identifies as the Hub, pushes a scene, then dies
         # -- the Display process itself is untouched.
-        with DisplayLink(
+        with DisplayLink.to_socket(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         ) as first:
             ack = first.requests.show(
@@ -98,7 +100,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
         # The second "luxd": identifies as the Hub and declares it holds
         # nothing -- the ordinary post-restart manifest.
-        second = DisplayLink(
+        second = DisplayLink.to_socket(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         )
         try:

@@ -40,7 +40,8 @@ from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 def _verify_closed(client: DisplayLink) -> None:
     """Assert client is disconnected (separate function to avoid mypy narrowing)."""
     assert not client.is_connected
-    assert client.ready_message is None
+    with pytest.raises(ConnectionClosedError):
+        _ = client.requests.dial
 
 
 def _mini_display(sock_path: Path, ready: threading.Event) -> socket.socket:
@@ -82,11 +83,13 @@ class TestConnect:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
 
             assert client.is_connected
-            ready = client.ready_message
+            ready = client.requests.dial.ready
             assert ready is not None
             assert ready.version == "0.1"
 
@@ -125,7 +128,9 @@ class TestConnect:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             with patch(
                 "punt_lux.domain.hub.handshake_connector.set_send_timeout"
             ) as mock_set:
@@ -160,7 +165,7 @@ class TestConnect:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 assert client.is_connected
@@ -176,7 +181,7 @@ class TestConnect:
     def test_connect_no_server_raises(self, tmp_path: Path) -> None:
         """Connecting to a nonexistent socket raises RuntimeError."""
         sock_path = tmp_path / "nonexistent.sock"
-        client = DisplayLink(sock_path, auto_spawn=False)
+        client = DisplayLink.to_socket(sock_path, auto_spawn=False)
         with pytest.raises(RuntimeError, match="Cannot connect"):
             client.connect()
 
@@ -198,7 +203,9 @@ class TestConnect:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
             client.connect()  # should be a no-op
             assert client.is_connected
@@ -241,7 +248,7 @@ class TestPostHandshakeHubId:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(
+            client = DisplayLink.to_socket(
                 sock_path,
                 name="lux-mcp",
                 kind="hub",
@@ -284,7 +291,7 @@ class TestPostHandshakeHubId:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(
+            client = DisplayLink.to_socket(
                 sock_path,
                 name="probe",
                 kind="test",
@@ -336,7 +343,7 @@ class TestSendMessages:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 ack = client.requests.show(
@@ -385,7 +392,7 @@ class TestSendMessages:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 ack = client.requests.show(
@@ -424,7 +431,7 @@ class TestSendMessages:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 pong = client.requests.ping()
@@ -468,7 +475,9 @@ class TestSendMessages:
 
         try:
             with (
-                DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0) as client,
+                DisplayLink.to_socket(
+                    sock_path, auto_spawn=False, connect_timeout=2.0
+                ) as client,
                 patch.object(DialGeneration, "poll_chunk", _record),
             ):
                 pong = client.requests.ping(timeout=0.0)
@@ -517,7 +526,9 @@ class TestRecvEvents:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
 
             def _cb(msg: RemoteEventHandlerInvocation) -> None:
                 received.append(msg)
@@ -526,7 +537,7 @@ class TestRecvEvents:
             client.events.set_fallback_handler(_cb)
             try:
                 client.connect()
-                client.start_listener()
+                client.connect(listen=True)
                 assert done.wait(timeout=2.0), "Callback never fired"
                 assert received[0].element_id == "b1"
                 assert received[0].action == "click"
@@ -558,10 +569,10 @@ class TestRecvEvents:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
+                client.connect(listen=True)
                 with pytest.raises(TimeoutError):
                     client.events.poll_event(timeout=0.2)
         finally:
@@ -581,13 +592,13 @@ class TestRecvEvents:
 class TestErrorHandling:
     def test_send_without_connect_raises(self) -> None:
         """Calling show() before connect() raises RuntimeError."""
-        client = DisplayLink(auto_spawn=False)
+        client = DisplayLink.to_socket(auto_spawn=False)
         with pytest.raises(ConnectionClosedError, match="Not connected"):
             client.requests.show("s1", elements=[])
 
     def test_poll_event_without_connect_raises(self) -> None:
         """Calling poll_event() before connect() raises RuntimeError."""
-        client = DisplayLink(auto_spawn=False)
+        client = DisplayLink.to_socket(auto_spawn=False)
         with pytest.raises(ConnectionClosedError, match="Not connected"):
             client.events.poll_event()
 
@@ -617,12 +628,12 @@ class TestErrorHandling:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 assert accepted.wait(timeout=5), "display never accepted"
                 assert server_conn is not None
-                client.start_listener()
+                client.connect(listen=True)
                 server_conn.close()
                 # The wait is bounded and the message is chosen when it ends,
                 # by which time the listener has read the close and exited.
@@ -638,7 +649,7 @@ class TestErrorHandling:
 
     def test_close_without_connect_is_noop(self) -> None:
         """Calling close() without connecting doesn't crash."""
-        client = DisplayLink(auto_spawn=False)
+        client = DisplayLink.to_socket(auto_spawn=False)
         client.close()  # should not raise
 
     def test_handshake_mismatch_logs_warning_and_raises(
@@ -676,7 +687,9 @@ class TestErrorHandling:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             with (
                 caplog.at_level(
                     "WARNING", logger="punt_lux.domain.hub.handshake_connector"
@@ -757,7 +770,9 @@ class TestAutoSpawn:
         try:
             DisplayPaths(sock_path).remove_pid()  # stale/missing PID file
             with patch.object(subprocess, "Popen") as popen:
-                client = DisplayLink(sock_path, auto_spawn=True, connect_timeout=3.0)
+                client = DisplayLink.to_socket(
+                    sock_path, auto_spawn=True, connect_timeout=3.0
+                )
                 client.connect()
                 assert client.is_connected
                 popen.assert_not_called()  # no second display spawned
@@ -793,7 +808,9 @@ class TestAutoSpawn:
             with patch.object(
                 DisplayPaths, "ensure", return_value=sock_path
             ) as mock_ensure:
-                client = DisplayLink(sock_path, auto_spawn=True, connect_timeout=2.0)
+                client = DisplayLink.to_socket(
+                    sock_path, auto_spawn=True, connect_timeout=2.0
+                )
                 client.connect()
                 mock_ensure.assert_called_once_with(2.0)
                 client.close()
@@ -841,10 +858,12 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.events.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             # Wait for callback to fire
             deadline = time.monotonic() + 2.0
             while not received and time.monotonic() < deadline:
@@ -888,9 +907,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             # Listener has had time to drain the frame; poll_event sees
             # no business event and times out.
             time.sleep(0.3)
@@ -926,9 +947,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             began = time.monotonic()
             with pytest.raises(ConnectionClosedError, match="was closed"):
                 client.requests.ping(timeout=4.0)
@@ -962,9 +985,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             deadline = time.monotonic() + 3.0
             while client.is_connected and time.monotonic() < deadline:
                 time.sleep(0.02)
@@ -1004,9 +1029,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             event = client.events.poll_event(timeout=2.0)
             assert event.topic == "work.saved"
             assert event.payload == {"id": "save_btn"}
@@ -1041,9 +1068,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             ack = client.requests.show(
                 "s1", elements=[TextElement(id="t1", content="Hello")]
             )
@@ -1090,7 +1119,9 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
 
             def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
                 client.requests.send_scene(
@@ -1104,7 +1135,7 @@ class TestBackgroundListener:
 
             client.events.set_fallback_handler(on_trigger)
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             assert callback_done.wait(timeout=2.0)
             # Give the server thread time to receive the scene
             t.join(timeout=2)
@@ -1148,7 +1179,9 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
 
             def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
                 for call in (
@@ -1163,7 +1196,7 @@ class TestBackgroundListener:
 
             client.events.set_fallback_handler(on_trigger)
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             assert done.wait(timeout=5)
             client.close()
         finally:
@@ -1208,10 +1241,12 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.events.set_fallback_handler(lambda msg: received.append(msg))
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
 
             deadline = time.monotonic() + 2.0
             while not received and time.monotonic() < deadline:
@@ -1276,7 +1311,9 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
 
             def on_hello(msg: RemoteEventHandlerInvocation) -> None:
                 client.requests.send_scene(
@@ -1293,7 +1330,7 @@ class TestBackgroundListener:
 
             client.events.set_fallback_handler(on_hello)
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             # Signal readiness (and trigger the flow) with a real menu write.
             client.requests.set_menu(
                 [{"label": "Tools", "items": [{"label": "Hello", "id": "hello-world"}]}]
@@ -1335,9 +1372,11 @@ class TestBackgroundListener:
         assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
-            client.start_listener()
+            client.connect(listen=True)
             with pytest.raises(TimeoutError):
                 client.events.poll_event(timeout=0.2)
             client.close()

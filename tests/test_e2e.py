@@ -95,11 +95,11 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=5.0
             ) as client:
                 assert client.is_connected
-                assert client.ready_message is not None
+                assert client.requests.dial.ready is not None
 
                 # Send scene with image + 2 buttons
                 from punt_lux.protocol import ImageElement
@@ -153,7 +153,9 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=5.0
+            )
             events: list[RemoteEventHandlerInvocation] = []
             done = threading.Event()
 
@@ -165,7 +167,7 @@ class TestWalkingSkeleton:
             client.events.set_fallback_handler(_on_click)
             try:
                 client.connect()
-                client.start_listener()
+                client.connect(listen=True)
                 ack = client.requests.show(
                     "e2e-click-test",
                     elements=[

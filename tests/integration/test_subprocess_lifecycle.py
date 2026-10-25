@@ -58,7 +58,7 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
 
         # Scenes need a declared Hub identity: the default "test" connection is
         # the read-only backdoor and the display rejects its SceneMessage.
-        with DisplayLink(
+        with DisplayLink.to_socket(
             sock_path,
             name="lifecycle-smoke",
             kind="hub",
