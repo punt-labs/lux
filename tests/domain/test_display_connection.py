@@ -412,11 +412,16 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         worker = threading.Thread(target=under_the_state_lock, daemon=True)
         worker.start()
         worker.join(1.0)
+        # Judged while the slot is still held: once it is released, a blocked
+        # worker finishes too, and the check would prove nothing.
+        finished_while_held = not worker.is_alive()
+        steps_while_held = list(outcome)
         release.set()
         holder.join(3.0)
+        worker.join(3.0)
 
-        assert not worker.is_alive(), "a state-lock step waited on the reader slot"
-        assert outcome == [False, True, True]
+        assert finished_while_held, "a state-lock step waited on the reader slot"
+        assert steps_while_held == [False, True, True]
 
 
 class TestReaderSlot:
