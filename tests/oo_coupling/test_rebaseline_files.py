@@ -514,6 +514,20 @@ def test_update_and_rebaseline_audit_entries_omit_reason_key(tmp_path: Path) -> 
         assert "reason" not in entry
 
 
+def test_update_audit_names_the_rows_it_removes(tmp_path: Path) -> None:
+    """An update that prunes a row of a vanished file lists it in ``removed``."""
+    fx = RebaselineFilesFixture(tmp_path)
+    fx.write("target.py", _stub_module("target"))
+    rows = CouplingRatchet._results_by_file(fx.scorer().results)
+    rows["gone.py"] = dict(rows[fx.path("target.py")])
+    fx.write_baseline(rows)
+
+    assert fx.ratchet().update(fx.scorer()) == 0
+
+    entry = json.loads(fx.audit_lines()[-1])
+    assert entry["removed"] == ["gone.py"]
+
+
 def test_dunder_main_refusal_cites_relaxed_cap(tmp_path: Path) -> None:
     """A refused ``__main__.py`` file cites its own relaxed cap, not the default.
 

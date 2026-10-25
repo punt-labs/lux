@@ -465,6 +465,8 @@ class TestScopedUpdate:
         assert outcome.exit_code == 0
         assert Baseline(fx.root).get("sub/gone.py") is None
         assert "  files removed:  1" in outcome.lines
+        last = (fx.root / ".oo-audit.jsonl").read_text().splitlines()[-1]
+        assert json.loads(last)["removed"] == ["sub/gone.py"]
 
     def test_update_refuses_broken_touched_file_keeps_row(self, fx: GitFixture) -> None:
         # A touched file that is on disk but unparseable is not a deletion:
