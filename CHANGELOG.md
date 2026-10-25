@@ -286,6 +286,11 @@
 
 ### Security
 
+- Clear 66 open Dependabot alerts (8 critical, 31 high) by bumping `uv.lock`:
+  Pillow 12.3.0 → 13.0.0, PyJWT 2.13.0 → 2.15.1, anyio 4.12.1 → 4.14.2,
+  certifi 2026.2.25 → 2026.10.23, urllib3 2.7.0 → 2.8.0, fastmcp 3.4.7 →
+  3.4.11, mcp 1.28.1 → 1.30.0, opentelemetry-api 1.40.0 → 1.45.1.
+
 - **Content-bearing display messages now reject an unidentified fd, not just
   a declared `kind="test"` observer.** `render_loop.py`'s scene handling and
   `hub_reconciliation.py`'s `reject_scene_if_test_kind` previously rejected a
