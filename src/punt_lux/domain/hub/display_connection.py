@@ -18,8 +18,12 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.connection_closed import HubRetiredError
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
 from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
@@ -39,7 +43,17 @@ class DisplayConnection:
     # None = not connected. The generation holds the socket, its endpoint and its
     # ready message: one handshake's result, coming and going together.
     _current: DialGeneration | None
-    __slots__ = ("_connect_timeout", "_current", "_dialer", "_state_lock")
+    # Who ended the last dial, kept after it is gone: a caller that finds no dial
+    # learns from it whether the display or the Hub ended it. None until the first
+    # retirement, which is what "never opened" means.
+    _last_ended: RetireCause | None
+    __slots__ = (
+        "_connect_timeout",
+        "_current",
+        "_dialer",
+        "_last_ended",
+        "_state_lock",
+    )
 
     def __new__(cls, dialer: DisplayDialer, connect_timeout: float) -> Self:
         self = super().__new__(cls)
@@ -47,6 +61,7 @@ class DisplayConnection:
         self._connect_timeout = connect_timeout
         self._state_lock = threading.Lock()
         self._current = None
+        self._last_ended = None
         return self
 
     @property
@@ -105,6 +120,7 @@ class DisplayConnection:
             self._current = None
             if held is not None:
                 held.mark_closed("hub")
+                self._last_ended = "hub"
         if held is not None:
             held.shut()
 
@@ -120,6 +136,7 @@ class DisplayConnection:
             if self._current is not generation:
                 return False
             self._current = None
+            self._last_ended = cause
             generation.mark_closed(cause)
         generation.shut()
         return True
@@ -141,10 +158,23 @@ class DisplayConnection:
         return None
 
     def require(self) -> DialGeneration:
-        """Return the current dial, or raise if the connection is not open."""
+        """Return the current dial, or raise the error that says why there is none.
+
+        The error carries who ended the last dial: :class:`ConnectionClosedError`
+        when the display did (it died, so a sender may blame what it was sending),
+        :class:`HubRetiredError` when the Hub did (the display is not at fault), and
+        :class:`DisplayNotConnectedError` when no dial was ever made.
+        """
         with self._state_lock:
             held = self._current
-        if held is None:
-            msg = "Not connected — open() the display connection first"
-            raise HubRetiredError(msg)  # nothing was written: not the display's doing
-        return held
+            ended = self._last_ended
+        if held is not None:
+            return held
+        if ended == "display":
+            msg = "the display closed the connection"
+            raise ConnectionClosedError(msg)
+        if ended == "hub":
+            msg = "the Hub retired the connection"
+            raise HubRetiredError(msg)
+        msg = "Not connected -- open() the display connection first"
+        raise DisplayNotConnectedError(msg)  # nothing was ever dialed

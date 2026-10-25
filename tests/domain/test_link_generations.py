@@ -40,6 +40,7 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
+from tests.link_access import generation_of, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -74,8 +75,8 @@ class TestAcksAreMatchedByPosition:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        link.requests.send_scene(_scene("replicated"))
-        shown = Call(lambda: link.requests.show("shown", []))
+        writer_of(link).send_scene(_scene("replicated"))
+        shown = Call(lambda: writer_of(link).show("shown", []))
         scenes = display.peer.read(2)
         assert [s.id for s in scenes if isinstance(s, SceneMessage)] == [
             "replicated",
@@ -92,8 +93,8 @@ class TestAcksAreMatchedByPosition:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        link.requests.send_scene(_scene("x"))
-        shown = Call(lambda: link.requests.show("x", []))
+        writer_of(link).send_scene(_scene("x"))
+        shown = Call(lambda: writer_of(link).show("x", []))
         display.peer.read(2)
 
         display.peer.send(AckMessage(scene_id="x"))
@@ -108,8 +109,8 @@ class TestAcksAreMatchedByPosition:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        link.requests.send_scene(_scene("a"))
-        link.requests.send_scene(_scene("b"))
+        writer_of(link).send_scene(_scene("a"))
+        writer_of(link).send_scene(_scene("b"))
         display.peer.read(2)
 
         display.peer.send(AckMessage(scene_id="b"))
@@ -129,8 +130,8 @@ class TestAcksAreMatchedByPosition:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        link.requests.send_scene(_scene("replicated"))
-        shown = Call(lambda: link.requests.show("shown", []))
+        writer_of(link).send_scene(_scene("replicated"))
+        shown = Call(lambda: writer_of(link).show("shown", []))
         display.peer.read(2)
 
         display.peer.send(AckMessage(scene_id="replicated"), AckMessage("shown"))
@@ -143,12 +144,12 @@ class TestAcksAreMatchedByPosition:
 class TestPongsAreMatchedByTheirTimestamp:
     def test_a_late_pong_does_not_answer_the_next_ping(self, display: Display) -> None:
         link = _linked(display)
-        assert link.requests.ping(timeout=0.2) is None
+        assert link.desk.asks().ping(timeout=0.2) is None
         (first,) = display.peer.read(1)
         assert isinstance(first, PingMessage)
         assert link.is_connected, "a ping that times out keeps its dial"
 
-        second = Call(lambda: link.requests.ping(timeout=3.0))
+        second = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
         display.peer.send(PongMessage(ts=first.ts), PongMessage(ts=sent.ts))
@@ -163,8 +164,8 @@ class TestPongsAreMatchedByTheirTimestamp:
         monkeypatch.setattr(time, "time", lambda: 1000.0)
         link = _linked(display)
 
-        assert link.requests.ping(timeout=0.05) is None
-        assert link.requests.ping(timeout=0.05) is None
+        assert link.desk.asks().ping(timeout=0.05) is None
+        assert link.desk.asks().ping(timeout=0.05) is None
 
         first, second = display.peer.read(2)
         assert isinstance(first, PingMessage)
@@ -186,7 +187,7 @@ class TestPongsAreMatchedByTheirTimestamp:
     def test_a_pong_with_no_ping_in_flight_is_dropped(self, display: Display) -> None:
         link = _linked(display)
         display.peer.send(PongMessage(ts=1.0))
-        call = Call(lambda: link.requests.ping(timeout=3.0))
+        call = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -203,7 +204,7 @@ class TestAQueryThatTimesOutRetiresItsDial:
     ) -> None:
         link = _linked(display)
 
-        assert link.requests.query("m", timeout=0.2) is None
+        assert link.desk.asks().query("m", timeout=0.2) is None
         assert not link.is_connected
         (request,) = display.peers[0].read(1)
         assert isinstance(request, QueryRequest)
@@ -212,7 +213,7 @@ class TestAQueryThatTimesOutRetiresItsDial:
 
         link.connect()
         link.connect(listen=True)
-        again = Call(lambda: link.requests.query("m", timeout=3.0))
+        again = Call(lambda: link.desk.asks().query("m", timeout=3.0))
         display.peers[1].read(1)
         display.peers[1].send(QueryResponse(method="m", result={"own": True}))
 
@@ -225,7 +226,7 @@ class TestAQueryThatTimesOutRetiresItsDial:
     ) -> None:
         link = _linked(display)
 
-        assert link.requests.ping(timeout=0.1) is None
+        assert link.desk.asks().ping(timeout=0.1) is None
 
         assert link.is_connected
         link.close()
@@ -235,9 +236,9 @@ class TestAQueryThatTimesOutRetiresItsDial:
     ) -> None:
         link = _linked(display, recv_timeout=0.2)
 
-        assert link.requests.show("slow", []) is None
+        assert writer_of(link).show("slow", []) is None
         assert link.is_connected
-        late = Call(lambda: link.requests.show("next", []))
+        late = Call(lambda: writer_of(link).show("next", []))
         display.peer.read(2)
         display.peer.send(AckMessage(scene_id="slow"), AckMessage(scene_id="next"))
 
@@ -251,12 +252,12 @@ class TestRequestLocks:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        first = Call(lambda: link.requests.ping(timeout=3.0))
+        first = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
         with pytest.raises(DisplayBusyError):
-            link.requests.ping(timeout=0.1)
+            link.desk.asks().ping(timeout=0.1)
 
         assert link.is_connected
         assert display.peer.read(1, timeout=0.2) == [], "the second ping wrote nothing"
@@ -269,11 +270,11 @@ class TestRequestLocks:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        slow = Call(lambda: link.requests.query("slow", timeout=3.0))
+        slow = Call(lambda: link.desk.asks().query("slow", timeout=3.0))
         (request,) = display.peer.read(1)
         assert isinstance(request, QueryRequest)
 
-        probe = Call(lambda: link.requests.ping(timeout=3.0))
+        probe = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
         display.peer.send(PongMessage(ts=sent.ts))
@@ -290,7 +291,7 @@ class TestARedialBetweenSendAndWait:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        call = Call(lambda: link.requests.ping(timeout=3.0))
+        call = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -307,7 +308,7 @@ class TestARedialBetweenSendAndWait:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        call = Call(lambda: link.requests.ping(timeout=3.0))
+        call = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -328,12 +329,12 @@ class TestAWriteThatRaises:
         display.sockets[0].fail_next_send = True
 
         with pytest.raises(OSError, match="fell over"):
-            link.requests.send_scene(_scene("lost"))
+            writer_of(link).send_scene(_scene("lost"))
         assert not link.is_connected
 
         link.connect()
         link.connect(listen=True)
-        shown = Call(lambda: link.requests.show("next", []))
+        shown = Call(lambda: writer_of(link).show("next", []))
         display.peers[1].read(1)
         display.peers[1].send(AckMessage(scene_id="next"))
 
@@ -359,7 +360,7 @@ class TestAnInterruptedWriteRetiresItsDial:
         monkeypatch.setattr(display.sockets[0], "sendall", interrupted)
 
         with pytest.raises(type(failure)):
-            link.requests.send_scene(_scene("x"))
+            writer_of(link).send_scene(_scene("x"))
 
         assert not link.is_connected
 
@@ -367,7 +368,7 @@ class TestAnInterruptedWriteRetiresItsDial:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.requests.dial
+        dial = generation_of(link)
         dial.send_ping(1.0)  # a ping is in flight on the dial
 
         with pytest.raises(RuntimeError, match="already in flight"):
@@ -391,7 +392,7 @@ class TestAStoppedListenerEndsItsDial:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        call = Call(lambda: link.requests.ping(timeout=3.0))
+        call = Call(lambda: link.desk.asks().ping(timeout=3.0))
         display.peer.read(1)
 
         link.close()
@@ -405,11 +406,11 @@ class TestOneSocketOneCallerAtATime:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        waiting = Call(lambda: link.requests.query("slow", timeout=3.0))
+        waiting = Call(lambda: link.desk.asks().query("slow", timeout=3.0))
         (request,) = display.peer.read(1)
         assert isinstance(request, QueryRequest)
 
-        probes = [Call(lambda: link.requests.ping(timeout=0.3)) for _ in range(3)]
+        probes = [Call(lambda: link.desk.asks().ping(timeout=0.3)) for _ in range(3)]
         for probe in probes:
             probe.wait()
         display.peer.send(QueryResponse(method="slow"))
@@ -449,12 +450,12 @@ class TestBusyIsNotDead:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        first = Call(lambda: link.requests.ping(timeout=3.0))
+        first = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
         with pytest.raises(DisplayBusyError):
-            link.requests.ping(timeout=0.05)
+            link.desk.asks().ping(timeout=0.05)
 
         display.peer.send(PongMessage(ts=sent.ts))
         assert first.wait()
@@ -464,26 +465,63 @@ class TestBusyIsNotDead:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        first = Call(lambda: link.requests.ping(timeout=3.0))
+        first = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
-        assert link.requests.probe_alive(0.05) is True
+        assert link.desk.asks().probe_alive(0.05) is True
 
         assert display.peer.read(1, timeout=0.1) == []
         display.peer.send(PongMessage(ts=sent.ts))
         assert first.wait()
         link.close()
 
+    def test_a_confirmation_that_finds_a_ping_in_flight_is_not_proof(
+        self, display: Display
+    ) -> None:
+        # The isolation loop must learn that the display survived the scene it just
+        # sent. A ping already in flight proves nothing about that scene, so a busy
+        # dial is a "not proved" -- never the liveness answer of "alive".
+        link = _linked(display)
+        first = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+
+        assert link.desk.asks().confirm_alive(0.05) is False
+
+        display.peer.send(PongMessage(ts=sent.ts))
+        assert first.wait()
+        link.close()
+
+    def test_a_confirmation_is_the_displays_own_pong(self, display: Display) -> None:
+        link = _linked(display)
+        confirming = Call(lambda: link.desk.asks().confirm_alive(3.0))
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+
+        display.peer.send(PongMessage(ts=sent.ts))
+
+        assert confirming.wait()
+        assert confirming.result is True
+        link.close()
+
+    def test_a_confirmation_the_display_never_answers_is_false(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+
+        assert link.desk.asks().confirm_alive(0.05) is False
+        link.close()
+
     def test_a_query_that_lost_its_lock_wait_says_busy_and_keeps_its_dial(
         self, display: Display
     ) -> None:
         link = _linked(display)
-        slow = Call(lambda: link.requests.query("slow", timeout=3.0))
+        slow = Call(lambda: link.desk.asks().query("slow", timeout=3.0))
         display.peer.read(1)
 
         with pytest.raises(DisplayBusyError):
-            link.requests.query("other", timeout=0.05)
+            link.desk.asks().query("other", timeout=0.05)
 
         assert link.is_connected
         assert display.peer.read(1, timeout=0.2) == [], "the second query wrote nothing"
@@ -495,8 +533,8 @@ class TestBusyIsNotDead:
     ) -> None:
         link = _linked(display, recv_timeout=0.1)
         # another scene holds the dial
-        with link.requests._scene_lock, pytest.raises(DisplayBusyError):
-            link.requests.show("second", [])
+        with link._desk.exchange.exclusive("scene"), pytest.raises(DisplayBusyError):
+            writer_of(link).show("second", [])
 
         assert link.is_connected
         assert display.peer.read(1, timeout=0.2) == [], "the second scene wrote nothing"
@@ -508,9 +546,9 @@ class TestTheLockWaitAndTheReplyWaitAreSeparateBudgets:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        first = Call(lambda: link.requests.query("first", timeout=3.0))
+        first = Call(lambda: link.desk.asks().query("first", timeout=3.0))
         display.peer.read(1)
-        second = Call(lambda: link.requests.query("second", timeout=0.6))
+        second = Call(lambda: link.desk.asks().query("second", timeout=0.6))
         time.sleep(0.4)  # the second has waited most of its budget for the lock
 
         display.peer.send(QueryResponse(method="first"))
@@ -558,7 +596,7 @@ class TestARetiredDialNeverDelivers:
                 link._connection.close()  # retired mid-chunk
 
         monkeypatch.setattr(DisplayListener, "route", retiring_route)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -582,7 +620,7 @@ class TestOneReaderPerDial:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -594,7 +632,7 @@ class TestOneReaderPerDial:
 
         assert pinging.wait()
         assert starting.wait()
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         assert display.sockets[0].reader_overlaps == 0
         link.close()
 
@@ -602,9 +640,9 @@ class TestOneReaderPerDial:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        querying = Call(lambda: link.requests.query("m", timeout=3.0))
+        querying = Call(lambda: link.desk.asks().query("m", timeout=3.0))
         display.peer.read(1)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -627,7 +665,7 @@ class TestAnInlineReadRoutesWhatTheListenerWould:
         link = _linked(display, listening=False)
         seen: list[RemoteEventHandlerInvocation] = []
         link.events.set_fallback_handler(seen.append)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -642,7 +680,7 @@ class TestAnInlineReadRoutesWhatTheListenerWould:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -661,7 +699,7 @@ class TestInlineReadingKeepsTheSocketLockShort:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        querying = Call(lambda: link.requests.query("slow", timeout=5.0))
+        querying = Call(lambda: link.desk.asks().query("slow", timeout=5.0))
         display.peer.read(1)
         streaming = threading.Event()
 
@@ -674,7 +712,7 @@ class TestInlineReadingKeepsTheSocketLockShort:
         streamer = threading.Thread(target=stream, daemon=True)
         streamer.start()
         try:
-            probe = Call(lambda: link.requests.ping(timeout=3.0))
+            probe = Call(lambda: link.desk.asks().ping(timeout=3.0))
             (sent,) = display.peer.read(1, timeout=0.5)
 
             assert isinstance(sent, PingMessage), "the ping was not written in 0.5 s"
@@ -692,10 +730,10 @@ class TestInlineReadingKeepsTheSocketLockShort:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        querying = Call(lambda: link.requests.query("slow", timeout=5.0))
+        querying = Call(lambda: link.desk.asks().query("slow", timeout=5.0))
         display.peer.read(1)
 
-        probe = Call(lambda: link.requests.ping(timeout=3.0))
+        probe = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1, timeout=0.5)
 
         assert isinstance(sent, PingMessage), "the wait held the socket lock in select"
@@ -713,9 +751,9 @@ class TestRacingWritersAreReleasedByRetirement:
         big = ScenePresentation(frame_id="big").message(
             "big", [TextElement(id="t", content="x" * (8 * 1024 * 1024))]
         )
-        replicating = Call(lambda: link.requests.send_scene(big))
+        replicating = Call(lambda: writer_of(link).send_scene(big))
         assert not replicating.wait(0.3), "the peer reads nothing: the write wedges"
-        showing = Call(lambda: link.requests.show("next", []))
+        showing = Call(lambda: writer_of(link).show("next", []))
         assert not showing.wait(0.2), "the show waits behind the wedged writer"
 
         link.close()  # retire: shutdown wakes the sender and frees the socket lock
@@ -750,27 +788,27 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
     def test_a_query_that_times_out(self, display: Display) -> None:
         registry, link = self._registry(display)
-        assert link.requests.query("m", timeout=0.1) is None
+        assert link.desk.asks().query("m", timeout=0.1) is None
 
         self._redialed(display, registry)
 
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
     def test_a_torn_write(self, display: Display) -> None:
         registry, link = self._registry(display)
         display.sockets[0].fail_next_send = True
         with pytest.raises(OSError, match="fell over"):
-            link.requests.send_scene(_scene("s"))
+            writer_of(link).send_scene(_scene("s"))
 
         self._redialed(display, registry)
 
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
 
@@ -789,7 +827,7 @@ class TestDropNamesTheDialThatFailed:
         self, display: Display
     ) -> None:
         registry, link = self._registry(display)
-        failed = link.requests.dial
+        failed = link.desk.asks().dial
         link._connection.close()  # another thread retired it and redialed
         registry.get()
 
@@ -802,7 +840,7 @@ class TestDropNamesTheDialThatFailed:
     def test_a_drop_for_the_current_dial_closes_it(self, display: Display) -> None:
         registry, link = self._registry(display)
 
-        registry.drop(link.requests.dial)
+        registry.drop(link.desk.asks().dial)
 
         assert not link.is_connected
         link.close()
@@ -812,7 +850,7 @@ class TestDropNamesTheDialThatFailed:
         display = Display()
         link = DisplayLink(display)
         link.connect()
-        generation = link.requests.dial
+        generation = link.desk.asks().dial
 
         registry.drop(generation)  # no client in this registry: nothing to retire
 
@@ -826,7 +864,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.requests.dial
+        dial = generation_of(link)
 
         display.peer.close()
         assert until(lambda: not link.is_connected)
@@ -839,9 +877,9 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.requests.dial
+        dial = generation_of(link)
 
-        assert link.requests.query("m", timeout=0.1) is None
+        assert link.desk.asks().query("m", timeout=0.1) is None
 
         with pytest.raises(HubRetiredError):
             dial.send(PingMessage(ts=1.0))
@@ -850,7 +888,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.requests.dial
+        dial = generation_of(link)
 
         display.peer.send(AckMessage(scene_id="unsolicited"))
         assert until(lambda: not link.is_connected)
@@ -862,7 +900,7 @@ class TestWhoEndedADialIsWhatARetiredSenderLearns:
         self, display: Display
     ) -> None:
         link = _linked(display)
-        dial = link.requests.dial
+        dial = generation_of(link)
 
         link.close()
 
@@ -879,9 +917,9 @@ class TestAPeerThatStopsReading:
             "big", [TextElement(id="t", content="x" * (8 * 1024 * 1024))]
         )
         began = time.monotonic()
-        replicating = Call(lambda: link.requests.send_scene(big))
-        showing = Call(lambda: link.requests.show("next", []))
-        pinging = Call(lambda: link.requests.ping(timeout=5.0))
+        replicating = Call(lambda: writer_of(link).send_scene(big))
+        showing = Call(lambda: writer_of(link).show("next", []))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=5.0))
 
         assert replicating.wait(5.0), "the send timeout did not end the wedged write"
         assert isinstance(replicating.error, OSError)
@@ -919,7 +957,7 @@ class TestRegistryLocksAreNotHeldUnderTheModelsLocks:
 
         monkeypatch.setattr(registry, "drop", forbidden)
 
-        assert link.requests.query("m", timeout=0.1) is None
+        assert link.desk.asks().query("m", timeout=0.1) is None
         assert not link.is_connected
         link.close()
 
@@ -932,7 +970,7 @@ class TestConnectCoordinatesTheDialAndItsListener:
 
         link.connect(listen=True)
 
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
     def test_connect_alone_starts_no_reader(self, display: Display) -> None:
@@ -940,7 +978,7 @@ class TestConnectCoordinatesTheDialAndItsListener:
 
         link.connect()
 
-        assert not link.requests.dial.has_reader
+        assert not generation_of(link).has_reader
         link.close()
 
 
@@ -949,7 +987,7 @@ class TestAnInlineReadThatFails:
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         display.peer.read(1)
 
         display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id: KeyError
@@ -966,7 +1004,7 @@ class TestAnInlineReadThatFails:
 
         monkeypatch.setattr(ReplySink, "deliver", explode)
         link = _linked(display, listening=False)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -1015,7 +1053,7 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
 
         registry.get()
 
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
 
@@ -1029,10 +1067,10 @@ class TestAnInteractionReadInlineRunsOutsideTheLocks:
         def handler(_event: RemoteEventHandlerInvocation) -> None:
             generation = link._connection.require()
             with generation.inline_reading() as free:
-                seen.append((link.requests._ping_lock.locked(), free))
+                seen.append((link._desk.exchange._locks["ping"].locked(), free))
 
         link.events.set_fallback_handler(handler)
-        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
@@ -1079,7 +1117,7 @@ class TestAFailedListenerStartRetiresItsDial:
         registry.get()
 
         assert display.dials == 2
-        assert link.requests.dial.has_reader
+        assert generation_of(link).has_reader
         link.close()
 
 
@@ -1096,7 +1134,7 @@ class TestAnInteractionRunsBeforeItsExchangeReturns:
 
         def ping() -> object:
             try:
-                return link.requests.ping(timeout=3.0)
+                return link.desk.asks().ping(timeout=3.0)
             finally:
                 returned.set()
 
@@ -1110,4 +1148,132 @@ class TestAnInteractionRunsBeforeItsExchangeReturns:
 
         assert pinging.wait()
         assert ran_before_return == [True], "the click waited past its own exchange"
+        link.close()
+
+
+class TestARequestIsPinnedToTheDialItWasMadeFor:
+    """A redial between two requests fails the second; it never rides the new dial."""
+
+    def test_a_ping_after_a_redial_fails_with_the_old_dials_error(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        port = link.desk.asks()
+        link.close()
+        link.connect(listen=True)  # a new dial the port was not made for
+
+        with pytest.raises(HubRetiredError):
+            port.ping(timeout=0.1)
+
+        assert display.peer.read(1, timeout=0.2) == [], "the ping rode the new dial"
+        link.close()
+
+    def test_a_query_after_a_redial_fails_with_the_old_dials_error(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        port = link.desk.asks()
+        link.close()
+        link.connect(listen=True)
+
+        with pytest.raises(HubRetiredError):
+            port.query("m", timeout=0.1)
+
+        assert display.peer.read(1, timeout=0.2) == []
+        link.close()
+
+    def test_a_write_after_a_redial_fails_with_the_old_dials_error(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        writer = writer_of(link)
+        link.close()
+        link.connect(listen=True)
+
+        with pytest.raises(HubRetiredError):
+            writer.send_scene(_scene("x"))
+
+        assert display.peer.read(1, timeout=0.2) == []
+        link.close()
+
+    def test_the_dial_a_port_names_is_the_dial_it_was_made_for(
+        self, display: Display
+    ) -> None:
+        registry = ClientRegistry()
+        link = DisplayLink(display, recv_timeout=3.0)
+        registry._client = link
+        registry.get()
+        port = link.desk.asks()
+        link._connection.close()  # another thread retired it and redialed
+        registry.get()
+
+        registry.drop(port.dial)  # names the dial the port was made for
+
+        assert link.is_connected, "the drop closed the successor"
+        link.close()
+
+
+class TestTheWriteSeatIsHandedOutOnce:
+    def test_a_second_asker_is_refused(self, display: Display) -> None:
+        link = DisplayLink(display, recv_timeout=3.0)
+        link.desk.take_seat()
+
+        with pytest.raises(ValueError, match="already handed"):
+            link.desk.take_seat()
+
+    def test_the_registry_hands_the_link_s_seat_out_once(
+        self, display: Display
+    ) -> None:
+        registry = ClientRegistry()
+        registry._client = DisplayLink(display, recv_timeout=3.0)
+        registry.take_writer()
+
+        with pytest.raises(ValueError, match="already handed"):
+            registry.take_writer()
+
+
+class TestDeclaringWhatTheHubHolds:
+    def test_the_manifest_names_every_scene_the_hub_declares(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        display.peer.read(0, timeout=0.01)
+
+        link.desk.declare(("a", "b"))
+
+        (sent,) = display.peer.read(1)
+        assert sent == HubManifestMessage(scene_ids=("a", "b"))
+        link.close()
+
+    def test_a_manifest_that_cannot_be_sent_raises_and_the_dial_retires(
+        self, display: Display
+    ) -> None:
+        # The registry closes the link on this failure; the write itself retires
+        # the dial it failed on, as every write does.
+        link = _linked(display)
+        display.sockets[-1].fail_next_send = True
+
+        with pytest.raises(OSError, match="fell over"):
+            link.desk.declare(("a",))
+
+        assert not link.is_connected
+
+
+class TestAPingIsStampedUnderItsLock:
+    def test_a_stamp_without_the_ping_lock_is_refused(self, display: Display) -> None:
+        link = _linked(display)
+
+        with pytest.raises(RuntimeError, match="ping lock"):
+            link._desk.exchange.next_ping_ts()
+
+        link.close()
+
+    def test_stamps_under_the_lock_only_ever_rise(self, display: Display) -> None:
+        link = _linked(display)
+        exchange = link._desk.exchange
+
+        with exchange.exclusive("ping"):
+            first, second = exchange.next_ping_ts(), exchange.next_ping_ts()
+
+        assert second > first
         link.close()

@@ -40,12 +40,11 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_closed import HubRetiredError
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.batch_sender import BatchSendError
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
-    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
-    from punt_lux.domain.ids import SceneId
 
 logger = logging.getLogger(__name__)
 
@@ -82,14 +81,7 @@ class SendRecovery:
         self._respawn = respawn
         return self
 
-    def recover(
-        self,
-        batch: DrainedBatch,
-        *,
-        failure: OSError,
-        suspect: frozenset[SceneId],
-        dial: DialGeneration | None,
-    ) -> None:
+    def recover(self, batch: DrainedBatch, failure: BatchSendError) -> None:
         """Heal the display after ``failure``, then re-mark the failed batch.
 
         A shutdown flush — the batch's shutting flag — is best-effort: it logs and
@@ -98,23 +90,23 @@ class SendRecovery:
         purpose, not crashing. Reading the flag from the batch here makes that
         policy unbypassable by the caller.
 
-        A ``failure`` that is a :class:`HubRetiredError` says nothing about the
+        A failure whose cause is a :class:`HubRetiredError` says nothing about the
         display (the Hub's own policy ended the dial), so nothing is attributed,
         reaped or dropped: the dial is redialed and the batch repainted. Any other
         failure is a death: a ``BlockingIOError`` (a send timeout) is a wedged
         display, killed so its service unit respawns it; any other ``OSError`` is
         a dead peer, only dropped.
 
-        ``suspect`` is whatever the caller determined was in flight when the send
-        failed: the whole batch in batching mode, or the one scene being probed in
+        The failure's ``suspect`` is whatever was in flight when the send failed:
+        the whole batch in batching mode, or the one scene being probed in
         isolation mode (display-crash-quarantine.md Question 1). The attribution
-        records ``failure``'s message in the ``QuarantineRecord`` so an agent whose
+        records the cause's message in the ``QuarantineRecord`` so an agent whose
         scene later crosses the threshold sees WHY it was quarantined. Attributing
         runs before healing so a scene that just reached the threshold is
         quarantined, and therefore excluded from replication, before the re-mark.
 
-        ``dial`` is the dial the failed send went out on (``None`` if none was
-        had); only it is dropped, and only if no redial has replaced it.
+        The failure's ``dial`` is the dial the failed send went out on (``None`` if
+        none was had); only it is dropped, and only if no redial has replaced it.
 
         ``get()`` after the heal is the one DES-068 connect-success hook
         (``ClientRegistry._connect_and_reconcile``): it declares the fresh
@@ -127,21 +119,19 @@ class SendRecovery:
         if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
             return
-        if not isinstance(failure, HubRetiredError):
-            self._heal(failure, suspect, dial)
+        if not isinstance(failure.cause, HubRetiredError):
+            self._heal(failure)
         self._clients.get()
         self._repaint(batch)
 
-    def _heal(
-        self, failure: OSError, suspect: frozenset[SceneId], dial: DialGeneration | None
-    ) -> None:
-        """Attribute the death to ``suspect``, reap a wedged display, drop the dial."""
-        self._attribution.attribute_death(suspect, render_error=str(failure))
-        if isinstance(failure, BlockingIOError):
+    def _heal(self, failure: BatchSendError) -> None:
+        """Attribute the death to the suspect, reap a wedged display, drop the dial."""
+        self._attribution.attribute_death(failure.suspect, render_error=str(failure))
+        if isinstance(failure.cause, BlockingIOError):
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
-        if dial is not None:
-            self._clients.drop(dial)
+        if failure.dial is not None:
+            self._clients.drop(failure.dial)
 
     def reset_backoff_if_stable(self) -> None:
         """Reset the respawn backoff once the Display has served stably.

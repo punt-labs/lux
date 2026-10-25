@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 __all__ = ["fake_dial"]
 
 
-def fake_dial() -> DialGeneration:
+def fake_dial() -> DialRef:
     """Return an opaque token standing for a dial the fake never reads or writes.
 
     The code under test only hands it back (``drop(dial)``), so a bare object
-    stands in for a real :class:`DialGeneration` and its socket.
+    stands in for a real :class:`DialRef` and the dial behind it.
     """
-    return cast("DialGeneration", object())
+    return cast("DialRef", object())

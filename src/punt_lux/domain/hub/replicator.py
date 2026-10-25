@@ -137,6 +137,7 @@ class HubReplicator:
             menu_reader,
             callback_reader,
             clients,
+            clients.take_writer(),  # the one writer: nothing else is given the seat
             self._attribution,
             owner_facts,
         )
@@ -288,11 +289,26 @@ class HubReplicator:
                 self._disconnected_retry.wait(self._clients, since_gen=since_gen)
             return _CycleOutcome(outcome="disconnected")
         except BatchSendError as exc:
-            self._recovery.recover(
-                batch, failure=exc.cause, suspect=exc.suspect, dial=exc.dial
-            )
-            return _CycleOutcome(outcome="recovered")
+            return self._recovered(batch, exc, since_gen)
         return _CycleOutcome(outcome="clean", emptied=emptied)
+
+    def _recovered(
+        self, batch: DrainedBatch, failure: BatchSendError, since_gen: int
+    ) -> _CycleOutcome:
+        """Heal after a failed send; a display that is down is the disconnected path.
+
+        The heal may find nobody to redial: the display died and stayed down. That
+        is paced as the display being down and the batch held for its return, not
+        logged as a replicator cycle that crashed.
+        """
+        try:
+            self._recovery.recover(batch, failure)
+        except DisplayNotConnectedError:
+            self._recovery.restore(batch)
+            if not batch.shutting:
+                self._disconnected_retry.wait(self._clients, since_gen=since_gen)
+            return _CycleOutcome(outcome="disconnected")
+        return _CycleOutcome(outcome="recovered")
 
     def _back_off(self) -> None:
         """Sleep the current retry delay, then grow it toward the cap."""

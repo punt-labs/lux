@@ -81,7 +81,9 @@ class DialReader:
                     if self._read_ended(exc):
                         cause = "display"
                     break
-                if data is not None and not self._routed(data):
+                ended = None if data is None else self._routed(data)
+                if ended is not None:
+                    cause = ended
                     break
         finally:
             self._connection.close_if_current(generation, cause=cause)
@@ -102,18 +104,21 @@ class DialReader:
             logger.warning("Listener exiting: read from %s failed: %s", endpoint, exc)
         return True
 
-    def _routed(self, data: bytes) -> bool:
+    def _routed(self, data: bytes) -> RetireCause | None:
         """Route every message ``data`` completes, each as it is decoded.
 
         A frame that cannot be decoded cannot be skipped -- the stream has no
         way to say where the next one starts -- so the dial is retired and the
-        reconnect begins on a frame boundary. A frame of a kind a display never
-        sends (a scene, say) is refused on its raw type before any decoding and
-        ends the dial the same way. Returns whether the stream is still good.
+        reconnect begins on a frame boundary: the display sent it, so the display
+        ended the dial. A frame of a kind a display never sends (a scene, say) is
+        refused on its raw type before any decoding and ends the dial the same way.
+        Returns ``None`` while the stream is still good, else who ended it.
         """
         generation = self._generation
         messages = generation.messages(data)
-        # A retired dial delivers nothing: the rest of the chunk is not routed.
+        # A retired dial delivers nothing of what its replies owe: the rest of the
+        # chunk is not routed. (An event or an interaction is link-level, not the
+        # dial's reply: see ``_routed_one``.)
         while not self._stopping.is_set() and not generation.is_closed:
             try:
                 msg = next(messages, None)
@@ -123,20 +128,27 @@ class DialReader:
                     generation.endpoint,
                     generation.head(_HEAD_BYTES),
                 )
-                return False
+                return "display"
             if msg is None:
-                return True
-            if not self._routed_one(msg):
-                return False
-        return False
+                return None
+            ended = self._routed_one(msg)
+            if ended is not None:
+                return ended
+        return "hub"
 
-    def _routed_one(self, msg: Message) -> bool:
-        """Hand one decoded message to its route; whether the stream is still good.
+    def _routed_one(self, msg: Message) -> RetireCause | None:
+        """Hand one decoded message to its route; ``None`` while the stream is good.
 
         A business event or interaction whose handler raises costs that message:
         the stream is sound and the next frame is waiting. A reply that cannot be
         routed is never skipped -- the next reply would then be matched to the
-        wrong request -- so it ends the dial.
+        wrong request -- so it ends the dial, and it is the Hub that ends it: the
+        stream skewed, or the Hub's own routing failed.
+
+        Retirement orders delivery of *replies* only: a retired dial's sink
+        refuses them. A business event or an interaction belongs to the link, not
+        to the dial that carried it (rule 16), so one the display had already sent
+        is delivered even as its dial retires.
         """
         try:
             self._route(self._generation, msg)
@@ -147,5 +159,5 @@ class DialReader:
                 self._generation.endpoint,
                 repr(msg)[:_HEAD_REPR],
             )
-            return not isinstance(msg, REPLY_TYPES)
-        return True
+            return "hub" if isinstance(msg, REPLY_TYPES) else None
+        return None

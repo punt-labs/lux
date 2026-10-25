@@ -226,3 +226,40 @@ class TestARetiredDialNeverDelivers:
         sink.discard()
 
         assert sink.await_reply(ping, 0.0) == PongMessage(ts=1.0)
+
+
+class TestTheClosedFlagIsOneHoldWithTheDiscard:
+    """A delivery sees the closed flag in the same lock hold it puts in.
+
+    The discard writes the flag under the sink's lock, and ``deliver`` reads it
+    under that lock in the same hold as the put: a delivery that is waiting on the
+    lock when the dial is retired sees the retirement and puts nothing.
+    """
+
+    def test_a_delivery_queued_behind_the_discard_sees_it(self) -> None:
+        sink = ReplySink()
+        outcome: list[BaseException | None] = []
+
+        def deliver() -> None:
+            try:
+                sink.deliver(AckMessage(scene_id="stray"))  # owed nothing
+            except ReplyOutOfOrderError as exc:
+                outcome.append(exc)
+            else:
+                outcome.append(None)
+
+        with sink._cond:  # the retirement holds the sink's lock
+            thread = threading.Thread(target=deliver)
+            thread.start()
+            thread.join(timeout=0.1)
+            assert thread.is_alive(), "the delivery did not wait for the lock"
+            sink.discard()  # reentrant: the same hold writes the flag
+        thread.join(timeout=3.0)
+
+        assert outcome == [None], "the delivery read the flag before the hold"
+
+    def test_a_stray_ack_before_the_discard_is_out_of_order(self) -> None:
+        sink = ReplySink()
+
+        with pytest.raises(ReplyOutOfOrderError):
+            sink.deliver(AckMessage(scene_id="stray"))

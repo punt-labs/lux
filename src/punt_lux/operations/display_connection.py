@@ -102,8 +102,7 @@ class HubDisplayConnection:
         drops nothing; any other ``RuntimeError`` is a bug and propagates.
         """
         try:
-            port = self._clients.get().requests
-            dial = port.dial
+            port = self._clients.get().desk.asks()  # pinned to the dial it will use
         except (DisplayNotConnectedError, ConnectionClosedError):
             return DisplayFault(code="display_unavailable")
         except OSError:
@@ -113,10 +112,10 @@ class HubDisplayConnection:
         except DisplayBusyError:
             return DisplayFault(code="timeout")  # nothing sent; the dial is sound
         except ConnectionClosedError:
-            self._clients.drop(dial)
+            self._clients.drop(port.dial)
             return DisplayFault(code="display_unavailable")
         except OSError:
-            self._clients.drop(dial)
+            self._clients.drop(port.dial)
             return DisplayFault(code="timeout")
 
     @property

@@ -37,7 +37,7 @@ from tests.dial_double import fake_dial
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 _GEOMETRY_REPLY: dict[str, object] = {
     "scene_id": "s1",
@@ -84,12 +84,16 @@ class _StubClient:
     __slots__ = ()
 
     @property
-    def requests(self) -> _StubClient:
-        """The outbound port: this stub is its own."""
+    def desk(self) -> _StubClient:
+        """The request desk: this fake is its own."""
+        return self
+
+    def asks(self) -> _StubClient:
+        """The ask port: this fake is its own."""
         return self
 
     @property
-    def dial(self) -> DialGeneration:
+    def dial(self) -> DialRef:
         """The dial a failed request would name; the stub has no real one."""
         return fake_dial()
 

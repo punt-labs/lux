@@ -22,7 +22,7 @@ from punt_lux.domain.hub.liveness_pacing import LivenessPacing
 from punt_lux.domain.hub.liveness_probe import LivenessProbe
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.keepalive_ports import KeepaliveClients
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ class DisplayLiveness:
         self._pacing.mark_disconnected()
         self._reconnect(probe.dial)
 
-    def _reconnect(self, dial: DialGeneration | None) -> None:
+    def _reconnect(self, dial: DialRef | None) -> None:
         """Drop the dead dial and re-probe -- a live probe marks connected at
         once, sparing a further disconnected-interval cycle."""
         if dial is not None:  # None: the probe never got a dial, nothing to drop

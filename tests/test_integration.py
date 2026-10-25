@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import writer_of
 
 NUM_RAPID_SCENES = 100
 
@@ -184,7 +185,7 @@ class TestRapidSceneUpdates:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
-                    ack = client.requests.show(
+                    ack = writer_of(client).show(
                         scene_id,
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -230,7 +231,7 @@ class TestRapidSceneUpdates:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
-                    ack = client.requests.show(
+                    ack = writer_of(client).show(
                         f"s{seq}",
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
@@ -363,7 +364,7 @@ class TestReconnection:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
-                ack = client1.requests.show(
+                ack = writer_of(client1).show(
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
                 )
@@ -398,7 +399,7 @@ class TestReconnection:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
-                ack = client2.requests.show(
+                ack = writer_of(client2).show(
                     "s2",
                     elements=[TextElement(id="t1", content="second")],
                 )

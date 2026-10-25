@@ -81,7 +81,13 @@ class InboundRouter:
             logger.debug("Dropping unhandled message: %s", type(msg).__name__)
 
     def run_held(self) -> None:
-        """Run the interactions an inline read held, on the calling thread."""
+        """Run the interactions an inline read held, on the calling thread.
+
+        An interaction belongs to the link, not to the dial that carried it
+        (rule 16), so one held by a read whose dial has since retired still runs:
+        the display sent it and the user did it. Only a *reply* is the dial's own,
+        and a retired dial's sink refuses it.
+        """
         while True:
             try:
                 held = self._held.get_nowait()

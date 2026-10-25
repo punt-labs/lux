@@ -20,7 +20,7 @@ from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -91,7 +91,7 @@ class DisplayReplies:
 
         The same routing the listener applies, so the ack ledger stays in step
         with the wire. A failed read or an undecodable frame retires the dial, as
-        the reader would.
+        the reader would, naming who ended it the way the reader does.
         """
         while not generation.answered(pending):
             remaining = deadline - time.monotonic()
@@ -105,22 +105,35 @@ class DisplayReplies:
                 # The display's end, or our own retirement: either way it is over.
                 self._connection.close_if_current(generation, cause="display")
                 raise
-            except (ValueError, KeyError, TypeError) as exc:
-                # A frame the stream cannot be trusted past: the dial's end is the
-                # Hub's, and the caller learns it as a closed connection.
+            except ReplyOutOfOrderError as exc:
+                # The stream skewed: the Hub gives up on a dial it can no longer
+                # match replies on, and the display is not blamed for it.
                 self._connection.close_if_current(generation, cause="hub")
-                msg = f"{generation.endpoint} sent a frame that broke its stream"
+                msg = f"{generation.endpoint} sent a reply nobody was owed"
                 raise HubRetiredError(msg) from exc
+            except (ValueError, KeyError, TypeError) as exc:
+                # A frame the stream cannot be trusted past: the display sent it,
+                # so the display ended the dial, and the caller learns it as one.
+                self._connection.close_if_current(generation, cause="display")
+                msg = f"{generation.endpoint} sent a frame that broke its stream"
+                raise ConnectionClosedError(msg) from exc
             except Exception:  # re-raised: the dial's stream cannot be trusted
                 self._connection.close_if_current(generation, cause="hub")
                 raise
         return generation.await_reply(pending, 0.0)
 
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
-        """Route every message ``chunk`` completes; a raising reply ends the dial."""
+        """Route every message ``chunk`` completes; a raising reply ends the dial.
+
+        A retired dial stops routing the rest of its chunk: nothing after the point
+        the stream was given up on can be matched to a request, and a reply it was
+        owed is refused by its sink. Events and interactions are link-level, not
+        the dial's: one already routed (or held, see ``run_held``) is delivered
+        whichever dial carried it (rule 16).
+        """
         for msg in generation.messages(chunk):
             if generation.is_closed:
-                return  # a retired dial delivers nothing
+                return  # a retired dial routes nothing more
             try:
                 self._listener.route(generation, msg, inline=True)
             except Exception:

@@ -14,7 +14,9 @@ import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_reader import DialReader
 from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.domain.hub.listener_thread import ListenerThread
@@ -143,7 +145,7 @@ class TestLifecycle:
             DisplayConnection(Display(), 1.0), lambda _g, _m: None
         )
 
-        with pytest.raises(ConnectionClosedError):
+        with pytest.raises(DisplayNotConnectedError):
             listener.start()
 
     def test_exits_when_the_display_closes_the_connection(self, rig: _Rig) -> None:
@@ -851,3 +853,28 @@ class TestABornClaimedDialReplacedInTheGap:
         finally:
             connection.close()
             display.close()
+
+
+class TestTheReaderLoopStopsOnItsDialsRetirement:
+    """The loop ends on ``generation.is_closed``, not only on its stopping flag."""
+
+    def test_a_reader_started_on_a_retired_dial_reads_and_routes_nothing(
+        self, rig: _Rig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        generation = rig.connection.require()
+        reads: list[float] = []
+
+        def spy(self: DialGeneration, timeout: float) -> bytes | None:
+            reads.append(timeout)
+            msg = "read after the retirement"
+            raise ConnectionClosedError(msg)
+
+        monkeypatch.setattr(DialGeneration, "poll_chunk", spy)
+        generation.mark_closed("hub")  # retired; its stopping flag was never set
+        rig.display.peer.send_raw(_pong(1.0))
+        reader = DialReader(rig.connection, generation, rig._record, threading.Event())
+
+        reader.run()
+
+        assert reads == [], "the loop read a dial that was already retired"
+        assert rig.routed == []

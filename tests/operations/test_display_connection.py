@@ -26,7 +26,7 @@ from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 
 class _Response:
@@ -72,16 +72,20 @@ class _Client:
     _ping_reply: object
     _raise: Exception | None
     _ping_delay: float
-    _dial: DialGeneration
+    _dial: DialRef
     ping_timeout: float | None
 
     @property
-    def requests(self) -> _Client:
-        """The outbound port: this fake is its own."""
+    def desk(self) -> _Client:
+        """The request desk: this fake is its own."""
+        return self
+
+    def asks(self) -> _Client:
+        """The ask port: this fake is its own."""
         return self
 
     @property
-    def dial(self) -> DialGeneration:
+    def dial(self) -> DialRef:
         """The dial a failed request names when it asks for the drop."""
         return self._dial
 
@@ -122,7 +126,7 @@ class _Registry:
     _client: _Client
     _connect_error: Exception | None
     is_connected: bool
-    drops: list[DialGeneration]
+    drops: list[DialRef]
 
     def __new__(
         cls,
@@ -139,7 +143,7 @@ class _Registry:
         return self
 
     @property
-    def client_dial(self) -> DialGeneration:
+    def client_dial(self) -> DialRef:
         """The dial the client's requests go out on."""
         return self._client.dial
 
@@ -148,7 +152,7 @@ class _Registry:
             raise self._connect_error
         return self._client
 
-    def drop(self, generation: DialGeneration) -> None:
+    def drop(self, generation: DialRef) -> None:
         self.drops.append(generation)
 
 

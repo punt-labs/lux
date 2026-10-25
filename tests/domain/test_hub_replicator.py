@@ -10,6 +10,7 @@ sending (P6).
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING, Self, cast
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
     from punt_lux.domain.hub.scene_snapshot import SceneReader
 
@@ -72,6 +73,27 @@ def _seed(
     )
     store.frames.record(scene_id, ScenePresentation(frame_id=scene))
     return scene_id
+
+
+class _ProbeView:
+    """The ask side of a fake display: a dial of its own, and the sender's answer."""
+
+    _sender: _FakeSender
+    __slots__ = ("_sender",)
+
+    def __new__(cls, sender: _FakeSender) -> Self:
+        self = super().__new__(cls)
+        self._sender = sender
+        return self
+
+    @property
+    def dial(self) -> DialRef:
+        """The dial a probe goes out on, distinct from the one the sends use."""
+        return self._sender.probe_dial
+
+    def confirm_alive(self, timeout: float) -> bool:
+        """Answer as the sender does."""
+        return self._sender.confirm_alive(timeout)
 
 
 class _FakeSender:
@@ -100,7 +122,8 @@ class _FakeSender:
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
-    _dial: DialGeneration
+    _dial: DialRef
+    _probe_dial: DialRef
     __slots__ = (
         "_crasher",
         "_defer_after",
@@ -111,6 +134,7 @@ class _FakeSender:
         "_fail_scene",
         "_gate",
         "_lock",
+        "_probe_dial",
         "_sent",
         "callback_submenus",
         "frames",
@@ -123,12 +147,25 @@ class _FakeSender:
     )
 
     @property
-    def requests(self) -> _FakeSender:
-        """The outbound port: this fake is its own."""
+    def desk(self) -> _FakeSender:
+        """The request desk: this fake is its own."""
+        return self
+
+    def asks(self) -> _ProbeView:
+        """The ask port: a view with a dial of its own."""
+        return _ProbeView(self)
+
+    @property
+    def probe_dial(self) -> DialRef:
+        """The dial the ask port names, apart from the writer's."""
+        return self._probe_dial
+
+    def current(self) -> _FakeSender:
+        """The writer seat: this fake is its own writer."""
         return self
 
     @property
-    def dial(self) -> DialGeneration:
+    def dial(self) -> DialRef:
         """The dial a failed send names when it asks for the drop."""
         return self._dial
 
@@ -147,6 +184,7 @@ class _FakeSender:
         self._crasher = None
         self._deferred_dead = False
         self._dial = fake_dial()
+        self._probe_dial = fake_dial()
         self._defer_after = None
         self._gate = None
         self._lock = threading.Lock()
@@ -183,7 +221,7 @@ class _FakeSender:
         the scene, so the *next* write or probe surfaces the death. Under this
         arming ``send_scene(message)`` records the send and then flips
         ``_deferred_dead`` on; any subsequent send raises OSError and any
-        subsequent ``probe_alive`` returns False.
+        subsequent ``confirm_alive`` returns False.
         """
         self._defer_after = scene_id
 
@@ -261,10 +299,10 @@ class _FakeSender:
         with self._lock:
             self.callback_submenus.append(list(submenus))
 
-    def probe_alive(self, timeout: float) -> bool:
+    def confirm_alive(self, timeout: float) -> bool:
         """Report the display alive so long as no send has yet blown up.
 
-        Mirrors ``DisplayLink.probe_alive``'s roundtrip semantics: crashes
+        Mirrors ``DisplayRequests.confirm_alive``'s roundtrip semantics: crashes
         surface synchronously through ``send_scene`` in this fake (a crasher
         send raises immediately), so a probe *between* sends sees a healthy
         display right up to the send that actually raises. Nothing to detect
@@ -310,12 +348,13 @@ class _FakeProvider:
     _reconcile: Callable[[], None] | None
     _needs_reconcile: bool
     _unreachable: bool
+    _unreachable_after_drop: bool
     _generic_failure: bool
     _gen: int
     _block_until_stop: bool
     _stop_event: threading.Event
     drops: int
-    dropped: list[DialGeneration]
+    dropped: list[DialRef]
     reconnect_waits: list[float]
     stop_requests: int
     __slots__ = (
@@ -327,6 +366,7 @@ class _FakeProvider:
         "_sender",
         "_stop_event",
         "_unreachable",
+        "_unreachable_after_drop",
         "dropped",
         "drops",
         "reconnect_waits",
@@ -341,6 +381,7 @@ class _FakeProvider:
         self._reconcile = reconcile
         self._needs_reconcile = False
         self._unreachable = False
+        self._unreachable_after_drop = False
         self._generic_failure = False
         self._gen = 0
         self._block_until_stop = False
@@ -361,6 +402,10 @@ class _FakeProvider:
     def arm_unreachable(self) -> None:
         """Make every ``get()`` raise ``DisplayNotConnectedError`` — never connected."""
         self._unreachable = True
+
+    def arm_unreachable_after_drop(self) -> None:
+        """Make the display unreachable once a dial is dropped: it died, stays down."""
+        self._unreachable_after_drop = True
 
     def heal_unreachable(self) -> None:
         """Stop raising — the next ``get()`` succeeds, like a display returning."""
@@ -390,10 +435,16 @@ class _FakeProvider:
             self._needs_reconcile = False
         return self._sender
 
-    def drop(self, generation: DialGeneration) -> None:
+    def take_writer(self) -> _FakeSender:
+        """The write seat: the sender is its own."""
+        return self._sender
+
+    def drop(self, dial: DialRef) -> None:
         self.drops += 1
-        self.dropped.append(generation)
+        self.dropped.append(dial)
         self._needs_reconcile = True
+        if self._unreachable_after_drop:
+            self._unreachable = True
 
     def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
         """Record the wait; instant unless ``arm_blocking_reconnect_wait`` was
@@ -1735,3 +1786,60 @@ def test_a_send_in_progress_is_waited_out_by_the_sent_count() -> None:
     reader.join(timeout=2.0)
 
     assert counted == [1]
+
+
+def test_a_redial_that_finds_the_display_down_is_the_disconnected_path(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The send failed because the display died; the heal drops its dial and the
+    # redial finds nobody there. That is the display being down, paced as such and
+    # logged as such: not a replicator cycle that crashed.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
+    sender.arm_failure(OSError("reset"))
+    provider.arm_unreachable_after_drop()
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+
+    with caplog.at_level(logging.ERROR):
+        repl._run_cycle(batch)
+
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert provider.reconnect_waits == [2.0]  # the disconnected pacing ran
+    assert repl._backoff == _BASE_BACKOFF_SECONDS  # the wedged curve did not advance
+
+
+def test_a_batch_that_met_a_down_display_after_recovery_is_held_for_the_redial() -> (
+    None
+):
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
+    sender.arm_failure(OSError("reset"))
+    provider.arm_unreachable_after_drop()
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+
+    repl._run_cycle(batch)
+    provider.heal_unreachable()
+    again = repl._signal.wait_and_drain(0.5, idle_tick_seconds=0.5)
+
+    assert scene in again.scenes  # restored, so nothing is lost across the outage
+
+
+def test_a_failed_isolation_probe_names_the_dial_the_probe_went_out_on() -> None:
+    # The probe is a request of its own, pinned to the dial it was made on; when it
+    # is not answered, recovery drops that dial, the one that failed to answer.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "left")
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    repl._attribution.attribute_death(frozenset())  # isolation mode
+    sender.crash_after_render("left")  # the send lands; the probe is never answered
+
+    with pytest.raises(BatchSendError) as caught:
+        repl._sender.push(DrainedBatch(frozenset({scene}), shutting=False))
+
+    assert caught.value.suspect == frozenset({scene})
+    assert caught.value.dial is sender.probe_dial

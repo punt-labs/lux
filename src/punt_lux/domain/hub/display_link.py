@@ -2,10 +2,10 @@
 
 :class:`DisplayLink` coordinates one dial's lifecycle across its parts: it opens
 the dial (the ``ReadyMessage`` handshake), starts and stops the listener on it,
-and closes it. What the Hub sends and waits for is
-:attr:`~DisplayLink.requests`; what the display pushes (business events,
-interactions) is :attr:`~DisplayLink.events`. Each is a port: callers use that one
-object's surface.
+and closes it. What the Hub asks and waits for is
+:attr:`~DisplayLink.desk` (its asks, its manifest, and the one seat writers are
+made at); what the display pushes (business events, interactions) is
+:attr:`~DisplayLink.events`. Each is a port: callers use that one object's surface.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_listener import DisplayListener
-from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
+from punt_lux.domain.hub.request_desk import RequestDesk
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.event_port import EventPort
 
@@ -46,7 +46,7 @@ class DisplayLink:
 
     _connection: DisplayConnection
     _listener: DisplayListener
-    _requests: DisplayRequests
+    _desk: RequestDesk
 
     def __new__(
         cls,
@@ -58,7 +58,7 @@ class DisplayLink:
         self = super().__new__(cls)
         self._connection = DisplayConnection(dialer, connect_timeout)
         self._listener = DisplayListener(self._connection, recv_timeout)
-        self._requests = DisplayRequests(self._connection, self._listener, recv_timeout)
+        self._desk = RequestDesk(self._connection, self._listener, recv_timeout)
         return self
 
     @classmethod
@@ -105,13 +105,13 @@ class DisplayLink:
         """Whether the client has an active socket connection."""
         return self._connection.is_open
 
-    def drop_if_current(self, generation: DialGeneration) -> bool:
-        """Retire ``generation`` if it is still the current dial; whether it was.
+    def drop_if_current(self, dial: DialRef) -> bool:
+        """Retire ``dial`` if it is still the current dial; whether it was.
 
         What a caller that saw its own dial fail asks for: it never closes a
         newer dial that replaced the one that failed.
         """
-        return self._connection.close_if_current(generation, cause="hub")
+        return dial.retire_in(self._connection, cause="hub")
 
     def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.
@@ -148,12 +148,10 @@ class DisplayLink:
         self._listener.stop()
         self._connection.close()
 
-    # -- ports -------------------------------------------------------------
-
     @property
-    def requests(self) -> DisplayRequests:
-        """What the Hub sends the display, and the answers it waits for."""
-        return self._requests
+    def desk(self) -> RequestDesk:
+        """Where requests are made: the asks, the manifest, and the one write seat."""
+        return self._desk
 
     @property
     def events(self) -> EventPort:

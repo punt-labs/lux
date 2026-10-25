@@ -1679,7 +1679,9 @@ class TestPingTool:
         # The connection reads monotonic before the send and after the pong; the
         # difference is the rtt. A pong ts is still required as a validity signal.
         mock_time.monotonic.side_effect = [1000.0, 1000.042]
-        client.requests.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
+        client.desk.asks().ping.return_value = PongMessage(
+            ts=1000.0, display_ts=1000.005
+        )
         mock_get.return_value = client
 
         result = asyncio.run(ping())
@@ -1689,7 +1691,7 @@ class TestPingTool:
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_timeout(self, mock_running: MagicMock, mock_get: MagicMock) -> None:
         client = _mock_client()
-        client.requests.ping.return_value = None
+        client.desk.asks().ping.return_value = None
         mock_get.return_value = client
 
         with pytest.raises(ToolError, match="timeout"):
@@ -1855,7 +1857,9 @@ class TestPingNoAutoSpawn:
     ) -> None:
         client = _mock_client()
         mock_time.monotonic.side_effect = [1000.0, 1000.042]
-        client.requests.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
+        client.desk.asks().ping.return_value = PongMessage(
+            ts=1000.0, display_ts=1000.005
+        )
         mock_get.return_value = client
 
         result = asyncio.run(ping())

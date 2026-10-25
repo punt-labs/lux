@@ -35,6 +35,7 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.json_payload import MAX_NESTING, JsonPayload
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from tests.link_access import writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -178,7 +179,7 @@ class TestScenesFromADisplay:
         ) as link:
             link.connect()
             with pytest.raises(ConnectionClosedError) as refused:
-                link.requests.ping(timeout=2.0)
+                link.desk.asks().ping(timeout=2.0)
             assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []
@@ -194,7 +195,7 @@ class TestScenesFromADisplay:
         ) as link:
             link.connect()
             with pytest.raises(ConnectionClosedError) as refused:
-                link.requests.show("s", [])
+                writer_of(link).show("s", [])
             assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []

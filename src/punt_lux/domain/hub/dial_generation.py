@@ -312,7 +312,9 @@ class DialGeneration:
         reply owed): if it refuses, nothing was written and nothing is retired.
         Anything raised inside ``write`` -- whatever it is, a ``BaseException``
         included -- may have left a partial frame on the wire, so the dial retires,
-        after the lock is released.
+        after the lock is released. A socket failure is the display's doing (it reset
+        the connection, closed its end, or stopped reading until the send timed out);
+        anything else that stopped a write is the Hub's.
         """
         writing = False
         try:
@@ -321,6 +323,10 @@ class DialGeneration:
                 prepared = prepare()
                 writing = True
                 return write(prepared)
+        except OSError:
+            if writing:
+                self._retire(self, "display")
+            raise
         except BaseException:
             if writing:
                 self._retire(self, "hub")

@@ -1,8 +1,8 @@
 """LivenessProbe -- one ping of the display, and what it proved.
 
-A probe is a ``get`` and a ping round-trip. It never raises for a display that is
-down or slow: that is its answer. A ping that finds another ping in flight is itself
-proof, since that one is probing the display, so the display counts as alive.
+A probe is a ``get`` and a liveness ask. It never raises for a display that is
+down or slow: that is its answer. What counts as alive (a ping already in flight is
+itself proof) is the connection's rule, asked of it, not restated here.
 """
 
 from __future__ import annotations
@@ -11,11 +11,10 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.keepalive_ports import KeepaliveClients
 
 logger = logging.getLogger(__name__)
@@ -28,7 +27,7 @@ class Probe:
     """One probe's outcome: whether the display answered, and the dial it was on."""
 
     alive: bool
-    dial: DialGeneration | None  # None: no dial was had, so none can be dropped
+    dial: DialRef | None  # None: no dial was had, so none can be dropped
 
 
 @final
@@ -46,18 +45,15 @@ class LivenessProbe:
         return self
 
     def run(self) -> Probe:
-        """Ping once; the caller logs the not-connected transition, not each probe."""
+        """Ask once; the caller logs the not-connected transition, not each probe."""
         try:
-            port = self._clients.get().requests
-            dial = port.dial
+            port = self._clients.get().desk.asks()
         except (OSError, DisplayNotConnectedError) as exc:
             logger.debug("liveness probe failed: %s", exc)
             return Probe(alive=False, dial=None)
         try:
-            alive = port.ping(self._timeout) is not None
-        except DisplayBusyError:
-            alive = True
+            alive = port.probe_alive(self._timeout)
         except (OSError, DisplayNotConnectedError) as exc:
             logger.debug("liveness probe failed: %s", exc)
             alive = False
-        return Probe(alive=alive, dial=dial)
+        return Probe(alive=alive, dial=port.dial)

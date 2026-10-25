@@ -1,31 +1,39 @@
-"""Ports the display keepalive depends on: a ping round-trip, and the clients."""
+"""Ports the display keepalive depends on: a liveness answer, and the clients."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.protocol import PongMessage
+    from punt_lux.domain.hub.dial_ref import DialRef
 
-__all__ = ["KeepaliveClients", "KeepaliveConnection", "KeepaliveLink"]
+__all__ = ["KeepaliveClients", "KeepaliveConnection", "KeepaliveDesk", "KeepaliveLink"]
 
 
 @runtime_checkable
 class KeepaliveConnection(Protocol):
-    """The one capability the keepalive needs of a connection: a ping round-trip."""
+    """What the keepalive needs of a connection: a liveness answer, and its dial."""
 
-    def ping(self, timeout: float | None = ...) -> PongMessage | None:
-        """Send a ping and return the pong, or ``None`` if none arrived in time.
+    def probe_alive(self, timeout: float) -> bool:
+        """Return whether the display is alive, as a liveness check counts it.
 
-        Raises :class:`~punt_lux.domain.hub.display_busy.DisplayBusyError` when
-        another ping held the dial for the whole wait and nothing was sent.
+        A ping already in flight is itself probing, so a busy dial counts as alive;
+        the rule is the connection's, and the keepalive never restates it.
         """
         ...
 
     @property
-    def dial(self) -> DialGeneration:
-        """The dial a ping goes out on: what a failed probe names to drop."""
+    def dial(self) -> DialRef:
+        """The dial a probe goes out on: what a failed probe names to drop."""
+        ...
+
+
+@runtime_checkable
+class KeepaliveDesk(Protocol):
+    """Where the keepalive makes its asks."""
+
+    def asks(self) -> KeepaliveConnection:
+        """A connection pinned to the dial that is current now."""
         ...
 
 
@@ -34,8 +42,8 @@ class KeepaliveLink(Protocol):
     """A display link, seen as the keepalive sees it: the port it pings through."""
 
     @property
-    def requests(self) -> KeepaliveConnection:
-        """The link's outbound port."""
+    def desk(self) -> KeepaliveDesk:
+        """Where the link's requests are made."""
         ...
 
 
@@ -47,5 +55,5 @@ class KeepaliveClients(Protocol):
         """Return the connected client, reconnecting and re-registering if dropped."""
         ...
 
-    def drop(self, generation: DialGeneration) -> None:
-        """Retire ``generation`` if still current, so the next ``get`` binds afresh."""
+    def drop(self, dial: DialRef) -> None:
+        """Retire ``dial`` if still current, so the next ``get`` binds afresh."""

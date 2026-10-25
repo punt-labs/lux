@@ -42,7 +42,7 @@ from tests.dial_double import fake_dial
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 
 pytestmark = pytest.mark.integration
@@ -69,12 +69,20 @@ class _FaultInjectingSender:
     __slots__ = ("_crashers", "shows")
 
     @property
-    def requests(self) -> _FaultInjectingSender:
-        """The outbound port: this fake is its own."""
+    def desk(self) -> _FaultInjectingSender:
+        """The request desk: this fake is its own."""
+        return self
+
+    def asks(self) -> _FaultInjectingSender:
+        """The ask port: this fake is its own."""
+        return self
+
+    def current(self) -> _FaultInjectingSender:
+        """The writer seat: this fake is its own writer."""
         return self
 
     @property
-    def dial(self) -> DialGeneration:
+    def dial(self) -> DialRef:
         """The dial a failed send names when it asks for the drop."""
         return fake_dial()
 
@@ -98,7 +106,7 @@ class _FaultInjectingSender:
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         pass
 
-    def probe_alive(self, timeout: float) -> bool:
+    def confirm_alive(self, timeout: float) -> bool:
         """Report alive unless a crash-armed scene would fail a subsequent write."""
         del timeout
         return not self._crashers
@@ -137,7 +145,11 @@ class _Provider:
             self._needs_reconcile = False
         return self._sender
 
-    def drop(self, generation: DialGeneration) -> None:
+    def take_writer(self) -> _FaultInjectingSender:
+        """The write seat: the sender is its own."""
+        return self._sender
+
+    def drop(self, dial: DialRef) -> None:
         self._needs_reconcile = True
 
     @property

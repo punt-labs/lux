@@ -135,7 +135,7 @@ class TestRequire:
 
     def test_raises_when_never_connected(self) -> None:
         with pytest.raises(
-            ConnectionClosedError, match="open\\(\\) the display connection"
+            DisplayNotConnectedError, match="open\\(\\) the display connection"
         ):
             DisplayConnection(_Dialer(), 1.0).require()
 
@@ -151,8 +151,42 @@ class TestRequire:
             connection.require()
 
     def test_a_connection_never_opened_is_not_a_display_death_either(self) -> None:
-        with pytest.raises(HubRetiredError):
+        # Nothing was dialed, so there is nothing for the display to have ended: the
+        # error is not a closed connection a sender could blame its batch for.
+        with pytest.raises(DisplayNotConnectedError) as caught:
             DisplayConnection(_Dialer(), 1.0).require()
+
+        assert not isinstance(caught.value, ConnectionClosedError)
+
+    def test_a_dial_the_display_ended_is_a_plain_closed_connection_for_whoever_asks(
+        self,
+    ) -> None:
+        # The reader saw the display die and retired the dial before the sender
+        # reached it: the sender still learns the display ended it, so the death is
+        # charged to what it was sending.
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+
+        with pytest.raises(ConnectionClosedError) as caught:
+            connection.require()
+
+        assert not isinstance(caught.value, HubRetiredError)
+
+    def test_the_cause_is_the_last_retirements(self) -> None:
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+        connection.open()
+        connection.close()  # the Hub's own close of the next dial
+
+        with pytest.raises(HubRetiredError):
+            connection.require()
+
+    def test_a_live_dial_is_returned_whatever_ended_the_one_before(self) -> None:
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+        connection.open()
+
+        assert connection.require() is not None
 
     def test_a_redial_makes_a_new_generation_that_carries_nothing_over(self) -> None:
         connection, _ = _opened()

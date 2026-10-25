@@ -22,8 +22,13 @@ class ConnectionClosedError(ConnectionError):
 
 
 class HubRetiredError(ConnectionClosedError):
-    """The Hub retired this dial by its own policy; the display did not die.
+    """The Hub ended this dial by its own policy; the display did not die.
 
-    A sender that finds a dial retired this way has learned nothing about the
-    display, so it must not be blamed on whatever the sender was sending.
+    A query that timed out, a reply that came out of order, a write that failed
+    and the Hub's own close all end a dial this way. A sender that finds a dial
+    ended this way has learned nothing about the display, so it must not be
+    blamed on whatever the sender was sending. A dial the display ended (it closed
+    the stream, reset the connection, sent a frame that cannot be decoded, or
+    stopped reading until a send timed out) is a plain
+    :class:`ConnectionClosedError`.
     """

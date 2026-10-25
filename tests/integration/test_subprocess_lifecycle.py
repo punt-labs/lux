@@ -25,6 +25,7 @@ from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import TextElement
+from tests.link_access import writer_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -66,7 +67,7 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
             connect_timeout=5.0,
         ) as client:
             assert client.is_connected
-            ack = client.requests.show(
+            ack = writer_of(client).show(
                 "lifecycle-smoke",
                 elements=[TextElement(id="t1", content="Hello, lifecycle.")],
                 presentation=ScenePresentation(

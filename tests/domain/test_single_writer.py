@@ -1,64 +1,83 @@
-"""The replicator is the only Hub-side writer to the display connection.
+"""The replicator is the only Hub-side writer to the display: by what exists.
 
 No MCP mutation tool, click dispatch, or Hub-hosted app may send to the display:
 they write ``HubDisplay`` and mark a scene dirty, and the one background replicator
-does every send. This guard reads the source of every module and fails if a display
-write appears outside the modules that own the send path, so the single-writer
-invariant cannot regress silently.
+does every send. That is held by construction, not by spotting calls:
 
-The write verbs are derived from the sources that define them, not listed: a public
-``DisplayRequests`` method is a write when its body (through the private helpers it
-calls) reaches a ``DialGeneration`` write, and a ``DialGeneration`` ``send*`` method
-is a write unless it registers a reply to wait for (a ping or a query). A call is the
-display's when its receiver is reached through ``.requests``, ``.dial`` or
-``.require()``, directly or through a name bound from one. The guard fails on
-planted violations, so it cannot pass by matching nothing.
+- the write verbs exist on ``DisplayWriter`` and nowhere else (its public methods are
+  the verbs; ``DisplayRequests``, which every part of the Hub may hold, has none and
+  reaches no write of the dial);
+- a writer is made at one site (``WriteSeat.current``), the seat at one site (the
+  link's request desk), and the seat is given away once, to the one writer, through the
+  two hops (the registry takes it from its link's desk, the replicator from the
+  registry), so a second asker is refused at run time;
+- a dial's own write methods are reachable only by what holds a ``DialGeneration``,
+  and the modules that so much as name that type are exactly the dial model's.
+
+Each rule is read from the source and run on planted source, so none can pass by
+matching nothing.
 """
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Self, final
+from typing import TYPE_CHECKING
+
+import pytest
+
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.display_requests import DisplayRequests
+from punt_lux.domain.hub.display_writer import DisplayWriter
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 _HUB = "domain/hub/"
 
-# The modules that own the send path: the client that defines the surface and its
-# outbound half, the dial the writes land on, the batch sender the replicator
-# drives and the presentation it pushes, and the registry's connect-time manifest.
-_SENDER_MODULES = frozenset(
+# The modules that name a ``DialGeneration``: the dial and what is built on it. A
+# module outside this set cannot hold a dial, so it cannot write or read on one.
+_DIAL_MODEL = frozenset(
     {
-        _HUB + "display_link.py",
-        _HUB + "display_requests.py",
         _HUB + "dial_generation.py",
-        _HUB + "scene_presentation.py",
-        _HUB + "batch_sender.py",
-        _HUB + "clients.py",
+        _HUB + "dial_reader.py",
+        _HUB + "dial_ref.py",
+        _HUB + "display_connection.py",
+        _HUB + "display_listener.py",
+        _HUB + "display_replies.py",
+        _HUB + "display_requests.py",
+        _HUB + "display_writer.py",
+        _HUB + "inbound_router.py",
+        _HUB + "listener_thread.py",
+        _HUB + "request_exchange.py",
     }
 )
-# What marks a receiver as the display's: reached through one of these.
-_DISPLAY_PATHS = frozenset({"requests", "dial", "require"})
 # A reply-waiting registration: a send that makes one is a request, not a write.
 _EXPECTATIONS = frozenset({"expect_pong", "expect_query"})
 
 
-def _class(tree: ast.Module, name: str) -> ast.ClassDef:
+def _source(rel: str) -> str:
+    return (_SRC / rel).read_text(encoding="utf-8")
+
+
+def _class(source: str, name: str) -> ast.ClassDef:
     return next(
-        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == name
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.ClassDef) and n.name == name
     )
 
 
-def _methods(cls: ast.ClassDef) -> dict[str, ast.FunctionDef]:
-    return {n.name: n for n in cls.body if isinstance(n, ast.FunctionDef)}
+def _public_methods(source: str, name: str) -> dict[str, ast.FunctionDef]:
+    return {
+        n.name: n
+        for n in _class(source, name).body
+        if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")
+    }
 
 
-def _attrs_named(node: ast.AST) -> set[str]:
-    """Every attribute the node names, called or handed on as a callable."""
-    return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
-
-
-def _attrs_called(node: ast.AST) -> set[str]:
+def _called(node: ast.AST) -> set[str]:
     return {
         n.func.attr
         for n in ast.walk(node)
@@ -66,170 +85,199 @@ def _attrs_called(node: ast.AST) -> set[str]:
     }
 
 
-@final
-class WriteVerbs:
-    """The names a display write goes by, read from the classes that define them."""
-
-    _verbs: frozenset[str]
-    __slots__ = ("_verbs",)
-
-    def __new__(cls, requests_src: str, dial_src: str) -> Self:
-        self = super().__new__(cls)
-        dial = _methods(_class(ast.parse(dial_src), "DialGeneration"))
-        dial_writes = {
-            name
-            for name, fn in dial.items()
-            if name.startswith("send") and not _attrs_named(fn) & _EXPECTATIONS
-        }
-        requests = _methods(_class(ast.parse(requests_src), "DisplayRequests"))
-        public = {
-            name
-            for name, fn in requests.items()
-            if not name.startswith("_")
-            and self._reaches(fn, requests, dial_writes, set())
-        }
-        self._verbs = frozenset(public | dial_writes)
-        return self
-
-    @property
-    def names(self) -> frozenset[str]:
-        """Every verb that writes to the display."""
-        return self._verbs
-
-    @classmethod
-    def _reaches(
-        cls,
-        fn: ast.FunctionDef,
-        methods: dict[str, ast.FunctionDef],
-        writes: set[str],
-        seen: set[str],
-    ) -> bool:
-        """Whether ``fn`` calls a write, directly or through ``self._helper``."""
-        called = _attrs_called(fn)
-        if called & writes:
-            return True
-        seen.add(fn.name)
-        return any(
-            cls._reaches(methods[name], methods, writes, seen)
-            for name in called
-            if name.startswith("_") and name in methods and name not in seen
-        )
+def _attrs(node: ast.AST) -> set[str]:
+    return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
 
 
-@final
-class DisplayWriteScan:
-    """Finds, in one module's source, the calls that write to the display."""
-
-    _verbs: frozenset[str]
-    __slots__ = ("_verbs",)
-
-    def __new__(cls, verbs: frozenset[str]) -> Self:
-        self = super().__new__(cls)
-        self._verbs = verbs
-        return self
-
-    def writes(self, source: str) -> list[str]:
-        """Return ``verb@line`` for each display write the source makes."""
-        tree = ast.parse(source)
-        bound = self._bound_to_the_display(tree)
-        return [
-            f"{call.func.attr}@{call.lineno}"
-            for call in ast.walk(tree)
-            if isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Attribute)
-            and call.func.attr in self._verbs
-            and self._is_the_display(call.func.value, bound)
-        ]
-
-    @classmethod
-    def _bound_to_the_display(cls, tree: ast.Module) -> set[str]:
-        """Names assigned from an expression reached through the display's paths."""
-        return {
-            target.id
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) and cls._is_the_display(node.value, set())
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
-
-    @staticmethod
-    def _is_the_display(expr: ast.expr, bound: set[str]) -> bool:
-        for part in ast.walk(expr):
-            if isinstance(part, ast.Attribute) and part.attr in _DISPLAY_PATHS:
-                return True
-            if isinstance(part, ast.Name) and part.id in bound:
-                return True
-        return False
+def _names(source: str) -> set[str]:
+    """Every name the source uses or imports, however it spells the reference."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.ImportFrom | ast.Import):
+            found.update(a.name.split(".")[-1] for a in node.names)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
 
 
-def _verbs() -> WriteVerbs:
-    return WriteVerbs(
-        (_SRC / _HUB / "display_requests.py").read_text(encoding="utf-8"),
-        (_SRC / _HUB / "dial_generation.py").read_text(encoding="utf-8"),
+def _constructions(source: str, name: str) -> int:
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == name
     )
 
 
-class TestTheWriteVerbsAreDerived:
-    def test_the_derived_verbs_are_the_writes_and_not_the_requests(self) -> None:
-        names = _verbs().names
+def _calls_of(source: str, attribute: str) -> int:
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == attribute
+    )
 
-        assert {"send", "send_scene", "set_menu", "set_callback_menus"} <= names
-        assert {"send_manifest", "show"} <= names
-        assert names.isdisjoint({"ping", "query", "send_ping", "send_query"})
+
+def _modules(predicate: Callable[[str], object]) -> set[str]:
+    return {
+        path.relative_to(_SRC).as_posix()
+        for path in _SRC.rglob("*.py")
+        if predicate(path.read_text(encoding="utf-8"))
+    }
 
 
-class TestNoModuleOutsideTheSenderSetWritesToTheDisplay:
-    def test_the_whole_package_is_clean(self) -> None:
-        scan = DisplayWriteScan(_verbs().names)
-        offenders: list[str] = []
-        scanned = 0
-        for path in _SRC.rglob("*.py"):
-            scanned += 1
-            rel = path.relative_to(_SRC).as_posix()
-            if rel in _SENDER_MODULES:
-                continue
-            offenders += [
-                f"{rel}: {w}" for w in scan.writes(path.read_text(encoding="utf-8"))
-            ]
-        assert scanned > 0, "guard scanned no files — the source glob is broken"
-        assert offenders == [], (
-            "a module outside the sender set writes to the display directly; only "
-            f"the replicator's send path may write to the connection: {offenders}"
+def _dial_writes() -> set[str]:
+    """The dial's write methods: every ``send*`` that registers no reply to wait for."""
+    return {
+        name
+        for name, fn in _public_methods(
+            _source(_HUB + "dial_generation.py"), "DialGeneration"
+        ).items()
+        if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
+    }
+
+
+class TestTheWriteVerbsLiveOnTheWriterAlone:
+    def test_the_writers_public_methods_are_the_write_verbs(self) -> None:
+        verbs = set(
+            _public_methods(_source(_HUB + "display_writer.py"), "DisplayWriter")
         )
 
-    def test_the_replicator_is_the_writer(self) -> None:
-        # The positive side: the batch sender drives the send through the
-        # snapshot's ``push``, and the shared ScenePresentation.push does the
-        # scene send. If these move, the guard above must be revisited too.
-        sender = (_SRC / _HUB / "batch_sender.py").read_text(encoding="utf-8")
-        presentation = (_SRC / _HUB / "scene_presentation.py").read_text(
-            encoding="utf-8"
+        assert {"show", "send_scene", "set_menu", "set_callback_menus"} <= verbs
+        assert {"send_manifest"} <= verbs
+        assert verbs.isdisjoint({"ping", "query", "probe_alive", "confirm_alive"})
+
+    def test_the_dials_write_methods_are_derived_from_the_dial(self) -> None:
+        assert _dial_writes() == {"send", "send_scene"}
+
+    def test_the_ask_port_has_no_write_verb_and_reaches_no_dial_write(self) -> None:
+        source = _source(_HUB + "display_requests.py")
+        verbs = set(
+            _public_methods(_source(_HUB + "display_writer.py"), "DisplayWriter")
         )
-        assert "snapshot.push(" in sender
-        assert ".send_scene(" in presentation
+
+        asks = set(_public_methods(source, "DisplayRequests"))
+        reached = _called(_class(source, "DisplayRequests"))
+
+        assert asks.isdisjoint(verbs - {"dial"})
+        assert reached.isdisjoint(_dial_writes())
 
 
-class TestTheGuardFailsOnAPlantedViolation:
-    _SCAN = DisplayWriteScan(frozenset({"send", "send_scene", "set_menu", "show"}))
+class TestWhatEveryPartOfTheHubMayHold:
+    """The ask port, held by anything however it is spelled, cannot write."""
 
-    def test_a_menu_set_through_the_registry_link(self) -> None:
-        planted = "def tool(self):\n    self._clients.get().requests.set_menu([])\n"
+    def test_the_ask_port_has_none_of_the_writers_verbs_at_run_time(self) -> None:
+        verbs = {
+            name
+            for name in vars(DisplayWriter)
+            if not name.startswith("_") and callable(vars(DisplayWriter)[name])
+        }
 
-        assert self._SCAN.writes(planted) == ["set_menu@2"]
+        assert verbs, "the writer has no verbs to withhold"
+        assert [v for v in verbs if hasattr(DisplayRequests, v)] == []
 
-    def test_a_generic_send_on_the_current_dial(self) -> None:
-        planted = "def tool(self, msg):\n    self._connection.require().send(msg)\n"
+    def test_the_link_hands_out_no_writer_but_through_its_seat(self) -> None:
+        public = {n for n in vars(DisplayLink) if not n.startswith("_")}
 
-        assert self._SCAN.writes(planted) == ["send@2"]
+        assert {"writer", "send_scene", "set_menu", "show"}.isdisjoint(public)
 
-    def test_a_write_through_a_name_bound_from_the_port(self) -> None:
+
+class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
+    def test_a_writer_is_built_only_by_the_seat(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "DisplayWriter")
+            for rel in _modules(lambda s: _constructions(s, "DisplayWriter"))
+        }
+
+        assert built == {_HUB + "display_writer.py": 1}
+
+    def test_the_seat_is_built_only_by_the_link_s_desk(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "WriteSeat")
+            for rel in _modules(lambda s: _constructions(s, "WriteSeat"))
+        }
+
+        assert built == {_HUB + "request_desk.py": 1}
+
+    def test_a_dial_is_named_only_by_the_exchange(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "DialRef")
+            for rel in _modules(lambda s: _constructions(s, "DialRef"))
+        }
+
+        assert built == {_HUB + "request_exchange.py": 1}
+
+    def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:
+        # The registry takes it from its link's desk; the replicator from the registry.
+        assert _modules(lambda s: _calls_of(s, "take_seat") > 0) == {
+            _HUB + "clients.py"
+        }
+        assert _modules(lambda s: _calls_of(s, "take_writer") > 0) == {
+            _HUB + "replicator.py"
+        }
+
+    def test_each_hop_takes_the_seat_once(self) -> None:
+        assert _calls_of(_source(_HUB + "clients.py"), "take_seat") == 1
+        assert _calls_of(_source(_HUB + "replicator.py"), "take_writer") == 1
+
+
+class TestOnlyTheDialModelCanHoldADial:
+    def test_the_modules_that_name_a_dial_are_the_dial_models(self) -> None:
+        naming = _modules(lambda s: "DialGeneration" in _names(s))
+
+        assert naming == _DIAL_MODEL
+
+    def test_a_module_that_names_a_dial_in_any_spelling_is_found(self) -> None:
+        for planted in (
+            "from punt_lux.domain.hub.dial_generation import DialGeneration\n",
+            "import punt_lux.domain.hub.dial_generation as g\nx = g.DialGeneration\n",
+            "def f(dial: DialGeneration) -> None:\n    dial.send(None)\n",
+        ):
+            assert "DialGeneration" in _names(planted), planted
+
+
+class TestTheRulesCanFail:
+    def test_a_second_writer_construction_is_counted(self) -> None:
+        planted = "def f(g):\n    return DisplayWriter(g, None, None)\n"
+
+        assert _constructions(planted, "DisplayWriter") == 1
+
+    def test_a_second_seat_taker_is_found(self) -> None:
+        planted = "def f(clients):\n    return clients.take_writer()\n"
+
+        assert _calls_of(planted, "take_writer") == 1
+
+    def test_a_write_verb_on_the_ask_port_is_found(self) -> None:
         planted = (
-            "def tool(self):\n    port = self._link.requests\n    port.show('s', [])\n"
+            "class DisplayRequests:\n"
+            "    def set_menu(self, menus):\n"
+            "        self._generation.send(menus)\n"
         )
+        asks = set(_public_methods(planted, "DisplayRequests"))
 
-        assert self._SCAN.writes(planted) == ["show@3"]
+        assert asks & {"set_menu", "send_scene"} == {"set_menu"}
+        assert "send" in _called(_class(planted, "DisplayRequests"))
 
-    def test_the_same_verb_on_something_that_is_not_the_display_is_clean(self) -> None:
-        planted = "def tool(self, request):\n    return self._menus.set_menu(request)\n"
+    def test_a_new_dial_write_enters_the_derived_set(self) -> None:
+        planted = (
+            "class DialGeneration:\n"
+            "    def send_raw(self, data):\n"
+            "        self._sock.sendall(data)\n"
+            "    def send_probe(self, ts):\n"
+            "        return self._sink.expect_pong(ts)\n"
+        )
+        writes = {
+            name
+            for name, fn in _public_methods(planted, "DialGeneration").items()
+            if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
+        }
 
-        assert self._SCAN.writes(planted) == []
+        assert writes == {"send_raw"}
+
+    @pytest.mark.parametrize("name", ["DisplayWriter", "WriteSeat"])
+    def test_the_capability_classes_exist_to_be_counted(self, name: str) -> None:
+        assert _class(_source(_HUB + "display_writer.py"), name)
