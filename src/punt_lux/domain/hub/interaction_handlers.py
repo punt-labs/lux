@@ -67,7 +67,11 @@ class InteractionHandlers:
             msg.scene_id,
         )
         with self._safely(
-            "Fallback handler error for %s:%s", msg.element_id, msg.action
+            "Fallback handler error for %s:%s (scene_id=%s hub_token=%s)",
+            msg.element_id,
+            msg.action,
+            msg.scene_id,
+            msg.hub_token,
         ):
             fallback(msg)
 
