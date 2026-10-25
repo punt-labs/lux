@@ -25,6 +25,7 @@ matching nothing.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -119,6 +120,29 @@ def _calls_of(source: str, attribute: str) -> int:
         if isinstance(n, ast.Call)
         and isinstance(n.func, ast.Attribute)
         and n.func.attr == attribute
+    )
+
+
+def _link_closes(source: str) -> int:
+    """How many ``.close()`` calls the source makes on something named for a link."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "close"
+        and re.search(r"link|\._client\b", ast.unparse(n.func.value), re.IGNORECASE)
+    )
+
+
+def _foreign_private_reads(source: str, attribute: str) -> int:
+    """Reads of ``<other>.<attribute>``: a private field reached from outside."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Attribute)
+        and n.attr == attribute
+        and not (isinstance(n.value, ast.Name) and n.value.id in {"self", "cls"})
     )
 
 
@@ -260,6 +284,24 @@ class TestTheLinkIsTheRegistrysAlone:
             _HUB + "display_link.py",
         }
 
+    def test_only_the_links_own_module_closes_a_link(self) -> None:
+        assert _modules(lambda s: _link_closes(s) > 0) == set()
+
+    def test_no_module_reads_the_registrys_private_link(self) -> None:
+        assert _modules(lambda s: _foreign_private_reads(s, "_client") > 0) == set()
+
+    def test_a_close_and_a_private_read_of_the_link_are_found(self) -> None:
+        assert _link_closes("def f(registry):\n    registry.link.close()\n") == 1
+        assert _link_closes("def f(r):\n    r._client.close()\n") == 1
+        assert _link_closes("def f(sock):\n    sock.close()\n") == 0
+        assert (
+            _foreign_private_reads("def f(r):\n    return r._client\n", "_client") == 1
+        )
+        assert (
+            _foreign_private_reads("def f(self):\n    return self._client\n", "_client")
+            == 0
+        )
+
     def test_the_registry_hands_out_no_link_and_no_lock_and_has_no_subclass(
         self,
     ) -> None:
@@ -289,6 +331,18 @@ class TestTheLinkIsTheRegistrysAlone:
         assert _declaring_connects(planted_connect) == 1
         assert _declaring_connects("def f(link):\n    link.connect(listen=True)\n") == 0
         assert "DisplayLink" in _names(planted_naming)
+
+
+class TestTheManifestWriteIsTheDesksAlone:
+    def test_only_the_request_desk_sends_a_manifest(self) -> None:
+        assert _modules(lambda s: _calls_of(s, "send_manifest") > 0) == {
+            _HUB + "request_desk.py"
+        }
+
+    def test_a_second_manifest_sender_is_found(self) -> None:
+        planted = "def f(writer):\n    writer.send_manifest(ids)\n"
+
+        assert _calls_of(planted, "send_manifest") == 1
 
 
 class TestOnlyTheDialModelCanHoldADial:
