@@ -32,7 +32,11 @@ def _queries(
     answers: dict[str, SimpleNamespace] | None = None,
 ) -> tuple[ClientQueries, MagicMock, MagicMock, MagicMock]:
     sender, router, display_queries = MagicMock(), MagicMock(), MagicMock()
-    router.handle_query.side_effect = lambda method, _params: (answers or {})[method]
+
+    def answer_for(method: str, _params: object) -> SimpleNamespace:
+        return (answers or {})[method]
+
+    router.handle_query.side_effect = answer_for
     queries = ClientQueries(
         sender=sender,
         query_router=router,
