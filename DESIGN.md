@@ -7716,8 +7716,9 @@ one. The defect class recurred across review rounds, so it was modelled
 
 - **One dial, one generation.** `DialGeneration` owns the socket, its frame
   buffer, the socket lock `_lock`, its `ReplySink`, and the one reader slot,
-  and writes and reads only its own socket. It is retired whole: a retired
-  generation never delivers to anyone. Its counter is distinct from
+  and writes and reads only its own socket. It is retired whole: once retired
+  it delivers no reply and routes nothing further it reads (the amendment
+  below states the event rule exactly). Its counter is distinct from
   DES-093's reconnect generation, which still paces redials.
 - **`DisplayConnection` knows only which dial is current.**
   `close_if_current(g)` is the one retire step: a no-op unless `g` is
@@ -7781,10 +7782,12 @@ are added to `docs/listener_lifecycle.tex`.
   only if `g` is still current. No request path drops the link
   unconditionally, so a predecessor's failure never closes a successor.
 - **A retired generation never delivers a reply.** Retirement and delivery
-  are ordered under the sink lock, and a reader stops routing replies once
-  its generation is retired. Events and interactions are link-level, not
-  generation-level: a click the display reported is delivered even if its
-  dial retired after reading it.
+  are ordered under the sink lock, and a reader stops routing once its
+  generation is retired. Events and interactions are link-level, not
+  generation-level: an event already routed before the retire is delivered,
+  even if it runs afterwards (held interactions run when the request lock is
+  released); the undecoded rest of a chunk the retired dial had read is
+  dropped.
 - **The lock wait and the reply wait are separate budgets.** A request-lock
   wait that spends its budget raises `DisplayBusyError` and sends nothing;
   once the lock is held, the reply wait gets its full timeout from the send.
@@ -7799,14 +7802,24 @@ are added to `docs/listener_lifecycle.tex`.
 - **The retire cause follows who ended the dial.** The display ended it on
   end of file, a reset or broken pipe, a malformed frame, or a send that
   timed out against a display that stopped reading. The Hub ended it on a
-  query timeout, a reply skew, or its own drop. The connection keeps the
-  last cause, so recovery attributes a display death to the scene in flight
-  and never blames a scene for a Hub-side retire. A dial the keepalive finds
-  unresponsive counts as ended by the display, so a scene can be struck when
-  a loaded display misses two pings; the quarantine threshold and the
-  isolation probe bound that cost, which is preferred to a display death
-  that is never attributed. A display that stays down is charged once; a
-  later death on a new dial is charged again.
+  query timeout, a reply skew, or its own drop. A write woken by a Hub-side
+  retire raises the Hub's closed error, never a display death.
+- **A display death is charged from the dead dial's own record.** When the
+  display ends a dial, the suspects are the scenes written to that dial and
+  not yet acked, captured from its ack ledger in the same hold as the closed
+  mark. The connection queues that suspect set and hands it over once,
+  whichever party discovered the death (the reader, the keepalive, an MCP
+  tool's redial, or the replicator), and the replicator charges every
+  pending death before each push and on its idle tick. A Hub-ended dial
+  queues nothing, and an empty ledger (a deliberate stop while idle)
+  charges nothing; a dial is charged at most once, and a later death on a
+  new dial is charged again. Modelled in `docs/crash_attribution.tex`
+  (A1–A4, four fidelity controls). A dial the keepalive or isolation probe
+  finds unresponsive is retired as ended by the display, so a scene can be
+  struck when a loaded display misses its pings; the quarantine threshold
+  and the isolation probe bound that cost, which is preferred to a display
+  death that is never attributed. A busy display is waited out, never
+  counted as a death.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
@@ -7818,4 +7831,9 @@ are added to `docs/listener_lifecycle.tex`.
   roster name, writing the beads board and sending a display reply are each
   an object built in one place and handed only to its owner, so the code
   cannot perform the act without it. The guard tests check the one place
-  each is built, rather than trying to spot every call.
+  each is built, rather than trying to spot every call. The registry hands
+  its callers the ask port only (`ClientRegistry.asks()`), never the link:
+  the manifest is declared inside the link's own connect step and closing
+  is the registry's alone. The guards catch an accidental regression in any
+  ordinary spelling, aliases included; deliberate obfuscation is code
+  review's job.
