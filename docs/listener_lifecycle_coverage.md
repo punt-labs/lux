@@ -2,7 +2,7 @@
 
 Companion to [listener_lifecycle.tex](./listener_lifecycle.tex), the model of the
 Hub display link's reader thread, its socket, its reply sinks and the requests that
-wait on a sink. The model checks nine invariants (L1 to L9, with L1 and L4 in two
+wait on a sink. The model checks eleven invariants (L1 to L11, with L1 and L4 in two
 parts) and deadlock-freedom; this note derives the test partitions the model
 implies and records which existing tests cover them. Gaps are marked **GAP**. The
 fixed design has not been implemented, so *covered* means the test exercises the
@@ -50,12 +50,27 @@ connection and the Hub redials (the model's `Sever`; `_lose` is the display as
 shipped). Three Hub-side failure-path rules (rows W1 to W3) and the mandatory `scene_id`
 cross-check (row M4) follow.
 
+A third errata, round 4 (mission m-2026-10-25-003). The specification said that
+`Close` was "the link closing the connection on purpose" and gave it no argument,
+and treated a retirement as one atomic step. Both were wrong of the code, and the
+model could not see the two defects that follow from them (final review, silent
+finding 2 and invariant finding F5): a caller's `drop()` after its own dial failed
+closed whatever dial was current, a successor included; and `close_if_current`
+marks the generation closed under the state lock and discards the sink only in
+`shut`, so a reader mid-chunk could still deliver in between. The connection is now
+three-valued (`hclear`, `hlive`, `hretiring`); `Close` carries the generation its
+caller holds and acts only on the current live one (R1); `Teardown` is the second
+step, and delivery requires `hlive` (R7). L1 and L2 are restated for the window
+(table below); L10 and L11 are new. Rows X1 to X8 are new. Neither ruling is
+unsound in the model: both hold at the existing bounds, and each control
+reproduces its defect.
+
 ## The invariants
 
 | Id | Statement |
 |---|---|
-| L1 | parked replies lie in the live current generation's sink; a waiting caller waits on the live generation it wrote to |
-| L2 | a generation is closed only by the link, a stop, a query's timeout, or by its own reader |
+| L1 | parked replies lie in the current generation's sink (live, or retiring with the sink not yet discarded); a waiting caller waits on the current generation it wrote to |
+| L2 | a generation is not live (closed or retiring) only because the link closed it (as the generation it holds), a stop, a query's timeout, the display, or its own reader |
 | L3 | a stopped reader takes at most one routing or reporting step after its flag is set |
 | L4a | at most one reader per live generation |
 | L4b | a reader holds only its own generation's bytes (it never reads through `require()`) |
@@ -64,6 +79,8 @@ cross-check (row M4) follow.
 | L7 | a lock-wait expiry never retires a generation (it sent nothing) |
 | L8 | a liveness ping's lock wait is not held up by another kind of request |
 | L9 | the sink is bounded: no reply is parked for a caller that is not waiting |
+| L10 | no successor is closed by a predecessor's failure: `drop(g)` closes only if `g` is the current, live generation (ruling R1) |
+| L11 | a retired generation never delivers: no reply is parked once the generation is marked closed, whether or not its sink has been discarded yet (ruling R7) |
 
 L7 and L8 are tautologies of the fixed specification: no fixed operation writes
 `wrongRetire` or `starved`, so their goals are not a search. Their content is in the
@@ -91,21 +108,54 @@ shape of the fixed design took the same 815678 transitions as without (before `S
 was pruned there; this was checked, not assumed.)
 
 ```text
-fuzz docs/listener_lifecycle.tex and the 16 control files          exit 0, no output
+fuzz docs/listener_lifecycle.tex and the 18 control files          exit 0, no output
+                                   (round 4: the fixed file and the two new controls
+                                    re-run separately, each exit 0)
 
 goal ALL = the disjunction of the negations of L1q, L1w, L2, L3, L4a, L4b, L5, L6,
-           L7, L8, L9 (every invariant at once; deadlock detection on)
+           L7, L8, L9, L10, L11 (every invariant at once; deadlock detection on),
+           in the form of the round-4 goal file:
+           (mbox /= {} & (held = hclear or #c.(c:dom(mbox) & rgen(mbox(c)) /= curGen)))
+           or #c.(c:C & cstate(c) = cwait & (held = hclear or rgen(creq(c)) /= curGen))
+           or (held /= hlive & curGen > 0 & curGen /: (broken \/ deliberate))
+           or #t.(t:T & afterStop(t) > 1)
+           or #(t,u).(t:T & u:T & t /= u & lst(t) /= lexit & lst(u) /= lexit & lgen(t) = lgen(u))
+           or #t.(t:T & {r | r:bufr(t) & rgen(r) /= lgen(t)} /= {})
+           or crossGen = fset or crossReq = fset or wrongRetire = fset or starved = fset
+           or #c.(c:dom(mbox) & cstate(c) /: {csent,cwait})
+           or wrongDrop = fset or lateDeliver = fset
 
 probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 1 -card C 1    -> 299195 states, 1327520 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
+  -p MAX_OPERATIONS 200 -card T 1 -card C 1    -> 541155 states, 3789531 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 32  (6 min, 1.9 GB)
 probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 2 -card C 1    -> 2671285 states, 13224325 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
-probcli listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
-  -p MAX_OPERATIONS 200 -card T 1 -card C 2    -> 6100145 states, 38739050 transitions, no counter example, ALL states visited,
-                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 30
+  -p MAX_OPERATIONS 200 -card T 2 -card C 1    -> 4950738 states, 37922025 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 32  (90 min, 16 GB)
+probcli listener_lifecycle_g2.tex -model_check -coverage -goal "<ALL>" \
+  -p MAX_OPERATIONS 200 -card T 1 -card C 2    -> 2072834 states, 16691681 transitions, no counter example, ALL states visited,
+                                                  deadlocked:0, UNCOVERED_OPERATIONS (0) of 32  (about 25 min, 8 GB)
 ```
+
+**The bounds, per invariant (round 4).** The first two runs are at the existing
+bounds (`maxGen` = 3, `maxReq` = 2, `maxBuf` = 1). The third, one reader with two
+callers, is at **`maxGen` = 2**: `listener_lifecycle_g2.tex` is
+`listener_lifecycle.tex` with the one line `maxGen = 3` changed to `maxGen = 2`
+(a scratch copy, not committed). The three-generation run (`-card T 1 -card C 2`) grew
+the state space past 8.3 million states and 28 GB at 86% and was stopped, on the
+coordinator's instruction, because the machine has 30 GB; it had found no
+counter example up to that point (7.16 million states checked). Why 2 is enough
+for that shape: that shape speaks for L7, L8 and the per-kind request locks, whose
+control traces are five steps on one generation; for L10, whose trace needs two
+generations and no more; and for L11, which needs one. Every invariant that needs a
+third generation (an abandoned reader of the first against a replacement of the
+second, itself replaced) is exercised by the `-card T 2 -card C 1` run at three
+generations. The fixed design therefore holds at three generations for one caller
+with two readers, at two generations for two callers with one reader, and at three
+generations for one reader and one caller. Each fidelity control reproduces its
+trace at both `maxGen` values and in both `-card` shapes (the C2 shape finds
+`_retire_split` by a different eight-step trace of the same defect, the
+`CheckPermit` before the `Close`: 8915 states), so the reduced bound still
+exposes the defect.
 
 The product of two readers and two callers was started and abandoned: a control run
 in that shape estimated over two million states at under half the search, at about
@@ -146,6 +196,13 @@ setup errors, though the goal is still found).
 | `_write_fail_keep_buggy` | T1 C1 | goal run | L6 **found**, 15 steps, 576331 states |
 | `_route_skip_buggy` | T1 C1 | goal run | L6 **found**, 13 steps, 87132 states |
 | `_inline_skip_buggy` | T1 C1 | goal run | L6 **found**, 19 steps, 69630 states |
+| `_registry_drop_buggy` | T1 C1 | goal run | L10 **found**, 5 steps (7 trace lines with setup), 106 states |
+| `_retire_split_buggy` | T1 C1 | goal run | L11 **found**, 8 steps (10 trace lines with setup), 2022 states |
+
+The two round-4 controls and the fixed design were run on the three-valued
+connection (`hclear`, `hlive`, `hretiring`); the older controls are unchanged files
+and keep the two-valued model they were written against, so their results above
+are as recorded.
 
 The first four rows are the round-2 controls, re-run unchanged on this revision
 with the same results and the same shortest traces as the evaluators'. The
@@ -182,6 +239,13 @@ speaks for the code as it ships. Public-API traces are labelled as such.
 | a failed write keeps its ledger entry (L6, three requests) | `_write_fail_keep_buggy` | `Want(C1,ks); Dial; WriteFailKeep(C1); Want(C1,ks); StartListener(T1); Send(C1); CheckPermit(T1); Feed(2,T1); SendNoWait; RouteDropAck(1,2,T1); CheckPermit(T1); Feed(3,T1); RouteDeliver(C1,3,T1); Await(C1); Consume(C1)` |
 | a raising route skips the reply (L6) | `_route_skip_buggy` | `Dial; StartListener(T1); Want(C1,ks); CheckPermit(T1); Send(C1); Feed(1,T1); RouteSkip(1,T1); SendNoWait; Feed(2,T1); CheckPermit(T1); RouteDeliver(C1,2,T1); Await(C1); Consume(C1)` |
 | the inline path drops an ack without popping (L6, four requests, one generation) | `_inline_skip_buggy` | `Want(C1,kp); Dial; Send(C1); SendNoWait; Await(C1); InlineSkip(2); StartListener(T1); CheckPermit(T1); TimeoutKeep(C1); Want(C1,ks); Send(C1); SendNoWait; Feed(3,T1); RouteDropAck(2,3,T1); Feed(4,T1); Await(C1); CheckPermit(T1); RouteDeliver(C1,4,T1); Consume(C1)` |
+
+Round-4 traces (breadth-first, shortest):
+
+| Defect | Spec | Trace |
+|---|---|---|
+| **R1: a predecessor's failure closes its successor (L10)** | `_registry_drop_buggy` | `Dial; Close(1); Teardown; Dial; Close(1)` (generation 1 fails and is retired; generation 2 is dialled; generation 1's caller calls `drop`, which closes generation 2) |
+| **R7: a retired generation delivers (L11)** | `_retire_split_buggy` | `Dial; StartListener(T1); Want(C1,kp); Send(C1); Feed(1,T1); Close(1); CheckPermit(T1); RouteDeliver(C1,1,T1)` (the reader has read the pong; the generation is marked closed; the reader routes the pong into the sink before `shut` discards it) |
 
 Reachability on the fixed spec (each **found**, so the invariants are not vacuous;
 goals in the specification's Verification section): `afterStop(t) = 1`
@@ -291,6 +355,23 @@ Each partition is a class of behaviour the model distinguishes. Tests live in
 | T4 | `shutdown(SHUT_RDWR)` before `close()` releases a sender wedged in `sendall` and a reader blocked on `_lock` behind it (Decision 3); also on an `SSLSocket` (DES-090): the raw socket's `shutdown`, not `unwrap()`, which blocks on a wedged peer | the realization of StopTimeout closing the generation | none | **GAP**; pairs with row D |
 | T5 | the business-event policy: closing a generation does not drain the link-level event queue; events queued before a close and events a straggler routes after it are both delivered; interaction handlers may run on two threads, out of order (Decision 7) | none (outside L1 by design) | `test_inbound_router.py::test_reset_discards_events_queued_before_it` asserts the opposite and must change with the fix | **GAP**, and an existing test to rewrite |
 
+### The registry and the two steps of a retirement (X1 to X8, round 4)
+
+Both rows come from the final review (silent-failure finding 2, invariant
+review F5): the defect class the generation closed at the link, *a stale party
+closes or feeds its successor*, found again one layer up. Rulings R1 and R7.
+
+| # | Partition | Model operation | Existing test | Status |
+|---|---|---|---|---|
+| X1 | **`drop(g)` with `g` the current, live generation closes it** (a probe that found a live display silent) | Close, `g? = curGen` | `test_liveness.py` drops after failed probes, with one generation | covered (current code); must still hold with `drop(g)` |
+| X2 | **`drop(g)` with `g` retired and a successor `g+1` live closes nothing**: the successor stays open, its waiters wait, its manifest is not resent (L10) | DropStale; `_registry_drop` | none | **GAP**, and it **fails against the code today**. Test: dial `g`, fail it (a send that raises, a query timeout), dial `g+1`, call `drop(g)`; `g+1` is the current dial, open, and has no failed waiter. Repeat for each caller that drops: the operations layer's query and ping adapters (`operations/display_connection.py`), `liveness.py`, `recovery.py` |
+| X3 | `drop(g)` with `g` retired and no successor is a no-op (the generation retired itself) | DropStale, `held /= hlive` | none | **GAP** |
+| X4 | there is no `drop()` without a generation: a caller that holds none (the registry's redial after a failed manifest) takes the current one under the registry lock, once | the type of Close | none | **GAP**. A guard: no call of `ClientRegistry.drop` with no argument (AST), so the unconditional close cannot return |
+| X5 | **a reply is not parked once the generation is marked closed**, even when the reader had read the chunk before the mark and the sink is not yet discarded (L11) | RouteDead in the window; `_retire_split` | none | **GAP**, and it **fails against the code today**. Test: hold a reader mid-chunk (a handler blocked on message k), retire the generation from another thread between `mark_closed` and `shut` (a seam, or a `shut` that blocks), release the reader: `ReplySink.deliver` for message k+1 parks nothing and no waiter is satisfied. The same with the two steps run in the other order (discard first): still no delivery |
+| X6 | the reader leaves its loop when its generation is closed, not only when its stopping flag is set: the rest of an already-read chunk is dropped (it is already so for `_routed`'s loop test in the worktree; the sink check is what makes it hold across the window) | RouteDead | `DialReader` loop test, worktree | **GAP**: pair with X5; test that a business event in the rest of the chunk is not queued either |
+| X7 | the closed flag `deliver` reads is written under the **sink** lock in the same hold as the mark, and read under the sink lock in the same hold as the put (the realisation of the guard of RouteDeliver) | the guard `held = hlive` of RouteDeliver, atomic with the put | none | **GAP**: a stress test marked `slow` (retire and deliver racing; no parked reply for a retired generation), and an AST guard that `mark_closed` and the sink's discarded flag are one write |
+| X8 | a reply parked before the mark is still delivered to its own waiter, who may consume it in the window; a waiter whose reply was not parked fails at teardown | Consume in `hretiring`; Teardown | none | **GAP**. Test: park a reply, retire, then `await_reply` returns the reply, not a failure (this is allowed; the invariant is about *new* replies) |
+
 ### Invariants and deadlock
 
 | # | Property | Existing test | Status |
@@ -302,6 +383,8 @@ Each partition is a class of behaviour the model distinguishes. Tests live in
 | L4b | a reader holds only its own generation's bytes | none | **GAP** (T3) |
 | L5, L6 | no wrong reply is consumed | none | **GAP** (R7, T1, M1 to M3, W1 to W3, F7, F7a) |
 | L7, L8 | lock waits | none | **GAP** (F7b) |
+| L10 | no successor is closed by a predecessor's failure | none | **GAP** (X2 to X4) |
+| L11 | a retired generation never delivers | none | **GAP** (X5 to X8) |
 | L9 | the sink is bounded | none | **GAP** (F7a) |
 | D | the lock graph: one request lock per kind, then the state lock, then a queue lock, with `_lock` a leaf; a report never takes a request lock and never `_lock`; a caller waiting for a request lock holds nothing | `test_single_writer.py` covers the single-writer discipline for the replicator, not these locks | **GAP**: assert the state lock is not `_lock`, that a report from another thread still closes the generation while a sender is blocked in `sendall` on a wedged peer, and that two request kinds never serialise (F7b) |
 

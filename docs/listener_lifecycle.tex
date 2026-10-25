@@ -51,6 +51,16 @@
 %   docs/listener_lifecycle_write_fail_keep_buggy.tex a failed write keeps its ledger entry
 %   docs/listener_lifecycle_route_skip_buggy.tex    a raising route skips the reply
 %   docs/listener_lifecycle_inline_skip_buggy.tex   the inline path drops an ack unpopped
+%   docs/listener_lifecycle_registry_drop_buggy.tex drop() closes whatever is current (R1)
+%   docs/listener_lifecycle_retire_split_buggy.tex  delivery not ordered against retirement (R7)
+%
+% Round 4 (mission m-2026-10-25-003): the same defect class one layer up, a stale
+% party closing or feeding its successor.  Ruling R1 (the registry's drop(g)
+% closes only if g is current) and ruling R7 (retirement and delivery are ordered
+% under the sink lock, and a reader stops routing once its dial is retired) are
+% modelled; the connection is now three-valued, hclear | hlive | hretiring, so
+% that the two steps of a retirement are two steps.  Goals L10 and L11 are
+% added to the disjunction (see Invariants).
 %
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -375,6 +385,57 @@ a socket an abandoned thread is still reading (L4a).
     \end{enumerate}
 \end{enumerate}
 
+\paragraph{Decisions 11 and 12: the same class, one layer up (round~4).}
+The defect that the generation closed at the link, \emph{a stale party closes,
+or feeds, its successor}, was found twice more above the link, and the model
+was too coarse to see either.  It treated \texttt{Close} as a step with no
+argument, and a retirement as one atomic step; both are false of the code.
+\begin{enumerate}
+  \setcounter{enumi}{10}
+  \item \emph{The registry's \texttt{drop} names the generation it speaks for,
+    and closes only if that generation is current} (ruling R1).  A caller that
+    saw its own dial fail, a send that raised, a query that timed out, a probe
+    that found the display silent, holds a generation $g$; by the time it calls
+    \texttt{ClientRegistry.drop()} $g$ has usually retired itself, and another
+    thread may have dialled $g' > g$.  An unconditional \texttt{drop} closes
+    $g'$, fails its waiters and costs a redial and a repaint.  The model's
+    \texttt{Close} takes $g?$ and its guard is $g? = curGen$ with the
+    connection live; \texttt{DropStale} is the same call with a stale $g?$, and
+    changes nothing.  This is the \texttt{close\_if\_current(g)} of
+    Decision~5(e), now the \emph{only} way the registry closes a link:
+    \texttt{drop()} without a generation is removed, and a caller that holds
+    none (the registry's own redial after a failed manifest) takes the current
+    one under the registry lock.  Invariant L10.
+  \item \emph{Retirement has two steps, and delivery is ordered against both
+    under the sink lock} (ruling R7).  \texttt{close\_if\_current} marks the
+    generation closed under the state lock and then \texttt{shut}s it, which
+    discards the sink.  Between the two a reader that had already read a chunk
+    goes on routing it: the loop tests only its stopping flag, and
+    \texttt{ReplySink.deliver} does not test the sink.  A reply is then
+    delivered into a generation that has been retired.  In the model the
+    connection is \texttt{hlive}, \texttt{hretiring} (marked, sink not yet
+    discarded) or \texttt{hclear}; \texttt{Close}, \texttt{TimeoutRetire},
+    \texttt{StopJoined} and \texttt{StopTimeout} are the first step,
+    \texttt{Teardown} the second, which empties the sink and fails the
+    waiters.  The rule: the flag that \texttt{deliver} consults is written under
+    the \emph{sink} lock in the same hold as the mark, and \texttt{deliver}
+    reads it in the same hold as its \texttt{put}; and the reader leaves its
+    loop when its generation is closed.  Then \texttt{RouteDeliver},
+    \texttt{RouteDrop} and \texttt{RouteDropAck} require \texttt{hlive}, and a
+    reader holding a chunk across the mark takes \texttt{RouteDead}.  A reply
+    parked \emph{before} the mark stays valid for its own waiter, who may
+    consume it during \texttt{hretiring}.  Lock order: the mark takes the state
+    lock and then the sink lock, an edge the lock model already contains
+    (state lock to a queue lock).  Abstractions, stated: the sink is one
+    (current generation's), so \texttt{Dial} waits for \texttt{Teardown}; the
+    sink of $g$ is distinct from that of $g+1$ in the code, and the wait costs
+    nothing observable.  The reader's own retirement (\texttt{BrokenOwn}) and
+    the display's (\texttt{Sever}) stay one step: the reader routes nothing
+    after it, and the display delivers nothing.  Business events and
+    interaction handlers are not modelled; they are policy
+    (Decision~7), but the reader's loop test covers them too.  Invariant L11.
+\end{enumerate}
+
 \paragraph{Options for Decision~5 (for the operator).}
 The design above needs no wire change.  It is sound under A1 and A2, under
 the rule of Decision~9 and the failure-path rules of Decision~10, and, for A1
@@ -499,6 +560,10 @@ the command line (Section~\ref{sec:verify}).
 \end{zed}
 
 \begin{zed}
+  HSTATE ::= hclear | hlive | hretiring
+\end{zed}
+
+\begin{zed}
   CST ::= cidle | clockwait | csent | cwait
 \end{zed}
 
@@ -546,12 +611,12 @@ liveness ping's lock wait expired behind a request of another kind. .
 
 \begin{schema}{Conn}
   curGen : \nat \\
-  held : FSTATE \\
+  held : HSTATE \\
   started : \power \nat
 \where
   started \subseteq 1 \upto maxGen \\
   curGen \leq maxGen \\
-  held = fset \implies curGen > 0
+  held \neq hclear \implies curGen > 0
 \end{schema}
 
 \begin{schema}{ReqT}
@@ -597,7 +662,9 @@ liveness ping's lock wait expired behind a request of another kind. .
   crossGen : FSTATE \\
   crossReq : FSTATE \\
   wrongRetire : FSTATE \\
-  starved : FSTATE
+  starved : FSTATE \\
+  wrongDrop : FSTATE \\
+  lateDeliver : FSTATE
 \where
   broken \subseteq 0 \upto maxGen \\
   deliberate \subseteq 0 \upto maxGen
@@ -618,7 +685,7 @@ liveness ping's lock wait expired behind a request of another kind. .
   LL'
 \where
   curGen' = 0 \\
-  held' = fclear \\
+  held' = hclear \\
   started' = \emptyset \\
   nreq' = 0 \\
   \forall i : 0 \upto maxReq \spot rk'~i = kp \land rgen'~i = 0 \\
@@ -638,7 +705,9 @@ liveness ping's lock wait expired behind a request of another kind. .
   crossGen' = fclear \\
   crossReq' = fclear \\
   wrongRetire' = fclear \\
-  starved' = fclear
+  starved' = fclear \\
+  wrongDrop' = fclear \\
+  lateDeliver' = fclear
 \end{schema}
 
 % ============================================================
@@ -659,8 +728,10 @@ query's: the generation is closed.  \texttt{Sever} is the display failing to sen
 reply it owed and closing the connection instead (the reader will find the
 stream ended, and \texttt{BrokenStale} is then a no-op).  \texttt{Close} is the link closing the
 connection on purpose (\texttt{DisplayLink.close},
-\texttt{ClientRegistry.drop}); nothing here reconnects, the next \texttt{Dial}
-does.
+\texttt{ClientRegistry.drop}), for the generation $g?$ its caller holds and only
+if that is still the current one (R1); it is the first step of a retirement,
+and \texttt{Teardown} the second (R7, Decision~12).  Nothing here reconnects,
+the next \texttt{Dial} does.
 
 
 \subsection{Dial}
@@ -673,11 +744,11 @@ does.
   \Xi Thr \\
   \Xi Hist
 \where
-  held = fclear \\
+  held = hclear \\
   curGen < maxGen \\
   curGen' = curGen + 1 \\
   started' = started \\
-  held' = fset
+  held' = hlive
 \end{schema}
 
 \subsection{Close}
@@ -685,10 +756,54 @@ does.
 \begin{schema}{Close}
   \Delta LL \\
   \Xi ReqT \\
+  \Xi Thr \\
+  g? : 1 \upto maxGen
+\where
+  g? = curGen \\
+  held = hlive \\
+  held' = hretiring \\
+  curGen' = curGen \\
+  started' = started \\
+  mbox' = mbox \\
+  led' = led \\
+  owed' = owed \\
+  cstate' = cstate \\
+  ck' = ck \\
+  creq' = creq \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  wrongRetire' = wrongRetire \\
+  starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver
+\end{schema}
+
+\subsection{DropStale and Teardown}
+
+\texttt{DropStale} is \texttt{drop(g)} by a party whose generation $g$ is no
+longer the live current one: under ruling R1 it closes nothing.
+\texttt{Teardown} is the second step of every retirement by a party other than
+the reader (\texttt{close\_if\_current}, then \texttt{shut}, which discards the
+sink): it empties the sink, fails the waiters, and only then lets the connection
+dial again.
+
+\begin{schema}{DropStale}
+  \Xi LL \\
+  g? : 1 \upto maxGen
+\where
+  g? \leq curGen \\
+  g? \neq curGen \lor held \neq hlive
+\end{schema}
+
+\begin{schema}{Teardown}
+  \Delta LL \\
+  \Xi ReqT \\
   \Xi Thr
 \where
-  held = fset \\
-  held' = fclear \\
+  held = hretiring \\
+  held' = hclear \\
   curGen' = curGen \\
   started' = started \\
   mbox' = \emptyset \\
@@ -697,12 +812,14 @@ does.
   cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
   ck' = ck \\
   creq' = creq \\
-  deliberate' = deliberate \cup \{ curGen \} \\
+  deliberate' = deliberate \\
   broken' = broken \\
   crossGen' = crossGen \\
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
-  starved' = starved
+  starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver
 \end{schema}
 
 \subsection{Want, Send and SendNoWait}
@@ -733,7 +850,7 @@ does.
   cstate~c? = clockwait \\
   \forall d : C | d \neq c? \spot
     cstate~d \in \{ csent, cwait \} \implies ck~d \neq ck~c? \\
-  held = fset \\
+  held = hlive \\
   nreq < maxReq \\
   nreq' = nreq + 1 \\
   rk' = rk \oplus \{ nreq + 1 \mapsto ck~c? \} \\
@@ -754,7 +871,7 @@ does.
   \Xi Thr \\
   \Xi Hist
 \where
-  held = fset \\
+  held = hlive \\
   nreq < maxReq \\
   nreq' = nreq + 1 \\
   rk' = rk \oplus \{ nreq + 1 \mapsto ks \} \\
@@ -776,7 +893,7 @@ does.
   c? : C
 \where
   cstate~c? = csent \\
-  held = fset \\
+  held = hlive \\
   rgen~(creq~c?) = curGen \\
   cstate' = cstate \oplus \{ c? \mapsto cwait \} \\
   ck' = ck \\
@@ -792,7 +909,7 @@ does.
   c? : C
 \where
   cstate~c? = csent \\
-  \lnot (held = fset \land rgen~(creq~c?) = curGen) \\
+  \lnot (held = hlive \land rgen~(creq~c?) = curGen) \\
   cstate' = cstate \oplus \{ c? \mapsto cidle \} \\
   ck' = ck \\
   creq' = creq \\
@@ -825,7 +942,9 @@ does.
   (mbox~c? \neq creq~c? \implies crossReq' = fset) \\
   (mbox~c? = creq~c? \implies crossReq' = crossReq) \\
   wrongRetire' = wrongRetire \\
-  starved' = starved
+  starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver
 \end{schema}
 
 \subsection{LockExpire}
@@ -855,15 +974,15 @@ does.
 \where
   cstate~c? = cwait \\
   ck~c? = kq \\
-  held = fset \\
+  held = hlive \\
   rgen~(creq~c?) = curGen \\
-  held' = fclear \\
+  held' = hretiring \\
   curGen' = curGen \\
   started' = started \\
-  mbox' = \emptyset \\
-  led' = \emptyset \\
-  owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  mbox' = mbox \\
+  led' = led \\
+  owed' = owed \\
+  cstate' = cstate \\
   ck' = ck \\
   creq' = creq \\
   deliberate' = deliberate \cup \{ curGen \} \\
@@ -871,7 +990,9 @@ does.
   crossGen' = crossGen \\
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
-  starved' = starved
+  starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver
 \end{schema}
 
 \begin{schema}{TimeoutKeep}
@@ -907,7 +1028,7 @@ does.
   t? : T
 \where
   lst~t? = lexit \\
-  held = fset \\
+  held = hlive \\
   curGen \notin started \\
   \forall u : T \spot lst~u \neq lrun \\
   \forall u : T \spot lst~u = lexit \lor lgen~u \neq curGen \\
@@ -953,7 +1074,7 @@ does.
   r? : 1 \upto maxReq
 \where
   lst~t? = lrun \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
   r? \in owed \\
   rgen~r? = curGen \\
@@ -978,15 +1099,15 @@ does.
   t? : T
 \where
   lst~t? = lrun \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
-  held' = fclear \\
+  held' = hretiring \\
   curGen' = curGen \\
   started' = started \\
-  mbox' = \emptyset \\
-  led' = \emptyset \\
-  owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  mbox' = mbox \\
+  led' = led \\
+  owed' = owed \\
+  cstate' = cstate \\
   ck' = ck \\
   creq' = creq \\
   deliberate' = deliberate \cup \{ curGen \} \\
@@ -995,6 +1116,8 @@ does.
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
   starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   lgen' = lgen \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
@@ -1012,7 +1135,7 @@ does.
   t? : T
 \where
   lst~t? = lrun \\
-  \lnot (held = fset \land lgen~t? = curGen) \\
+  \lnot (held = hlive \land lgen~t? = curGen) \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   lgen' = lgen \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
@@ -1026,15 +1149,15 @@ does.
   t? : T
 \where
   lst~t? = lrun \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
-  held' = fclear \\
+  held' = hretiring \\
   curGen' = curGen \\
   started' = started \\
-  mbox' = \emptyset \\
-  led' = \emptyset \\
-  owed' = \{ r : owed | rgen~r \neq curGen \} \\
-  cstate' = cstate \oplus \{ c : C | cstate~c = cwait \spot c \mapsto cidle \} \\
+  mbox' = mbox \\
+  led' = led \\
+  owed' = owed \\
+  cstate' = cstate \\
   ck' = ck \\
   creq' = creq \\
   deliberate' = deliberate \cup \{ curGen \} \\
@@ -1043,6 +1166,8 @@ does.
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
   starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver \\
   lst' = lst \oplus \{ t? \mapsto lstop \} \\
   lgen' = lgen \\
   armed' = armed \\
@@ -1060,7 +1185,7 @@ does.
   t? : T
 \where
   lst~t? = lrun \\
-  \lnot (held = fset \land lgen~t? = curGen) \\
+  \lnot (held = hlive \land lgen~t? = curGen) \\
   lst' = lst \oplus \{ t? \mapsto lstop \} \\
   lgen' = lgen \\
   armed' = armed \\
@@ -1099,7 +1224,7 @@ does.
 \where
   armed~t? = fset \\
   r? \in bufr~t? \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
   cstate~c? \in \{ csent, cwait \} \\
   rgen~(creq~c?) = curGen \\
@@ -1132,7 +1257,7 @@ does.
 \where
   armed~t? = fset \\
   r? \in bufr~t? \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
   \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
     \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
@@ -1164,7 +1289,7 @@ does.
 \where
   armed~t? = fset \\
   r? \in bufr~t? \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
   \forall c : C \spot \lnot ( cstate~c \in \{ csent, cwait \}
     \land rgen~(creq~c) = curGen \land ck~c = rk~r? \land c \notin \dom mbox
@@ -1198,7 +1323,7 @@ does.
 \where
   armed~t? = fset \\
   r? \in bufr~t? \\
-  \lnot (held = fset \land lgen~t? = curGen) \\
+  \lnot (held = hlive \land lgen~t? = curGen) \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
   lst' = lst \\
@@ -1216,9 +1341,9 @@ does.
   t? : T
 \where
   armed~t? = fset \\
-  held = fset \\
+  held = hlive \\
   lgen~t? = curGen \\
-  held' = fclear \\
+  held' = hclear \\
   curGen' = curGen \\
   started' = started \\
   mbox' = \emptyset \\
@@ -1233,6 +1358,8 @@ does.
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
   starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   lgen' = lgen \\
@@ -1252,7 +1379,7 @@ does.
   t? : T
 \where
   armed~t? = fset \\
-  \lnot (held = fset \land lgen~t? = curGen) \\
+  \lnot (held = hlive \land lgen~t? = curGen) \\
   lst' = lst \oplus \{ t? \mapsto lexit \} \\
   armed' = armed \oplus \{ t? \mapsto fclear \} \\
   lgen' = lgen \\
@@ -1270,10 +1397,10 @@ does.
   \Xi Thr \\
   r? : 1 \upto maxReq
 \where
-  held = fset \\
+  held = hlive \\
   r? \in owed \\
   rgen~r? = curGen \\
-  held' = fclear \\
+  held' = hclear \\
   curGen' = curGen \\
   started' = started \\
   mbox' = \emptyset \\
@@ -1287,7 +1414,9 @@ does.
   crossGen' = crossGen \\
   crossReq' = crossReq \\
   wrongRetire' = wrongRetire \\
-  starved' = starved
+  starved' = starved \\
+  wrongDrop' = wrongDrop \\
+  lateDeliver' = lateDeliver
 \end{schema}
 
 \subsection{RepeatPong}
@@ -1301,7 +1430,7 @@ does.
   \Xi Hist \\
   r? : 1 \upto maxReq
 \where
-  held = fset \\
+  held = hlive \\
   rk~r? = kp \\
   r? \notin owed \\
   rgen~r? = curGen \\
@@ -1317,7 +1446,7 @@ does.
   \Xi LL
 \where
   curGen = maxGen \\
-  held = fclear \\
+  held = hclear \\
   \forall c : C \spot cstate~c = cidle \\
   \forall u : T \spot lst~u = lexit
 \end{schema}
@@ -1338,9 +1467,12 @@ shape the fixed design takes the same 815678 transitions with them as conjuncts
 and without, so nothing was pruned.)
 
 \paragraph{L1 --- routing and waiting stay within a generation.}
-\[ mbox \ne \emptyset \implies held = fset \land
+\[ mbox \ne \emptyset \implies held \ne hclear \land
    \forall c \in \dom mbox \spot rgen(mbox\,c) = curGen;\qquad
-   cstate\,c = cwait \implies held = fset \land rgen(creq\,c) = curGen. \]
+   cstate\,c = cwait \implies held \ne hclear \land rgen(creq\,c) = curGen. \]
+(Round~4: a retirement in its window, $held = hretiring$, still holds the replies
+parked before the mark and the waiters they answer; \texttt{Teardown} empties
+both.  What the window must not do is take a \emph{new} reply: L11.)
 \texttt{RouteDeliver} parks a reply only for a waiter on the reader's own
 generation and only while that is live; \texttt{RouteDrop},
 \texttt{RouteDropAck} and \texttt{RouteDead} park nothing; every operation that
@@ -1350,7 +1482,7 @@ while that is live.
 
 \paragraph{L2 --- a generation is closed only by the link, a stop, a query
 timeout, the display, or by itself.}
-\[ held = fclear \land curGen > 0 \implies curGen \in broken \cup deliberate. \]
+\[ held \ne hlive \land curGen > 0 \implies curGen \in broken \cup deliberate. \]
 \texttt{BrokenOwn} fires only when the reader's generation \emph{is} the
 current one; \texttt{BrokenStale} changes nothing of the connection.
 
@@ -1397,6 +1529,30 @@ A reply is parked only for a caller in flight and is removed when the caller
 consumes, times out, or the generation closes; every other arriving reply is
 dropped.  Without the drop, the replicator's un-awaited scenes would leave one
 parked ack each for the life of the link.
+
+\paragraph{L10 --- no successor is closed by a predecessor's failure (R1).}
+\[ wrongDrop = fclear. \]
+\texttt{Close} carries the generation $g?$ its caller holds and is enabled only
+for $g? = curGen$ with the connection live; a call with any other $g?$ is
+\texttt{DropStale}, which changes nothing.  Like L7 and L8 this is a
+tautology of the fixed design (no fixed operation writes \texttt{wrongDrop});
+its content is the guard of \texttt{Close}, and the control
+\texttt{registry\_drop} is its evidence.  The scenario is reachable with the
+guard in place: \texttt{DropStale} is covered, and \texttt{Dial; Close(1);
+Teardown; Dial; DropStale(1)} leaves the second dial live.
+
+\paragraph{L11 --- a retired generation never delivers (R7).}
+\[ lateDeliver = fclear. \]
+A delivery is a \texttt{RouteDeliver}: a reply parked in the sink for a waiter.
+It requires \texttt{hlive}, so none happens between the mark and
+\texttt{Teardown}; the reader holding a chunk across the mark takes
+\texttt{RouteDead}.  Again the content is the guard, and the control
+\texttt{retire\_split} (delivery enabled whenever the connection is not
+\texttt{hclear}) reproduces the delivery.  Non-vacuity: the window with a
+reader mid-chunk (\texttt{held = hretiring $\land$ $\exists t \spot$ lst\,t =
+lrun $\land$ lgen\,t = curGen $\land$ bufr\,t $\ne \emptyset$}) is reachable
+(\texttt{Dial; StartListener; SendNoWait; Feed; Close}), and so is a waiter
+that consumes a reply parked before the mark.
 
 \paragraph{Deadlock-freedom, and the lock order the model assumes.}
 The model has no lock-acquisition steps, because it makes the critical
@@ -1555,6 +1711,17 @@ returns \texttt{False} and nothing resends); the fixed model replaces the loss b
 by a plain stop and start over an open socket.
 \emph{A lock-wait expiry retires} (\texttt{lock\_expiry}): L7.
 \emph{One lock per link} (\texttt{perlink\_lock}): L8.
+\emph{An unconditional drop} (\texttt{registry\_drop}): \texttt{Close} without
+the guard $g? = curGen$, the registry's \texttt{drop()} as it stood.  L10
+violated by \texttt{Dial; Close(1); Teardown; Dial; Close(1)}: the second dial,
+which nothing had failed, is closed by the first's caller.  All other
+invariants are those of the fixed design.
+\emph{Delivery not ordered against retirement} (\texttt{retire\_split}):
+\texttt{RouteDeliver} enabled while the connection is retiring, as the code
+stood (the reader tests only its stopping flag, and \texttt{deliver} does not
+test the sink).  L11 violated by \texttt{Dial; StartListener(T1); Want(C1,kp);
+Send(C1); Feed(1,T1); Close(1); CheckPermit(T1); RouteDeliver(C1,1,T1)}: the
+reply is parked for a waiter of a generation already marked closed.
 
 % ============================================================
 \section{Verification}
@@ -1585,6 +1752,14 @@ counter example, all states visited, \texttt{deadlocked:0}'':
   probcli docs/listener_lifecycle.tex -model_check -coverage -goal "<ALL>" \
     -p MAX_OPERATIONS 200 -card T 1 -card C 2
 \end{verbatim}
+Round~4 added the goals \texttt{wrongDrop = fset} (L10) and \texttt{lateDeliver
+= fset} (L11) to the disjunction, and the three-valued connection roughly
+doubled the state space.  The shape with two callers is run with
+\texttt{maxGen = 2} (the one constant changed in a scratch copy): its
+three-generation run exceeded 8.3 million states and 28 GB and was stopped; the
+invariants that need a third generation are exercised by the two-reader shape,
+and each control reproduces its trace at both values
+(\texttt{listener\_lifecycle\_coverage.md}).
 Invariants are \emph{not} written into the state schema: ProB treats the
 primed state schema as part of each operation's guard, so a violated
 invariant there silently disables the operation (the goal \texttt{crossReq =
@@ -1606,7 +1781,7 @@ The scenarios are reachable, so the invariants are not vacuous (goal
   #t.(t:T & afterStop(t) = 1)             the one permitted step after stop
   #(t,u).(t:T & u:T & lst(t) = lstop & lst(u) = lrun & lgen(t) /= lgen(u))
                                           an abandoned reader with a successor
-  led = {} & nreq = 2 & held = fset & rgen(1) = rgen(2) & rgen(2) = curGen
+  led = {} & nreq = 2 & held = hlive & rgen(1) = rgen(2) & rgen(2) = curGen
      & rk(1) = ks & #c.(c:dom(mbox) & mbox(c) = 2 & ck(c) = ks)
                                           a show answered by its own ack after
                                           an un-awaited scene's ack was dropped
