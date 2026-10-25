@@ -85,27 +85,16 @@ def import_closure(
     return closure
 
 
-def defining_modules(
-    src: Path, *, within: str, names: Iterable[str]
-) -> dict[str, frozenset[str]]:
-    """Which modules under ``within`` define each of ``names``: a class, or a
-    module-level assignment. The result maps each name to the modules defining it."""
-    wanted = set(names)
-    found: dict[str, set[str]] = {name: set() for name in wanted}
+def modules_calling(src: Path, *, within: str, attr: str) -> frozenset[str]:
+    """The modules under ``within`` that call ``<expr>.<attr>(...)`` anywhere."""
+    found: set[str] = set()
     for path in sorted(src.joinpath(*within.split(".")).rglob("*.py")):
-        dotted = module_name(path.relative_to(src).as_posix())
-        for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            defined = _defined_names(node)
-            for name in wanted & defined:
-                found[name].add(dotted)
-    return {name: frozenset(modules) for name, modules in found.items()}
-
-
-def _defined_names(node: ast.stmt) -> set[str]:
-    if isinstance(node, ast.ClassDef):
-        return {node.name}
-    if isinstance(node, ast.Assign):
-        return {t.id for t in node.targets if isinstance(t, ast.Name)}
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return {node.target.id}
-    return set()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == attr
+            for node in ast.walk(tree)
+        ):
+            found.add(module_name(path.relative_to(src).as_posix()))
+    return frozenset(found)

@@ -53,6 +53,11 @@ def _methods(cls: ast.ClassDef) -> dict[str, ast.FunctionDef]:
     return {n.name: n for n in cls.body if isinstance(n, ast.FunctionDef)}
 
 
+def _attrs_named(node: ast.AST) -> set[str]:
+    """Every attribute the node names, called or handed on as a callable."""
+    return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
+
+
 def _attrs_called(node: ast.AST) -> set[str]:
     return {
         n.func.attr
@@ -74,7 +79,7 @@ class WriteVerbs:
         dial_writes = {
             name
             for name, fn in dial.items()
-            if name.startswith("send") and not _attrs_called(fn) & _EXPECTATIONS
+            if name.startswith("send") and not _attrs_named(fn) & _EXPECTATIONS
         }
         requests = _methods(_class(ast.parse(requests_src), "DisplayRequests"))
         public = {

@@ -8,8 +8,8 @@ calls the registry). Second, the state lock is never held while taking or waitin
 a dial's reader slot, which an inline read holds for its whole wait.
 
 Both checks derive what they judge: the modules are the import closure of the
-model's two roots, the forbidden modules are the ones that define the registry, the
-store lock, the store and the replicator, and the slot-taking members are the
+model's two roots, the forbidden modules are the ones that make a reentrant lock (the
+registry's and the store's), and the slot-taking members are the
 ``DialGeneration`` methods that reach a locking ``ReaderSlot`` method. Each fails on
 planted source, so none can pass by checking nothing.
 """
@@ -20,7 +20,7 @@ import ast
 from pathlib import Path
 from typing import Self, final
 
-from tests.source_imports import defining_modules, import_closure
+from tests.source_imports import import_closure, modules_calling
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
 _HUB = "punt_lux.domain.hub"
@@ -28,20 +28,17 @@ _ROOTS = (f"{_HUB}.display_requests", f"{_HUB}.display_listener")
 # What sits above the model's locks: the registry (its RLock), the store (its lock),
 # the store itself, and the replicator that calls the registry; and the singletons
 # a module would reach them through.
-_ABOVE = (
-    "ClientRegistry",
-    "StoreLock",
-    "HubDisplay",
-    "HubReplicator",
-    "client_registry",
-    "hub_display",
-    "hub_replicator",
-)
+_REENTRANT = "RLock"
 
 
-def _forbidden(src: Path) -> frozenset[str]:
-    defined = defining_modules(src, within=_HUB, names=_ABOVE)
-    return frozenset().union(*defined.values())
+def _forbidden(src: Path, within: str = _HUB) -> frozenset[str]:
+    """The modules whose lock sits above the model's: those that make a reentrant one.
+
+    The model's own locks are plain; the registry and the store each take theirs
+    reentrantly because a nested caller re-enters, and everything the model's
+    callers hold across it is built on those two.
+    """
+    return modules_calling(src, within=within, attr=_REENTRANT)
 
 
 def _reaches_the_forbidden(
@@ -66,11 +63,11 @@ class TestNoModuleOfTheDialModelNamesWhatSitsAboveItsLocks:
         assert {f"{_HUB}.dial_generation", f"{_HUB}.reply_sink"} <= graph.keys()
         assert {f"{_HUB}.inbound_router", f"{_HUB}.reader_slot"} <= graph.keys()
 
-    def test_what_sits_above_is_found_by_where_it_is_defined(self) -> None:
+    def test_what_sits_above_is_found_by_the_reentrant_locks_it_makes(self) -> None:
         forbidden = _forbidden(_SRC)
 
         assert {f"{_HUB}.clients", f"{_HUB}.store_lock"} <= forbidden
-        assert f"{_HUB}.hub_display" in forbidden
+        assert f"{_HUB}.dial_generation" not in forbidden
 
     def test_no_module_the_model_reaches_imports_one_of_them(self) -> None:
         assert _reaches_the_forbidden(_SRC, _ROOTS, _forbidden(_SRC)) == []
@@ -83,11 +80,11 @@ class TestNoModuleOfTheDialModelNamesWhatSitsAboveItsLocks:
         (tmp_path / "pkg" / "__init__.py").write_text("")
         (hub / "__init__.py").write_text("")
         (hub / "root.py").write_text("from pkg.hub import leaf\n")
-        (hub / "leaf.py").write_text("from pkg.hub.registry import ClientRegistry\n")
-        (hub / "registry.py").write_text("class ClientRegistry: ...\n")
-        forbidden = frozenset().union(
-            *defining_modules(tmp_path, within="pkg.hub", names=_ABOVE).values()
+        (hub / "leaf.py").write_text("from pkg.hub.registry import Registry\n")
+        (hub / "registry.py").write_text(
+            "import threading\nclass Registry:\n    lock = threading.RLock()\n"
         )
+        forbidden = _forbidden(tmp_path, "pkg.hub")
 
         found = _reaches_the_forbidden(
             tmp_path, ("pkg.hub.root",), forbidden, within="pkg.hub"
@@ -104,10 +101,10 @@ class TestNoModuleOfTheDialModelNamesWhatSitsAboveItsLocks:
         (hub / "__init__.py").write_text("")
         (hub / "root.py").write_text("from pkg.hub import leaf\n")
         (hub / "leaf.py").write_text("X = 1\n")
-        (hub / "registry.py").write_text("class ClientRegistry: ...\n")
-        forbidden = frozenset().union(
-            *defining_modules(tmp_path, within="pkg.hub", names=_ABOVE).values()
+        (hub / "registry.py").write_text(
+            "import threading\nclass Registry:\n    lock = threading.RLock()\n"
         )
+        forbidden = _forbidden(tmp_path, "pkg.hub")
 
         assert (
             _reaches_the_forbidden(
