@@ -1,0 +1,18 @@
+mission: m-2026-10-24-009
+round: 3
+created_at: "2026-10-25T13:57:01Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 10
+      removed: 3
+evidence:
+    - name: make check exit 0 at HEAD (.tmp/check-r3.txt)
+      status: pass
+    - name: make test-integration exit 0 at HEAD (.tmp/integ-r3b.txt)
+      status: pass
+    - name: M-2 and A-1 tests red on cc28f083; A-2 test red when run_held is dropped
+      status: pass
+prose: Round 3 fixes M-2, A-1 and A-2; see the round-3 section of the result markdown.
