@@ -133,9 +133,13 @@ class ListenerThread:
         stopping = threading.Event()
         reader = DialReader(self._connection, generation, self._route, stopping)
         thread = threading.Thread(target=reader.run, name="lux-listener", daemon=True)
+        # Published before the thread starts: it may run, and a ``stop`` may arrive,
+        # before ``start`` returns, and both must find this run.
+        previous = self._run
+        self._run = ListenerRun(thread, generation, stopping)
         try:
             thread.start()
         except BaseException:
+            self._run = previous
             generation.release_reader()  # no reader runs: do not claim there is one
             raise
-        self._run = ListenerRun(thread, generation, stopping)

@@ -161,7 +161,7 @@ class DialGeneration:
         retires itself before the error reaches the caller.
         """
         wire = encode_message(msg)
-        self._write_locked(lambda: self._dial.sock.sendall(wire))
+        self._write_locked(lambda: None, lambda _: self._dial.sock.sendall(wire))
 
     @trace
     def send_scene(
@@ -175,35 +175,35 @@ class DialGeneration:
         """
         wire = encode_message(msg)
 
-        def write_then_owe() -> Pending[str, AckMessage]:
+        def write_then_owe(_: None) -> Pending[str, AckMessage]:
             self._dial.sock.sendall(wire)
             return self._sink.owe_ack(msg.id, awaited=awaited)
 
-        return self._write_locked(write_then_owe)
+        return self._write_locked(lambda: None, write_then_owe)
 
     @trace
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
         """Register the ping in flight, then write it; one step under the lock."""
         wire = encode_message(PingMessage(ts=ts))
 
-        def expect_then_write() -> Pending[float, PongMessage]:
-            pending = self._sink.expect_pong(ts)
+        def write(pending: Pending[float, PongMessage]) -> Pending[float, PongMessage]:
             self._dial.sock.sendall(wire)
             return pending
 
-        return self._write_locked(expect_then_write)
+        return self._write_locked(lambda: self._sink.expect_pong(ts), write)
 
     @trace
     def send_query(self, request: QueryRequest) -> Pending[None, QueryResponse]:
         """Register the query in flight, then write it; one step under the lock."""
         wire = encode_message(request)
 
-        def expect_then_write() -> Pending[None, QueryResponse]:
-            pending = self._sink.expect_query()
+        def write(
+            pending: Pending[None, QueryResponse],
+        ) -> Pending[None, QueryResponse]:
             self._dial.sock.sendall(wire)
             return pending
 
-        return self._write_locked(expect_then_write)
+        return self._write_locked(self._sink.expect_query, write)
 
     def await_reply[R: Message](
         self, pending: Pending[object, R], timeout: float
@@ -303,14 +303,27 @@ class DialGeneration:
             backlog += sock.recv(waiting)
         return backlog
 
-    def _write_locked[T](self, step: Callable[[], T]) -> T:
-        """Run one write ``step`` under the socket lock; a failure retires the dial."""
+    def _write_locked[P, R](
+        self, prepare: Callable[[], P], write: Callable[[P], R]
+    ) -> R:
+        """Run one write under the socket lock; a failure inside it retires the dial.
+
+        ``prepare`` is the bookkeeping that precedes the first byte (registering the
+        reply owed): if it refuses, nothing was written and nothing is retired.
+        Anything raised inside ``write`` -- whatever it is, a ``BaseException``
+        included -- may have left a partial frame on the wire, so the dial retires,
+        after the lock is released.
+        """
+        writing = False
         try:
             with self._lock:
                 self._require_open()
-                return step()
+                prepared = prepare()
+                writing = True
+                return write(prepared)
         except BaseException:
-            self._retire(self, "hub")
+            if writing:
+                self._retire(self, "hub")
             raise
 
     def _require_open(self) -> None:

@@ -18,7 +18,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.connection_closed import HubRetiredError
 from punt_lux.domain.hub.dial_generation import DialGeneration
 
 if TYPE_CHECKING:
@@ -146,5 +146,5 @@ class DisplayConnection:
             held = self._current
         if held is None:
             msg = "Not connected — open() the display connection first"
-            raise ConnectionClosedError(msg)
+            raise HubRetiredError(msg)  # nothing was written: not the display's doing
         return held

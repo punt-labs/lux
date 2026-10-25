@@ -1,14 +1,14 @@
 """BatchSender -- pushes one drained batch to the display, and what it was sending.
 
 The replicator's worker drains a batch and hands it here. A send that fails raises
-out of :meth:`BatchSender.push`; what the failure should be charged to is read back
-afterwards: the scenes that were in flight (:attr:`suspect`) and the dial they went
-out on (:attr:`dial`). Both are set immediately before each send that can raise, so
-they are exactly what that send risked.
+out of :meth:`BatchSender.push` as a :class:`BatchSendError` that carries what the
+failure should be charged to: the scenes that were in flight and the dial they went
+out on.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
 
-__all__ = ["BatchSender"]
+__all__ = ["BatchSendError", "BatchSender"]
 
 # The isolation-mode roundtrip budget: after each singleton send, wait this
 # long for the display to ack a ping -- long enough under load, short enough
@@ -33,9 +33,21 @@ __all__ = ["BatchSender"]
 _PROBE_TIMEOUT_SECONDS = 1.0
 
 
+@dataclass(eq=False)  # an exception cannot be frozen: it gets a traceback attached
+class BatchSendError(Exception):
+    """A send of the batch failed: why, what was in flight, and the dial it used."""
+
+    cause: OSError  # the socket failure: a wedged display, a dead peer, a Hub retire
+    suspect: frozenset[SceneId]  # the scenes in flight when the send failed
+    dial: DialGeneration | None  # the dial the send went out on; None if none was had
+
+    def __str__(self) -> str:
+        return str(self.cause)
+
+
 @final
 class BatchSender:
-    """Sends a batch's menus and scenes, remembering what a failure would blame."""
+    """Sends a batch's menus and scenes, raising what a failure should blame."""
 
     _reader: SceneReader
     _menu_reader: MenuReader
@@ -43,8 +55,9 @@ class BatchSender:
     _clients: ClientProvider
     _attribution: CrashAttribution
     _owner_facts: FrameOwnerFactsReader
+    # What the send in progress risks: set just before each send that can raise,
+    # and handed to the failure it raises (never read back from outside).
     _suspect: frozenset[SceneId]
-    # The dial the attempt in progress last sent on: what a failure asks to drop.
     _dial: DialGeneration | None
     __slots__ = (
         "_attribution",
@@ -77,18 +90,11 @@ class BatchSender:
         self._dial = None
         return self
 
-    @property
-    def suspect(self) -> frozenset[SceneId]:
-        """The scenes in flight when the last send was made."""
-        return self._suspect
-
-    @property
-    def dial(self) -> DialGeneration | None:
-        """The dial the last send went out on; ``None`` if none was had."""
-        return self._dial
-
     def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         """Send the batch and return the scenes it found empty, for later reclaim.
+
+        A socket failure raises :class:`BatchSendError` carrying the failure, the
+        scenes in flight and the dial; anything that is not one passes through.
 
         Quarantined scenes are filtered before either send path runs (Invariant
         1: a quarantined scene is never replicated), enforced here regardless
@@ -98,6 +104,12 @@ class BatchSender:
         empty suspect still trips isolation, so later scene sends are singles.
         """
         self._dial = None
+        try:
+            return self._push(batch)
+        except OSError as exc:
+            raise BatchSendError(exc, self._suspect, self._dial) from exc
+
+    def _push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         scenes = frozenset(
             s for s in batch.scenes if not self._attribution.is_quarantined(s)
         )

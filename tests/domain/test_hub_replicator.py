@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Self, cast
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
+from punt_lux.domain.hub.batch_sender import BatchSendError
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
@@ -842,6 +843,39 @@ def test_a_dial_the_display_closed_is_still_blamed_on_the_batch() -> None:
         assert provider.dropped == [sender.dial]  # the dial the send went out on
     finally:
         repl.stop()
+
+
+def test_a_failed_send_carries_its_own_blame_in_the_exception() -> None:
+    # Nothing is read back from the sender afterwards: the failure names the cause,
+    # the scenes in flight and the dial it went out on.
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    cause = OSError("reset")
+    sender.arm_failure(cause)
+    batch = DrainedBatch(frozenset({scene}), shutting=False)
+
+    with pytest.raises(BatchSendError) as caught:
+        repl._sender.push(batch)
+
+    assert caught.value.cause is cause
+    assert caught.value.suspect == frozenset({scene})
+    assert caught.value.dial is sender.dial
+
+
+def test_a_failed_menu_send_blames_no_scene() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    scene = _seed(store, factory.lifecycle, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    sender.arm_failure(OSError("reset"))
+    batch = DrainedBatch(frozenset({scene}), shutting=False, menus_dirty=True)
+
+    with pytest.raises(BatchSendError) as caught:
+        repl._sender.push(batch)
+
+    assert caught.value.suspect == frozenset()
 
 
 def test_a_recovery_failure_restores_the_batch_and_retries() -> None:

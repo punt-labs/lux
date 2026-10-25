@@ -521,6 +521,57 @@ class TestAFailedThreadStart:
         assert rig.connection.require().claim_reader()  # the slot is free again
 
 
+class TestTheRunIsPublishedBeforeTheThreadCanUseIt:
+    def test_a_route_that_fires_as_the_thread_starts_knows_it_is_the_listener(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[bool] = []
+        real_start = threading.Thread.start
+
+        def start_then_let_it_run(thread: threading.Thread) -> None:
+            real_start(thread)
+            time.sleep(0.3)  # the reader runs before ``start`` returns to its caller
+
+        holder: list[_Rig] = []
+        made = _Rig(lambda _g, _m: seen.append(holder[0].listener.is_current))
+        holder.append(made)
+        try:
+            made.display.peer.send_raw(_pong(1.0))
+            monkeypatch.setattr(threading.Thread, "start", start_then_let_it_run)
+
+            made.listener.start()
+
+            assert until(lambda: bool(seen))
+            assert seen == [True], "the listener thread did not know itself"
+        finally:
+            monkeypatch.undo()
+            made.close()
+
+    def test_a_stop_while_the_thread_is_starting_finds_the_run(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        real_start = threading.Thread.start
+        holder: list[_Rig] = []
+        stopped: list[bool] = []
+
+        def start_then_stop(thread: threading.Thread) -> None:
+            real_start(thread)
+            holder[0].listener.stop()  # arrives inside the start window
+            stopped.append(not holder[0].connection.is_open)
+
+        made = _Rig()
+        holder.append(made)
+        try:
+            monkeypatch.setattr(threading.Thread, "start", start_then_stop)
+
+            made.listener.start()
+
+            assert stopped == [True], "stop() did not see the run and retire its dial"
+        finally:
+            monkeypatch.undo()
+            made.close()
+
+
 class TestForeignMessages:
     def test_a_scene_from_a_display_closes_the_connection_and_unpickles_nothing(
         self,

@@ -8,7 +8,10 @@ from typing import Self, final
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -134,6 +137,21 @@ class TestRequire:
         with pytest.raises(
             ConnectionClosedError, match="open\\(\\) the display connection"
         ):
+            DisplayConnection(_Dialer(), 1.0).require()
+
+    def test_a_dial_the_hub_dropped_is_a_hub_retirement_for_whoever_asks_next(
+        self,
+    ) -> None:
+        # The replicator may fetch the dial just as another thread drops it; the
+        # display said nothing, so recovery must not blame the batch for it.
+        connection, _ = _opened()
+        connection.close_if_current(connection.require(), cause="hub")
+
+        with pytest.raises(HubRetiredError):
+            connection.require()
+
+    def test_a_connection_never_opened_is_not_a_display_death_either(self) -> None:
+        with pytest.raises(HubRetiredError):
             DisplayConnection(_Dialer(), 1.0).require()
 
     def test_a_redial_makes_a_new_generation_that_carries_nothing_over(self) -> None:
@@ -277,6 +295,24 @@ class TestSend:
             assert generation.owed_acks == 1
             generation.deliver(AckMessage(scene_id="s"))
             assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s")
+        finally:
+            connection.close()
+            if dialer.peer is not None:
+                dialer.peer.close()
+
+    def test_a_second_ping_in_flight_is_refused_and_leaves_the_dial_open(self) -> None:
+        # A bookkeeping error before anything was written says nothing of the
+        # stream, so it must not retire a healthy dial.
+        connection, dialer = _opened()
+        generation = connection.require()
+        try:
+            generation.send_ping(1.0)
+
+            with pytest.raises(RuntimeError, match="already in flight"):
+                generation.send_ping(2.0)
+
+            assert not generation.is_closed
+            assert connection.is_open
         finally:
             connection.close()
             if dialer.peer is not None:

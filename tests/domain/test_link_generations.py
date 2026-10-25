@@ -9,6 +9,7 @@ another, and an ack is matched to its scene by position.
 from __future__ import annotations
 
 import contextlib
+import queue
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ from punt_lux.domain.hub.connection_closed import (
 )
 from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.display_listener import DisplayListener
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
@@ -41,6 +43,9 @@ from tests.domain.display_double import Call, Display, until
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.protocol import Message
 
 
 @pytest.fixture
@@ -337,6 +342,41 @@ class TestAWriteThatRaises:
         link.close()
 
 
+class TestAnInterruptedWriteRetiresItsDial:
+    @pytest.mark.parametrize("failure", [ValueError("boom"), KeyboardInterrupt()])
+    def test_whatever_interrupts_a_write_leaves_the_stream_unaligned(
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        failure: BaseException,
+    ) -> None:
+        # Bytes may already be on the wire, so the frame stream cannot be trusted.
+        link = _linked(display)
+
+        def interrupted(_data: bytes) -> None:
+            raise failure
+
+        monkeypatch.setattr(display.sockets[0], "sendall", interrupted)
+
+        with pytest.raises(type(failure)):
+            link.requests.send_scene(_scene("x"))
+
+        assert not link.is_connected
+
+    def test_a_refusal_before_any_byte_is_written_retires_nothing(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        dial = link.requests.dial
+        dial.send_ping(1.0)  # a ping is in flight on the dial
+
+        with pytest.raises(RuntimeError, match="already in flight"):
+            dial.send_ping(2.0)
+
+        assert link.is_connected
+        assert display.peer.read(2, timeout=0.2)[1:] == [], "the second ping wrote"
+
+
 class TestAStoppedListenerEndsItsDial:
     def test_stopping_the_listener_closes_the_connection(
         self, display: Display
@@ -499,6 +539,42 @@ class TestARetiredDialNeverDelivers:
         assert until(lambda: not link.is_connected)
         with pytest.raises(TimeoutError):
             link.events.poll_event(0.3)  # the retired dial's events never arrive
+
+    def test_the_rest_of_a_chunk_read_inline_is_not_routed_once_its_dial_is_retired(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        real_route = DisplayListener.route
+
+        def retiring_route(
+            listener: DisplayListener,
+            generation: DialGeneration,
+            msg: Message,
+            *,
+            inline: bool,
+        ) -> None:
+            real_route(listener, generation, msg, inline=inline)
+            if isinstance(msg, ObserverMessage) and msg.topic == "first":
+                link._connection.close()  # retired mid-chunk
+
+        monkeypatch.setattr(DisplayListener, "route", retiring_route)
+        pinging = Call(lambda: link.requests.ping(timeout=3.0))
+        (sent,) = display.peer.read(1)
+        assert isinstance(sent, PingMessage)
+
+        display.peer.send(
+            ObserverMessage(topic="first", payload={}),
+            ObserverMessage(topic="after", payload={}),
+            PongMessage(ts=sent.ts),
+        )
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, ConnectionClosedError)
+        topics: list[str] = []
+        with contextlib.suppress(queue.Empty):
+            while True:
+                topics.append(link._listener._inbound.next_event(0.1).topic)
+        assert topics == ["first"], "the retired dial's later message was routed"
 
 
 class TestOneReaderPerDial:

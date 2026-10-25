@@ -190,7 +190,10 @@ class DisplayQueryHandlers:
 
     Reads through getter callables (the ``OwnMenus`` idiom) rather than
     holding RenderLoop's fields directly, so this class needs no reference
-    back to it.
+    back to it. It also owns the one screenshot request waiting for the next
+    swap, because it already answers the screenshot query: the request's own
+    handling is ``request_screenshot``, and ``after_swap`` is the hook the render
+    loop calls on this owner once the frame is swapped.
     """
 
     _get_start_time: Callable[[], float]

@@ -39,16 +39,9 @@ class DisplayLink:
 
     A link dials through a ``dialer`` (a cross-host connector, say);
     :meth:`to_socket` makes the usual one, to the display's Unix socket.
-    ``socket_path`` is the Unix socket path (``None`` uses the default).
-    ``name`` is the identity this connection declares in its
-    ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
-    a manifest (DES-068); ``"test"`` (default) is the read-only backdoor --
-    a deliberately wrong-looking name, since the display rejects a
-    ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
-    the display server when not running. ``connect_timeout`` bounds the wait
-    for the display; ``recv_timeout`` is the default budget for a request's
-    wait and for :meth:`~EventPort.poll_event`. A link over another dialer (a
-    cross-host connector) is made with :meth:`over`.
+    ``connect_timeout`` bounds the wait for the display; ``recv_timeout`` is the
+    default budget for a request's wait and for
+    :meth:`~punt_lux.domain.hub.event_port.EventPort.poll_event`.
     """
 
     _connection: DisplayConnection
@@ -79,7 +72,15 @@ class DisplayLink:
         connect_timeout: float = 5.0,
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
     ) -> Self:
-        """Make a link to the display's Unix socket (the default path if ``None``)."""
+        """Make a link to the display's Unix socket (the default path if ``None``).
+
+        ``name`` is the identity the connection declares in its
+        ``ConnectMessage``. ``kind="hub"`` triggers single-owner preemption plus
+        a manifest (DES-068); ``"test"`` (default) is the read-only backdoor -- a
+        deliberately wrong-looking name, since the display rejects a
+        ``SceneMessage`` sent under it. ``auto_spawn`` (default ``True``) spawns
+        the display server when it is not running.
+        """
         return cls(
             HandshakeConnector(
                 name=name, kind=kind, socket_path=socket_path, auto_spawn=auto_spawn

@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.batch_sender import BatchSender
+from punt_lux.domain.hub.batch_sender import BatchSender, BatchSendError
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
@@ -287,12 +287,9 @@ class HubReplicator:
             if not batch.shutting:
                 self._disconnected_retry.wait(self._clients, since_gen=since_gen)
             return _CycleOutcome(outcome="disconnected")
-        except OSError as exc:
+        except BatchSendError as exc:
             self._recovery.recover(
-                batch,
-                failure=exc,
-                suspect=self._sender.suspect,
-                dial=self._sender.dial,
+                batch, failure=exc.cause, suspect=exc.suspect, dial=exc.dial
             )
             return _CycleOutcome(outcome="recovered")
         return _CycleOutcome(outcome="clean", emptied=emptied)
