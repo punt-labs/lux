@@ -45,6 +45,25 @@ class TestDispatchKnownMethod:
         assert resp.error is None
 
 
+class TestAHandlerThatRaises:
+    def test_the_caller_is_told_and_the_failure_is_logged_with_its_method(
+        self,
+    ) -> None:
+        qd = _make_dispatcher()
+
+        def boom(**_kwargs: Any) -> dict[str, Any]:
+            msg = "no such thing"
+            raise ValueError(msg)
+
+        qd.register_handler("boom", boom)
+
+        resp = qd.handle_query("boom", None)
+
+        assert resp.error == "no such thing"
+        (entry,) = qd.handle_query("list_errors", None).result["errors"]
+        assert (entry["message"], entry["context"]) == ("no such thing", "query:boom")
+
+
 class TestDispatchUnknownMethod:
     def test_unregistered_method_returns_error(self) -> None:
         """Query for an unregistered method returns an error response."""
