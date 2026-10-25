@@ -75,10 +75,13 @@ class DialGeneration:
     _retire: Callable[[DialGeneration, RetireCause], object]
     # None while open; once retired, who ended it (first retirement wins).
     _ended: RetireCause | None
+    # Whether a death this dial's end evidences has been charged to a sender yet.
+    _is_blamed: bool
     __slots__ = (
         "_dial",
         "_ended",
         "_frames",
+        "_is_blamed",
         "_lock",
         "_retire",
         "_sink",
@@ -103,6 +106,7 @@ class DialGeneration:
         # yet, so no inline read can be in flight when the listener claims it.
         self._slot = ReaderSlot(reader)
         self._ended = None
+        self._is_blamed = False
         return self
 
     @property
@@ -124,6 +128,26 @@ class DialGeneration:
     def is_closed(self) -> bool:
         """Whether this dial has been retired."""
         return self._ended is not None
+
+    @property
+    def ended_by(self) -> RetireCause | None:
+        """Who retired this dial, or ``None`` while it is open."""
+        return self._ended
+
+    @property
+    def is_blamed(self) -> bool:
+        """Whether this dial's end has already been charged to a sender."""
+        return self._is_blamed
+
+    def claim_blame(self) -> bool:
+        """Charge this dial's end to a sender; ``False`` if it was already charged.
+
+        Called by the one worker that attributes deaths, so a death the display
+        caused is counted once however many sends find the dial gone.
+        """
+        claimed = not self._is_blamed
+        self._is_blamed = True
+        return claimed
 
     @property
     def has_reader(self) -> bool:

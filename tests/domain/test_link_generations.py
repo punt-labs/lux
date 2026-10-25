@@ -1289,7 +1289,7 @@ class TestAPingIsStampedUnderItsLock:
             pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
             (sent,) = display.peer.read(1)
             assert isinstance(sent, PingMessage)
-            stamps.append(sent.ts)
+            stamps.append(float(sent.ts or 0.0))
             display.peer.send(PongMessage(ts=sent.ts))
             assert pinging.wait()
 

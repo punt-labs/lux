@@ -30,6 +30,15 @@ class DialRef:
         self._generation = generation
         return self
 
+    @property
+    def is_blamed(self) -> bool:
+        """Whether this dial's end has already been charged to a sender."""
+        return self._generation.is_blamed
+
+    def claim_blame(self) -> bool:
+        """Charge this dial's end to a sender; ``False`` if it was already charged."""
+        return self._generation.claim_blame()
+
     def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
         """Retire this dial in ``connection`` if it is still the current one.
 

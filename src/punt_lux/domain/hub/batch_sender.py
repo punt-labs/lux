@@ -12,6 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    HubRetiredError,
+)
+from punt_lux.domain.hub.display_lost import DisplayLostError
+
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
     from punt_lux.domain.hub.dial_ref import DialRef
@@ -22,6 +28,7 @@ if TYPE_CHECKING:
         ClientProvider,
         DisplaySender,
         MenuReader,
+        SenderPort,
         WriteSeatPort,
     )
     from punt_lux.domain.hub.scene_snapshot import SceneReader
@@ -70,7 +77,14 @@ class _InFlight:
         self._dial = dial
 
     def failed(self, cause: OSError) -> BatchSendError:
-        """The error that charges ``cause`` to what is in flight now."""
+        """The error that charges ``cause`` to what is in flight now.
+
+        A death the display caused is charged against its dial once: the dial is
+        marked, so a later send that finds the same dial's end with no dial to
+        redial (:meth:`BatchSender._connected`) does not charge it again.
+        """
+        if self._dial is not None and not isinstance(cause, HubRetiredError):
+            self._dial.claim_blame()
         return BatchSendError(cause, self._suspect, self._dial)
 
 
@@ -183,7 +197,7 @@ class BatchSender:
             flight.risking(frozenset({scene_id}))
             if self._send_scene(scene_id, flight):
                 emptied.append(scene_id)
-            probe = self._clients.get().desk.asks()  # connects if the dial is gone
+            probe = self._connected(flight).desk.asks()  # connects if the dial is gone
             flight.on(probe.dial)
             if not probe.confirm_alive(_PROBE_TIMEOUT_SECONDS):
                 msg = f"display did not ack probe after sending {scene_id!r}"
@@ -192,10 +206,26 @@ class BatchSender:
 
     def _sender(self, flight: _InFlight) -> DisplaySender:
         """A sender pinned to the dial that is current, noting it for a failure."""
-        self._clients.get()  # connects if the dial is gone
+        self._connected(flight)  # connects if the dial is gone
         sender = self._seat.current()
         flight.on(sender.dial)
         return sender
+
+    def _connected(self, flight: _InFlight) -> SenderPort:
+        """The link, connected; a redial that fails after the display ended the last
+        dial is that death still, charged to what is in flight.
+
+        A death already charged (to this dial, by an earlier cycle) is not charged
+        again: the display is down, and the disconnected path waits for it.
+        """
+        try:
+            return self._clients.get()
+        except DisplayLostError as lost:
+            if lost.dial.is_blamed:
+                raise
+            flight.on(lost.dial)
+            msg = "the display closed the connection and could not be redialed"
+            raise ConnectionClosedError(msg) from lost
 
     def _send_scene(self, scene_id: SceneId, flight: _InFlight) -> bool:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).
