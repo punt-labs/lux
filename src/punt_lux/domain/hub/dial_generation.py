@@ -13,9 +13,10 @@ entry the write makes, which takes the sink's lock, the leaf) or across one
 releases a sender wedged in ``sendall`` while it holds ``_lock``. The sink's lock
 is never held while taking ``_lock``.
 
-Every dial's socket carries the send timeout (``SO_SNDTIMEO``), set here whichever
-dialer made it: a peer that stops reading wedges a writer in ``sendall`` while it
-holds ``_lock``, and the timeout is what ends that write. A send that raises
+Every dial's socket carries the send timeout (``SO_SNDTIMEO``), set by the
+connection that makes the dial whichever dialer made it: a peer that stops reading
+wedges a writer in ``sendall`` while it holds ``_lock``, and the timeout is what ends
+that write. A send that raises
 retires the dial, which fails every writer queued behind it.
 """
 
@@ -32,6 +33,7 @@ from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
+from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.protocol import (
@@ -43,7 +45,6 @@ from punt_lux.protocol import (
     encode_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ class DialGeneration:
     # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
     _slot: ReaderSlot
     # Reports this dial's own breakage to whoever holds the current dial.
-    _retire: Callable[[DialGeneration, RetireCause], object]
+    _retire: Callable[[DialGeneration, RetireCause], bool]
     __slots__ = (
         "_dial",
         "_frames",
@@ -84,12 +85,11 @@ class DialGeneration:
     def __new__(
         cls,
         dial: HandshakeResult,
-        retire: Callable[[DialGeneration, RetireCause], object],
+        retire: Callable[[DialGeneration, RetireCause], bool],
         *,
         reader: Literal["none", "listener"] = "none",
     ) -> Self:
         self = super().__new__(cls)
-        set_send_timeout(dial.sock)  # every dial path: a wedged peer ends a send
         self._dial = dial
         self._retire = retire
         self._lock = threading.Lock()
@@ -137,17 +137,21 @@ class DialGeneration:
         """Hold the reader slot for an inline read; yield whether it was free."""
         return self._slot.inline()
 
-    def mark_closed(self, cause: RetireCause) -> tuple[str, ...]:
+    def mark_closed(self, cause: RetireCause) -> DialDeath | None:
         """Retire this dial: record who ended it and refuse every later delivery.
 
         Called under the connection's state lock, so it takes no I/O: the one hold of
         the sink's lock marks the dial closed and discards what it was owed. From then
         on nothing the dial read is parked for a waiter; an interaction already routed
-        or held is the link's, and still runs. Returns the dial's ledger, the scenes it
-        was written and never saw acked: the evidence if the display ended it.
+        or held is the link's, and still runs. Returns the evidence of a death: the
+        scenes this dial was written and never saw acked, if the display ended it.
         Releasing the socket is :meth:`shut`'s job, outside the lock.
         """
-        return self._sink.discard(cause)
+        ledger = self._sink.discard(cause)
+        # PY-TS-14: None is "no death": the Hub ended the dial, or it owed no scene.
+        if cause != "display" or not ledger:
+            return None
+        return DialDeath(frozenset(ledger), self.endpoint)
 
     @trace
     def send(self, msg: Message) -> None:
@@ -329,11 +333,12 @@ class DialGeneration:
 
         A dial already ended was ended by whoever's cause it carries (``shut`` wakes a
         writer wedged in ``sendall`` on purpose): the writer reports that cause, never
-        the socket error the retirement itself produced.
+        the socket error the retirement itself produced. A retire that lands between
+        the check and this writer's own is the same case: the retire says whether this
+        writer won it, and a loser reports the winner's cause.
         """
-        if self.is_closed:
-            raise self.closed_error() from exc
-        self._retire(self, "display")
+        if self.is_closed or not self._retire(self, "display"):
+            raise self.closed_error() from exc  # someone else's cause won the retire
 
     def _require_open(self) -> None:
         if self.is_closed:
@@ -343,9 +348,14 @@ class DialGeneration:
         """The error that says this dial is gone, and whether the Hub ended it.
 
         A plain :class:`ConnectionClosedError` when the display ended it (a sender may
-        blame what it was sending); :class:`HubRetiredError` when the Hub did.
+        blame what it was sending); :class:`HubRetiredError` when the Hub did. Raises
+        ``ValueError`` for a dial still open: nobody has ended it.
         """
+        ended = self._sink.ended
+        if ended is None:
+            msg = f"the connection to {self.endpoint} is still open"
+            raise ValueError(msg)
         msg = f"the connection to {self.endpoint} was closed"
-        if self._sink.ended == "display":
-            return ConnectionClosedError(msg)
-        return HubRetiredError(msg)
+        return (
+            ConnectionClosedError(msg) if ended == "display" else HubRetiredError(msg)
+        )

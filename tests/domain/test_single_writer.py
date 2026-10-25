@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.display_writer import DisplayWriter
@@ -122,15 +123,8 @@ def _calls_of(source: str, attribute: str) -> int:
 
 
 def _declaring_connects(source: str) -> int:
-    """How many ``connect(..., manifest=...)`` calls the source makes."""
-    return sum(
-        1
-        for n in ast.walk(ast.parse(source))
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "connect"
-        and any(k.arg == "manifest" for k in n.keywords)
-    )
+    """How many ``open_as_hub(...)`` calls the source makes: the declaring connect."""
+    return _calls_of(source, "open_as_hub")
 
 
 def _modules(predicate: Callable[[str], object]) -> set[str]:
@@ -224,8 +218,8 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
 
         assert set(built) <= _DIAL_MODEL | {_HUB + "dial_ref.py"}
         assert built == {
-            _HUB + "display_connection.py": 1,
-            _HUB + "request_exchange.py": 1,
+            _HUB + "display_requests.py": 1,
+            _HUB + "display_writer.py": 1,
         }
 
     def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:
@@ -266,11 +260,15 @@ class TestTheLinkIsTheRegistrysAlone:
             _HUB + "display_link.py",
         }
 
-    def test_the_registry_hands_out_no_link(self) -> None:
+    def test_the_registry_hands_out_no_link_and_no_lock_and_has_no_subclass(
+        self,
+    ) -> None:
         public = _public_methods(_source(_HUB + "clients.py"), "ClientRegistry")
 
         assert "get" not in public
+        assert "lock" not in public
         assert "asks" in public
+        assert getattr(ClientRegistry, "__final__", False) is True
 
     def test_the_link_declares_through_its_connect_step_and_keeps_no_declare(
         self,
@@ -278,11 +276,11 @@ class TestTheLinkIsTheRegistrysAlone:
         public = {n for n in vars(DisplayLink) if not n.startswith("_")}
 
         assert "declare" not in public
-        assert "connect" in public
+        assert {"connect", "open_as_hub"} <= public
 
     def test_a_second_declarer_and_a_second_naming_of_the_link_are_found(self) -> None:
         planted_declare = "def f(clients):\n    clients.link.desk.declare(())\n"
-        planted_connect = "def f(link):\n    link.connect(listen=True, manifest=m)\n"
+        planted_connect = "def f(link):\n    link.open_as_hub(m)\n"
         planted_naming = (
             "from punt_lux.domain.hub.display_link import DisplayLink as L\n"
         )

@@ -12,7 +12,6 @@ from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -27,6 +26,7 @@ from punt_lux.protocol import (
     encode_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import deaths_of
 
 
 @final
@@ -217,12 +217,10 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_a_dial_the_display_ended_with_an_ack_owed_queues_its_ledger(self) -> None:
         connection, dialer = self._owing()
-        dial = DialRef(connection.require())
         connection.close_if_current(connection.require(), cause="display")
 
-        (death,) = connection.take_deaths()
+        (death,) = deaths_of(connection)
 
-        assert death.dial == dial
         assert death.suspects == frozenset({SceneId("s")})
         assert death.endpoint == "pair"
         if dialer.peer is not None:
@@ -232,8 +230,8 @@ class TestTheDeathsAConnectionKeeps:
         connection, dialer = self._owing()
         connection.close_if_current(connection.require(), cause="display")
 
-        assert len(connection.take_deaths()) == 1
-        assert connection.take_deaths() == ()
+        assert len(deaths_of(connection)) == 1
+        assert deaths_of(connection) == ()
         if dialer.peer is not None:
             dialer.peer.close()
 
@@ -241,7 +239,7 @@ class TestTheDeathsAConnectionKeeps:
         connection, dialer = self._owing()
         connection.close_if_current(connection.require(), cause="hub")
 
-        assert connection.take_deaths() == ()
+        assert deaths_of(connection) == ()
         if dialer.peer is not None:
             dialer.peer.close()
 
@@ -249,7 +247,7 @@ class TestTheDeathsAConnectionKeeps:
         connection, dialer = self._owing()
         connection.close()
 
-        assert connection.take_deaths() == ()
+        assert deaths_of(connection) == ()
         if dialer.peer is not None:
             dialer.peer.close()
 
@@ -257,7 +255,7 @@ class TestTheDeathsAConnectionKeeps:
         connection, dialer = _opened()
         connection.close_if_current(connection.require(), cause="display")
 
-        assert connection.take_deaths() == ()
+        assert deaths_of(connection) == ()
         if dialer.peer is not None:
             dialer.peer.close()
 
@@ -268,11 +266,67 @@ class TestTheDeathsAConnectionKeeps:
         connection.require().send_scene(SceneMessage(id="t", elements=[], frame_id="t"))
         connection.close_if_current(connection.require(), cause="display")
 
-        first, second = connection.take_deaths()
+        first, second = deaths_of(connection)
 
         assert first.suspects == frozenset({SceneId("s")})
         assert second.suspects == frozenset({SceneId("t")})
-        assert first.dial != second.dial
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+
+class TestTheLedgerAndTheError:
+    def test_a_generation_the_display_ended_owing_an_ack_returns_its_death(
+        self,
+    ) -> None:
+        connection, dialer = _opened()
+        generation = connection.require()
+        generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
+
+        death = generation.mark_closed("display")
+
+        assert death is not None
+        assert death.suspects == frozenset({SceneId("s")})
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_a_generation_the_hub_ended_returns_no_death(self) -> None:
+        connection, dialer = _opened()
+        generation = connection.require()
+        generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
+
+        assert generation.mark_closed("hub") is None
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_the_error_of_a_dial_still_open_is_refused_not_blamed_on_the_hub(
+        self,
+    ) -> None:
+        connection, dialer = _opened()
+
+        with pytest.raises(ValueError, match="still open"):
+            connection.require().closed_error()
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+
+class TestThePendingDeathsAreNeverDropped:
+    def test_past_the_warning_mark_every_death_is_kept_and_the_queue_says_so(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        connection, dialer = _opened()
+        count = 70
+        with caplog.at_level("WARNING"):
+            for turn in range(count):
+                connection.require().send_scene(
+                    SceneMessage(id=f"s{turn}", elements=[], frame_id=f"s{turn}")
+                )
+                connection.close_if_current(connection.require(), cause="display")
+                connection.open()
+
+        kept = deaths_of(connection)
+        assert len(kept) == count
+        assert "wait to be charged" in caplog.text
+        connection.close()
         if dialer.peer is not None:
             dialer.peer.close()
 

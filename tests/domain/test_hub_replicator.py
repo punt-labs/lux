@@ -45,6 +45,7 @@ from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
 from tests.dial_double import fake_dial
+from tests.link_access import deaths_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -199,12 +200,11 @@ class _FakeSender:
         owed = frozenset(SceneId(scene) for scene in self._unacked)
         self._unacked = set()
         if owed:
-            self._deaths.append(DialDeath(self._dial, owed, "fake"))
+            self._deaths.append(DialDeath(owed, "fake"))
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """Hand over the recorded deaths, once."""
-        taken, self._deaths = tuple(self._deaths), []
-        return taken
+    def take_death(self) -> DialDeath | None:
+        """Hand over the oldest recorded death, once."""
+        return self._deaths.pop(0) if self._deaths else None
 
     def revive(self) -> None:
         """A fresh display: the dial it died on is gone and nothing is owed."""
@@ -466,9 +466,9 @@ class _FakeProvider:
             self._needs_reconcile = False
         return _ProbeView(self._sender)
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
+    def take_death(self) -> DialDeath | None:
         """The deaths the display left on its dials, each handed over once."""
-        return self._sender.take_deaths()
+        return self._sender.take_death()
 
     def drop_unresponsive(self, dial: DialRef) -> None:
         """A dial open but silent is the display's end: it leaves its death."""
@@ -966,7 +966,7 @@ def test_a_failed_menu_send_with_nothing_in_flight_charges_no_scene() -> None:
         repl._sender.push(batch)
     repl._sender.charge_deaths()
 
-    assert provider.take_deaths() == ()  # the display owed nothing: no death
+    assert deaths_of(provider) == ()  # the display owed nothing: no death
     assert repl._attribution.mode == "batching"
 
 
@@ -1883,7 +1883,37 @@ def test_a_failed_isolation_probe_names_the_dial_the_probe_went_out_on() -> None
     with pytest.raises(BatchSendError) as caught:
         repl._sender.push(DrainedBatch(frozenset({scene}), shutting=False))
 
-    (death,) = provider.take_deaths()
+    (death,) = deaths_of(provider)
     assert death.suspects == frozenset({scene})  # what the dial still owed
     assert caught.value.dial is sender.probe_dial
     assert provider.dropped == [sender.probe_dial]  # the unanswering dial, dropped
+
+
+def test_an_idle_tick_that_raises_is_logged_and_the_worker_keeps_replicating(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The idle tick charges deaths; a store that refuses one must not end the thread.
+    from punt_lux.domain.hub import replicator as replicator_module
+    from punt_lux.domain.hub.batch_sender import BatchSender
+
+    monkeypatch.setattr(replicator_module, "_STABILITY_TICK_SECONDS", 0.02)
+    calls: list[int] = []
+
+    def refusing_once(self: BatchSender) -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            msg = "the store refused"
+            raise RuntimeError(msg)
+
+    monkeypatch.setattr(BatchSender, "charge_deaths", refusing_once)
+    factory = HubStoreFactory()
+    repl, _sender, _provider, _lifecycle = _replicator(factory.display, factory.clients)
+    repl.start()
+    try:
+        with caplog.at_level(logging.ERROR):
+            assert _wait_until(lambda: len(calls) >= 3)
+        assert repl._thread is not None
+        assert repl._thread.is_alive()
+        assert "idle tick failed" in caplog.text
+    finally:
+        repl.stop()

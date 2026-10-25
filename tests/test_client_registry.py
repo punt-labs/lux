@@ -60,19 +60,15 @@ class _FakeClient:
         """The push port: this fake is its own."""
         return self
 
-    def connect(
-        self,
-        *,
-        listen: bool = False,
-        manifest: Callable[[], Sequence[str]] | None = None,
-    ) -> tuple[str, ...]:
-        """Connect; with a manifest, write it (failing once if told to, closing)."""
+    def connect(self, *, listen: bool = False) -> None:
         self.connect_calls += 1
         self._connected = True
         if listen:
             self.start_listener_calls += 1
-        if manifest is None:
-            return ()
+
+    def open_as_hub(self, manifest: Callable[[], Sequence[str]]) -> tuple[str, ...]:
+        """Connect with a reader, then write the manifest: it fails once if told to."""
+        self.connect(listen=True)
         scene_ids = tuple(manifest())
         if self._fail_send_manifest_once:
             self._fail_send_manifest_once = False

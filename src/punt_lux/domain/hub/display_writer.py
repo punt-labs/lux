@@ -18,13 +18,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.protocol import CallbackMenuMessage, HubManifestMessage, MenuMessage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.request_exchange import RequestExchange
     from punt_lux.protocol import SceneMessage
 
@@ -48,7 +48,7 @@ class DisplayWriter:
     @property
     def dial(self) -> DialRef:
         """The dial every write through this writer uses: what a failure names."""
-        return self._exchange.name(self._generation)
+        return DialRef(self._generation)
 
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack.

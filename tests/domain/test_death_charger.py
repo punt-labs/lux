@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
+import pytest
+
 from punt_lux.domain.hub.crash_attribution import (
     ATTRIBUTION_THRESHOLD,
     CrashAttribution,
@@ -11,7 +13,6 @@ from punt_lux.domain.hub.crash_attribution import (
 from punt_lux.domain.hub.death_charger import DeathCharger
 from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.ids import SceneId
-from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
@@ -30,9 +31,8 @@ class _Clients:
         self._deaths = list(deaths)
         return self
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        taken, self._deaths = tuple(self._deaths), []
-        return taken
+    def take_death(self) -> DialDeath | None:
+        return self._deaths.pop(0) if self._deaths else None
 
 
 @final
@@ -58,7 +58,7 @@ class _Port:
 
 
 def _death(*scenes: str) -> DialDeath:
-    return DialDeath(fake_dial(), frozenset(SceneId(s) for s in scenes), "pair-1")
+    return DialDeath(frozenset(SceneId(s) for s in scenes), "pair-1")
 
 
 def _charger(*deaths: DialDeath) -> tuple[DeathCharger, CrashAttribution, _Port]:
@@ -115,3 +115,45 @@ class TestCharging:
 
         record = port.quarantined[SceneId("a")]
         assert record.render_error == "the display at pair-1 ended the connection"
+
+
+@final
+class _FailingOnceAttribution:
+    """An attribution whose first charge raises, as a store invariant can."""
+
+    charged: list[frozenset[SceneId]]
+    _raised: bool
+    __slots__ = ("_raised", "charged")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.charged = []
+        self._raised = False
+        return self
+
+    def attribute_death(
+        self, suspects: frozenset[SceneId], *, render_error: str | None = None
+    ) -> frozenset[SceneId]:
+        del render_error
+        if not self._raised:
+            self._raised = True
+            msg = "the store refused"
+            raise RuntimeError(msg)
+        self.charged.append(suspects)
+        return frozenset()
+
+
+class TestWhenChargingOneDeathRaises:
+    def test_the_deaths_behind_it_stay_queued_for_the_next_look(self) -> None:
+        attribution = _FailingOnceAttribution()
+        clients = _Clients(_death("a"), _death("b"))
+        charger = DeathCharger(
+            cast("ClientProvider", clients),
+            cast("CrashAttribution", attribution),
+        )
+
+        with pytest.raises(RuntimeError, match="refused"):
+            charger.charge()
+        charger.charge()
+
+        assert attribution.charged == [frozenset({SceneId("b")})]

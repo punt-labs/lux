@@ -226,9 +226,20 @@ class HubReplicator:
             )
             if batch.has_work:
                 self._run_cycle(batch)
-            self._tick_stability()
+            self._guarded_tick()
             if batch.shutting:
                 return
+
+    def _guarded_tick(self) -> None:
+        """Run the idle tick; a failure is logged and the worker lives on.
+
+        The tick reaches the registry and the store, so it can raise: that must not
+        end the thread, which is the only replicator there is.
+        """
+        try:
+            self._tick_stability()
+        except Exception:
+            logger.exception("replicator idle tick failed; continuing")
 
     def _tick_stability(self) -> None:
         """Charge any death found while idle, then decay per-episode state.

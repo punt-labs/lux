@@ -139,8 +139,8 @@ class ClientProvider(ReconnectWaiter, Protocol):
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire ``dial``, open but silent, as the display's end; charge its ledger."""
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """The display-ended dials not yet charged to a scene, each handed over once."""
+    def take_death(self) -> DialDeath | None:
+        """The oldest display-ended dial not yet charged, handed over once."""
         ...
 
     def request_stop(self) -> None:

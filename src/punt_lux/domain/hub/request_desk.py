@@ -59,7 +59,7 @@ class RequestDesk:
         """Write the manifest that declares what the Hub holds (DES-068).
 
         The one write the link makes for itself, as the second half of opening a
-        connection (``DisplayLink.connect`` with a manifest); it does not take the seat.
+        connection (``DisplayLink.open_as_hub``); it does not take the seat.
         """
         self._seat.current().send_manifest(scene_ids)
 

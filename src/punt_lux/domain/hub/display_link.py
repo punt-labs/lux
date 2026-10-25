@@ -5,8 +5,8 @@ the dial (the ``ReadyMessage`` handshake), starts and stops the listener on it,
 and closes it. What the Hub asks and waits for, and the one seat writers are made
 at, is :attr:`~DisplayLink.desk`; what the display pushes (business events,
 interactions) is :attr:`~DisplayLink.events`. The manifest that
-declares what the Hub holds is written inside :meth:`~DisplayLink.connect`, the
-link's own connect step, and nowhere else.
+declares what the Hub holds is written inside :meth:`~DisplayLink.open_as_hub`, the
+link's own connect step for the Hub, and nowhere else.
 """
 
 from __future__ import annotations
@@ -120,14 +120,7 @@ class DisplayLink:
         """
         return dial.retire_in(self._connection, cause=cause)
 
-    def connect(
-        self,
-        *,
-        listen: bool = False,
-        # PY-TS-14: absent means "declare nothing": a connection that is not the
-        # Hub's own, or one opened without a reader, writes no manifest.
-        manifest: Callable[[], Sequence[SceneId]] | None = None,
-    ) -> tuple[SceneId, ...]:
+    def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.
 
         No-op if already connected.  If *auto_spawn* is enabled and no
@@ -136,14 +129,8 @@ class DisplayLink:
         :class:`HandshakeConnector`, which owns the socket-open and identity
         concern). With ``listen`` the reader is started on the dial just opened,
         before anything is sent on it; if it cannot start, that dial is retired
-        and the error raised, so the next connect redials.
-
-        With a ``manifest`` the connection then declares what the Hub holds
-        (DES-068): the callable is read once the dial is up, and its scene ids are
-        written as the manifest, the second half of opening the connection. A
-        manifest that cannot be sent closes the link and raises, so the next
-        connect redials and declares again. Returns the scene ids declared (none
-        without a ``manifest``).
+        and the error raised, so the next connect redials. This link writes no
+        manifest: that is :meth:`open_as_hub`.
 
         Raises
         ------
@@ -161,7 +148,21 @@ class DisplayLink:
                 # A dial with no reader repairs nothing: retire the one this call made.
                 self._connection.close_if_current(dialed, cause="hub")
                 raise
-        if manifest is None:
+
+    def open_as_hub(
+        self, manifest: Callable[[], Sequence[SceneId]]
+    ) -> tuple[SceneId, ...]:
+        """Connect with a reader, then declare what the Hub holds (DES-068).
+
+        The manifest is read once the dial is up, and its scene ids are written as the
+        manifest: the second half of opening the connection, before anything else is
+        sent on it. Declares only on a dial this call made; a link already open
+        returns ``()``. A manifest that cannot be sent closes the link and raises, so
+        the next call redials and declares again. Returns the scene ids declared.
+        """
+        was_open = self.is_connected
+        self.connect(listen=True)
+        if was_open:
             return ()
         scene_ids = tuple(manifest())
         try:
@@ -176,9 +177,9 @@ class DisplayLink:
         self._listener.stop()
         self._connection.close()
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """The display-ended dials not yet charged to a scene, each handed over once."""
-        return self._connection.take_deaths()
+    def take_death(self) -> DialDeath | None:
+        """The oldest display-ended dial not yet charged, handed over once."""
+        return self._connection.take_death()
 
     @property
     def desk(self) -> RequestDesk:

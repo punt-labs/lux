@@ -1276,9 +1276,7 @@ class TestDeclaringWhatTheHubHolds:
     ) -> None:
         link = DisplayLink(display, recv_timeout=3.0)
 
-        declared = link.connect(
-            listen=True, manifest=lambda: (SceneId("a"), SceneId("b"))
-        )
+        declared = link.open_as_hub(lambda: (SceneId("a"), SceneId("b")))
 
         (sent,) = display.peer.read(1)
         assert sent == HubManifestMessage(scene_ids=("a", "b"))
@@ -1295,7 +1293,7 @@ class TestDeclaringWhatTheHubHolds:
             dials_when_read.append(display.dials)
             return ()
 
-        link.connect(listen=True, manifest=manifest)
+        link.open_as_hub(manifest)
 
         assert dials_when_read == [1]
         link.close()
@@ -1310,9 +1308,22 @@ class TestDeclaringWhatTheHubHolds:
             return (SceneId("a"),)
 
         with pytest.raises(OSError, match="fell over"):
-            link.connect(listen=True, manifest=failing_manifest)
+            link.open_as_hub(failing_manifest)
 
         assert not link.is_connected
+
+    def test_a_link_that_is_already_open_declares_nothing_again(
+        self, display: Display
+    ) -> None:
+        link = DisplayLink(display, recv_timeout=3.0)
+        link.open_as_hub(lambda: (SceneId("a"),))
+        display.peer.read(1)
+
+        again = link.open_as_hub(lambda: (SceneId("b"),))
+
+        assert again == ()
+        assert display.peer.read(1, timeout=0.1) == []
+        link.close()
 
 
 class TestAPingIsStampedUnderItsLock:

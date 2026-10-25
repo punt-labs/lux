@@ -25,7 +25,6 @@ import threading
 import time
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_busy import DisplayBusyError
 
 if TYPE_CHECKING:
@@ -74,11 +73,6 @@ class RequestExchange:
     def current(self) -> DialGeneration:
         """The dial a port made now is pinned to; raises if there is none."""
         return self._connection.require()
-
-    @staticmethod
-    def name(generation: DialGeneration) -> DialRef:
-        """The name of ``generation``, for a failure that must say which dial it hit."""
-        return DialRef(generation)
 
     @contextlib.contextmanager
     def exclusive(

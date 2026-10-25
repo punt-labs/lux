@@ -39,6 +39,6 @@ class KeepaliveClients(Protocol):
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire ``dial``, which did not answer, if still current.
 
-        The dial is the display's end, so the next ``get`` binds afresh and a sender
+        The dial is the display's end, so the next ``asks`` binds afresh and a sender
         still pinned to it is charged to what it sent.
         """

@@ -34,6 +34,10 @@ class DeathCharger:
         return self
 
     def charge(self) -> None:
-        """Attribute every death not yet charged; each dial is charged once."""
-        for death in self._clients.take_deaths():
+        """Attribute every death not yet charged; each dial is charged once.
+
+        One death at a time: if charging one raises, the ones behind it are still
+        queued for the next look, never lost with it.
+        """
+        while (death := self._clients.take_death()) is not None:
             self._attribution.attribute_death(death.suspects, render_error=death.reason)
