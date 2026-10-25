@@ -237,7 +237,7 @@ class SocketListener:
         self._clients.append(conn)
         self._registry.register_connection(fd, conn)
         logger.debug("Client connected (total: %d)", self.client_count)
-        self.send_to_client(conn, ReadyMessage())
+        self.reply_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
         """Read + dispatch from readable clients, plus any ``recv()``-wants-write fd."""
@@ -310,8 +310,8 @@ class SocketListener:
         """Send a reply the client waits for, or end its connection.
 
         The Hub matches replies to requests by order, so one dropped on a live
-        connection would shift every later one; an event, by contrast, is held
-        and retried (:meth:`send_to_client`'s defer).
+        connection would shift every later one, and a dialer waits for its
+        ``ReadyMessage``; an event, by contrast, is held and retried by its sender.
         """
         if self.send_to_client(sock, msg) or sock not in self._clients:
             return  # sent, or a dead peer send_to_client already removed

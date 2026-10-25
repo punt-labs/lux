@@ -16,8 +16,6 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
-from PIL import Image
-
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
@@ -25,6 +23,7 @@ from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
+from punt_lux.display.framebuffer_capture import FramebufferCapture
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
@@ -40,6 +39,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
 from punt_lux.display.scene_inspector import SceneInspector
+from punt_lux.display.screenshot_queue import ScreenshotQueue
 from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
@@ -60,7 +60,6 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
-    ScreenshotResponse,
     ThemeMessage,
     UnknownMessage,
 )
@@ -105,7 +104,7 @@ class RenderLoop:
     _opacity: float
     _font_scale: float
     _fit_all_frames: bool
-    _screenshot_pending: socket.socket | None
+    _screenshots: ScreenshotQueue
     _test_auto_click: bool
     _start_time: float
     _current_theme: str
@@ -231,7 +230,10 @@ class RenderLoop:
         self._textures = TextureCache()
         self._paint_clock = PaintClock()
         self._widget_state = WidgetState()  # active scene's state (swapped)
-        self._screenshot_pending = None
+        self._screenshots = ScreenshotQueue(
+            self._socket_listener,
+            FramebufferCapture(self._query_router.record_error).capture,
+        )
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
         self._current_scene_id = None
@@ -433,51 +435,7 @@ class RenderLoop:
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
         self._paint_clock.swapped()
-        if self._screenshot_pending is not None:
-            sock = self._screenshot_pending
-            self._screenshot_pending = None
-            self._capture_screenshot(sock)
-
-    def _capture_screenshot(self, sock: socket.socket) -> None:
-        """Capture the OpenGL framebuffer after swap and send the path back.
-
-        Called from ``_on_after_swap`` so GL_FRONT contains the fully
-        rendered frame. Uses ``glReadPixels`` with Retina scale factor.
-        """
-        import os
-        import tempfile
-
-        import OpenGL.GL as GL
-        from imgui_bundle import hello_imgui, imgui
-
-        try:
-            scale = hello_imgui.final_app_window_screenshot_framebuffer_scale()
-            io = imgui.get_io()
-            fb_width = int(io.display_size.x * scale)
-            fb_height = int(io.display_size.y * scale)
-            GL.glReadBuffer(GL.GL_FRONT)
-            GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
-            data = GL.glReadPixels(
-                0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
-            )
-
-            image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
-            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-
-            tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            fd, path = tempfile.mkstemp(
-                suffix=".png", prefix="lux-screenshot-", dir=str(tmp_dir)
-            )
-            os.close(fd)
-            image.save(path)
-
-            resp = ScreenshotResponse(path=path)
-        except Exception as exc:
-            logger.exception("Screenshot capture failed")
-            self._query_router.record_error("error", str(exc), "screenshot")
-            resp = ScreenshotResponse(error=str(exc))
-        self._socket_listener.reply_to_client(sock, resp)
+        self._screenshots.after_swap()
 
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
         """Callback for MenuReplica: toggle window decoration."""
@@ -589,7 +547,7 @@ class RenderLoop:
         elif isinstance(msg, ListScenesRequest):
             self._handle_list_scenes(sock)
         elif isinstance(msg, ScreenshotRequest):
-            self._screenshot_pending = sock
+            self._screenshots.request(sock)
         elif isinstance(msg, QueryRequest):
             self._handle_query(sock, msg)
         elif isinstance(msg, UnknownMessage):
