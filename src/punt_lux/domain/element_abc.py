@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.domain.event_handler_host import EventHandlerHost
 
@@ -49,6 +49,9 @@ class Element(EventHandlerHost, ABC):
     inherit the empty default. Event registration and dispatch come from
     the ``EventHandlerHost`` mixin.
     """
+
+    # Patchable fields that can hold nested elements (a tree's ``nodes``).
+    NESTING_FIELDS: ClassVar[frozenset[str]] = frozenset()
 
     _renderer_factory: RendererFactory
     _emit: Emit
@@ -198,6 +201,11 @@ class Element(EventHandlerHost, ABC):
         whose tuple is always empty, is unaffected.
         """
         self._children_tuple = tuple(c for c in self._children_tuple if c is not child)
+
+    @classmethod
+    def patches_nested_content(cls, patch: Mapping[str, object]) -> bool:
+        """Return whether ``patch`` names a field that can hold nested elements."""
+        return not cls.NESTING_FIELDS.isdisjoint(patch)
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
         """Apply a field patch in place, atomically, returning ``self``.

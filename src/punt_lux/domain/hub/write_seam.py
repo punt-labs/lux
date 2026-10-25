@@ -61,11 +61,16 @@ class WriteSeam:
         """Why the scene, with every realization applied at once, would nest too deeply.
 
         Judged on the whole batch before any of it is committed, so a refused batch
-        changes nothing and no observer hears of it.
+        changes nothing and no observer hears of it. Only a patch to a field that
+        can hold elements can deepen the tree, so a batch with none is not projected
+        at all; the rest are judged together.
         """
+        deepening = [r for r in realizations if r.can_deepen()]
+        if not deepening:
+            return None
         return NestingCap().refusal_if_patched(
             self._index.scene_roots(scene_id),
-            dict(r.projected() for r in realizations),
+            dict(r.projected() for r in deepening),
         )
 
     def is_present(self, scene_id: SceneId, element_id: ElementId) -> bool:

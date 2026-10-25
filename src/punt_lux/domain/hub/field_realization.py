@@ -41,6 +41,10 @@ class FieldRealization(Protocol):
         """Return why the patch may not be written, or ``None`` if it may."""
         ...
 
+    def can_deepen(self) -> bool:
+        """Whether the patch names a field that can hold nested elements."""
+        ...
+
     def projected(self) -> tuple[str, object]:
         """The target's id and the element it would become, without applying it."""
         ...
@@ -68,13 +72,15 @@ class AbcFieldRealization:
     _element: AbcElement
     _fields: Mapping[str, object]
     _snapshot: dict[str, object]
-    __slots__ = ("_element", "_fields", "_snapshot")
+    _patched: AbcElement | None
+    __slots__ = ("_element", "_fields", "_patched", "_snapshot")
 
     def __new__(cls, element: AbcElement, fields: Mapping[str, object]) -> Self:
         self = super().__new__(cls)
         self._element = element
         self._fields = fields
         self._snapshot = {}
+        self._patched = None  # PY-TS-14 OK: absent until first asked for
         return self
 
     def rejection(self) -> WriteRejected | None:
@@ -90,21 +96,29 @@ class AbcFieldRealization:
                     f"cannot set unknown field {key!r} on element {self._element.id!r}"
                 )
         try:
-            patched = deepcopy(self._element).apply_patch(self._fields)
-            errors = patched.validate()
+            errors = self._patched_copy().validate()
         except (ValueError, TypeError) as exc:
             return WriteRejected(str(exc))
         if errors:
             return WriteRejected(ValidationReport(errors).describe())
         return None
 
+    def can_deepen(self) -> bool:
+        """Whether the element declares a patched field can hold nested elements."""
+        return self._element.patches_nested_content(self._fields)
+
     def projected(self) -> tuple[str, AbcElement]:
         """The element's id and what it would be once the patch is applied.
 
-        A throwaway deep copy: the element itself, and any observer of it, is
-        untouched.
+        A throwaway deep copy, made once and shared with ``rejection``: the element
+        itself, and any observer of it, is untouched.
         """
-        return self._element.id, deepcopy(self._element).apply_patch(self._fields)
+        return self._element.id, self._patched_copy()
+
+    def _patched_copy(self) -> AbcElement:
+        if self._patched is None:
+            self._patched = deepcopy(self._element).apply_patch(self._fields)
+        return self._patched
 
     def commit(self) -> None:
         """Snapshot the element's field state, then patch it in place."""

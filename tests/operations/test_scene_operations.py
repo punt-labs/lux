@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
+from typing import TYPE_CHECKING
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.domain.hub import field_realization
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.field_realization import AbcFieldRealization
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -31,6 +35,11 @@ from punt_lux.protocol import CollapsingHeaderElement
 from punt_lux.protocol.elements import GroupElement, TreeElement
 from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.protocol.messages.observer import ObserverMessage
+
+if TYPE_CHECKING:
+    import pytest
+
+    from punt_lux.domain.element_abc import Element as AbcElement
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope.in_process(_CONNECTION)
@@ -818,3 +827,78 @@ class TestAnUpdateCannotNestPastTheCap:
 
         assert isinstance(result, SceneShown)
         assert recorder.dirtied == [_scoped("s1")]
+
+
+class TestAnUpdateProjectsOnlyWhatCanDeepenTheTree:
+    """A patch that cannot nest deeper costs no projection of the scene."""
+
+    @staticmethod
+    def _count_projections(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        calls: list[str] = []
+        real = AbcFieldRealization.projected
+
+        def spy(self: AbcFieldRealization) -> tuple[str, AbcElement]:
+            calls.append("projected")
+            return real(self)
+
+        monkeypatch.setattr(AbcFieldRealization, "projected", spy)
+        return calls
+
+    def test_a_scalar_patch_is_not_projected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"label": "renamed"}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert calls == []
+
+    def test_a_structural_patch_is_projected_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert calls == ["projected"]
+
+    def test_a_structural_patch_is_still_refused_past_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(100)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert calls == ["projected"]
+
+    def test_the_element_is_copied_once_for_judging_and_validating_together(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copies: list[object] = []
+        real = deepcopy
+
+        def counting(value: object) -> object:
+            copies.append(value)
+            return real(value)
+
+        monkeypatch.setattr(field_realization, "deepcopy", counting)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert len(copies) == 1
