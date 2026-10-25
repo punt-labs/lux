@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_ref import DialRef
 
-__all__ = ["KeepaliveClients", "KeepaliveConnection", "KeepaliveDesk", "KeepaliveLink"]
+__all__ = ["KeepaliveClients", "KeepaliveConnection"]
 
 
 @runtime_checkable
@@ -29,30 +29,11 @@ class KeepaliveConnection(Protocol):
 
 
 @runtime_checkable
-class KeepaliveDesk(Protocol):
-    """Where the keepalive makes its asks."""
-
-    def asks(self) -> KeepaliveConnection:
-        """A connection pinned to the dial that is current now."""
-        ...
-
-
-@runtime_checkable
-class KeepaliveLink(Protocol):
-    """A display link, seen as the keepalive sees it: the port it pings through."""
-
-    @property
-    def desk(self) -> KeepaliveDesk:
-        """Where the link's requests are made."""
-        ...
-
-
-@runtime_checkable
 class KeepaliveClients(Protocol):
     """Hands out the display connection (reconnecting) and drops an unresponsive one."""
 
-    def get(self) -> KeepaliveLink:
-        """Return the connected client, reconnecting and re-registering if dropped."""
+    def asks(self) -> KeepaliveConnection:
+        """Reconnect if dropped, and return a connection pinned to the dial in use."""
         ...
 
     def drop_unresponsive(self, dial: DialRef) -> None:

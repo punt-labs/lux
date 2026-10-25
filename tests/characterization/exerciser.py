@@ -130,15 +130,6 @@ class _StubClient:
     _spec: Mapping[str, Mapping[str, Any]]
 
     @property
-    def desk(self) -> _StubClient:
-        """The request desk: this fake is its own."""
-        return self
-
-    def asks(self) -> _StubClient:
-        """The ask port: this fake is its own."""
-        return self
-
-    @property
     def dial(self) -> DialRef:
         """The dial a failed request would name; the stub has no real one."""
         return fake_dial()
@@ -365,13 +356,13 @@ class ToolExerciser:
         )
         # All tools resolve the DisplayLink through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
-        # ``client_registry.get`` substitutes the stub for every tool —
+        # ``client_registry.asks`` substitutes the stub for every tool —
         # both hand-written @mcp.tool ones and the @_query_tool decorator
         # family — without two separate patches.
         stubs: list[contextlib.AbstractContextManager[Any]] = [
             mock.patch.object(DisplayPaths, "is_running", return_value=running),
             mock.patch(
-                "punt_lux.domain.hub.clients.client_registry.get",
+                "punt_lux.domain.hub.clients.client_registry.asks",
                 return_value=stub_client,
             ),
             mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),

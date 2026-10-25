@@ -71,7 +71,7 @@ class TestSessionStartup:
 
     def test_does_not_eager_connect(self) -> None:
         """Startup never connects, so it cannot auto-spawn the display."""
-        with patch("punt_lux.domain.hub.clients.client_registry.get") as connect:
+        with patch("punt_lux.domain.hub.clients.client_registry.asks") as connect:
             _run_session_to_completion()
 
         connect.assert_not_called()
@@ -82,7 +82,7 @@ class TestSessionStartup:
         with (
             patch("punt_lux.config.ConfigManager.read") as read,
             patch("punt_lux.config.resolve_config_path") as resolve,
-            patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
+            patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
 
@@ -98,7 +98,7 @@ class TestSessionStartup:
         assert not (tmp_path / ".punt-labs" / "lux.md").exists()
         with (
             patch("punt_lux.config.ConfigManager.read") as read,
-            patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
+            patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
 

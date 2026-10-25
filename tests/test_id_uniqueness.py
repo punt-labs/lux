@@ -31,7 +31,7 @@ from punt_lux.protocol.elements import (
 )
 from punt_lux.tools import show
 
-_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.get"
+_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
 _SCENE = SceneId("id-uniqueness-scene")
 
 

@@ -146,7 +146,7 @@ class HubReplicator:
         # death against a lingering in-window tally.
         quarantine.add_quarantine_cleared_observer(self._attribution.clear_tally)
         self._recovery = SendRecovery(
-            clients, lifecycle, self._signal, self._attribution, RespawnBackoff()
+            clients, lifecycle, self._signal, RespawnBackoff()
         )
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
@@ -231,7 +231,13 @@ class HubReplicator:
                 return
 
     def _tick_stability(self) -> None:
-        """Run the two death-free-interval checks that decay per-episode state."""
+        """Charge any death found while idle, then decay per-episode state.
+
+        A display that died while nothing was queued leaves its record on the dial;
+        charging it here, every tick, means no redial by anyone else can hide it.
+        The two death-free-interval checks follow.
+        """
+        self._sender.charge_deaths()
         self._attribution.exit_isolation_if_stable()
         self._recovery.reset_backoff_if_stable()
 
@@ -278,8 +284,7 @@ class HubReplicator:
         this condition and propagates to the caller's outer guard instead.
         ``OSError`` is healed by ``SendRecovery`` (a wedged display reaped, a
         dead peer reconnected, a Hub-retired dial redialed without blame); a
-        death is attributed to the sender's suspect, set immediately before each
-        send that can raise."""
+        death is charged from its own dial's ledger, however it was found."""
         since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
         try:
             emptied = self._sender.push(batch)

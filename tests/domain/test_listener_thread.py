@@ -227,7 +227,7 @@ class TestAReaderLivesAndDiesWithItsDial:
         made = _Rig(route)
         try:
             old = made.connection.require()
-            old.send_scene(_scene("s"), awaited=True)
+            old.send_scene(_scene("s"))
             made.listener.start()
             made.display.peer.send_raw(_event() + encode_message(_ack("s")))
             assert entered.wait(3)
@@ -235,12 +235,13 @@ class TestAReaderLivesAndDiesWithItsDial:
             made.listener.stop()
             made.connection.open()
             fresh = made.connection.require()
-            owed = fresh.send_scene(_scene("t"), awaited=True)
+            fresh.send_scene(_scene("t"))
             release.set()
 
             assert until(lambda: not made.listener.alive)
+            assert fresh.owed_acks == 1  # the old dial's ack did not settle this one
             fresh.deliver(_ack("t"))
-            assert fresh.await_reply(owed, 0.0) == _ack("t")
+            assert fresh.owed_acks == 0
         finally:
             release.set()
             made.close()
@@ -486,12 +487,14 @@ class TestAStaleReportCannotTouchTheReplacement:
         redialer = threading.Thread(target=redial)
         real_mark_closed = DialGeneration.mark_closed
 
-        def paused_mark_closed(generation: DialGeneration, cause: RetireCause) -> None:
+        def paused_mark_closed(
+            generation: DialGeneration, cause: RetireCause
+        ) -> tuple[str, ...]:
             if generation is old:
                 redialer.start()
                 assert redial_started.wait(3.0)
                 assert not redial_done.wait(0.3), "the redial ran between check and act"
-            real_mark_closed(generation, cause)
+            return real_mark_closed(generation, cause)
 
         monkeypatch.setattr(DialGeneration, "mark_closed", paused_mark_closed)
         try:

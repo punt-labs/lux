@@ -21,6 +21,7 @@ from punt_lux.domain.hub.scene_presentation import ScenePusher
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.ids import SceneId
 
@@ -32,8 +33,6 @@ __all__ = [
     "DisplayProbe",
     "DisplaySender",
     "MenuReader",
-    "ProbeDesk",
-    "SenderPort",
     "WriteSeatPort",
 ]
 
@@ -108,32 +107,14 @@ class DisplayProbe(Protocol):
     def confirm_alive(self, timeout: float) -> bool:
         """Return whether the display answered a ping of its own within ``timeout``.
 
-        The synchronous liveness check between consecutive singleton sends: a
-        scene N whose render crashed the display surfaces as a broken pipe on the
-        *next* write, so without a roundtrip in between, the death would attribute
-        to scene N+1 rather than scene N (the real culprit). A busy dial is not
-        proof, so it answers ``False``; raising OSError/BlockingIOError is also a
-        "no" -- the caller propagates either as a failure of the last scene sent.
+        The synchronous liveness check between consecutive singleton sends: it makes
+        the display take scene N (ack it, or die holding it) before N+1 goes out, so
+        a death leaves a ledger of one scene. A busy dial is not proof, and is no
+        death either: the probe waits it out and asks again, and a
+        dial that stays busy answers ``True``. A pong that never comes answers
+        ``False``; raising OSError/BlockingIOError is a "no" too -- the caller
+        propagates it as a failure of the dial.
         """
-        ...
-
-
-@runtime_checkable
-class ProbeDesk(Protocol):
-    """Where the replicator makes its probes."""
-
-    def asks(self) -> DisplayProbe:
-        """A probe pinned to the dial that is current now."""
-        ...
-
-
-@runtime_checkable
-class SenderPort(Protocol):
-    """A display link, seen as the replicator sees it: the probe it pings through."""
-
-    @property
-    def desk(self) -> ProbeDesk:
-        """Where the link's requests are made."""
         ...
 
 
@@ -141,8 +122,11 @@ class SenderPort(Protocol):
 class ClientProvider(ReconnectWaiter, Protocol):
     """Connects the display, hands out its write seat once, drops a dead dial, waits."""
 
-    def get(self) -> SenderPort:
-        """Return the link, connected; ``DisplayNotConnectedError`` if it cannot be."""
+    def asks(self) -> DisplayProbe:
+        """Connect if the dial is gone, and return a probe pinned to the dial in use.
+
+        Raises ``DisplayNotConnectedError`` if no display can be reached.
+        """
         ...
 
     def take_writer(self) -> WriteSeatPort:
@@ -150,7 +134,14 @@ class ClientProvider(ReconnectWaiter, Protocol):
         ...
 
     def drop(self, dial: DialRef) -> None:
-        """Retire ``dial`` if still current, so the next ``get`` binds afresh."""
+        """Retire ``dial`` if still current, so the next ``asks`` binds afresh."""
+
+    def drop_unresponsive(self, dial: DialRef) -> None:
+        """Retire ``dial``, open but silent, as the display's end; charge its ledger."""
+
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """The display-ended dials not yet charged to a scene, each handed over once."""
+        ...
 
     def request_stop(self) -> None:
         """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""

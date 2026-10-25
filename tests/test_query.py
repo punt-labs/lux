@@ -26,7 +26,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import writer_of
+from tests.link_access import shown
 
 # ---------------------------------------------------------------------------
 # Protocol round-trip tests
@@ -399,12 +399,12 @@ class TestClientQuery:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 # First: send a scene
-                ack = writer_of(client).show(
+                acked = shown(
+                    client,
                     "s1",
                     elements=[TextElement(id="t1", content="hi")],
                 )
-                assert ack is not None
-                assert ack.scene_id == "s1"
+                assert acked
 
                 # Second: send a query
                 resp = client.desk.asks().query("echo", {"after_scene": True})

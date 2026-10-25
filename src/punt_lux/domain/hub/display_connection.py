@@ -16,16 +16,14 @@ share no socket state of their own.
 from __future__ import annotations
 
 import threading
+from collections import deque
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.connection_closed import (
-    ConnectionClosedError,
-    HubRetiredError,
-)
+from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.display_lost import DisplayLostError
+from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.request_exchange import RequestExchange
+from punt_lux.domain.ids import SceneId
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
@@ -34,6 +32,10 @@ if TYPE_CHECKING:
     from punt_lux.protocol import ReadyMessage
 
 __all__ = ["DisplayConnection"]
+
+# Deaths a replicator has not yet charged. Bounded: a display that dies faster than the
+# replicator runs has made its point, and the oldest evidence is the least needed.
+_PENDING_DEATHS = 64
 
 
 @final
@@ -46,17 +48,18 @@ class DisplayConnection:
     # None = not connected. The generation holds the socket, its endpoint and its
     # ready message: one handshake's result, coming and going together.
     _current: DialGeneration | None
-    # Who ended the last dial, and which dial it was, kept after it is gone: a caller
-    # that finds no dial learns from them whether the display or the Hub ended it.
-    # None until the first retirement, which is what "never opened" means.
-    _last_ended: RetireCause | None
+    # The last dial to end, kept after it is gone: a caller that finds no dial learns
+    # from it whether the display or the Hub ended it. None until the first
+    # retirement, which is what "never opened" means.
     _last: DialGeneration | None
+    # Display-ended dials whose ledger nobody has charged yet, oldest first.
+    _deaths: deque[DialDeath]
     __slots__ = (
         "_connect_timeout",
         "_current",
+        "_deaths",
         "_dialer",
         "_last",
-        "_last_ended",
         "_state_lock",
     )
 
@@ -67,7 +70,7 @@ class DisplayConnection:
         self._state_lock = threading.Lock()
         self._current = None
         self._last = None
-        self._last_ended = None
+        self._deaths = deque(maxlen=_PENDING_DEATHS)
         return self
 
     @property
@@ -125,9 +128,8 @@ class DisplayConnection:
             held = self._current
             self._current = None
             if held is not None:
-                held.mark_closed("hub")
+                held.mark_closed("hub")  # the Hub's own close owes no one a death
                 self._last = held
-                self._last_ended = "hub"
         if held is not None:
             held.shut()
 
@@ -144,10 +146,24 @@ class DisplayConnection:
                 return False
             self._current = None
             self._last = generation
-            self._last_ended = cause
-            generation.mark_closed(cause)
+            owed = generation.mark_closed(cause)
+            if cause == "display" and owed:
+                self._deaths.append(
+                    DialDeath(
+                        DialRef(generation),
+                        frozenset(SceneId(scene) for scene in owed),
+                        generation.endpoint,
+                    )
+                )
         generation.shut()
         return True
+
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """Hand over the display-ended dials not yet charged, each exactly once."""
+        with self._state_lock:
+            taken = tuple(self._deaths)
+            self._deaths.clear()
+        return taken
 
     def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:
         """Dial and publish a generation with ``reader``; ``None`` if already open."""
@@ -166,21 +182,8 @@ class DisplayConnection:
         return None
 
     def _dialed(self) -> HandshakeResult:
-        """Dial the display; a failure after the display ended the last dial says so.
-
-        The redial that finds nobody home must not erase who ended the dial before
-        it: the error names that dial (:class:`DisplayLostError`), so the death it
-        evidences is still charged to what was being sent.
-        """
-        try:
-            return self._dialer.dial(self._connect_timeout)
-        except DisplayNotConnectedError as exc:
-            with self._state_lock:
-                last, ended = self._last, self._last_ended
-            if last is None or ended != "display":
-                raise
-            msg = f"{exc}; the display had closed the last connection"
-            raise DisplayLostError(msg, RequestExchange.name(last)) from exc
+        """Dial the display; a failure is the dialer's own."""
+        return self._dialer.dial(self._connect_timeout)
 
     def require(self) -> DialGeneration:
         """Return the current dial, or raise the error that says why there is none.
@@ -192,14 +195,10 @@ class DisplayConnection:
         """
         with self._state_lock:
             held = self._current
-            ended = self._last_ended
+            last = self._last
         if held is not None:
             return held
-        if ended == "display":
-            msg = "the display closed the connection"
-            raise ConnectionClosedError(msg)
-        if ended == "hub":
-            msg = "the Hub retired the connection"
-            raise HubRetiredError(msg)
-        msg = "Not connected -- open() the display connection first"
-        raise DisplayNotConnectedError(msg)  # nothing was ever dialed
+        if last is None:
+            msg = "Not connected -- open() the display connection first"
+            raise DisplayNotConnectedError(msg)  # nothing was ever dialed
+        raise last.closed_error()

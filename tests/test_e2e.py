@@ -21,7 +21,7 @@ import pytest
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
-from tests.link_access import generation_of, writer_of
+from tests.link_access import generation_of, shown
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -105,7 +105,8 @@ class TestWalkingSkeleton:
                 # Send scene with image + 2 buttons
                 from punt_lux.protocol import ImageElement
 
-                ack = writer_of(client).show(
+                acked = shown(
+                    client,
                     "e2e-scene-1",
                     elements=[
                         ImageElement(
@@ -122,8 +123,7 @@ class TestWalkingSkeleton:
                         frame_id="e2e-scene-1", title="E2E Test"
                     ),
                 )
-                assert ack is not None
-                assert ack.scene_id == "e2e-scene-1"
+                assert acked
 
                 # Verify bidirectional communication with ping
                 pong = client.desk.asks().ping()
@@ -169,7 +169,8 @@ class TestWalkingSkeleton:
             try:
                 client.connect()
                 client.connect(listen=True)
-                ack = writer_of(client).show(
+                acked = shown(
+                    client,
                     "e2e-click-test",
                     elements=[
                         TextElement(id="t1", content="Click test"),
@@ -177,7 +178,7 @@ class TestWalkingSkeleton:
                         ButtonElement(id="btn-b", label="Beta", action="beta"),
                     ],
                 )
-                assert ack is not None
+                assert acked
 
                 assert done.wait(timeout=10.0), "Expected 2 interaction events"
                 actions = {e.action for e in events}

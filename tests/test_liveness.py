@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.keepalive_ports import KeepaliveLink
+from punt_lux.domain.hub.keepalive_ports import KeepaliveConnection
 from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from tests.dial_double import fake_dial
@@ -32,11 +32,6 @@ class _FakeConnection:
 
     _results: list[bool | Exception]
     _dial: DialRef
-
-    @property
-    def desk(self) -> _FakeConnection:
-        """The request desk: this fake is its own."""
-        return self
 
     def asks(self) -> _FakeConnection:
         """The ask port: this fake is its own."""
@@ -61,14 +56,14 @@ class _FakeConnection:
 
 
 class _FakeClients:
-    """A keepalive client provider counting ``get``/``drop`` against a connection."""
+    """A keepalive client provider counting ``asks``/``drop`` against a connection."""
 
-    _connection: KeepaliveLink
+    _connection: KeepaliveConnection
     get_calls: int
     drop_calls: int
     dropped: list[DialRef]
 
-    def __new__(cls, connection: KeepaliveLink) -> _FakeClients:
+    def __new__(cls, connection: KeepaliveConnection) -> _FakeClients:
         self = super().__new__(cls)
         self._connection = connection
         self.get_calls = 0
@@ -76,7 +71,7 @@ class _FakeClients:
         self.dropped = []
         return self
 
-    def get(self) -> KeepaliveLink:
+    def asks(self) -> KeepaliveConnection:
         self.get_calls += 1
         return self._connection
 
@@ -131,9 +126,7 @@ class TestCheckOnce:
         clients = _FakeClients(_FakeConnection([False, False, _pong()]))
         DisplayLiveness(clients).check_once()
         assert clients.drop_calls == 1  # the dead connection was dropped
-        assert clients.dropped == [
-            clients._connection.desk.asks().dial
-        ]  # the dial that was pinged
+        assert clients.dropped == [clients._connection.dial]  # the dial that was pinged
         assert clients.get_calls == 3  # probe, re-probe, then reconnect
 
     def test_dead_socket_ping_is_caught_not_escaped(self) -> None:
@@ -163,11 +156,11 @@ class TestCheckOnce:
 
 
 class _AlwaysFailingClients:
-    """A keepalive client provider whose ``get`` never manages to connect."""
+    """A keepalive client provider whose ``asks`` never manages to connect."""
 
     __slots__ = ()
 
-    def get(self) -> KeepaliveLink:
+    def asks(self) -> KeepaliveConnection:
         msg = "connect refused"
         raise DisplayNotConnectedError(msg)
 

@@ -1,8 +1,8 @@
 """RequestDesk -- where a link's requests are made: its asks, and the seat for writes.
 
-One desk belongs to one link. It builds the exchange every request port shares, makes
-the ask port for the dial that is current when asked, and holds the one seat writers
-are made at. The seat is built here and nowhere else.
+One desk belongs to one link and is reachable only through it. It builds the exchange
+every request port shares, makes the ask port for the dial that is current when asked,
+and holds the one seat writers are made at. The seat is built here and nowhere else.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ class RequestDesk:
         """Write the manifest that declares what the Hub holds (DES-068).
 
         The one write the link makes for itself, as the second half of opening a
-        connection; it does not take the seat.
+        connection (``DisplayLink.connect`` with a manifest); it does not take the seat.
         """
         self._seat.current().send_manifest(scene_ids)
 

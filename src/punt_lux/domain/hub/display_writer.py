@@ -16,15 +16,9 @@ fails the next write instead of letting it land on the new dial.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.protocol import (
-    AckMessage,
-    CallbackMenuMessage,
-    HubManifestMessage,
-    MenuMessage,
-)
+from punt_lux.protocol import CallbackMenuMessage, HubManifestMessage, MenuMessage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,7 +26,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.request_exchange import RequestExchange
-    from punt_lux.protocol import Element, SceneMessage
+    from punt_lux.protocol import SceneMessage
 
 __all__ = ["DisplayWriter", "WriteSeat"]
 
@@ -56,41 +50,18 @@ class DisplayWriter:
         """The dial every write through this writer uses: what a failure names."""
         return self._exchange.name(self._generation)
 
-    def show(
-        self,
-        scene_id: str,
-        elements: list[Element],
-        presentation: ScenePresentation | None = None,  # None: framed by its own id
-    ) -> AckMessage | None:
-        """Send a scene to the display and wait for acknowledgement.
-
-        Every scene is framed: an omitted *presentation* self-frames by *scene_id*
-        (as the Hub does), so a bare ``show`` still lands in a named frame. Returns
-        the :class:`AckMessage` or ``None`` on timeout. The ack is matched by
-        position among the acks owed, so scenes written without a wait (the
-        replicator's) are accounted for. A timeout keeps the dial; the ack still
-        owed is dropped when it arrives. Raises
-        :class:`~punt_lux.domain.hub.display_busy.DisplayBusyError` if another scene
-        held the dial for the whole lock-wait budget.
-        """
-        framed = presentation or ScenePresentation(frame_id=scene_id)
-        msg = framed.message(scene_id, elements)
-        with self._exchange.exclusive("scene"):
-            pending = self._generation.send_scene(msg, awaited=True)
-            return self._exchange.answer(self._generation, pending)
-
     def send_scene(self, message: SceneMessage) -> None:
         """Send a built scene without waiting for an ack.
 
         The ack is still owed, and is matched and dropped when it arrives.
         """
-        self._generation.send_scene(message, awaited=False)
+        self._generation.send_scene(message)
 
-    def set_menu(self, menus: list[dict[str, Any]]) -> None:
+    def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Set custom menu bar entries."""
         self._generation.send(MenuMessage(menus=menus))
 
-    def set_callback_menus(self, submenus: list[dict[str, Any]]) -> None:
+    def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu (Hub-composed)."""
         self._generation.send(CallbackMenuMessage(submenus=submenus))
 

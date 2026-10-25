@@ -16,7 +16,9 @@ from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.domain.hub.display_requests import DisplayRequests
     from punt_lux.domain.hub.display_writer import WriteSeat
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
 
@@ -30,7 +32,10 @@ class ClientRegistry:
     """Owns the lazy ``DisplayLink`` and per-process menu registrations.
 
     Thread-safe: ``_lock`` serializes connect/reconnect across the MCP
-    lifespan task and tool threads. ``get()`` is the public entry point.
+    lifespan task and tool threads. ``asks()`` is the public entry point: it connects
+    when needed and hands out the ask port, never the link, so no caller of the
+    registry can write to the display or retire a dial but through the registry's
+    own verbs.
     """
 
     _client: DisplayLink | None
@@ -69,16 +74,19 @@ class ClientRegistry:
         """Wire the replicator marked dirty after a fresh connect (DES-068)."""
         self._marker = marker
 
-    def get(self) -> DisplayLink:
-        """Return a connected ``DisplayLink``, creating/reconnecting as needed;
-        holds ``_lock`` against duplicate creation from concurrent callers."""
+    def asks(self) -> DisplayRequests:
+        """Connect if needed, then return an ask port pinned to the dial in use.
+
+        Connecting and pinning are one step under ``_lock``, so a drop cannot land
+        between them. Raises what the dial or the pin raises when there is no display.
+        """
         with self._lock:
             was_connected = self.is_connected
             client = self._ensure_client()
             self._setup_apps()
             self._ensure_connected(client)
             self._mark_reconnected_if_fresh(was_connected=was_connected)
-            return client
+            return client.desk.asks()
 
     def _ensure_client(self) -> DisplayLink:
         """Create the lazy client on first use; its own service unit supervises."""
@@ -92,7 +100,7 @@ class ClientRegistry:
         """Connect and reconcile if not connected.
 
         A dial the registry makes starts its reader in the same step
-        (``connect(listen=True)``), so a connected link always has one and
+        (``connect(manifest=...)``), so a connected link always has one and
         nothing here waits for the reader slot under the registry lock.
         """
         if not client.is_connected:
@@ -144,6 +152,11 @@ class ClientRegistry:
             if self._client is not None:
                 self._client.drop_if_current(dial, cause="display")
 
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """The display-ended dials not yet charged to a scene, each handed over once."""
+        with self._lock:
+            return () if self._client is None else self._client.take_deaths()
+
     def take_writer(self) -> WriteSeat:
         """Hand over the display's write seat, once: its holder is the one writer."""
         with self._lock:
@@ -152,17 +165,11 @@ class ClientRegistry:
     def _connect_and_reconcile(self, client: DisplayLink) -> None:
         """Connect a fresh socket, then declare and repaint the Hub's holdings.
 
-        The one choke point every fresh connect runs through (DES-068): the
-        manifest is never forgotten, every manifested scene plus the menu is
-        marked dirty, and a failed ``declare`` force-closes the link.
+        The one choke point every fresh connect runs through (DES-068): the link
+        declares the manifest inside its own connect step (a manifest that cannot be
+        sent closes it), and every manifested scene plus the menu is marked dirty.
         """
-        client.connect(listen=True)
-        scene_ids = hub_display.live_scene_ids()
-        try:
-            client.desk.declare(scene_ids)
-        except OSError:
-            client.close()  # a manifest that cannot be sent closes the link
-            raise
+        scene_ids = client.connect(listen=True, manifest=hub_display.live_scene_ids)
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)
         self._marker.mark_menus()

@@ -29,7 +29,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from tests.link_access import writer_of
+from tests.link_access import shown, writer_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -90,11 +90,10 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
         with DisplayLink.to_socket(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         ) as first:
-            ack = writer_of(first).show(
-                "ghost-scene", elements=[TextElement(id="t1", content="Ghost")]
+            acked = shown(
+                first, "ghost-scene", elements=[TextElement(id="t1", content="Ghost")]
             )
-            assert ack is not None
-            assert ack.scene_id == "ghost-scene"
+            assert acked
 
         # Nothing has reconciled yet -- this is the bug's starting condition.
         assert _live_scene_ids(sock_path) == {"ghost-scene"}
@@ -114,11 +113,10 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
             # Ordinary traffic still works under the surviving connection --
             # reconciliation does not wedge subsequent pushes.
-            ack = writer_of(second).show(
-                "fresh-scene", elements=[TextElement(id="t2", content="Fresh")]
+            acked = shown(
+                second, "fresh-scene", elements=[TextElement(id="t2", content="Fresh")]
             )
-            assert ack is not None
-            assert ack.scene_id == "fresh-scene"
+            assert acked
             assert _live_scene_ids(sock_path) == {"fresh-scene"}
         finally:
             second.close()

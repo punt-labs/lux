@@ -170,17 +170,16 @@ class TestReplies:
 
         assert generation.owed_acks == 0
 
-    def test_an_ack_a_waiter_is_owed_reaches_it(
+    def test_an_ack_the_display_owes_settles_the_ledger(
         self, generation: DialGeneration
     ) -> None:
         router = InboundRouter(InteractionHandlers())
-        owed = generation.send_scene(
-            SceneMessage(id="s1", elements=[], frame_id="s1"), awaited=True
-        )
+        generation.send_scene(SceneMessage(id="s1", elements=[], frame_id="s1"))
+        assert generation.owed_acks == 1
 
         router.route(generation, AckMessage(scene_id="s1"))
 
-        assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s1")
+        assert generation.owed_acks == 0
 
     def test_a_pong_and_a_query_response_are_kept_apart(
         self, generation: DialGeneration

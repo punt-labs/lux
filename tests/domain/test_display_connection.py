@@ -12,9 +12,11 @@ from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
+from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
+from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import (
     AckMessage,
     FrameReader,
@@ -191,7 +193,7 @@ class TestRequire:
     def test_a_redial_makes_a_new_generation_that_carries_nothing_over(self) -> None:
         connection, _ = _opened()
         first = connection.require()
-        first.send_scene(SceneMessage(id="s", elements=[], frame_id="s"), awaited=False)
+        first.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
 
         connection.close()
         connection.open()
@@ -202,6 +204,77 @@ class TestRequire:
             assert second.owed_acks == 0
         finally:
             connection.close()
+
+
+class TestTheDeathsAConnectionKeeps:
+    """Only a display-ended dial that still owed an ack queues a death, once."""
+
+    @staticmethod
+    def _owing() -> tuple[DisplayConnection, _Dialer]:
+        connection, dialer = _opened()
+        connection.require().send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
+        return connection, dialer
+
+    def test_a_dial_the_display_ended_with_an_ack_owed_queues_its_ledger(self) -> None:
+        connection, dialer = self._owing()
+        dial = DialRef(connection.require())
+        connection.close_if_current(connection.require(), cause="display")
+
+        (death,) = connection.take_deaths()
+
+        assert death.dial == dial
+        assert death.suspects == frozenset({SceneId("s")})
+        assert death.endpoint == "pair"
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_a_death_is_handed_over_exactly_once(self) -> None:
+        connection, dialer = self._owing()
+        connection.close_if_current(connection.require(), cause="display")
+
+        assert len(connection.take_deaths()) == 1
+        assert connection.take_deaths() == ()
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_a_dial_the_hub_ended_queues_nothing_whatever_it_owed(self) -> None:
+        connection, dialer = self._owing()
+        connection.close_if_current(connection.require(), cause="hub")
+
+        assert connection.take_deaths() == ()
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_the_hubs_own_close_queues_nothing(self) -> None:
+        connection, dialer = self._owing()
+        connection.close()
+
+        assert connection.take_deaths() == ()
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_a_dial_the_display_ended_owing_nothing_queues_nothing(self) -> None:
+        connection, dialer = _opened()
+        connection.close_if_current(connection.require(), cause="display")
+
+        assert connection.take_deaths() == ()
+        if dialer.peer is not None:
+            dialer.peer.close()
+
+    def test_each_dial_the_display_ends_queues_its_own_death(self) -> None:
+        connection, dialer = self._owing()
+        connection.close_if_current(connection.require(), cause="display")
+        connection.open()
+        connection.require().send_scene(SceneMessage(id="t", elements=[], frame_id="t"))
+        connection.close_if_current(connection.require(), cause="display")
+
+        first, second = connection.take_deaths()
+
+        assert first.suspects == frozenset({SceneId("s")})
+        assert second.suspects == frozenset({SceneId("t")})
+        assert first.dial != second.dial
+        if dialer.peer is not None:
+            dialer.peer.close()
 
 
 class TestCloseIfCurrent:
@@ -322,13 +395,11 @@ class TestSend:
         connection, dialer = _opened()
         generation = connection.require()
         try:
-            owed = generation.send_scene(
-                SceneMessage(id="s", elements=[], frame_id="s"), awaited=True
-            )
+            generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
 
             assert generation.owed_acks == 1
             generation.deliver(AckMessage(scene_id="s"))
-            assert generation.await_reply(owed, 0.0) == AckMessage(scene_id="s")
+            assert generation.owed_acks == 0
         finally:
             connection.close()
             if dialer.peer is not None:
@@ -361,9 +432,7 @@ class TestSend:
 
         with pytest.raises(OSError):
             for _ in range(64):
-                generation.send_scene(
-                    SceneMessage(id="s", elements=[], frame_id="s"), awaited=False
-                )
+                generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
 
         assert generation.owed_acks == 0
 

@@ -11,8 +11,8 @@ __all__ = ["DisplayNotConnectedError"]
 
 
 class DisplayNotConnectedError(RuntimeError):
-    """Raised only by the dial path in ``DisplayLink.connect`` -- no display
-    has ever connected. Distinct from a plain ``RuntimeError`` raised
-    elsewhere (a mid-send teardown, a listener-thread API-misuse guard), so a
-    caller like ``HubReplicator`` can pace the "never connected" backoff
-    without misclassifying those other conditions onto it."""
+    """No dial is open and none could be made: ``DisplayLink.connect`` failed to
+    dial, or ``DisplayConnection.require`` was asked of a link that never dialed.
+    Distinct from a plain ``RuntimeError`` raised elsewhere (a mid-send teardown, a
+    listener-thread API-misuse guard), so ``HubReplicator`` can pace the "never
+    connected" backoff without misclassifying those onto it."""

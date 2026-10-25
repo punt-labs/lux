@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 __all__ = ["DisplayRequests"]
 
+# How many pings a confirmation tries for a dial another ping keeps busy.
+_CONFIRM_TRIES = 3
+
 
 @final
 class DisplayRequests:
@@ -72,14 +75,18 @@ class DisplayRequests:
         """Whether the display answered a ping of its own within ``timeout``.
 
         The isolation loop's proof that the display survived the scene it was just
-        sent, before the next one goes out, so a crash is charged to the scene that
-        caused it. Another ping holding the dial for the whole wait proves nothing
-        about this scene, so a busy dial is not proof either.
+        sent, before the next one goes out. Another ping holding the dial is itself
+        asking the display, and says nothing of this scene: it is waited out and the
+        ping asked again, up to ``_CONFIRM_TRIES`` times. A dial that stays busy
+        for all of them has not shown the display dead, so it answers ``True``;
+        only a ping of its own that nobody answered answers ``False``.
         """
-        try:
-            return self.ping(timeout) is not None
-        except DisplayBusyError:
-            return False
+        for _ in range(_CONFIRM_TRIES):
+            try:
+                return self.ping(timeout) is not None
+            except DisplayBusyError:
+                continue
+        return True
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Ping the display; its pong, or ``None`` if none came in time.
@@ -89,8 +96,7 @@ class DisplayRequests:
         display. A ping that times out keeps its dial: a late pong is dropped,
         never matched to the next ping, whose ``ts`` differs.
         """
-        with self._exchange.exclusive("ping", timeout):
-            ts = self._exchange.next_ping_ts()
+        with self._exchange.exclusive("ping", timeout) as ts:
             pending = self._generation.send_ping(ts)
             return self._exchange.answer(self._generation, pending, timeout)
 
@@ -101,6 +107,10 @@ class DisplayRequests:
         timeout: float | None = None,
     ) -> QueryResponse | None:
         """Send a generic query and wait for the response; ``None`` on a timeout.
+
+        A query may ask the display to change its own frame visibility
+        (``set_frame_state``): that is Display-owned state, not Hub scene content, so
+        the Hub's single-writer rule does not cover it.
 
         Nothing on the wire says which query a response answers, so a query that
         times out retires its dial: the response, if it ever comes, can no longer

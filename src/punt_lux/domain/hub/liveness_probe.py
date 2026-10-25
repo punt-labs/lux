@@ -47,7 +47,7 @@ class LivenessProbe:
     def run(self) -> Probe:
         """Ask once; the caller logs the not-connected transition, not each probe."""
         try:
-            port = self._clients.get().desk.asks()
+            port = self._clients.asks()
         except (OSError, DisplayNotConnectedError) as exc:
             logger.debug("liveness probe failed: %s", exc)
             return Probe(alive=False, dial=None)

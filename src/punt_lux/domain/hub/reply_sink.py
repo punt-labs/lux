@@ -3,9 +3,9 @@
 A reply carries no request id. It is matched to its request by what the wire does
 carry: a pong by the ``ts`` of the ping in flight, an ack by its position among the
 acks owed (the scene ids repeat, so the id is only a cross-check), a query response
-by being the one query in flight. The sink holds only what a caller is waiting for
-or an ack still owed, so it is bounded by the scenes written, not by the replies
-received.
+by being the one query in flight. Nobody waits for an ack: it only settles the
+ledger. The sink holds what a caller is waiting for and the acks still owed, so it
+is bounded by the scenes written, not by the replies received.
 
 What the display owes is known exactly: the ledger is entered under the socket lock
 before the reader can see the matching bytes, and a query that gives up retires its
@@ -16,7 +16,10 @@ keeps its dial, and the pong is dropped by its ``ts``.
 
 One sink belongs to one generation (:class:`~punt_lux.domain.hub.dial_generation.
 DialGeneration`) and goes with it: discarding the sink fails every waiter and
-refuses every later delivery.
+refuses every later delivery. The sink also owns the generation's end: who ended it
+is recorded in the same hold that refuses deliveries, so no reply is parked after the
+dial reads as closed. What the display still owed when it ended is the ledger, the
+evidence of a death.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -77,17 +81,17 @@ class ReplySink:
     """The replies one dial is owed: acks in write order, a ping, a query."""
 
     _cond: threading.Condition
-    _acks: deque[Pending[str, AckMessage]]
+    _acks: deque[str]  # scene ids written and not yet acked, in wire order
     _ping: Pending[float, PongMessage] | None  # the one ping in flight
     _query: Pending[None, QueryResponse] | None  # the one query in flight
     _waiting: set[object]  # tickets a caller still waits on
     _answers: dict[object, Message]  # replies not yet taken
-    _discarded: bool
+    _ended: RetireCause | None  # None while live; once discarded, who ended it
     __slots__ = (
         "_acks",
         "_answers",
         "_cond",
-        "_discarded",
+        "_ended",
         "_ping",
         "_query",
         "_waiting",
@@ -101,8 +105,14 @@ class ReplySink:
         self._query = None
         self._waiting = set()
         self._answers = {}
-        self._discarded = False
+        self._ended = None
         return self
+
+    @property
+    def ended(self) -> RetireCause | None:
+        """Who ended the sink's dial; ``None`` while it is live."""
+        with self._cond:
+            return self._ended
 
     @property
     def owed_acks(self) -> int:
@@ -110,15 +120,11 @@ class ReplySink:
         with self._cond:
             return len(self._acks)
 
-    def owe_ack(self, scene_id: str, *, awaited: bool) -> Pending[str, AckMessage]:
+    def owe_ack(self, scene_id: str) -> None:
         """Record a scene written to the display, in wire order."""
-        owed = Pending(scene_id, AckMessage)
         with self._cond:
             self._require_live()
-            self._acks.append(owed)
-            if awaited:
-                self._waiting.add(owed)
-        return owed
+            self._acks.append(scene_id)
 
     def expect_pong(self, ts: float) -> Pending[float, PongMessage]:
         """Record the ping in flight; only a pong echoing ``ts`` answers it."""
@@ -149,7 +155,8 @@ class ReplySink:
         """
         with self._cond:
             self._cond.wait_for(
-                lambda: self._holds(pending) or self._discarded, max(timeout, 0.0)
+                lambda: self._holds(pending) or self._ended is not None,
+                max(timeout, 0.0),
             )
             reply = self._answers.pop(pending, None)
             if isinstance(reply, pending.kind):
@@ -175,12 +182,13 @@ class ReplySink:
     def deliver(self, msg: Message) -> None:
         """Hand an arrived reply to the request it answers.
 
-        A discarded sink delivers nothing: a retired dial never answers anyone.
+        A discarded sink parks no reply: nobody waits on a retired dial's answers.
+        An interaction the dial read is not a reply, and is the link's to run.
         Raises :class:`ReplyOutOfOrderError` for an ack or a query response that
         matches nothing owed.
         """
         with self._cond:
-            if self._discarded:
+            if self._ended is not None:
                 return
             if isinstance(msg, AckMessage):
                 self._deliver_ack(msg)
@@ -190,25 +198,31 @@ class ReplySink:
                 self._deliver_query(msg)
             self._cond.notify_all()
 
-    def discard(self) -> None:
-        """End the sink with its dial: drop what is owed and fail every waiter.
+    def discard(self, cause: RetireCause) -> tuple[str, ...]:
+        """End the sink with its dial: record who ended it, fail every waiter.
 
-        A reply already handed over stays for its waiter to take: it arrived
-        before the retirement.
+        The first call wins and returns the ledger: the ids of the scenes the display
+        still owed an ack for, in write order. Any later call returns nothing. A reply
+        already handed over stays for its waiter to take: it arrived before the
+        retirement. The ``ended`` mark and the refusal of deliveries are one hold.
         """
         with self._cond:
-            self._discarded = True
+            if self._ended is not None:
+                return ()
+            self._ended = cause
+            owed = tuple(self._acks)
             self._acks.clear()
             self._ping = None
             self._query = None
             self._waiting.clear()
             self._cond.notify_all()
+            return owed
 
     def _holds(self, pending: Pending[object, Message]) -> bool:
         return pending in self._answers
 
     def _require_live(self) -> None:
-        if self._discarded:
+        if self._ended is not None:
             msg = "the display connection closed while a reply was pending"
             raise ConnectionClosedError(msg)
 
@@ -226,10 +240,9 @@ class ReplySink:
             msg = f"ack for {ack.scene_id!r} arrived when none was owed"
             raise ReplyOutOfOrderError(msg)
         owed = self._acks.popleft()
-        if owed.key != ack.scene_id:
-            msg = f"ack for {ack.scene_id!r} arrived where {owed.key!r} was owed"
+        if owed != ack.scene_id:
+            msg = f"ack for {ack.scene_id!r} arrived where {owed!r} was owed"
             raise ReplyOutOfOrderError(msg)
-        self._hand_over(owed, ack)
 
     def _deliver_pong(self, pong: PongMessage) -> None:
         ping = self._ping
