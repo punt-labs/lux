@@ -28,35 +28,30 @@ __all__ = ["Detachment", "Registration"]
 class Registration:
     """What registering a callback did, and the write that took it.
 
-    Built through :meth:`took` or :meth:`refused`, so the outcome and the write
-    agree by construction: only a registration that took has a write and the
-    callback it stored, and the stored session must hold that callback.
+    Only a registration that took has a write, and construction checks that: a
+    ``registered`` outcome carries one, any refusal carries none. :meth:`took`
+    also checks that the stored session holds the callback it was made to store.
     """
 
     outcome: CallbackRegistration
     # None: the registration was refused, so the registry was not written.
     write: SessionWrite | None
-    # None exactly when ``write`` is None: the entry the write was made to store.
-    callback: SessionCallback | None = None
 
     def __post_init__(self) -> None:
-        write = self.write
-        if write is None:
-            agrees = self.outcome != "registered" and self.callback is None
-        else:
-            agrees = (
-                self.outcome == "registered"
-                and self.callback is not None
-                and self.callback in write.after.callbacks
-            )
-        if not agrees:
+        if (self.outcome == "registered") != (self.write is not None):
             msg = f"a {self.outcome!r} registration and its write disagree"
             raise ValueError(msg)
 
     @classmethod
     def took(cls, write: SessionWrite, callback: SessionCallback) -> Self:
-        """A registration the registry accepted: its write and the entry stored."""
-        return cls("registered", write, callback)
+        """A registration the registry accepted: its write, which stored ``callback``.
+
+        Raises ``ValueError`` if the write's session does not hold ``callback``.
+        """
+        if callback not in write.after.callbacks:
+            msg = f"a registered write did not store the callback {callback.id!r}"
+            raise ValueError(msg)
+        return cls("registered", write)
 
     @classmethod
     def refused(cls, outcome: Literal["superseded", "declined"]) -> Self:

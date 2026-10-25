@@ -55,30 +55,24 @@ class TestRegistration:
         with pytest.raises(ValueError, match="disagree"):
             Registration("registered", None)
 
-    def test_a_refusal_carrying_a_callback_is_refused(self) -> None:
-        with pytest.raises(ValueError, match="disagree"):
-            Registration("declined", None, _BEADS)
-
     def test_a_refusal_with_a_write_is_refused(self) -> None:
         with pytest.raises(ValueError, match="disagree"):
-            Registration("declined", _write(), _BEADS)
+            Registration("declined", _write())
 
     def test_a_registered_outcome_whose_write_stored_no_callback_is_refused(
         self,
     ) -> None:
         session = _held(callbacks=False)
 
-        with pytest.raises(ValueError, match="disagree"):
-            Registration("registered", SessionWrite(session, session, 0.0), _BEADS)
+        with pytest.raises(ValueError, match="did not store"):
+            Registration.took(SessionWrite(session, session, 0.0), _BEADS)
 
     def test_a_registered_outcome_whose_write_stored_a_callback_is_accepted(
         self,
     ) -> None:
         session = _held(callbacks=True)
 
-        registration = Registration(
-            "registered", SessionWrite(None, session, 0.0), _BEADS
-        )
+        registration = Registration.took(SessionWrite(None, session, 0.0), _BEADS)
 
         assert registration.outcome == "registered"
 
@@ -88,8 +82,8 @@ class TestRegistration:
         session = _held(callbacks=True)
         other = SessionCallback(id="other", label="Other")
 
-        with pytest.raises(ValueError, match="disagree"):
-            Registration("registered", SessionWrite(session, session, 0.0), other)
+        with pytest.raises(ValueError, match="did not store"):
+            Registration.took(SessionWrite(session, session, 0.0), other)
 
 
 class TestDetachment:
