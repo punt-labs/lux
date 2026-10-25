@@ -63,7 +63,13 @@ class DialReader:
         return self
 
     def run(self) -> None:
-        """Read and route until stopped or the stream ends, then retire the dial."""
+        """Read and route until stopped or the stream ends, then retire the dial.
+
+        The closing report is ``close_if_current`` of this reader's own generation,
+        taken whatever ended the loop: it is a no-op once a redial replaced the
+        generation, and ``stop`` retires it first, so safety rests on that scoping
+        and not on re-testing the stopping flag before the report.
+        """
         generation = self._generation
         try:
             while not self._stopping.is_set() and not generation.is_closed:
