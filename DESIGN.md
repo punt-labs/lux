@@ -7770,3 +7770,47 @@ generations close the defect with no wire change; the operator chose A.
 ping, and a lock-wait expiry would retire a dial that never sent. (d) Keep the reply discipline in its own `ClientReplies` class: it
 owned no state but a back-reference, and pushed `socket_server.py` past the
 efferent-coupling cap.
+
+**Amendment (2026-10-25, final review round 4).** The review found the
+DES-102 defect class one layer up, and four gaps in the rules as written.
+These rulings bind the implementation; the registry and retirement rules
+are added to `docs/listener_lifecycle.tex`.
+
+- **The registry closes only the dial that failed.** A caller that saw its
+  dial fail passes that generation to `ClientRegistry.drop(g)`, which closes
+  only if `g` is still current. No request path drops the link
+  unconditionally, so a predecessor's failure never closes a successor.
+- **A retired generation never delivers a reply.** Retirement and delivery
+  are ordered under the sink lock, and a reader stops routing replies once
+  its generation is retired. Events and interactions are link-level, not
+  generation-level: a click the display reported is delivered even if its
+  dial retired after reading it.
+- **The lock wait and the reply wait are separate budgets.** A request-lock
+  wait that spends its budget raises `DisplayBusyError` and sends nothing;
+  once the lock is held, the reply wait gets its full timeout from the send.
+  A query that queued behind another no longer sends and then retires a
+  live dial.
+- **Busy is one signal.** `show`, `query` and `ping` all raise
+  `DisplayBusyError`; the operations layer reports it as a timeout fault
+  without dropping, and liveness marks the display connected on every probe
+  path.
+- **A reply nobody is owed is skew.** An ack with an empty ledger, or a query
+  response with none in flight, retires the dial like an out-of-order ack.
+- **The retire cause follows who ended the dial.** The display ended it on
+  end of file, a reset or broken pipe, a malformed frame, or a send that
+  timed out against a display that stopped reading. The Hub ended it on a
+  query timeout, a reply skew, or its own drop. The connection keeps the
+  last cause, so recovery attributes a display death to the scene in flight
+  and never blames a scene for a Hub-side retire.
+- **The wire nesting limit follows from the scene depth cap, at the one
+  write seam.** Every element write (show, update, a property set) passes
+  the cap in the seam all writes share. A write that does not deepen the
+  written element's own wire form is not re-measured; one that does is
+  judged with the whole scene. The frame guard's nesting limit is the cap
+  plus the largest message envelope, so no reply for an accepted scene is
+  refused on the wire.
+- **Restricted acts are capabilities.** Writing to the display, releasing a
+  roster name, writing the beads board and sending a display reply are each
+  an object built in one place and handed only to its owner, so the code
+  cannot perform the act without it. The guard tests check the one place
+  each is built, rather than trying to spot every call.
