@@ -1,0 +1,39 @@
+mission_id: m-2026-10-25-005
+status: closed
+type: implement
+created_at: "2026-10-25T19:33:39Z"
+updated_at: "2026-10-25T20:08:41Z"
+closed_at: "2026-10-25T20:08:41Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-25T19:33:39Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/results-r5fix/gvr-eval-r1.md
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results-r5adv/
+success_criteria:
+    - WORK IN THE WORKTREE [REDACTED:home-path]Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes at 9ec2c664 (make -C, git -C, absolute paths). gvr accepted m-2026-10-25-004 with advisories N1-N6 (.tmp/missions/results-r5fix/gvr-eval-r1.md, lux repo root). Fix N1-N5; N6 is measured by the leader in the demo.
+    - 'N1: ClientSender is built at one site; add the construction-site guard S1 requires, with a planted second construction that fails it. N2: RosterRelease must not reach into ClientRoster''s private _names/_key_of: the roster owns its state; the release capability is a narrow object the roster itself hands out (e.g. the roster''s own release method exposed only through a capability it constructs once), so no other class mutates roster internals. Test that RosterRelease is the only way to release and that it touches no private attribute of another class. N3: RequestDesk.exchange stops being public for tests; tests reach behaviour through the public ports. N4: when the reader retired the dial as display-ended and the redial in BatchSender._sender or the isolation probe then fails, the death is still attributed to the scene in flight (the last dial''s cause is known; a failed redial does not erase it). N5: a liveness drop of a dial that the display has already ended (dead but open: the liveness ping failed) retires with cause display, not hub, so a replicator send that finds it attributes the death. Tests lead for N1-N5, each red on 9ec2c664 first; mutation-check each.'
+    - Lock order rq < sl < st < lk < qu and K2 inviolate. Score each touched file against the IN-TREE baselines (avg_lcom cap 0.5, max_lcom 0.8), report every regressed row in one message, stop for the leader's bless; over-cap means redesign. Commit per finding with explicit git add <file>; ratchet files last; the last commit leaves make check green; make test-integration green. Never run gui/e2e tests or pytest -m "". Do not spawn agents.
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results-r5adv/<mission-id>.md (lux repo root), submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    Follow-up to m-2026-10-25-004 (accepted): gvr's advisories N1-N5 are real
+    gaps (a capability without its construction guard, a capability that edits
+    another class's private state, two residual attribution paths) and are fixed
+    now, not filed.

@@ -1,0 +1,47 @@
+mission_id: m-2026-10-25-002
+status: closed
+type: implement
+created_at: "2026-10-25T14:47:23Z"
+updated_at: "2026-10-25T17:18:17Z"
+closed_at: "2026-10-25T17:18:17Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-25T14:47:23Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/review-r4-code.md
+        - .tmp/missions/review-r4-code2.md
+        - .tmp/missions/review-r4-silent.md
+        - .tmp/missions/review-r4-invariants.md
+        - .tmp/missions/review-r4-types.md
+        - docs/listener_lifecycle.tex
+        - docs/listener_locks.tex
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - tools/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results-r4fix/
+success_criteria:
+    - 'WORK IN THE WORKTREE [REDACTED:home-path]Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes (now equal to the PR branch head b09d0697; make -C, git -C, absolute paths). FIX EVERY FINDING in the five review-r4-*.md files under .tmp/missions/ (lux repo root): code (R4-C1), code2 (the second code reviewer; the file may land after you start, read it when it exists), silent (12), invariants (F1-F11), types (1-15). Duplicates across files are one fix. A finding you believe is wrong: stop and report it to the leader with file:line evidence; do not skip it. No deferrals.'
+    - 'LEADER RULINGS (binding; DES-102 is amended to match by the leader): R1 a caller that saw ITS dial fail never closes the link unconditionally: ClientRegistry.drop takes the generation the failure came from and closes only if it is still current (close_if_current semantics); every drop caller (operations/display_connection.py, liveness.py, recovery.py and any other) passes that generation. R2 the request-lock wait and the reply wait are separate budgets: a lock wait that spends its budget raises DisplayBusyError and sends nothing; once the lock is held the reply wait gets its full timeout from the send. R3 busy is one signal: show, query and ping all raise DisplayBusyError; the operations layer maps it to DisplayFault(code=''timeout'') without dropping; liveness counts busy as alive and marks connected, on every probe path including _reconnect. R4 operations catch DisplayNotConnectedError, not bare RuntimeError. R5 a Hub-side retire (query timeout, reply skew, write failure) is not reported to recovery as a Display death against the in-flight scene: the type of the failure carries its cause. R6 a reply the sink is not owed (an ack with an empty ledger, a query response with none in flight) is skew: treat as ReplyOutOfOrderError (retire), not a DEBUG drop. R7 a retired generation never delivers: retirement and delivery are ordered under the sink lock, and the reader stops routing the rest of a chunk once its dial is retired. R8 the display never drops a reply on a live connection: a second ScreenshotRequest is answered (an error reply), not overwritten; ReadyMessage is either truly held and retried or severs, whichever send_to_client''s contract supports; pick, test, and report which. R9 every guard test derives its checked set structurally (AST, resolved imports, reflection over the reply sites, the write verbs, the model modules) and carries planted cases proving it fails; no hand-kept lists. R10 both ratchet tools'' rebaseline paths record removed rows in the audit line. R11 all 15 type findings, including the generic Pending, the sink private behind send_ping/send_query, start()/start_on(born) split, the narrowed events port, @final and the dead DisplayLink args. R12 InteractionHandlers error logs carry scene_id and hub_token. R13 no reply may exceed the wire nesting limit for any scene the Hub accepts: the Hub refuses a scene whose element tree is deeper than one named depth cap at self-validation (DES-039, returned to the agent), and the wire guard''s MAX_NESTING is derived from that cap plus the largest message envelope, not a separate literal; the comment states the derivation; a regression test inspects a scene at the cap and refuses one past it. The lock order rq < sl < st < lk < qu and K2 (no model lock held while taking ClientRegistry._lock or the store lock) stay inviolate; ClientRegistry.drop(g) is called with no model lock held.'
+    - 'Tests lead: each fix''s test fails on b09d0697 first. Mutation-check every new or rewritten guard (scratch copy or hand edit restored from a backup copy, never git) and record the red runs. Commit per finding group, explicit git add. make check and make test-integration green, outputs under the worktree .tmp/, judged by exit code.'
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RATCHET: report every regressed row in one message and stop until the leader blesses; over-cap means redesign. Never run gui/e2e tests or pytest -m "". Do not touch docs/, DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except your worktree), .github/ or .punt-labs/. Do not spawn other agents. RESULT: .tmp/missions/results-r4fix/<mission-id>.md (lux repo root), submit with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 2
+context: |
+    Final local review round 4 on PR branch fix/lux-ghhf-details-frame-id found
+    findings across the display-link rework, the display reply discipline, the
+    guards and the ratchet tools. A parallel model mission (jms/jra) extends
+    docs/listener_lifecycle.tex for R1 and R7; if it finds the rulings unsound
+    the leader amends this contract.

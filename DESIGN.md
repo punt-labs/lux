@@ -7801,7 +7801,12 @@ are added to `docs/listener_lifecycle.tex`.
   timed out against a display that stopped reading. The Hub ended it on a
   query timeout, a reply skew, or its own drop. The connection keeps the
   last cause, so recovery attributes a display death to the scene in flight
-  and never blames a scene for a Hub-side retire.
+  and never blames a scene for a Hub-side retire. A dial the keepalive finds
+  unresponsive counts as ended by the display, so a scene can be struck when
+  a loaded display misses two pings; the quarantine threshold and the
+  isolation probe bound that cost, which is preferred to a display death
+  that is never attributed. A display that stays down is charged once; a
+  later death on a new dial is charged again.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
