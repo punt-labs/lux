@@ -60,7 +60,7 @@ class LoopHarness:
 def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
     """Yield a started harness; a click's re-push resolves to the rig's replica."""
     rig = InProcessLoop.start()
-    monkeypatch.setattr(client_registry, "get", lambda: rig.repush_client)
+    monkeypatch.setattr(client_registry, "asks", lambda: rig.repush_client)
     # A click marks the scene dirty; the sync replicator re-pushes it at once,
     # standing in for the background worker so the loop stays deterministic. Patch
     # every name the singleton is bound under: the instance module and the

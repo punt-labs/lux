@@ -8,17 +8,20 @@ own private state, here and nowhere else.
 
 from __future__ import annotations
 
-import contextlib
 from typing import TYPE_CHECKING
 
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from tests.domain.display_double import until
+
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Sequence
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_link import DisplayLink
     from punt_lux.domain.hub.display_writer import DisplayWriter
+    from punt_lux.protocol import Element
 
-__all__ = ["generation_of", "holding_the_scene_lock", "writer_of"]
+__all__ = ["generation_of", "shown", "writer_of"]
 
 
 def writer_of(link: DisplayLink) -> DisplayWriter:
@@ -31,8 +34,20 @@ def generation_of(link: DisplayLink) -> DialGeneration:
     return link._connection.require()  # test seam: production holds only refs
 
 
-@contextlib.contextmanager
-def holding_the_scene_lock(link: DisplayLink) -> Generator[None]:
-    """Hold ``link``'s scene request lock, as a scene that never gets its ack does."""
-    with link._desk._exchange.exclusive("scene"):  # test seam: the desk hands out none
-        yield
+def shown(
+    link: DisplayLink,
+    scene_id: str,
+    elements: Sequence[Element],
+    presentation: ScenePresentation | None = None,
+    timeout: float = 5.0,
+) -> bool:
+    """Send a scene as the replicator does, then wait for the display's ack of it.
+
+    The ack settles the dial's ledger, so the scene was taken once nothing is owed.
+    A framed ``presentation`` defaults to the scene's own id, as the Hub frames one.
+    """
+    link.connect(listen=True)  # the ack is read by the listener; a no-op if it runs
+    generation = generation_of(link)
+    framed = presentation or ScenePresentation(frame_id=scene_id)
+    writer_of(link).send_scene(framed.message(scene_id, list(elements)))
+    return until(lambda: generation.owed_acks == 0, timeout)

@@ -84,15 +84,6 @@ class _StubClient:
     __slots__ = ()
 
     @property
-    def desk(self) -> _StubClient:
-        """The request desk: this fake is its own."""
-        return self
-
-    def asks(self) -> _StubClient:
-        """The ask port: this fake is its own."""
-        return self
-
-    @property
     def dial(self) -> DialRef:
         """The dial a failed request would name; the stub has no real one."""
         return fake_dial()
@@ -159,7 +150,7 @@ def test_inspect_scene_tool_carries_z_order_geometry(
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
-    monkeypatch.setattr("punt_lux.domain.hub.clients.client_registry.get", _StubClient)
+    monkeypatch.setattr("punt_lux.domain.hub.clients.client_registry.asks", _StubClient)
 
     result = read_tools.inspect_scene("s1", want_geometry=True)
 

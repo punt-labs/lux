@@ -40,6 +40,7 @@ def _build(
     scenes.widget_state_for.return_value = widget_state
     delivery = InteractionDelivery(
         socket_listener=socket_listener,
+        sender=socket_listener.sender,
         scenes=scenes,
     )
     return delivery, socket_listener

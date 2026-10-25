@@ -6,7 +6,7 @@ dial's socket when none does. The reply carries no request id, so what keeps rep
 and requests together is exclusion: one lock per reply kind, held across the write
 and the wait, so at most one request of a kind is in flight on a dial. The locks
 belong to the link, not to any one dial or request port, so every port made for a
-dial, however many and however often, queues behind the same three.
+dial, however many and however often, queues behind the same two.
 
 Each request has two budgets, spent one after the other: the wait for its request
 lock, and, once the lock is held, the wait for the reply, which gets its full
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 __all__ = ["RequestExchange", "RequestKind"]
 
-type RequestKind = Literal["ping", "scene", "query"]
+type RequestKind = Literal["ping", "query"]
 
 # A ping's timestamp must exceed the last one's by at least this: the wall clock
 # alone can repeat within a tick, and a pong is matched by the ts it echoes.
@@ -54,7 +54,7 @@ class RequestExchange:
     _replies: DisplayReplies
     _budget: float
     _locks: dict[RequestKind, threading.Lock]
-    _last_ts: float
+    _last_ts: dict[RequestKind, float]  # per kind: each rises under its own lock
     __slots__ = ("_budget", "_connection", "_last_ts", "_locks", "_replies")
 
     def __new__(
@@ -66,10 +66,9 @@ class RequestExchange:
         self._budget = budget
         self._locks = {
             "ping": threading.Lock(),
-            "scene": threading.Lock(),
             "query": threading.Lock(),
         }
-        self._last_ts = 0.0
+        self._last_ts = {"ping": 0.0, "query": 0.0}
         return self
 
     def current(self) -> DialGeneration:
@@ -78,26 +77,18 @@ class RequestExchange:
 
     @staticmethod
     def name(generation: DialGeneration) -> DialRef:
-        """The name of ``generation``: the one place a dial is named for a caller."""
+        """The name of ``generation``, for a failure that must say which dial it hit."""
         return DialRef(generation)
-
-    def next_ping_ts(self) -> float:
-        """The timestamp for the next ping; the ping lock must be held.
-
-        Raises ``RuntimeError`` otherwise: two pings stamping at once could repeat a
-        timestamp, and a pong is matched by the ``ts`` it echoes.
-        """
-        if not self._locks["ping"].locked():
-            msg = "a ping is stamped only while the ping lock is held"
-            raise RuntimeError(msg)
-        self._last_ts = max(time.time(), self._last_ts + _TS_STEP)
-        return self._last_ts
 
     @contextlib.contextmanager
     def exclusive(
         self, kind: RequestKind, budget: float | None = None
-    ) -> Generator[None]:
-        """Hold the ``kind`` lock; busy if the wait for it spends ``budget``.
+    ) -> Generator[float]:
+        """Hold the ``kind`` lock and yield the stamp its request carries.
+
+        Busy if the wait for the lock spends ``budget``. A pong is matched by the
+        ``ts`` it echoes, so two requests of a kind must never share a stamp: it is
+        made only here, inside the hold, and rises on every request of the kind.
 
         Any interaction an inline wait decoded runs on this thread when the block
         ends, after the request lock and the reader slot are released.
@@ -108,7 +99,9 @@ class RequestExchange:
             msg = f"a {kind} request is already in flight"
             raise DisplayBusyError(msg)
         try:
-            yield
+            stamp = max(time.time(), self._last_ts[kind] + _TS_STEP)
+            self._last_ts[kind] = stamp
+            yield stamp
         finally:
             lock.release()
             # Interactions an inline read held run here: no request lock, no slot.

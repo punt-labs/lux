@@ -41,5 +41,9 @@ class WantWriteState:
         self._fds.clear()
 
     def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
-        """Return the live sockets among the tracked fds, for a write-select."""
-        return list(map(fd_to_client.__getitem__, self._fds))
+        """Return the live sockets among the tracked fds, for a write-select.
+
+        A tracked fd with no socket left is skipped: its client departed (closed
+        before it could be forgotten) and there is nothing to watch.
+        """
+        return [fd_to_client[fd] for fd in self._fds if fd in fd_to_client]

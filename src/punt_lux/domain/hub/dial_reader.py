@@ -116,9 +116,9 @@ class DialReader:
         """
         generation = self._generation
         messages = generation.messages(data)
-        # A retired dial delivers nothing of what its replies owe: the rest of the
-        # chunk is not routed. (An event or an interaction is link-level, not the
-        # dial's reply: see ``_routed_one``.)
+        # A retired dial parks no reply, and the undecoded rest of its chunk is not
+        # routed. What was already routed stands: an event or an interaction is
+        # link-level, not the dial's reply (see ``_routed_one``).
         while not self._stopping.is_set() and not generation.is_closed:
             try:
                 msg = next(messages, None)

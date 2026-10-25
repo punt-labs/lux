@@ -8,9 +8,13 @@ does every send. That is held by construction, not by spotting calls:
   the verbs; ``DisplayRequests``, which every part of the Hub may hold, has none and
   reaches no write of the dial);
 - a writer is made at one site (``WriteSeat.current``), the seat at one site (the
-  link's request desk), and the seat is given away once, to the one writer, through the
-  two hops (the registry takes it from its link's desk, the replicator from the
-  registry), so a second asker is refused at run time;
+  link's request desk, which only the link reaches), and the seat is given away once,
+  to the one writer, through the hops (the registry takes it from its link, the
+  replicator from the registry), so a second asker is refused at run time;
+- the link's own writes, the manifest and the close, are the registry's and the link's
+  alone: the manifest is declared inside the link's connect step (asked only by the
+  registry), and only the modules that name a ``DisplayLink`` can reach its ``close``;
+  what the registry hands out is the ask port, never the link;
 - a dial's own write methods are reachable only by what holds a ``DialGeneration``,
   and the modules that so much as name that type are exactly the dial model's.
 
@@ -117,6 +121,18 @@ def _calls_of(source: str, attribute: str) -> int:
     )
 
 
+def _declaring_connects(source: str) -> int:
+    """How many ``connect(..., manifest=...)`` calls the source makes."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "connect"
+        and any(k.arg == "manifest" for k in n.keywords)
+    )
+
+
 def _modules(predicate: Callable[[str], object]) -> set[str]:
     return {
         path.relative_to(_SRC).as_posix()
@@ -142,9 +158,11 @@ class TestTheWriteVerbsLiveOnTheWriterAlone:
             _public_methods(_source(_HUB + "display_writer.py"), "DisplayWriter")
         )
 
-        assert {"show", "send_scene", "set_menu", "set_callback_menus"} <= verbs
+        assert {"send_scene", "set_menu", "set_callback_menus"} <= verbs
         assert {"send_manifest"} <= verbs
-        assert verbs.isdisjoint({"ping", "query", "probe_alive", "confirm_alive"})
+        assert verbs.isdisjoint(
+            {"show", "ping", "query", "probe_alive", "confirm_alive"}
+        )
 
     def test_the_dials_write_methods_are_derived_from_the_dial(self) -> None:
         assert _dial_writes() == {"send", "send_scene"}
@@ -198,13 +216,17 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
 
         assert built == {_HUB + "request_desk.py": 1}
 
-    def test_a_dial_is_named_only_by_the_exchange(self) -> None:
+    def test_a_dial_is_named_only_inside_the_dial_model(self) -> None:
         built = {
             rel: _constructions(_source(rel), "DialRef")
             for rel in _modules(lambda s: _constructions(s, "DialRef"))
         }
 
-        assert built == {_HUB + "request_exchange.py": 1}
+        assert set(built) <= _DIAL_MODEL | {_HUB + "dial_ref.py"}
+        assert built == {
+            _HUB + "display_connection.py": 1,
+            _HUB + "request_exchange.py": 1,
+        }
 
     def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:
         # The registry takes it from its link's desk; the replicator from the registry.
@@ -218,6 +240,57 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
     def test_each_hop_takes_the_seat_once(self) -> None:
         assert _calls_of(_source(_HUB + "clients.py"), "take_seat") == 1
         assert _calls_of(_source(_HUB + "replicator.py"), "take_writer") == 1
+
+
+class TestTheLinkIsTheRegistrysAlone:
+    """The manifest and the close are not the ask port's, nor any caller's."""
+
+    def test_the_manifest_is_declared_only_inside_the_links_connect_step(self) -> None:
+        assert _modules(lambda s: _calls_of(s, "declare") > 0) == {
+            _HUB + "display_link.py"
+        }
+        assert _calls_of(_source(_HUB + "display_link.py"), "declare") == 1
+
+    def test_the_connect_step_that_declares_is_asked_only_by_the_registry(
+        self,
+    ) -> None:
+        assert _modules(lambda s: _declaring_connects(s) > 0) == {_HUB + "clients.py"}
+        assert _declaring_connects(_source(_HUB + "clients.py")) == 1
+
+    def test_only_the_registry_and_the_links_own_modules_name_a_link(self) -> None:
+        naming = _modules(lambda s: "DisplayLink" in _names(s))
+
+        assert naming == {
+            _HUB + "clients.py",
+            _HUB + "cross_host_link.py",
+            _HUB + "display_link.py",
+        }
+
+    def test_the_registry_hands_out_no_link(self) -> None:
+        public = _public_methods(_source(_HUB + "clients.py"), "ClientRegistry")
+
+        assert "get" not in public
+        assert "asks" in public
+
+    def test_the_link_declares_through_its_connect_step_and_keeps_no_declare(
+        self,
+    ) -> None:
+        public = {n for n in vars(DisplayLink) if not n.startswith("_")}
+
+        assert "declare" not in public
+        assert "connect" in public
+
+    def test_a_second_declarer_and_a_second_naming_of_the_link_are_found(self) -> None:
+        planted_declare = "def f(clients):\n    clients.link.desk.declare(())\n"
+        planted_connect = "def f(link):\n    link.connect(listen=True, manifest=m)\n"
+        planted_naming = (
+            "from punt_lux.domain.hub.display_link import DisplayLink as L\n"
+        )
+
+        assert _calls_of(planted_declare, "declare") == 1
+        assert _declaring_connects(planted_connect) == 1
+        assert _declaring_connects("def f(link):\n    link.connect(listen=True)\n") == 0
+        assert "DisplayLink" in _names(planted_naming)
 
 
 class TestOnlyTheDialModelCanHoldADial:

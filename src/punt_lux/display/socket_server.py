@@ -57,8 +57,20 @@ class SocketListener:
         )
         return self
 
+    @classmethod
+    def with_sender(
+        cls, callbacks: SocketListenerCallbacks
+    ) -> tuple[Self, ClientSender]:
+        """Make a listener and the one sender that writes to its clients.
+
+        The sender is handed to the objects that send, once, at construction: the
+        listener keeps no accessor, so nothing reaches through it to write.
+        """
+        listener = cls(callbacks)
+        return listener, listener._sender
+
     def is_client(self, sock: socket.socket) -> bool:
-        """Return whether ``sock`` is still a live registered client (ReaderHost)."""
+        """Return whether ``sock`` is still a live registered client (ClientHost)."""
         return sock in self._clients
 
     # -- public properties --------------------------------------------------
@@ -92,11 +104,6 @@ class SocketListener:
     def client_count(self) -> int:
         """Return how many clients are currently connected."""
         return len(self._clients)
-
-    @property
-    def sender(self) -> ClientSender:
-        """What is sent to the clients: interactions, replies and the frame budget."""
-        return self._sender
 
     # -- lifecycle ----------------------------------------------------------
 

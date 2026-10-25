@@ -12,6 +12,7 @@ scene that caused it however the retirement raced the send.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, final
 
@@ -30,7 +31,6 @@ from punt_lux.domain.hub.crash_attribution import (
 )
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_lost import DisplayLostError
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
@@ -40,13 +40,12 @@ from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
 from punt_lux.protocol import AckMessage, SceneMessage, TextElement, encode_frame
-from tests.domain.display_double import Call, Display, until
-from tests.link_access import writer_of
+from tests.domain.display_double import Call, Display, Responder, until
+from tests.link_access import generation_of, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.dirty_signal import DirtySignal
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -55,6 +54,7 @@ if TYPE_CHECKING:
         ClientProvider,
         DisplayLifecycle,
         MenuReader,
+        WriteSeatPort,
     )
 
 
@@ -175,6 +175,22 @@ class TestADialTheHubEnded:
 
         assert isinstance(_next_request_error(link), HubRetiredError)
 
+    def test_a_write_woken_by_the_hubs_retire_is_the_hubs(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        generation = generation_of(link)
+        wide = ScenePresentation(frame_id="wide").message(
+            "wide", [TextElement(id="t", content="x" * 8_000_000)]
+        )
+        writing = Call(lambda: writer_of(link).send_scene(wide))
+        time.sleep(0.2)  # the peer reads nothing: the write is wedged in sendall
+
+        link._connection.close_if_current(generation, cause="hub")
+
+        assert writing.wait()
+        assert isinstance(writing.error, HubRetiredError)
+
 
 class TestADialTheKeepaliveFoundUnresponsive:
     """A dial that is open but does not answer is the display's, not the Hub's."""
@@ -229,21 +245,22 @@ class TestALinkNeverOpened:
 
 
 class TestARedialThatFindsNobodyHome:
-    def test_after_the_display_ended_the_last_dial_it_names_that_dial(
-        self, display: Display
-    ) -> None:
+    def test_the_death_outlives_the_redial_that_fails(self, display: Display) -> None:
         dialer = _SwitchedDialer(display)
         link = DisplayLink(dialer, recv_timeout=3.0)
         link.connect(listen=True)
+        writer_of(link).send_scene(_scene("s1"))  # written, never acked
         dial = link.desk.asks().dial
         display.peer.close()
         assert until(lambda: not link.is_connected)
         dialer.down = True
 
-        with pytest.raises(DisplayLostError) as lost:
+        with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        assert lost.value.dial == dial
+        (death,) = link.take_deaths()
+        assert death.dial == dial
+        assert death.suspects == frozenset({SceneId("s1")})
 
     def test_after_the_hub_ended_the_last_dial_it_is_plain_not_connected(
         self, display: Display
@@ -254,10 +271,10 @@ class TestARedialThatFindsNobodyHome:
         link.close()
         dialer.down = True
 
-        with pytest.raises(DisplayNotConnectedError) as caught:
+        with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        assert not isinstance(caught.value, DisplayLostError)
+        assert link.take_deaths() == ()
 
     def test_a_link_that_never_dialed_is_plain_not_connected(
         self, display: Display
@@ -266,10 +283,10 @@ class TestARedialThatFindsNobodyHome:
         dialer.down = True
         link = DisplayLink(dialer, recv_timeout=3.0)
 
-        with pytest.raises(DisplayNotConnectedError) as caught:
+        with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        assert not isinstance(caught.value, DisplayLostError)
+        assert link.take_deaths() == ()
 
     def test_two_names_for_one_dial_are_equal_and_two_dials_are_not(
         self, display: Display
@@ -325,49 +342,6 @@ class _Menus:
 
 
 @final
-class _RetiringClients:
-    """A client provider whose link loses its dial right after ``get`` hands it out.
-
-    The race a reader that sees the display die can win: the dial the sender was
-    about to use is retired between connecting and writing.
-    """
-
-    _link: DisplayLink
-    _display: Display
-    _gets: int
-    _retire_at: int
-    __slots__ = ("_display", "_gets", "_link", "_retire_at")
-
-    def __new__(cls, link: DisplayLink, display: Display) -> Self:
-        self = super().__new__(cls)
-        self._link = link
-        self._display = display
-        self._gets = 0
-        self._retire_at = 0
-        return self
-
-    def arm(self, nth: int = 1) -> None:
-        """Retire the dial the ``nth`` time the link is handed out from now on."""
-        self._retire_at = self._gets + nth
-
-    def get(self) -> DisplayLink:
-        link = self._link
-        if not link.is_connected:
-            link.connect(listen=True)  # a redial, as the registry's get makes
-        self._gets += 1
-        if self._gets == self._retire_at:
-            self._display.peer.close()
-            until(lambda: not link.is_connected)
-        return link
-
-    def take_writer(self) -> object:
-        return self._link.desk.take_seat()
-
-    def drop(self, dial: DialRef) -> None:
-        self._link.drop_if_current(dial, cause="hub")
-
-
-@final
 class _SwitchedDialer:
     """A display that can be taken away: while ``down``, a dial finds nobody home."""
 
@@ -388,324 +362,11 @@ class _SwitchedDialer:
         return self._display.dial(connect_timeout)
 
 
-@final
-class _DyingClients:
-    """A client provider whose display dies, and stays down, at its ``nth`` get.
-
-    The reader sees the death and retires the dial before the sender's request is
-    made; the redial that ``get`` then makes finds nobody home.
-    """
-
-    _link: DisplayLink
-    _display: Display
-    _dialer: _SwitchedDialer
-    _gets: int
-    _die_at: int
-    __slots__ = ("_dialer", "_die_at", "_display", "_gets", "_link")
-
-    def __new__(
-        cls, link: DisplayLink, display: Display, dialer: _SwitchedDialer
-    ) -> Self:
-        self = super().__new__(cls)
-        self._link = link
-        self._display = display
-        self._dialer = dialer
-        self._gets = 0
-        self._die_at = 0
-        return self
-
-    def arm(self, nth: int = 1) -> None:
-        """The display dies at the ``nth`` get from now on."""
-        self._die_at = self._gets + nth
-
-    def get(self) -> DisplayLink:
-        self._gets += 1
-        if self._gets == self._die_at:
-            self._dialer.down = True
-            self._display.peer.close()
-            until(lambda: not self._link.is_connected)
-        if not self._link.is_connected:
-            self._link.connect(listen=True)  # a redial, as the registry's get makes
-        return self._link
-
-    def take_writer(self) -> object:
-        return self._link.desk.take_seat()
-
-    def drop(self, dial: DialRef) -> None:
-        self._link.drop_if_current(dial, cause="hub")
-
-
 class _NoLifecycle:
     __slots__ = ()
 
     def reap(self, timeout: float = 2.0) -> None:
         """Nothing to kill: the display only closed its end."""
-
-
-def _poison_store(scene: SceneId) -> HubStoreFactory:
-    factory = HubStoreFactory()
-    owner = ConnectionId("c")
-    factory.lifecycle.arrive(owner, UNOBSERVED)
-    factory.display.replace_scene(
-        Scope.in_process(owner), scene, [TextElement(id="r", content="x")]
-    )
-    factory.display.frames.record(scene, ScenePresentation(frame_id=str(scene)))
-    return factory
-
-
-@dataclass(frozen=True)
-class _Rig:
-    """A sender, its recovery and a display that can be taken away."""
-
-    store: HubDisplay
-    clients: _DyingClients
-    dialer: _SwitchedDialer
-    sender: BatchSender
-    recovery: SendRecovery
-
-
-def _rig(display: Display, scene: SceneId, *, isolating: bool = False) -> _Rig:
-    factory = _poison_store(scene)
-    dialer = _SwitchedDialer(display)
-    link = DisplayLink(dialer, recv_timeout=3.0)
-    link.connect()
-    link.connect(listen=True)
-    clients = _DyingClients(link, display, dialer)
-    attribution = CrashAttribution(factory.display)
-    if isolating:
-        attribution.attribute_death(frozenset())  # isolation mode, no scene blamed
-    sender = BatchSender(
-        factory.display.reader,
-        cast("MenuReader", _Menus()),
-        cast("CallbackMenuReader", _Menus()),
-        cast("ClientProvider", clients),
-        link.desk.take_seat(),
-        attribution,
-        NoFrameOwnerFacts(),
-    )
-    recovery = SendRecovery(
-        cast("ClientProvider", clients),
-        cast("DisplayLifecycle", _NoLifecycle()),
-        cast("DirtySignal", _Signal()),
-        attribution,
-        RespawnBackoff(),
-    )
-    return _Rig(factory.display, clients, dialer, sender, recovery)
-
-
-def _the_display_stays_down(rig: _Rig, batch: DrainedBatch) -> None:
-    """Push the batch again and again: each cycle finds the display still down."""
-    for _ in range(ATTRIBUTION_THRESHOLD + 2):
-        with pytest.raises(DisplayNotConnectedError) as later:
-            rig.sender.push(batch)
-        assert not isinstance(later.value, BatchSendError)
-
-
-class TestADeathTheRedialCouldNotUndo:
-    """The display died, the reader saw it, and the redial found nobody home."""
-
-    def test_the_send_is_charged_to_the_scene_it_was_sending(
-        self, display: Display
-    ) -> None:
-        scene = SceneId("s1")
-        rig = _rig(display, scene)
-        rig.clients.arm()
-
-        with pytest.raises(BatchSendError) as caught:
-            rig.sender.push(DrainedBatch(frozenset({scene}), shutting=False))
-
-        assert _is_the_displays_end(caught.value.cause)
-        assert caught.value.suspect == frozenset({scene})
-        assert caught.value.dial is not None
-
-    def test_the_probe_s_redial_is_charged_to_the_scene_just_sent(
-        self, display: Display
-    ) -> None:
-        scene = SceneId("poison")
-        rig = _rig(display, scene, isolating=True)
-        rig.clients.arm(nth=2)  # the send's get, then the probe's: the display dies
-
-        with pytest.raises(BatchSendError) as caught:
-            rig.sender.push(DrainedBatch(frozenset({scene}), shutting=False))
-
-        assert _is_the_displays_end(caught.value.cause)
-        assert caught.value.suspect == frozenset({scene})
-
-    def test_a_display_that_stays_down_is_charged_once_not_every_cycle(
-        self, display: Display
-    ) -> None:
-        scene = SceneId("innocent")
-        rig = _rig(display, scene)
-        batch = DrainedBatch(frozenset({scene}), shutting=False)
-        rig.clients.arm()
-
-        with pytest.raises(BatchSendError) as caught:
-            rig.sender.push(batch)
-        with pytest.raises(DisplayNotConnectedError):
-            rig.recovery.recover(batch, caught.value)  # the heal finds nobody home too
-        _the_display_stays_down(rig, batch)
-
-        assert not rig.store.is_quarantined(scene)
-
-    def test_a_death_the_send_itself_found_is_not_charged_again_on_the_redial(
-        self, display: Display
-    ) -> None:
-        scene = SceneId("found-by-the-write")
-        rig = _rig(display, scene)
-        batch = DrainedBatch(frozenset({scene}), shutting=False)
-        rig.dialer.down = True
-        display.sockets[-1].fail_next_send = True  # the write itself finds it dead
-
-        with pytest.raises(BatchSendError) as caught:
-            rig.sender.push(batch)
-        with pytest.raises(DisplayNotConnectedError):
-            rig.recovery.recover(batch, caught.value)
-        _the_display_stays_down(rig, batch)
-
-        assert not rig.store.is_quarantined(scene)
-
-
-class TestANewDeathOnANewDialIsChargedAgain:
-    """The once-per-death dedupe is per dial, not per scene or per run."""
-
-    def test_the_display_dying_again_on_a_new_dial_is_charged(
-        self, display: Display
-    ) -> None:
-        scene = SceneId("s1")
-        rig = _rig(display, scene)
-        batch = DrainedBatch(frozenset({scene}), shutting=False)
-
-        rig.clients.arm()
-        with pytest.raises(BatchSendError) as first:
-            rig.sender.push(batch)  # the death of dial A: charged
-        with pytest.raises(DisplayNotConnectedError) as still_down:
-            rig.sender.push(batch)  # the display stays down: not charged again
-        assert not isinstance(still_down.value, BatchSendError)
-
-        rig.dialer.down = False  # the display returns, on dial B
-        rig.clients.get()
-        rig.clients.arm()
-        with pytest.raises(BatchSendError) as second:
-            rig.sender.push(batch)  # the death of dial B: a new death, charged
-
-        assert second.value.suspect == frozenset({scene})
-        assert second.value.dial is not None
-        assert second.value.dial != first.value.dial
-
-
-class TestADeathTheReaderSawFirstIsStillAttributed:
-    """The reader retires the dial before the send's own write finds it dead."""
-
-    def test_the_send_is_charged_to_the_scene_it_was_sending(
-        self, display: Display
-    ) -> None:
-        factory = HubStoreFactory()
-        store = factory.display
-        scene = SceneId("s1")
-        owner = ConnectionId("c")
-        factory.lifecycle.arrive(owner, UNOBSERVED)
-        store.replace_scene(
-            Scope.in_process(owner), scene, [TextElement(id="r", content="x")]
-        )
-        store.frames.record(scene, ScenePresentation(frame_id="s1"))
-        link = _linked(display)
-        clients = _RetiringClients(link, display)
-        attribution = CrashAttribution(store)
-        sender = BatchSender(
-            store.reader,
-            cast("MenuReader", _Menus()),
-            cast("CallbackMenuReader", _Menus()),
-            cast("ClientProvider", clients),
-            link.desk.take_seat(),
-            attribution,
-            NoFrameOwnerFacts(),
-        )
-        batch = DrainedBatch(frozenset({scene}), shutting=False)
-        clients.arm()
-
-        with pytest.raises(BatchSendError) as caught:
-            sender.push(batch)
-
-        assert _is_the_displays_end(caught.value.cause)
-        assert caught.value.suspect == frozenset({scene})
-
-    def test_a_scene_that_kills_the_display_on_the_probe_is_quarantined(
-        self, display: Display
-    ) -> None:
-        # The isolation loop sends one scene and probes before the next. If the
-        # display dies on the scene and the reader sees it before the probe's request
-        # is made, each death must still be charged to that scene, so the crash loop
-        # reaches the threshold and the scene is quarantined.
-        factory = HubStoreFactory()
-        store = factory.display
-        scene = SceneId("poison")
-        owner = ConnectionId("c")
-        factory.lifecycle.arrive(owner, UNOBSERVED)
-        store.replace_scene(
-            Scope.in_process(owner), scene, [TextElement(id="r", content="x")]
-        )
-        store.frames.record(scene, ScenePresentation(frame_id="poison"))
-        link = _linked(display)
-        clients = _RetiringClients(link, display)
-        attribution = CrashAttribution(store)
-        attribution.attribute_death(frozenset())  # isolation mode, no scene blamed
-        sender = BatchSender(
-            store.reader,
-            cast("MenuReader", _Menus()),
-            cast("CallbackMenuReader", _Menus()),
-            cast("ClientProvider", clients),
-            link.desk.take_seat(),
-            attribution,
-            NoFrameOwnerFacts(),
-        )
-        recovery = SendRecovery(
-            cast("ClientProvider", clients),
-            cast("DisplayLifecycle", _NoLifecycle()),
-            cast("DirtySignal", _Signal()),
-            attribution,
-            RespawnBackoff(),
-        )
-        batch = DrainedBatch(frozenset({scene}), shutting=False)
-
-        for _ in range(ATTRIBUTION_THRESHOLD):
-            clients.arm(nth=2)  # the send's get, then the probe's: the display dies
-            with pytest.raises(BatchSendError) as caught:
-                sender.push(batch)
-            assert caught.value.suspect == frozenset({scene})
-            recovery.recover(batch, caught.value)
-
-        assert store.is_quarantined(scene)
-
-    def test_recovery_then_counts_the_death(self, display: Display) -> None:
-        factory = HubStoreFactory()
-        store = factory.display
-        scene = SceneId("s1")
-        attribution = CrashAttribution(store)
-        recovery = SendRecovery(
-            cast("ClientProvider", _AlwaysConnected()),
-            cast("DisplayLifecycle", _NoLifecycle()),
-            cast("DirtySignal", _Signal()),  # the re-marks are not asserted here
-            attribution,
-            RespawnBackoff(),
-        )
-        recovery.recover(
-            DrainedBatch(frozenset({scene}), shutting=False),
-            BatchSendError(
-                ConnectionClosedError("the display closed the connection"),
-                frozenset({scene}),
-                None,
-            ),
-        )
-
-        assert attribution.mode == "isolating"
-
-
-@final
-class _AlwaysConnected:
-    __slots__ = ()
-
-    def get(self) -> object:
-        return self
 
 
 @final
@@ -717,3 +378,406 @@ class _Signal:
 
     def add_all(self, scenes: object) -> None:
         """Unused."""
+
+
+def _store(contents: dict[str, str]) -> HubStoreFactory:
+    factory = HubStoreFactory()
+    owner = ConnectionId("c")
+    factory.lifecycle.arrive(owner, UNOBSERVED)
+    for scene, content in contents.items():
+        factory.display.replace_scene(
+            Scope.in_process(owner),
+            SceneId(scene),
+            [TextElement(id=f"{scene}-root", content=content)],
+        )
+        factory.display.frames.record(SceneId(scene), ScenePresentation(frame_id=scene))
+    return factory
+
+
+def _mode(rig: _Rig) -> str:
+    return rig.attribution.mode
+
+
+def _batch(*scenes: str) -> DrainedBatch:
+    return DrainedBatch(frozenset(SceneId(s) for s in scenes), shutting=False)
+
+
+@dataclass(frozen=True)
+class _Rig:
+    """The replicator's parts over the real registry, link and dial model.
+
+    Only the display is scripted. The sender, recovery, attribution, registry, link,
+    dials, reader and ack ledgers are the production objects, so a death is found,
+    recorded and charged by the code that does it in luxd.
+    """
+
+    display: Display
+    dialer: _SwitchedDialer
+    store: HubDisplay
+    registry: ClientRegistry
+    link: DisplayLink
+    attribution: CrashAttribution
+    sender: BatchSender
+    recovery: SendRecovery
+
+    def push(self, *scenes: str) -> BatchSendError | None:
+        """One replicator cycle: push, and heal a failed send; the failure, if any."""
+        batch = _batch(*scenes)
+        try:
+            self.sender.push(batch)
+        except BatchSendError as failure:
+            self.recovery.recover(batch, failure)
+            return failure
+        return None
+
+    def after(self, dials: int) -> None:
+        """Wait until the dial made before ``dials`` was ended: found, or redialed."""
+        assert until(lambda: not self.link.is_connected or self.display.dials > dials)
+
+    def quarantined(self, scene: str) -> bool:
+        return self.store.is_quarantined(SceneId(scene))
+
+
+def _rig(display: Display, contents: dict[str, str]) -> _Rig:
+    factory = _store(contents)
+    dialer = _SwitchedDialer(display)
+    link = DisplayLink(dialer, recv_timeout=3.0)
+    registry = ClientRegistry()
+    registry._client = link  # test seam: a registry over a link of our own
+    registry.asks()  # the first dial, and its manifest
+    attribution = CrashAttribution(factory.display)
+    clients = cast("ClientProvider", registry)
+    sender = BatchSender(
+        factory.display.reader,
+        cast("MenuReader", _Menus()),
+        cast("CallbackMenuReader", _Menus()),
+        clients,
+        cast("WriteSeatPort", registry.take_writer()),
+        attribution,
+        NoFrameOwnerFacts(),
+    )
+    recovery = SendRecovery(
+        clients,
+        cast("DisplayLifecycle", _NoLifecycle()),
+        cast("DirtySignal", _Signal()),
+        RespawnBackoff(),
+    )
+    return _Rig(
+        display,
+        dialer,
+        factory.display,
+        registry,
+        link,
+        attribution,
+        sender,
+        recovery,
+    )
+
+
+@pytest.fixture
+def poisoned(display: Display) -> Iterator[Responder]:
+    responder = Responder(display, frozenset({"p"}))
+    yield responder
+    responder.stop()
+
+
+@pytest.fixture
+def answering(display: Display) -> Iterator[Responder]:
+    responder = Responder(display)
+    yield responder
+    responder.stop()
+
+
+class TestADeathDiscoveredByAnyParty:
+    """P1 to P4: the dial's own ledger is charged, once, whoever finds it dead."""
+
+    def test_p1_the_replicators_own_send_leaves_the_death_of_the_unacked_scene(
+        self, display: Display
+    ) -> None:
+        rig = _rig(display, {"s1": "x", "s2": "x"})
+        rig.push("s1")  # on the wire, never acked
+        display.sockets[-1].fail_next_send = True
+
+        failure = rig.push("s2")  # this write finds the display dead
+        assert _mode(rig) == "batching"  # nothing is charged until a push
+
+        rig.sender.charge_deaths()
+
+        assert failure is not None
+        assert isinstance(failure.cause, OSError)
+        assert rig.attribution.mode == "isolating"  # the ledger was charged
+
+    def test_p1_the_ledger_names_the_written_scene_not_the_one_that_failed(
+        self, display: Display
+    ) -> None:
+        rig = _rig(display, {"s1": "x", "s2": "x"})
+        rig.push("s1")
+        display.sockets[-1].fail_next_send = True
+        with pytest.raises(BatchSendError):
+            rig.sender.push(_batch("s2"))
+
+        (death,) = rig.registry.take_deaths()
+
+        assert death.suspects == frozenset({SceneId("s1")})
+
+    def test_p2_a_poison_scene_is_quarantined_when_another_party_wins_every_redial(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        # Silent F1: the display crashes a frame after reading the scene, the reader
+        # retires the dial, and the keepalive (or a tool) redials it before the
+        # replicator looks. The loop must still be broken.
+        rig = _rig(display, {"p": "x"})
+
+        for _ in range(ATTRIBUTION_THRESHOLD + 2):
+            dials = display.dials
+            rig.push("p")
+            rig.after(dials)
+            rig.registry.asks()  # not the replicator: a probe or a tool's redial
+            rig.sender.charge_deaths()  # the replicator's next tick
+            if rig.quarantined("p"):
+                break
+
+        assert rig.quarantined("p")
+
+    def test_p3_a_death_is_charged_at_discovery_and_the_redial_does_not_recharge_it(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"p": "x"})
+        rig.push("p")
+        assert until(lambda: not rig.link.is_connected)  # the reader found it
+
+        rig.sender.charge_deaths()  # no redial yet
+        assert rig.attribution.mode == "isolating"
+        rig.registry.asks()  # a later redial
+        rig.sender.charge_deaths()
+
+        assert rig.registry.take_deaths() == ()
+        assert not rig.quarantined("p")  # one strike for one death
+
+    def test_p4_two_discoverers_of_one_dial_charge_one_strike_and_a_new_dial_another(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"p": "x"})
+        dials = display.dials
+        rig.push("p")
+        rig.after(dials)
+        rig.registry.asks()
+        rig.sender.charge_deaths()
+        rig.sender.charge_deaths()  # a second party looks at the same dead dial
+        assert not rig.quarantined("p")
+
+        dials = display.dials
+        rig.push("p")  # the poison scene again, on the new dial
+        rig.after(dials)
+        rig.registry.asks()
+        rig.sender.charge_deaths()
+
+        assert rig.quarantined("p")
+
+    def test_the_next_push_charges_a_death_before_it_sends_anything(
+        self,
+        display: Display,
+        poisoned: Responder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rig = _rig(display, {"p": "x", "q": "x"})
+        rig.push("p")
+        assert until(lambda: not rig.link.is_connected)  # found; nothing charged yet
+        assert rig.attribution.mode == "batching"
+        modes: list[str] = []
+        real = BatchSender._send_scene
+
+        def spy(self: BatchSender, scene_id: SceneId, flight: object) -> bool:
+            modes.append(rig.attribution.mode)
+            return real(self, scene_id, flight)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(BatchSender, "_send_scene", spy)
+
+        rig.push("q")
+
+        assert modes
+        assert modes[0] == "isolating", "the death was charged after a send"
+
+
+class TestADeathTheHubEndedChargesNothing:
+    """P5: a dial the Hub retired is no evidence, whatever it still owed."""
+
+    def test_p5_a_write_woken_by_the_hubs_retire_charges_nothing(
+        self, display: Display
+    ) -> None:
+        rig = _rig(display, {"s1": "x", "wide": "x" * 8_000_000})
+        rig.push("s1")  # written, never acked: the ledger is not empty
+        dial = rig.link.desk.asks().dial
+        batch = _batch("wide")
+        writing = Call(lambda: rig.sender.push(batch))
+        time.sleep(0.3)  # the peer reads nothing: the write is wedged in sendall
+
+        rig.registry.drop(dial)  # a query timeout, say: the Hub's own retire
+
+        assert writing.wait()
+        failure = writing.error
+        assert isinstance(failure, BatchSendError)
+        assert isinstance(failure.cause, HubRetiredError)
+        rig.recovery.recover(batch, failure)
+        assert rig.attribution.mode == "batching"
+        assert rig.registry.take_deaths() == ()
+
+    def test_p5_an_inline_read_woken_by_the_hubs_retire_charges_nothing(
+        self, display: Display
+    ) -> None:
+        rig = _rig(display, {"s1": "x"})
+        rig.push("s1")
+        dial = rig.link.desk.asks().dial
+        pinging = Call(lambda: rig.link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)  # the manifest, the scene and the ping are all read
+
+        rig.registry.drop(dial)
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, HubRetiredError)
+        assert rig.registry.take_deaths() == ()
+
+    def test_only_a_display_end_queues_a_death(self, display: Display) -> None:
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("s1"))
+
+        link.close()  # the Hub's own close of a dial that owed an ack
+
+        assert link.take_deaths() == ()
+
+
+class TestADeathThatOwedNothing:
+    """P6 to P8: the ledger is exactly what was written and never acked."""
+
+    def test_p6_a_stop_while_idle_charges_no_later_scene(
+        self, display: Display, answering: Responder
+    ) -> None:
+        rig = _rig(display, {"s1": "x", "s2": "x"})
+        rig.push("s1")
+        assert until(lambda: generation_of(rig.link).owed_acks == 0)  # all acked
+        dials = display.dials
+        display.peer.close()  # a deliberate stop, with nothing in flight
+        rig.after(dials)
+        rig.registry.asks()
+
+        rig.push("s2")
+        rig.sender.charge_deaths()
+
+        assert rig.attribution.mode == "batching"
+        assert not rig.quarantined("s2")
+
+    def test_p7_an_acked_scene_is_not_a_suspect(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"a": "x", "p": "x"})
+        rig.push("a")
+        assert until(lambda: generation_of(rig.link).owed_acks == 0)
+
+        rig.push("p")
+        assert until(lambda: not rig.link.is_connected)
+
+        (death,) = rig.registry.take_deaths()
+        assert death.suspects == frozenset({SceneId("p")})
+
+    def test_p8_a_scene_written_only_to_a_later_dial_is_not_charged_for_an_earlier(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"p": "x", "b": "x"})
+        rig.push("p")
+        assert until(lambda: not rig.link.is_connected)
+        rig.registry.asks()  # the second dial; "b" is written only to it
+        (first,) = rig.registry.take_deaths()
+        rig.push("b")
+        rig.sender.charge_deaths()
+
+        assert first.suspects == frozenset({SceneId("p")})
+        assert rig.attribution.mode == "batching"  # "b" owed nothing at any death
+        assert not rig.quarantined("b")
+
+
+class TestIsolationNarrowsTheSuspects:
+    """P9 and P10: after a charge, one scene at a time; a quarantined one never sent."""
+
+    def test_p9_a_death_in_isolation_charges_the_one_scene_in_flight(
+        self,
+        display: Display,
+        poisoned: Responder,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        rig = _rig(display, {"a": "x", "p": "x"})
+        rig.attribution.attribute_death(frozenset())  # a charge has been made
+        charged: list[frozenset[SceneId]] = []
+        real = CrashAttribution.attribute_death
+
+        def spy(
+            self: CrashAttribution,
+            suspect_set: frozenset[SceneId],
+            *,
+            render_error: str | None = None,
+        ) -> frozenset[SceneId]:
+            charged.append(suspect_set)
+            return real(self, suspect_set, render_error=render_error)
+
+        monkeypatch.setattr(CrashAttribution, "attribute_death", spy)
+
+        dials = display.dials
+        rig.push("a", "p")
+        rig.after(dials)
+        rig.registry.asks()
+        rig.sender.charge_deaths()
+
+        assert charged == [frozenset({SceneId("p")})]
+
+    def test_p10_a_quarantined_scene_is_never_sent_again(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"p": "x"})
+        for _ in range(ATTRIBUTION_THRESHOLD + 2):
+            dials = display.dials
+            rig.push("p")
+            rig.after(dials)
+            rig.registry.asks()
+            rig.sender.charge_deaths()
+            if rig.quarantined("p"):
+                break
+        assert rig.quarantined("p")
+        seen = len(poisoned.seen)
+
+        rig.push("p")
+
+        assert len(poisoned.seen) == seen
+
+
+class TestTheLastDial:
+    """P11: with nobody to redial, the last dial's death is still charged, once."""
+
+    def test_p11_a_display_that_stays_down_is_charged_once_not_every_cycle(
+        self, display: Display, poisoned: Responder
+    ) -> None:
+        rig = _rig(display, {"p": "x"})
+        rig.dialer.down = True
+        rig.push("p")
+        assert until(lambda: not rig.link.is_connected)
+
+        rig.sender.charge_deaths()
+        for _ in range(ATTRIBUTION_THRESHOLD + 2):
+            with pytest.raises(DisplayNotConnectedError):
+                rig.sender.push(_batch("p"))
+
+        assert rig.attribution.mode == "isolating"  # charged: the display died
+        assert not rig.quarantined("p")  # but once, not each cycle it stays down
+
+
+class TestAnUnansweredProbeIsTheDisplaysEnd:
+    def test_an_unanswered_isolation_probe_leaves_the_death_of_the_scene_sent(
+        self, display: Display
+    ) -> None:
+        rig = _rig(display, {"s1": "x"})  # no responder: nothing is ever answered
+        rig.attribution.attribute_death(frozenset())  # isolation mode
+
+        failure = rig.push("s1")
+
+        assert failure is not None
+        assert _is_the_displays_end(failure.cause)
+        (death,) = rig.registry.take_deaths()  # the unanswering dial's ledger
+        assert death.suspects == frozenset({SceneId("s1")})

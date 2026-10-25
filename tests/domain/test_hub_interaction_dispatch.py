@@ -550,7 +550,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
         AddElement(scene_id=scene_id, element=wire_leaf, parent_id=None),
     )
 
-    fake_registry = SimpleNamespace(get=MagicMock())
+    fake_registry = SimpleNamespace(asks=MagicMock())
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(hub_module, "client_registry", fake_registry)
 
@@ -564,7 +564,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
         )
     )
 
-    fake_registry.get.assert_not_called()
+    fake_registry.asks.assert_not_called()
 
 
 def test_hub_interaction_dispatch_marks_dirty_without_display_io(

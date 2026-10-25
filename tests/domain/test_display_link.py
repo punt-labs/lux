@@ -32,7 +32,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import generation_of, writer_of
+from tests.link_access import generation_of, shown, writer_of
 
 # ---------------------------------------------------------------------------
 # Helpers — mini display server for testing
@@ -348,13 +348,13 @@ class TestSendMessages:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                ack = writer_of(client).show(
+                acked = shown(
+                    client,
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
                     presentation=ScenePresentation(frame_id="s1", title="Test"),
                 )
-                assert ack is not None
-                assert ack.scene_id == "s1"
+                assert acked
         finally:
             if server_conn:
                 server_conn.close()
@@ -397,12 +397,12 @@ class TestSendMessages:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                ack = writer_of(client).show(
+                acked = shown(
+                    client,
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
                 )
-                assert ack is not None
-                assert ack.scene_id == "s1"
+                assert acked
         finally:
             if server_conn:
                 server_conn.close()
@@ -593,10 +593,11 @@ class TestRecvEvents:
 
 class TestErrorHandling:
     def test_send_without_connect_raises(self) -> None:
-        """Calling show() before connect() raises DisplayNotConnectedError."""
+        """Writing a scene before connect() raises DisplayNotConnectedError."""
         client = DisplayLink.to_socket(auto_spawn=False)
+        scene = ScenePresentation(frame_id="s1").message("s1", [])
         with pytest.raises(DisplayNotConnectedError, match="Not connected"):
-            writer_of(client).show("s1", elements=[])
+            writer_of(client).send_scene(scene)
 
     def test_poll_event_without_connect_raises(self) -> None:
         """Calling poll_event() before connect() raises DisplayNotConnectedError."""
@@ -1075,11 +1076,10 @@ class TestBackgroundListener:
             )
             client.connect()
             client.connect(listen=True)
-            ack = writer_of(client).show(
-                "s1", elements=[TextElement(id="t1", content="Hello")]
+            acked = shown(
+                client, "s1", elements=[TextElement(id="t1", content="Hello")]
             )
-            assert ack is not None
-            assert ack.scene_id == "s1"
+            assert acked
             client.close()
         finally:
             if server_conn:

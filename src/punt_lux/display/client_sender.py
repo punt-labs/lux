@@ -15,17 +15,19 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Protocol, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
-from punt_lux.protocol import RemoteEventHandlerInvocation, encode_message
+from punt_lux.protocol import encode_message
 
 if TYPE_CHECKING:
     import socket
 
+    from punt_lux.display.client_host_port import ClientHost
+    from punt_lux.protocol import RemoteEventHandlerInvocation
     from punt_lux.protocol.messages import Message
 
-__all__ = ["ClientSender", "SenderHost"]
+__all__ = ["ClientSender"]
 
 logger = logging.getLogger(__name__)
 
@@ -34,36 +36,19 @@ logger = logging.getLogger(__name__)
 _ONE_OFF_SEND_BUDGET = 1.0
 
 
-class SenderHost(Protocol):
-    """What the sender needs of the listener that owns the clients."""
-
-    def remove_client(self, sock: socket.socket) -> None:
-        """Drop a dead or severed client and clean up its per-fd state."""
-        ...
-
-    def is_client(self, sock: socket.socket) -> bool:
-        """Return whether ``sock`` is still a live registered client."""
-        ...
-
-
 @final
 class ClientSender:
     """Send to clients under the frame's budget; sever one that misses a reply."""
 
-    _host: SenderHost
+    _host: ClientHost
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
     __slots__ = ("_frame_deadline", "_host")
 
-    def __new__(cls, host: SenderHost) -> Self:
+    def __new__(cls, host: ClientHost) -> Self:
         self = super().__new__(cls)
         self._host = host
         self._frame_deadline = None
         return self
-
-    @property
-    def frame_deadline(self) -> float | None:
-        """Return the deadline armed by :meth:`set_frame_deadline`, if any."""
-        return self._frame_deadline
 
     def set_frame_deadline(self, deadline: float) -> None:
         """Bound every deadline-less send this frame against backpressure wedges."""
@@ -73,16 +58,16 @@ class ClientSender:
         """Restore the one-off send budget for post-frame sends (screenshot, etc.)."""
         self._frame_deadline = None
 
-    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
+    def send_to_client(
+        self, sock: socket.socket, event: RemoteEventHandlerInvocation
+    ) -> bool:
         """Send an interaction; return whether it landed before its deadline.
 
         Only an event leaves this way (its sender holds one that missed and retries
-        it); a reply raises ``TypeError`` unsent and goes through ``reply_to_client``.
+        it); a reply goes through ``reply_to_client``, which the type makes the only
+        door for one.
         """
-        if not isinstance(msg, RemoteEventHandlerInvocation):
-            err = f"{type(msg).__name__} is not an event: reply_to_client sends it"
-            raise TypeError(err)
-        return self._transmit(sock, msg)
+        return self._transmit(sock, event)
 
     def reply_to_client(self, sock: socket.socket, msg: Message) -> None:
         """Send a reply the client waits for, or end its connection.

@@ -1,10 +1,11 @@
 """BatchSender -- pushes one drained batch to the display, and what it was sending.
 
 The replicator's worker drains a batch and hands it here. A send that fails raises
-out of :meth:`BatchSender.push` as a :class:`BatchSendError` that carries what the
-failure should be charged to: the scenes that were in flight and the dial they went
-out on. What a push has put at risk so far is one :class:`_InFlight`, made for the
-push and gone with it, so a stale value from an earlier push cannot exist.
+out of :meth:`BatchSender.push` as a :class:`BatchSendError` that carries the socket
+failure and the dial the send went out on. Who is to blame for a display's death is not
+read from the circumstances of the failed send: it is the dial's own ledger, charged by
+:class:`~punt_lux.domain.hub.death_charger.DeathCharger` at the start of every push and
+again by recovery, whoever found the dial dead.
 """
 
 from __future__ import annotations
@@ -12,11 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_closed import (
-    ConnectionClosedError,
-    HubRetiredError,
-)
-from punt_lux.domain.hub.display_lost import DisplayLostError
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.death_charger import DeathCharger
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
@@ -26,9 +24,9 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.replicator_ports import (
         CallbackMenuReader,
         ClientProvider,
+        DisplayProbe,
         DisplaySender,
         MenuReader,
-        SenderPort,
         WriteSeatPort,
     )
     from punt_lux.domain.hub.scene_snapshot import SceneReader
@@ -44,10 +42,9 @@ _PROBE_TIMEOUT_SECONDS = 1.0
 
 @dataclass(eq=False)  # an exception cannot be frozen: it gets a traceback attached
 class BatchSendError(Exception):
-    """A send of the batch failed: why, what was in flight, and the dial it used."""
+    """A send of the batch failed: why, and the dial it went out on."""
 
     cause: OSError  # the socket failure: a wedged display, a dead peer, a Hub retire
-    suspect: frozenset[SceneId]  # the scenes in flight when the send failed
     dial: DialRef | None  # the dial the send went out on; None if none was had
 
     def __str__(self) -> str:
@@ -56,34 +53,28 @@ class BatchSendError(Exception):
 
 @final
 class _InFlight:
-    """What one push has put at risk so far: the scenes in flight and the dial."""
+    """The dial one push has used so far: what a failure names for the drop."""
 
-    _suspect: frozenset[SceneId]
     _dial: DialRef | None
-    __slots__ = ("_dial", "_suspect")
+    __slots__ = ("_dial",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._suspect = frozenset()
         self._dial = None
         return self
-
-    def risking(self, scenes: frozenset[SceneId]) -> None:
-        """Record the scenes the next send that can raise puts in flight."""
-        self._suspect = scenes
 
     def on(self, dial: DialRef) -> None:
         """Record the dial the next send goes out on."""
         self._dial = dial
 
     def failed(self, cause: OSError) -> BatchSendError:
-        """The error that charges ``cause`` to what is in flight now."""
-        return BatchSendError(cause, self._suspect, self._dial)
+        """The error that names ``cause`` and the dial in use now."""
+        return BatchSendError(cause, self._dial)
 
 
 @final
 class BatchSender:
-    """Sends a batch's menus and scenes, raising what a failure should blame."""
+    """Sends a batch's menus and scenes, raising what a failure should drop."""
 
     _reader: SceneReader
     _menu_reader: MenuReader
@@ -91,14 +82,12 @@ class BatchSender:
     _clients: ClientProvider
     _seat: WriteSeatPort
     _attribution: CrashAttribution
+    _charger: DeathCharger
     _owner_facts: FrameOwnerFactsReader
-    # The dial whose end was last charged to a send: a display that stays down must
-    # not be charged for it again every cycle. None until a death was charged.
-    _charged: DialRef | None
     __slots__ = (
         "_attribution",
         "_callback_reader",
-        "_charged",
+        "_charger",
         "_clients",
         "_menu_reader",
         "_owner_facts",
@@ -123,38 +112,38 @@ class BatchSender:
         self._clients = clients
         self._seat = writes
         self._attribution = attribution
+        self._charger = DeathCharger(clients, attribution)
         self._owner_facts = owner_facts
-        self._charged = None
         return self
+
+    def charge_deaths(self) -> None:
+        """Charge every death on record, once; the idle replicator's look."""
+        self._charger.charge()
 
     def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         """Send the batch and return the scenes it found empty, for later reclaim.
 
-        A socket failure raises :class:`BatchSendError` carrying the failure, the
-        scenes in flight and the dial; anything that is not one passes through.
+        Deaths already on record are charged first, so a scene they take to the
+        threshold is quarantined before the batch is filtered. A socket failure
+        raises :class:`BatchSendError` carrying the failure and the dial; anything
+        that is not one passes through.
 
         Quarantined scenes are filtered before either send path runs (Invariant
         1: a quarantined scene is never replicated), enforced here regardless
-        of what queued it. A menu send is attributed to the *empty* suspect
-        set: a menu-caused crash is not a scene-caused one, so blaming the
-        whole batch would reintroduce isolation's false-positive class — the
-        empty suspect still trips isolation, so later scene sends are singles.
+        of what queued it.
         """
+        self._charger.charge()
         flight = _InFlight()
         try:
             return self._push(batch, flight)
         except OSError as exc:
-            failure = flight.failed(exc)
-            if failure.dial is not None and not isinstance(exc, HubRetiredError):
-                self._charged = failure.dial  # a display death, charged once
-            raise failure from exc
+            raise flight.failed(exc) from exc
 
     def _push(self, batch: DrainedBatch, flight: _InFlight) -> tuple[SceneId, ...]:
         scenes = frozenset(
             s for s in batch.scenes if not self._attribution.is_quarantined(s)
         )
         if batch.menus_dirty:
-            flight.risking(frozenset())
             # Read the agent bar and the live sessions fresh, so the newest menu
             # state wins even if a change landed after this batch was drained.
             bar = self._menu_reader.wire_snapshot()
@@ -169,15 +158,11 @@ class BatchSender:
     def _batching(
         self, scenes: frozenset[SceneId], flight: _InFlight
     ) -> tuple[SceneId, ...]:
-        """Send every scene as one coalesced batch — the suspect set on a death.
+        """Send every scene as one coalesced batch.
 
-        A send failure anywhere aborts the whole method, so the suspect is set
-        once, to the whole batch: a socket-level failure can't tell which of
-        several already-accepted sends actually crashed the Display.
+        Each ``_send_scene`` sends and reports whether the scene was empty; the
+        comprehension keeps the empties as reclaim candidates.
         """
-        flight.risking(scenes)
-        # Each ``_send_scene`` sends and reports whether the scene was empty; the
-        # comprehension keeps the empties as reclaim candidates.
         return tuple(scene for scene in scenes if self._send_scene(scene, flight))
 
     def _isolating(
@@ -185,24 +170,23 @@ class BatchSender:
     ) -> tuple[SceneId, ...]:
         """Send every scene alone, with a liveness probe between sends.
 
-        The suspect narrows to the singleton before each send, and a synchronous
-        ``confirm_alive`` runs *after* each send, *before* the next — without it,
-        scene N's crash surfaces only as a broken pipe on the *next* write,
-        attributing to innocent N+1. The probe forces the crash to surface while
-        the suspect is still {N}, and it waits for the display's own pong: a busy
-        dial proves nothing about scene N. A failed probe raises OSError, which
-        the replicator hands to recovery.
+        A synchronous probe runs *after* each send, *before* the next, so the display
+        has taken scene N (acked it, or died holding it) before N+1 goes out: a death
+        leaves a ledger of one. The probe waits for the display's own pong; a pong
+        that never comes is the display's end of a dial it left open, retired as such
+        so its ledger is charged. A dial too busy to ask (a ping already in flight) is
+        waited out by the probe itself and is no death.
         """
         emptied: list[SceneId] = []
         for scene_id in scenes:
-            flight.risking(frozenset({scene_id}))
             if self._send_scene(scene_id, flight):
                 emptied.append(scene_id)
-            probe = self._connected(flight).desk.asks()  # connects if the dial is gone
+            probe = self._connected(flight)  # connects if the dial is gone
             flight.on(probe.dial)
             if not probe.confirm_alive(_PROBE_TIMEOUT_SECONDS):
+                self._clients.drop_unresponsive(probe.dial)
                 msg = f"display did not ack probe after sending {scene_id!r}"
-                raise OSError(msg)
+                raise ConnectionClosedError(msg)
         return tuple(emptied)
 
     def _sender(self, flight: _InFlight) -> DisplaySender:
@@ -212,21 +196,11 @@ class BatchSender:
         flight.on(sender.dial)
         return sender
 
-    def _connected(self, flight: _InFlight) -> SenderPort:
-        """The link, connected; a redial that fails after the display ended the last
-        dial is that death still, charged to what is in flight.
-
-        A death already charged (to this dial, by an earlier cycle) is not charged
-        again: the display is down, and the disconnected path waits for it.
-        """
-        try:
-            return self._clients.get()
-        except DisplayLostError as lost:
-            if lost.dial == self._charged:
-                raise
-            flight.on(lost.dial)
-            msg = "the display closed the connection and could not be redialed"
-            raise ConnectionClosedError(msg) from lost
+    def _connected(self, flight: _InFlight) -> DisplayProbe:
+        """The ask port on the dial in use, connecting first if there is none."""
+        probe = self._clients.asks()
+        flight.on(probe.dial)
+        return probe
 
     def _send_scene(self, scene_id: SceneId, flight: _InFlight) -> bool:
         """Send a copy of the scene; return whether it was empty (a reclaim candidate).

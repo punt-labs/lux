@@ -17,7 +17,7 @@ from punt_lux.protocol import QueryResponse
 if TYPE_CHECKING:
     import socket
 
-    from punt_lux.display.socket_server import SocketListener
+    from punt_lux.display.client_sender import ClientSender
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,7 @@ class DisplayQueryHandlers:
         get_current_theme: Callable[[], str],
         get_themes: Callable[[], Sequence[Any]],
         record_error: Callable[[str, str, str], None],
+        sender: ClientSender,
     ) -> Self:
         self = super().__new__(cls)
         self._get_start_time = get_start_time
@@ -222,16 +223,16 @@ class DisplayQueryHandlers:
         self._get_decorated = get_decorated
         self._get_current_theme = get_current_theme
         self._get_themes = get_themes
-        self._screenshots = ScreenshotQueue(record_error)
+        self._screenshots = ScreenshotQueue(record_error, sender)
         return self
 
-    def request_screenshot(self, sock: socket.socket, listener: SocketListener) -> None:
+    def request_screenshot(self, sock: socket.socket) -> None:
         """Queue a screenshot for ``sock`` at the next swap (see ScreenshotQueue)."""
-        self._screenshots.request(sock, listener)
+        self._screenshots.request(sock)
 
-    def after_swap(self, listener: SocketListener) -> None:
+    def after_swap(self) -> None:
         """Answer the queued screenshot, if any, now the frame has been swapped."""
-        self._screenshots.after_swap(listener)
+        self._screenshots.after_swap()
 
     def screenshot(self, **kwargs: Any) -> dict[str, Any]:
         """Query handler for screenshot: refused, see the screenshot queue."""

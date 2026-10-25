@@ -21,9 +21,9 @@ from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.batch_sender import BatchSendError
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_closed import (
-    ConnectionClosedError,
     HubRetiredError,
 )
+from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
@@ -119,6 +119,8 @@ class _FakeSender:
     _deferred_dead: bool
     _defer_after: str | None
     _gate: threading.Event | None
+    _unacked: set[str]
+    _deaths: list[DialDeath]
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
@@ -126,6 +128,7 @@ class _FakeSender:
     _probe_dial: DialRef
     __slots__ = (
         "_crasher",
+        "_deaths",
         "_defer_after",
         "_deferred_dead",
         "_dial",
@@ -136,6 +139,7 @@ class _FakeSender:
         "_lock",
         "_probe_dial",
         "_sent",
+        "_unacked",
         "callback_submenus",
         "frames",
         "menus",
@@ -145,15 +149,6 @@ class _FakeSender:
         "shows",
         "timeline",
     )
-
-    @property
-    def desk(self) -> _FakeSender:
-        """The request desk: this fake is its own."""
-        return self
-
-    def asks(self) -> _ProbeView:
-        """The ask port: a view with a dial of its own."""
-        return _ProbeView(self)
 
     @property
     def probe_dial(self) -> DialRef:
@@ -187,10 +182,34 @@ class _FakeSender:
         self._probe_dial = fake_dial()
         self._defer_after = None
         self._gate = None
+        self._unacked = set()
+        self._deaths = []
         self._lock = threading.Lock()
         self._sent = threading.Event()
         self._entered = threading.Event()
         return self
+
+    def die(self) -> None:
+        """The display ends the dial: what it still owed is the death's suspects.
+
+        Records the death the production dial leaves, from the scenes this fake was
+        sent and has not acked; a dial that owed nothing leaves none. A scene is
+        acked by the time the next one is written, as the real display acks in order.
+        """
+        owed = frozenset(SceneId(scene) for scene in self._unacked)
+        self._unacked = set()
+        if owed:
+            self._deaths.append(DialDeath(self._dial, owed, "fake"))
+
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """Hand over the recorded deaths, once."""
+        taken, self._deaths = tuple(self._deaths), []
+        return taken
+
+    def revive(self) -> None:
+        """A fresh display: the dial it died on is gone and nothing is owed."""
+        self._deferred_dead = False
+        self._unacked = set()
 
     def arm_failure(self, exc: Exception) -> None:
         """Raise ``exc`` on the next send, then clear it so the retry succeeds.
@@ -247,7 +266,13 @@ class _FakeSender:
             gate.wait(timeout=5.0)
         if self._fail is not None:
             exc, self._fail = self._fail, None
+            self._ends_dial(exc)
             raise exc
+
+    def _ends_dial(self, exc: Exception) -> None:
+        """A socket failure the display caused leaves a death; the Hub's does not."""
+        if isinstance(exc, OSError) and not isinstance(exc, HubRetiredError):
+            self.die()
 
     def send_scene(self, message: SceneMessage) -> None:
         scene_id = message.id
@@ -256,11 +281,14 @@ class _FakeSender:
             # A previous send left the display dead; every subsequent write
             # sees the broken pipe (Finding 3's deferred-crash model).
             raise OSError(f"display dead; {scene_id!r} write raises EPIPE")
+        self._unacked = {scene_id}  # the display acked what came before it
         if self._fail_scene is not None and self._fail_scene[0] == scene_id:
             _, exc = self._fail_scene
             self._fail_scene = None
+            self._ends_dial(exc)
             raise exc
         if self._crasher == scene_id:
+            self.die()  # the display took the scene and died holding it
             raise OSError(f"{scene_id} crashed the display (again)")
         with self._lock:
             self.shows.append(scene_id)
@@ -275,6 +303,7 @@ class _FakeSender:
             # ``crash_after_render`` fires once.
             self._deferred_dead = True
             self._defer_after = None
+            self.die()
         self._sent.set()
 
     def sent_count(self) -> int:
@@ -423,17 +452,28 @@ class _FakeProvider:
     def reconnect_generation(self) -> int:
         return self._gen
 
-    def get(self) -> _FakeSender:
+    def asks(self) -> _ProbeView:
         if self._unreachable:
             msg = "no display connected"
             raise DisplayNotConnectedError(msg)
         if self._generic_failure:
             msg = "a connected-then-dropped teardown, not a dial failure"
             raise RuntimeError(msg)
-        if self._needs_reconcile and self._reconcile is not None:
-            self._reconcile()
+        if self._needs_reconcile:
+            self._sender.revive()  # the redial reached a fresh display
+            if self._reconcile is not None:
+                self._reconcile()
             self._needs_reconcile = False
-        return self._sender
+        return _ProbeView(self._sender)
+
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """The deaths the display left on its dials, each handed over once."""
+        return self._sender.take_deaths()
+
+    def drop_unresponsive(self, dial: DialRef) -> None:
+        """A dial open but silent is the display's end: it leaves its death."""
+        self._sender.die()
+        self.drop(dial)
 
     def take_writer(self) -> _FakeSender:
         """The write seat: the sender is its own."""
@@ -880,25 +920,25 @@ def test_a_dial_the_hub_retired_is_reconnected_without_blaming_the_scene() -> No
         repl.stop()
 
 
-def test_a_dial_the_display_closed_is_still_blamed_on_the_batch() -> None:
-    # Contrast: the display's own end of the stream is evidence it died.
+def test_a_dial_the_display_ended_is_charged_to_the_scene_it_still_owed() -> None:
+    # Contrast: the display's own end of the dial is evidence it died, and what it
+    # still owed an ack for is what it died holding.
     factory = HubStoreFactory()
     store = factory.display
     scene = _seed(store, factory.lifecycle, "s1")
-    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
-    sender.arm_failure(ConnectionClosedError("the display closed the connection"))
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    sender.crash_after_render("s1")  # the send lands; the display dies holding it
     repl.start()
     try:
         repl.mark_dirty(scene)
         assert _wait_until(lambda: repl._attribution.mode == "isolating")
-        assert provider.dropped == [sender.dial]  # the dial the send went out on
     finally:
         repl.stop()
 
 
-def test_a_failed_send_carries_its_own_blame_in_the_exception() -> None:
-    # Nothing is read back from the sender afterwards: the failure names the cause,
-    # the scenes in flight and the dial it went out on.
+def test_a_failed_send_carries_the_cause_and_the_dial_it_went_out_on() -> None:
+    # Nothing is read back from the sender afterwards: the failure names the cause
+    # and the dial, which is all recovery drops.
     factory = HubStoreFactory()
     store = factory.display
     scene = _seed(store, factory.lifecycle, "s1")
@@ -911,22 +951,23 @@ def test_a_failed_send_carries_its_own_blame_in_the_exception() -> None:
         repl._sender.push(batch)
 
     assert caught.value.cause is cause
-    assert caught.value.suspect == frozenset({scene})
     assert caught.value.dial is sender.dial
 
 
-def test_a_failed_menu_send_blames_no_scene() -> None:
+def test_a_failed_menu_send_with_nothing_in_flight_charges_no_scene() -> None:
     factory = HubStoreFactory()
     store = factory.display
     scene = _seed(store, factory.lifecycle, "s1")
-    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
     sender.arm_failure(OSError("reset"))
     batch = DrainedBatch(frozenset({scene}), shutting=False, menus_dirty=True)
 
-    with pytest.raises(BatchSendError) as caught:
+    with pytest.raises(BatchSendError):
         repl._sender.push(batch)
+    repl._sender.charge_deaths()
 
-    assert caught.value.suspect == frozenset()
+    assert provider.take_deaths() == ()  # the display owed nothing: no death
+    assert repl._attribution.mode == "batching"
 
 
 def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
@@ -1709,10 +1750,10 @@ def test_isolation_probe_blames_the_scene_whose_render_crashed_not_the_next() ->
 
 
 def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
-    # Finding 5: a menu-caused crash must not blame every live scene. The menu
-    # send now runs with an empty suspect set, so even if it raises, no scene
-    # accrues a death from that crash — the false-positive class isolation was
-    # written to prevent stays closed on the menu path.
+    # Finding 5: a menu-caused crash must not blame every live scene. A menu send
+    # writes no scene, so the dial it fails on owed none: no scene accrues a death
+    # from that crash — the false-positive class isolation was written to prevent
+    # stays closed on the menu path.
     factory = HubStoreFactory()
     lifecycle = factory.lifecycle
     store = factory.display
@@ -1726,10 +1767,11 @@ def test_menu_send_failure_does_not_smear_deaths_across_live_scenes() -> None:
     repl.start()
     try:
         repl.mark_menus()
-        # Wait until the menu send has run and its death has been attributed.
-        assert _wait_until(lambda: repl._attribution.mode == "isolating")
+        # Wait until the failed menu send has been healed and sent again.
+        assert _wait_until(lambda: sender.menus != [])
         # Neither live scene received a tally from the menu-caused crash,
         # so a single crash of either could not lift it to the threshold now.
+        assert repl._attribution.mode == "batching"
         assert not store.is_quarantined(a)
         assert not store.is_quarantined(b)
     finally:
@@ -1834,12 +1876,14 @@ def test_a_failed_isolation_probe_names_the_dial_the_probe_went_out_on() -> None
     factory = HubStoreFactory()
     store = factory.display
     scene = _seed(store, factory.lifecycle, "left")
-    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
+    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
     repl._attribution.attribute_death(frozenset())  # isolation mode
     sender.crash_after_render("left")  # the send lands; the probe is never answered
 
     with pytest.raises(BatchSendError) as caught:
         repl._sender.push(DrainedBatch(frozenset({scene}), shutting=False))
 
-    assert caught.value.suspect == frozenset({scene})
+    (death,) = provider.take_deaths()
+    assert death.suspects == frozenset({scene})  # what the dial still owed
     assert caught.value.dial is sender.probe_dial
+    assert provider.dropped == [sender.probe_dial]  # the unanswering dial, dropped

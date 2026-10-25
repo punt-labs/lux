@@ -35,7 +35,6 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.protocol import (
-    AckMessage,
     FrameReader,
     PingMessage,
     PongMessage,
@@ -73,11 +72,8 @@ class DialGeneration:
     _slot: ReaderSlot
     # Reports this dial's own breakage to whoever holds the current dial.
     _retire: Callable[[DialGeneration, RetireCause], object]
-    # None while open; once retired, who ended it (first retirement wins).
-    _ended: RetireCause | None
     __slots__ = (
         "_dial",
-        "_ended",
         "_frames",
         "_lock",
         "_retire",
@@ -102,7 +98,6 @@ class DialGeneration:
         # Born holding the listener slot when asked: nobody else has seen this dial
         # yet, so no inline read can be in flight when the listener claims it.
         self._slot = ReaderSlot(reader)
-        self._ended = None
         return self
 
     @property
@@ -123,7 +118,7 @@ class DialGeneration:
     @property
     def is_closed(self) -> bool:
         """Whether this dial has been retired."""
-        return self._ended is not None
+        return self._sink.ended is not None
 
     @property
     def has_reader(self) -> bool:
@@ -142,16 +137,17 @@ class DialGeneration:
         """Hold the reader slot for an inline read; yield whether it was free."""
         return self._slot.inline()
 
-    def mark_closed(self, cause: RetireCause) -> None:
+    def mark_closed(self, cause: RetireCause) -> tuple[str, ...]:
         """Retire this dial: record who ended it and refuse every later delivery.
 
-        Called under the connection's state lock, so it takes no I/O: the sink
-        is discarded here, and from then on nothing the dial read is delivered
-        to anyone. Releasing the socket is :meth:`shut`'s job, outside the lock.
+        Called under the connection's state lock, so it takes no I/O: the one hold of
+        the sink's lock marks the dial closed and discards what it was owed. From then
+        on nothing the dial read is parked for a waiter; an interaction already routed
+        or held is the link's, and still runs. Returns the dial's ledger, the scenes it
+        was written and never saw acked: the evidence if the display ended it.
+        Releasing the socket is :meth:`shut`'s job, outside the lock.
         """
-        if self._ended is None:
-            self._ended = cause
-        self._sink.discard()
+        return self._sink.discard(cause)
 
     @trace
     def send(self, msg: Message) -> None:
@@ -164,9 +160,7 @@ class DialGeneration:
         self._write_locked(lambda: None, lambda _: self._dial.sock.sendall(wire))
 
     @trace
-    def send_scene(
-        self, msg: SceneMessage, *, awaited: bool
-    ) -> Pending[str, AckMessage]:
+    def send_scene(self, msg: SceneMessage) -> None:
         """Write a scene and record the ack it is owed, in wire order.
 
         The ledger entry is made under the socket lock, after the write returned:
@@ -175,11 +169,11 @@ class DialGeneration:
         """
         wire = encode_message(msg)
 
-        def write_then_owe(_: None) -> Pending[str, AckMessage]:
+        def write_then_owe(_: None) -> None:
             self._dial.sock.sendall(wire)
-            return self._sink.owe_ack(msg.id, awaited=awaited)
+            self._sink.owe_ack(msg.id)
 
-        return self._write_locked(lambda: None, write_then_owe)
+        self._write_locked(lambda: None, write_then_owe)
 
     @trace
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
@@ -215,7 +209,7 @@ class DialGeneration:
         try:
             return self._sink.await_reply(pending, timeout)
         except ConnectionClosedError as exc:
-            raise self._closed_error() from exc
+            raise self.closed_error() from exc
 
     def answered(self, pending: Pending[object, Message]) -> bool:
         """Whether ``pending``'s reply has arrived and is waiting to be taken."""
@@ -229,7 +223,7 @@ class DialGeneration:
         """Hand a reply read from this dial to the request it answers.
 
         Raises :class:`~punt_lux.domain.hub.reply_sink.ReplyOutOfOrderError` for
-        one that matches nothing owed; a retired dial delivers nothing.
+        one that matches nothing owed; a retired dial parks no reply for a waiter.
         """
         self._sink.deliver(msg)
 
@@ -253,7 +247,7 @@ class DialGeneration:
             if isinstance(exc, ConnectionClosedError):
                 raise
             if self.is_closed:  # the fd went away under the wait: our own retirement
-                raise self._closed_error() from exc
+                raise self.closed_error() from exc
             raise
         if not chunk:
             msg = f"the display at {self.endpoint} closed the connection"
@@ -280,13 +274,11 @@ class DialGeneration:
         ``sendall`` are both woken; then ``close``. On a TLS socket ``shutdown`` is
         the raw socket's, never ``unwrap``, which blocks on a wedged peer.
         """
-        if self._ended is None:
-            self._ended = "hub"
+        self._sink.discard("hub")
         with contextlib.suppress(OSError):
             self._dial.sock.shutdown(socket.SHUT_RDWR)
         with contextlib.suppress(OSError):
             self._dial.sock.close()
-        self._sink.discard()
 
     def _decrypted_backlog(self) -> bytes:
         """What TLS already decrypted but ``select`` cannot see, so it is not stranded.
@@ -323,22 +315,37 @@ class DialGeneration:
                 prepared = prepare()
                 writing = True
                 return write(prepared)
-        except OSError:
+        except OSError as exc:
             if writing:
-                self._retire(self, "display")
+                self._failed_write(exc)
             raise
         except BaseException:
             if writing:
                 self._retire(self, "hub")
             raise
 
-    def _require_open(self) -> None:
-        if self._ended is not None:
-            raise self._closed_error()
+    def _failed_write(self, exc: OSError) -> None:
+        """Retire the dial a socket failure ended, unless someone already had.
 
-    def _closed_error(self) -> ConnectionClosedError:
-        """The error that says this dial is gone, and whether the Hub ended it."""
+        A dial already ended was ended by whoever's cause it carries (``shut`` wakes a
+        writer wedged in ``sendall`` on purpose): the writer reports that cause, never
+        the socket error the retirement itself produced.
+        """
+        if self.is_closed:
+            raise self.closed_error() from exc
+        self._retire(self, "display")
+
+    def _require_open(self) -> None:
+        if self.is_closed:
+            raise self.closed_error()
+
+    def closed_error(self) -> ConnectionClosedError:
+        """The error that says this dial is gone, and whether the Hub ended it.
+
+        A plain :class:`ConnectionClosedError` when the display ended it (a sender may
+        blame what it was sending); :class:`HubRetiredError` when the Hub did.
+        """
         msg = f"the connection to {self.endpoint} was closed"
-        if self._ended == "display":
+        if self._sink.ended == "display":
             return ConnectionClosedError(msg)
         return HubRetiredError(msg)

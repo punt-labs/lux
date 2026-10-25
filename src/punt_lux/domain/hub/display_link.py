@@ -2,10 +2,11 @@
 
 :class:`DisplayLink` coordinates one dial's lifecycle across its parts: it opens
 the dial (the ``ReadyMessage`` handshake), starts and stops the listener on it,
-and closes it. What the Hub asks and waits for is
-:attr:`~DisplayLink.desk` (its asks, its manifest, and the one seat writers are
-made at); what the display pushes (business events, interactions) is
-:attr:`~DisplayLink.events`. Each is a port: callers use that one object's surface.
+and closes it. What the Hub asks and waits for, and the one seat writers are made
+at, is :attr:`~DisplayLink.desk`; what the display pushes (business events,
+interactions) is :attr:`~DisplayLink.events`. The manifest that
+declares what the Hub holds is written inside :meth:`~DisplayLink.connect`, the
+link's own connect step, and nowhere else.
 """
 
 from __future__ import annotations
@@ -20,10 +21,14 @@ from punt_lux.domain.hub.handshake_connector import HandshakeConnector
 from punt_lux.domain.hub.request_desk import RequestDesk
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.event_port import EventPort
+    from punt_lux.domain.ids import SceneId
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +120,14 @@ class DisplayLink:
         """
         return dial.retire_in(self._connection, cause=cause)
 
-    def connect(self, *, listen: bool = False) -> None:
+    def connect(
+        self,
+        *,
+        listen: bool = False,
+        # PY-TS-14: absent means "declare nothing": a connection that is not the
+        # Hub's own, or one opened without a reader, writes no manifest.
+        manifest: Callable[[], Sequence[SceneId]] | None = None,
+    ) -> tuple[SceneId, ...]:
         """Connect to the display server, and start the listener on the new dial.
 
         No-op if already connected.  If *auto_spawn* is enabled and no
@@ -126,6 +138,13 @@ class DisplayLink:
         before anything is sent on it; if it cannot start, that dial is retired
         and the error raised, so the next connect redials.
 
+        With a ``manifest`` the connection then declares what the Hub holds
+        (DES-068): the callable is read once the dial is up, and its scene ids are
+        written as the manifest, the second half of opening the connection. A
+        manifest that cannot be sent closes the link and raises, so the next
+        connect redials and declares again. Returns the scene ids declared (none
+        without a ``manifest``).
+
         Raises
         ------
         DisplayNotConnectedError
@@ -133,26 +152,37 @@ class DisplayLink:
         """
         if not listen:
             self._connection.open()
-            return
-        dialed = self._connection.open_listening()
-        if dialed is None:  # already connected: give it a reader if it lacks one
-            self._listener.start()
-            return
+        elif (dialed := self._connection.open_listening()) is None:
+            self._listener.start()  # connected already: a reader, if it lacks one
+        else:
+            try:
+                self._listener.start_on(dialed)
+            except BaseException:
+                # A dial with no reader repairs nothing: retire the one this call made.
+                self._connection.close_if_current(dialed, cause="hub")
+                raise
+        if manifest is None:
+            return ()
+        scene_ids = tuple(manifest())
         try:
-            self._listener.start_on(dialed)
-        except BaseException:
-            # A dial with no reader repairs nothing: retire the one this call made.
-            self._connection.close_if_current(dialed, cause="hub")
+            self._desk.declare(scene_ids)
+        except OSError:
+            self.close()
             raise
+        return scene_ids
 
     def close(self) -> None:
         """Close the connection to the display server."""
         self._listener.stop()
         self._connection.close()
 
+    def take_deaths(self) -> tuple[DialDeath, ...]:
+        """The display-ended dials not yet charged to a scene, each handed over once."""
+        return self._connection.take_deaths()
+
     @property
     def desk(self) -> RequestDesk:
-        """Where requests are made: the asks, the manifest, and the one write seat."""
+        """Where requests are made: the asks, and the one write seat."""
         return self._desk
 
     @property

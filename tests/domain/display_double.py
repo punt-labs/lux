@@ -13,7 +13,15 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-from punt_lux.protocol import FrameReader, ReadyMessage, encode_message
+from punt_lux.protocol import (
+    AckMessage,
+    FrameReader,
+    PingMessage,
+    PongMessage,
+    ReadyMessage,
+    SceneMessage,
+    encode_message,
+)
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 if TYPE_CHECKING:
@@ -21,7 +29,7 @@ if TYPE_CHECKING:
 
     from punt_lux.protocol import Message
 
-__all__ = ["Call", "Display", "FlakySocket", "Peer", "until"]
+__all__ = ["Call", "Display", "FlakySocket", "Peer", "Responder", "until"]
 
 
 def until(condition: Callable[[], bool], timeout: float = 3.0) -> bool:
@@ -238,3 +246,60 @@ class Call[T]:
         """What the call raised, or ``None``."""
         assert self.done, "the call has not ended"
         return self._error[0] if self._error else None
+
+
+@final
+class Responder:
+    """A display that answers every dial as the real one does, and can be poisoned.
+
+    A ping is answered with its pong and a scene with its ack, in the order read. A
+    scene named in ``poison`` is read and never acked: the display hangs up on it,
+    a frame after it read the scene, as a display that crashes rendering it does.
+    ``seen`` lists every scene the display read, in order.
+    """
+
+    _display: Display
+    _poison: frozenset[str]
+    _stop: threading.Event
+    _thread: threading.Thread
+    seen: list[str]
+
+    def __new__(cls, display: Display, poison: frozenset[str] = frozenset()) -> Self:
+        self = super().__new__(cls)
+        self._display = display
+        self._poison = poison
+        self._stop = threading.Event()
+        self.seen = []
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        """Stop answering; the dials stay as they are."""
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            idle = True
+            for peer in list(self._display.peers):
+                try:
+                    messages = peer.read(1, timeout=0.002)
+                except OSError:
+                    continue  # a peer this display already hung up on
+                for message in messages:
+                    idle = False
+                    self._answer(peer, message)
+            if idle:
+                time.sleep(0.002)
+
+    def _answer(self, peer: Peer, message: Message) -> None:
+        with contextlib.suppress(OSError):
+            if isinstance(message, PingMessage):
+                peer.send(PongMessage(ts=message.ts))
+            elif isinstance(message, SceneMessage):
+                self.seen.append(message.id)
+                if message.id in self._poison:
+                    peer.close()
+                else:
+                    peer.send(AckMessage(scene_id=message.id))

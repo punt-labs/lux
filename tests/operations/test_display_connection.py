@@ -76,15 +76,6 @@ class _Client:
     ping_timeout: float | None
 
     @property
-    def desk(self) -> _Client:
-        """The request desk: this fake is its own."""
-        return self
-
-    def asks(self) -> _Client:
-        """The ask port: this fake is its own."""
-        return self
-
-    @property
     def dial(self) -> DialRef:
         """The dial a failed request names when it asks for the drop."""
         return self._dial
@@ -147,7 +138,7 @@ class _Registry:
         """The dial the client's requests go out on."""
         return self._client.dial
 
-    def get(self) -> _Client:
+    def asks(self) -> _Client:
         if self._connect_error is not None:
             raise self._connect_error
         return self._client

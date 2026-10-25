@@ -13,7 +13,7 @@ If the heal itself cannot complete — the kill itself fails, a refused reconnec
 path: it puts the drained work back so nothing is lost.
 
 Consolidated onto ``ClientRegistry._connect_and_reconcile`` (DES-068):
-``recover`` calls ``self._clients.get()`` right after ``drop()``, which is
+``recover`` calls ``self._clients.asks()`` right after ``drop()``, which is
 the one code path that declares the fresh connection's manifest and marks
 every live scene plus the menu dirty. This class no longer reads
 ``live_scene_ids()`` or marks live scenes itself — it only re-marks the
@@ -22,13 +22,11 @@ scene the batch emptied has no roots and so is absent from
 ``live_scene_ids()``; that is a guarantee specific to *this* failed batch,
 not a duplicate of the connect-success hook's policy.
 
-The one kill a wedged death drives is also where the crash-loop quarantine
-lives (display-crash-quarantine.md): ``recover`` attributes the death to its
-caller-determined suspect set — the whole batch in the replicator's batching
-mode, a probed singleton in isolation mode — before healing, and paces the
-kill through :class:`~punt_lux.domain.hub.respawn_backoff.RespawnBackoff`
-rather than the send-retry backoff, whose reset-on-clean-send condition fires
-too eagerly under isolation.
+The one kill a wedged death drives is paced through
+:class:`~punt_lux.domain.hub.respawn_backoff.RespawnBackoff` rather than the
+send-retry backoff, whose reset-on-clean-send condition fires too eagerly under
+isolation. Blame for a death is not this class's concern: the crash-loop quarantine
+charges each dead dial's own ledger when the next push starts.
 """
 
 from __future__ import annotations
@@ -41,7 +39,6 @@ from punt_lux.domain.hub.connection_closed import HubRetiredError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.batch_sender import BatchSendError
-    from punt_lux.domain.hub.crash_attribution import CrashAttribution
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
@@ -61,23 +58,20 @@ class SendRecovery:
     _clients: ClientProvider
     _lifecycle: DisplayLifecycle
     _signal: DirtySignal
-    _attribution: CrashAttribution
     _respawn: RespawnBackoff
-    __slots__ = ("_attribution", "_clients", "_lifecycle", "_respawn", "_signal")
+    __slots__ = ("_clients", "_lifecycle", "_respawn", "_signal")
 
     def __new__(
         cls,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
         signal: DirtySignal,
-        attribution: CrashAttribution,
         respawn: RespawnBackoff,
     ) -> Self:
         self = super().__new__(cls)
         self._clients = clients
         self._lifecycle = lifecycle
         self._signal = signal
-        self._attribution = attribution
         self._respawn = respawn
         return self
 
@@ -91,24 +85,19 @@ class SendRecovery:
         policy unbypassable by the caller.
 
         A failure whose cause is a :class:`HubRetiredError` says nothing about the
-        display (the Hub's own policy ended the dial), so nothing is attributed,
-        reaped or dropped: the dial is redialed and the batch repainted. Any other
-        failure is a death: a ``BlockingIOError`` (a send timeout) is a wedged
-        display, killed so its service unit respawns it; any other ``OSError`` is
-        a dead peer, only dropped.
-
-        The failure's ``suspect`` is whatever was in flight when the send failed:
-        the whole batch in batching mode, or the one scene being probed in
-        isolation mode (display-crash-quarantine.md Question 1). The attribution
-        records the cause's message in the ``QuarantineRecord`` so an agent whose
-        scene later crosses the threshold sees WHY it was quarantined. Attributing
-        runs before healing so a scene that just reached the threshold is
-        quarantined, and therefore excluded from replication, before the re-mark.
+        display, so nothing is reaped or dropped: the dial is redialed and the batch
+        repainted. Any other failure is a death: a ``BlockingIOError`` (a send
+        timeout) is a wedged display, killed so its service unit respawns it; any
+        other ``OSError`` is a dead peer, only dropped. Who is to blame for it is
+        not decided here: the dial left its own record, which the next push charges
+        before it sends anything (see :class:`~punt_lux.domain.hub.batch_sender.
+        BatchSender`), so a scene that reaches the threshold is excluded from the
+        very batch this repaints.
 
         The failure's ``dial`` is the dial the failed send went out on (``None`` if
         none was had); only it is dropped, and only if no redial has replaced it.
 
-        ``get()`` after the heal is the one DES-068 connect-success hook
+        ``asks()`` after the heal is the one DES-068 connect-success hook
         (``ClientRegistry._connect_and_reconcile``): it declares the fresh
         connection's manifest and marks every live scene plus the menu dirty, so
         this class does not enumerate live scenes itself. It only re-queues the
@@ -121,12 +110,11 @@ class SendRecovery:
             return
         if not isinstance(failure.cause, HubRetiredError):
             self._heal(failure)
-        self._clients.get()
+        self._clients.asks()  # redials: the connect-success hook repaints
         self._repaint(batch)
 
     def _heal(self, failure: BatchSendError) -> None:
-        """Attribute the death to the suspect, reap a wedged display, drop the dial."""
-        self._attribution.attribute_death(failure.suspect, render_error=str(failure))
+        """Reap a wedged display and drop the dial the send failed on."""
         if isinstance(failure.cause, BlockingIOError):
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)

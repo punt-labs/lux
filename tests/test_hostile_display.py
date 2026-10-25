@@ -23,6 +23,7 @@ import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import (
     HEADER_FORMAT,
@@ -194,8 +195,14 @@ class TestScenesFromADisplay:
             display.path, auto_spawn=False, connect_timeout=2.0
         ) as link:
             link.connect()
+            scene = ScenePresentation(frame_id="s").message("s", [])
+
+            def scene_then_ping() -> None:
+                writer_of(link).send_scene(scene)
+                link.desk.asks().ping(timeout=2.0)
+
             with pytest.raises(ConnectionClosedError) as refused:
-                writer_of(link).show("s", [])
+                scene_then_ping()
             assert "not accepted" in str(refused.value.__cause__)
             assert not link.is_connected
         assert unpickled == []

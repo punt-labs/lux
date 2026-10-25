@@ -55,7 +55,7 @@ class HubDisplayConnection:
 
         The socket's send timeout bounds the round-trip: a wedged or dead peer
         raises ``OSError`` within the limit. Reconnecting can itself fail -- the
-        display can die between the liveness check and ``get`` -- and that is the
+        display can die between the liveness check and ``asks`` -- and that is the
         same "no display" fault. A failed round trip drops only the dial it was
         made on, so the next call reconnects; a ``None`` reply is the receive-side
         timeout, and so is a request that lost the lock to another of its kind.
@@ -102,7 +102,7 @@ class HubDisplayConnection:
         drops nothing; any other ``RuntimeError`` is a bug and propagates.
         """
         try:
-            port = self._clients.get().desk.asks()  # pinned to the dial it will use
+            port = self._clients.asks()  # pinned to the dial it will use
         except (DisplayNotConnectedError, ConnectionClosedError):
             return DisplayFault(code="display_unavailable")
         except OSError:

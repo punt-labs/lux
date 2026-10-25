@@ -14,43 +14,29 @@ from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 class TestAcks:
     def test_an_ack_goes_to_the_oldest_scene_owed(self) -> None:
         sink = ReplySink()
-        first = sink.owe_ack("a", awaited=True)
-        second = sink.owe_ack("b", awaited=True)
+        sink.owe_ack("a")
+        sink.owe_ack("b")
 
         sink.deliver(AckMessage(scene_id="a"))
+        assert sink.owed_acks == 1
         sink.deliver(AckMessage(scene_id="b"))
 
-        assert (sink.await_reply(first, 0.0), sink.await_reply(second, 0.0)) == (
-            AckMessage(scene_id="a"),
-            AckMessage(scene_id="b"),
-        )
-
-    def test_the_ack_of_a_scene_nobody_waits_for_is_popped_and_dropped(self) -> None:
-        sink = ReplySink()
-        sink.owe_ack("a", awaited=False)
-        waited = sink.owe_ack("b", awaited=True)
-
-        sink.deliver(AckMessage(scene_id="a"))
-        assert not sink.answered(waited)
-        sink.deliver(AckMessage(scene_id="b"))
-
-        assert sink.await_reply(waited, 0.0) == AckMessage(scene_id="b")
         assert sink.owed_acks == 0
 
     def test_a_scene_id_that_repeats_is_told_apart_by_position(self) -> None:
         sink = ReplySink()
-        sink.owe_ack("x", awaited=False)
-        waited = sink.owe_ack("x", awaited=True)
+        sink.owe_ack("x")
+        sink.owe_ack("x")
 
         sink.deliver(AckMessage(scene_id="x", ts=1.0))
-        assert not sink.answered(waited)
+        assert sink.owed_acks == 1
 
         sink.deliver(AckMessage(scene_id="x", ts=2.0))
-        assert sink.await_reply(waited, 0.0) == AckMessage(scene_id="x", ts=2.0)
+        assert sink.owed_acks == 0
 
     def test_an_ack_naming_another_scene_than_the_oldest_owed_is_refused(self) -> None:
         sink = ReplySink()
-        sink.owe_ack("a", awaited=True)
+        sink.owe_ack("a")
 
         with pytest.raises(ReplyOutOfOrderError, match="'b' arrived where 'a'"):
             sink.deliver(AckMessage(scene_id="b"))
@@ -66,20 +52,9 @@ class TestAcks:
     ) -> None:
         sink = ReplySink()
         for i in range(1000):
-            sink.owe_ack(f"s{i}", awaited=False)
+            sink.owe_ack(f"s{i}")
             sink.deliver(AckMessage(scene_id=f"s{i}"))
 
-        assert sink.owed_acks == 0
-
-    def test_a_scene_given_up_on_still_owes_its_ack_until_it_arrives(self) -> None:
-        sink = ReplySink()
-        owed = sink.owe_ack("a", awaited=True)
-
-        sink.abandon(owed)
-        assert sink.owed_acks == 1
-        sink.deliver(AckMessage(scene_id="a"))
-
-        assert not sink.answered(owed)
         assert sink.owed_acks == 0
 
 
@@ -179,7 +154,7 @@ class TestWaiting:
     def test_discarding_the_sink_fails_the_waiter_at_once(self) -> None:
         sink = ReplySink()
         ping = sink.expect_pong(1.0)
-        timer = threading.Timer(0.05, sink.discard)
+        timer = threading.Timer(0.05, sink.discard, args=["hub"])
         timer.start()
 
         with pytest.raises(ConnectionClosedError, match="closed while a reply"):
@@ -188,20 +163,42 @@ class TestWaiting:
 
     def test_a_discarded_sink_takes_no_new_request(self) -> None:
         sink = ReplySink()
-        sink.discard()
+        sink.discard("hub")
 
         with pytest.raises(ConnectionClosedError):
             sink.expect_query()
         with pytest.raises(ConnectionClosedError):
-            sink.owe_ack("a", awaited=True)
+            sink.owe_ack("a")
 
     def test_discarding_drops_what_was_owed(self) -> None:
         sink = ReplySink()
-        sink.owe_ack("a", awaited=False)
+        sink.owe_ack("a")
 
-        sink.discard()
+        sink.discard("hub")
 
         assert sink.owed_acks == 0
+
+
+class TestTheLedgerIsWhatTheDisplayStillOwed:
+    def test_the_discard_hands_back_the_scenes_never_acked_in_write_order(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.owe_ack("b")
+        sink.owe_ack("c")
+        sink.deliver(AckMessage(scene_id="a"))
+
+        assert sink.discard("display") == ("b", "c")
+
+    def test_a_second_discard_owes_nothing_and_keeps_the_first_cause(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.discard("display")
+
+        assert sink.discard("hub") == ()
+        assert sink.ended == "display"
+
+    def test_a_live_sink_has_no_end(self) -> None:
+        assert ReplySink().ended is None
 
 
 class TestARetiredDialNeverDelivers:
@@ -210,7 +207,7 @@ class TestARetiredDialNeverDelivers:
     ) -> None:
         sink = ReplySink()
         ping = sink.expect_pong(1.0)
-        sink.discard()
+        sink.discard("hub")
 
         sink.deliver(PongMessage(ts=1.0))
         sink.deliver(AckMessage(scene_id="stray"))  # not even a skew: it is retired
@@ -223,7 +220,7 @@ class TestARetiredDialNeverDelivers:
         ping = sink.expect_pong(1.0)
         sink.deliver(PongMessage(ts=1.0))
 
-        sink.discard()
+        sink.discard("hub")
 
         assert sink.await_reply(ping, 0.0) == PongMessage(ts=1.0)
 
@@ -253,7 +250,7 @@ class TestTheClosedFlagIsOneHoldWithTheDiscard:
             thread.start()
             thread.join(timeout=0.1)
             assert thread.is_alive(), "the delivery did not wait for the lock"
-            sink.discard()  # reentrant: the same hold writes the flag
+            sink.discard("hub")  # reentrant: the same hold writes the flag
         thread.join(timeout=3.0)
 
         assert outcome == [None], "the delivery read the flag before the hold"

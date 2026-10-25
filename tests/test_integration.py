@@ -25,7 +25,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import writer_of
+from tests.link_access import shown
 
 NUM_RAPID_SCENES = 100
 
@@ -185,12 +185,13 @@ class TestRapidSceneUpdates:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
-                    ack = writer_of(client).show(
+                    acked = shown(
+                        client,
                         scene_id,
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
-                    assert ack is not None, f"Timeout on scene {seq}"
-                    acked_ids.append(ack.scene_id)
+                    assert acked, f"Timeout on scene {seq}"
+                    acked_ids.append(scene_id)
 
                 assert len(acked_ids) == NUM_RAPID_SCENES
                 assert acked_ids == [f"s{i}" for i in range(NUM_RAPID_SCENES)]
@@ -231,11 +232,12 @@ class TestRapidSceneUpdates:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
-                    ack = writer_of(client).show(
+                    acked = shown(
+                        client,
                         f"s{seq}",
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
-                    assert ack is not None
+                    assert acked
             elapsed = time.monotonic() - t0
             assert elapsed < 10.0, f"Took {elapsed:.2f}s for {NUM_RAPID_SCENES} scenes"
         finally:
@@ -364,11 +366,12 @@ class TestReconnection:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
-                ack = writer_of(client1).show(
+                acked = shown(
+                    client1,
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
                 )
-                assert ack is not None
+                assert acked
 
             t1.join(timeout=5)
             if server_conn_1:
@@ -399,12 +402,12 @@ class TestReconnection:
             with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
-                ack = writer_of(client2).show(
+                acked = shown(
+                    client2,
                     "s2",
                     elements=[TextElement(id="t1", content="second")],
                 )
-                assert ack is not None
-                assert ack.scene_id == "s2"
+                assert acked
 
             t2.join(timeout=5)
         finally:
