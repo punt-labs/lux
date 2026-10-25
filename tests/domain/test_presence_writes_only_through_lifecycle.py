@@ -10,7 +10,9 @@ The guard reads the source as syntax. A module reaches the surface by an import
 that resolves to the writes' module (absolute, relative, aliased, or of the module
 rather than the name), by taking it from the registry, or by holding the
 lifecycle's own handle on it; the registry's session state is written only by the
-writes. Each rule is exercised on planted source to prove it can fail.
+writes, and the roster's renumbering is reached only by the writes. The lifecycle
+uses its handle on the writes only as the receiver of a call, never handing it on.
+Each rule is exercised on planted source to prove it can fail.
 """
 
 from __future__ import annotations
@@ -52,6 +54,11 @@ _DICT_MUTATORS = {
 }
 _SESSION_STATE = "_sessions"
 _ROSTER_STATE = "_roster"
+_ROSTER_FILE = _SRC / "punt_lux" / "domain" / "hub" / "client_roster.py"
+# What the registry may ask of the roster: to name connections and to read the
+# names held. Every other public roster method renumbers survivors, which changes
+# the Clients menu's labels, so it is a presence write and the writes' alone.
+_ROSTER_READS = {"names_for", "held"}
 
 # The registry hands the surface out and the lifecycle takes it.
 _IMPORTERS = {
@@ -162,6 +169,73 @@ def _state_writes(source: str) -> list[tuple[str, int, str]]:
     return visitor.found
 
 
+def _roster_methods() -> set[str]:
+    """The public methods of ``ClientRoster``, read from its class body."""
+    tree = ast.parse(_ROSTER_FILE.read_text())
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == "ClientRoster"
+    )
+    return {
+        m.name
+        for m in cls.body
+        if isinstance(m, ast.FunctionDef) and not m.name.startswith("_")
+    }
+
+
+def _roster_calls(source: str, forbidden: set[str]) -> list[tuple[int, str]]:
+    """The calls of a forbidden roster method on a roster, by line and method.
+
+    A call is on the roster when its receiver is reached through ``._roster``,
+    directly or through a name bound from it.
+    """
+    tree = ast.parse(source)
+    bound = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(part, ast.Attribute) and part.attr == _ROSTER_STATE
+            for part in ast.walk(node.value)
+        )
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    return [
+        (call.lineno, call.func.attr)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in forbidden
+        and any(
+            (isinstance(part, ast.Attribute) and part.attr == _ROSTER_STATE)
+            or (isinstance(part, ast.Name) and part.id in bound)
+            for part in ast.walk(call.func.value)
+        )
+    ]
+
+
+def _handed_on_handles(source: str) -> list[int]:
+    """The lines where ``._writes`` is used other than as the receiver of a call."""
+    tree = ast.parse(source)
+    receivers = {
+        id(call.func.value)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Attribute)
+    }
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "_writes"
+        and not isinstance(node.ctx, ast.Store)
+        and id(node) not in receivers
+    ]
+
+
 def _derived_writes() -> tuple[set[str], set[str]]:
     """The public methods of ``PresenceWrites`` that write, and those that only read."""
     tree = ast.parse(_WRITES_FILE.read_text())
@@ -221,6 +295,26 @@ def _outside_state_writers(root: Path) -> set[tuple[str, str]]:
         for method, _, receiver in _state_writes(text)
         if receiver == "other" or rel == _REGISTRY_FILE
     } - {_MAY_INITIALISE}
+
+
+def test_only_the_writes_reach_the_rosters_renumbering() -> None:
+    forbidden = _roster_methods() - _ROSTER_READS
+    assert forbidden, "the roster has no renumbering method left to guard"
+
+    offenders = {
+        (rel, line, method)
+        for rel, text in _files(_SRC)
+        if rel != _WRITES_FILE_REL
+        for line, method in _roster_calls(text, forbidden)
+    }
+
+    assert offenders == set()
+
+
+def test_the_lifecycle_only_calls_through_its_handle_on_the_writes() -> None:
+    lifecycle = (_ROOT / _LIFECYCLE).read_text()
+
+    assert _handed_on_handles(lifecycle) == []
 
 
 def test_the_write_set_is_exactly_the_writes_public_methods() -> None:
@@ -364,3 +458,56 @@ class TestTheRulesCanFail:
     def test_taking_the_writes_through_another_module_is_found(self) -> None:
         assert _calls_attribute("registry.take_writes()", "take_writes")
         assert _reads_attribute("self.lifecycle._writes.record(c)", "_writes")
+
+    def test_a_registry_method_that_renumbers_the_roster_is_found(self) -> None:
+        source = (
+            "class HubClientRegistry:\n"
+            "    def evict(self, cid):\n"
+            "        self._roster.release((cid,))\n"
+        )
+
+        assert _roster_calls(source, {"release"}) == [(3, "release")]
+
+    def test_a_renumbering_through_a_name_bound_from_the_roster_is_found(self) -> None:
+        source = (
+            "def f(registry, cid):\n"
+            "    roster = registry._roster\n"
+            "    roster.release((cid,))\n"
+        )
+
+        assert _roster_calls(source, {"release"}) == [(3, "release")]
+
+    def test_naming_through_the_roster_is_not_a_renumbering(self) -> None:
+        source = "def f(self, ids):\n    return self._roster.names_for(ids)\n"
+
+        assert _roster_calls(source, {"release"}) == []
+
+    def test_the_roster_s_own_methods_are_derived_from_its_class(self) -> None:
+        assert {"names_for", "held", "release"} <= _roster_methods()
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Helper(self._writes)",
+            "handle = self._writes",
+            "return self._writes",
+            "register(callback=self._writes)",
+        ],
+    )
+    def test_handing_the_writes_handle_on_is_found(self, body: str) -> None:
+        source = f"class C:\n    def f(self):\n        {body}\n"
+
+        assert _handed_on_handles(source) == [3]
+
+    def test_calling_through_the_handle_and_storing_it_are_not_handing_on(self) -> None:
+        source = (
+            "class C:\n"
+            "    def __new__(cls, writes):\n"
+            "        self = super().__new__(cls)\n"
+            "        self._writes = writes\n"
+            "        return self\n"
+            "    def f(self, c):\n"
+            "        return self._writes.record(c)\n"
+        )
+
+        assert _handed_on_handles(source) == []

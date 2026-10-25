@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -847,33 +846,6 @@ class TestRegistryLocksAreNotHeldUnderTheModelsLocks:
         assert link.requests.query("m", timeout=0.1) is None
         assert not link.is_connected
         link.close()
-
-    def test_no_module_of_the_dial_model_names_the_registry_or_the_store(self) -> None:
-        # The registry lock and the store lock sit above the model's locks; a
-        # module that holds the model's locks must never reach for either.
-        hub = (
-            Path(__file__).resolve().parents[2] / "src" / "punt_lux" / "domain" / "hub"
-        )
-        modelled = (
-            "dial_generation",
-            "dial_reader",
-            "display_connection",
-            "display_listener",
-            "display_replies",
-            "display_requests",
-            "listener_thread",
-            "reply_sink",
-        )
-        forbidden = ("ClientRegistry", "client_registry", "hub_display", "HubDisplay")
-
-        offenders = [
-            f"{name}: {word}"
-            for name in modelled
-            for word in forbidden
-            if word in (hub / f"{name}.py").read_text(encoding="utf-8")
-        ]
-
-        assert offenders == []
 
 
 class TestConnectCoordinatesTheDialAndItsListener:

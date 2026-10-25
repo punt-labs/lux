@@ -34,7 +34,6 @@ from punt_lux.applets.latency import ClickLatency
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 from punt_lux.operations.models.scene_results import SceneShown
-from tests.source_imports import module_name, resolved_imports
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
 
@@ -344,47 +343,106 @@ def _calls(source: str, *names: str) -> bool:
     )
 
 
-# What it takes to name the board's frame: its own request builder or the surface
-# a board push goes through (found by import, in any spelling), the class that
-# defines that surface, or the scene id the board is installed under, which is
-# always ``beads-<project>``.
-_BOARD_MODULES = frozenset(
-    {
-        "punt_lux.apps.beads_board",
-        "punt_lux.applets.board_ops",
-        "punt_lux.applets.board_channel",
-    }
+# What marks a receiver as the board's write surface: it is annotated as one of
+# these in the module (a parameter, a field, a local), or built from one. The board's
+# own surfaces, the client's whole ops family a push is forwarded to, and what hands
+# a board its load -- never the scene id, which a module may be handed or compose.
+_BOARD_PROVENANCE = frozenset(
+    {"BoardOps", "ScopedBoardOps", "SyncOps", "AppletBoard", "BoardLoad"}
 )
-_BOARD_SURFACES = frozenset({"BoardOps", "ScopedBoardOps"})
-_BOARD_SCENE_PREFIX = "beads-"
+_SRC_PACKAGE = Path(next(iter(applets_package.__path__))).parent
+_SCENE_WRITE_RESULTS = frozenset({"SceneShown", "Cleared"})
 
 
-def _module_of(name: str) -> str:
-    """The dotted module for a path relative to ``src/punt_lux``."""
-    return module_name(f"src/punt_lux/{name}")
+def _methods_of(path: Path, name: str) -> dict[str, ast.FunctionDef]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+    return {m.name: m for m in cls.body if isinstance(m, ast.FunctionDef)}
 
 
-def _names_the_board(source: str, module: str) -> bool:
-    """Whether this module's code names the board's frame, however it spells it.
+def _board_write_verbs() -> frozenset[str]:
+    """The verbs that put a scene on the display, read from the surfaces defining them.
 
-    Found in the syntax, never in the prose: an import that resolves to a board
-    module, a definition of the board's write surface, or a string that is the
-    board's scene id (including the head of an f-string such as
-    ``f"beads-{project}"``). A module that does none of these cannot be sending
-    a board, whatever its docstring says.
+    The board's own Protocol contributes all its methods; the client's scene
+    operations contribute every method that answers with a scene shown or a scene
+    cleared (inspection answers with neither).
     """
-    if resolved_imports(source, module) & _BOARD_MODULES:
-        return True
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ClassDef) and node.name in _BOARD_SURFACES:
+    board = _methods_of(_SRC_PACKAGE / "applets" / "board_ops.py", "BoardOps")
+    scene = _methods_of(_SRC_PACKAGE / "commands" / "_ports.py", "SceneOps")
+    writes = {
+        name
+        for name, method in scene.items()
+        if method.returns is not None
+        and _SCENE_WRITE_RESULTS
+        & {n.id for n in ast.walk(method.returns) if isinstance(n, ast.Name)}
+    }
+    return frozenset(writes | set(board))
+
+
+def _mentions_the_boards_surface(expr: ast.AST, annotated: set[str]) -> bool:
+    for part in ast.walk(expr):
+        if isinstance(part, ast.Name) and (
+            part.id in _BOARD_PROVENANCE or part.id in annotated
+        ):
             return True
-        if (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value.startswith(_BOARD_SCENE_PREFIX)
+        if isinstance(part, ast.Attribute) and (
+            part.attr in annotated or part.attr == "sync"
         ):
             return True
     return False
+
+
+def _annotation_of(node: ast.AST) -> tuple[str, ast.expr | None]:
+    """The name an ``arg`` or ``AnnAssign`` declares and the annotation it carries."""
+    if isinstance(node, ast.arg):
+        return node.arg, node.annotation
+    if isinstance(node, ast.AnnAssign):
+        target = node.target
+        name = (
+            target.id if isinstance(target, ast.Name) else getattr(target, "attr", "")
+        )
+        return name, node.annotation
+    return "", None
+
+
+def _annotated_as_the_boards_surface(tree: ast.Module) -> set[str]:
+    """Names (parameters, fields, locals) the module annotates with a board surface."""
+    declared = (_annotation_of(node) for node in ast.walk(tree))
+    return {
+        name
+        for name, annotation in declared
+        if annotation is not None
+        and any(
+            isinstance(part, ast.Name) and part.id in _BOARD_PROVENANCE
+            for part in ast.walk(annotation)
+        )
+    }
+
+
+def _board_writes(source: str, verbs: frozenset[str]) -> list[tuple[int, str]]:
+    """The calls that write a scene through something of the board's provenance."""
+    tree = ast.parse(source)
+    annotated = _annotated_as_the_boards_surface(tree)
+    bound = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and _mentions_the_boards_surface(node.value, annotated)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    return [
+        (call.lineno, call.func.attr)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in verbs
+        and _mentions_the_boards_surface(call.func.value, annotated | bound)
+    ]
 
 
 def _writers(source: str) -> set[str]:
@@ -681,17 +739,16 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
         "applets/no_board.py",
     }
 
-    # The Hub write itself: a ``render``/``render_table`` on the board's ops is the
-    # one place a board leaves for the Hub. ``ScopedBoardOps`` is that surface's
-    # definition, forwarding to the transport; the channel is the click path's only
-    # caller. ``lux beads`` is a one-shot process that renders once and exits, so it
-    # races no click and holds no slot: it is the second, and last, writer.
+    # The Hub write itself: any scene-writing verb on something of the board's
+    # provenance is the one place a board leaves for the Hub. ``ScopedBoardOps`` is
+    # that surface's definition, forwarding to the transport; the channel is the
+    # click path's only caller. ``lux beads`` is a one-shot process that renders once
+    # and exits, so it races no click and holds no slot: it is the second, and last,
+    # writer.
     package = _package_sources()
+    verbs = _board_write_verbs()
     on_board_ops = {
-        name
-        for name, text in package.items()
-        if _names_the_board(text, _module_of(name))
-        and _calls(text, "render", "render_table")
+        name for name, text in package.items() if _board_writes(text, verbs)
     }
     assert on_board_ops == {
         "applets/board_channel.py",
@@ -720,45 +777,56 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
     assert slot.count("threading.Lock()") == 1
 
 
-@pytest.mark.parametrize(
-    ("source", "module"),
-    [
-        ('client.sync.render(RenderRequest(scene_id="beads-lux"))', "punt_lux.x"),
-        ('client.sync.render(RenderRequest(scene_id=f"beads-{p}"))', "punt_lux.x"),
-        (
-            "from punt_lux.apps.beads_board import BeadsBoard\nc.sync.render(1)",
-            "punt_lux.x",
-        ),
-        ("from punt_lux.apps import beads_board\nc.sync.render(1)", "punt_lux.x"),
-        ("import punt_lux.apps.beads_board as b\nc.sync.render(1)", "punt_lux.x"),
-        ("from ..apps.beads_board import BeadsBoard\nc.sync.render(1)", "punt_lux.a.x"),
-        ("from .board_ops import BoardOps\nc.sync.render(1)", "punt_lux.applets.x"),
-        (
-            "class ScopedBoardOps:\n    def render(self): return self._ops.render(1)",
-            "punt_lux.x",
-        ),
-    ],
-)
-def test_a_writer_of_the_boards_frame_is_found_however_it_names_it(
-    source: str, module: str
-) -> None:
-    """The writer guard has to be able to fail: each of these sends the board."""
-    assert _names_the_board(source, module)
-    assert _calls(source, "render", "render_table")
+def test_the_write_verbs_are_derived_from_the_surfaces_that_define_them() -> None:
+    verbs = _board_write_verbs()
+
+    assert {"render", "render_table"} <= verbs  # the board's own Protocol
+    assert {"update", "clear", "clear_scene", "render_dashboard"} <= verbs
+    assert verbs.isdisjoint({"inspect_scene", "list_scenes", "ping"})
 
 
 @pytest.mark.parametrize(
     "source",
     [
-        '"""Prose about BoardOps and beads-lux."""\nc.sync.render(request)',
-        "from punt_lux.operations import RenderRequest\nc.sync.render(request)",
-        'name = "tabs-lux"\nc.sync.render(request)',
+        "def f(client: BoardOps, request):\n    client.render(request)",
+        "def f(client: BoardOps, request):\n    client.render_table(request)",
+        # a verb the surface offers beyond the two the board uses today
+        "def f(ops: SyncOps, scene_id, request):\n    ops.update(scene_id, request)",
+        "def f(ops: SyncOps):\n    ops.clear(scope=None)",
+        # the frame id handed in, composed, or never named: no ``beads-`` literal
+        "def f(client: BoardOps, frame):\n    client.render(make(frame))",
+        'def f(client: BoardOps, p):\n    client.render(make("-".join(("beads", p))))',
+        # reached through a field, a built adapter, and a client's transport
+        (
+            "class C:\n    _ops: ScopedBoardOps\n"
+            "    def f(self, r):\n        self._ops.update(r)"
+        ),
+        "def f(client, r):\n    ScopedBoardOps.for_client(client).render(r)",
+        "def f(client, r):\n    client.sync.render(r)",
+        # obtained from the thing that hands a board its load
+        "def f(board: AppletBoard, r):\n    out = board\n    out.render(r)",
     ],
 )
-def test_a_module_that_never_names_the_board_is_not_one_of_its_writers(
+def test_a_writer_of_the_boards_frame_is_found_however_it_reaches_it(
     source: str,
 ) -> None:
-    assert not _names_the_board(source, "punt_lux.x")
+    """The writer guard has to be able to fail: each of these writes a scene."""
+    assert _board_writes(source, _board_write_verbs()) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Prose about BoardOps and beads-lux."""\ndef f(c, r):\n    c.render(r)',
+        "def f(ops, r):\n    ops.render(r)",
+        'name = "beads-lux"\ndef f(table, r):\n    table.render(r)',
+        "def f(client: BoardOps):\n    client.inspect_scene('s')",
+    ],
+)
+def test_a_module_that_writes_no_scene_through_the_board_is_not_one_of_its_writers(
+    source: str,
+) -> None:
+    assert _board_writes(source, _board_write_verbs()) == []
 
 
 # --- P12 ------------------------------------------------------------------
