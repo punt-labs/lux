@@ -160,7 +160,7 @@ class DisplayLink:
         returns ``()``. A manifest that cannot be sent closes the link and raises, so
         the next call redials and declares again. Returns the scene ids declared.
         """
-        was_open = self.is_connected
+        was_open = self._connection.is_open
         self.connect(listen=True)
         if was_open:
             return ()

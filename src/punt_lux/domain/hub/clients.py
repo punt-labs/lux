@@ -41,7 +41,6 @@ class ClientRegistry:
 
     _client: DisplayLink | None
     _lock: threading.RLock
-    _apps_registered_for: int | None
     _marker: DirtyMarker
     _reconnect_gen: int
     _reconnect_cond: threading.Condition
@@ -51,7 +50,6 @@ class ClientRegistry:
         self = super().__new__(cls)
         self._client = None
         self._lock = threading.RLock()
-        self._apps_registered_for = None
         self._marker = NullDirtyMarker()
         self._reconnect_gen = 0
         self._reconnect_cond = threading.Condition(self._lock)
@@ -79,28 +77,24 @@ class ClientRegistry:
         with self._lock:
             was_connected = self.is_connected
             client = self._ensure_client()
-            self._setup_apps()
-            self._ensure_connected(client)
+            if not client.is_connected:
+                self._connect_and_reconcile(client)
             self._mark_reconnected_if_fresh(was_connected=was_connected)
             return client.desk.asks()
 
     def _ensure_client(self) -> DisplayLink:
-        """Create the lazy client on first use; its own service unit supervises."""
+        """Create the lazy client on first use; its own service unit supervises.
+
+        A dial the registry makes starts its reader in the same step
+        (``open_as_hub``), so a connected link always has one. The D21 fallback
+        dispatch is wired once, as the client is made.
+        """
         if self._client is None:
             self._client = DisplayLink.to_socket(
                 name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
             )
+            self._client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
         return self._client
-
-    def _ensure_connected(self, client: DisplayLink) -> None:
-        """Connect and reconcile if not connected.
-
-        A dial the registry makes starts its reader in the same step
-        (``open_as_hub``), so a connected link always has one and
-        nothing here waits for the reader slot under the registry lock.
-        """
-        if not client.is_connected:
-            self._connect_and_reconcile(client)
 
     def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
         """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
@@ -169,14 +163,6 @@ class ClientRegistry:
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)
         self._marker.mark_menus()
-
-    def _setup_apps(self) -> None:
-        """Wire the D21 fallback interaction dispatch. Idempotent per client."""
-        client = self._ensure_client()
-        if self._apps_registered_for == id(client):
-            return
-        client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
-        self._apps_registered_for = id(client)
 
 
 client_registry = ClientRegistry()

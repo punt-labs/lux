@@ -226,26 +226,24 @@ class HubReplicator:
             )
             if batch.has_work:
                 self._run_cycle(batch)
-            self._guarded_tick()
+            self._tick_stability()
             if batch.shutting:
                 return
-
-    def _guarded_tick(self) -> None:
-        """Run the idle tick; a failure is logged, never fatal to the only worker."""
-        try:
-            self._tick_stability()
-        except Exception:
-            logger.exception("replicator idle tick failed; continuing")
 
     def _tick_stability(self) -> None:
         """Charge any death found while idle, then decay per-episode state.
 
         A display that died while nothing was queued leaves its record on the dial;
-        charging it here, every tick, means no redial can hide it.
+        charging it here, every tick, means no redial can hide it. The tick reaches
+        the registry and the store, so it can raise: that is logged and the worker,
+        the only replicator there is, lives on.
         """
-        self._sender.charge_deaths()
-        self._attribution.exit_isolation_if_stable()
-        self._recovery.reset_backoff_if_stable()
+        try:
+            self._sender.charge_deaths()
+            self._attribution.exit_isolation_if_stable()
+            self._recovery.reset_backoff_if_stable()
+        except Exception:
+            logger.exception("replicator idle tick failed; continuing")
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
         """Push the batch; reclaim only on a genuinely clean cycle, else back off.
