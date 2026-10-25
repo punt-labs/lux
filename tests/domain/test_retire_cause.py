@@ -18,6 +18,7 @@ import pytest
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.batch_sender import BatchSender, BatchSendError
+from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
@@ -171,6 +172,44 @@ class TestADialTheHubEnded:
         assert isinstance(_next_request_error(link), HubRetiredError)
 
 
+class TestADialTheKeepaliveFoundUnresponsive:
+    """A dial that is open but does not answer is the display's, not the Hub's."""
+
+    def test_a_write_pinned_to_it_is_charged_to_the_display(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        registry = ClientRegistry()
+        registry._client = link  # test seam: a registry over a link of our own
+        writer = writer_of(link)
+
+        registry.drop_unresponsive(link.desk.asks().dial)
+
+        with pytest.raises(ConnectionClosedError) as caught:
+            writer.send_scene(_scene("x"))
+        assert _is_the_displays_end(caught.value)
+
+    def test_the_next_request_learns_it_was_the_displays_end(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        registry = ClientRegistry()
+        registry._client = link  # test seam: a registry over a link of our own
+
+        registry.drop_unresponsive(link.desk.asks().dial)
+
+        assert _is_the_displays_end(_next_request_error(link))
+
+    def test_a_plain_drop_is_still_the_hubs_own(self, display: Display) -> None:
+        link = _linked(display)
+        registry = ClientRegistry()
+        registry._client = link  # test seam: a registry over a link of our own
+
+        registry.drop(link.desk.asks().dial)
+
+        assert isinstance(_next_request_error(link), HubRetiredError)
+
+
 class TestALinkNeverOpened:
     def test_a_request_raises_not_connected(self, display: Display) -> None:
         link = DisplayLink(display, recv_timeout=3.0)
@@ -263,7 +302,7 @@ class _RetiringClients:
         return self._link.desk.take_seat()
 
     def drop(self, dial: DialRef) -> None:
-        self._link.drop_if_current(dial)
+        self._link.drop_if_current(dial, cause="hub")
 
 
 class _NoLifecycle:

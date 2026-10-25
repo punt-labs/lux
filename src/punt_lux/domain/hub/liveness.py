@@ -110,7 +110,7 @@ class DisplayLiveness:
         """Drop the dead dial and re-probe -- a live probe marks connected at
         once, sparing a further disconnected-interval cycle."""
         if dial is not None:  # None: the probe never got a dial, nothing to drop
-            self._clients.drop(dial)
+            self._clients.drop_unresponsive(dial)
         if self._probe.run().alive:
             self._pacing.mark_connected()
 

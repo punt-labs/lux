@@ -20,6 +20,7 @@ from punt_lux.domain.hub.handshake_connector import HandshakeConnector
 from punt_lux.domain.hub.request_desk import RequestDesk
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.event_port import EventPort
@@ -105,13 +106,14 @@ class DisplayLink:
         """Whether the client has an active socket connection."""
         return self._connection.is_open
 
-    def drop_if_current(self, dial: DialRef) -> bool:
+    def drop_if_current(self, dial: DialRef, *, cause: RetireCause) -> bool:
         """Retire ``dial`` if it is still the current dial; whether it was.
 
         What a caller that saw its own dial fail asks for: it never closes a
-        newer dial that replaced the one that failed.
+        newer dial that replaced the one that failed. ``cause`` says who ended it,
+        for whoever finds it gone.
         """
-        return dial.retire_in(self._connection, cause="hub")
+        return dial.retire_in(self._connection, cause=cause)
 
     def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.

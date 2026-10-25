@@ -80,7 +80,7 @@ class _FakeClients:
         self.get_calls += 1
         return self._connection
 
-    def drop(self, dial: DialRef) -> None:
+    def drop_unresponsive(self, dial: DialRef) -> None:
         self.drop_calls += 1
         self.dropped.append(dial)
 
@@ -171,7 +171,7 @@ class _AlwaysFailingClients:
         msg = "connect refused"
         raise DisplayNotConnectedError(msg)
 
-    def drop(self, dial: DialRef) -> None:
+    def drop_unresponsive(self, dial: DialRef) -> None:
         """No connection was ever held, so there is nothing to close."""
 
 

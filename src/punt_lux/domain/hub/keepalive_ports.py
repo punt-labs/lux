@@ -49,11 +49,15 @@ class KeepaliveLink(Protocol):
 
 @runtime_checkable
 class KeepaliveClients(Protocol):
-    """Hands out the display connection (reconnecting) and drops a dead one."""
+    """Hands out the display connection (reconnecting) and drops an unresponsive one."""
 
     def get(self) -> KeepaliveLink:
         """Return the connected client, reconnecting and re-registering if dropped."""
         ...
 
-    def drop(self, dial: DialRef) -> None:
-        """Retire ``dial`` if still current, so the next ``get`` binds afresh."""
+    def drop_unresponsive(self, dial: DialRef) -> None:
+        """Retire ``dial``, which did not answer, if still current.
+
+        The dial is the display's end, so the next ``get`` binds afresh and a sender
+        still pinned to it is charged to what it sent.
+        """
