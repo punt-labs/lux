@@ -333,8 +333,8 @@ a socket an abandoned thread is still reading (L4a).
         \texttt{write\_fail\_keep} control keeps the entry and the
         generation (L6, three requests).  A write that \emph{blocks} raises
         only if it is bounded: every generation's socket carries the send
-        timeout (\texttt{set\_send\_timeout}, \texttt{SO\_SNDTIMEO}, about two
-        seconds), on both legs (\texttt{handshake\_connector.py},
+        timeout (\texttt{set\_send\_timeout}, \texttt{SO\_SNDTIMEO}, one
+        second, applied as one to two seconds by platform), on both legs (\texttt{handshake\_connector.py},
         \texttt{cross\_host\_connector.py}), and a timed-out send raises and
         is retired by this rule.  A display that stops reading produces no
         end-of-file, so no report ends the wedge; the send timeout does.

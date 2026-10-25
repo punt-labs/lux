@@ -56,7 +56,7 @@
 % WHAT ENDS A WEDGE IN THE CODE.  Not a reporter: a display that stops reading
 % produces no end-of-file, so the reader never reports.  The bound is the send
 % timeout: every generation's socket carries SO_SNDTIMEO (send_timeout.py,
-% about 2 s, on both legs), a timed-out sendall raises, and the write-failure
+% one second, applied as one to two seconds by platform, on both legs), a timed-out sendall raises, and the write-failure
 % rule (listener_lifecycle.tex, Decision 10(a)) retires the generation.  The
 % model's restriction of Wedge to a running reporter stands for that bound.
 % Without the bound the model deadlocks: with the reporter condition dropped,
@@ -263,8 +263,8 @@ would be a deadlock of the environment, not of the locks.
 
 What ends a wedge in the code is not a reporter.  A display that stops
 reading produces no end-of-file, so the reader never reports.  The bound is the
-send timeout: every generation's socket carries \texttt{SO\_SNDTIMEO} (about two
-seconds, on both legs), a timed-out \texttt{sendall} raises, and the
+send timeout: every generation's socket carries \texttt{SO\_SNDTIMEO} (one second,
+applied as one to two seconds by platform, on both legs), a timed-out \texttt{sendall} raises, and the
 write-failure rule retires the generation.  The restriction of \texttt{Wedge}
 to a running reporter stands for that bound.  Drop the restriction and ProB
 finds the deadlock \texttt{Start(showC,T2)}, \texttt{Wedge},
