@@ -13,11 +13,10 @@ entry the write makes, which takes the sink's lock, the leaf) or across one
 releases a sender wedged in ``sendall`` while it holds ``_lock``. The sink's lock
 is never held while taking ``_lock``.
 
-Every dial's socket carries the send timeout (``SO_SNDTIMEO``), set by the
-connection that makes the dial whichever dialer made it: a peer that stops reading
-wedges a writer in ``sendall`` while it holds ``_lock``, and the timeout is what ends
-that write. A send that raises
-retires the dial, which fails every writer queued behind it.
+Every dial's socket carries the send timeout (``SO_SNDTIMEO``), set by the connection
+that makes it: a peer that stops reading wedges a writer in ``sendall`` while it holds
+``_lock``, and the timeout ends that write. A send that raises retires the dial, which
+fails every writer queued behind it.
 """
 
 from __future__ import annotations
@@ -333,9 +332,8 @@ class DialGeneration:
 
         A dial already ended was ended by whoever's cause it carries (``shut`` wakes a
         writer wedged in ``sendall`` on purpose): the writer reports that cause, never
-        the socket error the retirement itself produced. A retire that lands between
-        the check and this writer's own is the same case: the retire says whether this
-        writer won it, and a loser reports the winner's cause.
+        the socket error the retirement itself produced. A writer that loses the retire
+        to one landing after the check reports the winner's cause the same way.
         """
         if self.is_closed or not self._retire(self, "display"):
             raise self.closed_error() from exc  # someone else's cause won the retire
@@ -356,6 +354,5 @@ class DialGeneration:
             msg = f"the connection to {self.endpoint} is still open"
             raise ValueError(msg)
         msg = f"the connection to {self.endpoint} was closed"
-        return (
-            ConnectionClosedError(msg) if ended == "display" else HubRetiredError(msg)
-        )
+        error = ConnectionClosedError if ended == "display" else HubRetiredError
+        return error(msg)

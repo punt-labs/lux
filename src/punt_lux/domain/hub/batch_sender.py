@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.death_charger import DeathCharger
+from punt_lux.domain.hub.push_result import PushResult
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
@@ -35,20 +36,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["BatchSendError", "BatchSender", "PushResult"]
+__all__ = ["BatchSendError", "BatchSender"]
 
 # The isolation-mode roundtrip budget: after each singleton send, wait this
 # long for the display to ack a ping -- long enough under load, short enough
 # that a wedged display trips recovery quickly and blames the real crasher.
 _PROBE_TIMEOUT_SECONDS = 1.0
-
-
-@dataclass(frozen=True, slots=True)
-class PushResult:
-    """What one push did: the scenes it found empty, and the ones it left unsent."""
-
-    emptied: tuple[SceneId, ...]  # reclaim candidates, once the cycle is clean
-    deferred: tuple[SceneId, ...] = ()  # to queue again: sent unproved, or not sent
 
 
 @dataclass(eq=False)  # an exception cannot be frozen: it gets a traceback attached

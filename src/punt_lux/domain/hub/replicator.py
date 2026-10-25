@@ -231,11 +231,7 @@ class HubReplicator:
                 return
 
     def _guarded_tick(self) -> None:
-        """Run the idle tick; a failure is logged and the worker lives on.
-
-        The tick reaches the registry and the store, so it can raise: that must not
-        end the thread, which is the only replicator there is.
-        """
+        """Run the idle tick; a failure is logged, never fatal to the only worker."""
         try:
             self._tick_stability()
         except Exception:
@@ -245,8 +241,7 @@ class HubReplicator:
         """Charge any death found while idle, then decay per-episode state.
 
         A display that died while nothing was queued leaves its record on the dial;
-        charging it here, every tick, means no redial by anyone else can hide it.
-        The two death-free-interval checks follow.
+        charging it here, every tick, means no redial can hide it.
         """
         self._sender.charge_deaths()
         self._attribution.exit_isolation_if_stable()
