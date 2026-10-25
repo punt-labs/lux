@@ -2,7 +2,9 @@
 
 Spec: [crash_attribution.tex](./crash_attribution.tex). Controls:
 [redial_only](./crash_attribution_redial_only_buggy.tex),
-[idle_stop](./crash_attribution_idle_stop_buggy.tex). Governs
+[idle_stop](./crash_attribution_idle_stop_buggy.tex),
+[hub_end_charged](./crash_attribution_hub_end_charged_buggy.tex),
+[double_charge](./crash_attribution_double_charge_buggy.tex). Governs
 `src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,dial_generation,
 reply_sink,liveness_probe,replicator}.py`. Ruling modelled: T10 (the death of a dial is
 charged from that dial's own ack ledger, whoever discovers it; a Hub-ended dial and an
@@ -33,9 +35,9 @@ so the loop has a length. The fixed design was also run at `maxDial = 3`, `maxSc
 
 ## Results
 
-`fuzz` clean on each of the three files separately. `probcli` at
+`fuzz` clean on each of the five files separately. `probcli` at
 `/home/jfreeman/Applications/ProB/probcli`, run one at a time on scratch copies under
-`.tmp/ca/`; all runs were small (the largest took 106 s; `free -g` unchanged at
+`.tmp/ca/` (the two A3 and A4 controls on the committed files, one goal at a time); all runs were small (the largest took 106 s; `free -g` unchanged at
 about 15 GB used throughout).
 
 ```text
@@ -62,6 +64,12 @@ Controls (`-model_check -nodead -bf -goal`):
 |---|---|---|---|---|---|
 | `redial_only_buggy` | **found** (208 states) | not found (556) | not found | not found | `RedialQuiet; Send(1); DisplayEnd; RedialQuiet(dother); Send(1); DisplayEnd; DiscoverCharge(drepl)`: first death healed by a non-replicator redial and discarded; the poison scene has one strike after two poison deaths. This is silent F1. |
 | `idle_stop_buggy` | **found** (168 states) | **found** (30 states) | not found (362) | not found | A2: `RedialQuiet; DisplayEnd; RedialBlame; SendBlamed(1)`: a scene never written to the dead dial is charged for it. This is the idle-stop defect, and code F1's wrong-blame shape. A1: `RedialQuiet; Send(1); DisplayEnd; RedialBlame; SendBlamed(1); DisplayEnd; DiscoverBlame`. |
+| `hub_end_charged_buggy` | not found (532) | not found (532) | **found** (22 states) | not found (532) | `RedialQuiet(drepl); Send(1); HubEnd; DiscoverCharge(drepl)`: `DiscoverCharge` without its guard `ended = edisp` charges a dial the Hub retired. This is code F1's shape. |
+| `double_charge_buggy` | not found (468) | not found (468) | not found (468) | **found** (44 states) | `RedialQuiet(drepl); Send(1); DisplayEnd; DiscoverCharge(drepl); DiscoverCharge(drepl)`: `DiscoverCharge` without its guard `cur not in settled` charges one dial twice, so two discoverers of one death give two strikes. |
+
+The last two controls each remove one guard from `DiscoverCharge` and nothing else. They
+show that A3 and A4, tautologies of the fixed design, are violated when that guard goes,
+and that the other invariants are not.
 
 What T10 does not cover, by construction: a death that the Hub retires first (cause
 `hub`) is never charged, even when the display had in fact died. DES-102 accepts that
