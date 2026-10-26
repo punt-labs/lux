@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 import stat
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,10 +95,10 @@ class ProjectPermissions:
     _file: Path
     _root: Path
 
-    def __new__(cls, root: Path) -> Self:
+    def __new__(cls, root: Path | str) -> Self:
         self = super().__new__(cls)
-        self._root = root
-        self._dir = root / ".claude"
+        self._root = Path(root)
+        self._dir = self._root / ".claude"
         self._file = self._dir / "settings.json"
         return self
 
@@ -108,6 +109,19 @@ class ProjectPermissions:
     def revoke(self) -> PermissionChange:
         """Remove every lux rule; return the rules removed."""
         return self._update(add=False)
+
+    def report(self, *, add: bool, quiet: bool) -> None:
+        """Grant (``add``) or revoke the rules, reporting each change on stderr.
+
+        A refusal is always reported, ``quiet`` or not, and exits 1 so the
+        caller's own state change never runs without its permissions.
+        """
+        change = self.grant() if add else self.revoke()
+        if not quiet or change.error:
+            for line in change.lines("added to" if add else "removed from"):
+                sys.stderr.write(f"{line}\n")
+        if change.error:
+            raise SystemExit(1)
 
     def _update(self, *, add: bool) -> PermissionChange:
         """Apply the grant or revoke under the lock, reporting any refusal."""
@@ -121,7 +135,8 @@ class ProjectPermissions:
                 return PermissionChange()
             self._dir.mkdir(exist_ok=True)
             lock_path = self._dir / ".settings.json.punt-import.lock"
-            with lock_path.open("w", encoding="utf-8") as lock:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
+            with os.fdopen(os.open(lock_path, flags, 0o600), "w") as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 return PermissionChange(changed=self._apply(add=add))
         except ValueError as exc:
@@ -168,6 +183,9 @@ class ProjectPermissions:
             return {}
         except json.JSONDecodeError as exc:
             msg = f".claude/settings.json is not valid JSON ({exc.msg})"
+            raise ValueError(msg) from exc
+        except UnicodeDecodeError as exc:
+            msg = ".claude/settings.json is not valid UTF-8"
             raise ValueError(msg) from exc
         if not isinstance(data, dict):
             msg = ".claude/settings.json is not a JSON object"

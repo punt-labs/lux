@@ -121,3 +121,78 @@ class TestRevoke:
 
     def test_lines_empty_when_unchanged(self, tmp_path: Path) -> None:
         assert ProjectPermissions(tmp_path).revoke().lines("removed from") == []
+
+
+class TestHardening:
+    def test_refuses_invalid_utf8(self, tmp_path: Path) -> None:
+        _settings(tmp_path).parent.mkdir()
+        _settings(tmp_path).write_bytes(b"\xff\xfe{}")
+        change = ProjectPermissions(tmp_path).grant()
+        assert "not valid UTF-8" in change.error
+
+    def test_does_not_follow_symlinked_lock(self, tmp_path: Path) -> None:
+        victim = tmp_path / "victim.txt"
+        victim.write_text("keep me")
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / ".settings.json.punt-import.lock").symlink_to(victim)
+        change = ProjectPermissions(tmp_path).grant()
+        assert change.error
+        assert victim.read_text() == "keep me"
+
+    def test_accepts_a_string_root(self, tmp_path: Path) -> None:
+        assert ProjectPermissions(str(tmp_path)).grant().changed == LUX_RULES
+
+
+class TestReport:
+    def test_refusal_is_reported_even_when_quiet_and_exits(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _settings(tmp_path).parent.mkdir()
+        _settings(tmp_path).write_text("{not json")
+        with pytest.raises(SystemExit) as exc:
+            ProjectPermissions(tmp_path).report(add=True, quiet=True)
+        assert exc.value.code == 1
+        assert "Permissions not changed" in capsys.readouterr().err
+
+    def test_quiet_success_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        ProjectPermissions(tmp_path).report(add=True, quiet=True)
+        assert capsys.readouterr().err == ""
+        assert _allow(tmp_path) == list(LUX_RULES)
+
+
+class TestDisplayModeCommand:
+    def test_mode_on_grants_and_off_revokes(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from punt_lux.cli.display import display_app
+
+        runner = CliRunner()
+        assert (
+            runner.invoke(
+                display_app, ["mode", "on", "--repo", str(tmp_path)]
+            ).exit_code
+            == 0
+        )
+        assert _allow(tmp_path) == list(LUX_RULES)
+        assert (
+            runner.invoke(
+                display_app, ["mode", "off", "--repo", str(tmp_path)]
+            ).exit_code
+            == 0
+        )
+        assert _allow(tmp_path) == []
+
+    def test_refused_settings_leave_mode_unwritten(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from punt_lux.cli.display import display_app
+
+        _settings(tmp_path).parent.mkdir()
+        _settings(tmp_path).write_text("{not json")
+        result = CliRunner().invoke(
+            display_app, ["mode", "on", "--repo", str(tmp_path)]
+        )
+        assert result.exit_code == 1
+        assert not (tmp_path / ".punt-labs" / "lux.md").exists()

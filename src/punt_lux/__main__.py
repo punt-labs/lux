@@ -61,23 +61,10 @@ def enable(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Enable visual output for this project.
+    """Enable visual output for this project."""
+    from punt_lux.display_enablement import set_display
 
-    Also adds lux's MCP tools and commands to the repo's .claude/settings.json
-    (never the global file) and prints each rule added.
-    """
-    from punt_lux.claude_permissions import ProjectPermissions
-    from punt_lux.config import ConfigManager
-
-    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
-    manager = ConfigManager()
-    manager.write_field("display", "y")
-    change = ProjectPermissions(manager.path.parent.parent).grant()
-    if not quiet:
-        for line in change.lines("added to"):
-            print(line, file=sys.stderr)
-    if not quiet:
-        print('{"enabled": true}' if json_out else "Lux display enabled.")
+    set_display(OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet), on=True)
 
 
 @app.command()
@@ -89,23 +76,10 @@ def disable(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Disable visual output for this project.
+    """Disable visual output for this project."""
+    from punt_lux.display_enablement import set_display
 
-    Also removes lux's rules from the repo's .claude/settings.json
-    that enable added.
-    """
-    from punt_lux.claude_permissions import ProjectPermissions
-    from punt_lux.config import ConfigManager
-
-    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
-    manager = ConfigManager()
-    manager.write_field("display", "n")
-    change = ProjectPermissions(manager.path.parent.parent).revoke()
-    if not quiet:
-        for line in change.lines("removed from"):
-            print(line, file=sys.stderr)
-    if not quiet:
-        print('{"enabled": false}' if json_out else "Lux display disabled.")
+    set_display(OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet), on=False)
 
 
 # Hook dispatcher (internal)

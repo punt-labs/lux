@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
+from punt_lux.claude_permissions import ProjectPermissions
 from punt_lux.cli._shared import (
     JsonFlag,
     OutputFlags,
@@ -134,6 +135,7 @@ def _set_mode(value: str, repo: str, flags: OutputFlags) -> None:
     if repo_error is not None:
         typer.echo(f"error: {repo_error.reason}", err=True)
         raise typer.Exit(code=1)
+    ProjectPermissions(repo).report(add=value == "on", quiet=flags.quiet)
     fault = DisplayModeStore(repo).write("y" if value == "on" else "n")
     if fault is not None:
         typer.echo(f"error: {fault.reason}", err=True)
@@ -176,9 +178,7 @@ def serve(
         help="Auto-fire click events for buttons (testing)",
     ),
 ) -> None:
-    """Start the Lux display server -- the interactive/manual entry point onto
-    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` (launchd/systemd runs
-    ``luxd-display`` directly instead)."""
+    """Start the display server by hand; launchd/systemd run ``luxd-display``."""
     try:
         from punt_lux.luxd_display import DisplayEntryPoint
     except ModuleNotFoundError as exc:
