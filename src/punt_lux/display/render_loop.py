@@ -32,7 +32,6 @@ from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
-from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -213,12 +212,11 @@ class RenderLoop:
             geometry=self._imgui_renderer_factory.geometry.recorder,
             settings=self._settings,
         )
-        self._turn = FrameTurn(
+        self._turn = FrameTurn.standard(
             sockets=self._socket_listener,
             sender=self._sender,
             cross_host=cross_host_listener,
             queries=self._queries,
-            paint_clock=PaintClock(),
         )
         return self
 

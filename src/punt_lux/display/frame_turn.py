@@ -18,13 +18,14 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.paint_clock import PaintClock
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.display.client_queries import ClientQueries
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
-    from punt_lux.display.paint_clock import PaintClock
     from punt_lux.display.socket_server import SocketListener
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,24 @@ class FrameTurn:
         self._paint_clock = paint_clock
         self._queries = queries
         return self
+
+    @classmethod
+    def standard(
+        cls,
+        *,
+        sockets: SocketListener,
+        sender: ClientSender,
+        cross_host: CrossHostPump | None,
+        queries: ClientQueries,
+    ) -> Self:
+        """A turn with the display's own paint clock; tests inject theirs."""
+        return cls(
+            sockets=sockets,
+            sender=sender,
+            cross_host=cross_host,
+            queries=queries,
+            paint_clock=PaintClock(),
+        )
 
     def run(self, *then: Callable[[], None]) -> None:
         """Take the sockets' turn, then each step of ``then``, under one deadline."""

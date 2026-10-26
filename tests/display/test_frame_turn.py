@@ -146,3 +146,19 @@ class TestShuttingDown:
         _turn(rec).shutdown()
 
         assert rec.calls == []
+
+
+class TestTheStandardTurn:
+    def test_it_takes_its_turn_with_the_displays_own_paint_clock(self) -> None:
+        rec = _Recorder()
+        turn = FrameTurn.standard(
+            sockets=cast("SocketListener", rec),
+            sender=cast("ClientSender", rec),
+            cross_host=None,
+            queries=cast("ClientQueries", rec),
+        )
+
+        turn.run(lambda: rec.calls.append("draw"))
+
+        assert "draw" in rec.calls
+        assert isinstance(turn._paint_clock, PaintClock)  # test seam: built inside
