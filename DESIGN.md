@@ -7864,10 +7864,41 @@ are added to `docs/listener_lifecycle.tex`.
   unresponsive and its unacked scenes are charged. A display that dies
   while no dial is live is not observed; its suspects stay carried, and if
   an ack on the next display's dial clears them first, that death goes
-  unattributed. A Hub end and a display end race by first cause: the dial's
-  reader records the display end as soon as it reads end of file, a Hub end
-  settles only if it won, and only the dial's reader (or the discoverer of
-  a reader-less dial) takes the ledger.
+  unattributed.
+- **Settlement belongs to the holder of the reader slot; everyone else
+  asks.** Modelled in `docs/dial_settlement.tex` (S1-S5, a fidelity control
+  per defect), after the end-and-capture race recurred across four review
+  rounds. The slot hands its holder the only object that can settle.
+  - A display or unresponsive end records its cause, and the first cause
+    wins.
+  - A Hub end records nothing. It requests a settle, and it refuses writes
+    and fails waiters at once.
+  - An ask refused because the slot is held leaves a debt, in the same
+    critical section as the refusal. Every release of the slot honours the
+    debt, in the same critical section as the release.
+  - The settler drains to the point of blocking, then fixes the cause with
+    a first-wins record: end of file means display, a pending Hub request
+    means hub, and otherwise the recorded cause stands. If a display or
+    unresponsive end was recorded after the drain began, it drains again
+    before it captures.
+  - Bound: if the holder has not settled within the stop join (2 s), any
+    refused asker records its cause, first wins, and captures. A Hub
+    capture charges nothing and carries its scenes. A display or
+    unresponsive end captured this way is undrained, so it may charge
+    scenes whose acks were never read; that over-charge is accepted, as the
+    stalled holder already cost a bounded wait. Decode-error ends also capture without a drain,
+    because nothing past an undecodable frame can be read. A live display
+    may still ack after any drain, within one drain-to-capture gap.
+  - A peek for a pending end of file cannot replace the drain: an ack
+    queued ahead of the display's close hides the close.
+  - A display that dies while a Hub request is pending, when the holder
+    has not settled within the bound, is captured by the bound as a Hub
+    end: its suspects are carried, and a later ack read clears them, so
+    that poison death goes uncharged. If the holder settles, a display that
+    died before its drain is recorded as display and charged.
+  - The drain's claim to have read everything a dead display sent holds for
+    a same-host socket only; a cross-host reset can discard queued data.
+    A reset counts as end of file.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the

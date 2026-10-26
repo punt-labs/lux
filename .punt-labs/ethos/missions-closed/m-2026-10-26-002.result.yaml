@@ -1,0 +1,38 @@
+mission: m-2026-10-26-002
+round: 2
+created_at: "2026-10-26T04:35:29Z"
+author: jms
+verdict: pass
+confidence: 0.8
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 578
+      removed: 217
+    - path: docs/dial_settlement_coverage.md
+      added: 70
+      removed: 51
+    - path: docs/dial_settlement_inline_strand_buggy.tex
+      added: 533
+      removed: 170
+    - path: docs/dial_settlement_start_fail_buggy.tex
+      added: 563
+      removed: 181
+    - path: docs/dial_settlement_stop_skip_drain_buggy.tex
+      added: 569
+      removed: 162
+evidence:
+    - name: fuzz clean on the four committed .tex files and the nine scratch controls, each separately
+      status: pass
+    - name: 'design, deadlock check default mode: 86034 states, 408741 transitions, none; 36/36 operations covered'
+      status: pass
+    - name: 'design, -nodead -bf: s2bad/s3bad/s4bad/s5bad, S1a, S1b not found (86033 states)'
+      status: pass
+    - name: 'controls trip their goals: start_fail 4626 states, stop_skip_drain 19490, inline_strand 3182, split_settle 9062, atomic_refuse 5645, atomic_release 5930, defer_only deadlock 6849, timer_hub_only 771, s3_unguarded 5550, s4_overwrite 1502, hub_record 123, hub_peek 166'
+      status: pass
+open_questions:
+    - T15 as worded (a Hub request arms the bound) wedges a display end behind a stalled holder (timer_hub_only); the design arms the bound for every refused asker. Confirm the wording.
+    - The gluing and obligation list are in dial_settlement.tex (Refinement); crash_attribution.tex is outside the write set and was not edited.
+    - Nine controls are in .tmp/missions/results-model-settle/controls/, outside the write set, for the leader's pass to docs/.
+    - The commit trailer is Claude Sonnet 5.5, per the session attribution reminder.
+prose: |
+    Report in .tmp/missions/results-model-settle/m-2026-10-26-002.md.
