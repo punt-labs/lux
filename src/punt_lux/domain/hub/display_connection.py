@@ -11,7 +11,8 @@ or a waiter that outlived a redial can report its own dial's end without touchin
 new one. Only a dial's reader, after it has read what the socket held, takes the ledger
 of a dial the display ended or the Hub gave up on; the Hub's own end records its cause
 first and takes the ledger only if that cause is the one that stands. The connection also holds the suspects dials leave behind (the
-:class:`~punt_lux.domain.hub.suspect_book.SuspectBook`) and the deaths not yet charged.
+:class:`~punt_lux.domain.hub.suspect_book.SuspectBook`) and the deaths not yet charged,
+whose queue it hands out once.
 
 The link's typed calls, the reader and the request waits are clients of it and
 share no socket state of their own.
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_death import DialDeath
+    from punt_lux.domain.hub.death_queue import DeathQueue
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.protocol import ReadyMessage
@@ -58,10 +59,12 @@ class DisplayConnection:
     # Asked, when a dial is ended by someone who is not its reader, to see that its
     # reader settles it; supplied by whatever owns the readers.
     _settle_unread: Callable[[DialGeneration], None]
+    _deaths_taken: bool
     __slots__ = (
         "_connect_timeout",
         "_current",
         "_dialer",
+        "_deaths_taken",
         "_last",
         "_settle_unread",
         "_state_lock",
@@ -82,6 +85,7 @@ class DisplayConnection:
         self._last = None
         self._suspects = SuspectBook()
         self._settle_unread = settle_unread
+        self._deaths_taken = False
         return self
 
     @property
@@ -185,10 +189,17 @@ class DisplayConnection:
         with self._state_lock:
             return self._current is generation
 
-    def take_death(self) -> DialDeath | None:
-        """Hand over the oldest display-ended dial not yet charged; each once."""
-        with self._state_lock:
-            return self._suspects.take_death()
+    def take_deaths(self) -> DeathQueue:
+        """Hand over the queue of deaths not yet charged, once: its holder charges.
+
+        Raises ``ValueError`` on a second ask, so no second part of the Hub can take
+        a death out from under the charger.
+        """
+        if self._deaths_taken:
+            msg = "the display's deaths were already handed to a charger"
+            raise ValueError(msg)
+        self._deaths_taken = True
+        return self._suspects.deaths
 
     def _capture(
         self, generation: DialGeneration, cause: RetireCause, *, by_reader: bool

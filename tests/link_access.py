@@ -8,8 +8,12 @@ own private state, here and nowhere else.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
+from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.replicator_ports import DeathQueuePort
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from tests.domain.display_double import until
 
@@ -19,25 +23,33 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_link import DisplayLink
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.protocol import Element
 
 __all__ = ["deaths_of", "generation_of", "shown", "socket_of", "writer_of"]
 
 
-class _Deaths(Protocol):
-    """Anything that hands over the deaths it has recorded, one at a time."""
+def deaths_of(
+    source: ClientRegistry | DisplayLink | DisplayConnection | DeathQueuePort,
+) -> tuple[DialDeath, ...]:
+    """Drain every death ``source`` has recorded, oldest first.
 
-    def take_death(self) -> DialDeath | None:
-        """Hand over the oldest recorded death."""
-        ...
-
-
-def deaths_of(source: _Deaths) -> tuple[DialDeath, ...]:
-    """Drain every death ``source`` has recorded, oldest first."""
+    Production hands the queue out once, to the charger; a test reads the same queue
+    through the private state of whatever holds it, here and nowhere else.
+    """
+    if isinstance(source, ClientRegistry):
+        client = source._client  # test seam: the registry's private link
+        assert client is not None, "the registry has no link, so no death"
+        source = client
+    if isinstance(source, DisplayLink):
+        source = source._connection  # test seam: production holds only the queue
+    queue: DeathQueuePort = (
+        source._suspects.deaths  # test seam: the connection's own book
+        if isinstance(source, DisplayConnection)
+        else source
+    )
     drained: list[DialDeath] = []
-    while (death := source.take_death()) is not None:
+    while (death := queue.take()) is not None:
         drained.append(death)
     return tuple(drained)
 

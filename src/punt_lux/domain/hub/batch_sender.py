@@ -112,7 +112,7 @@ class BatchSender:
         self._clients = clients
         self._seat = writes
         self._attribution = attribution
-        self._charger = DeathCharger(clients, attribution)
+        self._charger = DeathCharger(clients.take_deaths(), attribution)
         self._owner_facts = owner_facts
         return self
 

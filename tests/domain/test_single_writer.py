@@ -124,6 +124,15 @@ def _calls_of(source: str, attribute: str) -> int:
     )
 
 
+def _references(source: str, attribute: str) -> int:
+    """Every ``<x>.<attribute>`` the source mentions, called or not, however bound."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Attribute) and n.attr == attribute
+    )
+
+
 def _link_closes(source: str) -> int:
     """How many ``.close()`` calls the source makes on something named for a link."""
     return sum(
@@ -286,6 +295,39 @@ class TestTheReplicatorIsTheOnlyCharger:
         )
 
         assert _constructions(planted, "DeathCharger") == 1
+
+
+class TestTheDeathQueueIsTheChargersAlone:
+    """O1: the queue is handed out once, so no one else can take a death."""
+
+    def test_the_queue_is_asked_for_only_where_it_is_handed_on(self) -> None:
+        # The charger's sender asks the registry; the registry its link; the link its
+        # connection. Nothing else may so much as mention the hand-out.
+        assert _modules(lambda s: _references(s, "take_deaths") > 0) == {
+            _HUB + "batch_sender.py",
+            _HUB + "clients.py",
+            _HUB + "display_link.py",
+        }
+
+    def test_each_hop_asks_once(self) -> None:
+        for rel in ("batch_sender.py", "clients.py", "display_link.py"):
+            assert _references(_source(_HUB + rel), "take_deaths") == 1, rel
+
+    def test_the_queue_is_built_only_by_the_suspect_book(self) -> None:
+        assert _modules(lambda s: _constructions(s, "DeathQueue") > 0) == {
+            _HUB + "suspect_book.py"
+        }
+
+    def test_a_bound_reference_and_a_second_queue_are_found(self) -> None:
+        assert _references("def f(r):\n    take = r.take_deaths\n", "take_deaths") == 1
+        assert _constructions("def f():\n    return DeathQueue()\n", "DeathQueue") == 1
+
+    def test_the_registry_and_the_link_hand_out_no_single_death(self) -> None:
+        for source, name in (
+            (_source(_HUB + "clients.py"), "ClientRegistry"),
+            (_source(_HUB + "display_link.py"), "DisplayLink"),
+        ):
+            assert "take_death" not in _public_methods(source, name)
 
 
 class TestTheLinkIsTheRegistrysAlone:

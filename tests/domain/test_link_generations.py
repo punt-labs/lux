@@ -1283,6 +1283,31 @@ class TestTheWriteSeatIsHandedOutOnce:
             registry.take_writer()
 
 
+class TestTheDeathQueueIsHandedOutOnce:
+    def test_a_second_asker_is_refused(self, display: Display) -> None:
+        link = DisplayLink(display, recv_timeout=3.0)
+        link.take_deaths()
+
+        with pytest.raises(ValueError, match="already handed"):
+            link.take_deaths()
+
+    def test_the_registry_hands_the_link_s_queue_out_once(
+        self, display: Display
+    ) -> None:
+        registry = ClientRegistry()
+        registry._client = DisplayLink(display, recv_timeout=3.0)
+        registry.take_deaths()
+
+        with pytest.raises(ValueError, match="already handed"):
+            registry.take_deaths()
+
+    def test_the_registry_offers_no_other_way_to_take_a_death(self) -> None:
+        public = {name for name in vars(ClientRegistry) if not name.startswith("_")}
+
+        assert "take_deaths" in public
+        assert "take_death" not in public
+
+
 class TestDeclaringWhatTheHubHolds:
     def test_the_manifest_names_every_scene_the_hub_declares(
         self, display: Display

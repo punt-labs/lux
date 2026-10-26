@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_death import DialDeath
+    from punt_lux.domain.hub.death_queue import DeathQueue
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.event_port import EventPort
@@ -183,9 +183,9 @@ class DisplayLink:
         self._listener.stop()
         self._connection.close()
 
-    def take_death(self) -> DialDeath | None:
-        """The oldest display-ended dial not yet charged, handed over once."""
-        return self._connection.take_death()
+    def take_deaths(self) -> DeathQueue:
+        """The queue of display deaths not yet charged, handed out once."""
+        return self._connection.take_deaths()
 
     @property
     def desk(self) -> RequestDesk:

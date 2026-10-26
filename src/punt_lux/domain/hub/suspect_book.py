@@ -13,29 +13,22 @@ a suspect of the death it leaves, and keeps each death until the replicator take
 
 An ack read on a dial clears what earlier dials carried, because the display acks only
 after a swap that completed every scene it already held. The deaths wait in order and
-are never dropped, since a dropped death is a scene never charged; past a few dozen the
-book says so.
+are never dropped, since a dropped death is a scene never charged (see
+:class:`~punt_lux.domain.hub.death_queue.DeathQueue`).
 """
 
 from __future__ import annotations
 
-import logging
-from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.death_queue import DeathQueue
 from punt_lux.domain.hub.dial_death import DialDeath
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.settlement import Settlement
     from punt_lux.domain.ids import SceneId
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["SuspectBook"]
-
-# Deaths a replicator has not yet charged. The queue holds one per dial and is never
-# trimmed: a dropped death is a scene never charged. Past this many it says so.
-_PENDING_DEATHS_WARNING = 64
 
 
 @final
@@ -46,19 +39,24 @@ class SuspectBook:
     """
 
     _carried: frozenset[SceneId]
-    _deaths: deque[DialDeath]  # not yet charged, oldest first
+    _deaths: DeathQueue  # not yet charged, oldest first
     __slots__ = ("_carried", "_deaths")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._carried = frozenset()
-        self._deaths = deque()
+        self._deaths = DeathQueue()
         return self
 
     @property
     def carried(self) -> frozenset[SceneId]:
         """The scenes earlier dials left behind and no ack has cleared."""
         return self._carried
+
+    @property
+    def deaths(self) -> DeathQueue:
+        """The deaths not yet charged: the queue the one charger is handed."""
+        return self._deaths
 
     def settle(self, settlement: Settlement, endpoint: str) -> None:
         """Account for one dial that has ended; queue the death it leaves, if any.
@@ -74,17 +72,4 @@ class SuspectBook:
         suspects: frozenset[SceneId] = owed | earlier
         self._carried = suspects if settlement.cause == "unresponsive" else frozenset()
         if suspects:
-            self._queue(DialDeath(suspects, endpoint, settlement.cause))
-
-    def take_death(self) -> DialDeath | None:
-        """Hand over the oldest death not yet charged; each is handed over once."""
-        return self._deaths.popleft() if self._deaths else None
-
-    def _queue(self, death: DialDeath) -> None:
-        """Keep a death for the replicator: never dropped, but never unnoticed."""
-        self._deaths.append(death)
-        if len(self._deaths) > _PENDING_DEATHS_WARNING:
-            logger.warning(
-                "%d display deaths wait to be charged: is the replicator running?",
-                len(self._deaths),
-            )
+            self._deaths.queue(DialDeath(suspects, endpoint, settlement.cause))

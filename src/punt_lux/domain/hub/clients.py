@@ -16,7 +16,7 @@ from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_death import DialDeath
+    from punt_lux.domain.hub.death_queue import DeathQueue
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_requests import DisplayRequests
     from punt_lux.domain.hub.display_writer import WriteSeat
@@ -147,10 +147,10 @@ class ClientRegistry:
         if client is not None:
             client.drop_if_current(dial, cause="unresponsive")
 
-    def take_death(self) -> DialDeath | None:
-        """The oldest display-ended dial not yet charged, handed over once."""
+    def take_deaths(self) -> DeathQueue:
+        """Hand over the queue of display deaths, once: its holder is the one charger."""
         with self._lock:
-            return None if self._client is None else self._client.take_death()
+            return self._ensure_client().take_deaths()
 
     def take_writer(self) -> WriteSeat:
         """Hand over the display's write seat, once: its holder is the one writer."""

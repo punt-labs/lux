@@ -162,7 +162,7 @@ class TestReplies:
         self, generation: DialGeneration
     ) -> None:
         router = InboundRouter(InteractionHandlers())
-        generation.shut()
+        generation.mark_closed("hub")  # retired: its ledger is taken
 
         router.route(generation, AckMessage(scene_id="late"))
         router.route(generation, PongMessage(ts=1.0))

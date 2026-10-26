@@ -29,7 +29,7 @@ class TestADialTheHubEnded:
 
         book.settle(_settled("hub", "p"), "pair-1")
 
-        assert book.take_death() is None
+        assert book.deaths.take() is None
         assert book.carried == _ids("p")
 
     def test_what_it_owed_joins_what_earlier_dials_carried(self) -> None:
@@ -56,7 +56,7 @@ class TestADialTheDisplayEnded:
 
         book.settle(_settled("display", "q"), "pair-2")
 
-        death = book.take_death()
+        death = book.deaths.take()
         assert death is not None
         assert death.suspects == _ids("p", "q")
         assert death.cause == "display"
@@ -68,7 +68,7 @@ class TestADialTheDisplayEnded:
 
         book.settle(_settled("display"), "pair-2")
 
-        death = book.take_death()
+        death = book.deaths.take()
         assert death is not None
         assert death.suspects == _ids("p")
 
@@ -77,7 +77,7 @@ class TestADialTheDisplayEnded:
 
         book.settle(_settled("display"), "pair-1")
 
-        assert book.take_death() is None
+        assert book.deaths.take() is None
 
     def test_an_ack_read_on_it_clears_the_carried_set_before_the_charge(self) -> None:
         book = SuspectBook()
@@ -85,7 +85,7 @@ class TestADialTheDisplayEnded:
 
         book.settle(_settled("display", "r", acked=True), "pair-2")
 
-        death = book.take_death()
+        death = book.deaths.take()
         assert death is not None
         assert death.suspects == _ids("r")
 
@@ -97,7 +97,7 @@ class TestADialTheHubGaveUpOn:
 
         book.settle(_settled("unresponsive", "q"), "pair-2")
 
-        death = book.take_death()
+        death = book.deaths.take()
         assert death is not None
         assert death.suspects == _ids("p", "q")
         assert death.cause == "unresponsive"
@@ -108,17 +108,17 @@ class TestADialTheHubGaveUpOn:
 
         book.settle(_settled("unresponsive"), "pair-1")
 
-        assert book.take_death() is None
+        assert book.deaths.take() is None
         assert book.carried == frozenset()
 
     def test_the_next_display_end_charges_what_it_left(self) -> None:
         book = SuspectBook()
         book.settle(_settled("unresponsive", "p"), "pair-1")
-        assert book.take_death() is not None
+        assert book.deaths.take() is not None
 
         book.settle(_settled("display", "q"), "pair-2")
 
-        death = book.take_death()
+        death = book.deaths.take()
         assert death is not None
         assert death.suspects == _ids("p", "q")
 
@@ -130,9 +130,9 @@ class TestTheDeathsWaitingToBeCharged:
         book.settle(_settled("display", "b"), "pair-2")
 
         first, second, nothing = (
-            book.take_death(),
-            book.take_death(),
-            book.take_death(),
+            book.deaths.take(),
+            book.deaths.take(),
+            book.deaths.take(),
         )
 
         assert first is not None
@@ -151,7 +151,7 @@ class TestTheDeathsWaitingToBeCharged:
                 book.settle(_settled("display", f"s{turn}"), f"pair-{turn}")
 
         kept = []
-        while (death := book.take_death()) is not None:
+        while (death := book.deaths.take()) is not None:
             kept.append(death)
         assert len(kept) == 70
         assert "wait to be charged" in caplog.text

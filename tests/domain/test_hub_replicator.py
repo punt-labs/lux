@@ -202,9 +202,13 @@ class _FakeSender:
         if owed:
             self._deaths.append(DialDeath(owed, "fake", "display"))
 
-    def take_death(self) -> DialDeath | None:
+    def take(self) -> DialDeath | None:
         """Hand over the oldest recorded death, once."""
         return self._deaths.pop(0) if self._deaths else None
+
+    def put_back(self, death: DialDeath) -> None:
+        """Return a death whose charge failed: it is the next one taken."""
+        self._deaths.insert(0, death)
 
     def revive(self) -> None:
         """A fresh display: the dial it died on is gone and nothing is owed."""
@@ -464,9 +468,9 @@ class _FakeProvider:
             self._needs_reconcile = False
         return _ProbeView(self._sender)
 
-    def take_death(self) -> DialDeath | None:
-        """The deaths the display left on its dials, each handed over once."""
-        return self._sender.take_death()
+    def take_deaths(self) -> _FakeSender:
+        """The deaths the display left on its dials: the sender holds the queue."""
+        return self._sender
 
     def drop_unresponsive(self, dial: DialRef) -> None:
         """A dial open but silent is the display's end: it leaves its death."""
@@ -964,7 +968,7 @@ def test_a_failed_menu_send_with_nothing_in_flight_charges_no_scene() -> None:
         repl._sender.push(batch)
     repl._sender.charge_deaths()
 
-    assert deaths_of(provider) == ()  # the display owed nothing: no death
+    assert deaths_of(sender) == ()  # the display owed nothing: no death
     assert repl._attribution.mode == "batching"
 
 
@@ -1881,7 +1885,7 @@ def test_a_failed_isolation_probe_names_the_dial_the_probe_went_out_on() -> None
     with pytest.raises(BatchSendError) as caught:
         repl._sender.push(DrainedBatch(frozenset({scene}), shutting=False))
 
-    (death,) = deaths_of(provider)
+    (death,) = deaths_of(sender)
     assert death.suspects == frozenset({scene})  # what the dial still owed
     assert caught.value.dial is sender.probe_dial
     assert provider.dropped == [sender.probe_dial]  # the unanswering dial, dropped

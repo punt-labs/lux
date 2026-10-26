@@ -5,8 +5,8 @@ socket or the process. It reaches them through structural ports so the
 concurrency logic is tested against fakes, not a live socket: ``DisplaySender``
 (the fire-and-forget send surface, pinned to one dial), ``WriteSeatPort`` (where
 senders are made), ``DisplayProbe`` (the isolation loop's ping, pinned to one
-dial), ``ClientProvider`` (connects, hands out the seat once, drops a dead dial,
-waits), ``DisplayLifecycle`` (kills a wedged display; its service unit respawns
+dial), ``ClientProvider`` (connects, hands out the seat and the death queue once,
+drops a dead dial, waits), ``DisplayLifecycle`` (kills a wedged display; its service unit respawns
 it), and ``DirtyMarker`` (the queue-only side a fresh-connect hook marks after
 declaring its manifest, DES-068).
 """
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 __all__ = [
     "CallbackMenuReader",
     "ClientProvider",
+    "DeathQueuePort",
     "DirtyMarker",
     "DisplayLifecycle",
     "DisplayProbe",
@@ -117,6 +118,18 @@ class DisplayProbe(Protocol):
 
 
 @runtime_checkable
+class DeathQueuePort(Protocol):
+    """The deaths dials left and nobody has charged: the charger's alone."""
+
+    def take(self) -> DialDeath | None:
+        """The oldest death, handed over once."""
+        ...
+
+    def put_back(self, death: DialDeath) -> None:
+        """Return a death whose charge failed: it is the next one taken."""
+
+
+@runtime_checkable
 class ClientProvider(ReconnectWaiter, Protocol):
     """Connects the display, hands out its write seat once, drops a dead dial, waits."""
 
@@ -137,8 +150,8 @@ class ClientProvider(ReconnectWaiter, Protocol):
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire ``dial``, open but silent, as the display's end; charge its ledger."""
 
-    def take_death(self) -> DialDeath | None:
-        """The oldest display-ended dial not yet charged, handed over once."""
+    def take_deaths(self) -> DeathQueuePort:
+        """Hand over the queue of display deaths; asked once, by the one charger."""
         ...
 
     def request_stop(self) -> None:
