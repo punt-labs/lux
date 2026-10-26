@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from punt_lux.display.frame_turn import FrameTurn
+from punt_lux.display.paint_clock import PaintClock
 
 if TYPE_CHECKING:
     from punt_lux.display.client_queries import ClientQueries
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
-    from punt_lux.display.paint_clock import PaintClock
     from punt_lux.display.socket_server import SocketListener
 
 
@@ -66,7 +66,7 @@ def _turn(
         sockets=cast("SocketListener", rec),
         sender=cast("ClientSender", rec),
         cross_host=cast("CrossHostPump", rec) if cross_host else None,
-        paint_clock=cast("PaintClock", rec) if clock else None,
+        paint_clock=cast("PaintClock", rec) if clock else PaintClock(),
         queries=cast("ClientQueries", rec),
     )
 

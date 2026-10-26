@@ -18,14 +18,13 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.display.paint_clock import PaintClock
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.display.client_queries import ClientQueries
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
+    from punt_lux.display.paint_clock import PaintClock
     from punt_lux.display.socket_server import SocketListener
 
 logger = logging.getLogger(__name__)
@@ -56,14 +55,13 @@ class FrameTurn:
         sender: ClientSender,
         cross_host: CrossHostPump | None,
         queries: ClientQueries,
-        # PY-TS-14 OK: absent means the turn keeps the one clock it makes itself.
-        paint_clock: PaintClock | None = None,
+        paint_clock: PaintClock,
     ) -> Self:
         self = super().__new__(cls)
         self._sockets = sockets
         self._sender = sender
         self._cross_host = cross_host
-        self._paint_clock = PaintClock() if paint_clock is None else paint_clock
+        self._paint_clock = paint_clock
         self._queries = queries
         return self
 
