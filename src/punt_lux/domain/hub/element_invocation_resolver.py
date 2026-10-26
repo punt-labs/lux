@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.domain.ids import ElementId, SceneId
 
 logger = logging.getLogger(__name__)
@@ -45,8 +46,12 @@ class ResolvedInteraction:
 
         A patch is shown to ``judge`` before the element it names is touched, so one
         the judge refuses leaves that element, and anything observing it, as it was.
-        The refusal is logged with the handler's other failures.
+        The refusal is logged with the handler's other failures. Raises
+        :class:`~punt_lux.domain.hub.lock_discipline.LockDisciplineError` unless the
+        store write lock is held: a handler's writes walk the element index an agent's
+        ``show`` mutates.
         """
+        LockDiscipline.require_store("firing a handler")
         with HandlerWrites.judged(judge):
             self.element.fire(event)
 

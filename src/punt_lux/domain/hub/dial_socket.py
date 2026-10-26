@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
@@ -166,6 +167,7 @@ class DialSocket:
         readable, _, _ = select.select([self._dial.sock], [], [], timeout)
         if not readable:
             return None
+        LockDiscipline.forbid_store("the dial socket lock")
         with self._lock:
             self._require_open()
             chunk = self._dial.sock.recv(_READ_CHUNK)
@@ -191,6 +193,7 @@ class DialSocket:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
             if not readable:
                 return Drained(b"", ended=False)
+            LockDiscipline.forbid_store("the dial socket lock")
             if not self._lock.acquire(timeout=SEND_TIMEOUT_CEILING_SECONDS):
                 # A writer holds the lock past the send timeout. Bytes are readable
                 # and unread, so this is no answer: the look is incomplete, and the
@@ -276,6 +279,7 @@ class DialSocket:
         included -- may have left a partial frame on the wire, so the dial is told,
         after the lock is released.
         """
+        LockDiscipline.forbid_store("the dial socket lock")
         writing = False
         try:
             with self._lock:

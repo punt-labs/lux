@@ -57,9 +57,10 @@ def _click() -> ButtonClicked:
 
 def _fire(store: HubDisplay, button: ButtonElement) -> None:
     """Fire a click on ``button`` the way Hub dispatch does, under the store's judge."""
-    ResolvedInteraction(element=button, owner=None, scene_id=_SCENE).fire(
-        _click(), store.write_seam.admit
-    )
+    with store.write_lock():  # Hub dispatch fires under the store write lock
+        ResolvedInteraction(element=button, owner=None, scene_id=_SCENE).fire(
+            _click(), store.write_seam.admit
+        )
 
 
 def _scene_with_a_handler(levels: int) -> tuple[ButtonElement, TreeElement]:
