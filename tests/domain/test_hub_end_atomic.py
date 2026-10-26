@@ -255,6 +255,17 @@ def _calls_to(source: str, name: str) -> int:
     )
 
 
+def _calls_passing(source: str, name: str, keyword: str) -> int:
+    return sum(
+        1
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == name
+        and any(kw.arg == keyword for kw in node.keywords)
+    )
+
+
 class TestOnlyAReaderTakesTheLedgerOfADisplayEnd:
     """The Hub's ends go through ``retire``; ``close_if_current`` is a reader's door."""
 
@@ -262,15 +273,31 @@ class TestOnlyAReaderTakesTheLedgerOfADisplayEnd:
         callers = {
             path.stem
             for path in _SRC.glob("*.py")
-            if _calls_to(path.read_text(), "close_if_current") > 0
+            if path.stem != "display_connection"
+            and _calls_to(path.read_text(), "close_if_current") > 0
         }
 
-        assert callers == {"dial_reader", "display_listener", "display_replies"}
+        assert callers == {"dial_reader", "display_listener"}
+
+    def test_only_the_connections_retire_takes_a_ledger_as_a_non_reader(self) -> None:
+        non_readers = {
+            path.stem: _calls_passing(path.read_text(), "close_if_current", "by_reader")
+            for path in _SRC.glob("*.py")
+            if _calls_passing(path.read_text(), "close_if_current", "by_reader")
+        }
+
+        assert non_readers == {"display_connection": 1}
 
     def test_a_planted_hub_side_capture_is_counted(self) -> None:
-        planted = "def f(connection, g):\n    connection.close_if_current(g)\n"
+        reader = "def f(connection, g):\n    connection.close_if_current(g)\n"
+        hub = (
+            "def f(connection, g):\n"
+            "    connection.close_if_current(g, by_reader=False)\n"
+        )
 
-        assert _calls_to(planted, "close_if_current") == 1
+        assert _calls_to(reader, "close_if_current") == 1
+        assert _calls_passing(hub, "close_if_current", "by_reader") == 1
+        assert _calls_passing(reader, "close_if_current", "by_reader") == 0
 
     def test_the_hub_side_ends_all_retire(self) -> None:
         names = {

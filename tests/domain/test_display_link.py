@@ -32,6 +32,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.domain.display_double import until
 from tests.link_access import generation_of, shown, socket_of, writer_of
 
 # ---------------------------------------------------------------------------
@@ -957,7 +958,9 @@ class TestBackgroundListener:
             with pytest.raises(ConnectionClosedError, match="was closed"):
                 client.desk.asks().ping(timeout=4.0)
             assert time.monotonic() - began < 3.0
-            assert not client.is_connected
+            # The waiter learns of the end when the reader records it; the reader
+            # settles the dial a moment later, after its last look at the socket.
+            assert until(lambda: not client.is_connected)
             client.close()
         finally:
             t.join(timeout=2)

@@ -16,9 +16,11 @@ import pytest
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.hub.handler_firing import HandlerFiring
 from punt_lux.domain.hub.write_errors import NestingExceededError
 from punt_lux.domain.ids import ClientId, ElementId
 from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.protocol.elements import ButtonElement, TreeElement
 from tests.domain.test_nesting_cap_at_the_seam import (
     _DEEP,
@@ -66,7 +68,7 @@ class TestAHandlerWriteThroughTheSeam:
         store = _store_with(button, tree)
 
         with caplog.at_level(logging.ERROR):
-            store.write_seam.fire(_SCENE, button, _click())
+            HandlerFiring(store.write_seam).fire(_SCENE, button, _click())
 
         assert tree.nodes == ()
         assert "handler raised on ButtonClicked for element b" in caplog.text
@@ -75,33 +77,34 @@ class TestAHandlerWriteThroughTheSeam:
         button, tree = _scene_with_a_handler(2)
         store = _store_with(button, tree)
 
-        store.write_seam.fire(_SCENE, button, _click())
+        HandlerFiring(store.write_seam).fire(_SCENE, button, _click())
 
         assert tree.nodes != ()
 
     def test_the_refusal_is_the_seams_own_error(self) -> None:
-        _button, tree = _scene_with_a_handler(_DEEP)
-        store = _store_with(tree)
-        judged: list[BaseException] = []
+        refused: list[BaseException] = []
+        tree = TreeElement(id="t")
+        button = ButtonElement(id="b", label="x")
 
-        def record(target: Element, patch: Mapping[str, object]) -> None:
+        def writes_and_notes(event: ButtonClicked) -> None:
             try:
-                store.write_seam.admit(_SCENE, target, patch)
+                tree.apply_patch({"nodes": [_nodes(_DEEP)]})
             except NestingExceededError as exc:
-                judged.append(exc)
-                raise
+                refused.append(exc)
 
-        with HandlerWrites.judged(record), pytest.raises(NestingExceededError):
-            tree.apply_patch({"nodes": [_nodes(_DEEP)]})
+        button.add_handler(ButtonClicked, writes_and_notes)
+        store = _store_with(button, tree)
 
-        assert len(judged) == 1
+        HandlerFiring(store.write_seam).fire(_SCENE, button, _click())
+
+        assert [str(exc) for exc in refused] == [NestingCap.reason()]
 
 
 class TestTheJudgeIsScopedToTheFire:
     def test_a_write_outside_a_fire_is_not_judged_here(self) -> None:
         button, tree = _scene_with_a_handler(2)
         store = _store_with(button, tree)
-        store.write_seam.fire(_SCENE, button, _click())
+        HandlerFiring(store.write_seam).fire(_SCENE, button, _click())
 
         tree.apply_patch({"nodes": [_nodes(3)]})  # no judge is installed any more
 

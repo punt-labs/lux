@@ -185,7 +185,7 @@ class DialSocket:
         logger.log(
             logging.DEBUG if ended else logging.WARNING,
             "Drain of %s cut short: %r",
-            self.endpoint,
+            self._dial.endpoint,
             exc,
         )
 

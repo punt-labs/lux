@@ -22,6 +22,7 @@ from punt_lux.domain.hub.listener_thread import ListenerThread
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.polled_event import PolledEvent
@@ -80,6 +81,17 @@ class DisplayListener:
                 generation
             )
         return self._connection.close_if_current(generation, cause=recorded)
+
+    def end_stream(self, generation: DialGeneration, cause: RetireCause) -> bool:
+        """End a dial whose stream this reader cannot trust; whether ``cause`` stands.
+
+        The cause is recorded first, and the ledger is taken without a drain: the
+        stream cannot be read past. An end another recorded first is the one that
+        stands, and the caller reports that one's cause, as a writer does.
+        """
+        won = generation.end(cause)
+        self._connection.close_if_current(generation, cause=cause)
+        return won
 
     def settle_unread(self, generation: DialGeneration) -> None:
         """Settle a dial someone ended, if no reader holds it, by reading it here.

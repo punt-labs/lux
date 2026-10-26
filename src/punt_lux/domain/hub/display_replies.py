@@ -24,9 +24,7 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.display_listener import DisplayListener
     from punt_lux.domain.hub.reply_sink import Pending
     from punt_lux.protocol import Message
@@ -47,13 +45,11 @@ _POLL_SECONDS = 0.1
 class DisplayReplies:
     """The waiting side of one display link."""
 
-    _connection: DisplayConnection
     _listener: DisplayListener
-    __slots__ = ("_connection", "_listener")
+    __slots__ = ("_listener",)
 
-    def __new__(cls, connection: DisplayConnection, listener: DisplayListener) -> Self:
+    def __new__(cls, listener: DisplayListener) -> Self:
         self = super().__new__(cls)
-        self._connection = connection
         self._listener = listener
         return self
 
@@ -135,34 +131,22 @@ class DisplayReplies:
                 # The stream skewed: the Hub gives up on a dial it can no longer
                 # match replies on, and the display is not blamed for it.
                 msg = f"{generation.endpoint} sent a reply nobody was owed"
-                skewed = HubRetiredError(msg)
-                raise self._ended_stream(generation, "hub", skewed) from exc
+                won = self._listener.end_stream(generation, "hub")
+                raise (
+                    HubRetiredError(msg) if won else generation.closed_error()
+                ) from exc
             except (ValueError, KeyError, TypeError) as exc:
                 # A frame the stream cannot be trusted past: the display sent it,
                 # so the display ended the dial, and the caller learns it as one.
                 msg = f"{generation.endpoint} sent a frame that broke its stream"
-                raise self._ended_stream(
-                    generation, "display", ConnectionClosedError(msg)
+                won = self._listener.end_stream(generation, "display")
+                raise (
+                    ConnectionClosedError(msg) if won else generation.closed_error()
                 ) from exc
             except Exception:  # re-raised: the dial's stream cannot be trusted
-                self._connection.close_if_current(generation, cause="hub")
+                self._listener.end_stream(generation, "hub")
                 raise
         return generation.await_reply(pending, 0.0)
-
-    def _ended_stream(
-        self,
-        generation: DialGeneration,
-        cause: RetireCause,
-        error: ConnectionClosedError,
-    ) -> ConnectionClosedError:
-        """End a dial whose stream this reader cannot trust; the error to raise.
-
-        The cause is recorded first. An end that lost to another's reports the
-        winner's cause, the way a writer's does, not this reader's own.
-        """
-        won = generation.end(cause)
-        self._connection.close_if_current(generation, cause=cause)
-        return error if won else generation.closed_error()
 
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
         """Route every message ``chunk`` completes; a raising reply ends the dial.

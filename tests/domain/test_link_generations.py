@@ -1375,7 +1375,7 @@ class TestAPingIsStampedUnderItsLock:
         connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
         exchange = RequestExchange(
             connection,
-            DisplayReplies(connection, DisplayListener(connection, 1.0)),
+            DisplayReplies(DisplayListener(connection, 1.0)),
             1.0,
         )
 

@@ -315,8 +315,10 @@ class TestOnlyTheSeamFiresAnEventOnTheHub:
         }
 
         assert firing == {
-            "domain/hub/write_seam.py": ["element.fire"],  # the seam's own dispatch
-            "domain/hub/hub_interaction_dispatch.py": ["hub_display.write_seam.fire"],
+            "domain/hub/handler_firing.py": ["element.fire"],  # the one dispatch
+            "domain/hub/hub_interaction_dispatch.py": [
+                "HandlerFiring(hub_display.write_seam).fire"
+            ],
             "domain/hub/departure_cascade.py": ["self._sinks.fire"],  # not an element
         }
 

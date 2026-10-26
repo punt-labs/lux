@@ -147,18 +147,34 @@ class DisplayConnection:
             self.retire(held, cause="hub")
 
     def close_if_current(
-        self, generation: DialGeneration, *, cause: RetireCause
+        self,
+        generation: DialGeneration,
+        *,
+        cause: RetireCause,
+        by_reader: bool = True,
     ) -> bool:
-        """Settle ``generation`` as its reader, if it is still the current dial.
+        """Take ``generation``'s ledger and make it not current; whether this did.
 
         The reader's door, for a reader that has read the socket to the end it was
         going to read (a listener thread, an inline read, or whoever found a dial with
         no reader and read it for it). Everyone else ends a dial through
-        :meth:`retire`. Atomic with the dial's publication: no interleaving closes a
-        dial made after the check. ``cause`` is recorded unless someone already
-        recorded one. Returns whether this call settled it.
+        :meth:`retire`, which is the only caller that passes ``by_reader=False``: a
+        caller that is not the dial's reader is refused a dial the display or the
+        keepalive already ended, because the reader has not read the socket to the end
+        and the ledger is not yet whole. Atomic with the dial's publication: no
+        interleaving closes a dial made after the check. ``cause`` is recorded unless
+        someone already recorded one.
         """
-        return self._capture(generation, cause, by_reader=True)
+        with self._state_lock:
+            if self._current is not generation:
+                return False
+            if not by_reader and generation.ended in ("display", "unresponsive"):
+                return False
+            self._current = None
+            self._last = generation
+            self._settled(generation, cause)
+        generation.shut()
+        return True
 
     def retire(self, generation: DialGeneration, *, cause: RetireCause) -> bool:
         """End ``generation`` on behalf of a caller that is not its reader.
@@ -177,7 +193,7 @@ class DisplayConnection:
                 return False
         if cause == "hub":
             generation.end("hub")  # atomic with the cause: first to record wins
-            if self._capture(generation, "hub", by_reader=False):
+            if self.close_if_current(generation, cause="hub", by_reader=False):
                 return True
             if generation.ended != "hub":
                 self._settle_unread(generation)  # the display ended it: read it first
@@ -202,26 +218,6 @@ class DisplayConnection:
             raise ValueError(msg)
         self._deaths_taken = True
         return self._suspects.deaths
-
-    def _capture(
-        self, generation: DialGeneration, cause: RetireCause, *, by_reader: bool
-    ) -> bool:
-        """Take ``generation``'s ledger and make it not current; whether this did.
-
-        The one place a ledger is taken. A caller that is not the dial's reader is
-        refused a dial the display or the keepalive already ended: the reader has not
-        read the socket to the end, and the ledger is not yet whole.
-        """
-        with self._state_lock:
-            if self._current is not generation:
-                return False
-            if not by_reader and generation.ended in ("display", "unresponsive"):
-                return False
-            self._current = None
-            self._last = generation
-            self._settled(generation, cause)
-        generation.shut()
-        return True
 
     def _settled(self, generation: DialGeneration, cause: RetireCause) -> None:
         """Take a dial's ledger; keep its suspects or queue its death (state lock)."""

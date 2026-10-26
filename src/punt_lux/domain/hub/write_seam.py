@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
 from punt_lux.domain.hub.write_errors import NestingExceededError
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.event_protocol import Event
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.ids import ElementId, SceneId
@@ -80,32 +78,6 @@ class WriteSeam:
         except RecursionError:  # a form too deep to build or measure is past the cap
             return NestingCap.reason()
 
-    def fire(self, scene_id: SceneId, element: AbcElement, event: Event) -> None:
-        """Fire ``event`` on ``element``, judging every patch its handlers write first.
-
-        A Hub handler patches the Hub's own copy of an element, and no one asks the
-        agent write path about that. Every ``apply_patch`` made while the event is
-        dispatched is shown to :meth:`admit`, so a handler that would nest the scene
-        past the cap is refused, logged with the handler's other failures, and leaves
-        the element as it was.
-        """
-        with HandlerWrites.judged(
-            lambda target, patch: self.admit(scene_id, target, patch)
-        ):
-            element.fire(event)
-
-    def admit(
-        self, scene_id: SceneId, element: AbcElement, patch: Mapping[str, object]
-    ) -> None:
-        """Raise :class:`NestingExceededError` if ``patch`` nests the scene too deeply.
-
-        The judgement every write makes, measured on a copy of the target so the
-        element itself, and anything observing it, is untouched when it is refused.
-        """
-        refusal = self.nesting_refusal(scene_id, [AbcFieldRealization(element, patch)])
-        if refusal is not None:
-            raise NestingExceededError(refusal)
-
     def require_within_cap(self, roots: Sequence[WireElement]) -> None:
         """Raise :class:`NestingExceededError` if ``roots`` would nest too deeply."""
         reason = NestingCap().refusal(roots)
@@ -134,7 +106,10 @@ class WriteSeam:
         FieldGate.reject(element_id, {field: value})
         target = self._index.lookup(scene_id, element_id)
         element = self._mutable(target, scene_id, element_id)
-        self.admit(scene_id, element, {field: value})
+        realization = AbcFieldRealization(element, {field: value})
+        refusal = self.nesting_refusal(scene_id, [realization])
+        if refusal is not None:
+            raise NestingExceededError(refusal)
         element.apply_patch({field: value})
 
     @staticmethod
