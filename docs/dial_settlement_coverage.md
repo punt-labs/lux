@@ -35,7 +35,9 @@ drain-to-capture gap). The residual of S5 widens to the bound when the bound fir
 The abstract model is `crash_attribution_inflight_ack_drain.tex`, not `crash_attribution.tex`
 alone. The gluing is an inclusion, not an equality of state: concrete charges are a subset of
 abstract charges (the unresponsive re-drain reads acks the abstract model says were never
-sent). That is enough for A1 and A2. Four paths have no abstract counterpart and are
+sent). The inclusion gives A2. A1 holds for a different reason: the only acks the concrete
+settle reads beyond the abstract ones are, by T11, of scenes that survived a frame, so the
+poison scene is never among them. Four paths have no abstract counterpart and are
 deliberate exceptions to A1 or A2, each with its bound:
 
 | Exception | Flag | Fails | Bound |
@@ -116,18 +118,23 @@ follow from outside it; the implementation contract cites them by number.
    condition). State the worst case on a Hub end: `ListenerThread.stop` takes up to the bound,
    then up to the join.
 2. **The end of file the drain observes includes a reset and a TLS EOF.** On Linux `AF_UNIX`
-   a peer that closes with unread data gives the survivor `ECONNRESET` after the queued bytes,
-   not EOF. `DialSocket.drain` returns `None` on a cut-short read and does not say that an end
+   a peer that closes with data it has not read (a Hub frame still in the display's receive
+   queue) gives the survivor `ECONNRESET` after the queued bytes, not EOF. A byte queued toward
+   the Hub is ordinary data followed by a plain EOF. `DialSocket.drain` returns `None` on a cut-short read and does not say that an end
    was seen (`dial_socket.py:173-176`); the settler must be told. Otherwise S5 fails in the
    code with the model green.
-3. **A cross-host reset is a bound.** An RST from a process that dies with unread input may
-   discard what was queued, so on TCP a dead display's drain is not complete. State the case
-   as a bound beside B3, or restrict the complete-drain claim to the same host.
+3. **The complete drain is a same-host claim.** An RST from a process that dies with unread
+   input may discard what was queued, so on TCP a dead display's drain is not complete. The
+   claim that the drain is complete is restricted to same-host sockets, and that restriction
+   is the contract; a cross-host end is outside it.
 
 Test rows: for 1, a handler on the listener thread fails a write on a held slot and the dial
-is drained and settled on return, not captured at the bound; for 2, a peer that closes with
-an unread byte queued behind the last ack gives a drain that reports an end, over both
-`AF_UNIX` and TLS; for 3, the same over TCP, asserting the stated bound.
+is drained and settled on return, not captured at the bound; for 2, the Hub sends a frame
+the display does not read, the display queues an ack toward the Hub and closes, and the Hub's
+drain must read the ack and then report an end on `ECONNRESET`, over both `AF_UNIX` and TLS (a
+byte queued toward the Hub behind the ack gives a plain EOF and does not exercise the reset);
+for 3, a test that a drain over TCP is not claimed complete, or that the cross-host path is
+not routed through the complete-drain rule.
 
 ## Controls
 

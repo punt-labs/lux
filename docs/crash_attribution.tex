@@ -1154,7 +1154,10 @@ in which each discovery drains the socket and the reader's buffer in the same
 step as the capture.  The gluing is an inclusion, not an equality of state:
 concrete charges are a subset of abstract charges, because the concrete
 unresponsive re-drain reads acknowledgements that this model says were never
-sent.  That is enough for A1 and A2 on the holder's settle.  Four concrete paths
+sent.  The inclusion gives A2.  A1 holds for a different reason: the only
+acknowledgements the concrete settle reads beyond the abstract ones are, by T11,
+of scenes that survived a frame, so the poison scene is never among them.  Both
+hold on the holder's settle.  Four concrete paths
 have no abstract counterpart here, because every display or unresponsive
 discovery in this model is guarded on an empty flight and an empty reader buffer
 and its reply skew is \texttt{HubEnd}; each is a deliberate exception, not a

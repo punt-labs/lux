@@ -111,8 +111,9 @@ drain is not possible or not safe.  Each sets its own flag, never \texttt{s2bad}
     arrives after that drain is bounded by one drain-to-capture gap.  This holds
     for the holder's settle only; the bound's capture of an unresponsive end is
     carve-out~2.  A dead display has its end of file queued behind its last byte
-    on a same-host socket, so its drain is complete there; the cross-host case is
-    an obligation (see \emph{What is not modelled}).  The classification of a
+    on a same-host socket, so its drain is complete there; the claim that a drain
+    is complete is restricted to same-host sockets, and that restriction is the
+    contract (see \emph{What is not modelled}).  The classification of a
     send timeout as the display's end (a live display charged as dead) is a
     separate bound, B3, and is not modelled here.
 \end{enumerate}
@@ -980,8 +981,13 @@ abstract:
     were never sent: after \texttt{Unresponsive} a \texttt{Swap} adds nothing to
     the abstract \texttt{flight}.  The concrete \texttt{acked} is therefore a
     superset of the abstract one, and the relation that holds is
-    \emph{concrete charges $\subseteq$ abstract charges}.  That inclusion is
-    enough for A1 and A2.
+    \emph{concrete charges $\subseteq$ abstract charges}.  The inclusion gives A2.
+    A1 holds for a different reason: the only acknowledgements the concrete
+    settle reads beyond the abstract ones are, by T11, of scenes that survived a
+    frame, so the poison scene is never among them.  The abstract model charges
+    a scene that the concrete one does not only when a display recorded
+    unresponsive later swaps and acknowledges that scene, and such a scene was
+    not poison.
   \item \textbf{The obligations.}  A3 (a Hub-ended dial charges nothing) holds by
     the cause mapping, and by S3 (one capture).  A4 (a death is charged once)
     holds by S3.  A1 (an observed crash is charged) needs S1 and S5.  A2 (no
@@ -1131,14 +1137,17 @@ distinct threads and always same-host.
     slot's condition).  The worst case of the waits on a Hub end is the bound,
     then the join: \texttt{ListenerThread.stop} takes up to both.
   \item \emph{The end of file the drain observes includes a reset and a TLS
-    end.}  On a same-host \texttt{AF\_UNIX} socket a peer that closes with unread
-    data gives the survivor \texttt{ECONNRESET} after the queued bytes, not an
-    end of file.  A drain that cuts short on a reset, or on a TLS close, must say
+    end.}  On a same-host \texttt{AF\_UNIX} socket a peer that closes with data
+    \emph{it has not read} (a Hub frame still in the display's receive queue)
+    gives the survivor \texttt{ECONNRESET} after the queued bytes, not an end of
+    file.  A byte queued toward the Hub is ordinary data followed by a plain end
+    of file.  A drain that cuts short on a reset, or on a TLS close, must say
     that an end was seen; otherwise S5 fails in the code with the model green.
-  \item \emph{A cross-host reset is a bound.}  An RST from a process that dies
-    with unread input may discard what was queued, so on TCP a dead display's
-    drain is not complete.  Either state this as a bound beside B3, or restrict
-    the claim of a complete drain to the same host.
+  \item \emph{The complete drain is a same-host claim.}  An RST from a process
+    that dies with unread input may discard what was queued, so on TCP a dead
+    display's drain is not complete.  The claim that the drain is complete is
+    restricted to same-host sockets, and that restriction is the contract; a
+    cross-host end is outside it.
 \end{enumerate}
 
 \end{document}

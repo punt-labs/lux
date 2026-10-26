@@ -111,8 +111,9 @@ drain is not possible or not safe.  Each sets its own flag, never \texttt{s2bad}
     arrives after that drain is bounded by one drain-to-capture gap.  This holds
     for the holder's settle only; the bound's capture of an unresponsive end is
     carve-out~2.  A dead display has its end of file queued behind its last byte
-    on a same-host socket, so its drain is complete there; the cross-host case is
-    an obligation (see \emph{What is not modelled}).  The classification of a
+    on a same-host socket, so its drain is complete there; the claim that a drain
+    is complete is restricted to same-host sockets, and that restriction is the
+    contract (see \emph{What is not modelled}).  The classification of a
     send timeout as the display's end (a live display charged as dead) is a
     separate bound, B3, and is not modelled here.
 \end{enumerate}
@@ -986,8 +987,13 @@ abstract:
     were never sent: after \texttt{Unresponsive} a \texttt{Swap} adds nothing to
     the abstract \texttt{flight}.  The concrete \texttt{acked} is therefore a
     superset of the abstract one, and the relation that holds is
-    \emph{concrete charges $\subseteq$ abstract charges}.  That inclusion is
-    enough for A1 and A2.
+    \emph{concrete charges $\subseteq$ abstract charges}.  The inclusion gives A2.
+    A1 holds for a different reason: the only acknowledgements the concrete
+    settle reads beyond the abstract ones are, by T11, of scenes that survived a
+    frame, so the poison scene is never among them.  The abstract model charges
+    a scene that the concrete one does not only when a display recorded
+    unresponsive later swaps and acknowledges that scene, and such a scene was
+    not poison.
   \item \textbf{The obligations.}  A3 (a Hub-ended dial charges nothing) holds by
     the cause mapping, and by S3 (one capture).  A4 (a death is charged once)
     holds by S3.  A1 (an observed crash is charged) needs S1 and S5.  A2 (no
