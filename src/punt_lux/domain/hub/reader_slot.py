@@ -8,7 +8,8 @@ out an inline read in flight, so no caller may hold a lock the request model or 
 registry shares.
 
 The slot is also the door through which a dial is settled. Only its holder is handed a
-:class:`~punt_lux.domain.hub.settler.Settler`, and only the slot makes one. Whoever ends
+:class:`~punt_lux.domain.hub.settler.Settler` (a listener, through its
+:class:`ListenerHold`, once), and only the slot makes one. Whoever ends
 a dial and is not the holder asks (:meth:`ask_settle`): a free slot is taken and the
 dial settled on the spot; a held slot is refused and a *debt* left, in the one critical
 section that observed it held. Every release of the slot reads the debt in the one

@@ -12,10 +12,13 @@ unresponsive end) or *requests* the Hub's (a Hub end records nothing, since the 
 may have died already), and then asks for the dial to be settled: the holder of the
 dial's reader slot, which has read what the socket held, drains it, fixes the cause and
 takes its ledger. The one door to that capture is private to the connection and handed
-to the slot alone, so a settle is always the reader's and no flag can lend it to anyone
-else. Every capture is guarded by "this dial is still current", so a reader or a waiter
-that outlived a redial can settle its own dial without touching the new one. The
-connection also holds the suspects dials leave behind (the
+to the slot alone, so a settle is the reader's and no flag can lend it to anyone else,
+save the two undrained captures the design accepts: the bound's, by a refused asker
+once :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
+``Settler.end_stream``'s, for a stream that cannot be read past. Every capture is
+guarded by "this dial is still current", so a reader or a waiter that outlived a redial
+can settle its own dial without touching the new one. The connection also holds the
+suspects dials leave behind (the
 :class:`~punt_lux.domain.hub.suspect_book.SuspectBook`) and the deaths not yet charged,
 whose queue it hands out once.
 

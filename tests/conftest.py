@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
 
+from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from tests.link_access import forget_handed_queues, recording_hand_over
 from tests.tmp_guard import TmpGuard
 
 if TYPE_CHECKING:
@@ -86,6 +88,18 @@ class _TestRecordingSink:
     def __call__(self, topic: str, payload: Mapping[str, object]) -> None:
         """Record the publish — tests assert on ``self.calls``."""
         self.calls.append((topic, payload))
+
+
+@pytest.fixture(autouse=True)
+def _remember_handed_death_queues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None]:
+    """Let a test read the one queue of deaths production hands to its charger."""
+    monkeypatch.setattr(
+        SuspectBook, "hand_over", recording_hand_over(SuspectBook.hand_over)
+    )
+    yield
+    forget_handed_queues()
 
 
 def _build_test_factory(sink: _TestRecordingSink | None = None) -> JsonElementFactory:

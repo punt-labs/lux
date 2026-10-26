@@ -2,8 +2,11 @@
 
 Only the holder of a dial's :class:`~punt_lux.domain.hub.reader_slot.ReaderSlot` (its
 listener thread, an inline reader, or a releaser taking over) is handed a settler, and
-only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is never
-captured before the party that reads its socket has read it.
+only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is
+captured only after the party that reads its socket has read it, except by the two
+undrained captures the design accepts: the bound's, which a refused asker makes once
+:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
+:meth:`Settler.end_stream`'s, for a stream that cannot be read past.
 
 Settling is two steps. The drain reads the socket to the point where it would block
 and notes whether the stream's end came. The decision then fixes the cause by the
@@ -63,8 +66,9 @@ class Settler:
         recorded_before = generation.ended
         saw_end = DialDrain(self._route).run(generation)
         cause = generation.decide(saw_end=saw_end)
-        if recorded_before is None and cause != "hub":
-            # a record made after the drain began
+        # A display or unresponsive end that nothing had recorded when the drain began
+        # and the drain did not find itself was recorded under it: look once more.
+        if recorded_before is None and not saw_end and cause != "hub":
             DialDrain(self._route).run(generation)
         return self._capture(generation, cause)
 

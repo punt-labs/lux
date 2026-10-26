@@ -2,9 +2,10 @@
 
 A handler that runs on the Hub patches the Hub's own copy of an element, and the one
 place that decides whether such a write may be made is the store's write seam
-(``WriteSeam.admit``). The seam opens this scope around every route to a write: it
-fires an interaction's event inside :meth:`HandlerWrites.judged`, and it applies an
-agent's own write inside it, so the observers that write wakes are judged too. Every
+(``WriteSeam.admit``). The scope is opened around every route to a write:
+``ResolvedInteraction.fire`` opens it around an interaction's handlers, and the seam
+opens it around an agent's own write, so the observers that write wakes are judged
+too. Every
 ``Element.apply_patch`` made in the scope is shown to the judge before the element is
 touched. A write outside the scope (a display's replica) meets no judge.
 

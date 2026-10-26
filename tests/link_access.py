@@ -19,14 +19,16 @@ from tests.domain.display_double import until
 
 if TYPE_CHECKING:
     import socket
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.death_queue import DeathQueue
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.domain.hub.reader_slot import ReaderSlot
+    from punt_lux.domain.hub.suspect_book import SuspectBook
     from punt_lux.protocol import Element, Message
 
 __all__ = [
@@ -69,17 +71,35 @@ def bare_connection(dialer: DisplayDialer, connect_timeout: float) -> DisplayCon
     return connection
 
 
-# The queue each connection handed over, kept with its connection so a test that reads
-# a link's deaths more than once sees one queue; production hands it over once.
-_HANDED: dict[int, tuple[DisplayConnection, DeathQueuePort]] = {}
+# The queue each book handed over, kept with its book: production hands it over once,
+# to the charger, so a test that reads a link's deaths takes the one the charger holds.
+_HANDED: dict[int, tuple[SuspectBook, DeathQueue]] = {}
 
 
-def _handed_queue(connection: DisplayConnection) -> DeathQueuePort:
-    """The deaths queue of ``connection``, taken from it the one time it allows."""
-    held = _HANDED.get(id(connection))
-    if held is None:
-        held = _HANDED[id(connection)] = (connection, connection.take_deaths())
-    return held[1]
+def recording_hand_over(
+    real: Callable[[SuspectBook], DeathQueue],
+) -> Callable[[SuspectBook], DeathQueue]:
+    """``SuspectBook.hand_over``, remembering the queue it hands over (test seam)."""
+
+    def hand_over(book: SuspectBook) -> DeathQueue:
+        queue = real(book)
+        _HANDED[id(book)] = (book, queue)
+        return queue
+
+    return hand_over
+
+
+def forget_handed_queues() -> None:
+    """Drop every remembered queue, at the end of a test."""
+    _HANDED.clear()
+
+
+def _handed_queue(connection: DisplayConnection) -> DeathQueue:
+    """The deaths queue of ``connection``: the charger's, else the one it hands now."""
+    book = connection._suspects  # test seam: the connection's own book
+    if id(book) not in _HANDED:
+        connection.take_deaths()
+    return _HANDED[id(book)][1]
 
 
 def deaths_of(
