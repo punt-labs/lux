@@ -16,11 +16,12 @@ from collections.abc import Generator
 from contextlib import AsyncExitStack, contextmanager
 
 import anyio
+import httpx
 import pytest
 import uvicorn
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import CallToolResult, TextContent
+from mcp.types import LATEST_PROTOCOL_VERSION, CallToolResult, TextContent
 
 from punt_lux.luxd import build_app
 from punt_lux.mcp_transport import SESSION_IDLE_TIMEOUT_SECONDS, McpHttpTransport
@@ -136,37 +137,61 @@ def test_transport_wires_the_recommended_idle_timeout() -> None:
     assert transport._manager.session_idle_timeout == SESSION_IDLE_TIMEOUT_SECONDS
 
 
+def _open_session_without_get_stream(url: str) -> None:
+    """Initialize an MCP session over plain POSTs, then go silent.
+
+    The SDK client keeps a standalone GET stream open, and an open GET stream
+    counts as activity for the session manager's idle timer (mcp >= 1.30), so
+    it would hold the session alive. This models a client that vanished after
+    its last request instead: no request in flight, nothing left open.
+    """
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+    }
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "idle-test", "version": "0"},
+        },
+    }
+    with httpx.Client(timeout=5) as client:
+        response = client.post(url, json=initialize, headers=headers)
+        response.raise_for_status()
+        headers["mcp-session-id"] = response.headers["mcp-session-id"]
+        headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+        initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+        client.post(url, json=initialized, headers=headers).raise_for_status()
+
+
 def test_idle_session_is_reaped_and_runs_the_disconnect_cascade(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A session left idle past the timeout is reaped, running the full cascade.
 
-    The client stays connected but sends nothing, so only the SDK's idle timer
+    The client initializes and then sends nothing, so only the SDK's idle timer
     can end the session. Reaping cancels ``SessionScopedServer.run``, whose
     ``finally`` both drops the registry entry (the count this asserts) and runs
     the disconnect cascade via :class:`SessionCleanup`.
     """
     monkeypatch.setattr("punt_lux.mcp_transport.SESSION_IDLE_TIMEOUT_SECONDS", 0.5)
 
-    async def _drive(port: int) -> tuple[int, int]:
-        url = f"http://127.0.0.1:{port}/mcp?session_key=idle"
-        async with (
-            streamable_http_client(url) as (read, write, _),
-            ClientSession(read, write) as session,
-        ):
-            await session.initialize()
-            during = _health_sessions(port)
-            after = during
-            deadline = time.monotonic() + 8
-            while time.monotonic() < deadline:
-                await anyio.sleep(0.1)
-                after = _health_sessions(port)
-                if after == 0:
-                    break
-            return during, after
-
     with _running_luxd() as port:
-        during, after = anyio.run(_drive, port)
+        _open_session_without_get_stream(
+            f"http://127.0.0.1:{port}/mcp?session_key=idle"
+        )
+        during = _health_sessions(port)
+        after = during
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            after = _health_sessions(port)
+            if after == 0:
+                break
 
     assert during == 1
     assert after == 0
