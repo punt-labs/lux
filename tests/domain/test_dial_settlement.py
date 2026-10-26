@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 import pytest
 
 from punt_lux.bounded_send import TornStreamError
-from punt_lux.domain.hub import bounded_ask, dial_socket
+from punt_lux.domain.hub import bounded_ask, dial_socket, socket_line
 from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.batch_sender import BatchSendError
 from punt_lux.domain.hub.bounded_ask import BoundedAsk
@@ -93,7 +93,7 @@ def _bounded(monkeypatch: pytest.MonkeyPatch, seconds: float) -> None:
 
 def _short_deadline(monkeypatch: pytest.MonkeyPatch, seconds: float = 0.2) -> None:
     """Shorten a write's deadline D, and the drain ceiling with it (kept above D)."""
-    monkeypatch.setattr(dial_socket, "SCENE_WRITE_DEADLINE_SECONDS", seconds)
+    monkeypatch.setattr(socket_line, "SCENE_WRITE_DEADLINE_SECONDS", seconds)
     monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", seconds + 0.5)
 
 

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.setter_priority import SetterPriority
 from punt_lux.protocol.elements import ImageElement, MarkdownElement, TextElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.tree import TreeElement
@@ -65,7 +66,7 @@ def test_a_reorder_can_only_order_the_keys_the_judge_approved() -> None:
         "selected_node_ids": [],
     }
 
-    ordered = TreeElement(id="t")._in_setter_order(patch)
+    ordered = SetterPriority(TreeElement._SETTER_PRIORITY).arrange(patch)
 
     assert list(ordered)[:3] == ["nodes", "selected_node_ids", "anchor_node_id"]
     assert ordered == patch

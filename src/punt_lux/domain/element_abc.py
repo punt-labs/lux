@@ -29,6 +29,7 @@ from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.event_handler_host import EventHandlerHost
 from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.property_observers import PropertyObservers
+from punt_lux.domain.setter_priority import SetterPriority
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -63,21 +64,9 @@ class Element(EventHandlerHost, ABC):
     _children_tuple: tuple[Element, ...]
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Refuse a kind whose ``_SETTER_PRIORITY`` names a key it has no setter for.
-
-        ``_in_setter_order`` skips a priority key the patch lacks, so a misspelt one
-        would be ignored for ever and the ordering it was written to guarantee would
-        silently be lost.
-        """
+        """Refuse a kind whose ``_SETTER_PRIORITY`` names a key it has no setter for."""
         super().__init_subclass__(**kwargs)
-        unset = [
-            k
-            for k in cls._SETTER_PRIORITY
-            if not callable(getattr(cls, f"_set_{k}", None))
-        ]
-        if unset:
-            msg = f"{cls.__name__}._SETTER_PRIORITY names {unset} with no _set_<key>"
-            raise TypeError(msg)
+        SetterPriority(cls._SETTER_PRIORITY).require_setters(cls)
 
     def __new__(
         cls,
@@ -254,7 +243,9 @@ class Element(EventHandlerHost, ABC):
         before = ElementCheckpoint(self)
         self._observers.begin()
         try:
-            for key, value in self._in_setter_order(patch).items():
+            for key, value in (
+                SetterPriority(self._SETTER_PRIORITY).arrange(patch).items()
+            ):
                 getattr(self, f"_set_{key}")(value)
             errors = self._final_state_errors()
             if errors:
@@ -272,15 +263,6 @@ class Element(EventHandlerHost, ABC):
         The hook a kind overrides when its invariants span fields.
         """
         return ()
-
-    def _in_setter_order(self, patch: Mapping[str, object]) -> dict[str, object]:
-        """Return the patch's own items, the kind's priority keys first.
-
-        A reorder only: the keys and values are the patch's, so a kind cannot change
-        what the judge approved. The judge saw ``patch`` itself, before this.
-        """
-        first = {k: patch[k] for k in self._SETTER_PRIORITY if k in patch}
-        return first | {k: v for k, v in patch.items() if k not in first}
 
     def announce_restored(self, props: Iterable[str]) -> None:
         """Tell the observers that keep no state that each of ``props`` is restored.

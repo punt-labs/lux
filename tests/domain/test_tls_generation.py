@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask, dial_socket
+from punt_lux.domain.hub import bounded_ask, socket_line
 from punt_lux.domain.hub.connection_closed import UnresponsiveError
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -337,7 +337,7 @@ class TestABoundedWrite:
     ) -> None:
         """No gap of ``D`` anywhere, so the write that takes many ``D`` is not cut."""
         window = 0.3
-        monkeypatch.setattr(dial_socket, "SCENE_WRITE_DEADLINE_SECONDS", window)
+        monkeypatch.setattr(socket_line, "SCENE_WRITE_DEADLINE_SECONDS", window)
         connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
@@ -371,8 +371,9 @@ class TestABoundedWrite:
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
         assert records.count(True) == 1
-        assert generation._socket._lock.acquire(timeout=1.0), "the lock was kept"
-        generation._socket._lock.release()
+        line = generation._socket._line  # test seam: the socket's own line
+        assert line.acquire_within(1.0), "the lock was kept"
+        line.release()
 
     def test_p27_a_query_that_is_the_first_write_to_stall_ends_the_dial(
         self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
@@ -392,8 +393,9 @@ class TestABoundedWrite:
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
         assert records.count(True) == 1
-        assert generation._socket._lock.acquire(timeout=1.0), "the lock was kept"
-        generation._socket._lock.release()
+        line = generation._socket._line  # test seam: the socket's own line
+        assert line.acquire_within(1.0), "the lock was kept"
+        line.release()
 
 
 class TestTheDrainNeverWaits:

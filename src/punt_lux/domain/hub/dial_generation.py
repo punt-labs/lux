@@ -1,20 +1,18 @@
 """DialGeneration -- one dial's socket, and everything that belongs to it alone.
 
 A dial makes a generation; nothing of an earlier one is carried over. It owns the
-socket (:class:`~punt_lux.domain.hub.dial_socket.DialSocket`: what it says, every
-write) and the sink of replies it is owed. Whoever holds a generation reads
-and writes *its* socket and settles *its* sink, so a thread that outlives a redial can
-never touch the new dial's bytes or waiters.
+socket (:class:`~punt_lux.domain.hub.dial_socket.DialSocket`: what the display says),
+the writer that shares its line (:class:`~punt_lux.domain.hub.dial_writer.DialWriter`)
+and the sink of replies it is owed, which a write registers in (the ack of a scene, the
+reply a ping or query waits for). Whoever holds a generation reads and writes *its*
+socket and settles *its* sink, so a thread that outlives a redial can never touch the
+new dial's bytes or waiters.
 
-Lock order: the socket lock is held across one write (and the ack ledger entry the
-write makes, which takes the sink's lock, the leaf) or across one ``recv``. An end, a
-settlement and ``shut`` take neither: shutdown is what releases a sender wedged in
-``sendall`` while it holds the socket lock. The sink's lock is never held while taking
-the socket lock. A peer that stops reading cannot wedge a writer for ever: every write
-is one user-space bounded send (:class:`~punt_lux.bounded_send.BoundedSend`) on a socket
-made non-blocking for it, under one deadline ``D`` that covers the wait for the socket
-lock as well (:mod:`punt_lux.send_timeout`). ``SO_SNDTIMEO`` bounds only the
-handshake's blocking send, which the dialers set before the dial is handed over.
+Lock order: the socket lock (:class:`~punt_lux.domain.hub.socket_line.SocketLine`) is
+held across one write, and the ledger entry the write makes, which takes the sink's
+lock, the leaf, or across one ``recv``. An end, a settlement and ``shut`` take
+neither: shutdown is what releases a sender wedged in ``sendall`` while it holds the
+socket lock. The sink's lock is never held while taking the socket lock.
 """
 
 from __future__ import annotations
@@ -31,12 +29,14 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.dial_socket import DialSocket
 from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.protocol import PingMessage, encode_message
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_writer import DialWriter
     from punt_lux.domain.hub.drain_result import Drained
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.pending import Pending
@@ -74,11 +74,12 @@ class DialGeneration:
 
     _sink: ReplySink
     _socket: DialSocket
+    _writer: DialWriter
     # The identity every failure names this dial by: one per dial, equal to itself.
     _ref: DialRef
     # Reports this dial's own breakage to whoever holds the current dial.
     _ends: DialEnds
-    __slots__ = ("_ends", "_ref", "_sink", "_socket")
+    __slots__ = ("_ends", "_ref", "_sink", "_socket", "_writer")
 
     def __new__(
         cls,
@@ -89,12 +90,8 @@ class DialGeneration:
         self._ends = ends
         self._sink = ReplySink()
         self._ref = DialRef(self)
-        self._socket = DialSocket(
-            dial,
-            self._sink,
-            require_open=self._require_open,
-            failed=self._write_failed,
-        )
+        self._socket = DialSocket(dial, self._sink, require_open=self._require_open)
+        self._writer = self._socket.writer(self._write_failed)
         return self
 
     @property
@@ -201,27 +198,32 @@ class DialGeneration:
 
     @trace
     def send(self, msg: Message) -> None:
-        """Write ``msg``, serialized against every other writer.
-
-        A write that raises leaves a stream that cannot be trusted, so this dial
-        ends itself before the error reaches the caller.
-        """
-        self._socket.send(msg)
+        """Write ``msg``; a write that raises ends this dial before the caller sees."""
+        self._writer.write(encode_message(msg), lambda: None, lambda _: None)
 
     @trace
     def send_scene(self, msg: SceneMessage) -> None:
-        """Write a scene and record the ack it is owed, in wire order."""
-        self._socket.send_scene(msg)
+        """Write a scene, and record the ack it is owed once the write returned."""
+        self._writer.write(
+            encode_message(msg), lambda: None, lambda _: self._sink.owe_ack(msg.id)
+        )
+        self._require_open()  # owed all the same; the caller learns the dial is ending
 
     @trace
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
-        """Register the ping in flight, then write it."""
-        return self._socket.send_ping(ts)
+        """Register the ping in flight, then write it; one step under the lock."""
+        return self._writer.write(
+            encode_message(PingMessage(ts=ts)),
+            lambda: self._sink.expect_pong(ts),
+            lambda pending: pending,
+        )
 
     @trace
     def send_query(self, request: QueryRequest) -> Pending[None, QueryResponse]:
-        """Register the query in flight, then write it."""
-        return self._socket.send_query(request)
+        """Register the query in flight, then write it; one step under the lock."""
+        return self._writer.write(
+            encode_message(request), self._sink.expect_query, lambda pending: pending
+        )
 
     # PY-TS-14 OK: None is the timeout; an end of the dial raises instead.
     def await_reply[R: Message](

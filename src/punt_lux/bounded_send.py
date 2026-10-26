@@ -26,10 +26,11 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    import threading
     from collections.abc import Callable
 
-__all__ = ["BoundedSend", "ProgressClock", "TornStreamError"]
+    from punt_lux.progress_clock import ProgressClock
+
+__all__ = ["BoundedSend", "TornStreamError"]
 
 _RETRY_ERRORS = (BlockingIOError, ssl.SSLWantWriteError, ssl.SSLWantReadError)
 
@@ -40,50 +41,6 @@ class TornStreamError(OSError):
     Subclasses ``OSError`` so a dead-peer-removing caller severs a torn
     stream the same way, never reusing a half-written connection.
     """
-
-
-@final
-class ProgressClock:
-    """When a byte last moved on a socket, so a deadline can be re-armed by it.
-
-    A peer that is slow but alive keeps moving bytes; one that has stopped moves none.
-    A bound on *elapsed* time cuts the first short, so the bound is on time *without
-    progress* instead: every byte that moves restarts the window.
-    """
-
-    _last: float
-    __slots__ = ("_last",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._last = time.monotonic()
-        return self
-
-    def moved(self) -> None:
-        """Note that a byte moved just now."""
-        self._last = time.monotonic()
-
-    def expires_at(self, window: float) -> float:
-        """The monotonic time ``window`` seconds after the last progress."""
-        return self._last + window
-
-    def progressed_within(self, window: float) -> bool:
-        """Whether a byte moved less than ``window`` seconds ago."""
-        return time.monotonic() < self._last + window
-
-    def acquire(self, lock: threading.Lock, window: float) -> bool:
-        """Take ``lock``; ``False`` if no byte moves for ``window`` while it is held.
-
-        The wait is re-armed by progress: a lock held by a writer that keeps moving
-        bytes is waited for, since that peer is alive, and only silence ends the wait.
-        """
-        while True:
-            if lock.acquire(
-                timeout=max(self.expires_at(window) - time.monotonic(), 0.0)
-            ):
-                return True
-            if not self.progressed_within(window):
-                return False
 
 
 @final
