@@ -12,7 +12,7 @@ from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.protocol import AckMessage, RemoteEventHandlerInvocation
 from tests.domain.display_double import Call, Display, until
 from tests.domain.test_retire_cause import _linked, _scene
-from tests.link_access import generation_of, no_reader, writer_of
+from tests.link_access import generation_of, no_reader, reading_of, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -72,13 +72,46 @@ class TestAConnectionNeedsToKnowWhoSettlesWhatNoReaderHolds:
         assert DisplayConnection(display, 1.0, settle_unread=no_reader).endpoint
 
 
-class TestWhoReadsADialIsTheGenerationsDecision:
-    def test_the_socket_holds_no_reader_slot(self, display: Display) -> None:
-        generation = generation_of(_linked(display, listening=False))
+class TestWhoReadsADialIsNotTheGenerationsToRelay:
+    def test_the_generation_and_its_socket_relay_no_reader_slot_call(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
 
+        relayed = {"has_reader", "claim_reader", "release_reader", "inline_reading"}
+        assert relayed.isdisjoint(dir(generation))
         assert "reader_slot" not in dir(generation._socket)
-        assert generation.claim_reader() is True
-        assert generation.has_reader is True
+        assert reading_of(link).claim_for_listener() is True
+        assert reading_of(link).has_listener is True
+
+    def test_a_redial_does_not_lend_its_slot_to_the_dial_it_replaced(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        old = generation_of(link)
+        link.close()
+        link.connect()
+
+        assert link._connection.reading(old) is None
+        assert reading_of(link) is not None
+
+    def test_a_closed_connection_reports_no_listener(self, display: Display) -> None:
+        link = _linked(display)
+        assert link._connection.has_reader
+
+        link.close()
+
+        assert not link._connection.has_reader
+
+    def test_a_dial_that_is_no_longer_current_has_no_slot_to_lend(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        link.close()
+
+        assert link._connection.reading(generation) is None
 
     def test_the_generation_names_itself_the_same_way_every_time(
         self, display: Display
@@ -86,5 +119,6 @@ class TestWhoReadsADialIsTheGenerationsDecision:
         link = _linked(display)
         generation = generation_of(link)
 
+        assert generation.ref is generation.ref  # one identity per dial, held
         assert generation.ref == generation.ref
         assert link.desk.asks().dial == generation.ref

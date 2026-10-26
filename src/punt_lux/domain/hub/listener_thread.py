@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
+    from punt_lux.domain.hub.reader_slot import ReaderSlot
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -92,8 +93,12 @@ class ListenerThread:
         one raises :class:`ConnectionClosedError`.
         """
         generation = self._connection.require()
-        if generation.claim_reader():
-            self._launch(generation)
+        slot = self._connection.reading(generation)
+        if slot is None:  # a redial replaced it in the gap: its own start claims it
+            msg = f"the dial to {generation.endpoint} was replaced before its reader"
+            raise ConnectionClosedError(msg)
+        if slot.claim_for_listener():
+            self._launch(generation, slot)
 
     def start_on(self, born: DialGeneration) -> None:
         """Start a reader on ``born``, a dial made holding the reader slot already.
@@ -102,10 +107,11 @@ class ListenerThread:
         :class:`ConnectionClosedError` is raised and nothing starts on its
         replacement.
         """
-        if born.is_closed:
+        slot = self._connection.reading(born)
+        if born.is_closed or slot is None:
             msg = f"the dial to {born.endpoint} was retired before its reader"
             raise ConnectionClosedError(msg)
-        self._launch(born)
+        self._launch(born, slot)
 
     def stop(self) -> None:
         """Stop the thread, retire its dial, and wait for the thread, if running.
@@ -125,8 +131,8 @@ class ListenerThread:
         else:
             self._run = None
 
-    def _launch(self, generation: DialGeneration) -> None:
-        """Run a reader over ``generation``, which holds the listener's slot."""
+    def _launch(self, generation: DialGeneration, slot: ReaderSlot) -> None:
+        """Run a reader over ``generation``, whose ``slot`` the listener holds."""
         if self.alive:
             logger.error(
                 "Abandoning a listener thread that did not stop; starting a new one"
@@ -142,5 +148,5 @@ class ListenerThread:
             thread.start()
         except BaseException:
             self._run = previous
-            generation.release_reader()  # no reader runs: do not claim there is one
+            slot.release_listener()  # no reader runs: do not claim there is one
             raise

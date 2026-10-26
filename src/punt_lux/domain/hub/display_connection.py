@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.send_timeout import set_send_timeout
 
@@ -51,6 +52,8 @@ class DisplayConnection:
     # None = not connected. The generation holds the socket, its endpoint and its
     # ready message: one handshake's result, coming and going together.
     _current: DialGeneration | None
+    # Who reads the current dial, built with it and published with it; None with it.
+    _reading: ReaderSlot | None
     # The last dial to end, kept after it is gone: a caller that finds no dial learns
     # from it whether the display or the Hub ended it. None until the first
     # retirement, which is what "never opened" means.
@@ -67,6 +70,7 @@ class DisplayConnection:
         "_deaths_taken",
         "_dialer",
         "_last",
+        "_reading",
         "_settle_unread",
         "_state_lock",
         "_suspects",
@@ -84,6 +88,7 @@ class DisplayConnection:
         self._connect_timeout = connect_timeout
         self._state_lock = threading.Lock()
         self._current = None
+        self._reading = None
         self._last = None
         self._suspects = SuspectBook()
         self._settle_unread = settle_unread
@@ -98,9 +103,22 @@ class DisplayConnection:
 
     @property
     def has_reader(self) -> bool:
-        """Whether the current dial has a reader started on it."""
+        """Whether the current dial has a listener thread started on it."""
         with self._state_lock:
-            return self._current is not None and self._current.has_reader
+            return self._reading is not None and self._reading.has_listener
+
+    def reading(self, generation: DialGeneration) -> ReaderSlot | None:
+        """Who reads ``generation``, if it is still the current dial; else ``None``.
+
+        The slot is built with the dial and published with it, so it names the one
+        reader a dial's socket may have: nobody, its listener thread, or one
+        caller's inline wait. A dial that is no longer current has been settled and
+        is read by no one, so it has no slot to lend. Returning the slot takes
+        nothing: claiming or waiting on it is the caller's, never under the state
+        lock.
+        """
+        with self._state_lock:
+            return self._reading if self._current is generation else None
 
     @property
     def ready(self) -> ReadyMessage | None:
@@ -171,6 +189,7 @@ class DisplayConnection:
             if not by_reader and generation.ended in ("display", "unresponsive"):
                 return False
             self._current = None
+            self._reading = None
             self._last = generation
             self._settled(generation, cause)
         generation.shut()
@@ -202,11 +221,6 @@ class DisplayConnection:
         self._settle_unread(generation)  # a dial with no reader has no one else
         return won
 
-    def holds(self, generation: DialGeneration) -> bool:
-        """Whether ``generation`` is the current dial."""
-        with self._state_lock:
-            return self._current is generation
-
     def take_deaths(self) -> DeathQueue:
         """Hand over the queue of deaths not yet charged, once: its holder charges.
 
@@ -230,13 +244,15 @@ class DisplayConnection:
         dialed = self._dialed()
         set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
-            dialed,
-            lambda generation, cause: self.retire(generation, cause=cause),
-            reader=reader,
+            dialed, lambda generation, cause: self.retire(generation, cause=cause)
         )
+        # Born holding the listener slot when asked: nobody else has seen this dial
+        # yet, so no inline read can be in flight when the listener claims it.
+        slot = ReaderSlot(reader)
         with self._state_lock:
             if self._current is None:
                 self._current = fresh
+                self._reading = slot
                 return fresh
         fresh.shut()  # another caller dialed first; theirs stays
         return None

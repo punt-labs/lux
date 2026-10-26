@@ -39,7 +39,9 @@ class RequestDesk:
         cls, connection: DisplayConnection, listener: DisplayListener, budget: float
     ) -> Self:
         self = super().__new__(cls)
-        self._exchange = RequestExchange(connection, DisplayReplies(listener), budget)
+        self._exchange = RequestExchange(
+            connection, DisplayReplies(connection, listener), budget
+        )
         self._seat = WriteSeat(self._exchange)
         self._seat_taken = False
         return self

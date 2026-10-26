@@ -1,8 +1,8 @@
 """DialGeneration -- one dial's socket, and everything that belongs to it alone.
 
 A dial makes a generation; nothing of an earlier one is carried over. It owns the
-socket (:class:`~punt_lux.domain.hub.dial_socket.DialSocket`: who reads it, what it
-says, every write) and the sink of replies it is owed. Whoever holds a generation reads
+socket (:class:`~punt_lux.domain.hub.dial_socket.DialSocket`: what it says, every
+write) and the sink of replies it is owed. Whoever holds a generation reads
 and writes *its* socket and settles *its* sink, so a thread that outlives a redial can
 never touch the new dial's bytes or waiters.
 
@@ -16,7 +16,7 @@ connection that makes it, so a peer that stops reading cannot wedge a writer for
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
@@ -25,13 +25,11 @@ from punt_lux.domain.hub.connection_closed import (
 )
 from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.dial_socket import DialSocket
-from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-    from contextlib import AbstractContextManager
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -52,29 +50,25 @@ __all__ = ["DialGeneration"]
 
 @final
 class DialGeneration:
-    """One dialed socket, its replies owed, and at most one reader."""
+    """One dialed socket and the replies it is owed."""
 
     _sink: ReplySink
     _socket: DialSocket
-    # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
-    _slot: ReaderSlot
+    # The identity every failure names this dial by: one per dial, equal to itself.
+    _ref: DialRef
     # Reports this dial's own breakage to whoever holds the current dial.
     _retire: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_retire", "_sink", "_slot", "_socket")
+    __slots__ = ("_ref", "_retire", "_sink", "_socket")
 
     def __new__(
         cls,
         dial: HandshakeResult,
         retire: Callable[[DialGeneration, RetireCause], bool],
-        *,
-        reader: Literal["none", "listener"] = "none",
     ) -> Self:
         self = super().__new__(cls)
         self._retire = retire
         self._sink = ReplySink()
-        # Born holding the listener slot when asked: nobody else has seen this dial
-        # yet, so no inline read can be in flight when the listener claims it.
-        self._slot = ReaderSlot(reader)
+        self._ref = DialRef(self)
         self._socket = DialSocket(
             dial,
             self._sink,
@@ -96,7 +90,7 @@ class DialGeneration:
     @property
     def ref(self) -> DialRef:
         """A name for this dial that confers no power over it: what a failure names."""
-        return DialRef(self)
+        return self._ref
 
     @property
     def ready(self) -> ReadyMessage:
@@ -107,23 +101,6 @@ class DialGeneration:
     def is_closed(self) -> bool:
         """Whether this dial has been ended: nothing more is written to it."""
         return self._sink.ended is not None
-
-    @property
-    def has_reader(self) -> bool:
-        """Whether a listener thread reads this dial (it ends with the dial)."""
-        return self._slot.has_listener
-
-    def claim_reader(self) -> bool:
-        """Take this dial's one reader slot for a listener; ``False`` if it has one."""
-        return self._slot.claim_for_listener()
-
-    def release_reader(self) -> None:
-        """Give the listener's slot back: its thread could not be started."""
-        self._slot.release_listener()
-
-    def inline_reading(self) -> AbstractContextManager[bool]:
-        """Hold the reader slot for an inline read; yield whether it was free."""
-        return self._slot.inline()
 
     def end(self, cause: RetireCause) -> bool:
         """Record who ended this dial, first cause wins; whether this call did.

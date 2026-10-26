@@ -25,6 +25,7 @@ from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.display_listener import DisplayListener
     from punt_lux.domain.hub.reply_sink import Pending
     from punt_lux.protocol import Message
@@ -45,11 +46,13 @@ _POLL_SECONDS = 0.1
 class DisplayReplies:
     """The waiting side of one display link."""
 
+    _connection: DisplayConnection
     _listener: DisplayListener
-    __slots__ = ("_listener",)
+    __slots__ = ("_connection", "_listener")
 
-    def __new__(cls, listener: DisplayListener) -> Self:
+    def __new__(cls, connection: DisplayConnection, listener: DisplayListener) -> Self:
         self = super().__new__(cls)
+        self._connection = connection
         self._listener = listener
         return self
 
@@ -70,9 +73,12 @@ class DisplayReplies:
             raise RuntimeError(err)
         while True:
             remaining = deadline - time.monotonic()
-            if generation.has_reader:
+            slot = self._connection.reading(generation)
+            if slot is None or slot.has_listener:
+                # A dial no longer current is read by no one; a listener's dial is
+                # read by the listener: either way the sink carries the reply.
                 return generation.await_reply(pending, remaining)
-            with generation.inline_reading() as granted:
+            with slot.inline() as granted:
                 if granted:
                     try:
                         return self._read_inline(generation, pending, deadline)

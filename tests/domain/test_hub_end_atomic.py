@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.display_link import DisplayLink
 
 
 @pytest.fixture
@@ -52,18 +53,20 @@ def display() -> Iterator[Display]:
 
 
 def _the_display_lands_before_the_first_hub_end(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, link: DisplayLink
 ) -> None:
-    """Make a display end win the sink just before the first Hub end reaches it.
+    """Make a display end win the link's sink just before the first Hub end reaches it.
 
     Whatever decision the Hub took before it ended the dial, the display's end was
-    recorded after it and before the Hub's own: the first cause stands.
+    recorded after it and before the Hub's own: the first cause stands. Only this
+    link's dial is raced, so a thread another test left running cannot spend it.
     """
     real = ReplySink.end
     armed = [True]
+    sink = generation_of(link)._sink  # test seam: the one sink to race
 
     def racing(self: ReplySink, cause: RetireCause) -> bool:
-        if cause == "hub" and armed[0]:
+        if cause == "hub" and self is sink and armed[0]:
             armed[0] = False
             real(self, "display")
         return real(self, cause)
@@ -97,7 +100,7 @@ class TestAHubEndThatLosesTheCauseLeavesTheLedgerToTheReader:
         assert gate.entered.wait(3.0)  # the reader holds ack a, off the socket
         display.peer.send(AckMessage(scene_id="b"))  # in the socket, unread
         dial = link.desk.asks().dial
-        _the_display_lands_before_the_first_hub_end(monkeypatch)
+        _the_display_lands_before_the_first_hub_end(monkeypatch, link)
 
         link.drop_if_current(dial, cause="hub")  # a query's give-up, say
 
@@ -113,7 +116,7 @@ class TestAHubEndThatLosesTheCauseLeavesTheLedgerToTheReader:
         writer_of(link).send_scene(_scene("a"))
         display.peer.send(AckMessage(scene_id="a"))  # sent, and not yet read
         dial = link.desk.asks().dial
-        _the_display_lands_before_the_first_hub_end(monkeypatch)
+        _the_display_lands_before_the_first_hub_end(monkeypatch, link)
 
         link.drop_if_current(dial, cause="hub")
 
@@ -126,7 +129,7 @@ class TestAHubEndThatLosesTheCauseLeavesTheLedgerToTheReader:
         link = _linked(display, listening=False)
         writer_of(link).send_scene(_scene("a"))
         dial = link.desk.asks().dial
-        _the_display_lands_before_the_first_hub_end(monkeypatch)
+        _the_display_lands_before_the_first_hub_end(monkeypatch, link)
 
         link.drop_if_current(dial, cause="hub")
 
@@ -197,7 +200,7 @@ class TestAnInlineReaderThatLosesTheEndReportsTheWinnersCause:
         link = _linked(display, listening=False)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         display.peer.read(1)
-        _the_display_lands_before_the_first_hub_end(monkeypatch)
+        _the_display_lands_before_the_first_hub_end(monkeypatch, link)
 
         display.peer.send(AckMessage(scene_id="unsolicited"))
 

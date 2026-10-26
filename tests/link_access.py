@@ -24,9 +24,18 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_writer import DisplayWriter
+    from punt_lux.domain.hub.reader_slot import ReaderSlot
     from punt_lux.protocol import Element
 
-__all__ = ["deaths_of", "generation_of", "no_reader", "shown", "socket_of", "writer_of"]
+__all__ = [
+    "deaths_of",
+    "generation_of",
+    "no_reader",
+    "reading_of",
+    "shown",
+    "socket_of",
+    "writer_of",
+]
 
 
 def no_reader(_generation: DialGeneration) -> None:
@@ -56,6 +65,14 @@ def deaths_of(
     while (death := queue.take()) is not None:
         drained.append(death)
     return tuple(drained)
+
+
+def reading_of(source: DisplayLink | DisplayConnection) -> ReaderSlot:
+    """Who reads the current dial of ``source``: the slot its connection lends."""
+    connection = source._connection if isinstance(source, DisplayLink) else source
+    slot = connection.reading(connection.require())
+    assert slot is not None, "the dial just asked for is not current"
+    return slot
 
 
 def writer_of(link: DisplayLink) -> DisplayWriter:

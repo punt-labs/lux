@@ -30,7 +30,7 @@ from punt_lux.protocol import (
     encode_message,
 )
 from tests.domain.display_double import Display, until
-from tests.link_access import no_reader
+from tests.link_access import no_reader, reading_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -208,7 +208,7 @@ class TestAReaderLivesAndDiesWithItsDial:
     def test_a_dial_has_one_reader_even_if_the_slot_is_claimed_elsewhere(
         self, rig: _Rig
     ) -> None:
-        assert rig.connection.require().claim_reader()
+        assert reading_of(rig.connection).claim_for_listener()
 
         rig.listener.start()
 
@@ -526,7 +526,7 @@ class TestAFailedThreadStart:
 
         assert not rig.connection.has_reader
         assert not rig.listener.started
-        assert rig.connection.require().claim_reader()  # the slot is free again
+        assert reading_of(rig.connection).claim_for_listener()  # the slot is free again
 
 
 class TestTheRunIsPublishedBeforeTheThreadCanUseIt:

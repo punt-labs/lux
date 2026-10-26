@@ -44,7 +44,7 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
-from tests.link_access import generation_of, no_reader, writer_of
+from tests.link_access import generation_of, no_reader, reading_of, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -617,9 +617,9 @@ class TestARetiredDialNeverDelivers:
         assert topics == ["first"], "the retired dial's later message was routed"
 
 
-def _slot_is_held(generation: DialGeneration) -> bool:
+def _slot_is_held(link: DisplayLink) -> bool:
     """Whether a reader holds the dial's slot now (asking takes it for an instant)."""
-    with generation.inline_reading() as granted:
+    with reading_of(link).inline() as granted:
         return not granted
 
 
@@ -632,8 +632,7 @@ class TestOneReaderPerDial:
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
-        generation = generation_of(link)
-        assert until(lambda: _slot_is_held(generation))  # the wait has the slot
+        assert until(lambda: _slot_is_held(link))  # the wait has the slot
         starting = Call(lambda: link.connect(listen=True))
         assert not starting.wait(0.3), (
             "the inline read holds the dial's one reader slot"
@@ -642,7 +641,7 @@ class TestOneReaderPerDial:
 
         assert pinging.wait()
         assert starting.wait()
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         assert display.sockets[0].reader_overlaps == 0
         link.close()
 
@@ -798,7 +797,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
     def test_a_query_that_times_out(self, display: Display) -> None:
@@ -807,7 +806,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
     def test_a_torn_write(self, display: Display) -> None:
@@ -819,7 +818,7 @@ class TestEveryRetirementReachesTheRegistry:
 
         self._redialed(display, registry)
 
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
 
@@ -982,7 +981,7 @@ class TestConnectCoordinatesTheDialAndItsListener:
 
         link.connect(listen=True)
 
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
     def test_connect_alone_starts_no_reader(self, display: Display) -> None:
@@ -990,7 +989,7 @@ class TestConnectCoordinatesTheDialAndItsListener:
 
         link.connect()
 
-        assert not generation_of(link).has_reader
+        assert not reading_of(link).has_listener
         link.close()
 
 
@@ -1066,12 +1065,11 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
         link = DisplayLink(display, recv_timeout=3.0)
         registry._client = link
         link.connect()  # a dial with no reader, as a library caller leaves it
-        generation = link._connection.require()
         holding = threading.Event()
         release = threading.Event()
 
         def hold_the_slot() -> None:
-            with generation.inline_reading():
+            with reading_of(link).inline():
                 holding.set()
                 release.wait(5.0)
 
@@ -1096,7 +1094,7 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
 
         registry.asks()
 
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
 
@@ -1117,7 +1115,7 @@ class TestAnInteractionReadInlineRunsOutsideTheLocks:
         seen: list[tuple[bool, bool]] = []
 
         def handler(_event: RemoteEventHandlerInvocation) -> None:
-            with generation_of(link).inline_reading() as free:
+            with reading_of(link).inline() as free:
                 seen.append((_ping_lock_is_held(link), free))
 
         link.events.set_fallback_handler(handler)
@@ -1168,7 +1166,7 @@ class TestAFailedListenerStartRetiresItsDial:
         registry.asks()
 
         assert display.dials == 2
-        assert generation_of(link).has_reader
+        assert reading_of(link).has_listener
         link.close()
 
 
@@ -1375,7 +1373,7 @@ class TestAPingIsStampedUnderItsLock:
         connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
         exchange = RequestExchange(
             connection,
-            DisplayReplies(DisplayListener(connection, 1.0)),
+            DisplayReplies(connection, DisplayListener(connection, 1.0)),
             1.0,
         )
 

@@ -12,10 +12,10 @@ model's two roots, and the forbidden modules are the ones that make a reentrant 
 (the registry's and the store's). The slot rule is held by what the slot is, not by
 who is seen calling it: the slot's lock is private to ``ReaderSlot`` (nothing reaches
 it through another object), its one waiting entry point is the listener's claim,
-nothing in ``ReaderSlot`` hands a lock out as a property, and the ``DialGeneration``
-members that reach any locking slot member -- by call or by reading a property, through
-other members too -- are derived and kept out of every state-locked step. Each fails on
-planted source, so none can pass by checking nothing.
+nothing in ``ReaderSlot`` hands a lock out as a property, the members of the slot that
+lock are derived and kept out of every state-locked step of the connection, and the
+generation relays none of them (it holds no slot). Each fails on planted source, so
+none can pass by checking nothing.
 """
 
 from __future__ import annotations
@@ -33,9 +33,6 @@ _ROOTS = (f"{_HUB}.display_requests", f"{_HUB}.display_listener")
 # the store itself, and the replicator that calls the registry; and the singletons
 # a module would reach them through.
 _REENTRANT = "RLock"
-# How the slot is named wherever it is reached: the dial socket's own field, and the
-# property the socket lends it by.
-_SLOT_NAMES = frozenset({"_slot", "reader_slot"})
 
 
 def _forbidden(src: Path, within: str = _HUB) -> frozenset[str]:
@@ -181,57 +178,40 @@ def _reaches_through_other_objects(source: str) -> list[int]:
 
 @final
 class SlotTakers:
-    """The ``DialGeneration`` members that take or wait on the reader slot."""
+    """The ``ReaderSlot`` members that take or wait on its lock."""
 
     _members: frozenset[str]
     __slots__ = ("_members",)
 
-    def __new__(cls, dial_source: str, slot_source: str) -> Self:
+    def __new__(cls, slot_source: str) -> Self:
         self = super().__new__(cls)
         slot = _members(slot_source, "ReaderSlot")
-        locking = {name for name, m in slot.items() if _locks_the_slot(m)}
-        dial = _members(dial_source, "DialGeneration")
-        # A member takes the slot when it calls or reads a locking slot member, or
-        # when it calls or reads another member that does -- a property counts.
-        taking = {
-            name for name, m in dial.items() if cls._touches(m, locking, via="_slot")
-        }
-        grew = True
-        while grew:
-            grew = False
-            for name, m in dial.items():
-                if name not in taking and cls._touches(m, taking, via="self"):
-                    taking.add(name)
-                    grew = True
-        self._members = frozenset(taking)
+        self._members = frozenset(
+            name for name, m in slot.items() if _locks_the_slot(m)
+        )
         return self
-
-    @staticmethod
-    def _touches(fn: ast.FunctionDef, names: set[str], *, via: str) -> bool:
-        """Whether the member calls or reads ``names`` on ``self._slot`` / ``self``."""
-        for n in ast.walk(fn):
-            if not (isinstance(n, ast.Attribute) and n.attr in names):
-                continue
-            owner = n.value
-            if via == "self" and isinstance(owner, ast.Name) and owner.id == "self":
-                return True
-            if (
-                via == "_slot"
-                and isinstance(owner, ast.Attribute)
-                and owner.attr in _SLOT_NAMES
-            ):
-                return True
-        return False
 
     @property
     def names(self) -> frozenset[str]:
-        """The members that take or wait on the slot."""
+        """The slot members that take or wait on its lock."""
         return self._members
+
+    def relayed_by(self, dial_source: str) -> list[str]:
+        """The ``DialGeneration`` members that name a locking slot member."""
+        return sorted(
+            name
+            for name, m in _members(dial_source, "DialGeneration").items()
+            if any(
+                isinstance(n, ast.Attribute) and n.attr in self._members
+                for n in ast.walk(m)
+            )
+        )
 
     def under_the_state_lock(self, connection_source: str) -> list[str]:
         """What ``DisplayConnection`` does under its state lock to the slot.
 
-        A call, a property read, or any mention of the slot itself.
+        A call, or a property read, of a member that takes the slot's lock. Handing
+        the slot out, or reading a flag that takes nothing, is allowed.
         """
         found: list[str] = []
         cls = _class(connection_source, "DisplayConnection")
@@ -244,8 +224,7 @@ class SlotTakers:
                 touched = {
                     n.attr
                     for n in ast.walk(block)
-                    if isinstance(n, ast.Attribute)
-                    and (n.attr in self._members or n.attr in _SLOT_NAMES)
+                    if isinstance(n, ast.Attribute) and n.attr in self._members
                 }
                 found += [f"{method.name}: {attr}" for attr in sorted(touched)]
         return found
@@ -264,7 +243,7 @@ def _hub(name: str) -> str:
 
 
 def _takers() -> SlotTakers:
-    return SlotTakers(_hub("dial_generation.py"), _hub("reader_slot.py"))
+    return SlotTakers(_hub("reader_slot.py"))
 
 
 def _hub_sources() -> dict[str, str]:
@@ -292,9 +271,6 @@ _PLANTED_SLOT = (
 )
 _PLANTED_DIAL = (
     "class DialGeneration:\n"
-    "    @property\n"
-    "    def has_reader(self):\n"
-    "        return self._slot.has_listener\n"
     "    def claim_reader(self):\n"
     "        return self._slot.claim_for_listener()\n"
     "    def release_reader(self):\n"
@@ -366,15 +342,18 @@ class TestTheSlotsLockIsPrivateAndItsWaitIsOne:
 
 
 class TestTheStateLockNeverTakesOrWaitsOnTheReaderSlot:
-    def test_the_slot_takers_are_derived_from_the_two_classes(self) -> None:
+    def test_the_slot_takers_are_derived_from_the_slot(self) -> None:
         assert _takers().names == {
-            "claim_reader",
-            "release_reader",
-            "inline_reading",
+            "claim_for_listener",
+            "release_listener",
+            "inline",
         }
 
     def test_no_state_lock_step_takes_or_waits_on_the_slot(self) -> None:
         assert _takers().under_the_state_lock(_hub("display_connection.py")) == []
+
+    def test_the_generation_relays_no_slot_call(self) -> None:
+        assert _takers().relayed_by(_hub("dial_generation.py")) == []
 
     def test_the_guard_covers_every_state_lock_step_not_three_it_was_given(
         self,
@@ -399,73 +378,56 @@ class TestTheStateLockNeverTakesOrWaitsOnTheReaderSlot:
             "class DisplayConnection:\n"
             "    def open(self):\n"
             "        with self._state_lock:\n"
-            "            self._current.claim_reader()\n"
+            "            self._reading.claim_for_listener()\n"
         )
 
-        assert _takers().under_the_state_lock(planted) == ["open: claim_reader"]
+        assert _takers().under_the_state_lock(planted) == ["open: claim_for_listener"]
 
     def test_an_inline_read_under_the_state_lock_is_found(self) -> None:
         planted = (
             "class DisplayConnection:\n"
             "    def require(self):\n"
             "        with self._state_lock:\n"
-            "            with self._current.inline_reading():\n"
+            "            with self._reading.inline():\n"
             "                pass\n"
         )
 
-        assert _takers().under_the_state_lock(planted) == ["require: inline_reading"]
+        assert _takers().under_the_state_lock(planted) == ["require: inline"]
 
-    def test_taking_the_slot_directly_under_the_state_lock_is_found(self) -> None:
-        planted = (
-            "class DisplayConnection:\n"
-            "    def close(self):\n"
-            "        with self._state_lock:\n"
-            "            with self._current._slot:\n"
-            "                pass\n"
-        )
-
-        assert _takers().under_the_state_lock(planted) == ["close: _slot"]
-
-    def test_reading_who_holds_the_slot_is_allowed_under_the_state_lock(self) -> None:
+    def test_handing_the_slot_out_and_reading_who_holds_it_are_allowed(self) -> None:
         planted = (
             "class DisplayConnection:\n"
             "    def has_reader(self):\n"
             "        with self._state_lock:\n"
-            "            return self._current.has_reader\n"
+            "            return self._reading.has_listener\n"
+            "    def reading(self, generation):\n"
+            "        with self._state_lock:\n"
+            "            return self._reading\n"
         )
 
         assert _takers().under_the_state_lock(planted) == []
 
-    def test_a_slot_property_that_gains_the_lock_makes_its_reader_a_taker(self) -> None:
-        # The slot's has_listener takes the lock; the dial's has_reader reads it as a
-        # property, and the connection reads that under the state lock: an edge no
-        # call-spotting sees.
+    def test_a_slot_property_that_gains_the_lock_is_found_under_the_state_lock(
+        self,
+    ) -> None:
+        # The slot's has_listener takes the lock; the connection reads it as a
+        # property under the state lock: an edge no call-spotting sees.
         slot = _PLANTED_SLOT.replace(
             "        return self._holder == 'listener'",
             "        with self._cond:\n            return self._holder == 'listener'",
         )
-        takers = SlotTakers(_PLANTED_DIAL, slot)
+        takers = SlotTakers(slot)
         connection = (
             "class DisplayConnection:\n"
             "    def has_reader(self):\n"
             "        with self._state_lock:\n"
-            "            return self._current.has_reader\n"
+            "            return self._reading.has_listener\n"
         )
 
-        assert "has_reader" in takers.names
-        assert takers.under_the_state_lock(connection) == ["has_reader: has_reader"]
+        assert "has_listener" in takers.names
+        assert takers.under_the_state_lock(connection) == ["has_reader: has_listener"]
 
-    def test_a_member_that_reaches_a_taker_through_another_member_is_a_taker(
-        self,
-    ) -> None:
-        dial = _PLANTED_DIAL + (
-            "    def drain(self):\n"
-            "        self.release_reader()\n"
-            "    @property\n"
-            "    def idle(self):\n"
-            "        return self.drain()\n"
-        )
+    def test_a_relay_on_the_generation_is_found(self) -> None:
+        takers = SlotTakers(_PLANTED_SLOT)
 
-        takers = SlotTakers(dial, _PLANTED_SLOT)
-
-        assert {"drain", "idle"} <= takers.names
+        assert takers.relayed_by(_PLANTED_DIAL) == ["claim_reader", "release_reader"]

@@ -26,7 +26,7 @@ from punt_lux.protocol import (
     encode_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import deaths_of, no_reader
+from tests.link_access import deaths_of, no_reader, reading_of
 
 
 @final
@@ -569,7 +569,7 @@ class TestOpenForListening:
 
         try:
             assert connection.has_reader
-            with connection.require().inline_reading() as free:
+            with reading_of(connection).inline() as free:
                 assert not free, "an inline read could slip in before the listener"
         finally:
             connection.close()
@@ -599,7 +599,7 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         release = threading.Event()
 
         def hold() -> None:
-            with generation.inline_reading():
+            with reading_of(connection).inline():
                 holding.set()
                 release.wait(5.0)
 
@@ -631,9 +631,9 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
 class TestReaderSlot:
     def test_a_generation_has_one_reader_ever(self) -> None:
         connection, _ = _opened()
-        generation = connection.require()
+        slot = reading_of(connection)
         try:
-            assert (generation.claim_reader(), generation.claim_reader()) == (
+            assert (slot.claim_for_listener(), slot.claim_for_listener()) == (
                 True,
                 False,
             )
@@ -643,7 +643,7 @@ class TestReaderSlot:
 
     def test_a_new_generation_has_no_reader(self) -> None:
         connection, _ = _opened()
-        connection.require().claim_reader()
+        reading_of(connection).claim_for_listener()
         connection.close()
         connection.open()
         try:

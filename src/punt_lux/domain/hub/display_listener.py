@@ -101,9 +101,10 @@ class DisplayListener:
         lack of one: the discoverer takes the reader slot itself. When a reader holds
         the slot, it notices the end and settles the dial.
         """
-        if not self._connection.holds(generation):
+        slot = self._connection.reading(generation)
+        if slot is None:
             return  # a redial replaced it: its own reader settles it, or already did
-        with generation.inline_reading() as granted:
+        with slot.inline() as granted:
             if granted:
                 self.settle(generation, inline=True)
 
