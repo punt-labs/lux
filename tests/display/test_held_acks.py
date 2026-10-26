@@ -10,10 +10,14 @@ client that left before the swap is dropped.
 from __future__ import annotations
 
 import logging
+import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.display import client_sender
+from punt_lux.display.client_sender import ClientSender
 from punt_lux.protocol import AckMessage, SceneMessage, TextElement
-from tests.display.test_reply_discipline import _FD, _hub_client
+from tests.display.test_reply_discipline import _FD, _hub_client, _Peer
 
 if TYPE_CHECKING:
     import socket
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
     import pytest
 
     from punt_lux.display import RenderLoop
-    from tests.display.test_reply_discipline import _Peer
+    from punt_lux.display.client_host_port import ClientHost
 
 
 def _scene(scene_id: str, frame_id: str | None = None) -> SceneMessage:
@@ -161,3 +165,59 @@ def test_the_swap_logs_nothing_however_many_acks_it_flushes(
         _swap(loop)
 
     assert caplog.records == []
+
+
+class _Host:
+    """A client set that records who was severed."""
+
+    clients: list[socket.socket]
+    severed: list[socket.socket]
+
+    def __init__(self, *clients: socket.socket) -> None:
+        self.clients = list(clients)
+        self.severed = []
+
+    def is_client(self, sock: socket.socket) -> bool:
+        return sock in self.clients
+
+    def remove_client(self, sock: socket.socket) -> None:
+        self.clients.remove(sock)
+        self.severed.append(sock)
+
+
+class TestTheHeldAcksShareOnePostSwapBudget:
+    def test_two_stalled_clients_are_bounded_by_one_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        waits: list[float] = []
+
+        def stalled(
+            _r: list[object], _w: list[object], _x: list[object], timeout: float
+        ) -> tuple[list[object], list[object], list[object]]:
+            waits.append(timeout)
+            time.sleep(timeout)  # a peer that never drains: the wait runs to its end
+            return ([], [], [])
+
+        monkeypatch.setattr("punt_lux.bounded_send.select", SimpleNamespace(select=stalled))
+        monkeypatch.setattr(client_sender, "_SWAP_SEND_BUDGET", 0.05)
+        monkeypatch.setattr(client_sender, "_ONE_OFF_SEND_BUDGET", 5.0)
+        first = cast("socket.socket", _Peer(blocked=True))
+        second = cast("socket.socket", _Peer(blocked=True))
+        host = _Host(first, second)
+        sender = ClientSender(cast("ClientHost", host))
+        sender.hold_ack(first, "a")
+        sender.hold_ack(second, "b")
+
+        sender.release_acks()
+
+        assert len(waits) == 1, "the second client waited on a budget of its own"
+        assert waits[0] <= 0.05
+        assert host.severed == [first, second]
+
+    def test_the_deadline_is_cleared_once_the_acks_are_out(self) -> None:
+        host = _Host()
+        sender = ClientSender(cast("ClientHost", host))
+
+        sender.release_acks()
+
+        assert sender._frame_deadline is None

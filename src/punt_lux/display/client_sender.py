@@ -8,7 +8,8 @@ the client misses must end the connection: :meth:`ClientSender.reply_to_client`.
 :meth:`ClientSender._transmit` is the one place a byte leaves for a client.
 
 The frame deadline is the send budget the render loop arms for one frame; with none
-armed a send takes its own one-off budget.
+armed a send takes its own one-off budget. The acks held for a swap go out after the
+frame, under one budget of their own (:meth:`ClientSender.release_acks`).
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ logger = logging.getLogger(__name__)
 # a genuinely stuck peer, absent a caller deadline.
 _ONE_OFF_SEND_BUDGET = 1.0
 
+# The one budget every ack held for a swap shares as it is released, however many
+# clients wait: the same bound a frame's own sends share.
+_SWAP_SEND_BUDGET = 0.1
+
 
 @final
 class ClientSender:
@@ -43,6 +48,9 @@ class ClientSender:
     _host: ClientHost
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
     # Scenes installed and not yet acked: the client and the scene, in receipt order.
+    # Not capped: an ack dropped would shift every later one, and the Hub matches acks
+    # by order. It stays bounded because the render thread, the only one to hold or
+    # release, flushes it at every swap.
     _held_acks: list[tuple[socket.socket, str]]
     __slots__ = ("_frame_deadline", "_held_acks", "_host")
 
@@ -98,13 +106,22 @@ class ClientSender:
         Called once a swap has completed. Visibility does not matter: a scene in a
         background tab or a docked frame is acked with the rest. A client that left
         before the swap has no one to hear its acks, so they are dropped.
+
+        The whole flush shares one bounded deadline, set before the first ack and
+        cleared after the last: acks to several clients that stopped reading cannot
+        stack per-send waits and wedge the render thread. A client that misses it is
+        severed, as for any reply.
         """
         held, self._held_acks = self._held_acks, []
-        for sock, scene_id in held:
-            if self._host.is_client(sock):
-                self.reply_to_client(
-                    sock, AckMessage(scene_id=scene_id, ts=time.time())
-                )
+        self.set_frame_deadline(time.monotonic() + _SWAP_SEND_BUDGET)
+        try:
+            for sock, scene_id in held:
+                if self._host.is_client(sock):
+                    self.reply_to_client(
+                        sock, AckMessage(scene_id=scene_id, ts=time.time())
+                    )
+        finally:
+            self.clear_frame_deadline()
 
     def _transmit(self, sock: socket.socket, msg: Message) -> bool:
         """The one place a byte leaves for a client; whether it beat its deadline.

@@ -332,10 +332,12 @@ class RenderLoop:
     def _on_frame(self) -> None:
         """Called every frame by ImGui.
 
-        One bounded send deadline is armed for the whole frame so a burst of Acks,
-        Pongs, and query responses under Hub backpressure cannot stack per-send
-        waits and wedge the render thread past the ping timeout or the macOS "not
-        responding" threshold. Sends past the budget defer, they do not block.
+        One bounded send deadline is armed for the whole frame so a burst of Pongs and
+        query responses under Hub backpressure cannot stack per-send waits and wedge
+        the render thread past the ping timeout or the macOS "not responding"
+        threshold. Sends past the budget defer, they do not block. The acks of the
+        scenes this frame installs go out after the swap, under their own one budget
+        (``ClientSender.release_acks``).
         """
         sender = self._sender
         sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
