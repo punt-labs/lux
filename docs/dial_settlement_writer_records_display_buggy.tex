@@ -42,7 +42,8 @@
 %                                                     lock held reports nothing more
 %   dial_settlement_drain_no_late_buggy.tex           no timed-out branch: a settler
 %                                                     with no asker waits for a stuck
-%                                                     writer for ever (deadlock)
+%                                                     writer for ever (deadlock with
+%                                                     no rescuer)
 % In docs/:
 %   dial_settlement_start_fail_buggy.tex       start_on on an ended dial keeps the slot
 %   dial_settlement_stop_skip_drain_buggy.tex  the listener's exit reads ended twice
@@ -231,9 +232,11 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     decision to the settler, whose drain finds a display that really died.
     (c)~A drain that finds the socket readable and the lock held by a writer
     \emph{waits} for the writer; it does not report ``nothing more''.  The wait
-    has a ceiling, twice the one-second send timeout
-    (\texttt{SEND\_TIMEOUT\_CEILING\_SECONDS}, two seconds).  A writer that fails or times out
-    releases the lock within it.  A writer that keeps making partial progress
+    has a ceiling, \texttt{SEND\_TIMEOUT\_CEILING\_SECONDS}, three seconds.  It is
+    set strictly above the longest send timeout the platform probe admits
+    (2.5~s; the measured timeout is one second on Linux and two on macOS), so a
+    writer that fails or times out releases the lock within it and its acks are
+    read.  A writer that keeps making partial progress
     (\texttt{WStall}) does not, and rule~6 does \emph{not} bound that case,
     because it is armed by a refused asker and a settler that took the slot
     itself has none.  At the ceiling the drain reports itself incomplete
@@ -241,12 +244,18 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     bound, \texttt{ReaderSlot.\_late}: it waits the bound, two seconds, for
     anyone else to settle the dial, then records its cause and captures
     undrained (\texttt{SDrainLate}, \texttt{LateCapture}).  The settle therefore
-    ends within the ceiling plus the bound, four seconds, with no asker
+    ends within the ceiling plus the bound, five seconds, with no asker
     required; the capture shuts the socket, which is what
-    wakes the stuck writer (\texttt{WStuckOut}).  The obligation this places on
-    the code: a capture shuts the socket whatever path captured, so a TLS
-    \texttt{sendall} wedged on a display that reads nothing returns within that
-    bound (the test \texttt{test\_retiring\_a\_dial\_releases\_a\_sender\_wedged\_on\_a\_tls\_socket}).
+    wakes the stuck writer (\texttt{WStuckOut}).  Two obligations follow for the
+    code, neither visible to a model with one writer.  First, a capture shuts
+    the socket whatever path captured, so a TLS \texttt{sendall} wedged on a
+    display that reads nothing returns within that bound (the test
+    \texttt{test\_retiring\_a\_dial\_releases\_a\_sender\_wedged\_on\_a\_tls\_socket}).
+    Second, the ceiling is paid at most once per settle: after the end is
+    recorded or requested no new writer passes \texttt{\_require\_open}, so the
+    drain waits for at most the one writer in flight, and its later looks find
+    the lock free.  Without the second the five seconds would grow by a ceiling
+    per writer.
     The late capture is the fifth exception to A2 (\texttt{s2lat}), with
     the bound of rule~6 plus the ceiling.  The lock order
     $rq < sl < st < lk < qu$ is kept: the waiting settler holds no lock that the
@@ -956,7 +965,7 @@ holder does nothing.
 \end{schema}
 
 The drain could not be made: the socket is readable, and a writer has held the
-socket lock past the ceiling (twice the send timeout).  The drain reports itself
+socket lock past the ceiling (three seconds).  The drain reports itself
 incomplete (\texttt{DrainIncompleteError}), and the settler, which holds the slot
 and needs no refused asker, hands its capture to the bound.  The step is enabled
 whenever the lock is held and the socket readable, which over-approximates the
@@ -1193,7 +1202,10 @@ scene per dial.  The bound holds because the write then raises
 re-marks the batch's scenes dirty for every failure but a shutdown flush
 (\texttt{SendRecovery.recover} and \texttt{\_repaint}), so the scene goes out
 again on the next dial and, if it is the poison scene, is charged there.  The
-attribution is late by one dial; it is not lost.  The writer then lets go of the
+attribution is late by one dial; it is not lost.  A scene the agent has cleared
+meanwhile is not re-sent and needs no charge, and the first death, which does
+not name the scene, charges only the other scenes in that dial's ledger and
+carry.  The writer then lets go of the
 lock.  The design admits no state in which the scene is on the wire of a
 \emph{current} dial and not in the ledger (S6).
 
@@ -1225,7 +1237,9 @@ fires, and holds the lock for ever: a behaviour of the environment, like
 \texttt{Block}.  It is released only by a capture, which shuts the socket and
 makes \texttt{sendall} raise.  Such a writer is what the ceiling and the bound
 exist for: without \texttt{SDrainLate} a settler with no refused asker behind it
-waits for a writer that never lets go (the control \texttt{drain\_no\_late}).
+waits for a writer that never lets go (the control \texttt{drain\_no\_late},
+which deadlocks once no stopper or inline reader can rescue the dial; see the
+section Verification).
 The write then fails on a dial that is already captured, and its failure is
 left alone (\texttt{WRecGone}).
 
@@ -1472,16 +1486,20 @@ fails by design; they are deliberate weakenings, not refinements.
   \item \texttt{s2lat} (round 4): a display or unresponsive end captured, undrained,
     by the settler's own late capture, because a writer held the socket lock
     past the ceiling while an ack or the end of file was readable.  A2 fails.
-    Bound: the acks readable at that moment, after the ceiling and the bound
-    (the same ceiling-plus-bound as the settle that ends it); the over-charge is
-    accepted, like item~2.
+    Bound: the acks readable at that moment, after the ceiling (3~s) and the
+    bound (2~s), five seconds in all; the over-charge is accepted, like item~2.
   \item \texttt{a1late} (round 4): a scene written to the wire while a capture
     lands between \texttt{sendall} returning and the owed-ack entry, so that it
     is in neither the captured ledger nor, for a \texttt{hub} capture, the
     carried set.  An \emph{under}-charge: A1 fails.  Bound: one scene per dial,
     and only for a capture in that window.  The write raises, the replicator's
     recovery re-marks the scene, and it goes out on the next dial, where a death
-    it causes is charged; the attribution is late by one dial, not lost.
+    it causes is charged; the attribution is late by one dial, not lost.  Two
+    qualifications.  (a)~The scene is charged on the next dial only if it kills
+    that display too: a deterministic poison does; a scene the agent has cleared
+    meanwhile is not re-sent, and needs no charge.  (b)~The first death, which
+    does not name the scene, charges only the other scenes in that dial's ledger
+    and carry.
 \end{enumerate}
 
 This section is the refinement obligation list.  The matching note belongs in
@@ -1577,46 +1595,9 @@ which is always; round 1's remark that an empty buffer made the peek sound was a
 artefact of an ack that could not arrive, and is withdrawn here.
 
 \paragraph{Round 4: the writer.}
-The design now has the writer actor, the lock and the ledger (45 operations).
-Same commands as above, with the S6 predicate added to the safety goal:
-\begin{verbatim}
-  P="-p MAX_OPERATIONS 200000 -p MAX_INITIALISATIONS 100"
-  deadlock:  probcli docs/dial_settlement.tex -model_check -coverage $P
-  safety:    ... -nodead -bf $P -goal "s2bad = fset or s3bad = fset or
-               s4bad = fset or s5bad = fset or
-               (wire = fset & ledger = fclear & lk = fclear & current = fset)"
-  S1a, S1b:  the goals above, unchanged
-\end{verbatim}
-Results for the design (state space 1371734, up from 90906; peak 3.7 GB): the
-deadlock check visits all states, 7384065 transitions, \texttt{deadlocked:0},
-45 of 45 operations covered.  The safety goal (\texttt{s2bad}, \texttt{s3bad},
-\texttt{s4bad}, \texttt{s5bad}, or S6 violated), S1a and S1b are each not found
-over all 1371733 states, breadth first to level 30.  The writer controls:
-\begin{center}
-\begin{tabular}{llll}
-control & goal & states analysed & depth \\
-writer\_records\_display & \texttt{s5bad} & 3916 & 6 \\
-writer\_records\_display & S6 predicate & 1629 & 5 \\
-drain\_gives\_up & \texttt{s2bad} & 4645 & 6 \\
-\end{tabular}
-\end{center}
-The traces.  \texttt{writer\_records\_display}, S5: \texttt{SPStart, WLock,
-HubReq, WSendDone, WOweRefused, WRec}: a Hub request lands while a scene write is
-in \texttt{sendall}; the write completes, the owed ack is refused, and the
-failure records \texttt{display} for a display that is alive.  S6: a recorded end
-(the keepalive's \texttt{unresponsive}) lands between \texttt{WSendDone} and the
-owed ack, with the same result: the scene is on the wire of a current dial and
-not in the ledger.  \texttt{drain\_gives\_up}, S2: \texttt{WLock, DStartUnresp,
-RecEnd, SUGrant, SDrain, SDecide}: the keepalive's unresponsive end is recorded
-while a writer holds the lock, the settle's drain finds the lock held and
-reports nothing more with an ack readable, and the capture charges the scene
-the display had acknowledged.  The design, with the guard \texttt{lk = fclear}
-on \texttt{SDrain} and the owed ack made unconditional on a current dial, has
-neither trace.  The counts are breadth-first, as everywhere in this section.
-
-The two writer controls were checked in separate runs; the two small control
-runs of the drain and of S6 happened to be issued together, and neither shares a
-file with the other.
+The verification of round~4, its commands and the table of the writer
+controls, are in the design file, \texttt{docs/dial\_settlement.tex};
+this control is checked by the run its header names.
 
 \paragraph{What is not modelled.}
 A second discoverer, a second inline reader, more than one unread acknowledgement,
