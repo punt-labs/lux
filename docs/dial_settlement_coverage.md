@@ -8,7 +8,7 @@ names it. A row marked GAP has no test.
 
 Governs: `src/punt_lux/domain/hub/{display_connection,dial_reader,display_listener,
 listener_thread,display_replies,reply_sink,dial_generation,reader_slot,dial_drain,settler,
-bounded_ask,dial_end,dial_socket}.py`.
+bounded_ask,dial_end,dial_socket}.py`, and since round 5 `src/punt_lux/{bounded_send,send_timeout}.py`.
 Re-run `fuzz`, the model-check and every control whenever the end, settle or slot paths
 change.
 
@@ -16,14 +16,15 @@ change.
 
 | Id | Claim | Status |
 |----|-------|--------|
-| S1a | An ended or end-requested current dial is settled by a party already running, with no timer. Holds only if the three atomicity obligations hold; broken, the dial degrades to the 2 s bound and an undrained capture | checked: goal not found (round 3: 90905 states; round 4 with the writer and `WStall`: 2068661 states); every round-9 control trips it |
-| S1b | The same behind a holder that never makes progress, by the bound | checked: goal not found (also with the writer and `WStall`, 2068661 states; a stuck writer is stuck, a settler behind a held lock has the timed `SDrainLate` and counts as in flight, as a waiting asker does); `drain_no_late` (no timed-out drain branch) is told apart from the design by the **no-rescuer** deadlock check: in scratch copies of both with `SPStart` and `IAcq` given the unsatisfiable guard `pc a = pidle and pc a = pdone`, the control deadlocks (2328 states, `Die, WLock, WStall, Block, DStartDisp, RecEnd, SUGrant(aDi)`) and the design does not (68157 states, all visited). No state goal tells them apart, because the state just before `SDrainLate` fires is the same in both, and a plain deadlock check passes on both because an idle stopper or inline reader always has a step; `defer_only` deadlocks, `timer_hub_only` trips the goal |
+| S0 | (round 5) No settle decides from nothing: a holder never reaches its decision with no cause recorded, no end of file observed and no Hub request (the code's `decide` raises `ValueError`, and a listener dies holding the slot) | checked: `s0bad` not found over 2267293 states; `SDecideNone` uncovered by the deadlock check; `stop_no_request` trips it, `SPStart, StOk, RReadErr, SDrain, SDecideNone` (2772 states, depth 5) |
+| S1a | An ended or end-requested current dial is settled by a party already running, with no timer. Holds only if the three atomicity obligations hold; broken, the dial degrades to the 2 s bound and an undrained capture | checked: goal not found (round 3: 90905 states; round 4 with the writer and `WStall`: 2068661 states; round 5: 2267293 states); every round-9 control trips it |
+| S1b | The same behind a holder that never makes progress, by the bound | checked: goal not found (round 5, 2267293 states; a stuck writer is stuck, a settler behind a held lock has the timed `SDrainLate` and counts as in flight, as a waiting asker does, and so does a keepalive at `pping`, which has `KPing`). Liveness the state goals cannot see is shown by the **no-rescuer** deadlock check: scratch copies with `SPStart` and `IAcq` given the unsatisfiable guard `pc a = pidle and pc a = pdone`. The design has no deadlock (72577 states), nor with the write deadline broken (`WDeadline` disabled, 72577), nor with the keepalive waiting for the lock (72577). `unbounded_write` (both together, today's code) deadlocks: `WLock, WStall, Die, Block, DStartUnresp` (671 states, depth 5). `drain_no_late` with the deadline broken deadlocks: `Die, WLock, WStall, Block, DStartDisp, RecEnd, SUGrant(aDi)` (2274 states, depth 7); `SDrainLate` is the defence for a broken deadline. `defer_only` deadlocks, `timer_hub_only` trips the goal |
 | S2 | A dead display's end is captured only after a drain that began after it was recorded | checked: `s2bad` not found; `split_settle` and `stop_skip_drain` trip it |
 | S3 | One capture per dial | **structural** (every capture guarded by `current`); `s3_unguarded` trips it |
 | S4 | The captured cause is the first recorded | **structural** (one first-wins writer); `s4_overwrite` trips it |
-| S5 | No recorded cause contradicts the observation: a display dead when observed is never recorded as hub, and (round 4) a writer never records a display end for a display that is alive | **structural** (the cause is a function of the observation); `hub_record`, `hub_peek` and `writer_records_display` trip it. `writer_records_display` needs two defects together (the refused ack and a classification that ignores a Hub request); neither reaches S5 alone. The classification (rule 7b) is therefore **policy** that matches the order `decide` uses, and no checked property depends on it |
-| S6 | A scene on the wire of a current dial is in the ledger once its writer lets go of the socket lock (an end never withdraws the entry; a capture before the entry is the `a1late` exception) | checked: `wire = fset & ledger = fclear & lk = fclear & current = fset` unreachable over 2068661 states; `writer_owe_refused` and `writer_records_display` each reach it |
-| S2w | A drain that finds the socket readable never reports "nothing more" | **structural** (the content is `SDrain`'s guard; `gu` is identically clear in the design); `drain_gives_up` sets `gu` and trips `s2bad`. The timed-out branch that replaces the give-up, `SDrainLate`, is checked: the deadlock check passes with `WStall` present (50 of 50 operations covered), S1a and S1b hold, and it ends in the bound's capture flagged `s2lat` |
+| S5 | No recorded cause contradicts the observation: a display dead when observed is never recorded as hub; (round 4) a writer never records a display end for a display that is alive; and (round 5) a writer never records a cause while a Hub request is pending, because the request refuses writes and its end is the Hub's, charging nothing | **structural** (the cause is a function of the observation, and `WRec` records only when no request is pending); `hub_record`, `hub_peek`, `writer_records_display` and `writer_split_record` trip it. `writer_split_record` is one point, the check and the record under two lock holds: `WLock, WSendTimeout, WCheck, SPStart, HubReq, WRec` (4318 states, depth 6). Rule 7b is therefore no longer policy |
+| S6 | A scene on the wire of a current dial is in the ledger once its writer lets go of the socket lock (an end never withdraws the entry; a capture before the entry is the `a1late` exception) | checked: `wire = fset & ledger = fclear & lk = fclear & current = fset` unreachable over 2267293 states; `writer_owe_refused` (1819 states, depth 5) and `writer_records_display` each reach it |
+| S2w | A drain that finds the socket readable never reports "nothing more" | **structural** (the content is `SDrain`'s guard; `gu` is identically clear in the design); `drain_gives_up` sets `gu` and trips `s2bad` (9878 states, depth 7). The timed-out branch that replaces the give-up, `SDrainLate`, is checked: the deadlock check passes (54 of 55 operations covered, the 55th the unreachable `SDecideNone`), S1a and S1b hold, and it ends in the bound's capture flagged `s2lat` |
 
 S2's carve-outs, each with its own flag and bound: decode-error ends capture undrained
 (`s2dec`; the acks behind the bad frame, once); the bound captures undrained, for a display
@@ -50,7 +51,7 @@ deliberate exceptions to A1 or A2, each with its bound:
 | the bound's capture of a display end | `s2blk` | A2 | every ack queued while the holder stalled, after 2 s |
 | the bound's capture of an unresponsive end | `s2blk` | A2 | as above; flagged since round 3 |
 | `hub` recorded by the bound for a display already dead | `s5blk` | A1 | a poison death is carried and not charged; a later ack read clears it; after 2 s, once |
-| a display or unresponsive end captured undrained by the settler's own late capture, a writer having held the socket lock past the ceiling with an ack or end of file readable | `s2lat` | A2 | the acks readable at that moment; ceiling (3 s) plus bound (2 s), 5 s; accepted over-charge, like `s2blk` |
+| a display or unresponsive end captured undrained by the settler's own late capture, a writer having held the socket lock past the ceiling with an ack or end of file readable | `s2lat` | A2 | the acks readable at that moment; ceiling (3 s) plus bound (2 s), 5 s (5.5 s with the proposed 3.5 s ceiling); since round 5 reached only when a writer breaks its deadline `D`; accepted over-charge, like `s2blk` |
 | a scene written while a capture lands between `sendall` returning and `owe_ack` (`WOweLate`): in neither the captured ledger nor, for a `hub` capture, the carry. An **under**-charge | `a1late` | A1 | one scene per dial, and only for a capture in that window (any capture: a Hub request, a decision on an unreadable socket, the bound, a decode error). The write raises `ConnectionClosedError`, an `OSError`; `SendRecovery.recover` re-marks the batch's scenes (`_repaint`) for every failure but a shutdown flush, so the scene goes out on the next dial and a death it causes is charged there: late by one dial, not lost. Two qualifications: (a) it is charged on the next dial only if it kills that display too (a deterministic poison does; a scene the agent cleared meanwhile is not re-sent and needs no charge); (b) the first death, which does not name it, charges only the other scenes in that dial's ledger and carry |
 
 ## The design the model proves
@@ -82,8 +83,10 @@ One rule: settlement belongs to the holder of the reader slot; everyone else ask
    whatever the end state: a Hub request or a recorded cause does not refuse it; only a dial
    already captured does. (b) A write that fails after a Hub request is the Hub's failure: the
    writer records no cause (it tests `closing`, not the recorded `ended`) and the settler's drain
-   finds a display that really died. This is **policy**, matching the order `decide` uses; no
-   checked property depends on it (S5 needs the refused ack of (a) as well). (c) A drain that
+   finds a display that really died. Round 5 makes the check and the record one step under the
+   sink's lock (`ReplySink.end_by_writer`), and gives it a checked property: S5's writer clause,
+   a writer never records a cause while a Hub request is pending, which `writer_split_record`
+   (the two lock holds the code had) trips. (c) A drain that
    finds the socket readable and the lock held by a writer *waits* for it, up to the ceiling
    (`SEND_TIMEOUT_CEILING_SECONDS`, 3 s, set strictly above the 2.5 s the platform probe admits
    for the send timeout; the measured timeout is 1 s on Linux and 2 s on macOS). A socket that is
@@ -103,12 +106,36 @@ One rule: settlement belongs to the holder of the reader slot; everyone else ask
    writer can still pass `_require_open` during the first drain. On the same-host Unix socket that
    writer fails at once with EPIPE and records the display's end, which closes the door, so the
    bound stays 5 s; across hosts (TLS) it can wait out its own send timeout first, and the worst
-   case is 3 + 3 + 2 = 8 s. The late capture is
+   case is 3 + 3 + 2 = 8 s. With rule 7d (round 5) that writer is bounded by the write deadline
+   `D` too: a settle whose writers keep their deadlines waits at most `D` per drain, `2D` with the
+   re-drain; only with the deadlines broken does the defence reach ceiling + ceiling + 2 s. The
+   late capture is
    the fifth exception to A2 (`s2lat`). The lock order
    `rq < sl < st < lk < qu` is kept: the waiting settler holds no lock the writer takes, and the
    writer, which takes `qu` for the ack under `lk`, waits on nothing the settler holds. The
    model is the code as built on `fix/lux-ghhf-r3-fixes`; the round-1 idea of a polling re-drain
    is not what was built.
+   (d) **Every scene write ends within a deadline `D` (round 5).** On TLS `SO_SNDTIMEO` does not
+   bound `sendall` (a probe blocked for more than 9 s), so the premise of (c) is false there.
+   Every scene write goes through the user-space bounded send (`bounded_send.py`) with one
+   deadline for the whole write, on both transports; a missed deadline is the writer's
+   `unresponsive`, recorded by the atomic record of (b) (`WDeadline`). A keepalive ping or a
+   query that cannot take the socket lock within `D` ends the dial as `unresponsive` (`KPing`,
+   enabled whether the lock is held or not). The ceiling stays strictly above `D`, so a drain
+   behind a writer waits at most `D` and the late path is defence for a broken deadline; the
+   model is untimed, so `WStall` and `SDrainLate` stay reachable there. Proposed constants (the
+   leader rules): `D` = 2.5 s, no shorter than the longest send timeout the probe admits, and the
+   ceiling 3.5 s; the settle bound is then `D` = 2.5 s for writers that keep their deadline and
+   ceiling + bound = 5.5 s as defence. `D` = 2 s with the ceiling left at 3 s is equally sound
+   and cuts short a macOS write that would have completed between 2 and 2.5 s.
+
+8. **A reader that leaves on the stop flag asks for the Hub's end (round 5).** `stop()` sets
+   the flag, then asks; two steps. A reader that leaves on the flag, at the top of its loop
+   (`RStop`) or through a read that failed in that window (`RReadErr`), calls `request_hub()`
+   before it settles. Every settle then starts from a recorded cause, a request, or an end of
+   file the drain will see, and no writer passes `_require_open` in the window. The drain itself
+   no longer waits for a cause (round 4's guard hid the defect); a settle with nothing to decide
+   from is `SDecideNone`, the code's `ValueError`, and S0 says it never happens.
 
 The code as it stands cannot meet S1 to S5 without rules 1, 2 and 6. Patching the three
 round-9 traces (release in `start_on`, re-check after the inline release, record before the
@@ -136,11 +163,15 @@ stalled holder missing.
 | P15 settle is idempotent and single | `SDecide`, `SettleGone` | Call `settle()` twice, and from the releaser and the listener at once; one capture |
 | P16 the door is structural | `SettleGone` (listener unreachable) | Guard: `DisplayConnection` has no public method that captures; `Settler` is constructed only by `ReaderSlot`; the bound's capture is the one other site and is named. The refusal hands the asker a handle whose capture becomes enabled only after the bound has passed; a refusal that returned a `close_if_current`-shaped door would reopen it. Count references per qualified function across `src/punt_lux` recursively; plant bound-reference and `getattr` spellings |
 | P17 a write completes after a Hub request | `WLock`, `WSendDone`, `HubReq`, `WOweOk`, `WUnlock`, `SDrain`, `SDecide` | Two threads, red first on the code at `d329c0aa`. Park `sendall` in `send_scene` behind a gate; on a second thread call `request_hub` (or `retire(gen, cause="hub")`); release the gate. Assert the settled cause is `hub`, no `DialDeath` is queued, the written scene is in the carry, and the writer raises `HubRetiredError`. Control: `writer_owe_refused` (S6), `writer_records_display` (S5 and S6) |
-| P18 a write fails after a Hub request | `WSendDead`/`WSendTimeout`, `HubReq`, `WRec` | `sendall` raises after `request_hub`: assert no cause is recorded by the writer. A dead display (end of file queued) then settles as `display` by the drain's observation; a live one settles as `hub`. **Policy** (rule 7b): no control and no checked property; it reaches S5 only together with the refused ack, in `writer_records_display` |
+| P18 a write fails after a Hub request | `WSendDead`/`WSendTimeout`, `HubReq`, `WRec` | `sendall` raises after `request_hub`: assert no cause is recorded by the writer. A dead display (end of file queued) then settles as `display` by the drain's observation; a live one settles as `hub`. S5's writer clause (round 5); control `writer_split_record` for the race, P23 |
 | P19 the drain waits for the writer | `WLock`, `DStartUnresp`, `RecEnd`, `SDrain` (guard `lk = fclear` or an unreadable socket), `WSendTimeout`/`WUnlock`, `SDecide` | Two threads. Hold the socket lock on thread B in a `sendall` stand-in; queue an ack; record `unresponsive`; settle on thread A. Release B within the send timeout. Assert the ack is applied and no death names it. Red first on the 0.25 s lock wait. Control: `drain_gives_up` (S2w) |
-| P20 a writer that never releases, no asker | `WLock`, `WStall`, `DStartUnresp`, `RecEnd`, `SUGrant`, `SDrainLate`, `LateCapture`, `WStuckOut` | One settler that took the slot itself (no refused asker), the lock held past the ceiling (ceiling and bound shortened) with an ack readable. Assert the drain is `Drained(complete=False)` with a WARNING, the dial is captured by the bound, undrained (`s2lat`), with the recorded cause, `Settler.settle` afterwards does nothing, and the stuck writer is released by the capture's shutdown. The no-asker case is the point: rule 6 as an asker's timer does not apply. Control: `drain_no_late` (deadlock with no rescuer) |
+| P20 a writer that never releases, no asker | `WLock`, `WStall`, `DStartUnresp`, `RecEnd`, `SUGrant`, `SDrainLate`, `LateCapture`, `WStuckOut` | One settler that took the slot itself (no refused asker), the lock held past the ceiling (ceiling and bound shortened) with an ack readable. Assert the drain is `Drained(complete=False)` with a WARNING, the dial is captured by the bound, undrained (`s2lat`), with the recorded cause, `Settler.settle` afterwards does nothing, and the stuck writer is released by the capture's shutdown. The no-asker case is the point: rule 6 as an asker's timer does not apply. Since round 5 this is the defence for a writer that breaks its deadline `D`. Control: `drain_no_late` (deadlock with no rescuer and the deadline broken) |
 | P21 the ack is owed after the capture | `WOweLate` | Capture the dial between `sendall` returning and `owe_ack`; assert `owe_ack` is refused (captured sink), the writer raises `ConnectionClosedError` (an `OSError`, so the replicator's recovery re-marks the scene for the next dial), the scene is in no ledger, and the dial charges nothing for it: the `a1late` under-charge, late by one dial. Also with a decode-error end in place of the capture |
 | P22 the drain's look on an unreadable socket takes no lock | `SDrain` guard `sock = 0 & eof = fclear` | A writer holds the lock mid-send and nothing is readable: the drain returns at once, `complete=True`, without waiting for the writer |
+| P23 the writer's check and record are one step (round 5) | `WSendTimeout`/`WSendDead`, `HubReq`, `WRec` | Red first on the two lock holds. Inject `request_hub()` between the write's failure and its record (wrap the writer-side entry); for `BlockingIOError` and `OSError`, assert the dial settles as `hub`, no death is queued, and the writer raises `HubRetiredError`. Control: `writer_split_record` (S5) |
+| P24 a read that fails in the stop window asks for the Hub's end (round 5) | `SPStart`, `RReadErr`, `SDrain`, `SDecide` (never `SDecideNone`) | Red first on today's `_read`. Set the stop flag, make `poll_chunk` raise, run the reader: assert no `ValueError`, the dial settles as `hub`, no death; and a `send_scene` made in the window is refused. Control: `stop_no_request` (S0) |
+| P25 every scene write ends within `D` (round 5) | `WLock`, `WStall`, `WDeadline`, `WRec`, `SUGrant`, `SDrain` | Red first on a blocking TLS `sendall`. A TLS peer that never reads: `send_scene` ends within `D` (plus scheduling slack) as `unresponsive`, recorded once, and the dial settles. The same for a slow-draining peer that keeps the write partially progressing past `D`. The plain-socket leg too, since the deadline is one path on both transports. Control: `unbounded_write` (no rescuer, deadlock) |
+| P26 a ping or query that cannot take the socket lock within `D` ends the dial (round 5) | `DStartUnresp`, `KPing` with `lk = fset`, `RecEnd` | Red first on the unbounded lock wait. Hold the socket lock on another thread (a writer stand-in that never lets go); call `send_ping` and `send_query`: each returns within `D`, the dial records `unresponsive`, and a settle follows. Control: `unbounded_write` (no rescuer, deadlock) |
 
 ## Test mapping
 
@@ -170,16 +201,22 @@ the partitions rest on: `TestRecording`, `TestTheHubsRequest`, `TestDeciding`,
 | P15 | `TestASettleIsOneAndAnEndIsTheFirstRecorded::test_p15_a_settle_made_twice_or_at_once_captures_once` |
 | P16 | `tests/domain/test_settlement_door.py`: `TestTheDoorIsTheSlot` (`test_a_settler_is_made_only_by_the_reader_slot`, `test_a_bounded_ask_is_made_only_by_the_reader_slots_refusal`, `test_a_dial_is_marked_closed_and_shut_only_by_the_connections_capture`, `test_the_capture_reaches_only_the_slot_its_settler_and_the_bound`, `test_the_doors_the_design_removed_are_referred_to_nowhere`); `TestTheGuardCanFail` (`test_every_spelling_of_a_second_door_is_counted`, `test_a_type_or_a_plain_import_is_not_a_reference`, `test_references_are_keyed_by_the_qualified_function`) |
 | P17 | `TestTheWriter::test_p17_a_write_that_completes_after_a_hub_request_is_owed_and_carried` (two threads) |
-| P18 | `TestTheWriter::test_p18_a_write_that_fails_after_a_hub_request_records_no_cause` (policy) |
+| P18 | `TestTheWriter::test_p18_a_write_that_fails_after_a_hub_request_records_no_cause`, parametrized over a dead and a live display: the dead one settles as `display`, the live one as `hub`, and nothing is charged (the live-display case is asserted on `fix/lux-ghhf-r3-fixes`) |
 | P19 | `TestTheWriter::test_p19_a_drain_waits_for_the_writer_that_holds_the_socket_lock` (two threads; asserts the waiting settler holds neither the state lock nor the sink's) |
-| P20 | `TestTheWriter::test_p20_a_writer_that_never_releases_is_captured_by_the_bound_and_the_drain_says_incomplete` (the settler took the slot itself: no refused asker). **Gap in it**: it releases the writer in `finally` and does not assert that the capture's shutdown is what wakes a writer that never lets go |
-| P21 | `TestTheWriter::test_p21_an_ack_owed_after_the_capture_is_refused_not_recorded`. **GAP**: it does not assert that the scene is re-marked for the next dial, nor the decode-error variant |
-| P22 | **GAP**: no test for the lock-free look at an unreadable socket; the name to use is `TestTheWriter::test_p22_a_drain_of_an_unreadable_socket_does_not_wait_for_the_writer` |
+| P20 | `TestTheWriter::test_p20_a_writer_that_never_releases_is_captured_by_the_bound_and_the_drain_says_incomplete` (the settler took the slot itself: no refused asker) and `::test_p20_the_captures_shutdown_wakes_a_writer_stuck_in_sendall` (no send timeout; the capture's shutdown is what ends the stuck write). **GAP**: neither asserts that a later `Settler.settle` does nothing; the row's claim stands on P12 and P15 until one does |
+| P21 | `TestTheWriter::test_p21_an_ack_owed_after_the_capture_is_refused_not_recorded` and `::test_p21_a_scene_refused_after_the_capture_is_re_marked_for_the_next_dial`, parametrized over a capture and a decode error |
+| P22 | `TestTheWriter::test_p22_a_drain_of_an_unreadable_socket_does_not_wait_for_the_writer` |
+| P23 | `TestTheWriter::test_a1_a_hub_request_landing_before_the_writers_record_wins`, parametrized over `BlockingIOError` and `OSError`; and `tests/domain/test_retire_cause.py::TestAHubRetireThatLandsBetweenTheCheckAndTheRetire::test_a_write_that_loses_the_retire_reports_the_hubs_cause_and_queues_nothing` |
+| P24 | `TestTheWriter::test_a2_a_read_failing_while_the_reader_is_stopped_requests_the_hub_end`. **GAP in it**: it does not assert that a `send_scene` made in the window is refused |
+| P25 | **GAP**: `TestABoundedWrite::test_p25_a_tls_peer_that_never_reads_ends_the_write_within_the_deadline`, `::test_p25_a_slow_draining_tls_peer_ends_the_write_within_the_deadline`, `::test_p25_a_plain_socket_write_ends_within_the_same_deadline` |
+| P26 | **GAP**: `TestABoundedWrite::test_p26_a_ping_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive`, `::test_p26_a_query_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive` |
 
-The P17 to P21 tests are in `tests/domain/test_dial_settlement.py` on
-`fix/lux-ghhf-r3-fixes` (rmh's round 10), not yet on this branch; this audit names them as they
-stand there. The model below is the code as built there: the drain waits for the lock to the
-ceiling, reports itself incomplete, and the settler hands the capture to the bound.
+P18 and P20 to P24 are named as they stand on `fix/lux-ghhf-r3-fixes` (rmh's rounds 10 and
+11); P20 to P22 are also on this branch. P25 and P26 wait for the rule 7d constants. The model
+below is the code as built there, plus the round-5 rules: the drain waits for the lock to the
+ceiling, reports itself incomplete, and the settler hands the capture to the bound; the writer's
+record is atomic; a reader stopped in the window asks for the Hub's end; and every write and
+every lock wait by a ping or a query ends within `D`.
 
 ## Not modelled
 
@@ -240,10 +277,17 @@ All in `docs/`, each `dial_settlement_<name>_buggy.tex`: `start_fail`, `stop_ski
 against the file with the writer) `writer_owe_refused` (one point: the refused ack; S6),
 `writer_records_display` (today's code, two changes: the refused ack and a classification that
 ignores a Hub request; S5 and S6), `drain_gives_up` (one point in `SDrain`; S2) and
-`drain_no_late` (one point: `SDrainLate` removed; deadlock with no rescuer). The first twelve were committed
-against the round-3 file, which had no writer; they are one-point mutations of it. They still
-stand: with the writer idle (`pc(aWr) = pidle`, `lk = fclear`) every round-3 trace is a round-4
-trace, the actor sets only grew, and the flags never clear, so each control's violation remains
-reachable in the round-4 file. No re-run is needed. The earlier
+`drain_no_late` (one point: `SDrainLate` removed; deadlock with no rescuer and the write
+deadline broken), and (round 5) `writer_split_record` (one point: the check and the record under
+two lock holds; S5), `stop_no_request` (one point: a read failing in the stop window asks for
+nothing; S0) and `unbounded_write` (today's code, two changes: no write deadline and a keepalive
+that waits for the lock without a bound; deadlock with no rescuer, and neither change alone
+deadlocks). All seven writer controls are rebuilt from the round-5 design and re-run on it. The
+first twelve were committed against the round-3 file, which had no writer; they are one-point
+mutations of it. They still stand: with the writer idle (`pc(aWr) = pidle`, `lk = fclear`) and
+`KPing` inserted after each `DStartUnresp`, every round-3 trace is a round-5 trace (the actor
+sets only grew, the drain lost a guard, and `SPStart` also sets a flag nothing in those traces
+reads), and the flags never clear, so each control's violation remains reachable in the
+round-5 file. No re-run is needed. The earlier
 `hub_peek_sock0` result (peek sound with an empty buffer) is withdrawn: with a living display
 that can ack and then die, the peek is unsound from any initial state.
