@@ -106,7 +106,7 @@ class WriteSeam:
 
         The batch was judged whole before this; see :class:`BatchTransaction`.
         """
-        return self._transaction().commit(realizations)
+        return self._transaction().run(realizations)
 
     def _transaction(self) -> BatchTransaction:
         return BatchTransaction(self.admit, self._require_final_state_within_cap)
@@ -156,7 +156,9 @@ class WriteSeam:
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
             raise NestingExceededError(refusal)
-        self._transaction().run([realization])
+        rejected = self._transaction().run([realization])
+        if rejected is not None:
+            raise NestingExceededError(rejected.reason)
 
     @staticmethod
     def _mutable(

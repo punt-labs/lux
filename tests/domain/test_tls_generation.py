@@ -28,6 +28,7 @@ from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
     PingMessage,
+    PongMessage,
     QueryRequest,
     QueryResponse,
     ReadyMessage,
@@ -124,7 +125,11 @@ def test_a_frame_goes_each_way_over_the_tls_dial(tls: _TlsDisplay) -> None:
         assert tls.peer.read(1) == [PingMessage(ts=1.0)]
 
         tls.peer.send(QueryResponse(method="m", result={"n": 1}))
-        chunk = generation.poll_chunk(3.0)
+        chunk = None
+        for _ in range(30):  # a poll that finds only post-handshake records is None
+            chunk = generation.poll_chunk(0.2)
+            if chunk is not None:
+                break
 
         assert chunk is not None
         assert list(generation.messages(chunk)) == [
@@ -385,3 +390,34 @@ class TestTheDrainNeverWaits:
 
         assert error is None
         assert list(generation.messages(bytes(taken))) == [AckMessage(scene_id="a")]
+
+    def test_a_poll_with_only_post_handshake_records_pending_waits_for_nothing(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()  # the session tickets sit unread
+
+        polling = Call(lambda: generation.poll_chunk(1.0))
+
+        assert polling.wait(4.0), "the poll waited for an application byte"
+        assert polling.result is None
+
+    def test_a_poll_still_returns_a_frame_that_follows_those_records(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()
+        tls.peer.send(PongMessage(ts=2.0))
+        taken = bytearray()
+
+        def polls_until_the_frame_arrives() -> bool:
+            chunk = generation.poll_chunk(0.2)
+            taken.extend(chunk or b"")
+            return bool(taken)
+
+        _, error = _ends_within(6.0, lambda: until(polls_until_the_frame_arrives, 4.0))
+
+        assert error is None
+        assert list(generation.messages(bytes(taken))) == [PongMessage(ts=2.0)]

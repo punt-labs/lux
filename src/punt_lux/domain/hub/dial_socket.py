@@ -149,8 +149,9 @@ class DialSocket:
         LockDiscipline.forbid_store("the dial socket lock")
         with self._lock:
             self._require_open()
-            chunk = self._dial.sock.recv(_READ_CHUNK)
-            chunk += self._decrypted_backlog()
+            chunk = self._read_now()
+        if chunk is None:
+            return None  # readable, but no application byte yet
         if not chunk:
             msg = f"the display at {self.endpoint} closed the connection"
             raise ConnectionClosedError(msg)
@@ -190,24 +191,34 @@ class DialSocket:
                 msg = f"the last look at {self.endpoint} could not be made"
                 raise DrainIncompleteError(msg)
             try:
-                sock = self._dial.sock
-                sock.settimeout(0.0)  # the look never waits, on either transport
-                try:
-                    chunk = sock.recv(_READ_CHUNK) + self._decrypted_backlog()
-                except (BlockingIOError, ssl.SSLWantReadError):
-                    # Readable, but no application byte yet: a TLS socket's
-                    # post-handshake records (session tickets) wake ``select`` and
-                    # hold nothing. Nothing more now; end of file is a read of b"".
-                    return Drained(b"", ended=False)
-                finally:
-                    with contextlib.suppress(OSError):  # closed by its own capture
-                        sock.settimeout(None)
+                chunk = self._read_now()
             finally:
                 self._lock.release()
+            if chunk is None:
+                return Drained(b"", ended=False)
         except (OSError, ValueError) as exc:
             self._report_cut_short(exc)
             return Drained(b"", ended=True)
         return Drained(chunk, ended=not chunk)
+
+    # PY-TS-14 OK: None is readable but no application byte yet: nothing more now.
+    def _read_now(self) -> bytes | None:
+        """Read what the socket holds without waiting, on either transport.
+
+        The lock is held. The socket is made non-blocking for this read alone: a TLS
+        socket's descriptor is readable for post-handshake records (session tickets)
+        that carry no application byte, and a blocking ``recv`` would wait for one.
+        ``None`` is nothing more now; ``b""`` is end of file.
+        """
+        sock = self._dial.sock
+        sock.settimeout(0.0)
+        try:
+            return sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+        except (BlockingIOError, ssl.SSLWantReadError):
+            return None
+        finally:
+            with contextlib.suppress(OSError):  # closed by its own capture meanwhile
+                sock.settimeout(None)
 
     def _report_cut_short(self, exc: BaseException) -> None:
         """Say the last look found the stream broken: the settle goes ahead on it.

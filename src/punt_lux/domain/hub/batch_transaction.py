@@ -44,24 +44,24 @@ class BatchTransaction:
         self._within_cap = within_cap
         return self
 
-    def run(self, realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization, or put every element written back and raise."""
+    # PY-TS-14 OK: None is a batch that stood.
+    def run(self, realizations: Sequence[FieldRealization]) -> WriteRejected | None:
+        """Commit every realization as one unit; why the judge refused it, if it did.
+
+        On a refusal, or any other failure, every element written is put back and its
+        observers told. A refusal is returned as the agent's ``WriteRejected``; any
+        other failure is raised once the undo is done.
+        """
         judge = BatchJudge(self._admit, [r.write() for r in realizations])
         with HandlerWrites.judged(judge):
             try:
                 for realization in realizations:
                     realization.commit()
                 self._within_cap(judge.written)
+            except WriteRefusedError as exc:
+                judge.roll_back()
+                return WriteRejected(str(exc))
             except Exception:
                 judge.roll_back()
                 raise
-
-    def commit(
-        self, realizations: Sequence[FieldRealization]
-    ) -> WriteRejected | None:  # PY-TS-14 OK: None is a batch that stood
-        """Run the batch; why the judge refused it, when it rolled back."""
-        try:
-            self.run(realizations)
-        except WriteRefusedError as exc:
-            return WriteRejected(str(exc))
         return None

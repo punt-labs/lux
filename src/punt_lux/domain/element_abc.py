@@ -25,6 +25,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 
+from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.event_handler_host import EventHandlerHost
 from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.property_observers import PropertyObservers
@@ -221,14 +222,13 @@ class Element(EventHandlerHost, ABC):
         raising: nothing has been touched when it does.
         """
         HandlerWrites.admit(self, patch)
-        snapshot = dict(vars(self))
+        before = ElementCheckpoint(self)
         self._observers.begin()
         try:
             for key, value in self._in_setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
-            vars(self).clear()
-            vars(self).update(snapshot)
+            before.restore()
             self._observers.discard()
             raise
         self._observers.commit(self.id)  # each property once, in first-seen order
