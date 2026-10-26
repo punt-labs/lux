@@ -28,6 +28,7 @@ __all__ = ["LUX_RULES", "PermissionChange", "ProjectPermissions"]
 # verify by static grep that each deployed command is allowed.
 LUX_RULES: Final = (
     "mcp__plugin_lux_lux__*",
+    "Bash(lux:*)",
     "Skill(callback.pending)",
     "Skill(display.info)",
     "Skill(display.screenshot)",
