@@ -805,7 +805,7 @@ class TestTheWriter:
         generation = generation_of(link)
         writer_of(link).send_scene(_scene("a"))
         # No send timeout: only the capture's shutdown can end the stuck write.
-        display.sockets[-1].setsockopt(
+        display.sockets[-1]._sock.setsockopt(
             socket.SOL_SOCKET, socket.SO_SNDTIMEO, bytes(len(SEND_TIMEOUT_PACKED))
         )
         stuck = threading.Event()
