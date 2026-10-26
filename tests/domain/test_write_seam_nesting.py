@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     import pytest
 
     from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.element_abc import Element as AbcElement
     from punt_lux.domain.hub.element_index import ElementIndex
 
 _SCENE = SceneId("s")
@@ -56,6 +57,10 @@ class _Fake:
 
     def projected(self) -> tuple[str, WireElement]:
         return self.element_id, WireOnly(self.wire)
+
+    def write(self) -> tuple[AbcElement, Mapping[str, object]]:
+        msg = "the seam only judges: a fake has no write to commit"
+        raise AssertionError(msg)
 
     def commit(self) -> None:
         """Unused: the seam only judges."""
