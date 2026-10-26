@@ -88,7 +88,7 @@ class TestWhoReadsADialIsNotTheGenerationsToRelay:
         relayed = {"has_reader", "claim_reader", "release_reader", "inline_reading"}
         assert relayed.isdisjoint(dir(generation))
         assert "reader_slot" not in dir(generation._socket)
-        assert reading_of(link).claim_for_listener(drop_route) is not None
+        assert reading_of(link).claim_for_listener(drop_route, drop_route) is not None
         assert reading_of(link).has_listener is True
 
     def test_a_redial_does_not_lend_its_slot_to_the_dial_it_replaced(

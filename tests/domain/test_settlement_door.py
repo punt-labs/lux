@@ -205,9 +205,6 @@ class TestTheDoorIsTheSlot:
             f"{_HUB}display_listener.py:DisplayListener.route": 1,
             f"{_HUB}display_replies.py:DisplayReplies.await_reply": 1,
             f"{_HUB}inbound_router.py:InboundRouter.route": 1,
-            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1,
-            f"{_HUB}reader_slot.py:ReaderSlot.claim_for_listener": 1,
-            f"{_HUB}reader_slot.py:ReaderSlot._take": 1,
         }
 
     def test_an_undrained_capture_is_made_only_by_the_reader_and_the_inline_read(

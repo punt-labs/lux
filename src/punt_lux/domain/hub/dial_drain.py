@@ -30,11 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialDrain", "DrainIncompleteError"]
-
-
-class DrainIncompleteError(Exception):
-    """The last look could not be made: a writer held the socket past its timeout."""
+__all__ = ["DialDrain"]
 
 
 @final
@@ -60,16 +56,16 @@ class DialDrain:
         ends the drain with ``False``: the stream cannot be trusted past it, and what
         the ledger owes stays as it is. So does a reply that fails to route (every
         later reply would be matched to the wrong entry), as it does for the reader.
-        An event or an interaction that fails to route costs only itself.
+        An event or an interaction that fails to route costs only itself. Raises
+        :class:`~punt_lux.domain.hub.dial_socket.DrainIncompleteError` when a writer
+        held the socket past the ceiling, so the last look could not be made; the
+        settler, which catches it, leaves the capture to the bound.
         """
         chunk = b""  # the first pass routes what is already buffered
         while True:
             if not self._routed(self._route, generation, chunk):
                 return False
             look = generation.drain()
-            if not look.complete:
-                msg = f"the last look at {generation.endpoint} could not be made"
-                raise DrainIncompleteError(msg)
             if look.ended:
                 self._routed(self._route, generation, look.chunk)
                 return True

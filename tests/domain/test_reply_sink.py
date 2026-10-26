@@ -10,11 +10,11 @@ import pytest
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
+from punt_lux.domain.hub.settlement import Settlement
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.settlement import Settlement
 
 
 def _discard(sink: ReplySink, cause: RetireCause) -> Settlement:
@@ -374,9 +374,21 @@ class TestTheClosedFlagIsOneHoldWithTheDiscard:
     lock when the dial is retired sees the retirement and puts nothing.
     """
 
-    def test_a_delivery_queued_behind_the_discard_sees_it(self) -> None:
+    def test_a_delivery_queued_behind_the_discard_sees_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         sink = ReplySink()
+        sink.end("hub")
         outcome: list[BaseException | None] = []
+        inside, gate = threading.Event(), threading.Event()
+        real = Settlement
+
+        def parked(*args: object) -> Settlement:
+            inside.set()  # the capture holds the sink's lock and sits here
+            assert gate.wait(5.0)
+            return real(*args)  # type: ignore[arg-type]  # the capture's own arguments
+
+        monkeypatch.setattr("punt_lux.domain.hub.reply_sink.Settlement", parked)
 
         def deliver() -> None:
             try:
@@ -386,12 +398,15 @@ class TestTheClosedFlagIsOneHoldWithTheDiscard:
             else:
                 outcome.append(None)
 
-        with sink._cond:  # the retirement holds the sink's lock
-            thread = threading.Thread(target=deliver)
-            thread.start()
-            thread.join(timeout=0.1)
-            assert thread.is_alive(), "the delivery did not wait for the lock"
-            _discard(sink, "hub")  # reentrant: the same hold writes the flag
+        capturing = threading.Thread(target=sink.capture)
+        capturing.start()
+        assert inside.wait(3.0)
+        thread = threading.Thread(target=deliver)
+        thread.start()
+        thread.join(timeout=0.1)
+        assert thread.is_alive(), "the delivery did not wait for the lock"
+        gate.set()
+        capturing.join(timeout=3.0)
         thread.join(timeout=3.0)
 
         assert outcome == [None], "the delivery read the flag before the hold"

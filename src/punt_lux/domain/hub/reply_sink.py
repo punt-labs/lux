@@ -59,8 +59,7 @@ class ReplySink:
 
     _cond: threading.Condition
     _acks: deque[SceneId]  # scenes written and not yet acked, in wire order
-    _waiters: ReplyWaiters  # the ping and query in flight, on this sink's lock
-    _drained: Pending[None, AckMessage] | None  # a caller waiting for no acks owed
+    _waiters: ReplyWaiters  # what callers wait on, under this sink's lock
     _end: DialEnd  # the first cause recorded, and the Hub's request
     _captured: bool  # the ledger has been taken
     _acked: bool  # an ack was applied on this dial
@@ -69,16 +68,16 @@ class ReplySink:
         "_acks",
         "_captured",
         "_cond",
-        "_drained",
         "_end",
         "_waiters",
     )
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._cond = threading.Condition()
+        # A lock that cannot be re-entered: ReplyWaiters never takes it twice, and a
+        # re-entry would be a deadlock a test catches, not a hidden dependence.
+        self._cond = threading.Condition(threading.Lock())
         self._acks = deque()
-        self._drained = None
         self._end = DialEnd()
         self._waiters = ReplyWaiters(self._cond, self._end)
         self._captured = False
@@ -86,12 +85,14 @@ class ReplySink:
         return self
 
     @property
+    # PY-TS-14 OK: None until a cause is recorded or decided: the dial may be open.
     def ended(self) -> RetireCause | None:
         """The first cause recorded for the dial's end; ``None`` while none is."""
         with self._cond:
             return self._end.cause
 
     @property
+    # PY-TS-14 OK: None while nothing is ending the dial: no cause, no Hub request.
     def closing(self) -> RetireCause | None:
         """Who is ending the dial: the recorded cause, else ``hub`` once it asked.
 
@@ -134,6 +135,7 @@ class ReplySink:
         """Record the query in flight; the next query response answers it."""
         return self._waiters.expect_query()
 
+    # PY-TS-14 OK: None is a ledger already empty: there is nothing to wait for.
     def expect_drained(self) -> Pending[None, AckMessage] | None:
         """Record a wait for the ledger to empty; ``None`` if nothing is owed already.
 
@@ -141,17 +143,9 @@ class ReplySink:
         swapped past, every scene written to this dial.
         """
         with self._cond:
-            self._waiters.require_live()
-            if not self._acks:
-                return None
-            if self._drained is not None:
-                msg = "an ack wait is already in flight on this dial"
-                raise RuntimeError(msg)
-            pending = Pending(None, AckMessage)
-            self._drained = pending
-            self._waiters.watch(pending)
-            return pending
+            return self._waiters.expect_drained_locked(owed=bool(self._acks))
 
+    # PY-TS-14 OK: None is the timeout; an end of the dial raises instead.
     def await_reply[R: Message](
         self, pending: Pending[object, R], timeout: float
     ) -> R | None:
@@ -175,10 +169,7 @@ class ReplySink:
 
     def abandon(self, pending: Pending[object, Message]) -> None:
         """Stop waiting for ``pending``: a late reply is dropped, never kept."""
-        with self._cond:
-            self._waiters.abandon(pending)
-            if self._drained is pending:
-                self._drained = None
+        self._waiters.abandon(pending)
 
     def deliver(self, msg: Message) -> None:
         """Hand an arrived reply to the request it answers.
@@ -196,9 +187,9 @@ class ReplySink:
             elif self._end.closing is not None:
                 return
             elif isinstance(msg, PongMessage):
-                self._waiters.deliver_pong(msg)
+                self._waiters.deliver_pong_locked(msg)
             elif isinstance(msg, QueryResponse):
-                self._waiters.deliver_query(msg)
+                self._waiters.deliver_query_locked(msg)
             self._cond.notify_all()
 
     def end(self, cause: RetireCause) -> bool:
@@ -210,7 +201,7 @@ class ReplySink:
         with self._cond:
             if not self._end.record(cause):
                 return False
-            self._fail_waiters()
+            self._waiters.fail_all_locked()
             return True
 
     def end_by_writer(self, cause: RetireCause) -> bool:
@@ -222,7 +213,7 @@ class ReplySink:
         with self._cond:
             if not self._end.record_unless_closing(cause):
                 return False
-            self._fail_waiters()
+            self._waiters.fail_all_locked()
             return True
 
     def request_hub(self) -> bool:
@@ -234,7 +225,7 @@ class ReplySink:
         with self._cond:
             if not self._end.ask_hub():
                 return False
-            self._fail_waiters()
+            self._waiters.fail_all_locked()
             return True
 
     def decide(self, *, saw_end: bool) -> RetireCause:
@@ -247,7 +238,7 @@ class ReplySink:
             fresh = self._end.cause is None
             cause = self._end.decide(saw_end=saw_end)
             if fresh:
-                self._fail_waiters()
+                self._waiters.fail_all_locked()
             return cause
 
     def capture(self) -> Settlement:
@@ -267,10 +258,6 @@ class ReplySink:
             self._cond.notify_all()
             return Settlement(owed, self._acked, self._end.cause)
 
-    def _fail_waiters(self) -> None:
-        self._drained = None
-        self._waiters.fail_all()
-
     def _deliver_ack(self, ack: AckMessage) -> None:
         if not self._acks:
             msg = f"ack for {ack.scene_id!r} arrived when none was owed"
@@ -282,6 +269,5 @@ class ReplySink:
             raise ReplyOutOfOrderError(msg)
         self._acks.popleft()
         self._acked = True
-        if not self._acks and self._drained is not None:
-            self._waiters.hand_over(self._drained, ack)
-            self._drained = None
+        if not self._acks:
+            self._waiters.ledger_emptied_locked(ack)

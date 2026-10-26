@@ -50,22 +50,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialSocket", "Drained"]
+__all__ = ["DialSocket", "DrainIncompleteError", "Drained"]
 
 _READ_CHUNK = 65536
 
 
+class DrainIncompleteError(Exception):
+    """The last look could not be made: a writer held the socket past its ceiling."""
+
+
 @dataclass(frozen=True, slots=True)
 class Drained:
-    """What one last look at a socket found: bytes, whether its stream ended.
-
-    ``complete`` is false when the look could not be made at all, because a writer held
-    the socket past the send timeout: that is no answer, and never "nothing more".
-    """
+    """What one last look at a socket found: bytes, whether its stream ended."""
 
     chunk: bytes
     ended: bool
-    complete: bool = True
 
 
 @final
@@ -187,7 +186,8 @@ class DialSocket:
         cannot be read holds nothing more. A cut-short read is therefore never
         reported as "nothing more": the reader that settles the dial is told it
         found the end, which is what makes a display dead when it looked a display's
-        end, not the Hub's.
+        end, not the Hub's. Raises :class:`DrainIncompleteError` when a writer holds
+        the socket past the ceiling: with bytes readable, no look at all is no answer.
         """
         try:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
@@ -203,7 +203,8 @@ class DialSocket:
                     self.endpoint,
                     SEND_TIMEOUT_CEILING_SECONDS,
                 )
-                return Drained(b"", ended=False, complete=False)
+                msg = f"the last look at {self.endpoint} could not be made"
+                raise DrainIncompleteError(msg)
             try:
                 chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
             finally:

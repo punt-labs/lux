@@ -29,6 +29,7 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.dial_reader import DialReader
+from punt_lux.domain.hub.dial_socket import DrainIncompleteError
 from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -308,12 +309,12 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        hold = slot.claim_for_listener(drop_route)  # a holder, no thread
+        hold = slot.claim_for_listener(drop_route, drop_route)  # a holder, no thread
         assert hold is not None
         spy = _SpyCondition(slot._cond)  # test seam: the slot's lock
         monkeypatch.setattr(slot, "_cond", spy)
         # The holder lets go the instant after the asker's first look at the slot.
-        spy.hook = lambda: hold.release(drop_route)
+        spy.hook = lambda: hold.release()
 
         asking = Call(lambda: link._connection.retire(generation, cause="display"))
 
@@ -330,7 +331,7 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        hold = slot.claim_for_listener(drop_route)
+        hold = slot.claim_for_listener(drop_route, drop_route)
         assert hold is not None
         generation.end("display")  # recorded: nobody has asked for a settle yet
         spy = _SpyCondition(slot._cond)
@@ -338,7 +339,7 @@ class TestTheCriticalSections:
         # An end asks for a settle the instant after the release looked for a debt.
         spy.hook = lambda: slot.ask_settle(drop_route, "display", may_wait=False)
 
-        hold.release(drop_route)
+        hold.release()
 
         assert not link.is_connected, "a debt left after the release read it is lost"
         (death,) = deaths_of(link)
@@ -521,7 +522,7 @@ class TestASettleIsOneAndAnEndIsTheFirstRecorded:
         link = _linked(display, listening=False)
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
-        hold = reading_of(link).claim_for_listener(drop_route)
+        hold = reading_of(link).claim_for_listener(drop_route, drop_route)
         assert hold is not None
         settler = hold.settler
         generation.end("display")
@@ -768,9 +769,8 @@ class TestTheWriter:
         writing = Call(lambda: generation.send_scene(_scene("b")))
         assert holding.wait(3.0)
         display.peer.send(AckMessage(scene_id="a"))  # readable, behind the writer
-        with caplog.at_level(logging.WARNING):
-            look = generation.drain()
-        assert (look.chunk, look.ended, look.complete) == (b"", False, False)
+        with caplog.at_level(logging.WARNING), pytest.raises(DrainIncompleteError):
+            generation.drain()
         assert any("incomplete" in r.getMessage() for r in caplog.records)
 
         generation.end("unresponsive")
@@ -905,7 +905,7 @@ class TestTheWriter:
             looking = Call(generation.drain)  # nothing readable: no lock is taken
             assert looking.wait(1.0), "the drain waited for the writer's lock"
             look = looking.result
-            assert (look.chunk, look.ended, look.complete) == (b"", False, True)
+            assert (look.chunk, look.ended) == (b"", False)
         finally:
             release.set()
             writing.wait()
@@ -947,7 +947,7 @@ class TestTheWriter:
         _unbounded(monkeypatch)
         link = _linked(display, listening=False)
         generation = generation_of(link)
-        hold = reading_of(link).claim_for_listener(drop_route)
+        hold = reading_of(link).claim_for_listener(drop_route, drop_route)
         assert hold is not None
         stopping = threading.Event()
 

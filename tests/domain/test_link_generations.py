@@ -1045,7 +1045,10 @@ class TestTheClosedMarkIsOneHoldWithTheSinkDiscard:
         with generation._sink._cond:  # test seam: a reader mid-delivery holds it
             closing = Call(lambda: generation.mark_closed("display"))
             time.sleep(0.1)
-            assert not generation.is_closed, "closed before the sink refused replies"
+            # Read lock-free (the sink's lock cannot be re-entered by its holder).
+            assert generation._sink._end.closing is None, (  # test seam
+                "closed before the sink refused replies"
+            )
 
         assert closing.wait()
         assert generation.is_closed

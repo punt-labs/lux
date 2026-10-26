@@ -98,7 +98,7 @@ class ListenerThread:
         without one raises :class:`ConnectionClosedError`.
         """
         generation, slot = self._connection.require_reading()
-        hold = slot.claim_for_listener(self._route)
+        hold = slot.claim_for_listener(self._route, self._held_route)
         if hold is not None:
             self._launch(generation, hold)
 
@@ -114,9 +114,9 @@ class ListenerThread:
         if slot is None:
             msg = f"the dial to {born.endpoint} was retired before its reader"
             raise ConnectionClosedError(msg)
-        hold = slot.hold_born(self._route)
+        hold = slot.hold_born(self._route, self._held_route)
         if born.is_closed:
-            hold.release(self._held_route)
+            hold.release()
             msg = f"the dial to {born.endpoint} was retired before its reader"
             raise ConnectionClosedError(msg)
         self._launch(born, hold)
@@ -159,5 +159,5 @@ class ListenerThread:
             thread.start()
         except BaseException:
             self._run = previous
-            hold.release(self._held_route)  # no reader runs: do not claim there is one
+            hold.release()  # no reader runs: do not claim there is one
             raise

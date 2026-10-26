@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.domain.event_handler_host import EventHandlerHost
 from punt_lux.domain.handler_writes import HandlerWrites
@@ -49,8 +49,12 @@ class Element(EventHandlerHost, ABC):
     override ``_children()`` to return their children tuple; leaves
     inherit the empty default. Event registration and dispatch come from
     the ``EventHandlerHost`` mixin.
+
+    A kind whose setters depend on one another names the keys that must run first in
+    ``_SETTER_PRIORITY``; every other key follows in the caller's order.
     """
 
+    _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = ()
     _renderer_factory: RendererFactory
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
@@ -226,7 +230,7 @@ class Element(EventHandlerHost, ABC):
         snapshot = dict(vars(self))
         self._notify_buffer = []
         try:
-            for key, value in self._setter_order(patch).items():
+            for key, value in self._in_setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
             vars(self).clear()
@@ -239,14 +243,14 @@ class Element(EventHandlerHost, ABC):
             self._notify_observers(prop)
         return self
 
-    @staticmethod
-    def _setter_order(patch: Mapping[str, object]) -> Mapping[str, object]:
-        """The order the setters run in; the caller's own unless a kind needs another.
+    def _in_setter_order(self, patch: Mapping[str, object]) -> dict[str, object]:
+        """Return the patch's own items, the kind's priority keys first.
 
-        The judge has already seen ``patch`` itself, the very mapping the caller
-        wrote: a kind reorders only what it applies, never what is judged.
+        A reorder only: the keys and values are the patch's, so a kind cannot change
+        what the judge approved. The judge saw ``patch`` itself, before this.
         """
-        return patch
+        first = {k: patch[k] for k in self._SETTER_PRIORITY if k in patch}
+        return first | {k: v for k, v in patch.items() if k not in first}
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.

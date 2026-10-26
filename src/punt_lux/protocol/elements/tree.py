@@ -5,11 +5,10 @@ Selection lives behind ``tree_selection_facade`` (PL-CU-1); codec in ``tree_code
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, Self, final
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
-from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
 from punt_lux.protocol.elements.tree_model import TreeModel
 from punt_lux.protocol.elements.tree_selection_facade import (
@@ -29,12 +28,21 @@ if TYPE_CHECKING:
 __all__ = ["TreeElement"]
 
 
+@final
 class TreeElement(Element):
     """A collapsible tree of recursive ``TreeNode`` values with an optional selection.
+
+    The selection setters intersect against the live ids the node setter computes,
+    so a patch's nodes are applied first whatever order its keys came in.
 
     PY-TS-14 OK: only ``tooltip`` is ``str | None``; every other field is total.
     """
 
+    _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = (
+        "nodes",
+        "selected_node_ids",
+        "anchor_node_id",
+    )
     _model: TreeModel
 
     def __new__(
@@ -100,10 +108,6 @@ class TreeElement(Element):
     def anchor_node_id(self) -> str:
         return self._model.selection.anchor
 
-    @staticmethod
-    def _setter_order(patch: Mapping[str, object]) -> Mapping[str, object]:
-        return TreeNodesState.reordered_patch(patch)
-
     def _set_label(self, value: object) -> None:
         self._model = self._model.labelled(value)
 
@@ -126,8 +130,7 @@ class TreeElement(Element):
         self._notify_observers("selected_node_ids")
 
     def _set_anchor_node_id(self, value: object) -> None:
-        anchor = PatchField("anchor_node_id").as_str(value)
-        self._model = self._model.with_content(self._model.content.anchored(anchor))
+        self._model = self._model.anchored(value)
         self._notify_observers("selected_node_ids")
 
     def validate(self) -> tuple[ValidationError, ...]:  # DES-039
@@ -137,11 +140,11 @@ class TreeElement(Element):
         return JsonTreeEncoder().encode(self)
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, object]) -> Self:
+    def from_dict(cls, d: Mapping[str, object]) -> TreeElement:
         decoder = JsonTreeDecoder(
             renderer_factory=RAISING_FACTORY, emit=NO_EMIT, element_cls=cls
         )
-        return cast("Self", decoder.decode(d))  # element_cls=cls guarantees the subtype
+        return decoder.decode(d)
 
     def resolved_props(self) -> Mapping[str, object]:
         return self._model.resolved_props()

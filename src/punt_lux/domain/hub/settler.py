@@ -21,7 +21,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.dial_drain import DialDrain, DrainIncompleteError
+from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.dial_socket import DrainIncompleteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -71,7 +72,7 @@ class Settler:
         try:
             saw_end = DialDrain(self._route).run(generation)
         except DrainIncompleteError:
-            return self._late(generation.ended or "hub")
+            return self._late(self._standing(generation))
         cause = generation.decide(saw_end=saw_end)
         # A display or unresponsive end that nothing had recorded when the drain began
         # and the drain did not find itself was recorded under it: look once more.
@@ -81,6 +82,15 @@ class Settler:
             except DrainIncompleteError:
                 return self._late(cause)
         return self._capture(generation, cause)
+
+    @staticmethod
+    def _standing(generation: DialGeneration) -> RetireCause:
+        """Who is ending the dial: the cause recorded, else the Hub that asked."""
+        closing = generation.closing
+        if closing is None:
+            msg = "a dial no one ended or asked to end has no cause to settle by"
+            raise ValueError(msg)
+        return closing
 
     def end_stream(self, cause: RetireCause) -> bool:
         """End a dial whose stream cannot be trusted, undrained; whether ``cause`` won.

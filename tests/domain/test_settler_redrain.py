@@ -51,7 +51,7 @@ def _drains_made(
         return saw_end
 
     monkeypatch.setattr(DialDrain, "run", counted)
-    hold = reading_of(connection).claim_for_listener(drop_route)
+    hold = reading_of(connection).claim_for_listener(drop_route, drop_route)
     assert hold is not None
     hold.settler.settle()
     return len(runs)

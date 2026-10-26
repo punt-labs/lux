@@ -145,9 +145,16 @@ class DialGeneration:
         return self._sink.decide(saw_end=saw_end)
 
     @property
+    # PY-TS-14 OK: None until a cause is recorded or decided: the dial may be open.
     def ended(self) -> RetireCause | None:
         """The first cause recorded for this dial's end; ``None`` while none is."""
         return self._sink.ended
+
+    @property
+    # PY-TS-14 OK: None while nothing has ended the dial or been asked to.
+    def closing(self) -> RetireCause | None:
+        """Who is ending this dial: the cause recorded, else ``hub`` once it asked."""
+        return self._sink.closing
 
     @property
     def is_settled(self) -> bool:
@@ -192,6 +199,7 @@ class DialGeneration:
         """Register the query in flight, then write it."""
         return self._socket.send_query(request)
 
+    # PY-TS-14 OK: None is the timeout; an end of the dial raises instead.
     def await_reply[R: Message](
         self, pending: Pending[object, R], timeout: float
     ) -> R | None:
@@ -208,6 +216,7 @@ class DialGeneration:
         """Whether ``pending``'s reply has arrived and is waiting to be taken."""
         return self._sink.answered(pending)
 
+    # PY-TS-14 OK: None is a ledger already empty: there is nothing to wait for.
     def expect_drained(self) -> Pending[None, AckMessage] | None:
         """Register a wait for every scene written here to be acked; ``None`` if so."""
         return self._sink.expect_drained()
@@ -223,6 +232,7 @@ class DialGeneration:
         """
         self._sink.deliver(msg)
 
+    # PY-TS-14 OK: None is the one normal non-answer: nothing arrived in time.
     def poll_chunk(self, timeout: float) -> bytes | None:
         """Wait up to ``timeout`` for the display to say something, and read it.
 
