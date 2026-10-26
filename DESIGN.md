@@ -7854,7 +7854,14 @@ are added to `docs/listener_lifecycle.tex`.
   Clearing the carried set on an ack needs an earlier dial's scenes to be
   installed before a later dial's; DES-068 preemption on connect and the
   gate on unidentified sockets, both keyed on the Hub id, provide that
-  ordering on every transport that keeps them.
+  ordering on every transport that keeps them. A dial another party ended
+  stays current until its reader settles it, so for up to one poll and its
+  drain a request can still be pinned to it and fail as closed. The
+  isolation probe needs the display to complete a frame within its wait;
+  a minimised or occluded window that stops swapping is given up as
+  unresponsive and its unacked scenes are charged. A Hub close that races a
+  display end takes the ledger without the drain, so an ack still unread
+  in the socket can be charged; this happens at most once per dial.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
