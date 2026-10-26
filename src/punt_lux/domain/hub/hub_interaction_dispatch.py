@@ -84,7 +84,11 @@ class HubInteractionDispatch:
         except WrongKindError as exc:
             logger.warning("hub dispatch denied element_id=%s: %s", msg.element_id, exc)
             return
-        resolved.fire(event, hub_display.write_seam.admit)
+        # The handler's writes are judged against the element index an agent's show
+        # mutates under this same (reentrant) lock; held here, the two exclude each
+        # other. mark_dirty below is queue-only and runs outside the hold.
+        with hub_display.write_lock():
+            resolved.fire(event, hub_display.write_seam.admit)
         # A handler may have mutated the scene; the replicator (the sole display
         # writer) resends it. mark_dirty is queue-only, so a click never blocks.
         hub_replicator.mark_dirty(resolved.scene_id)
