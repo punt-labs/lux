@@ -1,0 +1,45 @@
+mission_id: m-2026-10-26-005
+status: closed
+type: implement
+created_at: "2026-10-26T04:45:03Z"
+updated_at: "2026-10-26T05:01:04Z"
+closed_at: "2026-10-26T05:01:04Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T04:45:03Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/results-model-settle/eval-jra-r2.md
+        - .tmp/missions/results-model-settle/m-2026-10-26-002.md
+        - docs/dial_settlement.tex
+        - docs/crash_attribution.tex
+        - docs/crash_attribution_inflight_ack_drain.tex
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_coverage.md
+    - docs/dial_settlement_split_settle_buggy.tex
+    - docs/dial_settlement_atomic_refuse_buggy.tex
+    - docs/dial_settlement_atomic_release_buggy.tex
+    - docs/dial_settlement_defer_only_buggy.tex
+    - docs/dial_settlement_timer_hub_only_buggy.tex
+    - docs/dial_settlement_s3_unguarded_buggy.tex
+    - docs/dial_settlement_s4_overwrite_buggy.tex
+    - docs/dial_settlement_hub_record_buggy.tex
+    - docs/dial_settlement_hub_peek_buggy.tex
+    - docs/README.md
+    - .tmp/missions/results-model-settle-text/
+success_criteria:
+    - Successor to m-2026-10-26-002. jra accepted the design, the model-check results and the controls in round 2 but not the document as written; see eval-jra-r2.md. Work on branch fix/lux-ghhf-details-frame-id in [REDACTED:home]/Coding/punt-labs/lux, in the main checkout, and commit there.
+    - 'Close jra''s r2 findings 1, 2 and the small corrections. F1: rewrite the Refinement section (dial_settlement.tex ~941-972). The abstract model it refines is crash_attribution_inflight_ack_drain.tex. The gluing is ''concrete charges ⊆ abstract charges'', not equality of state. List four exceptions to A1 and A2, each with its bound: s2dec, s2blk, the bound''s undrained capture of an unresponsive end, and s5blk (a poison death recorded as hub, carried, and lost by the B4 route). Leader ruling: a bound capture of a display end may charge scenes whose acks were never read. That is an accepted over-charge, recorded in DES-102 by the leader. F2: flag the bound''s capture of an unresponsive end (extend s2blk or add a flag), fix carve-out 3 (~104-108), and re-run the carve-out goal plus the design''s goals. F6 wording: ''S1a holds only if''. Small corrections: fix the broken sentence in hub_peek_buggy (~599); coverage row P16 names the capability the refusal hands the asker for the bound''s capture.'
+    - 'Commit the nine controls from .tmp/missions/results-model-settle/controls/ into docs/ under their names: split_settle, atomic_refuse, atomic_release, defer_only, timer_hub_only, s3_unguarded, s4_overwrite, hub_record, hub_peek. Do NOT commit obsolete_unused_copy_of_main.tex. Diff s3_unguarded, s4_overwrite and hub_record against the design so that each changes only the schema it names; jra did not diff these three. Each control must still reproduce its defect. Add a dial_settlement row to docs/README.md''s Formal Specs table, matching the other rows: what the spec proves and a link with one phrase for each control. markdownlint must be clean on README.md and the coverage doc.'
+    - 'The implementation obligations from jra''s r2 findings 3 and 4 (the asker on the holder''s thread does not wait; the drain''s end-of-file includes a reset and a TLS EOF; a cross-host reset bound) go to rmh. List them in the coverage doc''s obligations section so the implementation contract can cite them. fuzz must be clean on each file separately. Run probcli one at a time, under 8 GB, with -p MAX_INITIALISATIONS 100. Commit only the write set, using explicit git add and the attribution trailer from your session reminder. Do not push, do not touch src/ or tests/, never restore from git, rm, stash or reset, and do not spawn agents. RESULT: .tmp/missions/results-model-settle-text/<mission-id>.md; submit it with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Text, flag and controls pass on the accepted dial-settlement model before
+    rmh implements it (m-2026-10-26-004 Phase B).
