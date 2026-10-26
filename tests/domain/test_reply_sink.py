@@ -187,18 +187,136 @@ class TestTheLedgerIsWhatTheDisplayStillOwed:
         sink.owe_ack("c")
         sink.deliver(AckMessage(scene_id="a"))
 
-        assert sink.discard("display") == ("b", "c")
+        settlement = sink.discard("display")
+
+        assert settlement.owed == ("b", "c")
+        assert settlement.acked
 
     def test_a_second_discard_owes_nothing_and_keeps_the_first_cause(self) -> None:
         sink = ReplySink()
         sink.owe_ack("a")
         sink.discard("display")
 
-        assert sink.discard("hub") == ()
+        second = sink.discard("hub")
+
+        assert second.owed == ()
+        assert second.cause == "display"
         assert sink.ended == "display"
+
+    def test_a_sink_that_never_saw_an_ack_reports_none_applied(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+
+        assert not sink.discard("display").acked
 
     def test_a_live_sink_has_no_end(self) -> None:
         assert ReplySink().ended is None
+
+
+class TestTheEndHasTwoPhases:
+    """The cause is recorded first; the ledger is taken after the reader has read."""
+
+    def test_ending_records_the_first_cause_and_leaves_the_ledger(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+
+        assert sink.end("display")
+        assert not sink.end("hub")
+
+        assert sink.ended == "display"
+        assert sink.owed_acks == 1
+        assert not sink.captured
+
+    def test_an_ack_sent_before_the_end_is_still_applied_until_the_capture(
+        self,
+    ) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.owe_ack("b")
+        sink.end("display")
+
+        sink.deliver(AckMessage(scene_id="a"))  # read after the end, sent before it
+        settlement = sink.capture()
+
+        assert settlement.owed == ("b",)
+        assert settlement.acked
+
+    def test_a_pong_after_the_end_is_parked_for_nobody(self) -> None:
+        sink = ReplySink()
+        ping = sink.expect_pong(1.0)
+        sink.end("display")
+
+        sink.deliver(PongMessage(ts=1.0))
+
+        assert not sink.answered(ping)
+
+    def test_nothing_is_delivered_once_the_ledger_is_captured(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.end("display")
+        sink.capture()
+
+        sink.deliver(AckMessage(scene_id="a"))  # not a skew: the sink is closed
+
+        assert sink.captured
+
+    def test_an_ended_sink_refuses_a_write_and_fails_a_waiter(self) -> None:
+        sink = ReplySink()
+        ping = sink.expect_pong(1.0)
+        sink.end("unresponsive")
+
+        with pytest.raises(ConnectionClosedError):
+            sink.owe_ack("a")
+        with pytest.raises(ConnectionClosedError):
+            sink.await_reply(ping, 0.0)
+
+    def test_capturing_a_sink_that_has_not_ended_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="not ended"):
+            ReplySink().capture()
+
+    def test_a_second_capture_owes_nothing(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.end("display")
+        sink.capture()
+
+        assert sink.capture().owed == ()
+
+
+class TestAWaitForTheLedgerToEmpty:
+    def test_nothing_owed_needs_no_wait(self) -> None:
+        assert ReplySink().expect_drained() is None
+
+    def test_the_ack_that_empties_the_ledger_answers_it(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        sink.owe_ack("b")
+        wait = sink.expect_drained()
+        assert wait is not None
+
+        sink.deliver(AckMessage(scene_id="a"))
+        assert not sink.answered(wait)
+        sink.deliver(AckMessage(scene_id="b"))
+
+        assert sink.answered(wait)
+
+    def test_an_end_fails_the_wait(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        wait = sink.expect_drained()
+        assert wait is not None
+        sink.end("hub")
+
+        with pytest.raises(ConnectionClosedError):
+            sink.await_reply(wait, 0.0)
+
+    def test_a_second_wait_is_refused(self) -> None:
+        sink = ReplySink()
+        sink.owe_ack("a")
+        assert sink.expect_drained() is not None
+
+        with pytest.raises(RuntimeError, match="already in flight"):
+            sink.expect_drained()
 
 
 class TestARetiredDialNeverDelivers:

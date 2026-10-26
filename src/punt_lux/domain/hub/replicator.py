@@ -96,7 +96,6 @@ class HubReplicator:
     send. ``mark_dirty``/``mark_menus`` are what surface tools call; this
     worker thread owns every send."""
 
-    _reader: SceneReader
     _clients: ClientProvider
     _signal: DirtySignal
     _recovery: SendRecovery
@@ -110,7 +109,6 @@ class HubReplicator:
         "_backoff",
         "_clients",
         "_disconnected_retry",
-        "_reader",
         "_recovery",
         "_sender",
         "_signal",
@@ -128,7 +126,6 @@ class HubReplicator:
         owner_facts: FrameOwnerFactsReader,
     ) -> Self:
         self = super().__new__(cls)
-        self._reader = reader
         self._clients = clients
         self._signal = DirtySignal()
         self._attribution = CrashAttribution(quarantine)
@@ -272,7 +269,7 @@ class HubReplicator:
             return
         self._backoff = _BASE_BACKOFF_SECONDS
         self._disconnected_retry.reset()
-        self._reclaim_emptied(result.emptied)
+        self._sender.reclaim_emptied(result.emptied)
 
     def _recover_from_exception(self, batch: DrainedBatch) -> None:
         """Restore the batch and back off after a non-socket cycle failure."""
@@ -291,7 +288,7 @@ class HubReplicator:
         death is charged from its own dial's ledger, however it was found."""
         since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
         try:
-            pushed = self._sender.push(batch)
+            emptied = self._sender.push(batch)
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
@@ -299,8 +296,7 @@ class HubReplicator:
             return _CycleOutcome(outcome="disconnected")
         except BatchSendError as exc:
             return self._recovered(batch, exc, since_gen)
-        self._signal.add_all(pushed.deferred)  # left unsent: queued for the next cycle
-        return _CycleOutcome(outcome="clean", emptied=pushed.emptied)
+        return _CycleOutcome(outcome="clean", emptied=emptied)
 
     def _recovered(
         self, batch: DrainedBatch, failure: BatchSendError, since_gen: int
@@ -329,14 +325,3 @@ class HubReplicator:
     def disconnected_delay(self) -> float:
         """Return the current not-connected retry delay, in seconds (design §9)."""
         return self._disconnected_retry.current_delay
-
-    def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:
-        """Forget each blanked scene's frame, re-checked rootless under the lock.
-
-        Deferred to a clean cycle so a failed send never reclaims a scene the
-        recovery must retry. The rootless re-check keeps a re-show that landed
-        during the send window: it installed roots and a new frame, so the
-        scene is no longer rootless and that new frame is kept.
-        """
-        for scene_id in scenes:
-            self._reader.reclaim_if_rootless(scene_id)

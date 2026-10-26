@@ -29,7 +29,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from tests.link_access import shown, writer_of
+from tests.link_access import shown, socket_of, writer_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -47,9 +47,7 @@ def _live_scene_ids(sock_path: Path) -> set[str]:
     with DisplayLink.to_socket(
         sock_path, auto_spawn=False, connect_timeout=5.0
     ) as probe:
-        sock = (
-            probe._connection.require()._dial.sock
-        )  # test-only reach-through: raw round-trip
+        sock = socket_of(probe)  # raw round-trip
         send_message(sock, ListScenesRequest())
         resp = recv_message(sock, DISPLAY_VOCABULARY, timeout=5.0)
     assert isinstance(resp, ListScenesResponse)

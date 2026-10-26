@@ -33,6 +33,9 @@ _ROOTS = (f"{_HUB}.display_requests", f"{_HUB}.display_listener")
 # the store itself, and the replicator that calls the registry; and the singletons
 # a module would reach them through.
 _REENTRANT = "RLock"
+# How the slot is named wherever it is reached: the dial socket's own field, and the
+# property the socket lends it by.
+_SLOT_NAMES = frozenset({"_slot", "reader_slot"})
 
 
 def _forbidden(src: Path, within: str = _HUB) -> frozenset[str]:
@@ -215,7 +218,7 @@ class SlotTakers:
             if (
                 via == "_slot"
                 and isinstance(owner, ast.Attribute)
-                and owner.attr == "_slot"
+                and owner.attr in _SLOT_NAMES
             ):
                 return True
         return False
@@ -242,7 +245,7 @@ class SlotTakers:
                     n.attr
                     for n in ast.walk(block)
                     if isinstance(n, ast.Attribute)
-                    and (n.attr in self._members or n.attr == "_slot")
+                    and (n.attr in self._members or n.attr in _SLOT_NAMES)
                 }
                 found += [f"{method.name}: {attr}" for attr in sorted(touched)]
         return found

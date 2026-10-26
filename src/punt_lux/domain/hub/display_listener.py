@@ -10,9 +10,11 @@ the dial that carried it; a reply does not, and is not this object's business
 
 from __future__ import annotations
 
+import functools
 import queue
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
 from punt_lux.domain.hub.listener_thread import ListenerThread
@@ -49,11 +51,6 @@ class DisplayListener:
         return self
 
     @property
-    def listening(self) -> bool:
-        """Whether the current dial has a reader running on it."""
-        return self._connection.has_reader
-
-    @property
     def is_current(self) -> bool:
         """Whether the caller is the reader thread itself."""
         return self._thread.is_current
@@ -65,6 +62,38 @@ class DisplayListener:
         locks: an interaction is then held (see :meth:`run_held`), not run.
         """
         self._inbound.route(generation, msg, inline=inline)
+
+    def settle(self, generation: DialGeneration, *, inline: bool) -> bool:
+        """Settle a dial this caller reads, after reading to the end what it holds.
+
+        For a reader that is not the listener thread: it holds the dial's reader
+        slot, and what it routes is held or run as ``inline`` says. The cause that
+        stands is the one already recorded on the dial; a dial nobody has ended is
+        ended by the display, since this is called on a read that found it so.
+        Returns whether this call settled it.
+        """
+        recorded = generation.ended
+        if recorded != "hub":
+            DialDrain(functools.partial(self._inbound.route, inline=inline)).run(
+                generation
+            )
+        return self._connection.close_if_current(
+            generation, cause=recorded or "display"
+        )
+
+    def settle_unread(self, generation: DialGeneration) -> None:
+        """Settle a dial someone ended, if no reader holds it, by reading it here.
+
+        A dial born with no listener and with no inline read in flight has no reader,
+        and a death found by a writer's failure or the keepalive must not be lost for
+        lack of one: the discoverer takes the reader slot itself. When a reader holds
+        the slot, it notices the end and settles the dial.
+        """
+        if not self._connection.holds(generation):
+            return  # a redial replaced it: its own reader settles it, or already did
+        with generation.inline_reading() as granted:
+            if granted:
+                self.settle(generation, inline=True)
 
     def run_held(self) -> None:
         """Run the interactions an inline read held, outside every request lock."""

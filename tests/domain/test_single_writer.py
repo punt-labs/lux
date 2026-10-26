@@ -47,6 +47,7 @@ _HUB = "domain/hub/"
 # module outside this set cannot hold a dial, so it cannot write or read on one.
 _DIAL_MODEL = frozenset(
     {
+        _HUB + "dial_drain.py",
         _HUB + "dial_generation.py",
         _HUB + "dial_reader.py",
         _HUB + "dial_ref.py",
@@ -160,11 +161,14 @@ def _modules(predicate: Callable[[str], object]) -> set[str]:
 
 
 def _dial_writes() -> set[str]:
-    """The dial's write methods: every ``send*`` that registers no reply to wait for."""
+    """The dial's write methods: every ``send*`` that registers no reply to wait for.
+
+    The writes live on the dial's socket; the generation exposes them by the same names.
+    """
     return {
         name
         for name, fn in _public_methods(
-            _source(_HUB + "dial_generation.py"), "DialGeneration"
+            _source(_HUB + "dial_socket.py"), "DialSocket"
         ).items()
         if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
     }
@@ -258,6 +262,30 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
     def test_each_hop_takes_the_seat_once(self) -> None:
         assert _calls_of(_source(_HUB + "clients.py"), "take_seat") == 1
         assert _calls_of(_source(_HUB + "replicator.py"), "take_writer") == 1
+
+
+class TestTheReplicatorIsTheOnlyCharger:
+    """O1: one charger, built inside the sender the replicator alone builds."""
+
+    def test_the_death_charger_is_built_only_inside_the_batch_sender(self) -> None:
+        assert _modules(lambda s: _constructions(s, "DeathCharger") > 0) == {
+            _HUB + "batch_sender.py"
+        }
+        assert _constructions(_source(_HUB + "batch_sender.py"), "DeathCharger") == 1
+
+    def test_the_batch_sender_is_built_only_by_the_replicator(self) -> None:
+        assert _modules(lambda s: _constructions(s, "BatchSender") > 0) == {
+            _HUB + "replicator.py"
+        }
+        assert _constructions(_source(_HUB + "replicator.py"), "BatchSender") == 1
+
+    def test_a_second_charger_is_counted(self) -> None:
+        planted = (
+            "def f(clients, attribution):\n"
+            "    return DeathCharger(clients, attribution)\n"
+        )
+
+        assert _constructions(planted, "DeathCharger") == 1
 
 
 class TestTheLinkIsTheRegistrysAlone:

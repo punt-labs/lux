@@ -14,6 +14,7 @@ from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from tests.domain.display_double import until
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import Sequence
 
     from punt_lux.domain.hub.dial_death import DialDeath
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.protocol import Element
 
-__all__ = ["deaths_of", "generation_of", "shown", "writer_of"]
+__all__ = ["deaths_of", "generation_of", "shown", "socket_of", "writer_of"]
 
 
 class _Deaths(Protocol):
@@ -49,6 +50,13 @@ def writer_of(link: DisplayLink) -> DisplayWriter:
 def generation_of(link: DisplayLink) -> DialGeneration:
     """The generation behind ``link``'s current dial."""
     return link._connection.require()  # test seam: production holds only refs
+
+
+def socket_of(link: DisplayLink) -> socket.socket:
+    """The raw socket behind ``link``'s current dial: for a test of the wire itself."""
+    return generation_of(
+        link
+    )._socket._dial.sock  # test seam: production never lends it
 
 
 def shown(

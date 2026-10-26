@@ -42,7 +42,6 @@ from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
-    AckMessage,
     CallbackMenuMessage,
     ConnectMessage,
     HubManifestMessage,
@@ -380,6 +379,7 @@ class RenderLoop:
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
         self._paint_clock.swapped()
+        self._sender.release_acks()
         self._queries.after_swap()
 
     def _clear_all(self) -> None:
@@ -501,8 +501,7 @@ class RenderLoop:
         self._wrap_abc_elements(msg)
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
-        ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._sender.reply_to_client(sock, ack)
+        self._sender.hold_ack(sock, msg.id)  # acked once a swap has completed
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 

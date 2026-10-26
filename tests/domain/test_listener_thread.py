@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_death import DialDeath
+    from punt_lux.domain.hub.settlement import Settlement
     from punt_lux.protocol import Message
 
 
@@ -490,7 +490,7 @@ class TestAStaleReportCannotTouchTheReplacement:
 
         def paused_mark_closed(
             generation: DialGeneration, cause: RetireCause
-        ) -> DialDeath | None:
+        ) -> Settlement:
             if generation is old:
                 redialer.start()
                 assert redial_started.wait(3.0)

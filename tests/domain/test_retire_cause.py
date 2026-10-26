@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
+from punt_lux.domain.hub import batch_sender
 from punt_lux.domain.hub.batch_sender import BatchSender, BatchSendError
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.connection_closed import (
@@ -500,6 +501,7 @@ class TestADeathDiscoveredByAnyParty:
         display.sockets[-1].fail_next_send = True
 
         failure = rig.push("s2")  # this write finds the display dead
+        assert until(lambda: not rig.link.is_connected)  # its reader settles the dial
         assert _mode(rig) == "batching"  # nothing is charged until a push
 
         rig.sender.charge_deaths()
@@ -516,6 +518,7 @@ class TestADeathDiscoveredByAnyParty:
         display.sockets[-1].fail_next_send = True
         with pytest.raises(BatchSendError):
             rig.sender.push(_batch("s2"))
+        assert until(lambda: not rig.link.is_connected)  # its reader settles the dial
 
         (death,) = deaths_of(rig.registry)
 
@@ -784,19 +787,22 @@ class TestTheLastDial:
         assert not rig.quarantined("p")  # but once, not each cycle it stays down
 
 
-class TestAnUnansweredProbeIsTheDisplaysEnd:
-    def test_an_unanswered_isolation_probe_leaves_the_death_of_the_scene_sent(
-        self, display: Display
+class TestAnUnackedProbeIsTheDisplaysEnd:
+    def test_an_unacked_isolation_probe_leaves_the_death_of_the_scene_sent(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        rig = _rig(display, {"s1": "x"})  # no responder: nothing is ever answered
+        monkeypatch.setattr(batch_sender, "_PROBE_TIMEOUT_SECONDS", 0.2)
+        rig = _rig(display, {"s1": "x"})  # no responder: nothing is ever acked
         rig.attribution.attribute_death(frozenset())  # isolation mode
 
         failure = rig.push("s1")
 
         assert failure is not None
         assert _is_the_displays_end(failure.cause)
+        assert until(lambda: not rig.link.is_connected)  # the dial's reader settles it
         (death,) = deaths_of(rig.registry)  # the unanswering dial's ledger
         assert death.suspects == frozenset({SceneId("s1")})
+        assert death.cause == "unresponsive"
 
 
 class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
@@ -804,16 +810,25 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
 
     @staticmethod
     def _hub_wins_every_display_retire(monkeypatch: pytest.MonkeyPatch) -> None:
-        real = DisplayConnection.close_if_current
+        real_close = DisplayConnection.close_if_current
+        real_retire = DisplayConnection.retire
 
-        def racing(
+        def racing_close(
             self: DisplayConnection, generation: DialGeneration, *, cause: RetireCause
         ) -> bool:
             if cause == "display":  # the Hub's retire lands first
-                real(self, generation, cause="hub")
-            return real(self, generation, cause=cause)
+                real_close(self, generation, cause="hub")
+            return real_close(self, generation, cause=cause)
 
-        monkeypatch.setattr(DisplayConnection, "close_if_current", racing)
+        def racing_retire(
+            self: DisplayConnection, generation: DialGeneration, *, cause: RetireCause
+        ) -> bool:
+            if cause == "display":  # the Hub's retire lands first
+                real_close(self, generation, cause="hub")
+            return real_retire(self, generation, cause=cause)
+
+        monkeypatch.setattr(DisplayConnection, "close_if_current", racing_close)
+        monkeypatch.setattr(DisplayConnection, "retire", racing_retire)
 
     def test_a_write_that_loses_the_retire_reports_the_hubs_cause_and_queues_nothing(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

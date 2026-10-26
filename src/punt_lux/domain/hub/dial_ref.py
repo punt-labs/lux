@@ -41,9 +41,10 @@ class DialRef:
         return id(self._generation)
 
     def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
-        """Retire this dial in ``connection`` if it is still the current one.
+        """End this dial in ``connection`` if it is still the current one.
 
-        Whether it was: a dial a redial replaced is already gone, and its successor
-        is not touched.
+        Whether this call did: a dial a redial replaced is already gone, and its
+        successor is not touched. A display end or an unresponsive end is settled by
+        the dial's reader, not here (see :meth:`DisplayConnection.retire`).
         """
-        return connection.close_if_current(self._generation, cause=cause)
+        return connection.retire(self._generation, cause=cause)

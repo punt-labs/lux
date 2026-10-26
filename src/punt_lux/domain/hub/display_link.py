@@ -62,7 +62,13 @@ class DisplayLink:
         recv_timeout: float = DEFAULT_RECV_TIMEOUT,
     ) -> Self:
         self = super().__new__(cls)
-        self._connection = DisplayConnection(dialer, connect_timeout)
+        self._connection = DisplayConnection(
+            dialer,
+            connect_timeout,
+            # A dial no reader holds is settled by whoever found it ended; the
+            # listener, which owns the readers, knows how.
+            lambda generation: self._listener.settle_unread(generation),
+        )
         self._listener = DisplayListener(self._connection, recv_timeout)
         self._desk = RequestDesk(self._connection, self._listener, recv_timeout)
         return self

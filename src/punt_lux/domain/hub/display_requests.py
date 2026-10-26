@@ -22,13 +22,9 @@ from punt_lux.protocol import PongMessage, QueryRequest, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.replicator_ports import ProbeVerdict
     from punt_lux.domain.hub.request_exchange import RequestExchange
 
 __all__ = ["DisplayRequests"]
-
-# How many pings a confirmation tries for a dial another ping keeps busy.
-_CONFIRM_TRIES = 3
 
 
 @final
@@ -64,32 +60,26 @@ class DisplayRequests:
 
         A ping already in flight is itself probing the display, so finding the dial
         busy is no evidence of a dead one: it counts as alive. This is the one place
-        that rule lives; a caller that needs the display's own answer asks
-        :meth:`confirm_alive`.
+        that rule lives; a caller that needs proof of a scene asks :meth:`await_acks`.
         """
         try:
             return self.ping(timeout) is not None
         except DisplayBusyError:
             return True
 
-    def confirm_alive(self, timeout: float) -> ProbeVerdict:
-        """What a ping of the display's own proved within ``timeout``.
+    def await_acks(self, timeout: float) -> bool:
+        """Whether the display acked every scene written to this dial in ``timeout``.
 
         The isolation loop's proof that the display survived the scene it was just
-        sent, before the next one goes out. Another ping holding the dial is itself
-        asking the display, and says nothing of this scene: it is waited out and the
-        ping asked again, up to ``_CONFIRM_TRIES`` times. ``"answered"`` is the
-        display's own pong; ``"silent"`` is a ping of its own that nobody answered;
-        ``"unproved"`` is a dial that stayed busy through every try, which is not
-        proof and is no death.
+        sent, before the next one goes out. An ack is sent only after a swap that
+        completed with the scene installed, so it is the one answer that says so; a
+        pong says only that the display is reading. ``False`` is a display that
+        stalled or died holding the scene.
         """
-        for _ in range(_CONFIRM_TRIES):
-            try:
-                answered = self.ping(timeout) is not None
-            except DisplayBusyError:
-                continue
-            return "answered" if answered else "silent"
-        return "unproved"
+        pending = self._generation.expect_drained()
+        if pending is None:
+            return True
+        return self._exchange.answer(self._generation, pending, timeout) is not None
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Ping the display; its pong, or ``None`` if none came in time.

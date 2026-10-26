@@ -252,23 +252,46 @@ class Call[T]:
 class Responder:
     """A display that answers every dial as the real one does, and can be poisoned.
 
-    A ping is answered with its pong and a scene with its ack, in the order read. A
-    scene named in ``poison`` is read and never acked: the display hangs up on it,
-    a frame after it read the scene, as a display that crashes rendering it does.
-    ``seen`` lists every scene the display read, in order.
+    A ping is answered with its pong. By default a scene is acked on receipt, and a
+    scene named in ``poison`` is read and never acked: the display hangs up on it, a
+    frame after it read the scene.
+
+    With ``at_swap`` the display is the real one: a scene is installed on receipt and
+    its ack is held until the next completed swap, when every held ack goes out in
+    receipt order. A held poison scene crashes the swap that would have sent it: the
+    display hangs up with every held ack unsent. ``swap()`` is that swap, called by
+    the test, or by the responder itself once it has been idle for ``swap_after``
+    seconds (``auto_swap``), as frames complete on a live display. ``seen`` lists
+    every scene the display read, in order.
     """
 
     _display: Display
     _poison: frozenset[str]
+    _at_swap: bool
+    _swap_after: float | None
     _stop: threading.Event
     _thread: threading.Thread
+    _held: list[tuple[Peer, str]]
+    _guard: threading.Lock
     seen: list[str]
 
-    def __new__(cls, display: Display, poison: frozenset[str] = frozenset()) -> Self:
+    def __new__(
+        cls,
+        display: Display,
+        poison: frozenset[str] = frozenset(),
+        *,
+        at_swap: bool = False,
+        auto_swap: bool = True,
+        swap_after: float = 0.03,
+    ) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._poison = poison
+        self._at_swap = at_swap
+        self._swap_after = swap_after if at_swap and auto_swap else None
         self._stop = threading.Event()
+        self._held = []
+        self._guard = threading.Lock()
         self.seen = []
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
@@ -279,7 +302,25 @@ class Responder:
         self._stop.set()
         self._thread.join(timeout=2.0)
 
+    def swap(self) -> None:
+        """Complete a swap: send every held ack in receipt order, or die painting."""
+        with self._guard:
+            held, self._held = self._held, []
+        if any(scene in self._poison for _, scene in held):
+            self._display.close()  # the crash is the swap that never completes
+            return
+        for peer, scene in held:
+            with contextlib.suppress(OSError):
+                peer.send(AckMessage(scene_id=scene))
+
+    @property
+    def held(self) -> list[str]:
+        """The scenes installed and not yet acked, in receipt order."""
+        with self._guard:
+            return [scene for _, scene in self._held]
+
     def _serve(self) -> None:
+        quiet_since = time.monotonic()
         while not self._stop.is_set():
             idle = True
             for peer in list(self._display.peers):
@@ -290,8 +331,16 @@ class Responder:
                 for message in messages:
                     idle = False
                     self._answer(peer, message)
-            if idle:
-                time.sleep(0.002)
+            if not idle:
+                quiet_since = time.monotonic()
+                continue
+            if (
+                self._swap_after is not None
+                and self.held
+                and time.monotonic() - quiet_since >= self._swap_after
+            ):
+                self.swap()
+            time.sleep(0.002)
 
     def _answer(self, peer: Peer, message: Message) -> None:
         with contextlib.suppress(OSError):
@@ -299,7 +348,10 @@ class Responder:
                 peer.send(PongMessage(ts=message.ts))
             elif isinstance(message, SceneMessage):
                 self.seen.append(message.id)
-                if message.id in self._poison:
+                if self._at_swap:
+                    with self._guard:
+                        self._held.append((peer, message.id))
+                elif message.id in self._poison:
                     peer.close()
                 else:
                     peer.send(AckMessage(scene_id=message.id))
