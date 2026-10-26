@@ -63,6 +63,11 @@ _HANDLERS: dict[str, frozenset[str]] = {
 }
 
 
+# The one handler whose key is computed: ``self._field``, typed ``ChangedField``, which
+# ``test_the_one_dynamic_field_is_a_closed_pair_of_scalars`` pins to two scalar fields.
+_CLOSED_KEY = {"protocol/elements/value_change_handlers.py": "self._field"}
+
+
 def _patch_calls(source: str) -> list[ast.Call]:
     """The ``<receiver>.apply_patch(...)`` calls in ``source``, bar ``super()``'s."""
     return [
@@ -79,13 +84,27 @@ def _patch_calls(source: str) -> list[ast.Call]:
     ]
 
 
-def _patched_fields(call: ast.Call) -> frozenset[str]:
-    """The constant field names a call's literal patch names."""
+def _patched_fields(call: ast.Call, module: str = "") -> frozenset[str] | None:
+    """The field names a call's literal patch names; ``None`` when unproven.
+
+    Only a dict literal with constant string keys names its fields. A patch held in
+    a variable, built by ``dict(...)``, or spread with ``**`` could carry any field,
+    so the guard cannot vouch for it.
+    """
     if not call.args or not isinstance(call.args[0], ast.Dict):
-        return frozenset()
+        return None
+    keys = [
+        key
+        for key in call.args[0].keys
+        if not (key is not None and ast.unparse(key) == _CLOSED_KEY.get(module))
+    ]
+    if not all(
+        isinstance(key, ast.Constant) and isinstance(key.value, str) for key in keys
+    ):
+        return None
     return frozenset(
         key.value
-        for key in call.args[0].keys
+        for key in keys
         if isinstance(key, ast.Constant) and isinstance(key.value, str)
     )
 
@@ -118,8 +137,10 @@ def _beyond_the_list(source_by_module: dict[str, str]) -> list[str]:
         if module not in _HANDLERS:
             continue
         for call in calls:
-            extra = _patched_fields(call) - _HANDLERS[module]
-            if extra:
+            fields = _patched_fields(call, module)
+            if fields is None:
+                found.append(f"{module}: a patch whose fields are not a literal")
+            elif extra := fields - _HANDLERS[module]:
                 found.append(f"{module}: {sorted(extra)}")
     return found
 
@@ -159,6 +180,26 @@ class TestEveryPatchOfAnElementIsAccountedFor:
 
         assert _beyond_the_list(planted) == [
             "protocol/elements/slider_codec.py: ['nodes']"
+        ]
+
+    @pytest.mark.parametrize(
+        "patch",
+        ["patch", "dict(value=e.value)", "{**e.fields}", "{e.name: e.value}"],
+        ids=["bound-name", "dict-call", "spread", "computed-key"],
+    )
+    def test_a_planted_handler_whose_patch_is_not_a_literal_is_unproven(
+        self, patch: str
+    ) -> None:
+        planted = {
+            "protocol/elements/slider_codec.py": (
+                "class H:\n    def __call__(self, e):\n"
+                f"        patch = {{'nodes': e.n}}\n"
+                f"        self._elem.apply_patch({patch})\n"
+            )
+        }
+
+        assert _beyond_the_list(planted) == [
+            "protocol/elements/slider_codec.py: a patch whose fields are not a literal"
         ]
 
     def test_a_super_call_in_an_override_is_not_a_patch_site(self) -> None:

@@ -16,12 +16,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, final
 
+from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_busy import DisplayBusyError
 from punt_lux.protocol import PongMessage, QueryRequest, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.domain.hub.replicator_ports import ProbeVerdict
     from punt_lux.domain.hub.request_exchange import RequestExchange
 
 __all__ = ["DisplayRequests"]
@@ -56,7 +57,7 @@ class DisplayRequests:
     @property
     def dial(self) -> DialRef:
         """The dial every request through this port uses: what a failure names."""
-        return self._exchange.name(self._generation)
+        return DialRef(self._generation)
 
     def probe_alive(self, timeout: float) -> bool:
         """Whether the display is alive, as a liveness check counts it.
@@ -71,22 +72,24 @@ class DisplayRequests:
         except DisplayBusyError:
             return True
 
-    def confirm_alive(self, timeout: float) -> bool:
-        """Whether the display answered a ping of its own within ``timeout``.
+    def confirm_alive(self, timeout: float) -> ProbeVerdict:
+        """What a ping of the display's own proved within ``timeout``.
 
         The isolation loop's proof that the display survived the scene it was just
         sent, before the next one goes out. Another ping holding the dial is itself
         asking the display, and says nothing of this scene: it is waited out and the
-        ping asked again, up to ``_CONFIRM_TRIES`` times. A dial that stays busy
-        for all of them has not shown the display dead, so it answers ``True``;
-        only a ping of its own that nobody answered answers ``False``.
+        ping asked again, up to ``_CONFIRM_TRIES`` times. ``"answered"`` is the
+        display's own pong; ``"silent"`` is a ping of its own that nobody answered;
+        ``"unproved"`` is a dial that stayed busy through every try, which is not
+        proof and is no death.
         """
         for _ in range(_CONFIRM_TRIES):
             try:
-                return self.ping(timeout) is not None
+                answered = self.ping(timeout) is not None
             except DisplayBusyError:
                 continue
-        return True
+            return "answered" if answered else "silent"
+        return "unproved"
 
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Ping the display; its pong, or ``None`` if none came in time.

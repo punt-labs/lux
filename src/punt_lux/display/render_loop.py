@@ -32,7 +32,7 @@ from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
-from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
+from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
@@ -92,10 +92,8 @@ class RenderLoop:
     _fit_all_frames: bool
     _settings: WindowSettings
     _test_auto_click: bool
-    _start_time: float
     _current_scene_id: str | None
     _query_router: QueryRouter
-    _display_queries: DisplayQueryHandlers
     _queries: ClientQueries
     _display_paths: DisplayPaths
     _imgui_renderer_factory: ImGuiRendererFactory
@@ -132,14 +130,7 @@ class RenderLoop:
             on_raise_frame=self._raise_frame,
             get_frames=lambda: self._scenes.frames,
             own=OwnMenus(
-                on_theme_selected=self._settings.apply_theme,
-                on_decorated_toggled=self._settings.set_decorated,
-                on_opacity_changed=self._settings.set_opacity,
-                on_font_scale_changed=self._settings.set_font_scale,
-                get_themes=lambda: self._settings.themes,
-                get_decorated=lambda: self._settings.decorated,
-                get_opacity=lambda: self._settings.opacity,
-                get_font_scale=lambda: self._settings.font_scale,
+                settings=self._settings,
                 get_frames=lambda: self._scenes.frames,
                 addressing=self._addressing,
                 on_clear_all=self._clear_all,
@@ -152,13 +143,7 @@ class RenderLoop:
             frame_for=self._scenes.frame, facts_for=self._scenes.owner_facts_for
         )
         # QueryRouter must precede SocketListener -- it supplies on_error.
-        self._query_router = QueryRouter(
-            scenes=self._scenes,
-            get_client_names=lambda: self._socket_listener.client_names,
-            get_client_connect_times=lambda: self._socket_listener.client_connect_times,
-            get_agent_menus=lambda: self._menus.agent_menus,
-            get_callback_menus=lambda: self._menus.callback_menus,
-        )
+        self._query_router = QueryRouter(self._scenes)
         socket_callbacks = SocketListenerCallbacks(
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
@@ -167,6 +152,10 @@ class RenderLoop:
         self._socket_listener, self._sender = SocketListener.with_sender(
             socket_callbacks
         )
+        self._query_router.register_handler(
+            "list_clients", self._socket_listener.client_report
+        )
+        self._query_router.register_handler("list_menus", self._menus.inventory_report)
         self._interaction_delivery = InteractionDelivery(
             socket_listener=self._socket_listener,
             sender=self._sender,
@@ -215,7 +204,6 @@ class RenderLoop:
         self._paint_clock = PaintClock()
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._test_auto_click = test_auto_click
-        self._start_time = time.time()
         self._current_scene_id = None
         self._imgui_renderer_factory = ImGuiRendererFactory(
             widget_state=self._widget_state,
@@ -225,22 +213,13 @@ class RenderLoop:
         )
 
         # Register display-specific query handlers that need ImGui state.
-        self._display_queries = DisplayQueryHandlers(
-            get_start_time=lambda: self._start_time,
-            get_opacity=lambda: self._settings.opacity,
-            get_font_scale=lambda: self._settings.font_scale,
-            get_decorated=lambda: self._settings.decorated,
-            get_current_theme=lambda: self._settings.current_theme,
-            get_themes=lambda: self._settings.themes,
-            record_error=self._query_router.record_error,
-            sender=self._sender,
-        )
         self._queries = ClientQueries(
             sender=self._sender,
             query_router=self._query_router,
-            display_queries=self._display_queries,
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
+            settings=self._settings,
+            record_error=self._query_router.record_error,
         )
         return self
 

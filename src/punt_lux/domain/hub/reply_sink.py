@@ -30,6 +30,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ class ReplySink:
     """The replies one dial is owed: acks in write order, a ping, a query."""
 
     _cond: threading.Condition
-    _acks: deque[str]  # scene ids written and not yet acked, in wire order
+    _acks: deque[SceneId]  # scenes written and not yet acked, in wire order
     _ping: Pending[float, PongMessage] | None  # the one ping in flight
     _query: Pending[None, QueryResponse] | None  # the one query in flight
     _waiting: set[object]  # tickets a caller still waits on
@@ -124,7 +125,7 @@ class ReplySink:
         """Record a scene written to the display, in wire order."""
         with self._cond:
             self._require_live()
-            self._acks.append(scene_id)
+            self._acks.append(SceneId(scene_id))
 
     def expect_pong(self, ts: float) -> Pending[float, PongMessage]:
         """Record the ping in flight; only a pong echoing ``ts`` answers it."""
@@ -198,7 +199,7 @@ class ReplySink:
                 self._deliver_query(msg)
             self._cond.notify_all()
 
-    def discard(self, cause: RetireCause) -> tuple[str, ...]:
+    def discard(self, cause: RetireCause) -> tuple[SceneId, ...]:
         """End the sink with its dial: record who ended it, fail every waiter.
 
         The first call wins and returns the ledger: the ids of the scenes the display

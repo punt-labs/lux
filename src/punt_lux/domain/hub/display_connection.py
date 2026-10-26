@@ -15,27 +15,30 @@ share no socket state of their own.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections import deque
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.ids import SceneId
+from punt_lux.send_timeout import set_send_timeout
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.protocol import ReadyMessage
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["DisplayConnection"]
 
-# Deaths a replicator has not yet charged. Bounded: a display that dies faster than the
-# replicator runs has made its point, and the oldest evidence is the least needed.
-_PENDING_DEATHS = 64
+# Deaths a replicator has not yet charged. The queue holds one per dial and is never
+# trimmed: a dropped death is a scene never charged. Past this many it says so.
+_PENDING_DEATHS_WARNING = 64
 
 
 @final
@@ -70,7 +73,7 @@ class DisplayConnection:
         self._state_lock = threading.Lock()
         self._current = None
         self._last = None
-        self._deaths = deque(maxlen=_PENDING_DEATHS)
+        self._deaths = deque()
         return self
 
     @property
@@ -146,31 +149,34 @@ class DisplayConnection:
                 return False
             self._current = None
             self._last = generation
-            owed = generation.mark_closed(cause)
-            if cause == "display" and owed:
-                self._deaths.append(
-                    DialDeath(
-                        DialRef(generation),
-                        frozenset(SceneId(scene) for scene in owed),
-                        generation.endpoint,
-                    )
-                )
+            death = generation.mark_closed(cause)
+            if death is not None:
+                self._record(death)
         generation.shut()
         return True
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """Hand over the display-ended dials not yet charged, each exactly once."""
+    def take_death(self) -> DialDeath | None:
+        """Hand over the oldest display-ended dial not yet charged; each once."""
         with self._state_lock:
-            taken = tuple(self._deaths)
-            self._deaths.clear()
-        return taken
+            return self._deaths.popleft() if self._deaths else None
+
+    def _record(self, death: DialDeath) -> None:
+        """Queue a death for the replicator: never dropped, but never unnoticed."""
+        self._deaths.append(death)
+        if len(self._deaths) > _PENDING_DEATHS_WARNING:
+            logger.warning(
+                "%d display deaths wait to be charged: is the replicator running?",
+                len(self._deaths),
+            )
 
     def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:
         """Dial and publish a generation with ``reader``; ``None`` if already open."""
         if self.is_open:
             return None
+        dialed = self._dialed()
+        set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
-            self._dialed(),
+            dialed,
             lambda generation, cause: self.close_if_current(generation, cause=cause),
             reader=reader,
         )

@@ -53,6 +53,9 @@ class ListScenesResponse:
     scenes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
     frames: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
     type: Literal["list_scenes_response"] = "list_scenes_response"
+    # PY-TS-14: absence is the contract, as for IntrospectResponse: a failed listing
+    # says so, and is never an empty success.
+    error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +113,10 @@ def _list_scenes_request_to_dict(m: ListScenesRequest) -> dict[str, Any]:
 
 
 def _list_scenes_response_to_dict(m: ListScenesResponse) -> dict[str, Any]:
-    return {"type": m.type, "scenes": m.scenes, "frames": m.frames}
+    d: dict[str, Any] = {"type": m.type, "scenes": m.scenes, "frames": m.frames}
+    if m.error is not None:
+        d["error"] = m.error
+    return d
 
 
 def _screenshot_request_to_dict(m: ScreenshotRequest) -> dict[str, Any]:
@@ -155,7 +161,9 @@ def _list_scenes_request_from_dict(_d: dict[str, Any]) -> ListScenesRequest:
 
 
 def _list_scenes_response_from_dict(d: dict[str, Any]) -> ListScenesResponse:
-    return ListScenesResponse(scenes=d.get("scenes", []), frames=d.get("frames", []))
+    return ListScenesResponse(
+        scenes=d.get("scenes", []), frames=d.get("frames", []), error=d.get("error")
+    )
 
 
 def _screenshot_request_from_dict(_d: dict[str, Any]) -> ScreenshotRequest:

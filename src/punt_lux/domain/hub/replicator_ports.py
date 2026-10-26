@@ -13,7 +13,7 @@ declaring its manifest, DES-068).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from punt_lux.domain.hub.disconnected_retry import ReconnectWaiter
 from punt_lux.domain.hub.scene_presentation import ScenePusher
@@ -33,8 +33,13 @@ __all__ = [
     "DisplayProbe",
     "DisplaySender",
     "MenuReader",
+    "ProbeVerdict",
     "WriteSeatPort",
 ]
+
+
+# What a probe proved: the display answered, nobody answered, or the dial was too busy.
+type ProbeVerdict = Literal["answered", "silent", "unproved"]
 
 
 @runtime_checkable
@@ -104,15 +109,15 @@ class DisplayProbe(Protocol):
         """The dial the probe goes out on: what a failed probe names to drop."""
         ...
 
-    def confirm_alive(self, timeout: float) -> bool:
-        """Return whether the display answered a ping of its own within ``timeout``.
+    def confirm_alive(self, timeout: float) -> ProbeVerdict:
+        """Ask the display for a pong of its own and say what the answer proved.
 
         The synchronous liveness check between consecutive singleton sends: it makes
         the display take scene N (ack it, or die holding it) before N+1 goes out, so
-        a death leaves a ledger of one scene. A busy dial is not proof, and is no
-        death either: the probe waits it out and asks again, and a
-        dial that stays busy answers ``True``. A pong that never comes answers
-        ``False``; raising OSError/BlockingIOError is a "no" too -- the caller
+        a death leaves a ledger of one scene. ``"answered"``: the display's own pong
+        came. ``"silent"``: nobody answered a ping of its own. ``"unproved"``: another
+        ping kept the dial busy through every try, which proves nothing and is no
+        death either. Raising OSError/BlockingIOError is a "silent" too -- the caller
         propagates it as a failure of the dial.
         """
         ...
@@ -139,8 +144,8 @@ class ClientProvider(ReconnectWaiter, Protocol):
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire ``dial``, open but silent, as the display's end; charge its ledger."""
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """The display-ended dials not yet charged to a scene, each handed over once."""
+    def take_death(self) -> DialDeath | None:
+        """The oldest display-ended dial not yet charged, handed over once."""
         ...
 
     def request_stop(self) -> None:

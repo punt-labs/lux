@@ -10,11 +10,13 @@ again by recovery, whoever found the dial dead.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.death_charger import DeathCharger
+from punt_lux.domain.hub.push_result import PushResult
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
@@ -31,6 +33,8 @@ if TYPE_CHECKING:
     )
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["BatchSendError", "BatchSender"]
 
@@ -120,8 +124,8 @@ class BatchSender:
         """Charge every death on record, once; the idle replicator's look."""
         self._charger.charge()
 
-    def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
-        """Send the batch and return the scenes it found empty, for later reclaim.
+    def push(self, batch: DrainedBatch) -> PushResult:
+        """Send the batch; report the scenes found empty and the scenes left unsent.
 
         Deaths already on record are charged first, so a scene they take to the
         threshold is quarantined before the batch is filtered. A socket failure
@@ -139,7 +143,7 @@ class BatchSender:
         except OSError as exc:
             raise flight.failed(exc) from exc
 
-    def _push(self, batch: DrainedBatch, flight: _InFlight) -> tuple[SceneId, ...]:
+    def _push(self, batch: DrainedBatch, flight: _InFlight) -> PushResult:
         scenes = frozenset(
             s for s in batch.scenes if not self._attribution.is_quarantined(s)
         )
@@ -155,39 +159,48 @@ class BatchSender:
             return self._isolating(scenes, flight)
         return self._batching(scenes, flight)
 
-    def _batching(
-        self, scenes: frozenset[SceneId], flight: _InFlight
-    ) -> tuple[SceneId, ...]:
+    def _batching(self, scenes: frozenset[SceneId], flight: _InFlight) -> PushResult:
         """Send every scene as one coalesced batch.
 
         Each ``_send_scene`` sends and reports whether the scene was empty; the
         comprehension keeps the empties as reclaim candidates.
         """
-        return tuple(scene for scene in scenes if self._send_scene(scene, flight))
+        return PushResult(
+            tuple(scene for scene in scenes if self._send_scene(scene, flight))
+        )
 
-    def _isolating(
-        self, scenes: frozenset[SceneId], flight: _InFlight
-    ) -> tuple[SceneId, ...]:
+    def _isolating(self, scenes: frozenset[SceneId], flight: _InFlight) -> PushResult:
         """Send every scene alone, with a liveness probe between sends.
 
         A synchronous probe runs *after* each send, *before* the next, so the display
         has taken scene N (acked it, or died holding it) before N+1 goes out: a death
-        leaves a ledger of one. The probe waits for the display's own pong; a pong
-        that never comes is the display's end of a dial it left open, retired as such
-        so its ledger is charged. A dial too busy to ask (a ping already in flight) is
-        waited out by the probe itself and is no death.
+        leaves a ledger of one. A pong that never comes is the display's end of a dial
+        it left open, retired as such so its ledger is charged. A dial too busy to ask
+        proves nothing and is no death: the scene stays queued, the cycle stops with
+        the rest unsent, and a warning names it.
         """
         emptied: list[SceneId] = []
-        for scene_id in scenes:
+        pending = list(scenes)
+        while pending:
+            scene_id = pending.pop(0)
             if self._send_scene(scene_id, flight):
                 emptied.append(scene_id)
             probe = self._connected(flight)  # connects if the dial is gone
             flight.on(probe.dial)
-            if not probe.confirm_alive(_PROBE_TIMEOUT_SECONDS):
+            verdict = probe.confirm_alive(_PROBE_TIMEOUT_SECONDS)
+            if verdict == "silent":
                 self._clients.drop_unresponsive(probe.dial)
                 msg = f"display did not ack probe after sending {scene_id!r}"
                 raise ConnectionClosedError(msg)
-        return tuple(emptied)
+            if verdict == "unproved":
+                logger.warning(
+                    "isolation could not confirm the display took %r (the dial stayed "
+                    "busy); it and %d more scene(s) stay queued",
+                    scene_id,
+                    len(pending),
+                )
+                return PushResult(tuple(emptied), (scene_id, *pending))
+        return PushResult(tuple(emptied))
 
     def _sender(self, flight: _InFlight) -> DisplaySender:
         """A sender pinned to the dial that is current, noting it for a failure."""

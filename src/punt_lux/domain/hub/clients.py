@@ -7,7 +7,7 @@ the per-process menu-app guard.
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
@@ -28,6 +28,7 @@ __all__ = ["ClientRegistry", "client_registry"]
 _DISPLAY_CLIENT_NAME = "lux-mcp"
 
 
+@final
 class ClientRegistry:
     """Owns the lazy ``DisplayLink`` and per-process menu registrations.
 
@@ -40,7 +41,6 @@ class ClientRegistry:
 
     _client: DisplayLink | None
     _lock: threading.RLock
-    _apps_registered_for: int | None
     _marker: DirtyMarker
     _reconnect_gen: int
     _reconnect_cond: threading.Condition
@@ -50,17 +50,11 @@ class ClientRegistry:
         self = super().__new__(cls)
         self._client = None
         self._lock = threading.RLock()
-        self._apps_registered_for = None
         self._marker = NullDirtyMarker()
         self._reconnect_gen = 0
         self._reconnect_cond = threading.Condition(self._lock)
         self._stop_requested = False
         return self
-
-    @property
-    def lock(self) -> threading.RLock:
-        """Return the lock so adapters serialize their own bookkeeping too."""
-        return self._lock
 
     @property
     def is_connected(self) -> bool:
@@ -83,28 +77,24 @@ class ClientRegistry:
         with self._lock:
             was_connected = self.is_connected
             client = self._ensure_client()
-            self._setup_apps()
-            self._ensure_connected(client)
+            if not client.is_connected:
+                self._connect_and_reconcile(client)
             self._mark_reconnected_if_fresh(was_connected=was_connected)
             return client.desk.asks()
 
     def _ensure_client(self) -> DisplayLink:
-        """Create the lazy client on first use; its own service unit supervises."""
+        """Create the lazy client on first use; its own service unit supervises.
+
+        A dial the registry makes starts its reader in the same step
+        (``open_as_hub``), so a connected link always has one. The D21 fallback
+        dispatch is wired once, as the client is made.
+        """
         if self._client is None:
             self._client = DisplayLink.to_socket(
                 name=_DISPLAY_CLIENT_NAME, kind="hub", auto_spawn=False
             )
+            self._client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
         return self._client
-
-    def _ensure_connected(self, client: DisplayLink) -> None:
-        """Connect and reconcile if not connected.
-
-        A dial the registry makes starts its reader in the same step
-        (``connect(manifest=...)``), so a connected link always has one and
-        nothing here waits for the reader slot under the registry lock.
-        """
-        if not client.is_connected:
-            self._connect_and_reconcile(client)
 
     def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
         """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
@@ -152,10 +142,10 @@ class ClientRegistry:
             if self._client is not None:
                 self._client.drop_if_current(dial, cause="display")
 
-    def take_deaths(self) -> tuple[DialDeath, ...]:
-        """The display-ended dials not yet charged to a scene, each handed over once."""
+    def take_death(self) -> DialDeath | None:
+        """The oldest display-ended dial not yet charged, handed over once."""
         with self._lock:
-            return () if self._client is None else self._client.take_deaths()
+            return None if self._client is None else self._client.take_death()
 
     def take_writer(self) -> WriteSeat:
         """Hand over the display's write seat, once: its holder is the one writer."""
@@ -169,18 +159,10 @@ class ClientRegistry:
         declares the manifest inside its own connect step (a manifest that cannot be
         sent closes it), and every manifested scene plus the menu is marked dirty.
         """
-        scene_ids = client.connect(listen=True, manifest=hub_display.live_scene_ids)
+        scene_ids = client.open_as_hub(hub_display.live_scene_ids)
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)
         self._marker.mark_menus()
-
-    def _setup_apps(self) -> None:
-        """Wire the D21 fallback interaction dispatch. Idempotent per client."""
-        client = self._ensure_client()
-        if self._apps_registered_for == id(client):
-            return
-        client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
-        self._apps_registered_for = id(client)
 
 
 client_registry = ClientRegistry()

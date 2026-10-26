@@ -16,7 +16,7 @@ _DISPLAY = Path(__file__).resolve().parents[2] / "src" / "punt_lux" / "display"
 # The seam itself, the frame book that stores the title, and the introspection
 # report that deliberately carries the base title beside the label.
 _ALLOWED = frozenset({"replica/address_rendering.py", "replica/frame_book.py"})
-_ALLOWED_REPORT = frozenset({"query_dispatcher.py"})
+_ALLOWED_REPORT = frozenset({"scene_reports.py"})
 _RAW_TITLE = re.compile(r"\bheading\.title\b")
 
 

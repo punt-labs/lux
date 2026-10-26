@@ -464,7 +464,7 @@ class TestBusyIsNotDead:
         assert first.wait()
         link.close()
 
-    def test_a_confirmation_that_only_finds_a_ping_in_flight_kills_nothing(
+    def test_a_confirmation_that_only_finds_a_ping_in_flight_is_unproved_not_dead(
         self, display: Display
     ) -> None:
         # The isolation loop must learn that the display survived the scene it just
@@ -476,7 +476,7 @@ class TestBusyIsNotDead:
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
-        assert link.desk.asks().confirm_alive(0.05) is True
+        assert link.desk.asks().confirm_alive(0.05) == "unproved"
 
         assert display.peer.read(1, timeout=0.1) == [], "a busy dial wrote nothing"
         display.peer.send(PongMessage(ts=sent.ts))
@@ -500,7 +500,7 @@ class TestBusyIsNotDead:
 
         assert first.wait()
         assert confirming.wait()
-        assert confirming.result is True
+        assert confirming.result == "answered"
         link.close()
 
     def test_a_confirmation_is_the_displays_own_pong(self, display: Display) -> None:
@@ -512,7 +512,7 @@ class TestBusyIsNotDead:
         display.peer.send(PongMessage(ts=sent.ts))
 
         assert confirming.wait()
-        assert confirming.result is True
+        assert confirming.result == "answered"
         link.close()
 
     def test_a_confirmation_the_display_never_answers_is_false(
@@ -520,7 +520,7 @@ class TestBusyIsNotDead:
     ) -> None:
         link = _linked(display)
 
-        assert link.desk.asks().confirm_alive(0.05) is False
+        assert link.desk.asks().confirm_alive(0.05) == "silent"
         link.close()
 
     def test_a_query_that_lost_its_lock_wait_says_busy_and_keeps_its_dial(
@@ -1276,9 +1276,7 @@ class TestDeclaringWhatTheHubHolds:
     ) -> None:
         link = DisplayLink(display, recv_timeout=3.0)
 
-        declared = link.connect(
-            listen=True, manifest=lambda: (SceneId("a"), SceneId("b"))
-        )
+        declared = link.open_as_hub(lambda: (SceneId("a"), SceneId("b")))
 
         (sent,) = display.peer.read(1)
         assert sent == HubManifestMessage(scene_ids=("a", "b"))
@@ -1295,7 +1293,7 @@ class TestDeclaringWhatTheHubHolds:
             dials_when_read.append(display.dials)
             return ()
 
-        link.connect(listen=True, manifest=manifest)
+        link.open_as_hub(manifest)
 
         assert dials_when_read == [1]
         link.close()
@@ -1310,9 +1308,22 @@ class TestDeclaringWhatTheHubHolds:
             return (SceneId("a"),)
 
         with pytest.raises(OSError, match="fell over"):
-            link.connect(listen=True, manifest=failing_manifest)
+            link.open_as_hub(failing_manifest)
 
         assert not link.is_connected
+
+    def test_a_link_that_is_already_open_declares_nothing_again(
+        self, display: Display
+    ) -> None:
+        link = DisplayLink(display, recv_timeout=3.0)
+        link.open_as_hub(lambda: (SceneId("a"),))
+        display.peer.read(1)
+
+        again = link.open_as_hub(lambda: (SceneId("b"),))
+
+        assert again == ()
+        assert display.peer.read(1, timeout=0.1) == []
+        link.close()
 
 
 class TestAPingIsStampedUnderItsLock:

@@ -234,12 +234,16 @@ class HubReplicator:
         """Charge any death found while idle, then decay per-episode state.
 
         A display that died while nothing was queued leaves its record on the dial;
-        charging it here, every tick, means no redial by anyone else can hide it.
-        The two death-free-interval checks follow.
+        charging it here, every tick, means no redial can hide it. The tick reaches
+        the registry and the store, so it can raise: that is logged and the worker,
+        the only replicator there is, lives on.
         """
-        self._sender.charge_deaths()
-        self._attribution.exit_isolation_if_stable()
-        self._recovery.reset_backoff_if_stable()
+        try:
+            self._sender.charge_deaths()
+            self._attribution.exit_isolation_if_stable()
+            self._recovery.reset_backoff_if_stable()
+        except Exception:
+            logger.exception("replicator idle tick failed; continuing")
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
         """Push the batch; reclaim only on a genuinely clean cycle, else back off.
@@ -287,7 +291,7 @@ class HubReplicator:
         death is charged from its own dial's ledger, however it was found."""
         since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
         try:
-            emptied = self._sender.push(batch)
+            pushed = self._sender.push(batch)
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
@@ -295,7 +299,8 @@ class HubReplicator:
             return _CycleOutcome(outcome="disconnected")
         except BatchSendError as exc:
             return self._recovered(batch, exc, since_gen)
-        return _CycleOutcome(outcome="clean", emptied=emptied)
+        self._signal.add_all(pushed.deferred)  # left unsent: queued for the next cycle
+        return _CycleOutcome(outcome="clean", emptied=pushed.emptied)
 
     def _recovered(
         self, batch: DrainedBatch, failure: BatchSendError, since_gen: int

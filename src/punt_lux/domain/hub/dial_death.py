@@ -3,8 +3,8 @@
 When the display ends a dial, the scenes written to that dial and never acked are the
 suspects: they are what the display held when it died. The dial's own ledger is the
 only evidence, so whoever discovers the death (the reader, the keepalive, an MCP tool's
-redial, the replicator's send) hands the same record to recovery, which charges it once.
-A dial the Hub ended, or one that owed nothing, leaves no death.
+redial, the replicator's send) leaves the same record on the dial that died, which the
+replicator charges once. A dial the Hub ended, or one that owed nothing, leaves none.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.ids import SceneId
 
 __all__ = ["DialDeath"]
@@ -21,11 +20,15 @@ __all__ = ["DialDeath"]
 
 @dataclass(frozen=True, slots=True)
 class DialDeath:
-    """One display-ended dial: which, the scenes it owed acks for, and where."""
+    """One display-ended dial: the scenes it owed acks for, and where it was."""
 
-    dial: DialRef
-    suspects: frozenset[SceneId]  # non-empty: an empty ledger charges nothing
+    suspects: frozenset[SceneId]
     endpoint: str  # the display's label, for the quarantine record's reason
+
+    def __post_init__(self) -> None:
+        if not self.suspects:
+            msg = "a death with no suspects charges nothing, so it is never recorded"
+            raise ValueError(msg)
 
     @property
     def reason(self) -> str:

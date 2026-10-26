@@ -18,6 +18,8 @@ import pytest
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.ids import SceneId
 from punt_lux.domain.scope import Scope
@@ -42,6 +44,7 @@ class _FakeClient:
     close_calls: int
     start_listener_calls: int
     manifests_sent: list[tuple[str, ...]]
+    fallbacks: list[object]
     _connected: bool
     _fail_send_manifest_once: bool
 
@@ -51,6 +54,7 @@ class _FakeClient:
         self.close_calls = 0
         self.start_listener_calls = 0
         self.manifests_sent = []
+        self.fallbacks = []
         self._connected = False
         self._fail_send_manifest_once = fail_send_manifest_once
         return self
@@ -60,19 +64,15 @@ class _FakeClient:
         """The push port: this fake is its own."""
         return self
 
-    def connect(
-        self,
-        *,
-        listen: bool = False,
-        manifest: Callable[[], Sequence[str]] | None = None,
-    ) -> tuple[str, ...]:
-        """Connect; with a manifest, write it (failing once if told to, closing)."""
+    def connect(self, *, listen: bool = False) -> None:
         self.connect_calls += 1
         self._connected = True
         if listen:
             self.start_listener_calls += 1
-        if manifest is None:
-            return ()
+
+    def open_as_hub(self, manifest: Callable[[], Sequence[str]]) -> tuple[str, ...]:
+        """Connect with a reader, then write the manifest: it fails once if told to."""
+        self.connect(listen=True)
         scene_ids = tuple(manifest())
         if self._fail_send_manifest_once:
             self._fail_send_manifest_once = False
@@ -96,7 +96,8 @@ class _FakeClient:
         return self
 
     def set_fallback_handler(self, handler: object) -> None:
-        """No-op — ``_setup_apps`` wires this; nothing here asserts on it."""
+        """Record the handler the registry wires when it makes the client."""
+        self.fallbacks.append(handler)
 
     @property
     def is_connected(self) -> bool:
@@ -130,6 +131,26 @@ class _FakeMarker:
 def _install_client(registry: ClientRegistry, fake: _FakeClient) -> None:
     """Plant ``fake`` into ``registry`` as the link its ``asks`` connects."""
     registry._client = fake  # type: ignore[assignment]  # test-only duck type
+
+
+class TestTheClientIsMadeOnce:
+    """The registry makes its link on first use, and wires the fallback then."""
+
+    def test_the_hub_dispatch_is_the_fallback_exactly_once_however_often_asked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeClient()
+
+        def to_socket(_cls: type[DisplayLink], /, **_options: object) -> _FakeClient:
+            return fake
+
+        monkeypatch.setattr(DisplayLink, "to_socket", classmethod(to_socket))
+        registry = ClientRegistry()
+
+        registry.asks()
+        registry.asks()
+
+        assert fake.fallbacks == [HubInteractionDispatch.dispatch]
 
 
 class TestConnectAndReconcile:

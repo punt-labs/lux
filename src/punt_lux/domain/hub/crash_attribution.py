@@ -141,9 +141,10 @@ class CrashAttribution:
         dark sees WHY, not just that. None is honest for callers that have no
         exception to attribute (a synthetic priming attribute in tests, etc.).
 
-        The empty suspect set is a valid input — a menu-attributed death lands
-        here with no scene in flight (see ``HubReplicator._attempt``), which
-        still trips isolation but blames no scene.
+        The only caller, ``DeathCharger``, passes a recorded death's suspects, and
+        a death with none is never recorded: a dial that owed no acknowledgement
+        charges nothing, so it neither trips isolation nor blames a scene. An empty
+        set passed here directly would still trip isolation and blame no scene.
 
         Tally updates happen under this class's lock; the ``port.quarantine``
         callback fires only after the lock is released, so this class never

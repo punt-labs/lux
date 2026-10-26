@@ -95,6 +95,10 @@ class SocketListener:
         """Return fd-to-connect-timestamp mapping."""
         return self._registry.client_connect_times
 
+    def client_report(self, **_kwargs: object) -> dict[str, object]:
+        """The connected clients, as the ``list_clients`` query reports them."""
+        return self._registry.report()
+
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
         """Return fd-to-socket mapping for O(1) lookup."""
@@ -214,7 +218,9 @@ class SocketListener:
         if sock not in self._clients:
             return  # already removed -- make idempotent
         self._clients.remove(sock)
-        fd = self._live_fd(sock)
+        fd = self._registry.fd_of(sock)
+        if fd is None or fd < 0:  # never registered, or under the closed-socket -1
+            fd = self._live_fd(sock)  # only a live fd names it
         if fd is not None:
             self._registry.forget_connection(fd)
             self._reader.forget(fd)

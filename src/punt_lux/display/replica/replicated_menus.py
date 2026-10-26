@@ -6,8 +6,9 @@ also holds the two render surfaces as a separate collaborator."""
 from __future__ import annotations
 
 from itertools import chain
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Any, Self, final
 
+from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica.menu_by_hub import MenuByHub
 from punt_lux.display.replica.menu_stats import MenuStats
@@ -65,6 +66,12 @@ class ReplicatedMenus:
         """Take one Hub's ``Clients`` submenus; ``hub`` defaults to a stub."""
         menus = WireMenu.accepted(payloads, origin="callback_menus")
         self._callback_menus.put(HubScopedKey(hub, _CALLBACK_MENUS_LOCAL), menus)
+
+    def inventory_report(self, **_kwargs: object) -> dict[str, Any]:
+        """Every menu line held, as the ``list_menus`` query reports it."""
+        return MenuInventory.of(
+            [("agent", self.agent_menus), ("session", self.callback_menus)]
+        ).to_report()
 
     def hub_scoped_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
         """Yield every live Hub's callback then agent-defined menus, each

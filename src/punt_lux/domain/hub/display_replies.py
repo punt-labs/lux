@@ -101,9 +101,11 @@ class DisplayReplies:
                 chunk = generation.poll_chunk(remaining)
                 if chunk is not None:
                     self._route_inline(generation, chunk)
-            except (ConnectionClosedError, OSError):
+            except (ConnectionClosedError, OSError) as exc:
                 # The display's end, or our own retirement: either way it is over.
-                self._connection.close_if_current(generation, cause="display")
+                # A retire that loses to another's reports the winner's cause.
+                if not self._connection.close_if_current(generation, cause="display"):
+                    raise generation.closed_error() from exc
                 raise
             except ReplyOutOfOrderError as exc:
                 # The stream skewed: the Hub gives up on a dial it can no longer

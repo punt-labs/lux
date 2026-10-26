@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.menus import MenuModel
+from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.domain.identity import HubId
 from tests.menu_doubles import (
@@ -35,6 +36,33 @@ if TYPE_CHECKING:
 def _labels(menus: Sequence[WireMenu]) -> tuple[str, ...]:
     """Return the label of every menu held, in order."""
     return tuple(menu.label for menu in menus)
+
+
+class TestTheInventoryReport:
+    """The ``list_menus`` answer is read from the menus the display holds."""
+
+    def test_it_names_each_menu_line_by_where_it_came_from(self) -> None:
+        manager = _manager()
+        manager.replace_agent_menus(
+            [wire_menu("File", [{"label": "Open", "id": "file.open"}])]
+        )
+        manager.replace_callback_menus(
+            [wire_menu("voxd", [{"label": "Music", "id": "v\x1fm"}])]
+        )
+
+        report = manager.inventory_report()
+
+        assert (
+            report
+            == MenuInventory.of(
+                [("agent", manager.agent_menus), ("session", manager.callback_menus)]
+            ).to_report()
+        )
+        assert "Open" in str(report)
+        assert "Music" in str(report)
+
+    def test_a_display_with_no_menus_reports_none(self) -> None:
+        assert "Open" not in str(_manager().inventory_report())
 
 
 class TestReplicatedMenuState:

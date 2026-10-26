@@ -30,6 +30,7 @@ from punt_lux.domain.hub.crash_attribution import (
     CrashAttribution,
 )
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
+from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
@@ -41,11 +42,13 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
 from punt_lux.protocol import AckMessage, SceneMessage, TextElement, encode_frame
 from tests.domain.display_double import Call, Display, Responder, until
-from tests.link_access import generation_of, writer_of
+from tests.link_access import deaths_of, generation_of, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dirty_signal import DirtySignal
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -250,7 +253,6 @@ class TestARedialThatFindsNobodyHome:
         link = DisplayLink(dialer, recv_timeout=3.0)
         link.connect(listen=True)
         writer_of(link).send_scene(_scene("s1"))  # written, never acked
-        dial = link.desk.asks().dial
         display.peer.close()
         assert until(lambda: not link.is_connected)
         dialer.down = True
@@ -258,8 +260,7 @@ class TestARedialThatFindsNobodyHome:
         with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        (death,) = link.take_deaths()
-        assert death.dial == dial
+        (death,) = deaths_of(link)
         assert death.suspects == frozenset({SceneId("s1")})
 
     def test_after_the_hub_ended_the_last_dial_it_is_plain_not_connected(
@@ -274,7 +275,7 @@ class TestARedialThatFindsNobodyHome:
         with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        assert link.take_deaths() == ()
+        assert deaths_of(link) == ()
 
     def test_a_link_that_never_dialed_is_plain_not_connected(
         self, display: Display
@@ -286,7 +287,7 @@ class TestARedialThatFindsNobodyHome:
         with pytest.raises(DisplayNotConnectedError):
             link.connect()
 
-        assert link.take_deaths() == ()
+        assert deaths_of(link) == ()
 
     def test_two_names_for_one_dial_are_equal_and_two_dials_are_not(
         self, display: Display
@@ -516,7 +517,7 @@ class TestADeathDiscoveredByAnyParty:
         with pytest.raises(BatchSendError):
             rig.sender.push(_batch("s2"))
 
-        (death,) = rig.registry.take_deaths()
+        (death,) = deaths_of(rig.registry)
 
         assert death.suspects == frozenset({SceneId("s1")})
 
@@ -551,7 +552,7 @@ class TestADeathDiscoveredByAnyParty:
         rig.registry.asks()  # a later redial
         rig.sender.charge_deaths()
 
-        assert rig.registry.take_deaths() == ()
+        assert deaths_of(rig.registry) == ()
         assert not rig.quarantined("p")  # one strike for one death
 
     def test_p4_two_discoverers_of_one_dial_charge_one_strike_and_a_new_dial_another(
@@ -620,9 +621,9 @@ class TestADeathTheHubEndedChargesNothing:
         assert isinstance(failure.cause, HubRetiredError)
         rig.recovery.recover(batch, failure)
         assert rig.attribution.mode == "batching"
-        assert rig.registry.take_deaths() == ()
+        assert deaths_of(rig.registry) == ()
 
-    def test_p5_an_inline_read_woken_by_the_hubs_retire_charges_nothing(
+    def test_p5_a_ping_waiting_on_the_reader_woken_by_the_hubs_retire_charges_nothing(
         self, display: Display
     ) -> None:
         rig = _rig(display, {"s1": "x"})
@@ -635,7 +636,22 @@ class TestADeathTheHubEndedChargesNothing:
 
         assert pinging.wait()
         assert isinstance(pinging.error, HubRetiredError)
-        assert rig.registry.take_deaths() == ()
+        assert deaths_of(rig.registry) == ()
+
+    def test_p5_an_unlistened_inline_read_woken_by_the_hubs_retire_charges_nothing(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        writer_of(link).send_scene(_scene("s1"))  # written, never acked
+        dial = link.desk.asks().dial
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)  # the scene and the ping are read; the dial reads inline
+
+        link.drop_if_current(dial, cause="hub")
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, HubRetiredError)
+        assert deaths_of(link) == ()
 
     def test_only_a_display_end_queues_a_death(self, display: Display) -> None:
         link = _linked(display)
@@ -643,7 +659,7 @@ class TestADeathTheHubEndedChargesNothing:
 
         link.close()  # the Hub's own close of a dial that owed an ack
 
-        assert link.take_deaths() == ()
+        assert deaths_of(link) == ()
 
 
 class TestADeathThatOwedNothing:
@@ -676,7 +692,7 @@ class TestADeathThatOwedNothing:
         rig.push("p")
         assert until(lambda: not rig.link.is_connected)
 
-        (death,) = rig.registry.take_deaths()
+        (death,) = deaths_of(rig.registry)
         assert death.suspects == frozenset({SceneId("p")})
 
     def test_p8_a_scene_written_only_to_a_later_dial_is_not_charged_for_an_earlier(
@@ -686,7 +702,7 @@ class TestADeathThatOwedNothing:
         rig.push("p")
         assert until(lambda: not rig.link.is_connected)
         rig.registry.asks()  # the second dial; "b" is written only to it
-        (first,) = rig.registry.take_deaths()
+        (first,) = deaths_of(rig.registry)
         rig.push("b")
         rig.sender.charge_deaths()
 
@@ -779,5 +795,50 @@ class TestAnUnansweredProbeIsTheDisplaysEnd:
 
         assert failure is not None
         assert _is_the_displays_end(failure.cause)
-        (death,) = rig.registry.take_deaths()  # the unanswering dial's ledger
+        (death,) = deaths_of(rig.registry)  # the unanswering dial's ledger
         assert death.suspects == frozenset({SceneId("s1")})
+
+
+class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
+    """A writer's own retire can lose the race to the Hub's; the Hub's cause stands."""
+
+    @staticmethod
+    def _hub_wins_every_display_retire(monkeypatch: pytest.MonkeyPatch) -> None:
+        real = DisplayConnection.close_if_current
+
+        def racing(
+            self: DisplayConnection, generation: DialGeneration, *, cause: RetireCause
+        ) -> bool:
+            if cause == "display":  # the Hub's retire lands first
+                real(self, generation, cause="hub")
+            return real(self, generation, cause=cause)
+
+        monkeypatch.setattr(DisplayConnection, "close_if_current", racing)
+
+    def test_a_write_that_loses_the_retire_reports_the_hubs_cause_and_queues_nothing(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("s1"))  # owed an ack: a ledger to be charged
+        self._hub_wins_every_display_retire(monkeypatch)
+        display.sockets[-1].fail_next_send = True
+
+        with pytest.raises(HubRetiredError):
+            writer_of(link).send_scene(_scene("s2"))
+
+        assert deaths_of(link) == ()
+
+    def test_an_inline_read_that_loses_the_retire_reports_the_hubs_cause(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        writer_of(link).send_scene(_scene("s1"))
+        self._hub_wins_every_display_retire(monkeypatch)
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)
+
+        display.peer.close()  # the inline read finds the stream closed
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, HubRetiredError)
+        assert deaths_of(link) == ()

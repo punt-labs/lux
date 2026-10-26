@@ -8,7 +8,7 @@ own private state, here and nowhere else.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from tests.domain.display_double import until
@@ -16,12 +16,29 @@ from tests.domain.display_double import until
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_link import DisplayLink
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.protocol import Element
 
-__all__ = ["generation_of", "shown", "writer_of"]
+__all__ = ["deaths_of", "generation_of", "shown", "writer_of"]
+
+
+class _Deaths(Protocol):
+    """Anything that hands over the deaths it has recorded, one at a time."""
+
+    def take_death(self) -> DialDeath | None:
+        """Hand over the oldest recorded death."""
+        ...
+
+
+def deaths_of(source: _Deaths) -> tuple[DialDeath, ...]:
+    """Drain every death ``source`` has recorded, oldest first."""
+    drained: list[DialDeath] = []
+    while (death := source.take_death()) is not None:
+        drained.append(death)
+    return tuple(drained)
 
 
 def writer_of(link: DisplayLink) -> DisplayWriter:
