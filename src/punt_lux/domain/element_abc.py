@@ -226,7 +226,7 @@ class Element(EventHandlerHost, ABC):
         snapshot = dict(vars(self))
         self._notify_buffer = []
         try:
-            for key, value in patch.items():
+            for key, value in self._setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
             vars(self).clear()
@@ -238,6 +238,15 @@ class Element(EventHandlerHost, ABC):
         for prop in dict.fromkeys(pending):  # de-duplicate, keep first-seen order
             self._notify_observers(prop)
         return self
+
+    @staticmethod
+    def _setter_order(patch: Mapping[str, object]) -> Mapping[str, object]:
+        """The order the setters run in; the caller's own unless a kind needs another.
+
+        The judge has already seen ``patch`` itself, the very mapping the caller
+        wrote: a kind reorders only what it applies, never what is judged.
+        """
+        return patch
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
