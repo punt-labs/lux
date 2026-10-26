@@ -12,18 +12,20 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import pytest
+
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.domain.hub.write_refusals import NestingExceededError, UnheldTargetError
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.domain.hub.write_seam import WriteSeam
+from punt_lux.domain.ids import ElementId
 from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.protocol.elements import TableElement, TreeElement
 from tests.domain.test_nesting_cap_at_the_seam import _DEEP, _OWNER, _SCENE, _nodes
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    import pytest
 
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -152,3 +154,32 @@ class TestTheFinalStateIsMeasuredAgainTheCap:
 
         assert result == WriteRejected(NestingCap.reason())
         assert (deep.nodes, table.rows) == ((), (("r",),))
+
+
+class TestAStoreLevelWriteRaisesTheRefusalItself:
+    def test_a_nesting_refusal_by_an_observer_is_a_nesting_error(self) -> None:
+        store, table, _, deep = _scene()
+        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+
+        with pytest.raises(NestingExceededError):
+            store.write_seam.set_property(_SCENE, ElementId("tb"), "rows", [["s"]])
+
+        assert (deep.nodes, table.rows) == ((), (("r",),))
+
+    def test_an_unheld_target_refusal_by_an_observer_is_an_unheld_target_error(
+        self,
+    ) -> None:
+        store, table, _, _ = _scene()
+        loose = TreeElement(id="loose")  # installed in no scene the Hub holds
+
+        def writes_the_loose_tree(prop: str) -> None:
+            if prop == "rows" and table.rows == (("s",),):
+                loose.apply_patch({"label": "x"})
+
+        table.add_observer(writes_the_loose_tree)
+
+        with pytest.raises(UnheldTargetError) as raised:
+            store.write_seam.set_property(_SCENE, ElementId("tb"), "rows", [["s"]])
+
+        assert not isinstance(raised.value, NestingExceededError)
+        assert (loose.label, table.rows) == ("", (("r",),))

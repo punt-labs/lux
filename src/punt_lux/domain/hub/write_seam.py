@@ -156,9 +156,7 @@ class WriteSeam:
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
             raise NestingExceededError(refusal)
-        rejected = self._transaction().run([realization])
-        if rejected is not None:
-            raise NestingExceededError(rejected.reason)
+        self._transaction().run([realization], raises_refusal=True)
 
     @staticmethod
     def _mutable(
