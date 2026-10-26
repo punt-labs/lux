@@ -22,23 +22,22 @@ dataclasses; this ABC is the behavioral contract for the ABC kinds.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
+from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.event_handler_host import EventHandlerHost
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.property_observers import PropertyObservers
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.validation import ValidationError
     from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["Element"]
-
-logger = logging.getLogger(__name__)
 
 
 class Element(EventHandlerHost, ABC):
@@ -49,17 +48,18 @@ class Element(EventHandlerHost, ABC):
     override ``_children()`` to return their children tuple; leaves
     inherit the empty default. Event registration and dispatch come from
     the ``EventHandlerHost`` mixin.
+
+    A kind whose setters depend on one another names the keys that must run first in
+    ``_SETTER_PRIORITY``; every other key follows in the caller's order.
     """
 
+    _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = ()
     _renderer_factory: RendererFactory
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
     _removed: bool
-    _observers: list[Callable[[str], None]]
+    _observers: PropertyObservers
     _children_tuple: tuple[Element, ...]
-    # PY-TS-14 OK: ``None`` means "not inside apply_patch, notify immediately";
-    # a list is the per-patch buffer that defers notifications until commit.
-    _notify_buffer: list[str] | None
 
     def __new__(
         cls,
@@ -72,9 +72,8 @@ class Element(EventHandlerHost, ABC):
         self._emit = emit
         self._handlers = {}
         self._removed = False
-        self._observers = []
+        self._observers = PropertyObservers()
         self._children_tuple = ()
-        self._notify_buffer = None
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -97,7 +96,7 @@ class Element(EventHandlerHost, ABC):
         """Restore instance state after native deserialization."""
         for key, value in state.items():
             object.__setattr__(self, key, value)
-        object.__setattr__(self, "_observers", [])
+        object.__setattr__(self, "_observers", PropertyObservers())
 
     @property
     @abstractmethod
@@ -223,30 +222,30 @@ class Element(EventHandlerHost, ABC):
         raising: nothing has been touched when it does.
         """
         HandlerWrites.admit(self, patch)
-        snapshot = dict(vars(self))
-        self._notify_buffer = []
+        before = ElementCheckpoint(self)
+        self._observers.begin()
         try:
-            for key, value in self._setter_order(patch).items():
+            for key, value in self._in_setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
-            vars(self).clear()
-            vars(self).update(snapshot)
-            self._notify_buffer = None
+            before.restore()
+            self._observers.discard()
             raise
-        pending = self._notify_buffer or []
-        self._notify_buffer = None
-        for prop in dict.fromkeys(pending):  # de-duplicate, keep first-seen order
-            self._notify_observers(prop)
+        self._observers.commit(self.id)  # each property once, in first-seen order
         return self
 
-    @staticmethod
-    def _setter_order(patch: Mapping[str, object]) -> Mapping[str, object]:
-        """The order the setters run in; the caller's own unless a kind needs another.
+    def _in_setter_order(self, patch: Mapping[str, object]) -> dict[str, object]:
+        """Return the patch's own items, the kind's priority keys first.
 
-        The judge has already seen ``patch`` itself, the very mapping the caller
-        wrote: a kind reorders only what it applies, never what is judged.
+        A reorder only: the keys and values are the patch's, so a kind cannot change
+        what the judge approved. The judge saw ``patch`` itself, before this.
         """
-        return patch
+        first = {k: patch[k] for k in self._SETTER_PRIORITY if k in patch}
+        return first | {k: v for k, v in patch.items() if k not in first}
+
+    def renotify(self, props: Iterable[str]) -> None:
+        """Tell the observers that each of ``props`` changed, each prop once."""
+        self._observers.announce(props, self.id)
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
@@ -254,7 +253,7 @@ class Element(EventHandlerHost, ABC):
         Parent composites use this to react to children flipping
         ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
         """
-        self._observers.append(observer)
+        self._observers.add(observer)
 
     @property
     def removed(self) -> bool:
@@ -275,23 +274,10 @@ class Element(EventHandlerHost, ABC):
         self._notify_observers("removed")
 
     def _notify_observers(self, prop: str) -> None:
-        """Notify every observer that ``prop`` changed, isolating failures.
+        """Tell the observers that ``prop`` changed; buffered inside ``apply_patch``.
 
         The single fan-out point for property-change notifications (``removed``
         today; a table's ``selected_row_ids`` write-through, and future
-        ``visible`` / ``enabled``). Inside ``apply_patch`` the notification is
-        *buffered* and flushed only when the patch commits, so a mid-patch failure
-        notifies nothing; outside a patch it fires immediately. Observers run
-        against a snapshot so a callback that mutates the registry mid-dispatch
-        cannot affect the in-flight call, and a raising observer is logged and
-        skipped — one bad subscriber must not strand the others (PY-EH-6
-        system-boundary exemption).
+        ``visible`` / ``enabled``): see :class:`PropertyObservers`.
         """
-        if self._notify_buffer is not None:
-            self._notify_buffer.append(prop)
-            return
-        for observer in tuple(self._observers):
-            try:
-                observer(prop)
-            except Exception:
-                logger.exception("observer raised on %s for element %s", prop, self.id)
+        self._observers.notify(prop, self.id)

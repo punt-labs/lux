@@ -33,11 +33,13 @@ class DialEnd:
         return self
 
     @property
+    # PY-TS-14 OK: None until a cause is recorded or decided: a dial may be open.
     def cause(self) -> RetireCause | None:
         """The first cause recorded or decided; ``None`` while there is none."""
         return self._cause
 
     @property
+    # PY-TS-14 OK: None while nothing is ending the dial: no cause, no Hub request.
     def closing(self) -> RetireCause | None:
         """Who is ending the dial: the cause, else ``hub`` once the Hub asked."""
         return self._cause or ("hub" if self._hub_asked else None)
@@ -48,6 +50,16 @@ class DialEnd:
             return False
         self._cause = cause
         return True
+
+    def record_unless_closing(self, cause: RetireCause) -> bool:
+        """Record ``cause`` unless one stands or the Hub has asked; whether it did.
+
+        The writer's record: a write that fails after the Hub asked to end the dial
+        records nothing, and the check and the record are one step.
+        """
+        if self._hub_asked:
+            return False
+        return self.record(cause)
 
     def ask_hub(self) -> bool:
         """Note that the Hub asked to end the dial; whether this call asked first."""

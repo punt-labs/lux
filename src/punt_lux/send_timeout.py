@@ -24,6 +24,7 @@ import socket
 import struct
 
 __all__ = [
+    "SCENE_WRITE_DEADLINE_SECONDS",
     "SEND_TIMEOUT_CEILING_SECONDS",
     "SEND_TIMEOUT_PACKED",
     "SEND_TIMEOUT_PROBE_LIMIT_SECONDS",
@@ -35,9 +36,14 @@ SEND_TIMEOUT_SECONDS = 1
 SEND_TIMEOUT_PACKED = struct.pack("ll", SEND_TIMEOUT_SECONDS, 0)
 # The longest a stalled send may take on any platform: the probe test asserts it.
 SEND_TIMEOUT_PROBE_LIMIT_SECONDS = 2.5
-# How long a drain waits on a writer: strictly above the probe's limit, so a writer
-# that merely times out is never mistaken for one that never lets go.
-SEND_TIMEOUT_CEILING_SECONDS = SEND_TIMEOUT_PROBE_LIMIT_SECONDS + 0.5
+# D: the deadline of one scene write, on either transport, and the longest a ping or
+# a query waits for the socket lock. It is the probe's limit, so no write that
+# completes today is cut short.
+SCENE_WRITE_DEADLINE_SECONDS = SEND_TIMEOUT_PROBE_LIMIT_SECONDS
+# How long a drain waits on a writer: strictly above D, so a writer that is still
+# inside its deadline is always waited out, and one that breaks the deadline (which
+# the write's own bound should make impossible) is left to the settle bound.
+SEND_TIMEOUT_CEILING_SECONDS = SCENE_WRITE_DEADLINE_SECONDS + 1.0
 
 
 def set_send_timeout(sock: socket.socket) -> None:

@@ -81,25 +81,3 @@ class TestResolvedProps:
             "selected_node_ids": ["n0"],
             "anchor_node_id": "",
         }
-
-
-class TestReorderedPatch:
-    def test_moves_nodes_ahead_of_selection_regardless_of_caller_order(self) -> None:
-        patch = {"selected_node_ids": ["n0"], "nodes": [{"label": "a", "id": "n0"}]}
-        ordered = list(TreeNodesState.reordered_patch(patch))
-        assert ordered.index("nodes") < ordered.index("selected_node_ids")
-
-    def test_moves_selection_ahead_of_anchor(self) -> None:
-        patch = {"anchor_node_id": "n0", "selected_node_ids": ["n0"]}
-        ordered = list(TreeNodesState.reordered_patch(patch))
-        assert ordered.index("selected_node_ids") < ordered.index("anchor_node_id")
-
-    def test_leaves_unrelated_keys_in_their_original_relative_order(self) -> None:
-        patch = {"label": "x", "flat": True, "tooltip": "y"}
-        ordered = list(TreeNodesState.reordered_patch(patch))
-        assert ordered == ["label", "flat", "tooltip"]
-
-    def test_preserves_every_value(self) -> None:
-        patch = {"selected_node_ids": ["n0"], "nodes": [{"label": "a", "id": "n0"}]}
-        ordered = TreeNodesState.reordered_patch(patch)
-        assert ordered == patch

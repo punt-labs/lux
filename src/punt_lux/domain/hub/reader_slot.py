@@ -16,16 +16,19 @@ section that observed it held. Every release of the slot reads the debt in the o
 critical section that frees it, and a debt keeps the slot: the releaser settles the dial
 before it lets go. A refused asker waits for the holder, up to
 :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND`, and then settles the dial itself
-through the capability the refusal handed it.
+through the capability the refusal handed it. A holder whose own drain could not be
+made (a writer held the socket past the ceiling) leaves its capture to the same bound.
 """
 
 from __future__ import annotations
 
 import contextlib
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.bounded_ask import BoundedAsk
+from punt_lux.domain.hub.finally_guard import FinallyGuard
 from punt_lux.domain.hub.settler import Settler
 
 if TYPE_CHECKING:
@@ -38,7 +41,15 @@ if TYPE_CHECKING:
     type Route = Callable[[DialGeneration, Message], None]
     type Capture = Callable[[DialGeneration, RetireCause], bool]
 
-__all__ = ["ListenerHold", "ReaderSlot"]
+__all__ = ["InlineHolder", "ListenerHold", "ReaderSlot"]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class InlineHolder:
+    """A caller's inline read holds the slot: the thread, so its own end never waits."""
+
+    thread: int
 
 
 @final
@@ -51,11 +62,11 @@ class ListenerHold:
     """
 
     _settler: Settler
-    _give_back: Callable[[Route], None]
+    _give_back: Callable[[], None]
     _is_released: bool
     __slots__ = ("_give_back", "_is_released", "_settler")
 
-    def __new__(cls, settler: Settler, give_back: Callable[[Route], None]) -> Self:
+    def __new__(cls, settler: Settler, give_back: Callable[[], None]) -> Self:
         self = super().__new__(cls)
         self._settler = settler
         self._give_back = give_back
@@ -67,13 +78,13 @@ class ListenerHold:
         """The right to settle the dial that the hold carries."""
         return self._settler
 
-    def release(self, held_route: Route) -> None:
-        """Give the hold back; the dial is settled over ``held_route`` first if owed."""
+    def release(self) -> None:
+        """Give the hold back; the dial is settled over the hold's own route if owed."""
         if self._is_released:
             msg = "a listener hold is given back once"
             raise RuntimeError(msg)
         self._is_released = True
-        self._give_back(held_route)
+        self._give_back()
 
 
 @final
@@ -81,11 +92,9 @@ class ReaderSlot:
     """Who reads one dial: nobody, its listener thread, or one caller's inline wait."""
 
     _cond: threading.Condition
-    _holder: Literal["none", "listener", "inline"]
+    _holder: Literal["none", "listener"] | InlineHolder
     # An end asked for a settle while the slot was held: the holder owes it.
     _debt: bool
-    # The thread of an inline holder, so an end it makes itself never waits on it.
-    _inline_thread: int | None  # PY-TS-14 OK: absent unless an inline read holds it
     # A dial born held by its listener hands that hold out once.
     _born_unclaimed: bool
     _generation: DialGeneration
@@ -97,7 +106,6 @@ class ReaderSlot:
         "_debt",
         "_generation",
         "_holder",
-        "_inline_thread",
     )
 
     def __new__(
@@ -110,7 +118,6 @@ class ReaderSlot:
         self._cond = threading.Condition()
         self._holder = holder
         self._debt = False
-        self._inline_thread = None
         self._born_unclaimed = holder == "listener"
         self._generation = generation
         self._capture = capture
@@ -126,20 +133,23 @@ class ReaderSlot:
         """
         return self._holder == "listener"
 
-    def claim_for_listener(self, route: Route) -> ListenerHold | None:
+    # PY-TS-14 OK: None means a listener already holds the slot.
+    def claim_for_listener(
+        self, route: Route, held_route: Route
+    ) -> ListenerHold | None:
         """Take the slot for a listener; its hold, or ``None`` if one holds it.
 
         Waits out a caller's inline read in flight: a dial has one reader at a
         time, so two threads never feed one frame buffer.
         """
         with self._cond:
-            self._cond.wait_for(lambda: self._holder != "inline")
+            self._cond.wait_for(lambda: not isinstance(self._holder, InlineHolder))
             if self._holder == "listener":
                 return None
             self._holder = "listener"
-        return self._hold(route)
+        return self._hold(route, held_route)
 
-    def hold_born(self, route: Route) -> ListenerHold:
+    def hold_born(self, route: Route, held_route: Route) -> ListenerHold:
         """The hold of the listener the dial was born holding the slot for, once.
 
         Raises ``RuntimeError`` if the dial was not born held, or the hold was
@@ -150,9 +160,10 @@ class ReaderSlot:
                 msg = "this dial has no unclaimed born hold on its reader slot"
                 raise RuntimeError(msg)
             self._born_unclaimed = False
-        return self._hold(route)
+        return self._hold(route, held_route)
 
     @contextlib.contextmanager
+    # PY-TS-14 OK: None means another reader holds the slot; wait on its sink.
     def inline(self, route: Route) -> Generator[Settler | None]:
         """Hold the slot for a caller's inline read; yield its settler, or ``None``.
 
@@ -166,7 +177,9 @@ class ReaderSlot:
             yield settler
         finally:
             if settler is not None:
-                self._release(settler)
+                FinallyGuard.run(
+                    lambda: self._release(settler), "letting go of the slot"
+                )
 
     def ask_settle(self, route: Route, cause: RetireCause, *, may_wait: bool) -> None:
         """Ask for the dial to be settled, an end having been recorded or requested.
@@ -179,30 +192,39 @@ class ReaderSlot:
         the holder settles when it returns and a wait on itself could only time out.
         """
         with self._cond:
-            granted = self._holder == "none"
-            if granted:
-                self._holder = "inline"
-                self._inline_thread = threading.get_ident()
-            else:
+            granted = self._take_inline_locked()
+            if not granted:
                 self._debt = True
-                may_wait = may_wait and self._inline_thread != threading.get_ident()
+                holder = self._holder
+                may_wait = may_wait and not (
+                    isinstance(holder, InlineHolder)
+                    and holder.thread == threading.get_ident()
+                )
         if granted:
             settler = self._settler(route)
             try:
                 settler.settle()
             finally:
-                self._release(settler)
+                FinallyGuard.run(
+                    lambda: self._release(settler), "letting go of the slot"
+                )
         elif may_wait:
             self._late()(cause)
 
+    # PY-TS-14 OK: None means another reader holds the slot.
     def _take(self, route: Route) -> Settler | None:
         """Take the slot for an inline read if free; its settler, else ``None``."""
         with self._cond:
-            if self._holder != "none":
+            if not self._take_inline_locked():
                 return None
-            self._holder = "inline"
-            self._inline_thread = threading.get_ident()
         return self._settler(route)
+
+    def _take_inline_locked(self) -> bool:
+        """Take a free slot for the current thread's inline read; the lock is held."""
+        if self._holder != "none":
+            return False
+        self._holder = InlineHolder(threading.get_ident())
+        return True
 
     def _settler(self, route: Route) -> Settler:
         return Settler(self._generation, route, self._capture, self._late())
@@ -211,11 +233,15 @@ class ReaderSlot:
         """The bound's capture: wait for the holder, then settle undrained."""
         return BoundedAsk(self._generation, self._capture).settle_by_bound
 
-    def _hold(self, route: Route) -> ListenerHold:
-        """The listener's hold: its settler over ``route``, and its one release."""
+    def _hold(self, route: Route, held_route: Route) -> ListenerHold:
+        """The listener's hold: its settler over ``route``, and its one release.
+
+        The release settles over ``held_route``, which runs an interaction after the
+        request lock and the slot are let go, so a handler never runs inside them.
+        """
         return ListenerHold(
             self._settler(route),
-            lambda held_route: self._release(self._settler(held_route)),
+            lambda: self._release(self._settler(held_route)),
         )
 
     def _release(self, settler: Settler) -> None:
@@ -228,9 +254,7 @@ class ReaderSlot:
         while True:
             with self._cond:
                 if not self._debt:
-                    self._holder = "none"
-                    self._inline_thread = None
-                    self._cond.notify_all()
+                    self._free_locked()
                     return
                 self._debt = False
             try:
@@ -241,6 +265,9 @@ class ReaderSlot:
 
     def _free(self) -> None:
         with self._cond:
-            self._holder = "none"
-            self._inline_thread = None
-            self._cond.notify_all()
+            self._free_locked()
+
+    def _free_locked(self) -> None:
+        """Let go of the slot and wake whoever waits for it; the lock is held."""
+        self._holder = "none"
+        self._cond.notify_all()

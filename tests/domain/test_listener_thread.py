@@ -211,7 +211,7 @@ class TestAReaderLivesAndDiesWithItsDial:
     def test_a_dial_has_one_reader_even_if_the_slot_is_claimed_elsewhere(
         self, rig: _Rig
     ) -> None:
-        assert reading_of(rig.connection).claim_for_listener(drop_route)
+        assert reading_of(rig.connection).claim_for_listener(drop_route, drop_route)
 
         rig.listener.start()
 
@@ -530,7 +530,7 @@ class TestAFailedThreadStart:
         assert not rig.connection.has_reader
         assert not rig.listener.started
         # the slot is free again
-        assert reading_of(rig.connection).claim_for_listener(drop_route)
+        assert reading_of(rig.connection).claim_for_listener(drop_route, drop_route)
 
 
 class TestTheRunIsPublishedBeforeTheThreadCanUseIt:
@@ -881,7 +881,7 @@ class TestTheReaderLoopStopsOnItsDialsRetirement:
 
         monkeypatch.setattr(DialGeneration, "poll_chunk", spy)
         generation.mark_closed("hub")  # retired; its stopping flag was never set
-        hold = reading_of(rig.connection).claim_for_listener(rig._record)
+        hold = reading_of(rig.connection).claim_for_listener(rig._record, rig._record)
         assert hold is not None
         settler = hold.settler
         rig.display.peer.send_raw(_pong(1.0))

@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.finally_guard import FinallyGuard
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 
 if TYPE_CHECKING:
@@ -80,10 +81,12 @@ class DialReader:
         try:
             gave_up = self._read()
         finally:
-            if gave_up is None:
-                self._settler.settle()
-            else:
-                self._settler.end_stream(gave_up)
+            FinallyGuard.run(
+                self._settler.settle
+                if gave_up is None
+                else lambda: self._settler.end_stream(gave_up),
+                f"settling the dial to {self._generation.endpoint}",
+            )
 
     def _read(self) -> RetireCause | None:
         """Read until the dial ends; who ended a stream this reader gave up on."""
@@ -99,6 +102,10 @@ class DialReader:
                         # Recorded the moment the reader learns of it, before it
                         # drains: a Hub request arriving now cannot make it the Hub's.
                         generation.end("display")
+                    else:
+                        # A stop or a close the read raced: the settle needs a cause
+                        # or a request to start from, or it has nothing to decide.
+                        generation.request_hub()
                     return None
                 ended = None if data is None else self._routed(data)
                 if ended is not None:
@@ -169,9 +176,8 @@ class DialReader:
         stream skewed, or the Hub's own routing failed.
 
         A dial that is ending refuses *replies* only: its sink parks none. A business
-        event or an interaction belongs to the link, not to the dial that carried it
-        (rule 16), so one the display had already sent is delivered even as its dial
-        ends.
+        event or an interaction belongs to the link, not to the dial that carried it,
+        so one the display had already sent is delivered even as its dial ends.
         """
         try:
             self._route(self._generation, msg)

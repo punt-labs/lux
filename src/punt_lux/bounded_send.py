@@ -70,9 +70,8 @@ class BoundedSend:
             try:
                 sent = sock.send(view[offset:])
             except _RETRY_ERRORS as exc:
-                readable, writable = self._wait_ready(sock, deadline)
-                ready = readable if isinstance(exc, ssl.SSLWantReadError) else writable
-                if ready:
+                wants_read = isinstance(exc, ssl.SSLWantReadError)
+                if self._wait_ready(sock, deadline, for_read=wants_read):
                     continue
                 if offset > 0:
                     msg = "send deadline hit after a partial write; stream torn"
@@ -84,12 +83,18 @@ class BoundedSend:
             offset += sent
 
     @staticmethod
-    def _wait_ready(sock: socket.socket, deadline: float) -> tuple[bool, bool]:
-        """Return ``(readable, writable)`` before ``deadline``, in one ``select``
-        call -- the caller checks only the direction its exception needs.
+    def _wait_ready(sock: socket.socket, deadline: float, *, for_read: bool) -> bool:
+        """Wait before ``deadline`` for the direction the send needs; whether it came.
+
+        Only that direction is watched: data the peer has sent and nobody has read (a
+        TLS socket's post-handshake records) keeps the descriptor readable, and a wait
+        for writability that woke on it would call the deadline early.
         """
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return False, False
-        readable, writable, _ = select.select([sock], [sock], [], remaining)
-        return bool(readable), bool(writable)
+            return False
+        watched = [sock]
+        readable, writable, _ = select.select(
+            watched if for_read else [], [] if for_read else watched, [], remaining
+        )
+        return bool(readable if for_read else writable)

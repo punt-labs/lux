@@ -19,7 +19,7 @@ import pytest
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_errors import NestingExceededError
+from punt_lux.domain.hub.write_refusals import NestingExceededError
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.nesting_cap import NestingCap

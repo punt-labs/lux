@@ -16,8 +16,10 @@ connection that makes it, so a peer that stops reading cannot wedge a writer for
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.bounded_send import TornStreamError
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
@@ -32,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_socket import Drained
+    from punt_lux.domain.hub.drain_result import Drained
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.pending import Pending
     from punt_lux.domain.hub.settlement import Settlement
@@ -46,7 +48,19 @@ if TYPE_CHECKING:
         SceneMessage,
     )
 
-__all__ = ["DialGeneration"]
+__all__ = ["DialEnds", "DialGeneration"]
+
+
+@dataclass(frozen=True, slots=True)
+class DialEnds:
+    """How a dial reports its own breakage to whoever holds the current dial.
+
+    ``retire`` ends it for a reason of the Hub's; ``by_writer`` is a failed write's
+    report, which records its cause only when nothing is ending the dial already.
+    """
+
+    retire: Callable[[DialGeneration, RetireCause], bool]
+    by_writer: Callable[[DialGeneration, RetireCause], bool]
 
 
 @final
@@ -58,16 +72,16 @@ class DialGeneration:
     # The identity every failure names this dial by: one per dial, equal to itself.
     _ref: DialRef
     # Reports this dial's own breakage to whoever holds the current dial.
-    _retire: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_ref", "_retire", "_sink", "_socket")
+    _ends: DialEnds
+    __slots__ = ("_ends", "_ref", "_sink", "_socket")
 
     def __new__(
         cls,
         dial: HandshakeResult,
-        retire: Callable[[DialGeneration, RetireCause], bool],
+        ends: DialEnds,
     ) -> Self:
         self = super().__new__(cls)
-        self._retire = retire
+        self._ends = ends
         self._sink = ReplySink()
         self._ref = DialRef(self)
         self._socket = DialSocket(
@@ -115,6 +129,14 @@ class DialGeneration:
         """
         return self._sink.end(cause)
 
+    def end_by_writer(self, cause: RetireCause) -> bool:
+        """Record the cause of a failed write unless the dial is already ending.
+
+        The check and the record are one step, so a Hub request landing between a
+        write's failure and its record is never overwritten by the write's cause.
+        """
+        return self._sink.end_by_writer(cause)
+
     def request_hub(self) -> bool:
         """Ask for the Hub's end of this dial; whether this call asked first.
 
@@ -133,6 +155,7 @@ class DialGeneration:
         return self._sink.decide(saw_end=saw_end)
 
     @property
+    # PY-TS-14 OK: None until a cause is recorded or decided: the dial may be open.
     def ended(self) -> RetireCause | None:
         """The first cause recorded for this dial's end; ``None`` while none is."""
         return self._sink.ended
@@ -180,6 +203,7 @@ class DialGeneration:
         """Register the query in flight, then write it."""
         return self._socket.send_query(request)
 
+    # PY-TS-14 OK: None is the timeout; an end of the dial raises instead.
     def await_reply[R: Message](
         self, pending: Pending[object, R], timeout: float
     ) -> R | None:
@@ -196,6 +220,7 @@ class DialGeneration:
         """Whether ``pending``'s reply has arrived and is waiting to be taken."""
         return self._sink.answered(pending)
 
+    # PY-TS-14 OK: None is a ledger already empty: there is nothing to wait for.
     def expect_drained(self) -> Pending[None, AckMessage] | None:
         """Register a wait for every scene written here to be acked; ``None`` if so."""
         return self._sink.expect_drained()
@@ -211,6 +236,7 @@ class DialGeneration:
         """
         self._sink.deliver(msg)
 
+    # PY-TS-14 OK: None is the one normal non-answer: nothing arrived in time.
     def poll_chunk(self, timeout: float) -> bytes | None:
         """Wait up to ``timeout`` for the display to say something, and read it.
 
@@ -252,9 +278,10 @@ class DialGeneration:
     def _write_failed(self, exc: BaseException) -> None:
         """End the dial a failed write left half-written, unless someone already had.
 
-        A socket failure is the display's doing, but a send that hit its time limit
-        (``SO_SNDTIMEO``, surfacing as ``BlockingIOError``) is a display that stopped
-        reading and may be alive, so it is recorded as unresponsive. Anything else
+        A socket failure is the display's doing, but a write that hit its deadline
+        (``BlockingIOError`` for a frame untouched, ``TornStreamError`` for one half
+        written, or a socket lock never free in time) is a display that stopped reading
+        and may be alive, so it is recorded as unresponsive. Anything else
         that stopped a write is the Hub's, and is a request, not a recorded cause. A
         dial whose cause is already recorded (``shut`` wakes a writer wedged in
         ``sendall`` on purpose) was ended by whoever's cause it carries: the writer
@@ -263,15 +290,18 @@ class DialGeneration:
         winner's cause too.
         """
         if not isinstance(exc, OSError):
-            self._retire(self, "hub")
+            self._ends.retire(self, "hub")
             return
         cause: RetireCause = (
-            "unresponsive" if isinstance(exc, BlockingIOError) else "display"
+            "unresponsive"
+            if isinstance(exc, BlockingIOError | TornStreamError)
+            else "display"
         )
         # A dial already ended, or that the Hub asked to end, records nothing here: the
         # settle decides by what it observes (a queued end of file is the display's).
-        if self._sink.closing is not None or not self._retire(self, cause):
-            raise self.closed_error() from exc  # someone else's cause won the end
+        if not self._ends.by_writer(self, cause):
+            # Someone else's end stands: the writer reports whose.
+            raise self._error_for(self._sink.closing, self.endpoint) from exc
 
     def _require_open(self) -> None:
         if self._sink.closing is not None:
@@ -286,11 +316,15 @@ class DialGeneration:
         to, with nothing yet decided); only that last changes what recovery does (it
         redials without treating it as a death). ``ValueError`` for a dial still open.
         """
-        ended = self._sink.closing
+        return self._error_for(self._sink.closing, self.endpoint)
+
+    @staticmethod
+    # PY-TS-14 OK: None is a dial nothing has ended or asked to end: still open.
+    def _error_for(ended: RetireCause | None, endpoint: str) -> ConnectionClosedError:
         if ended is None:
-            msg = f"the connection to {self.endpoint} is still open"
+            msg = f"the connection to {endpoint} is still open"
             raise ValueError(msg)
-        msg = f"the connection to {self.endpoint} was closed"
+        msg = f"the connection to {endpoint} was closed"
         if ended == "unresponsive":
             return UnresponsiveError(msg)
         error = ConnectionClosedError if ended == "display" else HubRetiredError

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
@@ -36,7 +36,7 @@ def generation() -> Iterator[DialGeneration]:
     ours, theirs = socket.socketpair()
     made = DialGeneration(
         HandshakeResult(sock=ours, endpoint="pair", ready=ReadyMessage()),
-        lambda _generation, _cause: True,
+        DialEnds(lambda _g, _c: True, lambda _g, _c: True),
     )
     yield made
     made.shut()
@@ -48,7 +48,7 @@ def _another() -> tuple[DialGeneration, socket.socket]:
     return (
         DialGeneration(
             HandshakeResult(sock=ours, endpoint="other", ready=ReadyMessage()),
-            lambda _generation, _cause: True,
+            DialEnds(lambda _g, _c: True, lambda _g, _c: True),
         ),
         theirs,
     )

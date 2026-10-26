@@ -13,9 +13,11 @@ may have died already), and then asks for the dial to be settled: the holder of 
 dial's reader slot, which has read what the socket held, drains it, fixes the cause and
 takes its ledger. The one door to that capture is private to the connection and handed
 to the slot alone, so a settle is the reader's and no flag can lend it to anyone else,
-save the two undrained captures the design accepts: the bound's, by a refused asker
-once :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
-``Settler.end_stream``'s, for a stream that cannot be read past. Every capture is
+save the three undrained captures the design accepts: the bound's, by a refused asker
+once :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed; the holder's own
+late capture, when a writer held the socket past the ceiling and its drain could not
+be made (``s2lat``); and ``Settler.end_stream``'s, for a stream that cannot be read
+past. Every capture is
 guarded by "this dial is still current", so a reader or a waiter that outlived a redial
 can settle its own dial without touching the new one. The connection also holds the
 suspects dials leave behind (the
@@ -32,7 +34,7 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.suspect_book import SuspectBook
@@ -206,6 +208,19 @@ class DisplayConnection:
         self._ask_settle(generation, cause)
         return won
 
+    def _end_by_writer(self, generation: DialGeneration, cause: RetireCause) -> bool:
+        """End ``generation`` for a failed write; whether the write's cause stands.
+
+        The record refuses, in one step with its own check, when a cause stands or the
+        Hub has asked; the settle is asked for in every case.
+        """
+        with self._state_lock:
+            if self._current is None or self._current.generation is not generation:
+                return False
+        won = generation.end_by_writer(cause)
+        self._ask_settle(generation, cause)
+        return won
+
     def take_deaths(self) -> DeathQueue:
         """Hand over the queue of deaths not yet charged, once: its holder charges.
 
@@ -222,13 +237,22 @@ class DisplayConnection:
         dial made after the check. ``cause`` is the one that stands, which the
         settler fixed before it came.
         """
-        with self._state_lock:
-            if self._current is None or self._current.generation is not generation:
-                return False
-            self._current = None
-            self._last = generation
-            self._suspects.settle(generation.mark_closed(cause), generation.endpoint)
-        generation.shut()
+        is_ours = False
+        try:
+            with self._state_lock:
+                if self._current is None or self._current.generation is not generation:
+                    return False
+                self._current = None
+                self._last = generation
+                is_ours = True
+                self._suspects.settle(
+                    generation.mark_closed(cause), generation.endpoint
+                )
+        finally:
+            # Whatever the bookkeeping did, the socket is released once the dial is
+            # no longer current: a writer wedged in ``sendall`` is woken only by this.
+            if is_ours:
+                generation.shut()
         return True
 
     def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:
@@ -238,7 +262,11 @@ class DisplayConnection:
         dialed = self._dialer.dial(self._connect_timeout)  # a failure is the dialer's
         set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
-            dialed, lambda generation, cause: self.retire(generation, cause=cause)
+            dialed,
+            DialEnds(
+                lambda generation, cause: self.retire(generation, cause=cause),
+                self._end_by_writer,
+            ),
         )
         # Born holding the listener slot when asked: nobody else has seen this dial
         # yet, so no inline read can be in flight when the listener claims it.

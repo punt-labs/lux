@@ -24,13 +24,19 @@ import select
 import socket
 import ssl
 import threading
-from dataclasses import dataclass
+import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.bounded_send import BoundedSend
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
+from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
+from punt_lux.send_timeout import (
+    SCENE_WRITE_DEADLINE_SECONDS,
+    SEND_TIMEOUT_CEILING_SECONDS,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -49,22 +55,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialSocket", "Drained"]
+__all__ = ["DialSocket"]
 
 _READ_CHUNK = 65536
-
-
-@dataclass(frozen=True, slots=True)
-class Drained:
-    """What one last look at a socket found: bytes, whether its stream ended.
-
-    ``complete`` is false when the look could not be made at all, because a writer held
-    the socket past the send timeout: that is no answer, and never "nothing more".
-    """
-
-    chunk: bytes
-    ended: bool
-    complete: bool = True
 
 
 @final
@@ -115,8 +108,7 @@ class DialSocket:
 
     def send(self, msg: Message) -> None:
         """Write ``msg``, serialized against every other writer."""
-        wire = encode_message(msg)
-        self._write_locked(lambda: None, lambda _: self._dial.sock.sendall(wire))
+        self._write_locked(encode_message(msg), lambda: None, lambda _: None)
 
     def send_scene(self, msg: SceneMessage) -> None:
         """Write a scene and record the ack it is owed, in wire order.
@@ -125,36 +117,24 @@ class DialSocket:
         the reader cannot take a byte before the lock is released, so the ack can
         never be read before its entry exists, and a write that raised owes none.
         """
-        wire = encode_message(msg)
-
-        def write_then_owe(_: None) -> None:
-            self._dial.sock.sendall(wire)
-            self._sink.owe_ack(msg.id)
-
-        self._write_locked(lambda: None, write_then_owe)
+        self._write_locked(
+            encode_message(msg), lambda: None, lambda _: self._sink.owe_ack(msg.id)
+        )
         self._require_open()  # owed all the same; the caller learns the dial is ending
 
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
         """Register the ping in flight, then write it; one step under the lock."""
-        wire = encode_message(PingMessage(ts=ts))
-
-        def write(pending: Pending[float, PongMessage]) -> Pending[float, PongMessage]:
-            self._dial.sock.sendall(wire)
-            return pending
-
-        return self._write_locked(lambda: self._sink.expect_pong(ts), write)
+        return self._write_locked(
+            encode_message(PingMessage(ts=ts)),
+            lambda: self._sink.expect_pong(ts),
+            lambda pending: pending,
+        )
 
     def send_query(self, request: QueryRequest) -> Pending[None, QueryResponse]:
         """Register the query in flight, then write it; one step under the lock."""
-        wire = encode_message(request)
-
-        def write(
-            pending: Pending[None, QueryResponse],
-        ) -> Pending[None, QueryResponse]:
-            self._dial.sock.sendall(wire)
-            return pending
-
-        return self._write_locked(self._sink.expect_query, write)
+        return self._write_locked(
+            encode_message(request), self._sink.expect_query, lambda pending: pending
+        )
 
     def poll(self, timeout: float) -> bytes | None:
         """Wait up to ``timeout`` for the display to say something, and read it.
@@ -166,10 +146,12 @@ class DialSocket:
         readable, _, _ = select.select([self._dial.sock], [], [], timeout)
         if not readable:
             return None
+        LockDiscipline.forbid_store("the dial socket lock")
         with self._lock:
             self._require_open()
-            chunk = self._dial.sock.recv(_READ_CHUNK)
-            chunk += self._decrypted_backlog()
+            chunk = self._read_now()
+        if chunk is None:
+            return None  # readable, but no application byte yet
         if not chunk:
             msg = f"the display at {self.endpoint} closed the connection"
             raise ConnectionClosedError(msg)
@@ -178,6 +160,10 @@ class DialSocket:
     def drain(self) -> Drained:
         """Take what the socket already holds, without waiting; say if its end came.
 
+        Never waits, on either transport: the read is made on the socket in
+        non-blocking mode, so a TLS socket whose descriptor is readable for records
+        that carry no application byte reports nothing more, not a hang.
+
         The last look before a dial is settled. The stream's end is what the look
         found: end of file, a connection reset (the peer closed with bytes of this
         side's it never read, which a same-host stream delivers after everything it
@@ -185,12 +171,14 @@ class DialSocket:
         cannot be read holds nothing more. A cut-short read is therefore never
         reported as "nothing more": the reader that settles the dial is told it
         found the end, which is what makes a display dead when it looked a display's
-        end, not the Hub's.
+        end, not the Hub's. Raises :class:`DrainIncompleteError` when a writer holds
+        the socket past the ceiling: with bytes readable, no look at all is no answer.
         """
         try:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
             if not readable:
                 return Drained(b"", ended=False)
+            LockDiscipline.forbid_store("the dial socket lock")
             if not self._lock.acquire(timeout=SEND_TIMEOUT_CEILING_SECONDS):
                 # A writer holds the lock past the send timeout. Bytes are readable
                 # and unread, so this is no answer: the look is incomplete, and the
@@ -200,30 +188,40 @@ class DialSocket:
                     self.endpoint,
                     SEND_TIMEOUT_CEILING_SECONDS,
                 )
-                return Drained(b"", ended=False, complete=False)
+                msg = f"the last look at {self.endpoint} could not be made"
+                raise DrainIncompleteError(msg)
             try:
-                chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+                chunk = self._read_now()
             finally:
                 self._lock.release()
+            if chunk is None:
+                return Drained(b"", ended=False)
         except (OSError, ValueError) as exc:
-            self._report_cut_short(exc)
+            CutShort(self.endpoint, exc).report(
+                captured=self._sink.captured,
+                is_tls=isinstance(self._dial.sock, ssl.SSLSocket),
+            )
             return Drained(b"", ended=True)
         return Drained(chunk, ended=not chunk)
 
-    def _report_cut_short(self, exc: BaseException) -> None:
-        """Say the last look found the stream broken: the settle goes ahead on it.
+    # PY-TS-14 OK: None is readable but no application byte yet: nothing more now.
+    def _read_now(self) -> bytes | None:
+        """Read what the socket holds without waiting, on either transport.
 
-        Quietly when the stream simply ended (a reset, a broken pipe, TLS end of
-        file), loudly for anything else (a closed descriptor, a TLS fault): a later
-        look at why a surviving scene was charged finds the trace.
+        The lock is held. The socket is made non-blocking for this read alone: a TLS
+        socket's descriptor is readable for post-handshake records (session tickets)
+        that carry no application byte, and a blocking ``recv`` would wait for one.
+        ``None`` is nothing more now; ``b""`` is end of file.
         """
-        ended = isinstance(exc, ConnectionError | ssl.SSLEOFError)
-        logger.log(
-            logging.DEBUG if ended else logging.WARNING,
-            "Drain of %s cut short: %r",
-            self._dial.endpoint,
-            exc,
-        )
+        sock = self._dial.sock
+        sock.settimeout(0.0)
+        try:
+            return sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+        except (BlockingIOError, ssl.SSLWantReadError):
+            return None
+        finally:
+            with contextlib.suppress(OSError):  # closed by its own capture meanwhile
+                sock.settimeout(None)
 
     def messages(self, chunk: bytes) -> Iterator[Message]:
         """Feed ``chunk`` to the frame buffer; yield each message it completes.
@@ -266,23 +264,46 @@ class DialSocket:
         return backlog
 
     def _write_locked[P, R](
-        self, prepare: Callable[[], P], write: Callable[[P], R]
+        self, wire: bytes, prepare: Callable[[], P], finish: Callable[[P], R]
     ) -> R:
-        """Run one write under the socket lock; a failure inside it ends the dial.
+        """Write ``wire`` under the socket lock within one deadline, D; fail the dial.
 
         ``prepare`` is the bookkeeping that precedes the first byte (registering the
-        reply owed): if it refuses, nothing was written and nothing is ended.
-        Anything raised inside ``write`` -- whatever it is, a ``BaseException``
-        included -- may have left a partial frame on the wire, so the dial is told,
+        reply owed): if it refuses, nothing was written and nothing is ended. ``finish``
+        is what follows the last byte, under the same lock hold: the ack entry, or the
+        ticket handed back. Anything raised from the first byte on, a ``BaseException``
+        included, may have left a partial frame on the wire, so the dial is told,
         after the lock is released.
+
+        The same user-space bounded send on either transport, because ``SO_SNDTIMEO``
+        does not bound a TLS write: the socket is made non-blocking for the write alone
+        and :class:`BoundedSend` waits for it, with one deadline for the whole write,
+        the wait for the lock included. A write the deadline cut short, or a lock never
+        free in time, ends the dial as unresponsive. The socket lock is held, so
+        nothing reads meanwhile.
         """
+        LockDiscipline.forbid_store("the dial socket lock")
+        deadline = time.monotonic() + SCENE_WRITE_DEADLINE_SECONDS
+        if not self._lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
+            stalled = BlockingIOError("the dial's socket lock was not free in time")
+            self._failed(stalled)
+            raise stalled
         writing = False
         try:
-            with self._lock:
+            try:
                 self._require_open()
                 prepared = prepare()
                 writing = True
-                return write(prepared)
+                sock = self._dial.sock
+                sock.settimeout(0.0)
+                try:
+                    BoundedSend().send(sock, wire, deadline)
+                finally:
+                    with contextlib.suppress(OSError):  # closed by its own capture
+                        sock.settimeout(None)
+                return finish(prepared)
+            finally:
+                self._lock.release()
         except BaseException as exc:
             if writing:
                 self._failed(exc)

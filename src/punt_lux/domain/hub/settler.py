@@ -3,9 +3,11 @@
 Only the holder of a dial's :class:`~punt_lux.domain.hub.reader_slot.ReaderSlot` (its
 listener thread, an inline reader, or a releaser taking over) is handed a settler, and
 only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is
-captured only after the party that reads its socket has read it, except by the two
+captured only after the party that reads its socket has read it, except by the three
 undrained captures the design accepts: the bound's, which a refused asker makes once
-:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
+:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed; the holder's own late
+capture, which :meth:`Settler.settle` leaves to the bound when a writer held the socket
+past the ceiling and the last look could not be made (``s2lat``); and
 :meth:`Settler.end_stream`'s, for a stream that cannot be read past.
 
 Settling is two steps. The drain reads the socket to the point where it would block
@@ -21,7 +23,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.dial_drain import DialDrain, DrainIncompleteError
+from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.drain_result import DrainIncompleteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -71,7 +74,7 @@ class Settler:
         try:
             saw_end = DialDrain(self._route).run(generation)
         except DrainIncompleteError:
-            return self._late(generation.ended or "hub")
+            return self._late(self._standing(generation))
         cause = generation.decide(saw_end=saw_end)
         # A display or unresponsive end that nothing had recorded when the drain began
         # and the drain did not find itself was recorded under it: look once more.
@@ -81,6 +84,14 @@ class Settler:
             except DrainIncompleteError:
                 return self._late(cause)
         return self._capture(generation, cause)
+
+    @staticmethod
+    def _standing(generation: DialGeneration) -> RetireCause:
+        """Who is ending the dial: the cause recorded, else the Hub that asked."""
+        if not generation.is_closed:
+            msg = "a dial no one ended or asked to end has no cause to settle by"
+            raise ValueError(msg)
+        return generation.ended or "hub"
 
     def end_stream(self, cause: RetireCause) -> bool:
         """End a dial whose stream cannot be trusted, undrained; whether ``cause`` won.

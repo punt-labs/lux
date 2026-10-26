@@ -194,6 +194,66 @@ class TestTheDoorIsTheSlot:
             f"{_HUB}settler.py:Settler.settle": 1,
         }
 
+    def test_a_live_settler_is_lent_out_only_by_the_slots_inline_door(self) -> None:
+        found = {
+            where: count
+            for where, count in _everywhere("inline").items()
+            if where.startswith(_HUB)
+        }
+
+        assert found == {
+            f"{_HUB}display_listener.py:DisplayListener.route": 1,
+            f"{_HUB}display_replies.py:DisplayReplies.await_reply": 1,
+            f"{_HUB}inbound_router.py:InboundRouter.route": 1,
+        }
+
+    def test_an_undrained_capture_is_made_only_by_the_reader_and_the_inline_read(
+        self,
+    ) -> None:
+        assert _everywhere("end_stream") == {
+            f"{_HUB}dial_reader.py:DialReader.run": 1,
+            f"{_HUB}display_replies.py:DisplayReplies._ended_by": 3,
+        }
+
+    def test_a_settle_is_made_only_by_a_reader_and_the_slots_own_release(self) -> None:
+        assert _everywhere("settle") == {
+            f"{_HUB}dial_reader.py:DialReader.run": 1,
+            f"{_HUB}display_connection.py:DisplayConnection._capture": 1,
+            f"{_HUB}display_replies.py:DisplayReplies._read_inline": 1,
+            f"{_HUB}display_replies.py:DisplayReplies._ended_by": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot._release": 1,
+        }
+
+    def test_the_bound_is_reached_only_through_the_slots_late_door(self) -> None:
+        assert _everywhere("settle_by_bound") == {
+            f"{_HUB}reader_slot.py:ReaderSlot._late": 1
+        }
+        assert _everywhere("_late") == {
+            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot._settler": 1,
+            f"{_HUB}settler.py:Settler.__new__": 1,
+            f"{_HUB}settler.py:Settler.settle": 2,
+        }
+
+    def test_a_refused_asker_asks_only_through_the_listener_and_the_link(self) -> None:
+        assert _everywhere("ask_settle") == {
+            f"{_HUB}display_connection.py:DisplayConnection.__new__": 1,
+            f"{_HUB}display_link.py:DisplayLink.__new__": 1,
+            f"{_HUB}display_listener.py:DisplayListener.ask_settle": 1,
+        }
+
+    def test_a_listeners_settler_is_taken_only_by_the_thread_that_launches_it(
+        self,
+    ) -> None:
+        found = {
+            where: count
+            for where, count in _everywhere("settler").items()
+            if where.startswith(f"{_HUB}listener_thread.py")
+        }
+
+        assert found == {f"{_HUB}listener_thread.py:ListenerThread._launch": 1}
+
     @pytest.mark.parametrize(
         "gone",
         [
@@ -234,6 +294,12 @@ class TestTheGuardCanFail:
             "hold_born",
             "_capture",
             "capture",
+            "inline",
+            "end_stream",
+            "settler",
+            "settle_by_bound",
+            "_late",
+            "ask_settle",
         ],
     )
     @pytest.mark.parametrize(

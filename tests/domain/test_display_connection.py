@@ -646,8 +646,8 @@ class TestReaderSlot:
         connection, _ = _opened()
         slot = reading_of(connection)
         try:
-            first = slot.claim_for_listener(drop_route)
-            second = slot.claim_for_listener(drop_route)
+            first = slot.claim_for_listener(drop_route, drop_route)
+            second = slot.claim_for_listener(drop_route, drop_route)
             assert (first is not None, second is None) == (True, True)
             assert connection.has_reader
         finally:
@@ -655,7 +655,7 @@ class TestReaderSlot:
 
     def test_a_new_generation_has_no_reader(self) -> None:
         connection, _ = _opened()
-        reading_of(connection).claim_for_listener(drop_route)
+        reading_of(connection).claim_for_listener(drop_route, drop_route)
         connection.close()
         connection.open()
         try:

@@ -348,10 +348,10 @@ class TestAnInterruptedWriteRetiresItsDial:
         # Bytes may already be on the wire, so the frame stream cannot be trusted.
         link = _linked(display)
 
-        def interrupted(_data: bytes) -> None:
+        def interrupted(_data: bytes) -> int:
             raise failure
 
-        monkeypatch.setattr(display.sockets[0], "sendall", interrupted)
+        monkeypatch.setattr(display.sockets[0], "send", interrupted)
 
         with pytest.raises(type(failure)):
             writer_of(link).send_scene(_scene("x"))
@@ -1045,7 +1045,10 @@ class TestTheClosedMarkIsOneHoldWithTheSinkDiscard:
         with generation._sink._cond:  # test seam: a reader mid-delivery holds it
             closing = Call(lambda: generation.mark_closed("display"))
             time.sleep(0.1)
-            assert not generation.is_closed, "closed before the sink refused replies"
+            # Read lock-free (the sink's lock cannot be re-entered by its holder).
+            assert generation._sink._end.closing is None, (  # test seam
+                "closed before the sink refused replies"
+            )
 
         assert closing.wait()
         assert generation.is_closed

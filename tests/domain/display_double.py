@@ -86,6 +86,11 @@ class Peer:
         """Write bytes as they are."""
         self._sock.sendall(data)
 
+    @property
+    def raw(self) -> socket.socket:
+        """The display's own socket, for a test that reads it by hand."""
+        return self._sock
+
     def close(self) -> None:
         """Hang up, as a display that went away."""
         self._sock.close()
@@ -93,7 +98,7 @@ class Peer:
 
 @final
 class FlakySocket:
-    """A socket that fails or times out its next ``sendall`` when told to."""
+    """A socket that fails or times out its next ``send`` when told to."""
 
     _sock: socket.socket
     _active: int
@@ -116,18 +121,19 @@ class FlakySocket:
         self._reading = 0
         return self
 
-    def sendall(self, data: bytes) -> None:
-        """Raise once, if told to, before writing anything."""
-        if self.time_out_next_send:
-            self.time_out_next_send = False
-            msg = "the send timed out"
+    def send(self, data: bytes | memoryview) -> int:
+        """Raise once, if told to, before writing anything; else send what fits."""
+        if (
+            self.time_out_next_send
+        ):  # backpressure that never lets up: the deadline ends it
+            msg = "the send would block"
             raise BlockingIOError(msg)
         if self.fail_next_send:
             self.fail_next_send = False
             msg = "the socket fell over"
             raise OSError(msg)
         with self._exclusive():
-            self._sock.sendall(data)
+            return self._sock.send(data)
 
     def has_send_timeout(self) -> bool:
         """Whether ``SO_SNDTIMEO`` is set on the real socket."""
