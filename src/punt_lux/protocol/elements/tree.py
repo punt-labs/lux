@@ -11,6 +11,7 @@ from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
+from punt_lux.protocol.elements.tree_model import TreeModel
 from punt_lux.protocol.elements.tree_selection_facade import (
     TreeNodesState,
     TreeSelectionModel,
@@ -34,12 +35,7 @@ class TreeElement(Element):
     PY-TS-14 OK: only ``tooltip`` is ``str | None``; every other field is total.
     """
 
-    _id: str
-    _label: str
-    _state: TreeNodesState
-    _flat: bool
-    _tooltip: str | None
-    _kind: Literal["tree"]
+    _model: TreeModel
 
     def __new__(
         cls,
@@ -56,78 +52,82 @@ class TreeElement(Element):
         anchor_node_id: str = "",
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
-        self._id = id
-        self._label = label
         sel = TreeSelectionModel(
             mode=selection_mode, selected=selected_node_ids, anchor=anchor_node_id
         )
-        self._state = TreeNodesState(nodes=nodes, selection=sel)
-        self._flat = flat
-        self._tooltip = tooltip
-        self._kind = "tree"
+        self._model = TreeModel(
+            id=id,
+            content=TreeNodesState(nodes=nodes, selection=sel),
+            label=label,
+            flat=flat,
+            tooltip=tooltip,
+        )
         return self
 
     @property
     def id(self) -> str:
-        return self._id
+        return self._model.id
 
     @property
     def kind(self) -> Literal["tree"]:
-        return self._kind
+        return "tree"
 
     @property
     def label(self) -> str:
-        return self._label
+        return self._model.label
 
     @property
     def nodes(self) -> tuple[TreeNode, ...]:
-        return self._state.nodes
+        return self._model.content.nodes
 
     @property
     def flat(self) -> bool:
-        return self._flat
+        return self._model.flat
 
     @property
     def tooltip(self) -> str | None:
-        return self._tooltip
+        return self._model.tooltip
 
     @property
     def selection_mode(self) -> SelectionMode:
-        return self._state.selection.mode
+        return self._model.selection.mode
 
     @property
     def selected_node_ids(self) -> frozenset[str]:
-        return self._state.selection.selected_node_ids
+        return self._model.selection.selected_node_ids
 
     @property
     def anchor_node_id(self) -> str:
-        return self._state.selection.anchor
+        return self._model.selection.anchor
 
     @staticmethod
     def _setter_order(patch: Mapping[str, object]) -> Mapping[str, object]:
         return TreeNodesState.reordered_patch(patch)
 
     def _set_label(self, value: object) -> None:
-        self._label = PatchField("label").as_str(value)
+        self._model = self._model.labelled(value)
 
     def _set_nodes(self, value: object) -> None:
-        before = self._state.selection
-        self._state = self._state.replaced_nodes(value)
+        before = self._model.selection
+        content = self._model.content.replaced_nodes(value)
+        self._model = self._model.with_content(content)
         self._notify_observers("nodes")
-        self._state.selection.notify_if_changed(before, self._notify_observers)
+        content.selection.notify_if_changed(before, self._notify_observers)
 
     def _set_flat(self, value: object) -> None:
-        self._flat = PatchField("flat").as_bool(value)
+        self._model = self._model.flattened(value)
 
     def _set_tooltip(self, value: object) -> None:
-        self._tooltip = PatchField("tooltip").as_optional_str(value)
+        self._model = self._model.tipped(value)
 
     def _set_selected_node_ids(self, value: object) -> None:
-        self._state = self._state.selected_from_wire(value)
+        content = self._model.content.selected_from_wire(value)
+        self._model = self._model.with_content(content)
         self._notify_observers("selected_node_ids")
 
     def _set_anchor_node_id(self, value: object) -> None:
-        self._state = self._state.anchored(PatchField("anchor_node_id").as_str(value))
+        anchor = PatchField("anchor_node_id").as_str(value)
+        self._model = self._model.with_content(self._model.content.anchored(anchor))
         self._notify_observers("selected_node_ids")
 
     def validate(self) -> tuple[ValidationError, ...]:  # DES-039
@@ -144,9 +144,4 @@ class TreeElement(Element):
         return cast("Self", decoder.decode(d))  # element_cls=cls guarantees the subtype
 
     def resolved_props(self) -> Mapping[str, object]:
-        return {
-            "label": self._label,
-            "flat": self._flat,
-            "tooltip": self._tooltip,
-            **self._state.resolved_props(),
-        }
+        return self._model.resolved_props()
