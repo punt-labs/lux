@@ -10,7 +10,7 @@ from a header or a declaration.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Any, Self, cast, final
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -42,6 +42,10 @@ from punt_lux.ws_transport import HubListenTransport
 
 if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping
+
+    from starlette.types import Message
+
+    from punt_lux.operations import Operations
 
 _AGENT = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
 _CONN = ConnectionId("conn")
@@ -374,13 +378,13 @@ async def _drive(
         "client": client,
     }
 
-    async def receive() -> dict[str, object]:
+    async def receive() -> Message:
         return {"type": "http.request"}
 
-    async def send(_message: dict[str, object]) -> None:
+    async def send(_message: Message) -> None:
         return None
 
-    await app(scope, receive, send)  # type: ignore[arg-type]
+    await app(scope, receive, send)
     return manager
 
 
@@ -433,7 +437,8 @@ class TestRestDoor:
 
         factory = HubStoreFactory(hub=Hub())
         ops = _Ops(IdentityOperations(factory.lifecycle, factory.clients))
-        return RestCaller(ops, HttpErrorMap()), factory  # type: ignore[arg-type]
+        # a double: only ``identify`` of the facade is reached
+        return RestCaller(cast("Operations", ops), HttpErrorMap()), factory
 
     def test_the_resolved_scope_carries_the_socket_peer(self) -> None:
         caller, factory = self._caller()

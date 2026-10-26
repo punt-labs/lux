@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 
@@ -327,13 +327,20 @@ def test_a_cancelled_calls_ended_bd_is_logged_at_debug_not_as_a_failure(
     assert all(level < logging.WARNING for level, _ in messages)
 
 
+class _Rewritable(Protocol):
+    """An exit as a writer would see it, were it mutable."""
+
+    returncode: int
+
+
 def test_the_exit_is_an_immutable_value() -> None:
     exit_ = BdChild(_QUICK, BdLeash()).output(_JOIN_SECONDS)
 
     assert isinstance(exit_, BdExit)
     assert exit_.returncode == 0
     with pytest.raises(AttributeError):
-        exit_.returncode = 1  # type: ignore[misc]
+        # the write the frozen value refuses is the behaviour under test
+        cast("_Rewritable", exit_).returncode = 1
 
 
 def test_a_nonzero_exit_is_a_value_not_an_exception() -> None:

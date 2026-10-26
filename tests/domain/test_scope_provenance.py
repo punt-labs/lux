@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from typing import get_args
+from typing import TYPE_CHECKING, cast, get_args
 
 import pytest
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.domain.scope import Provenance, Scope
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _CONN = ConnectionId("c1")
 _PEER = ClientHost("10.0.0.5")
@@ -45,8 +48,10 @@ def test_a_client_side_scope_is_not_a_hub_contact() -> None:
 
 
 def test_a_scope_cannot_be_built_without_saying_where_it_came_from() -> None:
+    # the call the signature forbids: no host, no provenance
+    bare = cast("Callable[[ConnectionId], Scope]", Scope)
     with pytest.raises(TypeError):
-        Scope(_CONN)  # type: ignore[call-arg]
+        bare(_CONN)
 
 
 def test_provenance_and_host_are_not_part_of_a_scopes_identity() -> None:
@@ -66,7 +71,8 @@ def test_an_observed_scope_refuses_no_host() -> None:
 
 def test_a_scope_refuses_a_provenance_it_does_not_know() -> None:
     with pytest.raises(ValueError, match="unknown scope provenance"):
-        Scope(_CONN, UNOBSERVED, "bogus")  # type: ignore[arg-type]
+        # a provenance the type forbids: the unknown-provenance refusal under test
+        Scope(_CONN, UNOBSERVED, cast("Provenance", "bogus"))
 
 
 @pytest.mark.parametrize("provenance", get_args(Provenance))

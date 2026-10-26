@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
@@ -45,9 +47,9 @@ class TestRegistration:
 
     @pytest.mark.parametrize("why", ["superseded", "declined"])
     def test_a_refused_registration_has_no_write_and_changes_nothing(
-        self, why: str
+        self, why: Literal["superseded", "declined"]
     ) -> None:
-        registration = Registration.refused(why)  # type: ignore[arg-type]
+        registration = Registration.refused(why)
 
         assert (registration.write, registration.presence) == (None, "unchanged")
 
@@ -100,8 +102,10 @@ class TestDetachment:
         assert Detachment.released(released).outcome == "released"
 
     @pytest.mark.parametrize("why", ["kept", "released_with_session"])
-    def test_a_teardown_that_released_nothing_has_no_write(self, why: str) -> None:
-        detachment = Detachment.nothing(why)  # type: ignore[arg-type]
+    def test_a_teardown_that_released_nothing_has_no_write(
+        self, why: Literal["kept", "released_with_session"]
+    ) -> None:
+        detachment = Detachment.nothing(why)
 
         assert (detachment.write, detachment.presence) == (None, "unchanged")
 
@@ -129,7 +133,7 @@ class TestDetachment:
 
     @pytest.mark.parametrize("outcome", ["released", "released_with_callbacks"])
     def test_a_release_outcome_without_a_write_is_refused_for_every_release(
-        self, outcome: str
+        self, outcome: Literal["released", "released_with_callbacks"]
     ) -> None:
         with pytest.raises(ValueError, match="disagree"):
-            Detachment(outcome, None)  # type: ignore[arg-type]
+            Detachment(outcome, None)

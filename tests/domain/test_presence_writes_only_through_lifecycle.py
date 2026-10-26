@@ -166,9 +166,9 @@ class _StateWrites(ast.NodeVisitor):
             self._record(node, node.value)
         self.generic_visit(node)
 
-    def _record(self, node: ast.AST, state: ast.expr) -> None:
+    def _record(self, node: ast.expr, state: ast.expr) -> None:
         method = self._scope[-1] if self._scope else "<module>"
-        self.found.append((method, node.lineno, _receiver(state)))  # type: ignore[attr-defined]
+        self.found.append((method, node.lineno, _receiver(state)))
 
 
 def _state_writes(source: str) -> list[tuple[str, int, str]]:
@@ -534,10 +534,12 @@ class TestTheRulesCanFail:
             "    def evict(self, cid):\n"
             "        self._sessions.pop(cid)\n"
         )
-        tree = ast.parse(source)
+        cls = ast.parse(source).body[0]
+        assert isinstance(cls, ast.ClassDef)
         methods = {
             m.name: bool(_state_writes(ast.unparse(m)))
-            for m in tree.body[0].body  # type: ignore[attr-defined]
+            for m in cls.body
+            if isinstance(m, ast.FunctionDef)
         }
 
         assert methods == {"peek": False, "evict": True}

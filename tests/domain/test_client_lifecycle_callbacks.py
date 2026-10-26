@@ -327,12 +327,14 @@ class TestTheWithdrawalRule:
     """Earned before, ignoring the lease, and not earning after reads revised."""
 
     def _earning(self) -> ClientSession:
-        return (
+        registered = (
             ClientSession(0.0)
             .with_identity(_applet())
             .attached(_Leg())
-            .registering(_CALLBACK, 1.0)  # type: ignore[return-value]
+            .registering(_CALLBACK, 1.0)
         )
+        assert registered is not None  # an identified, in-lease session accepts
+        return registered
 
     def _withdrawn(self) -> ClientSession:
         return ClientSession(0.0).with_identity(_applet())
