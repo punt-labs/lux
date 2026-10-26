@@ -1,0 +1,46 @@
+mission_id: m-2026-10-25-009
+status: closed
+type: implement
+created_at: "2026-10-25T21:56:30Z"
+updated_at: "2026-10-26T00:29:26Z"
+closed_at: "2026-10-26T00:29:26Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-25T21:56:30Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/ca-ack/t11.tex
+        - .tmp/missions/lux-ghhf-model-ack-after-swap.yaml
+        - .tmp/missions/results-r6fix/eval-gvr-r1.md
+        - .tmp/missions/review-r7-silent.md
+        - .tmp/missions/review-r7-invariants.md
+        - docs/crash_attribution.tex
+        - docs/crash_attribution_coverage.md
+        - src/punt_lux/display/render_loop.py
+        - DESIGN.md
+write_set:
+    - docs/crash_attribution.tex
+    - docs/crash_attribution_ack_on_receipt_buggy.tex
+    - docs/crash_attribution_no_carry_buggy.tex
+    - docs/crash_attribution_inflight_ack_buggy.tex
+    - docs/crash_attribution_inflight_ack_drain.tex
+    - docs/crash_attribution_coverage.md
+    - .tmp/missions/results-model-t12/
+success_criteria:
+    - 'Successor to m-2026-10-25-008, which escalated: T11 alone is unsound. Work on branch fix/lux-ghhf-details-frame-id in [REDACTED:home]/Coding/punt-labs/lux, the main checkout, and commit there. Start from your scratch model .tmp/ca-ack/t11.tex.'
+    - 'LEADER RULINGS, binding. T11: the display installs a scene on receipt and holds its ack. After the next completed buffer swap following the install it sends every held ack, in receipt order, whether or not the scene was visible. T12, the carry rule: when a Hub-ended dial settles with a non-empty ledger, that ledger joins a carried suspect set. Reading any ack on any later dial clears the carried set, because that ack follows a swap after the install of every scene the display already held. A display-ended death charges its own ledger together with the carried set, then clears the carried set. A3 is unchanged: a Hub-ended dial itself charges nothing. T10 is otherwise unchanged. Each death is queued at discovery, handed over once, and charged first at the replicator''s next push or idle tick, before the quarantine filter. The death queue has no silent bound. Known bound to state in the spec: a scene the user brings into view later, from a background tab or a restored frame, is acked before it is first painted, so a crash at that point is not attributed. In batching mode a death may also charge scenes carried from earlier Hub-retired dials; state the over-charge bound.'
+    - 'Amend docs/crash_attribution.tex to T11 plus T12. Model receipt, install, swap, ack sent, ack read, Hub-ended and display-ended retires, discovery by several parties, the carried set, the death queue and the charge, and the isolation probe clearing scene N only when N''s ack is read. A1 to A4 are NEGATED GOALS, never schema conjuncts. A1 covers a poison scene that crashes the install or the first frame after it, whoever discovers each death, including across Hub-ended dials and while the replicator is away (respawn backoff, the disconnected wait). Also model an ack that is in flight, sent but unread, when a non-reader party retires the dial. If A2 fails there, model the drain fix (on a display-ended retire, read the socket to EOF before capturing the ledger) and report which design the model supports. Model the swap stall: held acks pile up, a later death charges every scene since the last swap. State whether A2 survives, and the bound.'
+    - 'FIDELITY CONTROLS, each must reproduce its defect. docs/crash_attribution_ack_on_receipt_buggy.tex, today''s code: violates A1 with gvr''s trace (acked, then dies while painting, never charged). docs/crash_attribution_no_carry_buggy.tex, T11 without T12: reproduces your counterexample, RedialQuiet; Send(1); Install(1); HubEnd; RedialQuiet; Send(2); CrashFrame; DiscoverCharge. docs/crash_attribution_inflight_ack_buggy.tex: no drain, violates A2 if the model shows the hazard is real; if it is not real, report that and write no such file. Re-run the existing four controls against the amended spec; each must still reproduce its defect, or report why it no longer applies.'
+    - 'Update docs/crash_attribution_coverage.md. Partitions for T11 and T12: an ack held until the swap; a crash before or after the swap; held acks flushed in receipt order; a hidden-tab scene acked at the swap; carry across a Hub-ended dial; carry cleared by an ack; an in-flight ack at retire; a stall. The A1/A4 ''By'' column describes the code''s mechanism: queued at discovery, charged first at the next push or tick, handed over once by take_deaths. Name real tests where they exist (tests/domain/test_retire_cause.py, tests/domain/test_death_charger.py, tests/integration/test_crash_quarantine.py) and mark the rest ''to be written (T11/T12)''. P5''s inline-read half is missing today.'
+    - 'If T12 is unsound, stop and report the counterexample before writing more. Keep each probcli run within about 8 GB, one at a time; watch free -g. Bound the carriers and state why the bounds expose the defects. Run fuzz on each file separately; fuzz on two files at once reports false multiply-declared errors. Commit only the write set, with explicit git add and the trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Do not push, touch PRs, src/, tests/ or other docs. Never restore from git, rm, stash or reset. Do not spawn agents. probcli is at [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-t12/<mission-id>.md; submit it with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Successor to m-2026-10-25-008, which escalated with a counterexample to T11.
+    The T11+T12 implementation (m-2026-10-25-006 Phase B) follows once jra
+    accepts this model.

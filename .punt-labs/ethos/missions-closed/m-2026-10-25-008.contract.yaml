@@ -1,0 +1,38 @@
+mission_id: m-2026-10-25-008
+status: escalated
+type: implement
+created_at: "2026-10-25T21:51:28Z"
+updated_at: "2026-10-25T21:56:28Z"
+closed_at: "2026-10-25T21:56:28Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-25T21:51:28Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/results-r6fix/eval-gvr-r1.md
+        - docs/crash_attribution.tex
+        - docs/crash_attribution_coverage.md
+        - src/punt_lux/display/render_loop.py
+        - src/punt_lux/display/paint_clock.py
+        - DESIGN.md
+write_set:
+    - docs/crash_attribution.tex
+    - docs/crash_attribution_ack_on_receipt_buggy.tex
+    - docs/crash_attribution_coverage.md
+    - .tmp/missions/results-model-ack/
+success_criteria:
+    - 'On branch fix/lux-ghhf-details-frame-id in [REDACTED:home]/Coding/punt-labs/lux (main checkout; commit there). gvr''s evaluation (eval-gvr-r1.md, M1) falsified the model''s premise. The model assumes the display acks every scene except the poison one. The real display acks a scene on receipt (render_loop.py _handle_scene) and paints it in a later frame. So a scene that kills the display while painting is already acked, the dead dial''s ledger is empty, and nothing is charged: an unbounded crash loop. In batching mode the ledger instead holds later, innocent scenes.'
+    - 'LEADER RULING T11 (amends T10): THE ACK MEANS A FRAME SURVIVED THE SCENE. The display installs a scene on receipt but holds its ack. It sends every held ack, in receipt order, after the next completed buffer swap following the install, whether or not the scene was visible in that frame. T10 is unchanged: the suspects are the dead dial''s written-but-unacked scenes. A scene that crashes the install or the first frame after it is therefore still unacked when the dial ends, and is charged. Known bound, to be stated in the spec: a scene the user brings into view later (a background tab, a restored minimized frame) is acked before it is first painted, so a crash then is not attributed.'
+    - 'Amend docs/crash_attribution.tex to T11. Model receipt, install, frame swap and ack as separate events, with the crash able to occur at install, at the swap, or after the ack. Keep A1–A4 as NEGATED GOALS (never schema conjuncts). A1 must now hold for a poison scene that crashes the install or the first frame after it, whichever party discovers each death. Add fidelity control docs/crash_attribution_ack_on_receipt_buggy.tex: the ack is sent at receipt, which is today''s code. It must violate A1 with gvr''s trace (acked, then the display dies while painting, never charged). In batching mode it must also violate A2: an innocent later scene is charged. Re-run every existing control so each still reproduces its defect against the amended spec. Update docs/crash_attribution_coverage.md: the new partitions (an ack held until the swap; a crash before or after the swap; a held ack flushed in receipt order; a scene in a hidden tab acked at the swap), and the tests that must cover each, including an acking Responder case and a pre-ack crash case.'
+    - Also model the swap stall. If the display stops completing frames (minimized, throttled), held acks pile up, and a later death charges every scene received since the last swap. State whether A2 survives, and the bound. If T11 is unsound, or the stall breaks A2, stop and report the counterexample to the leader before writing more.
+    - 'MEMORY: keep every probcli run within about 8 GB, one at a time; watch free -g (30 GB machine, other work runs). Bound the carriers (2 dials, 2 to 3 scenes, 2 discoverers, threshold 2) and state why the bounds expose the defects. Run fuzz clean on each file separately; fuzz on two files at once gives false multiply-declared errors. Commit only your write set, with explicit git add and the trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Do not push, touch PRs, src/, tests/ or other docs. Never restore from git, rm, stash or reset. Do not spawn agents. probcli is at [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-ack/<mission-id>.md; submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    T11 model for the attribution recurrence (gvr eval M1, review round 7). The
+    implementation mission follows once this model is evaluator-accepted.

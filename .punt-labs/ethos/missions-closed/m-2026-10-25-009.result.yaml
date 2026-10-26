@@ -1,0 +1,42 @@
+mission: m-2026-10-25-009
+round: 2
+created_at: "2026-10-26T00:23:40Z"
+author: jms
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: docs/crash_attribution.tex
+      added: 310
+      removed: 84
+    - path: docs/crash_attribution_ack_on_receipt_buggy.tex
+      added: 158
+      removed: 13
+    - path: docs/crash_attribution_no_carry_buggy.tex
+      added: 167
+      removed: 17
+    - path: docs/crash_attribution_inflight_ack_buggy.tex
+      added: 163
+      removed: 17
+    - path: docs/crash_attribution_inflight_ack_drain.tex
+      added: 158
+      removed: 19
+    - path: docs/crash_attribution_coverage.md
+      added: 154
+      removed: 96
+evidence:
+    - name: 'fuzz on each of the five .tex files and the five regenerated scratch controls, separately: clean'
+      status: pass
+    - name: 'probcli design with T13 and T14: 30,883 states, deadlocked:0, all operations covered; A1 A1w A2 A3 A4 not found; 3 dials 2,143,829 states and 3 scenes 718,209 states also not found'
+      status: pass
+    - name: 'controls: ack_on_receipt A1 (431) A1w (2,657); no_carry A1 (918) A1w (6,430) and probe-door A1w (6,546); inflight_ack A2 (2,347); inflight_ack_drain holds'
+      status: pass
+    - name: 'T10 controls regenerated against the round-2 spec: redial_only A1 (50), idle_stop A2 (118), hub_end_charged A3 (255), double_charge A4 (1,018)'
+      status: pass
+    - name: 'npx markdownlint-cli2 docs/crash_attribution_coverage.md: 0 issues'
+      status: pass
+open_questions:
+    - The committed T10 controls and docs/README.md row are left to the leader's separate pass; regenerated copies are in .tmp/missions/results-model-t12/controls/.
+    - The T13 control has no file in the write set; no_carry reproduces both doors, and a dedicated unresponsive_no_carry file is in controls/.
+    - O7 narrows the cross-host caveat to a predecessor not yet identified and a HubId that changes within one Hub process; a test for it is a to-be-written row (P26).
+prose: |
+    Round 2 narrative: .tmp/missions/results-model-t12/m-2026-10-25-009.md (Round 2 section). Commit 2f36ed96.
