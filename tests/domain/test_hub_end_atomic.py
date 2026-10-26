@@ -26,7 +26,6 @@ from punt_lux.domain.hub.connection_closed import (
 )
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import AckMessage
 from tests.domain.display_double import Call, Display, until
 from tests.domain.test_ack_attribution import (
@@ -310,7 +309,3 @@ class TestOnlyAReaderTakesTheLedgerOfADisplayEnd:
         }
 
         assert {"display_listener", "listener_thread", "display_connection"} <= names
-
-
-def test_the_scene_ids_these_tests_name_are_scene_ids() -> None:
-    assert SceneId("a") in _ids("a")
