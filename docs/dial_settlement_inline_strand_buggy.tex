@@ -1,0 +1,659 @@
+%
+% dial_settlement.tex
+%
+% A Z specification of how a dial is ENDED and SETTLED: the reader slot, the
+% listener's start and stop, the inline reader's last check and release, the
+% no-reader settle, and the Hub's own end.  It refines the two abstractions that
+% docs/crash_attribution.tex makes (a "reader slot" that someone holds, a
+% "settle" that someone performs) to the granularity of the code, because three
+% rounds of the final review on the lux-ghhf branch found a path on which an
+% ended dial is never settled or is settled undrained (R7-F1, R8 R1, and the
+% three defects of round 9).  This is the recurrence rule: the same class of
+% defect in two or more rounds is a state-space problem, and the state space is
+% finite.
+%
+% THIS FILE IS A FIDELITY CONTROL: it is dial_settlement.tex with SURefuse changed,
+% and reproduces the round-9 inline-holder trace (S1 violated: the wedge).  The
+% three controls are:
+%   docs/dial_settlement_start_fail_buggy.tex       a start that fails keeps the slot
+%   docs/dial_settlement_stop_skip_drain_buggy.tex  the reader's exit reads ended twice
+%   docs/dial_settlement_inline_strand_buggy.tex    a refused settle is dropped
+% The code it governs: src/punt_lux/domain/hub/{display_connection,dial_reader,
+% display_listener,listener_thread,display_replies,reply_sink,dial_generation,
+% reader_slot}.py.  Companions: crash_attribution.tex (what a capture charges),
+% listener_locks.tex (the lock order rq < sl < st < lk < qu).
+%
+% Type-check:  fuzz docs/dial_settlement.tex
+% Model-check: probcli docs/dial_settlement.tex -model_check -p MAX_OPERATIONS 100000
+%              probcli docs/dial_settlement.tex -model_check -nodead -bf \
+%                -goal "<S1: wedge, or S2 to S5: a flag is set>"   (see Verification)
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Dial Settlement: a Z Specification}
+\author{Who ends a dial, who settles it, and who may let go}
+\date{October 2026}
+\maketitle
+
+\section{What is modelled}
+
+A \emph{dial} is one generation of the Hub's connection to the display.  It is
+\emph{published} (current) from its birth until some one party \emph{captures}
+it: takes its ledger, queues its death or carries its suspects, and makes it
+not current.  Between the first end and the capture the dial is ended and
+unsettled.  Four properties are claimed of that interval.
+
+\begin{description}
+  \item[S1] No dial stays ended (or end-requested), current and unsettled for
+    ever: an end is always followed by a settle, by a party that was already
+    running when the end was made.  A dial that is wedged is one that
+    redial cannot replace, because it is still current.
+  \item[S2] A display or unresponsive end is captured only after the socket has
+    been drained (T14, O2 of the coverage audit).
+  \item[S3] Exactly one capture per dial.
+  \item[S4] The cause that is captured is the first one recorded.
+  \item[S5] A display that has already died is never recorded as a Hub end: the
+    cause that wins is the display's, whatever the Hub did next.
+\end{description}
+
+S1 is stated as a reachability check, not as a state invariant: ProB treats the
+primed state schema as part of each operation's guard, so a violation written as
+a conjunct disables the operation instead of reporting it.  S2 to S5 are flags
+set by the operation that would violate them; the goal is a state with a flag
+set.
+
+\section{The design in one rule}
+
+The code has three separate rules where one will do.  Settlement belongs to the
+\emph{holder of the reader slot}; everyone else only \emph{asks}.
+
+\begin{enumerate}
+  \item \textbf{Capture authority is the slot.}  Only a holder of the slot
+    (the listener thread, an inline reader, or a releaser taking over) captures a
+    dial.  No other path calls the capture.  In code: \texttt{close\_if\_current}
+    leaves the connection's interface; the slot hands its holder a
+    \texttt{Settler}, the one object with a \texttt{settle()} method, and the
+    listener, the inline reader and the no-reader settle are the only holders.
+    A flag with a default (\texttt{by\_reader=True}) is gone, and with it the
+    Hub's capture door.
+  \item \textbf{Ends record or request; they never capture.}  A display or
+    unresponsive end records its cause, first wins.  A Hub end sets a request
+    flag (\texttt{hubreq}); it records no cause.  Both then \emph{ask for a
+    settle}: take the slot if it is free and settle at once; if it is held, leave
+    a debt on the slot.
+  \item \textbf{Whoever lets go of the slot honours the debt.}  A release
+    (listener start failure, inline exit) that finds a debt keeps the slot,
+    settles, and looks again.  Every path that gives up the reader role releases
+    the slot this way, including a start that raises because the dial was ended.
+  \item \textbf{Settle is one idempotent step that reads the cause once.}  It
+    drains the socket to the point where it would block, then looks at the
+    outcome: end of file is the display's end, else a pending Hub request is the
+    Hub's end, else (if an end was already recorded) that one stands.  The
+    cause is read once, by this step, after the drain, so no end landing later
+    can change what is captured or whether it was drained.
+\end{enumerate}
+
+Rules 2 and 4 together are what close S5: the Hub's end is decided at the
+instant the socket is observed, and a display that died before that instant is
+seen as dead.  The model assumes the observation is one linearization point
+(the drain to \texttt{EAGAIN}, with the end-of-file test).  A display that dies
+after it dies after the Hub's end; that is not a defect, and no rule can
+distinguish it.
+
+\section{Carriers and bounds}
+
+One dial.  Every operation in the code is scoped to a generation: a reader, a
+slot, a write failure, and a capture all name the dial they act on, and the Hub
+redials only when the dial is no longer current.  A second dial therefore runs
+in a disjoint product with the first, and cannot interact with it; the model
+includes \texttt{Redial}, enabled only on an unpublished dial, to say so.  Five
+actors, each of which acts at most once: the starter (\texttt{start\_on}), the
+stopper (a Hub end: \texttt{stop} or \texttt{close}), a discoverer of a display
+or unresponsive end (a write failure or the keepalive), one inline reader, and
+the listener thread.  Socket content is zero or one unread acknowledgement,
+which is enough to tell a drained capture from an undrained one.  The dial is
+born holding the listener's slot (the registry's \texttt{open\_listening}) or
+free (a library link).
+
+\begin{zed}
+  CAUSE ::= nocause | cdisp | cunresp | chub
+\end{zed}
+
+\begin{zed}
+  SLOT ::= sfree | slistener | sinline
+\end{zed}
+
+\begin{zed}
+  FLAG ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  ACTOR ::= aSt | aSp | aDi | aIn | aRd
+\end{zed}
+
+The program counters.  \texttt{pst0}: the starter has not yet started the
+listener.  \texttt{prel0}: it failed and owes a release.  \texttt{phub}: a Hub
+end is to be requested.  \texttt{pend}: a display end is to be recorded.
+\texttt{psu}: the no-reader settle is to be tried.  \texttt{pset}: this actor
+holds the slot and owes a settle.  \texttt{prel}: it is about to release.
+\texttt{iread}, \texttt{ilast}: the inline reader is reading, and has finished
+reading and will make its last check.  \texttt{rtop}: the listener is at the top
+of its loop.  \texttt{rnone}: no listener exists.
+
+\begin{zed}
+  PC ::= pidle | pst0 | prel0 | phub | pend | psu | pset | prel | pdone |
+    iread | ilast | rtop | rnone | rdone
+\end{zed}
+
+\begin{schema}{Dial}
+  ended : CAUSE \\
+  slot : SLOT \\
+  debt : FLAG \\
+  current : FLAG \\
+  sock : 0 \upto 1 \\
+  capN : 0 \upto 2 \\
+  hubreq : FLAG
+\end{schema}
+
+\begin{schema}{Env}
+  launched : FLAG \\
+  eof : FLAG \\
+  redialed : FLAG
+\end{schema}
+
+\begin{schema}{Flags}
+  s2bad : FLAG \\
+  s3bad : FLAG \\
+  s4bad : FLAG \\
+  s5bad : FLAG
+\end{schema}
+
+\begin{schema}{Pc}
+  pc : ACTOR \fun PC
+\end{schema}
+
+\begin{schema}{Dc}
+  dcs : CAUSE
+\end{schema}
+
+\begin{schema}{RLoc}
+  rcause : CAUSE \\
+  rdec : FLAG
+\end{schema}
+
+\texttt{ended} is the first recorded cause.  \texttt{hubreq} is a request, not a
+cause.  \texttt{eof} says that the display has died and its end of file is
+queued behind whatever is unread; \texttt{sock} is that unread
+acknowledgement.  \texttt{dcs} is the discoverer's cause, display or
+unresponsive.  \texttt{rcause} and \texttt{rdec} are locals of the listener
+that only the stop-skip-drain control uses.
+
+\begin{schema}{Sys}
+  Dial \\ Env \\ Flags \\ Pc \\ Dc \\ RLoc
+\end{schema}
+
+\begin{schema}{Init}
+  Sys'
+\where
+  ended' = nocause \\
+  debt' = fclear \\
+  current' = fset \\
+  sock' \in 0 \upto 1 \\
+  capN' = 0 \\
+  hubreq' = fclear \\
+  launched' = fclear \\
+  eof' = fclear \\
+  redialed' = fclear \\
+  s2bad' = fclear \\
+  s3bad' = fclear \\
+  s4bad' = fclear \\
+  s5bad' = fclear \\
+  dcs' = cdisp \\
+  rcause' = nocause \\
+  rdec' = fclear \\
+  (slot' = slistener \land pc' = \{ aSt \mapsto pst0, aSp \mapsto pidle,
+    aDi \mapsto pidle, aIn \mapsto pidle, aRd \mapsto rnone \}) \lor
+  (slot' = sfree \land pc' = \{ aSt \mapsto pdone, aSp \mapsto pidle,
+    aDi \mapsto pidle, aIn \mapsto pidle, aRd \mapsto rnone \})
+\end{schema}
+
+\section{The environment}
+
+\begin{schema}{Die}
+  \Xi Dial \\ \Delta Env \\ \Xi Flags \\ \Xi Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  eof = fclear \\
+  eof' = fset \\
+  launched' = launched \\
+  redialed' = redialed
+\end{schema}
+
+The display dies.  Its end of file is queued behind any acknowledgement it has
+already sent.
+
+\begin{schema}{Redial}
+  \Xi Dial \\ \Delta Env \\ \Xi Flags \\ \Xi Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  current = fclear \\
+  redialed = fclear \\
+  redialed' = fset \\
+  launched' = launched \\
+  eof' = eof
+\end{schema}
+
+The Hub dials again, and only on a dial that is no longer current.  A dial
+that is ended but still current is never replaced: that is the wedge.
+
+\begin{schema}{Halt}
+  \Xi Sys
+\where
+  current = fclear \lor (ended = nocause \land hubreq = fclear)
+\end{schema}
+
+The model may stop only when the dial is settled or has not been ended.  A
+state with the dial ended or end-requested, still current, and nothing enabled
+is a deadlock, and probcli reports it: that is S1.
+
+\section{The starter}
+
+\begin{schema}{StOk}
+  \Xi Dial \\ \Delta Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aSt = pst0 \\
+  current = fset \\
+  ended = nocause \\
+  hubreq = fclear \\
+  launched' = fset \\
+  eof' = eof \\
+  redialed' = redialed \\
+  pc' = pc \oplus \{ aSt \mapsto pdone, aRd \mapsto rtop \}
+\end{schema}
+
+\texttt{start\_on}: the dial is not closed, and the thread starts.
+
+\begin{schema}{StFail}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aSt = pst0 \\
+  pc' = pc \oplus \{ aSt \mapsto prel0 \}
+\end{schema}
+
+\texttt{start\_on} fails: the dial was found ended or requested, or the thread
+could not be started.  Nothing guards it, because the second cause is
+independent of the dial.  The starter owes a release of the slot it was born
+holding.
+
+\begin{schema}{StRel0}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aSt = prel0 \\
+  slot = slistener \\
+  ended' = ended \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  (debt = fset \land debt' = fclear \land slot' = sinline \land
+    pc' = pc \oplus \{ aSt \mapsto pset \}) \lor
+  (debt = fclear \land debt' = debt \land slot' = sfree \land
+    pc' = pc \oplus \{ aSt \mapsto phub \})
+\end{schema}
+
+The release.  With a debt the starter keeps the slot and settles; without, it
+frees the slot and goes on to request the Hub's end of the dial it could not
+start (\texttt{retire(born, hub)}).
+
+\section{The ends}
+
+\begin{schema}{DStartDisp}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Delta Dc \\ \Xi RLoc
+\where
+  pc~aDi = pidle \\
+  dcs' = cdisp \\
+  pc' = pc \oplus \{ aDi \mapsto pend \}
+\end{schema}
+
+\begin{schema}{DStartUnresp}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Delta Dc \\ \Xi RLoc
+\where
+  pc~aDi = pidle \\
+  dcs' = cunresp \\
+  pc' = pc \oplus \{ aDi \mapsto pend \}
+\end{schema}
+
+A discoverer: a write that failed (the display's end), or the keepalive giving
+up (unresponsive).
+
+\begin{schema}{RecEnd}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aDi = pend \\
+  current = fset \\
+  slot' = slot \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  ((ended = nocause \land ended' = dcs) \lor (ended \neq nocause \land ended' = ended)) \\
+  pc' = pc \oplus \{ aDi \mapsto psu \}
+\end{schema}
+
+\begin{schema}{RecGone}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aDi = pend \\
+  current = fclear \\
+  pc' = pc \oplus \{ aDi \mapsto pdone \}
+\end{schema}
+
+The cause is recorded, first wins.  A dial no longer current is left alone.
+
+\begin{schema}{SPStart}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aSp = pidle \\
+  pc' = pc \oplus \{ aSp \mapsto phub \}
+\end{schema}
+
+The stopper: \texttt{stop} (when a listener exists) or \texttt{close}.  Both
+end by asking for the Hub's end.  A \texttt{stop} on a dial with no listener
+returns without ending anything; that is a subset of \texttt{close}.
+
+\begin{schema}{HubReq}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp \} \\
+  pc~a? = phub \\
+  current = fset \\
+  ended' = ended \\
+  slot' = slot \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = fset \\
+  pc' = pc \oplus \{ a? \mapsto psu \}
+\end{schema}
+
+\begin{schema}{HubGone}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp \} \\
+  pc~a? = phub \\
+  current = fclear \\
+  pc' = pc \oplus \{ a? \mapsto pdone \}
+\end{schema}
+
+The Hub's end sets a request.  It records no cause and captures nothing.
+
+\section{The no-reader settle and the release}
+
+\begin{schema}{SUGone}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi \} \\
+  pc~a? = psu \\
+  current = fclear \\
+  pc' = pc \oplus \{ a? \mapsto pdone \}
+\end{schema}
+
+\begin{schema}{SUGrant}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi \} \\
+  pc~a? = psu \\
+  current = fset \\
+  slot = sfree \\
+  slot' = sinline \\
+  ended' = ended \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  pc' = pc \oplus \{ a? \mapsto pset \}
+\end{schema}
+
+\begin{schema}{SURefuse}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi \} \\
+  pc~a? = psu \\
+  current = fset \\
+  slot \neq sfree \\
+  debt' = debt \\
+  ended' = ended \\
+  slot' = slot \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  pc' = pc \oplus \{ a? \mapsto pdone \}
+\end{schema}
+
+\texttt{settle\_unread}.  A free slot is taken and the caller settles.
+
+THE DEFECT (round 9, code-review finding 2; invariant-review F-1).  A held slot
+is simply refused: no debt is left (\texttt{debt' = debt}), so \texttt{RelOwes}
+is never enabled.  An inline holder that has made its last check and is about
+to release lets go with the dial ended and unsettled, and nobody settles it.
+This is the one place the file differs from \texttt{dial\_settlement.tex}.
+
+\begin{schema}{SettleCap}
+  \Delta Dial \\ \Xi Env \\ \Delta Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi, aIn \} \\
+  pc~a? = pset \\
+  slot = sinline \\
+  current = fset \\
+  (ended \neq nocause \lor hubreq = fset \lor eof = fset) \\
+  ((ended \neq nocause \land ended' = ended) \lor
+    (ended = nocause \land eof = fset \land ended' = cdisp) \lor
+    (ended = nocause \land eof = fclear \land hubreq = fset \land ended' = chub)) \\
+  sock' = 0 \\
+  current' = fclear \\
+  capN' = capN + 1 \\
+  slot' = slot \\
+  debt' = debt \\
+  hubreq' = hubreq \\
+  ((ended' \in \{ cdisp, cunresp \} \land sock' > 0 \land s2bad' = fset) \lor
+    (\lnot (ended' \in \{ cdisp, cunresp \} \land sock' > 0) \land s2bad' = s2bad)) \\
+  ((capN \geq 1 \land s3bad' = fset) \lor (capN = 0 \land s3bad' = s3bad)) \\
+  s4bad' = s4bad \\
+  ((ended = nocause \land ended' = chub \land eof = fset \land s5bad' = fset) \lor
+    (\lnot (ended = nocause \land ended' = chub \land eof = fset) \land
+      s5bad' = s5bad)) \\
+  pc' = pc \oplus \{ a? \mapsto prel \}
+\end{schema}
+
+Settle, by a holder of the slot.  One step: drain to the point of blocking,
+then read the outcome once.  An end of file is the display's end and wins over
+a Hub request that has not yet been decided; a cause already recorded stands.
+The ledger is then captured and the dial is not current.  The flags are set
+only by a capture that would violate S2, S3 or S5; S4 holds because
+\texttt{ended} is written only by the first recorder.
+
+\begin{schema}{SettleGone}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi, aIn \} \\
+  pc~a? = pset \\
+  current = fclear \\
+  pc' = pc \oplus \{ a? \mapsto prel \}
+\end{schema}
+
+\begin{schema}{RelOwes}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi, aIn \} \\
+  pc~a? = prel \\
+  slot = sinline \\
+  debt = fset \\
+  debt' = fclear \\
+  ended' = ended \\
+  slot' = slot \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  pc' = pc \oplus \{ a? \mapsto pset \}
+\end{schema}
+
+\begin{schema}{RelFree}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc \\
+  a? : ACTOR
+\where
+  a? \in \{ aSt, aSp, aDi, aIn \} \\
+  pc~a? = prel \\
+  slot = sinline \\
+  debt = fclear \\
+  slot' = sfree \\
+  ended' = ended \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  pc' = pc \oplus \{ a? \mapsto pdone \}
+\end{schema}
+
+The release.  A debt, left by a refusal that came before it, is honoured by
+keeping the slot and settling again.  A debt left after the release finds the
+slot free.
+
+\section{The inline reader}
+
+\begin{schema}{IAcq}
+  \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aIn = pidle \\
+  slot = sfree \\
+  slot' = sinline \\
+  ended' = ended \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  hubreq' = hubreq \\
+  pc' = pc \oplus \{ aIn \mapsto iread \}
+\end{schema}
+
+\begin{schema}{IReadIdle}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aIn = iread \\
+  pc' = pc \oplus \{ aIn \mapsto ilast \}
+\end{schema}
+
+\begin{schema}{IReadNotice}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aIn = iread \\
+  (ended \neq nocause \lor hubreq = fset \lor eof = fset) \\
+  pc' = pc \oplus \{ aIn \mapsto pset \}
+\end{schema}
+
+\begin{schema}{ILastSet}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aIn = ilast \\
+  current = fset \\
+  (ended \neq nocause \lor hubreq = fset) \\
+  pc' = pc \oplus \{ aIn \mapsto pset \}
+\end{schema}
+
+\begin{schema}{ILastSkip}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aIn = ilast \\
+  (current = fclear \lor (ended = nocause \land hubreq = fclear)) \\
+  pc' = pc \oplus \{ aIn \mapsto prel \}
+\end{schema}
+
+A caller that holds the slot reads, notices an end (or a request) and owes a
+settle, or finishes its read; its last check, \texttt{\_settle\_if\_ended}, then
+either finds an end and owes a settle or finds none and releases.  Between the
+last check and the release, anyone may end the dial: that is the window that
+the debt closes.
+
+\section{The listener thread}
+
+\begin{schema}{RNotice}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aRd = rtop \\
+  (hubreq = fset \lor ended \neq nocause \lor eof = fset) \\
+  pc' = pc \oplus \{ aRd \mapsto pset \}
+\end{schema}
+
+\begin{schema}{RSettleCap}
+  \Delta Dial \\ \Xi Env \\ \Delta Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aRd = pset \\
+  slot = slistener \\
+  current = fset \\
+  ((ended \neq nocause \land ended' = ended) \lor
+    (ended = nocause \land eof = fset \land ended' = cdisp) \lor
+    (ended = nocause \land eof = fclear \land hubreq = fset \land ended' = chub)) \\
+  sock' = 0 \\
+  current' = fclear \\
+  capN' = capN + 1 \\
+  slot' = slot \\
+  debt' = debt \\
+  hubreq' = hubreq \\
+  ((ended' \in \{ cdisp, cunresp \} \land sock' > 0 \land s2bad' = fset) \lor
+    (\lnot (ended' \in \{ cdisp, cunresp \} \land sock' > 0) \land s2bad' = s2bad)) \\
+  ((capN \geq 1 \land s3bad' = fset) \lor (capN = 0 \land s3bad' = s3bad)) \\
+  s4bad' = s4bad \\
+  ((ended = nocause \land ended' = chub \land eof = fset \land s5bad' = fset) \lor
+    (\lnot (ended = nocause \land ended' = chub \land eof = fset) \land
+      s5bad' = s5bad)) \\
+  pc' = pc \oplus \{ aRd \mapsto rdone \}
+\end{schema}
+
+\begin{schema}{RSettleGone}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Pc \\ \Xi Dc \\ \Xi RLoc
+\where
+  pc~aRd = pset \\
+  current = fclear \\
+  pc' = pc \oplus \{ aRd \mapsto rdone \}
+\end{schema}
+
+The listener's loop tests, in turn, the Hub's request (its stop flag), a
+recorded end, and the display's end of file, and on any of them settles through
+the same step that every other holder uses.  It never records a cause of its
+own, and it reads none twice.
+
+\section{Verification}
+
+\begin{verbatim}
+  fuzz docs/dial_settlement_inline_strand_buggy.tex   (clean)
+  probcli docs/dial_settlement_inline_strand_buggy.tex -model_check \
+    -p MAX_OPERATIONS 100000 -p MAX_INITIALISATIONS 100
+  probcli docs/dial_settlement_inline_strand_buggy.tex -model_check -nodead -bf \
+    -p MAX_OPERATIONS 100000 -p MAX_INITIALISATIONS 100 \
+    -goal "current = fset & (ended /= nocause or hubreq = fset) &
+           !a.(a : ACTOR => pc(a) : {pidle,pdone,rdone,rnone})"
+\end{verbatim}
+
+Expected and obtained: a deadlock after 12 steps (940 states), and the wedge
+goal at depth 8.  The shortest trace is the invariant review's probe: the
+inline reader acquires the slot (the dial born free), a discoverer starts, the
+reader finishes its read and makes its last check with nothing ended, the
+discoverer records its end, is refused, and the reader releases.
+
+
+\end{document}
