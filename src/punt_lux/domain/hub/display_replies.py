@@ -21,7 +21,8 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
     UnresponsiveError,
 )
-from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
+from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration

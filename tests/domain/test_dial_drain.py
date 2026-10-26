@@ -10,7 +10,8 @@ import pytest
 
 from punt_lux.domain.hub import dial_drain
 from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.reply_sink import ReplyOutOfOrderError, ReplySink
+from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
 from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import AckMessage, ObserverMessage, PongMessage, encode_message
 from tests.domain.display_double import Display

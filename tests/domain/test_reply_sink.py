@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.reply_sink import ReplyOutOfOrderError, ReplySink
+from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
