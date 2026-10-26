@@ -160,3 +160,25 @@ class TestReport:
         ProjectPermissions(tmp_path).report(add=True, quiet=True)
         assert capsys.readouterr().err == ""
         assert _allow(tmp_path) == list(LUX_RULES)
+
+
+class TestDisplayModeCommand:
+    def test_mode_grants_and_writes_that_checkout(self, tmp_path: Path) -> None:
+        from typer.testing import CliRunner
+
+        from punt_lux.__main__ import app
+
+        result = CliRunner().invoke(
+            app, ["display", "mode", "on", "--repo", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert set(LUX_RULES) <= set(settings["permissions"]["allow"])
+        assert 'display: "y"' in (tmp_path / ".punt-labs" / "lux.md").read_text()
+
+        result = CliRunner().invoke(
+            app, ["display", "mode", "off", "--repo", str(tmp_path)]
+        )
+        assert result.exit_code == 0, result.output
+        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert not set(LUX_RULES) & set(settings["permissions"]["allow"])

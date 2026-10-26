@@ -18,19 +18,19 @@ Enable or disable visual output for this project.
 
 Parse `$ARGUMENTS`. Enabling and disabling display mode is a user action,
 so `/lux y` and `/lux n` run the CLI rather than an MCP tool — a client or
-agent may read the display mode but never modify it (DES-088). Replace
-`<cwd>` below with the absolute path of your current working directory so the display-mode config is
+agent may read the display mode but never modify it (DES-088). Every
+invocation must pass `--repo <cwd>` (replacing `<cwd>` with the absolute
+path of your current working directory) so the display-mode config is
 written to the caller's project, not to `luxd`'s process cwd — which is
 `$HOME` under launchd (see lux-r929).
 
 ### `y`
 
-Run the Bash command `cd <cwd> && lux enable`. It also allows lux's tools in
-the repo's `.claude/settings.json`. Confirm: "Lux display enabled."
+Run the Bash command `lux display mode on --repo <cwd>`. Confirm: "Lux display enabled."
 
 ### `n`
 
-1. Run the Bash command `cd <cwd> && lux disable`.
+1. Run the Bash command `lux display mode off --repo <cwd>`.
 2. Call the `scene_clear_all` MCP tool to dismiss the window.
 3. Confirm: "Lux display disabled."
 
