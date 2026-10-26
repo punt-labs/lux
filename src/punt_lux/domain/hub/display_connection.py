@@ -10,7 +10,8 @@ for anyone else: each is a no-op unless that generation is still current, so a r
 or a waiter that outlived a redial can report its own dial's end without touching the
 new one. Only a dial's reader, after it has read what the socket held, takes the ledger
 of a dial the display ended or the Hub gave up on; the Hub's own end records its cause
-first and takes the ledger only if that cause is the one that stands. The connection also holds the suspects dials leave behind (the
+first and takes the ledger only if that cause is the one that stands. The connection
+also holds the suspects dials leave behind (the
 :class:`~punt_lux.domain.hub.suspect_book.SuspectBook`) and the deaths not yet charged,
 whose queue it hands out once.
 
@@ -63,8 +64,8 @@ class DisplayConnection:
     __slots__ = (
         "_connect_timeout",
         "_current",
-        "_dialer",
         "_deaths_taken",
+        "_dialer",
         "_last",
         "_settle_unread",
         "_state_lock",

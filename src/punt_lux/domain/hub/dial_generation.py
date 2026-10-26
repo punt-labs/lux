@@ -226,7 +226,7 @@ class DialGeneration:
         return self._socket.head(count)
 
     def shut(self) -> None:
-        """Release the socket and fail every waiter; idempotent, never under a state lock.
+        """Release the socket and fail every waiter; idempotent, never under ``st``.
 
         It records no more than the end a dial already has: the ledger is taken by
         :meth:`mark_closed` and by nothing here. ``shutdown`` wakes a reader in ``recv``

@@ -2,8 +2,9 @@
 
 One desk belongs to one link and is reachable only through it. It builds the exchange
 every request port shares, makes the ask port for the dial that is current when asked,
-and holds the one seat writers are made at. The seat is built here and nowhere else, and so is the manifest the link writes for
-itself when a connection opens: no writer has a verb for it.
+and holds the one seat writers are made at. The seat is built here and nowhere else,
+and so is the manifest the link writes for itself when a connection opens: no writer
+has a verb for it.
 """
 
 from __future__ import annotations

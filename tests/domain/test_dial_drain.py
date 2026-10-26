@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
+import select
 from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import dial_socket
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.reply_sink import ReplyOutOfOrderError, ReplySink
 from punt_lux.domain.ids import SceneId
@@ -158,16 +158,14 @@ class TestASkewedAckLeavesTheLedgerWhole:
         (death,) = deaths_of(link)  # reading on would match a's ack to the wrong entry
         assert death.suspects == frozenset({SceneId("a"), SceneId("b")})
 
-    def test_a_reply_that_fails_to_route_ends_the_drain(
-        self, display: Display
-    ) -> None:
+    def test_a_reply_that_fails_to_route_ends_the_drain(self, display: Display) -> None:
         generation = _generation(display)
         display.peer.send(PongMessage(ts=1.0), PongMessage(ts=2.0))
         seen: list[float] = []
 
         def route(_generation: DialGeneration, msg: Message) -> None:
             assert isinstance(msg, PongMessage)
-            seen.append(msg.ts)
+            seen.append(msg.ts or 0.0)
             if msg.ts == 1.0:
                 raise ValueError("a pong nobody was waiting for")
 
@@ -188,7 +186,7 @@ class TestACutShortDrainSaysSo:
         def reset(*_: object) -> object:
             raise ConnectionResetError("reset")
 
-        monkeypatch.setattr(dial_socket.select, "select", reset)
+        monkeypatch.setattr(select, "select", reset)
         with caplog.at_level(logging.DEBUG):
             assert generation.drain_chunk() is None
 
@@ -208,7 +206,7 @@ class TestACutShortDrainSaysSo:
         def closed(*_: object) -> object:
             raise ValueError("file descriptor cannot be a negative integer")
 
-        monkeypatch.setattr(dial_socket.select, "select", closed)
+        monkeypatch.setattr(select, "select", closed)
         with caplog.at_level(logging.DEBUG):
             assert generation.drain_chunk() is None
 

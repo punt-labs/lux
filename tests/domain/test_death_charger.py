@@ -161,7 +161,9 @@ class TestWhenChargingOneDeathRaises:
 
     def test_the_error_that_stopped_it_is_not_swallowed(self) -> None:
         attribution = _FailingOnceAttribution()
-        charger = DeathCharger(_Deaths(_death("a")), cast("CrashAttribution", attribution))
+        charger = DeathCharger(
+            _Deaths(_death("a")), cast("CrashAttribution", attribution)
+        )
 
         with pytest.raises(RuntimeError, match="the store refused"):
             charger.charge()

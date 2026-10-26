@@ -148,7 +148,7 @@ class ClientRegistry:
             client.drop_if_current(dial, cause="unresponsive")
 
     def take_deaths(self) -> DeathQueue:
-        """Hand over the queue of display deaths, once: its holder is the one charger."""
+        """Hand over the display's death queue, once: its holder is the one charger."""
         with self._lock:
             return self._ensure_client().take_deaths()
 

@@ -104,7 +104,7 @@ def _patch_references(source: str) -> list[ast.Attribute]:
 
 
 def _called_directly(source: str) -> set[int]:
-    """The ``id`` of every ``apply_patch`` reference that is called where it is named."""
+    """The ``id`` of every ``apply_patch`` reference called where it is named."""
     return {
         id(node.func)
         for node in ast.walk(_parsed(source))
@@ -268,7 +268,10 @@ class TestEveryPatchOfAnElementIsAccountedFor:
         }
 
         assert _beyond_the_list(source) == [
-            "protocol/elements/slider_codec.py: a reference that is not called where named"
+            (
+                "protocol/elements/slider_codec.py: "
+                "a reference that is not called where named"
+            )
         ]
 
     def test_a_bound_apply_patch_in_an_unlisted_module_is_found(self) -> None:

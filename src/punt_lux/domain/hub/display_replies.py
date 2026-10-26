@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
+    UnresponsiveError,
 )
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES, ReplyOutOfOrderError
 
@@ -126,14 +127,16 @@ class DisplayReplies:
                 # The display's end, or the dial ended under the wait: either way it is
                 # over. An end another recorded first is reported as that one's cause.
                 self._listener.settle(generation, inline=True)
-                if generation.ended != "display":
-                    raise generation.closed_error() from exc
+                stands = generation.closed_error()
+                if isinstance(stands, HubRetiredError | UnresponsiveError):
+                    raise stands from exc
                 raise
             except ReplyOutOfOrderError as exc:
                 # The stream skewed: the Hub gives up on a dial it can no longer
                 # match replies on, and the display is not blamed for it.
                 msg = f"{generation.endpoint} sent a reply nobody was owed"
-                raise self._ended_stream(generation, "hub", HubRetiredError(msg)) from exc
+                skewed = HubRetiredError(msg)
+                raise self._ended_stream(generation, "hub", skewed) from exc
             except (ValueError, KeyError, TypeError) as exc:
                 # A frame the stream cannot be trusted past: the display sent it,
                 # so the display ended the dial, and the caller learns it as one.

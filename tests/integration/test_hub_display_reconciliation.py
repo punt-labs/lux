@@ -29,7 +29,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from tests.link_access import shown, socket_of, writer_of
+from tests.link_access import shown, socket_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -103,7 +103,7 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
         )
         try:
             second.connect()
-            writer_of(second).send_manifest(())
+            second.desk.declare(())
 
             assert _wait_until(lambda: _live_scene_ids(sock_path) == set()), (
                 "the ghost scene was never purged"

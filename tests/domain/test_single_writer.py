@@ -413,7 +413,8 @@ class TestTheManifestWriteIsTheDesksAlone:
         built = _modules(lambda s: _constructions(s, "HubManifestMessage") > 0)
 
         assert built == {_HUB + "request_desk.py"}
-        assert _constructions(_source(_HUB + "request_desk.py"), "HubManifestMessage") == 1
+        desk = _source(_HUB + "request_desk.py")
+        assert _constructions(desk, "HubManifestMessage") == 1
 
     def test_a_called_a_bound_and_a_stored_manifest_verb_are_all_found(self) -> None:
         for planted in (

@@ -6,9 +6,9 @@ concurrency logic is tested against fakes, not a live socket: ``DisplaySender``
 (the fire-and-forget send surface, pinned to one dial), ``WriteSeatPort`` (where
 senders are made), ``DisplayProbe`` (the isolation loop's ping, pinned to one
 dial), ``ClientProvider`` (connects, hands out the seat and the death queue once,
-drops a dead dial, waits), ``DisplayLifecycle`` (kills a wedged display; its service unit respawns
-it), and ``DirtyMarker`` (the queue-only side a fresh-connect hook marks after
-declaring its manifest, DES-068).
+drops a dead dial, waits), ``DisplayLifecycle`` (kills a wedged display; its service
+unit respawns it), and ``DirtyMarker`` (the queue-only side a fresh-connect hook marks
+after declaring its manifest, DES-068).
 """
 
 from __future__ import annotations

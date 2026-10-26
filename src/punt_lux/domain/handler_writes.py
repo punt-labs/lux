@@ -19,7 +19,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
     from punt_lux.domain.element_abc import Element
 
@@ -40,7 +40,7 @@ class HandlerWrites:
 
     @staticmethod
     @contextmanager
-    def judged(judge: WriteJudge) -> Iterator[None]:
+    def judged(judge: WriteJudge) -> Generator[None]:
         """Run the body with every element patch shown to ``judge`` first."""
         token = _JUDGE.set(judge)
         try:

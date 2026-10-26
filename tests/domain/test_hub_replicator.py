@@ -960,7 +960,7 @@ def test_a_failed_menu_send_with_nothing_in_flight_charges_no_scene() -> None:
     factory = HubStoreFactory()
     store = factory.display
     scene = _seed(store, factory.lifecycle, "s1")
-    repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
+    repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
     sender.arm_failure(OSError("reset"))
     batch = DrainedBatch(frozenset({scene}), shutting=False, menus_dirty=True)
 

@@ -1,14 +1,16 @@
-"""DeathQueue -- deaths wait oldest first, are taken once, and a taken one can go back."""
+"""DeathQueue -- deaths wait oldest first, are taken once, and may go back."""
 
 from __future__ import annotations
 
 import logging
-
-import pytest
+from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.death_queue import DeathQueue
 from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.ids import SceneId
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _death(name: str) -> DialDeath:

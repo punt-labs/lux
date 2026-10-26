@@ -14,8 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
 from punt_lux.domain.hub.write_errors import NestingExceededError
 from punt_lux.domain.nesting_cap import NestingCap
@@ -97,7 +97,7 @@ class WriteSeam:
     def admit(
         self, scene_id: SceneId, element: AbcElement, patch: Mapping[str, object]
     ) -> None:
-        """Raise :class:`NestingExceededError` if ``patch`` would nest the scene too deeply.
+        """Raise :class:`NestingExceededError` if ``patch`` nests the scene too deeply.
 
         The judgement every write makes, measured on a copy of the target so the
         element itself, and anything observing it, is untouched when it is refused.
