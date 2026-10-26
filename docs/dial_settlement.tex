@@ -12,15 +12,14 @@
 % the same class of defect in two or more rounds is a state-space problem, and
 % the state space is finite.
 %
-% THIS FILE IS THE PROPOSED DESIGN (round 2).  Each fidelity control differs from
+% THIS FILE IS THE PROPOSED DESIGN (round 3).  Each fidelity control differs from
 % it in the stated place only, and reproduces one trace.  In docs/:
 %   dial_settlement_start_fail_buggy.tex       start_on on an ended dial keeps the slot
 %   dial_settlement_stop_skip_drain_buggy.tex  the listener's exit reads ended twice
 %                                              (a substitution of its steps, not a
 %                                              one-point mutation)
 %   dial_settlement_inline_strand_buggy.tex    a refused settle leaves no debt
-% To be committed to docs/ after acceptance (maintained in
-% .tmp/missions/results-model-settle/controls/ under these names):
+% Also in docs/:
 %   dial_settlement_split_settle_buggy.tex     the post-drain record is not first-wins
 %   dial_settlement_atomic_refuse_buggy.tex    refusal and debt are two steps
 %   dial_settlement_atomic_release_buggy.tex   release and debt-read are two steps
@@ -89,8 +88,8 @@ a violation written as a conjunct disables the operation instead of reporting
 it.
 
 \paragraph{The carve-outs of S2, with their bounds.}
-Three paths capture a display end without the drain, because the drain is not
-possible or not safe.  Each sets its own flag, never \texttt{s2bad}.
+Three paths capture a display or unresponsive end without the drain, because the
+drain is not possible or not safe.  Each sets its own flag, never \texttt{s2bad}.
 \begin{enumerate}
   \item \emph{Decode errors} (\texttt{s2dec}).  A frame that broke the stream
     (the reader's malformed-frame exit, \texttt{end\_stream(display)} in an
@@ -98,17 +97,24 @@ possible or not safe.  Each sets its own flag, never \texttt{s2bad}.
     are unread, and their scenes may be charged.  Bound: the acks in flight on the
     one dial, once.
   \item \emph{The bound of rule~6} (\texttt{s2blk}).  The Hub, tired of waiting
-    for a holder that has not settled, captures without draining.  Bound: the
-    acks queued while the holder stalls; and only after the bound (the stop
-    join, two seconds).
-  \item \emph{A live display} (unresponsive ends).  A display that is alive may
-    send an acknowledgement after any drain, so no drain is ever complete.  S2
-    for an unresponsive end is that a drain that began after the record
-    precedes the capture; an ack that arrives after that drain is bounded by one
-    drain-to-capture gap.  A dead display has its end of file queued behind its
-    last byte, so its drain is complete.  The classification of a send timeout
-    as the display's end (a live display charged as dead) is a separate bound,
-    B3, and is not modelled here.
+    for a holder that has not settled, captures without draining, whether the
+    recorded cause is \texttt{display} or \texttt{unresponsive}.  Bound: every
+    acknowledgement queued while the holder stalls, including what sits
+    undelivered in the holder's frame buffer, and only after the bound (the stop
+    join, two seconds).  A bound capture of a display end may therefore charge
+    scenes whose acknowledgements were never read.  That is an accepted
+    over-charge (DES-102).
+  \item \emph{A live display} (unresponsive ends, for the holder's settle).  A
+    display that is alive may send an acknowledgement after any drain, so no
+    drain is ever complete.  S2 for an unresponsive end, settled by a holder, is
+    that a drain that began after the record precedes the capture; an ack that
+    arrives after that drain is bounded by one drain-to-capture gap.  This holds
+    for the holder's settle only; the bound's capture of an unresponsive end is
+    carve-out~2.  A dead display has its end of file queued behind its last byte
+    on a same-host socket, so its drain is complete there; the cross-host case is
+    an obligation (see \emph{What is not modelled}).  The classification of a
+    send timeout as the display's end (a live display charged as dead) is a
+    separate bound, B3, and is not modelled here.
 \end{enumerate}
 
 \section{The design}
@@ -166,8 +172,10 @@ rule~6 fires: the Hub records \texttt{hub} for a display it has not observed, an
 the flag \texttt{s5blk} says so.
 
 \paragraph{The three atomicity obligations.}
-The design is correct only if each of these is one critical section of the
-slot's condition lock; each has a control that splits it and fails.
+S1a holds only if each of these is one critical section of the slot's condition
+lock; each has a control that splits it and fails.  With the timer present a
+broken obligation does not wedge: it degrades to the bound of rule~6, that is to
+the two-second wait and an undrained capture (\texttt{s2blk}).
 \begin{enumerate}
   \item \textbf{Refusal and debt}: observing the slot held and setting the debt
     (\texttt{atomic\_refuse}).
@@ -594,7 +602,9 @@ returns without ending anything; that is a subset of \texttt{close}.
 \end{schema}
 
 The Hub's end sets a request.  The request itself is what refuses writes and
-fails waiters at once (rule~5); it records no cause and captures nothing.
+fails waiters at once (rule~5); it records no cause and captures nothing.  That
+refusal of writes and failing of waiters is a stated rule, not modelled state:
+no checked property depends on it.
 
 \section{The no-reader settle, the wait and the release}
 
@@ -676,8 +686,8 @@ between the refusal and the debt.  The asker then waits.
   ((capN \geq 1 \land s3bad' = fset) \lor (capN = 0 \land s3bad' = s3bad)) \\
   s4bad' = s4bad \\
   s5bad' = s5bad \\
-  ((ended' = cdisp \land sock > 0 \land s2blk' = fset) \lor
-    (\lnot (ended' = cdisp \land sock > 0) \land s2blk' = s2blk)) \\
+  ((ended' \in \{ cdisp, cunresp \} \land sock > 0 \land s2blk' = fset) \lor
+    (\lnot (ended' \in \{ cdisp, cunresp \} \land sock > 0) \land s2blk' = s2blk)) \\
   s2dec' = s2dec \\
   ((ended = nocause \land eof = fset \land s5blk' = fset) \lor
     (\lnot (ended = nocause \land eof = fset) \land s5blk' = s5blk)) \\
@@ -936,12 +946,15 @@ the same two steps that every other holder uses.  It records no cause of its
 own and reads none twice.  A malformed frame is the first carve-out
 (\texttt{RBad}).
 
-\section{Refinement of crash\_attribution.tex}
+\section{Refinement of crash\_attribution\_inflight\_ack\_drain.tex}
 
-This specification refines the settle step of \texttt{crash\_attribution.tex},
-which has a \texttt{Settle} that atomically empties the socket and reader buffer
-and then captures, and an abstract \texttt{ended} that takes
-\texttt{edisp}, \texttt{eunr} or \texttt{ehub}.  The gluing, concrete to
+The abstract model that this specification refines is
+\texttt{crash\_attribution\_inflight\_ack\_drain.tex}, the variant of
+\texttt{crash\_attribution.tex} in which every \texttt{Discover*} step takes each
+acknowledgement in the socket and in the reader's buffer into \texttt{acked} in
+the same step (\texttt{Recv} and \texttt{Deliver} folded into the capture), and
+in which a drain that applies an ack clears the carried set.  Its \texttt{ended}
+takes \texttt{edisp}, \texttt{eunr} or \texttt{ehub}.  The gluing, concrete to
 abstract:
 
 \begin{itemize}
@@ -953,28 +966,58 @@ abstract:
     ask.  That placement is the linearisation that makes the S5 residual a
     display that died \emph{after} the abstract \texttt{HubEnd}, that is before
     the abstract \texttt{CrashFrame}.
-  \item \textbf{The drain guard.}  The concrete guard ``no ack unread when
+  \item \textbf{The drain.}  The concrete guard ``no ack unread when
     \texttt{cdisp} is captured'' (\texttt{sock = 0} at \texttt{SDecide}) refines
-    the abstract \texttt{flight = \{\} $\land$ rbuf = \{\}} of T14.
-    \texttt{sock} conflates the socket and the reader's undelivered buffer.  That
-    is sound only because rule~1 makes the settler the owner of the frame
-    buffer: a non-owner cannot empty what the reader has taken, but the owner's
-    drain takes it to the ledger before it returns, so for the owner the two are
-    one place.  This is the strongest argument for rule~1.  The drain's step
-    \texttt{Recv} then \texttt{Deliver} of the abstract model is one concrete
-    step because the settler runs both without releasing the slot.
+    the abstract in-step drain of the variant.  \texttt{sock} conflates the socket
+    and the reader's undelivered buffer.  That is sound only because rule~1 makes
+    the settler the owner of the frame buffer: a non-owner cannot empty what the
+    reader has taken, but the owner's drain takes it to the ledger before it
+    returns, so for the owner the two are one place.  This is the strongest
+    argument for rule~1.  The abstract \texttt{Recv} then \texttt{Deliver} is one
+    concrete step because the settler runs both without releasing the slot.
+  \item \textbf{The gluing is an inclusion, not an equality of state.}  The
+    unresponsive re-drain reads acknowledgements that the abstract model says
+    were never sent: after \texttt{Unresponsive} a \texttt{Swap} adds nothing to
+    the abstract \texttt{flight}.  The concrete \texttt{acked} is therefore a
+    superset of the abstract one, and the relation that holds is
+    \emph{concrete charges $\subseteq$ abstract charges}.  That inclusion is
+    enough for A1 and A2.
   \item \textbf{The obligations.}  A3 (a Hub-ended dial charges nothing) holds by
     the cause mapping, and by S3 (one capture).  A4 (a death is charged once)
     holds by S3.  A1 (an observed crash is charged) needs S1 and S5.  A2 (no
     scene outside the ledger is charged) needs S2.  O2's drain clause is S2.  All
-    five hold with the re-drain of rule~4; without it A2 and O2 fail
-    (\texttt{split\_settle}).  The carve-outs of S2 are the abstract model's own
-    bound B3 and its stream-error ends, and they are named there.
+    five hold on the holder's settle, with the re-drain of rule~4; without it A2
+    and O2 fail (\texttt{split\_settle}).
 \end{itemize}
 
+\paragraph{Four exceptions to A1 and A2.}
+The carve-outs are not bounds that the abstract model already contains.
+\texttt{crash\_attribution.tex} has no charging stream-error end: its reply skew
+is \texttt{HubEnd}, and every display or unresponsive discovery is guarded on an
+empty flight and an empty reader buffer, so it never charges a scene whose ack
+is unread.  Four concrete paths have no abstract counterpart.  On each, A1 or A2
+fails by design; they are deliberate weakenings, not refinements.
+\begin{enumerate}
+  \item \texttt{s2dec}: a display charge with an ack unread, from a frame that
+    broke the stream.  A2 fails.  Bound: the acks behind the bad frame, once.
+  \item \texttt{s2blk}, display cause: a display charge with an ack unread,
+    taken by the bound of rule~6.  A2 fails.  Bound: every ack queued while the
+    holder stalled, including the holder's undelivered buffer, after the stop
+    join.  The over-charge is accepted (DES-102).
+  \item \texttt{s2blk}, unresponsive cause: the bound's capture of an
+    unresponsive end, undrained.  A2 fails.  The bound is that of item~2.  The
+    abstract model's B3 makes the retire instant the capture, but it still
+    guards the charge on an empty flight and buffer.
+  \item \texttt{s5blk}: \texttt{hub} recorded by the bound for a display that has
+    already died.  An abstract \texttt{HubEnd} is disabled once the display is
+    down.  The concrete result is that a poison death is carried and not charged,
+    and a later ack read clears it.  A1 is lost by the B4 route, once, and only
+    after the bound.
+\end{enumerate}
+
 This section is the refinement obligation list.  The matching note belongs in
-\texttt{crash\_attribution.tex} next to its settle; that file is outside this
-mission's write set, so it is not edited here.
+\texttt{crash\_attribution.tex} next to its settle, and in the Bounds of DES-102;
+the first is outside this mission's write set, so it is not edited here.
 
 \section{Verification}
 
@@ -1000,16 +1043,29 @@ count differ.
                 (blocked = fset & pc(a) : {rtop,iread})))"
   The carve-outs are reachable, one flag each:
   probcli ... -goal "s2blk = fset"   / "s2dec = fset"   / "s5blk = fset"
+  and the bound's undrained capture of an unresponsive end (carve-out 2):
+  probcli ... -goal "s2blk = fset & ended = cunresp"
 \end{verbatim}
 
 \paragraph{Results for the design.}
-Deadlock check, default search mode: 86034 states, 408741 transitions, no
+Deadlock check, default search mode: 90906 states, 430865 transitions, no
 counter example, \texttt{deadlocked:0}, 36 of 36 operations covered.  The three
-goals, each \texttt{-bf} (breadth first, 86033 states analysed, 25 levels):
+goals, each \texttt{-bf} (breadth first, 90905 states analysed, 26 levels):
 \texttt{s2bad or s3bad or s4bad or s5bad}, S1a and S1b are not found.  The
-carve-out flags are found: \texttt{s2blk} in 5 steps (1306 states), \texttt{s2dec}
-in 2, \texttt{s5blk} in 5.  These are expected, and they say that the
-carve-outs are real and bounded, not that the design fails.
+carve-out flags are found: \texttt{s2blk} in 4 steps (690 states; the shortest
+trace is an unresponsive end, \texttt{DStartUnresp, RecEnd, SURefuse,
+Timeout}), \texttt{s2dec} in 2 (66 states), \texttt{s5blk} in 5 (1106 states).
+\texttt{s2blk = fset \& ended = cunresp} is found in the same 4 steps.  These
+are expected, and they say that the carve-outs are real and bounded, not that
+the design fails.
+
+\paragraph{Errata (round 3, section ``The carve-outs of S2'').}
+Round 2 flagged \texttt{s2blk} only when the bound captured a display end, and
+said of the unresponsive end that a drain begun after the record precedes the
+capture.  That holds for the holder's settle and is false for the bound's
+capture, which is undrained for both causes.  \texttt{s2blk} now flags both, and
+the state space grew from 86034 to 90906 states for that reason alone (the flag
+is part of the state).  The checked properties are unchanged.
 
 \paragraph{The goals, and which witness is faithful.}
 S1a counts a waiting asker as quiescent and a stalled holder as in flight; S1b
@@ -1034,12 +1090,12 @@ control & goal & states analysed & depth \\
 start\_fail (docs) & S1a & 4626 & 7 \\
 stop\_skip\_drain (docs) & \texttt{s2bad} & 19490 & 10 \\
 inline\_strand (docs) & S1a & 3182 & 7 \\
-split\_settle & \texttt{s2bad} & 9062 & 9 \\
+split\_settle & \texttt{s2bad} & 9073 & 9 \\
 atomic\_refuse & S1a & 5645 & 8 \\
-atomic\_release & S1a & 5930 & 8 \\
+atomic\_release & S1a & 5932 & 8 \\
 defer\_only & deadlock & 6849 & 9 \\
 timer\_hub\_only & S1b & 771 & 5 \\
-s3\_unguarded & \texttt{s3bad} & 5550 & 8 \\
+s3\_unguarded & \texttt{s3bad} & 5552 & 8 \\
 s4\_overwrite & \texttt{s4bad} & 1502 & 6 \\
 hub\_record & \texttt{s5bad} & 123 & 3 \\
 hub\_peek & \texttt{s5bad} & 166 & 3 \\
@@ -1061,5 +1117,28 @@ the drain is moot.  The decode-error ends that record \texttt{display}
 needs the refusal and its debt, the release and its debt-read, and the post-drain
 record each to be one critical section; the three controls above show the
 necessity, and the sufficiency is an implementation obligation.
+
+Three further obligations lie beyond the model's actors, which are always
+distinct threads and always same-host.
+\begin{enumerate}
+  \item \emph{The asker on the holder's thread does not wait.}  An interaction
+    handler runs on the listener thread; a write that fails there reaches
+    \texttt{settle\_unread} with the slot held by its own thread.  Waiting out the
+    bound on the thread that would settle captures undrained after two seconds,
+    where returning would have drained and settled one step later.  Its refusal's
+    debt is enough: it is the holder and settles on return.  The wait runs holding
+    no lock that the holder's settle takes (the socket lock, \texttt{st}, the
+    slot's condition).  The worst case of the waits on a Hub end is the bound,
+    then the join: \texttt{ListenerThread.stop} takes up to both.
+  \item \emph{The end of file the drain observes includes a reset and a TLS
+    end.}  On a same-host \texttt{AF\_UNIX} socket a peer that closes with unread
+    data gives the survivor \texttt{ECONNRESET} after the queued bytes, not an
+    end of file.  A drain that cuts short on a reset, or on a TLS close, must say
+    that an end was seen; otherwise S5 fails in the code with the model green.
+  \item \emph{A cross-host reset is a bound.}  An RST from a process that dies
+    with unread input may discard what was queued, so on TCP a dead display's
+    drain is not complete.  Either state this as a bound beside B3, or restrict
+    the claim of a complete drain to the same host.
+\end{enumerate}
 
 \end{document}
