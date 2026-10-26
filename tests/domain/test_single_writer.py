@@ -163,13 +163,12 @@ def _modules(predicate: Callable[[str], object]) -> set[str]:
 def _dial_writes() -> set[str]:
     """The dial's write methods: every ``send*`` that registers no reply to wait for.
 
-    The writes live on the dial's outbound side; the generation exposes them by the same
-    names.
+    The writes live on the dial's socket; the generation exposes them by the same names.
     """
     return {
         name
         for name, fn in _public_methods(
-            _source(_HUB + "dial_outbound.py"), "DialOutbound"
+            _source(_HUB + "dial_socket.py"), "DialSocket"
         ).items()
         if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
     }

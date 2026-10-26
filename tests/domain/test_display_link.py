@@ -32,7 +32,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import generation_of, shown, writer_of
+from tests.link_access import generation_of, shown, socket_of, writer_of
 
 # ---------------------------------------------------------------------------
 # Helpers — mini display server for testing
@@ -139,9 +139,7 @@ class TestConnect:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
-            assert (
-                applied_to is client._connection.require()._dial.sock
-            )  # its own connected fd, not any socket
+            assert applied_to is socket_of(client)  # its own fd, not any socket
             client.close()
         finally:
             if server_conn:

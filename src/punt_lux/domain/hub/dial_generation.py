@@ -1,25 +1,21 @@
 """DialGeneration -- one dial's socket, and everything that belongs to it alone.
 
 A dial makes a generation; nothing of an earlier one is carried over. It owns the
-socket (read through :class:`~punt_lux.domain.hub.dial_inbound.DialInbound`, written
-through :class:`~punt_lux.domain.hub.dial_outbound.DialOutbound`), the sink of replies
-it is owed, and the one reader that may run on it. Whoever holds a generation reads and
-writes *its* socket and settles *its* sink, so a thread that outlives a redial can
+socket (:class:`~punt_lux.domain.hub.dial_socket.DialSocket`: who reads it, what it
+says, every write) and the sink of replies it is owed. Whoever holds a generation reads
+and writes *its* socket and settles *its* sink, so a thread that outlives a redial can
 never touch the new dial's bytes or waiters.
 
-Lock order: the socket lock ``_lock`` is held across one write (and the ack ledger
-entry the write makes, which takes the sink's lock, the leaf) or across one ``recv``.
-An end, a settlement and ``shut`` take neither: shutdown is what releases a sender
-wedged in ``sendall`` while it holds ``_lock``. The sink's lock is never held while
-taking ``_lock``. Every socket carries the send timeout (``SO_SNDTIMEO``), set by the
+Lock order: the socket lock is held across one write (and the ack ledger entry the
+write makes, which takes the sink's lock, the leaf) or across one ``recv``. An end, a
+settlement and ``shut`` take neither: shutdown is what releases a sender wedged in
+``sendall`` while it holds the socket lock. The sink's lock is never held while taking
+the socket lock. Every socket carries the send timeout (``SO_SNDTIMEO``), set by the
 connection that makes it, so a peer that stops reading cannot wedge a writer for ever.
 """
 
 from __future__ import annotations
 
-import contextlib
-import socket
-import threading
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.connection_closed import (
@@ -27,9 +23,7 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
     UnresponsiveError,
 )
-from punt_lux.domain.hub.dial_inbound import DialInbound
-from punt_lux.domain.hub.dial_outbound import DialOutbound
-from punt_lux.domain.hub.reader_slot import ReaderSlot
+from punt_lux.domain.hub.dial_socket import DialSocket
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.tracing import trace
 
@@ -58,24 +52,11 @@ __all__ = ["DialGeneration"]
 class DialGeneration:
     """One dialed socket, its replies owed, and at most one reader."""
 
-    _dial: HandshakeResult
-    _lock: threading.Lock
     _sink: ReplySink
-    _inbound: DialInbound
-    _outbound: DialOutbound
-    # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
-    _slot: ReaderSlot
+    _socket: DialSocket
     # Reports this dial's own breakage to whoever holds the current dial.
     _retire: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = (
-        "_dial",
-        "_inbound",
-        "_lock",
-        "_outbound",
-        "_retire",
-        "_sink",
-        "_slot",
-    )
+    __slots__ = ("_retire", "_sink", "_socket")
 
     def __new__(
         cls,
@@ -85,22 +66,15 @@ class DialGeneration:
         reader: Literal["none", "listener"] = "none",
     ) -> Self:
         self = super().__new__(cls)
-        self._dial = dial
         self._retire = retire
-        self._lock = threading.Lock()
         self._sink = ReplySink()
-        self._inbound = DialInbound(dial.sock, self._lock, dial.endpoint)
-        self._outbound = DialOutbound(
-            dial.sock,
-            self._lock,
+        self._socket = DialSocket(
+            dial,
             self._sink,
+            reader=reader,
             require_open=self._require_open,
-            socket_failed=self._socket_failed,
-            write_broken=self._write_broken,
+            failed=self._write_failed,
         )
-        # Born holding the listener slot when asked: nobody else has seen this dial
-        # yet, so no inline read can be in flight when the listener claims it.
-        self._slot = ReaderSlot(reader)
         return self
 
     @property
@@ -111,12 +85,12 @@ class DialGeneration:
     @property
     def endpoint(self) -> str:
         """The label of the display this dial reached, for logs only."""
-        return self._dial.endpoint
+        return self._socket.endpoint
 
     @property
     def ready(self) -> ReadyMessage:
         """The ``ReadyMessage`` the handshake received."""
-        return self._dial.ready
+        return self._socket.ready
 
     @property
     def is_closed(self) -> bool:
@@ -126,19 +100,19 @@ class DialGeneration:
     @property
     def has_reader(self) -> bool:
         """Whether a listener thread reads this dial (it ends with the dial)."""
-        return self._slot.has_listener
+        return self._socket.reader_slot.has_listener
 
     def claim_reader(self) -> bool:
         """Take this dial's one reader slot for a listener; ``False`` if it has one."""
-        return self._slot.claim_for_listener()
+        return self._socket.reader_slot.claim_for_listener()
 
     def release_reader(self) -> None:
         """Give the listener's slot back: its thread could not be started."""
-        self._slot.release_listener()
+        self._socket.reader_slot.release_listener()
 
     def inline_reading(self) -> AbstractContextManager[bool]:
         """Hold the reader slot for an inline read; yield whether it was free."""
-        return self._slot.inline()
+        return self._socket.reader_slot.inline()
 
     def end(self, cause: RetireCause) -> bool:
         """Record who ended this dial, first cause wins; whether this call did.
@@ -175,22 +149,22 @@ class DialGeneration:
         A write that raises leaves a stream that cannot be trusted, so this dial
         ends itself before the error reaches the caller.
         """
-        self._outbound.send(msg)
+        self._socket.send(msg)
 
     @trace
     def send_scene(self, msg: SceneMessage) -> None:
         """Write a scene and record the ack it is owed, in wire order."""
-        self._outbound.send_scene(msg)
+        self._socket.send_scene(msg)
 
     @trace
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
         """Register the ping in flight, then write it."""
-        return self._outbound.send_ping(ts)
+        return self._socket.send_ping(ts)
 
     @trace
     def send_query(self, request: QueryRequest) -> Pending[None, QueryResponse]:
         """Register the query in flight, then write it."""
-        return self._outbound.send_query(request)
+        return self._socket.send_query(request)
 
     def await_reply[R: Message](
         self, pending: Pending[object, R], timeout: float
@@ -231,7 +205,7 @@ class DialGeneration:
         """
         self._require_open()
         try:
-            return self._inbound.poll(timeout, self._require_open)
+            return self._socket.poll(timeout)
         except ConnectionClosedError:
             raise
         except (OSError, ValueError) as exc:
@@ -241,15 +215,15 @@ class DialGeneration:
 
     def drain_chunk(self) -> bytes | None:
         """Take what the socket already holds without waiting; ``None`` if nothing."""
-        return self._inbound.drain()
+        return self._socket.drain()
 
     def messages(self, chunk: bytes) -> Iterator[Message]:
         """Feed chunk to this dial's frame buffer; yield each message it completes."""
-        return self._inbound.messages(chunk)
+        return self._socket.messages(chunk)
 
     def head(self, count: int) -> bytes:
         """The first ``count`` unread bytes, for a log line about a bad frame."""
-        return self._inbound.head(count)
+        return self._socket.head(count)
 
     def shut(self) -> None:
         """Release the socket and settle the sink; idempotent, never under a state lock.
@@ -258,28 +232,24 @@ class DialGeneration:
         ``close``. On TLS it is the raw socket's: ``unwrap`` blocks on a wedged peer.
         """
         self._sink.discard("hub")
-        with contextlib.suppress(OSError):
-            self._dial.sock.shutdown(socket.SHUT_RDWR)
-        with contextlib.suppress(OSError):
-            self._dial.sock.close()
+        self._socket.close()
 
-    def _socket_failed(self, exc: OSError) -> None:
-        """End the dial a socket failure ended, unless someone already had.
+    def _write_failed(self, exc: BaseException) -> None:
+        """End the dial a failed write left half-written, unless someone already had.
 
-        A dial already ended was ended by whoever's cause it carries (``shut`` wakes a
-        writer wedged in ``sendall`` on purpose): the writer reports that cause, never
-        the socket error the ending itself produced. A writer that loses the end to
-        one landing after the check reports the winner's cause the same way.
+        A socket failure is the display's doing; anything else that stopped a write is
+        the Hub's. A dial already ended was ended by whoever's cause it carries
+        (``shut`` wakes a writer wedged in ``sendall`` on purpose): the writer reports
+        that cause, never the socket error the ending itself produced. A writer that
+        loses the end to one landing after the check reports the winner's cause too.
         """
-        if self.is_closed or not self._retire(self, "display"):
+        if not isinstance(exc, OSError):
+            self._retire(self, "hub")
+        elif self._sink.ended is not None or not self._retire(self, "display"):
             raise self.closed_error() from exc  # someone else's cause won the end
 
-    def _write_broken(self) -> None:
-        """End the dial a write that was not a socket failure left half-written."""
-        self._retire(self, "hub")
-
     def _require_open(self) -> None:
-        if self.is_closed:
+        if self._sink.ended is not None:
             raise self.closed_error()
 
     def closed_error(self) -> ConnectionClosedError:

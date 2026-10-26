@@ -48,13 +48,7 @@ class DisplayListener:
         self._inbound = InboundRouter(self._handlers)
         self._thread = ListenerThread(connection, self._inbound.route)
         self._budget = budget
-        connection.settle_unread_with(self.settle_unread)
         return self
-
-    @property
-    def listening(self) -> bool:
-        """Whether the current dial has a reader running on it."""
-        return self._connection.has_reader
 
     @property
     def is_current(self) -> bool:
@@ -95,6 +89,8 @@ class DisplayListener:
         lack of one: the discoverer takes the reader slot itself. When a reader holds
         the slot, it notices the end and settles the dial.
         """
+        if not self._connection.holds(generation):
+            return  # a redial replaced it: its own reader settles it, or already did
         with generation.inline_reading() as granted:
             if granted:
                 self.settle(generation, inline=True)

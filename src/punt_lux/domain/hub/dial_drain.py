@@ -50,7 +50,14 @@ class DialDrain:
         while chunk is not None:
             try:
                 for msg in generation.messages(chunk):
-                    self._routed(generation, msg)
+                    try:
+                        self._route(generation, msg)
+                    except Exception:
+                        logger.exception(
+                            "Drain route failed on %s from display %s",
+                            type(msg).__name__,
+                            generation.endpoint,
+                        )
             except Exception:  # wire boundary: any decoder failure ends the stream
                 logger.exception(
                     "Drain of %s stopped: its stream could not be read past %r",
@@ -59,13 +66,3 @@ class DialDrain:
                 )
                 return
             chunk = generation.drain_chunk()
-
-    def _routed(self, generation: DialGeneration, msg: Message) -> None:
-        try:
-            self._route(generation, msg)
-        except Exception:
-            logger.exception(
-                "Drain route failed on %s from display %s",
-                type(msg).__name__,
-                generation.endpoint,
-            )

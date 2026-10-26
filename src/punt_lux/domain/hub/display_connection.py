@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections import deque
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -40,9 +39,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["DisplayConnection"]
 
-# Deaths a replicator has not yet charged. The queue holds one per dial and is never
-# trimmed: a dropped death is a scene never charged. Past this many it says so.
-_PENDING_DEATHS_WARNING = 64
+
+def _nobody_settles(_generation: DialGeneration) -> None:
+    """The default for a connection with no reader of its own to settle a dial."""
 
 
 @final
@@ -59,17 +58,14 @@ class DisplayConnection:
     # from it whether the display or the Hub ended it. None until the first
     # retirement, which is what "never opened" means.
     _last: DialGeneration | None
-    # Display-ended dials whose ledger nobody has charged yet, oldest first.
-    _deaths: deque[DialDeath]
-    # The scenes earlier dials left behind that the display may still hold.
+    # The scenes earlier dials left behind, and the deaths nobody has charged yet.
     _suspects: SuspectBook
     # Asked, when a dial is ended by someone who is not its reader, to see that its
-    # reader settles it; set by whatever owns the readers.
+    # reader settles it; supplied by whatever owns the readers.
     _settle_unread: Callable[[DialGeneration], None]
     __slots__ = (
         "_connect_timeout",
         "_current",
-        "_deaths",
         "_dialer",
         "_last",
         "_settle_unread",
@@ -77,21 +73,21 @@ class DisplayConnection:
         "_suspects",
     )
 
-    def __new__(cls, dialer: DisplayDialer, connect_timeout: float) -> Self:
+    def __new__(
+        cls,
+        dialer: DisplayDialer,
+        connect_timeout: float,
+        settle_unread: Callable[[DialGeneration], None] = _nobody_settles,
+    ) -> Self:
         self = super().__new__(cls)
         self._dialer = dialer
         self._connect_timeout = connect_timeout
         self._state_lock = threading.Lock()
         self._current = None
         self._last = None
-        self._deaths = deque()
         self._suspects = SuspectBook()
-        self._settle_unread = lambda _generation: None
+        self._settle_unread = settle_unread
         return self
-
-    def settle_unread_with(self, settle: Callable[[DialGeneration], None]) -> None:
-        """Say who settles a dial that someone other than its reader ended."""
-        self._settle_unread = settle
 
     @property
     def is_open(self) -> bool:
@@ -193,26 +189,19 @@ class DisplayConnection:
         self._settle_unread(generation)  # a dial with no reader has no one else
         return won
 
+    def holds(self, generation: DialGeneration) -> bool:
+        """Whether ``generation`` is the current dial."""
+        with self._state_lock:
+            return self._current is generation
+
     def take_death(self) -> DialDeath | None:
         """Hand over the oldest display-ended dial not yet charged; each once."""
         with self._state_lock:
-            return self._deaths.popleft() if self._deaths else None
+            return self._suspects.take_death()
 
     def _settled(self, generation: DialGeneration, cause: RetireCause) -> None:
         """Take a dial's ledger; keep its suspects or queue its death (state lock)."""
-        settlement = generation.mark_closed(cause)
-        death = self._suspects.settle(settlement, generation.endpoint)
-        if death is not None:
-            self._record(death)
-
-    def _record(self, death: DialDeath) -> None:
-        """Queue a death for the replicator: never dropped, but never unnoticed."""
-        self._deaths.append(death)
-        if len(self._deaths) > _PENDING_DEATHS_WARNING:
-            logger.warning(
-                "%d display deaths wait to be charged: is the replicator running?",
-                len(self._deaths),
-            )
+        self._suspects.settle(generation.mark_closed(cause), generation.endpoint)
 
     def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:
         """Dial and publish a generation with ``reader``; ``None`` if already open."""

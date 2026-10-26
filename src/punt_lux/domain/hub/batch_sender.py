@@ -120,6 +120,17 @@ class BatchSender:
         """Charge every death on record, once; the idle replicator's look."""
         self._charger.charge()
 
+    def reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:
+        """Forget each blanked scene's frame, re-checked rootless under the lock.
+
+        Deferred to a clean cycle so a failed send never reclaims a scene the
+        recovery must retry. The rootless re-check keeps a re-show that landed
+        during the send window: it installed roots and a new frame, so the
+        scene is no longer rootless and that new frame is kept.
+        """
+        for scene_id in scenes:
+            self._reader.reclaim_if_rootless(scene_id)
+
     def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
         """Send the batch; report the scenes found empty, the reclaim candidates.
 
