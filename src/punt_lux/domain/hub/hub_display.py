@@ -217,7 +217,7 @@ class HubDisplay:
         """
         with self._lock.read():
             if not self._index.contains(scene_id, element_id):
-                raise UnknownElementError(scene_id, element_id)
+                raise UnknownElementError.of(scene_id, element_id)
             owner = self._owners.get(scene_id, element_id)
             return owner.connection_id if owner is not None else None
 

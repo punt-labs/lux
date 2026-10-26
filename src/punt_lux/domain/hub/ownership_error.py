@@ -22,25 +22,27 @@ class HubOwnershipError(PermissionError):
     _attempting: ConnectionId
     _owning: ConnectionId
 
-    def __new__(
+    @classmethod
+    def of(
         cls,
         scene_id: SceneId,
         element_id: ElementId,
         attempting: ConnectionId,
         owning: ConnectionId,
     ) -> Self:
+        """Return the error for ``attempting`` writing what ``owning`` owns."""
         # ``OSError`` reads its first arguments as errno and message, so the real
         # ones are kept as fields and ``__reduce__`` rebuilds from them.
-        self = super().__new__(cls)
-        self._scene_id = scene_id
-        self._element_id = element_id
-        self._attempting = attempting
-        self._owning = owning
-        return self
+        error = cls()
+        error._scene_id = scene_id
+        error._element_id = element_id
+        error._attempting = attempting
+        error._owning = owning
+        return error
 
     def __reduce__(self) -> tuple[object, ...]:
         return (
-            type(self),
+            type(self).of,
             (self._scene_id, self._element_id, self._attempting, self._owning),
         )
 

@@ -28,10 +28,12 @@ class UnknownSceneError(LookupError):
 
     _scene_id: SceneId
 
-    def __new__(cls, scene_id: SceneId) -> Self:
-        self = super().__new__(cls, scene_id)
-        self._scene_id = scene_id
-        return self
+    @classmethod
+    def of(cls, scene_id: SceneId) -> Self:
+        """Return the error for the scene that was never added."""
+        error = cls(scene_id)
+        error._scene_id = scene_id
+        return error
 
     @property
     def scene_id(self) -> SceneId:
@@ -48,11 +50,13 @@ class UnknownElementError(LookupError):
     _scene_id: SceneId
     _element_id: ElementId
 
-    def __new__(cls, scene_id: SceneId, element_id: ElementId) -> Self:
-        self = super().__new__(cls, scene_id, element_id)
-        self._scene_id = scene_id
-        self._element_id = element_id
-        return self
+    @classmethod
+    def of(cls, scene_id: SceneId, element_id: ElementId) -> Self:
+        """Return the error for the element missing from ``scene_id``."""
+        error = cls(scene_id, element_id)
+        error._scene_id = scene_id
+        error._element_id = element_id
+        return error
 
     @property
     def scene_id(self) -> SceneId:
@@ -127,9 +131,9 @@ class ElementIndex:
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
-            raise UnknownSceneError(scene_id)
+            raise UnknownSceneError.of(scene_id)
         if parent_id not in scene:
-            raise UnknownElementError(scene_id, parent_id)
+            raise UnknownElementError.of(scene_id, parent_id)
         key = self._allocate_key(ElementId(element.id), element)
         scene[key] = element
         return key
@@ -150,10 +154,10 @@ class ElementIndex:
         """Return the indexed Element or raise the matching lookup error."""
         scene = self._by_scene.get(scene_id)
         if scene is None:
-            raise UnknownSceneError(scene_id)
+            raise UnknownSceneError.of(scene_id)
         element = scene.get(element_id)
         if element is None:
-            raise UnknownElementError(scene_id, element_id)
+            raise UnknownElementError.of(scene_id, element_id)
         return element
 
     def scene_of(self, element: HasId) -> SceneId | None:

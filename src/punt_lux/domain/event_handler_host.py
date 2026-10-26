@@ -168,7 +168,7 @@ class EventHandlerHost:
                     owner_id=owner_id,
                     value=value,
                 )
-        raise WrongKindError(
+        raise WrongKindError.of(
             scene_id,
             element_id,
             self._interactive_kinds_summary(),

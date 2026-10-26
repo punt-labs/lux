@@ -31,16 +31,16 @@ if TYPE_CHECKING:
 _S, _E = SceneId("s"), ElementId("e")
 
 _MADE: list[Callable[[], BaseException]] = [
-    lambda: NestingExceededError("too deep"),
-    lambda: UnheldTargetError("e"),
-    lambda: HubOwnershipError(_S, _E, ConnectionId("a"), ConnectionId("b")),
-    lambda: ImmutableFieldError(_E, "id"),
-    lambda: MalformedPatchError(_E, "bad"),
-    lambda: MalformedPatchError(None, "bad"),
-    lambda: StructuralFieldWriteError(_E, "children"),
-    lambda: UnknownSceneError(_S),
-    lambda: UnknownElementError(_S, _E),
-    lambda: WrongKindError(_S, _E, "button", "slider"),
+    lambda: NestingExceededError.at("too deep"),
+    lambda: UnheldTargetError.of("e"),
+    lambda: HubOwnershipError.of(_S, _E, ConnectionId("a"), ConnectionId("b")),
+    lambda: ImmutableFieldError.of(_E, "id"),
+    lambda: MalformedPatchError.of(_E, "bad"),
+    lambda: MalformedPatchError.of(None, "bad"),
+    lambda: StructuralFieldWriteError.of(_E, "children"),
+    lambda: UnknownSceneError.of(_S),
+    lambda: UnknownElementError.of(_S, _E),
+    lambda: WrongKindError.of(_S, _E, "button", "slider"),
 ]
 _IDS = [
     "nesting",

@@ -32,11 +32,13 @@ class StructuralFieldWriteError(TypeError):
     _element_id: ElementId
     _field: Literal["children", "tabs"]
 
-    def __new__(cls, element_id: ElementId, field: Literal["children", "tabs"]) -> Self:
-        self = super().__new__(cls, element_id, field)
-        self._element_id = element_id
-        self._field = field
-        return self
+    @classmethod
+    def of(cls, element_id: ElementId, field: Literal["children", "tabs"]) -> Self:
+        """Return the error for a write to the structural ``field``."""
+        error = cls(element_id, field)
+        error._element_id = element_id
+        error._field = field
+        return error
 
     @property
     def element_id(self) -> ElementId:

@@ -177,20 +177,9 @@ class InputNumberElement(Element):
     def _set_tooltip(self, value: object) -> None:
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
-    def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        """Apply a field patch atomically, re-checking every invariant at the boundary.
-
-        The setter loop rolls back on a coercion ``TypeError``; the whole-element
-        re-check (range *and* format) rolls the patch back on any invalid result.
-        """
-        snapshot = dict(vars(self))
-        super().apply_patch(patch)
-        messages = self._error_messages()
-        if messages:
-            vars(self).clear()
-            vars(self).update(snapshot)
-            raise ValueError(messages[0])
-        return self
+    def _final_state_errors(self) -> tuple[str, ...]:
+        """Judge the final state: range and format both."""
+        return self._error_messages()
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the value-changed bucket's spec under the fixed 'changed' action."""

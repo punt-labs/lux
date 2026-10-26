@@ -96,10 +96,10 @@ class WriteSeam:
         realization = AbcFieldRealization(element, patch)
         scene_id = self._index.scene_of(realization.current())
         if scene_id is None:
-            raise UnheldTargetError(element.id)
+            raise UnheldTargetError.of(element.id)
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
-            raise NestingExceededError(refusal)
+            raise NestingExceededError.at(refusal)
 
     def commit(self, realizations: Sequence[FieldRealization]) -> WriteRejected | None:
         """Commit a batch as one transaction; why the judge refused it, if it did.
@@ -118,7 +118,7 @@ class WriteSeam:
         for element in written:
             scene_id = self._index.scene_of(element)
             if scene_id is None:  # an element no scene holds: its cap cannot be known
-                raise UnheldTargetError(element.id)
+                raise UnheldTargetError.of(element.id)
             if scene_id in measured:
                 continue
             measured.add(scene_id)
@@ -129,7 +129,7 @@ class WriteSeam:
         """Raise :class:`NestingExceededError` if ``roots`` would nest too deeply."""
         reason = NestingCap().refusal(roots)
         if reason is not None:
-            raise NestingExceededError(reason)
+            raise NestingExceededError.at(reason)
 
     def is_present(self, scene_id: SceneId, element_id: ElementId) -> bool:
         """Return whether ``element_id`` is installed — lets removal stay idempotent."""
@@ -158,7 +158,7 @@ class WriteSeam:
         )
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
-            raise NestingExceededError(refusal)
+            raise NestingExceededError.at(refusal)
         self.transaction().run_or_raise([realization])
 
     @staticmethod

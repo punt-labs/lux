@@ -239,9 +239,12 @@ class Element(EventHandlerHost, ABC):
         with this element already patched: undoing it, and every other write made
         under the same transaction, is the enclosing
         :class:`~punt_lux.domain.hub.batch_transaction.BatchTransaction`'s work, which
-        checkpoints the element and the state its observers keep. A kind whose
-        override checks the whole element after ``super().apply_patch`` (slider,
-        radio, combo, input number) has told its observers before that check.
+        checkpoints the element and the state its observers keep.
+
+        A kind whose invariants span fields (a slider's value against its bounds)
+        names them in ``_final_state_errors``. They are checked on the final state,
+        after every setter and before the observers are told, so a patch that leaves
+        the element invalid is refused with a ``ValueError`` and no observer hears it.
 
         A patch a Hub handler writes is first shown to the judge in scope
         (:class:`~punt_lux.domain.handler_writes.HandlerWrites`), which refuses it by
@@ -253,12 +256,22 @@ class Element(EventHandlerHost, ABC):
         try:
             for key, value in self._in_setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
+            errors = self._final_state_errors()
+            if errors:
+                raise ValueError(errors[0])
         except Exception:
             before.restore()
             self._observers.discard()
             raise
         self._observers.commit(self.id)  # each property once, in first-seen order
         return self
+
+    def _final_state_errors(self) -> tuple[str, ...]:
+        """Return why the element is invalid now, after every setter ran; else ``()``.
+
+        The hook a kind overrides when its invariants span fields.
+        """
+        return ()
 
     def _in_setter_order(self, patch: Mapping[str, object]) -> dict[str, object]:
         """Return the patch's own items, the kind's priority keys first.

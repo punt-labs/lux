@@ -35,11 +35,13 @@ class MalformedPatchError(ValueError):
     _element_id: ElementId | None
     _detail: str
 
-    def __new__(cls, element_id: ElementId | None, detail: str) -> Self:
-        self = super().__new__(cls, element_id, detail)
-        self._element_id = element_id
-        self._detail = detail
-        return self
+    @classmethod
+    def of(cls, element_id: ElementId | None, detail: str) -> Self:
+        """Return the error naming the offending patch's id and what is wrong."""
+        error = cls(element_id, detail)
+        error._element_id = element_id
+        error._detail = detail
+        return error
 
     @property
     def element_id(self) -> ElementId | None:
@@ -71,11 +73,13 @@ class ImmutableFieldError(ValueError):
     _element_id: ElementId
     _field: Literal["id", "kind"]
 
-    def __new__(cls, element_id: ElementId, field: Literal["id", "kind"]) -> Self:
-        self = super().__new__(cls, element_id, field)
-        self._element_id = element_id
-        self._field = field
-        return self
+    @classmethod
+    def of(cls, element_id: ElementId, field: Literal["id", "kind"]) -> Self:
+        """Return the error for a write to ``field`` of ``element_id``."""
+        error = cls(element_id, field)
+        error._element_id = element_id
+        error._field = field
+        return error
 
     @property
     def element_id(self) -> ElementId:

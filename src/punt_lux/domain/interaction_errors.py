@@ -43,15 +43,17 @@ class WrongKindError(InteractionError):
     _expected: str
     _got: str
 
-    def __new__(
+    @classmethod
+    def of(
         cls, scene_id: SceneId, element_id: ElementId, expected: str, got: str
     ) -> Self:
-        self = super().__new__(cls, scene_id, element_id, expected, got)
-        self._scene_id = scene_id
-        self._element_id = element_id
-        self._expected = expected
-        self._got = got
-        return self
+        """Return the error for ``got`` fired at an element that wants ``expected``."""
+        error = cls(scene_id, element_id, expected, got)
+        error._scene_id = scene_id
+        error._element_id = element_id
+        error._expected = expected
+        error._got = got
+        return error
 
     @property
     def scene_id(self) -> SceneId:

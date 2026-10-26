@@ -27,15 +27,17 @@ class NestingExceededError(WriteRefusedError, ValueError):
 
     A plain exception class, not a frozen dataclass: ``contextlib`` sets
     ``__traceback__`` on whatever passes through a ``@contextmanager``, which a
-    frozen instance refuses.
+    frozen instance refuses. It is made by :meth:`at`, an alternative constructor.
     """
 
     _reason: str
 
-    def __new__(cls, reason: str) -> Self:
-        self = super().__new__(cls, reason)
-        self._reason = reason
-        return self
+    @classmethod
+    def at(cls, reason: str) -> Self:
+        """Return the refusal that says ``reason``."""
+        refusal = cls(reason)
+        refusal._reason = reason
+        return refusal
 
     @property
     def reason(self) -> str:
@@ -54,10 +56,12 @@ class UnheldTargetError(WriteRefusedError, LookupError):
 
     _element_id: str
 
-    def __new__(cls, element_id: str) -> Self:
-        self = super().__new__(cls, element_id)
-        self._element_id = element_id
-        return self
+    @classmethod
+    def of(cls, element_id: str) -> Self:
+        """Return the refusal for a write to ``element_id``."""
+        refusal = cls(element_id)
+        refusal._element_id = element_id
+        return refusal
 
     @property
     def element_id(self) -> str:

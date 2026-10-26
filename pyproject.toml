@@ -281,10 +281,6 @@ venvPath = "."
 venv = ".venv"
 include = ["src", "tests"]
 reportMissingTypeStubs = false
-# PY-CC-1: a class is built by ``__new__`` and defines no ``__init__``. An exception
-# class that carries typed fields does that too, and pyright then compares its
-# ``__new__`` with the ``(*args: object)`` ``__init__`` it inherits from BaseException.
-reportInconsistentConstructor = false
 
 [[tool.pyright.executionEnvironments]]
 root = "src/punt_lux/tools"

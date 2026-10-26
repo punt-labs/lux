@@ -44,7 +44,7 @@ class Owner:
     ) -> None:
         """Raise ``HubOwnershipError`` unless ``attempting`` is this owner."""
         if self.connection_id != attempting:
-            raise HubOwnershipError(
+            raise HubOwnershipError.of(
                 scene_id,
                 element_id,
                 attempting,

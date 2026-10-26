@@ -134,6 +134,8 @@ class AbcFieldRealization:
         leaves it to the kind, so a kind without one fails loudly where the cap
         asks for it, never passes unmeasured.
         """
+        # PY-TS-12 OK: the ABC does not expose the wire surface (``kind``, ``tooltip``,
+        # ``to_dict``) the cap measurement needs; every concrete kind does.
         return cast("WireElement", element)
 
     def _patched_copy(self) -> AbcElement:

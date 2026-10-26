@@ -80,7 +80,7 @@ class WireValue:
 
     def _wrong_kind(self, expected: str) -> WrongKindError:
         """Return the error naming the element, the shape wanted, and what came."""
-        return WrongKindError(
+        return WrongKindError.of(
             self._scene_id,
             self._element_id,
             expected,

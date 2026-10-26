@@ -202,7 +202,7 @@ class HubSceneWriter:
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
         if owner not in (None, scope.connection_id):
-            raise HubOwnershipError(
+            raise HubOwnershipError.of(
                 scope.scene_id,
                 element_id,
                 scope.connection_id,
