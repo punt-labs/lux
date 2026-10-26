@@ -1146,6 +1146,34 @@ maximal run reaches \texttt{Charge} for each queued death.  A stalled charger
 would break exactly this, which is why the code must keep the replicator's idle
 tick charging (O1).
 
+\subsection{Refinement by dial\_settlement.tex}
+
+\texttt{dial\_settlement.tex} refines
+\texttt{crash\_attribution\_inflight\_ack\_drain.tex}, the variant of this model
+in which each discovery drains the socket and the reader's buffer in the same
+step as the capture.  The gluing is an inclusion, not an equality of state:
+concrete charges are a subset of abstract charges, because the concrete
+unresponsive re-drain reads acknowledgements that this model says were never
+sent.  That is enough for A1 and A2 on the holder's settle.  Four concrete paths
+have no abstract counterpart here, because every display or unresponsive
+discovery in this model is guarded on an empty flight and an empty reader buffer
+and its reply skew is \texttt{HubEnd}; each is a deliberate exception, not a
+refinement.
+\begin{enumerate}
+  \item \texttt{s2dec}: a display charge with an ack unread, from a frame that
+    broke the stream.  A2 fails.  Bound: the acks behind the bad frame, once.
+  \item \texttt{s2blk}, display cause: the bound of rule~6 captures a display
+    end undrained.  A2 fails.  Bound: every ack queued while the reader-slot
+    holder stalled, after the two-second stop join.  The over-charge is accepted
+    (DES-102).
+  \item \texttt{s2blk}, unresponsive cause: the same capture of an unresponsive
+    end.  A2 fails, with the bound of item~2.
+  \item \texttt{s5blk}: \texttt{hub} recorded by the bound for a display that
+    has already died.  An abstract \texttt{HubEnd} is disabled once the display is
+    down; the poison death is carried and not charged, and a later ack read
+    clears it.  A1 fails, once, after the bound.
+\end{enumerate}
+
 % ============================================================
 \section{Fidelity Controls}
 \label{sec:fidelity}
