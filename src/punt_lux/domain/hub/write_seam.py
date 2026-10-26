@@ -105,10 +105,10 @@ class WriteSeam:
     def commit(self, realizations: Sequence[FieldRealization]) -> None:
         """Commit every realization, judging the writes they set off.
 
-        The batch was judged whole before this, so each target's own first write is
-        let through; every later write, an observer's say, meets :meth:`admit`.
+        The batch was judged whole before this, so each realization's own write is
+        let through, once; every other write, an observer's say, meets :meth:`admit`.
         """
-        judge = BatchJudge(self.admit, [r.current() for r in realizations])
+        judge = BatchJudge(self.admit, [r.write() for r in realizations])
         with HandlerWrites.judged(judge):
             self._commit_atomically(realizations)
 

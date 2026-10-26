@@ -1,13 +1,14 @@
 """BatchJudge -- the judge in force while a batch of agent writes is committed.
 
-A batch is judged whole before its first commit, so the first write each target
-receives is already judged and is let through here. Every later write, such as one an
-observer of a target makes in turn, goes to the seam's own judge like any other.
+A batch is judged whole before its first commit, so each write the batch itself makes
+is already judged and is let through here, once: the write is the element and the very
+patch mapping the batch holds for it, by identity. Every other write, such as one an
+observer of an earlier target makes to a later target, goes to the seam's own judge
+like any other.
 """
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
@@ -21,20 +22,25 @@ __all__ = ["BatchJudge"]
 
 @final
 class BatchJudge:
-    """Lets each batch target's first write through, and judges the rest."""
+    """Lets each pre-judged write of the batch through once, and judges the rest."""
 
     _admit: WriteJudge
-    _unjudged: Counter[int]
-    __slots__ = ("_admit", "_unjudged")
+    _unspent: list[tuple[Element, Mapping[str, object]]]
+    __slots__ = ("_admit", "_unspent")
 
-    def __new__(cls, admit: WriteJudge, targets: Iterable[object]) -> Self:
+    def __new__(
+        cls,
+        admit: WriteJudge,
+        writes: Iterable[tuple[Element, Mapping[str, object]]],
+    ) -> Self:
         self = super().__new__(cls)
         self._admit = admit
-        self._unjudged = Counter(id(target) for target in targets)
+        self._unspent = list(writes)
         return self
 
     def __call__(self, element: Element, patch: Mapping[str, object]) -> None:
-        if self._unjudged[id(element)] > 0:
-            self._unjudged[id(element)] -= 1
-            return
+        for index, (target, fields) in enumerate(self._unspent):
+            if target is element and fields is patch:
+                del self._unspent[index]
+                return
         self._admit(element, patch)
