@@ -7731,7 +7731,9 @@ one. The defect class recurred across review rounds, so it was modelled
   cross-check (`ReplyOutOfOrderError`). Pongs are matched by a strictly
   increasing timestamp and never retire. One query is in flight. Routing
   never skips a reply.
-- **Only a query timeout retires.** A ping that times out, or a request-lock
+- **Only a query timeout retires, at the request layer.** (The keepalive
+  and the isolation probe give a dial up as unresponsive; see the
+  amendment.) A ping that times out, or a request-lock
   wait that expires, sends and retires nothing; a ping that loses the lock is
   `DisplayBusyError`, which liveness counts as alive. A write that raises
   after its ledger entry retires its generation.
@@ -7859,9 +7861,13 @@ are added to `docs/listener_lifecycle.tex`.
   drain a request can still be pinned to it and fail as closed. The
   isolation probe needs the display to complete a frame within its wait;
   a minimised or occluded window that stops swapping is given up as
-  unresponsive and its unacked scenes are charged. A Hub close that races a
-  display end takes the ledger without the drain, so an ack still unread
-  in the socket can be charged; this happens at most once per dial.
+  unresponsive and its unacked scenes are charged. A display that dies
+  while no dial is live is not observed; its suspects stay carried, and if
+  an ack on the next display's dial clears them first, that death goes
+  unattributed. A Hub end and a display end race by first cause: the dial's
+  reader records the display end as soon as it reads end of file, a Hub end
+  settles only if it won, and only the dial's reader (or the discoverer of
+  a reader-less dial) takes the ledger.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
