@@ -196,7 +196,7 @@ the ADR state the same ones.
     an innocent scene written alongside the culprit takes the same strike; in
     isolation a ledger is at most one scene written after the first strike, plus
     whatever batching left unacked.  The carried set adds the ledgers of every
-    Hub-ended dial since the last ack read.  An innocent scene is quarantined
+    Hub-ended or unresponsive dial since the last ack read.  An innocent scene is quarantined
     only if it was a suspect at the threshold's worth of deaths.
   \item[B3  The swap stall.]  If the display stops completing swaps, every scene
     received since the last swap is held, unacked, and a later death charges
@@ -206,7 +206,12 @@ the ADR state the same ones.
     stall blocks the next send, and the isolation probe's timeout retires the dial
     as unresponsive (T13): its ledger is queued for charging, as a display death
     is, and carried, because a stalled display is alive and still holds the
-    scenes.
+    scenes.  For an unresponsive dial the retire instant is the capture: an ack
+    that a live display sends after that point is not read, and its scene is
+    charged although the display sent it (in the model, \texttt{Swap} after
+    \texttt{Unresponsive} adds nothing to \texttt{flight}).  This is the
+    over-charge DES-102 accepts: a scene can be struck when a loaded display
+    misses its pings.
   \item[B4  A crash with no dial live is not observed.]  If the display dies
     while the Hub has no live dial, nothing finds the death.  The suspects stay in
     the carried set and are charged at the next display-ended death unless an
@@ -1176,8 +1181,8 @@ Through the probe's retire (T13), A1w again, 12 steps and 6546 states, with
 \texttt{HubEnd; DiscoverHub} replaced by \texttt{Unresponsive;
 DiscoverUnrCharge}: the unresponsive dial queues its suspects and carries none,
 and the display, still alive, holds the culprit across it.  Removing only the
-unresponsive door's carry (a scratch control) reproduces the second trace in 6572
-states and leaves the first door closed.  A2, A3 and A4 hold.
+unresponsive door's carry, \texttt{crash\_attribution\_unresponsive\_no\_carry\_buggy.tex},
+reproduces the second trace (A1w) and leaves the first door closed.  A2, A3 and A4 hold.
 
 \paragraph{Capture without the split-read guard ---
 \texttt{crash\_attribution\_inflight\_ack\_buggy.tex}.}
@@ -1208,9 +1213,12 @@ size): the model supports the drain, taken by the reader.
 
 \paragraph{Charging a dial the Hub ended, a dial twice, only on the
 replicator's own redial, the next scene sent.}
-The four controls of the T10 specification.  Their committed files model the T10
-state (no hold, swap, carry or queue); regenerated against this specification
-they reproduce the same defects, recorded in the coverage document.  The
+The four controls of the T10 specification, \texttt{crash\_attribution\_hub\_end\_charged\_buggy.tex},
+\texttt{crash\_attribution\_double\_charge\_buggy.tex},
+\texttt{crash\_attribution\_redial\_only\_buggy.tex} and
+\texttt{crash\_attribution\_idle\_stop\_buggy.tex}, are regenerated against this
+specification; they reproduce the same defects (A3, A4, A1 and A2), recorded in
+the coverage document.  The
 \texttt{idle\_stop} control is a substitution, not a one-line mutation: it
 replaces the queue-and-charge discovery with the T10-era mechanism that records
 a blame and charges the next scene sent.

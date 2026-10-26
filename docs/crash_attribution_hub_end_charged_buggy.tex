@@ -1,138 +1,56 @@
 %
-% crash_attribution.tex
+% crash_attribution_hub_end_charged_buggy.tex
 %
 % A Z specification of display-crash attribution: which scenes the Hub blames
-% when the display ends a dial.  The state is a sequence of dials (generations
-% of the connection), each with an ack ledger of the scenes written to it and
-% the scenes the display acked on it; a dial is ended by the display or by the
-% Hub; the death is discovered by one of several parties (the reader, the
-% keepalive, an MCP tool's redial, the replicator's own send); recovery keeps a
-% per-scene strike count and quarantines a scene at the threshold; after a
-% charge the replicator isolates, one scene in flight at a time.
+% when the display ends a dial.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.
 %
-% This is the CONTROL, not the fixed design: DiscoverCharge without its guard
-% that the display ended the dial, the shape of code F1 (a write woken by the
-% Hub's own retirement of the dial is charged to the scenes in flight;
-% docs/crash_attribution.tex is the design).  The fixed design's ruling T10
-% reads: when the display ends a
-% dial, the suspects are exactly the scenes written to it and not acked at that
-% moment; recovery charges that set once per dial, whoever discovers the death;
-% a Hub-ended dial charges nothing; an empty set charges nothing.
+% The rulings it models: T10 (a death is charged from the dead dial's own ack
+% ledger, whoever discovers it; a Hub-ended dial charges nothing; an empty
+% ledger charges nothing), T11 (the display installs a scene on receipt but
+% holds its ack until the next completed buffer swap: an ack means a frame
+% survived the scene), and T12 (a Hub-ended dial's non-empty ledger joins a
+% carried suspect set, which a display-ended death charges and any ack read on
+% a later dial clears).  Deaths are queued at discovery and charged first at the
+% replicator's next push or idle tick.  T13 adds a third retire cause,
+% unresponsive (a dial the probe gave up on while the display may live): queued
+% as a display death and carried as a Hub end.  T14 splits the read into Recv and
+% Deliver and guards a display-ended capture on both being empty.
 %
-% Why this model exists: the recurrence rule.  Rounds 4, 5 and 6 of the final
-% review on the lux-ghhf branch each found a path on which a display death is
-% blamed on the wrong scene, or on none (review-r6-silent.md F1,
-% review-r6-code.md F1).  The code it governs:
-% src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
-% dial_generation,reply_sink,liveness_probe,replicator}.py.  ADRs: DES-102
-% (attribution, isolation and quarantine), DES-093 (the Hub never controls the
-% display's process), and the companion model listener_lifecycle.tex (a dial's
-% generation, its ledger and its single end).
+% The code it governs: src/punt_lux/domain/hub/{batch_sender,recovery,
+% display_connection,dial_generation,reply_sink,liveness_probe,replicator,
+% death_charger}.py, and src/punt_lux/display/render_loop.py (the ack).  ADRs:
+% DES-102 (attribution, isolation and quarantine), DES-093 (the Hub never
+% controls the display's process), and the companion model
+% listener_lifecycle.tex (a dial's generation, its ledger and its single end).
 %
-% Violates A3 (code F1), in 4 steps (state 22 of a breadth-first search):
-%   RedialQuiet(drepl); Send(1); HubEnd; DiscoverCharge(drepl)
-% goal  #(s,g).((s|->g):chargedOn & ended(g)=ehub)
-% A1, A2 and A4 hold (each searched alone: no counter example, 532 states).
+% This is the CONTROL: DiscoverCharge without its guard that the display ended the
+% dial, so a dial the Hub retired is charged from its ledger.
+%
+% Violates A3, in 7 operations (255 states): PushStart; Redial; Send(1); HubEnd; PushEnd;
+% DiscoverCharge(dother); Charge(1).  (A1 is violated too, by a side effect: the Hub-ended
+% dial is charged in place of being carried, 1244 states.)  A2 and A4 hold (60869 states).
+%
 % Type-check:  fuzz docs/crash_attribution_hub_end_charged_buggy.tex
-% Model-check (one negated goal at a time, see Verification):
-%   probcli docs/crash_attribution_hub_end_charged_buggy.tex -model_check \
-%     -nodead -bf -p MAX_OPERATIONS 100 -goal "<negated goal>"
-%
-% Fidelity controls (each differs from this file in the stated places only):
-%   docs/crash_attribution_redial_only_buggy.tex  charge only when the
-%                                                 replicator's own redial fails
-%   docs/crash_attribution_idle_stop_buggy.tex    charge the next scene sent
-%                                                 after a death
-%   docs/crash_attribution_hub_end_charged_buggy.tex  charge a dial whoever
-%                                                 ended it (this file)
-%   docs/crash_attribution_double_charge_buggy.tex    charge a dial more than
-%                                                 once
+% Model-check (one negated goal at a time; the goals are those of
+% docs/crash_attribution.tex, Section Verification):
+%   probcli docs/crash_attribution_hub_end_charged_buggy.tex -model_check -nodead -bf \
+%     -p MAX_OPERATIONS 200 -goal "<negated goal>"
 %
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
 \usepackage{fuzz}
-\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
-
 
 \begin{document}
 
-\title{Crash Attribution, charged whoever ended the dial: a Control}
-\author{Formal model of who is blamed when the display dies}
+\title{Crash Attribution, a Hub-ended dial charged: a Control}
+\author{A fidelity control for docs/crash\_attribution.tex}
 \date{October 2026}
 \maketitle
 
-% ============================================================
-\section{Introduction}
-% ============================================================
-
-A display that crashes while it renders a scene does so a frame after it has
-read the scene, so the write that carried the scene has already succeeded.  The
-Hub learns of the death later, by whichever of several parties looks first: the
-reader sees end of file, the keepalive's probe fails, an MCP tool redials, the
-replicator's next send breaks.  The crash-loop quarantine rests on one
-sentence: \emph{a scene that kills the display again and again is charged each
-time, and quarantined at the threshold.}  Three review rounds in succession
-found a way for that sentence to fail, each from a different side:
-
-\begin{itemize}
-  \item \textbf{Silent F1 (round~6).}\ The charge is made only where the
-    replicator's own redial fails.  When the reader retires the dial and the
-    keepalive or an MCP tool redials it successfully, the evidence is discarded;
-    the replicator then sends every scene afresh, the display dies again, and no
-    death is ever charged.  The loop runs forever.
-  \item \textbf{Code F1 (round~6).}\ A write woken by the Hub's own retirement
-    of the dial raises a bare socket error, which the sender charges to the
-    scenes in flight; the dial was ended by the Hub and the scenes did nothing.
-\end{itemize}
-
-Round~5's finding was the same class from the other side: a deliberate stop of
-the display while idle was charged to the next scene shown.  Three rounds of
-one class is the recurrence signal.  The defects share a cause: \emph{the
-decision whom to charge is made from the circumstances of the discovery, and
-not from the dial that died.}  The ruling T10 makes the dial's own record the
-only evidence.
-
-\paragraph{The design, by responsibility.}
-\begin{description}
-  \item[A dial owns its ledger.]  Every dial records the scenes written to it
-    ($written$) and the scenes the display acked on it ($acked$); the
-    \emph{ledger} is the difference.  An ended dial keeps its ledger: it is the
-    evidence of the death.
-  \item[A dial has one end, with one cause.]  The display ends it (a crash, a
-    deliberate stop) or the Hub does (a retire after a timeout, a drop).  The
-    cause is recorded when the dial ends, by the party that ended it, and is
-    never overwritten.
-  \item[A death is settled once, by anyone.]  \emph{Discovery} of an ended dial
-    is a step by any discoverer, and so is a redial, which discovers the death
-    of the dial it replaces.  The first discovery settles the dial.  If the
-    display ended it and its ledger is non-empty, that ledger is charged, one
-    strike for each scene in it; otherwise nothing is charged.  Who discovers
-    makes no difference to what is charged (T10).
-  \item[A strike count per scene, and a threshold.]  A scene at the threshold is
-    quarantined: it is dropped from the dirty set and never sent again.
-  \item[Isolation narrows the suspects.]  Once any scene has a strike the
-    replicator sends one scene at a time and waits for its ack before the next,
-    so a later death is charged to a ledger of at most one scene.
-\end{description}
-
-\paragraph{What the model leaves out.}
-The probe that detects a death while idle, the backoff between redials, and the
-menu are not modelled; the display is taken to ack every scene except the
-poison one, and to crash only after reading it or spontaneously.  A spontaneous
-end of a dial with scenes in its ledger is indistinguishable from a poison
-crash, which is the point: the ledger is the only evidence there is.
-
-% ============================================================
-\section{Constants and Free Types}
-% ============================================================
-
-Two dials: the original and its replacement, which is the least that lets a
-death be discovered after a redial.  Two scenes, one of them the poison scene,
-the least that lets a scene be charged for a death it did not cause.  Threshold
-two: the least for which one death is not yet a quarantine, so that the loop
-has a length.  Two discoverers: the replicator, and any other party.  The
-traces of the controls (Section~\ref{sec:fidelity}) show that these bounds
-reach both defects.
+This is a control, not the design.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.  It is the design's
+specification with the one change named in the header comment, and nothing
+else; its purpose is to show that the invariants of the design fail when
+that change is made, which is what makes their passing meaningful.
 
 \begin{axdef}
   maxDial : \nat \\
@@ -159,15 +77,16 @@ reach both defects.
 \end{zed}
 
 \begin{zed}
-  ENDT ::= enone | edisp | ehub
+  ENDT ::= enone | edisp | ehub | eunr
 \end{zed}
 
 \begin{zed}
   DISC ::= drepl | dother
 \end{zed}
 
-The function \emph{bump} adds a strike, and stays at the threshold.  Dial~$0$ is
-a sentinel: the connection before its first dial, settled from the start.
+\begin{zed}
+  PH ::= pidle | ppush
+\end{zed}
 
 \begin{axdef}
   bump : 0 \upto thr \fun 0 \upto thr
@@ -175,161 +94,397 @@ a sentinel: the connection before its first dial, settled from the start.
   bump = \{ 0 \mapsto 1, 1 \mapsto 2, 2 \mapsto 2 \}
 \end{axdef}
 
-% ============================================================
-\section{State}
-% ============================================================
-
-\texttt{cur} is the latest dial, \texttt{up} says whether it is live.
-\texttt{ended} records the cause of each dial's end, \texttt{written} and
-\texttt{acked} its ledger.  \texttt{settled} are the dials whose death a
-discoverer has processed.  \texttt{dirty} are the scenes the replicator owes the
-display (a redial marks every scene not quarantined).  \texttt{strikes} counts
-the charges against each scene.
-
-\texttt{chargedOn} and \texttt{times} are history, never read by a guard: the
-pairs (scene, dial) that were charged, and how often each dial was charged.
-The invariants are statements about them.
-
 \begin{schema}{CA}
   cur : \nat \\
   up : LV \\
+  phase : PH \\
   ended : Dl \fun ENDT \\
   written : Dl \fun (\power Sc) \\
+  rcvd : Dl \fun (\power Sc) \\
+  hold : Sc \pfun Dl \\
+  flight : \power Sc \\
+  rbuf : \power Sc \\
+  sent : Dl \fun (\power Sc) \\
   acked : Dl \fun (\power Sc) \\
+  carry : \power Sc \\
+  dqown : Dl \pfun (\power Sc) \\
+  dqcar : Dl \pfun (\power Sc) \\
   settled : \power Dl \\
   dirty : \power Sc \\
   strikes : Sc \fun (0 \upto thr) \\
   chargedOn : Sc \rel Dl \\
-  times : Dl \fun (0 \upto 2)
+  carriedOn : Sc \rel Dl \\
+  times : Dl \fun (0 \upto 2) \\
+  pcrash : \power Dl
 \where
-  cur \leq maxDial \\
-  \forall d : Dl \spot acked~d \subseteq written~d
+  cur \leq maxDial
 \end{schema}
-
-\section{Initialization}
 
 \begin{schema}{Init}
   CA'
 \where
   cur' = 0 \\
   up' = ldown \\
+  phase' = pidle \\
   \forall d : Dl \spot ended'~d = enone \\
   \forall d : Dl \spot written'~d = \emptyset \\
+  \forall d : Dl \spot rcvd'~d = \emptyset \\
+  hold' = \emptyset \\
+  flight' = \emptyset \\
+  rbuf' = \emptyset \\
+  \forall d : Dl \spot sent'~d = \emptyset \\
   \forall d : Dl \spot acked'~d = \emptyset \\
+  carry' = \emptyset \\
+  dqown' = \emptyset \\
+  dqcar' = \emptyset \\
   settled' = \{ 0 \} \\
   dirty' = \emptyset \\
   \forall s : Sc \spot strikes'~s = 0 \\
   chargedOn' = \emptyset \\
-  \forall d : Dl \spot times'~d = 0
+  carriedOn' = \emptyset \\
+  \forall d : Dl \spot times'~d = 0 \\
+  pcrash' = \emptyset
 \end{schema}
 
-% ============================================================
-\section{Operations}
-% ============================================================
-
-The replicator's writes and the display's acks first.  \texttt{Send} writes a
-scene to the live dial; in isolation the dial's ledger must be empty first (the
-probe after the previous scene proved it acked).  A quarantined scene is never
-sent.  \texttt{Ack} is the display's reply: it acks every scene but the poison
-one.
-
-\subsection{Send}
+\begin{schema}{PushStart}
+  \Delta CA
+\where
+  phase = pidle \\
+  dqown = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = ppush \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
 \begin{schema}{Send}
   \Delta CA \\
   s? : Sc
 \where
   up = lup \\
+  phase = ppush \\
   s? \in dirty \\
   strikes~s? < thr \\
-  (\exists t : Sc \spot strikes~t > 0) \implies
-    (written~cur \setminus acked~cur) = \emptyset \\
-  written' = written \oplus \{ cur \mapsto written~cur \cup \{ s? \} \} \\
-  dirty' = dirty \setminus \{ s? \} \\
+  (\exists t : Sc \spot strikes~t > 0) \implies (written~cur \setminus acked~cur) = \emptyset \\
   cur' = cur \\
   up' = up \\
+  phase' = phase \\
   ended' = ended \\
+  written' = written \oplus \{ cur \mapsto written~cur \cup \{ s? \} \} \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
   acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
   settled' = settled \\
+  dirty' = dirty \setminus \{ s? \} \\
   strikes' = strikes \\
   chargedOn' = chargedOn \\
-  times' = times
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
 \end{schema}
 
-\subsection{Ack}
-
-\begin{schema}{Ack}
+\begin{schema}{Install}
   \Delta CA \\
   s? : Sc
 \where
   up = lup \\
-  s? \in written~cur \setminus acked~cur \\
-  s? \neq poison \\
-  acked' = acked \oplus \{ cur \mapsto acked~cur \cup \{ s? \} \} \\
+  s? \in written~cur \setminus rcvd~cur \\
   cur' = cur \\
   up' = up \\
+  phase' = phase \\
   ended' = ended \\
   written' = written \\
+  rcvd' = rcvd \oplus \{ cur \mapsto rcvd~cur \cup \{ s? \} \} \\
+  hold' = hold \oplus \{ s? \mapsto cur \} \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
   settled' = settled \\
   dirty' = dirty \\
   strikes' = strikes \\
   chargedOn' = chargedOn \\
-  times' = times
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
 \end{schema}
 
-\subsection{DisplayEnd and HubEnd}
+\begin{schema}{Swap}
+  \Delta CA
+\where
+  hold \neq \emptyset \\
+  poison \notin \dom hold \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \cup \{ s : \dom hold | hold~s = cur \land up = lup \spot s \} \\
+  rbuf' = rbuf \\
+  sent' = sent \oplus \{ cur \mapsto sent~cur \cup \{ s : \dom hold | hold~s = cur \land up = lup \spot s \} \} \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
-The two ways a dial ends.  \texttt{DisplayEnd} is a crash or a deliberate stop,
-whatever the ledger holds, empty included; \texttt{HubEnd} is a retire by the
-Hub (a query timeout, a drop, a reply-skew).  Neither charges anything: a death
-is charged when it is discovered, from the dial that died.
+\begin{schema}{Recv}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
+  s? \in flight \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \setminus \{ s? \} \\
+  rbuf' = rbuf \cup \{ s? \} \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Deliver}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
+  s? \in rbuf \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \setminus \{ s? \} \\
+  sent' = sent \\
+  acked' = acked \oplus \{ cur \mapsto acked~cur \cup \{ s? \} \} \\
+  carry' = \emptyset \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
 \begin{schema}{DisplayEnd}
   \Delta CA
 \where
   up = lup \\
-  ended' = ended \oplus \{ cur \mapsto edisp \} \\
-  up' = ldown \\
   cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
   written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
   acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
   settled' = settled \\
   dirty' = dirty \\
   strikes' = strikes \\
   chargedOn' = chargedOn \\
-  times' = times
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
 \end{schema}
 
 \begin{schema}{HubEnd}
   \Delta CA
 \where
   up = lup \\
-  ended' = ended \oplus \{ cur \mapsto ehub \} \\
-  up' = ldown \\
   cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto ehub \} \\
   written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
   acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
   settled' = settled \\
   dirty' = dirty \\
   strikes' = strikes \\
   chargedOn' = chargedOn \\
-  times' = times
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
 \end{schema}
 
-\subsection{Discover}
+\begin{schema}{Unresponsive}
+  \Delta CA
+\where
+  up = lup \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto eunr \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
-A discoverer, whoever it is, finds the current dial ended and unsettled
-(\texttt{d?} is an input that no guard reads: that is T10).  If the display
-ended it with a non-empty ledger, the ledger is charged and the dial settled
-(\texttt{DiscoverCharge}); otherwise the dial is settled and nothing is charged
-(\texttt{DiscoverQuiet}: a Hub-ended dial, or an empty ledger).  A scene that
-reaches the threshold leaves the dirty set.
+\begin{schema}{CrashInstall}
+  \Delta CA
+\where
+  up = lup \\
+  poison \in written~cur \setminus rcvd~cur \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash \cup \{ cur \}
+\end{schema}
 
-In this control \texttt{DiscoverCharge} has lost its guard $ended~cur = edisp$,
-so a dial the Hub retired is charged as though the display had ended it, as the
-sender does when a write woken by the Hub's retirement raises a bare socket
-error.  \texttt{DiscoverQuiet} still accepts a Hub-ended dial, and
-\texttt{RedialCharge} keeps its guard; the defect is in the discovery alone.
+\begin{schema}{CrashFrame}
+  \Delta CA
+\where
+  up = lup \\
+  poison \in \dom hold \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash \cup \{ cur \}
+\end{schema}
+
+\begin{schema}{DisplayEndDown}
+  \Delta CA
+\where
+  up = ldown \\
+  hold \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
 \begin{schema}{DiscoverCharge}
   \Delta CA \\
@@ -337,19 +492,31 @@ error.  \texttt{DiscoverQuiet} still accepts a Hub-ended dial, and
 \where
   up = ldown \\
   cur \notin settled \\
-  written~cur \setminus acked~cur \neq \emptyset \\
-  settled' = settled \cup \{ cur \} \\
-  strikes' = strikes \oplus
-    \{ s : written~cur \setminus acked~cur \spot s \mapsto bump~(strikes~s) \} \\
-  dirty' = dirty \cap \{ s : Sc | strikes'~s < thr \} \\
-  chargedOn' = chargedOn \cup
-    \{ s : written~cur \setminus acked~cur \spot s \mapsto cur \} \\
-  times' = times \oplus \{ cur \mapsto times~cur + 1 \} \\
+  ended~cur \neq enone \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
   cur' = cur \\
   up' = up \\
+  phase' = phase \\
   ended' = ended \\
   written' = written \\
-  acked' = acked
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = \emptyset \\
+  dqown' = dqown \cup \{ cur \mapsto (written~cur \setminus acked~cur) \} \\
+  dqcar' = dqcar \cup \{ cur \mapsto carry \} \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
 \end{schema}
 
 \begin{schema}{DiscoverQuiet}
@@ -358,198 +525,222 @@ error.  \texttt{DiscoverQuiet} still accepts a Hub-ended dial, and
 \where
   up = ldown \\
   cur \notin settled \\
-  ended~cur = ehub \lor written~cur \setminus acked~cur = \emptyset \\
-  settled' = settled \cup \{ cur \} \\
+  ended~cur \neq enone \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry = \emptyset \\
   cur' = cur \\
   up' = up \\
+  phase' = phase \\
   ended' = ended \\
   written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
   acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
   dirty' = dirty \\
   strikes' = strikes \\
   chargedOn' = chargedOn \\
-  times' = times
-\end{schema}
-
-\subsection{Redial}
-
-A redial replaces an ended dial, and so discovers its death: the same charge,
-from the same ledger, as \texttt{Discover}, made in the same step as the new
-dial.  The new dial's scenes are all marked dirty except the quarantined ones.
-\texttt{RedialQuiet} covers the first dial (the sentinel is settled), a dial
-already settled, a Hub-ended dial and an empty ledger.
-
-\begin{schema}{RedialCharge}
-  \Delta CA \\
-  d? : DISC
-\where
-  up = ldown \\
-  cur < maxDial \\
-  cur \notin settled \\
-  ended~cur = edisp \\
-  written~cur \setminus acked~cur \neq \emptyset \\
-  cur' = cur + 1 \\
-  up' = lup \\
-  settled' = settled \cup \{ cur \} \\
-  strikes' = strikes \oplus
-    \{ s : written~cur \setminus acked~cur \spot s \mapsto bump~(strikes~s) \} \\
-  dirty' = \{ s : Sc | strikes'~s < thr \} \\
-  chargedOn' = chargedOn \cup
-    \{ s : written~cur \setminus acked~cur \spot s \mapsto cur \} \\
-  times' = times \oplus \{ cur \mapsto times~cur + 1 \} \\
-  ended' = ended \\
-  written' = written \\
-  acked' = acked
-\end{schema}
-
-\begin{schema}{RedialQuiet}
-  \Delta CA \\
-  d? : DISC
-\where
-  up = ldown \\
-  cur < maxDial \\
-  cur \in settled \lor ended~cur = ehub \lor
-    written~cur \setminus acked~cur = \emptyset \\
-  cur' = cur + 1 \\
-  up' = lup \\
-  settled' = settled \cup \{ cur \} \\
-  strikes' = strikes \\
-  dirty' = \{ s : Sc | strikes~s < thr \} \\
-  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
   times' = times \\
-  ended' = ended \\
-  written' = written \\
-  acked' = acked
+  pcrash' = pcrash
 \end{schema}
 
-\subsection{Halt}
+\begin{schema}{DiscoverUnrCharge}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = (written~cur \setminus acked~cur) \cup carry \\
+  dqown' = dqown \cup \{ cur \mapsto (written~cur \setminus acked~cur) \} \\
+  dqcar' = dqcar \cup \{ cur \mapsto carry \} \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverUnrQuiet}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverHub}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = ehub \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \cup (written~cur \setminus acked~cur) \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Redial}
+  \Delta CA
+\where
+  up = ldown \\
+  cur < maxDial \\
+  cur \in settled \\
+  cur' = cur + 1 \\
+  up' = lup \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = \emptyset \\
+  rbuf' = \emptyset \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = \{ s : Sc | strikes~s < thr \} \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Charge}
+  \Delta CA \\
+  g? : Dl
+\where
+  phase = pidle \\
+  g? \in \dom dqown \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = \{ g? \} \ndres dqown \\
+  dqcar' = \{ g? \} \ndres dqcar \\
+  settled' = settled \\
+  dirty' = dirty \cap \{ s : Sc | strikes'~s < thr \} \\
+  strikes' = strikes \oplus \{ s : dqown~g? \cup dqcar~g? \spot s \mapsto bump~(strikes~s) \} \\
+  chargedOn' = chargedOn \cup \{ s : dqown~g? \spot s \mapsto g? \} \\
+  carriedOn' = carriedOn \cup \{ s : dqcar~g? \spot s \mapsto g? \} \\
+  times' = times \oplus \{ g? \mapsto times~g? + 1 \} \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{PushEnd}
+  \Delta CA
+\where
+  phase = ppush \\
+  cur' = cur \\
+  up' = up \\
+  phase' = pidle \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
 
 \begin{schema}{Halt}
   \Xi CA
 \where
   cur = maxDial \\
   up = ldown \\
-  cur \in settled
+  cur \in settled \\
+  phase = pidle \\
+  dqown = \emptyset
 \end{schema}
-
-% ============================================================
-\section{Invariants}
-\label{sec:inv}
-% ============================================================
-
-Each is a negated goal: the invariant holds if its negation is unreachable
-(Section~\ref{sec:verify}).  They are deliberately not conjuncts of the state
-schema: in ProB's reading of Z a primed state schema is part of every
-operation's guard, so an invariant written there silently disables an operation
-whose result would violate it, instead of reporting the violation.
-
-\paragraph{A1 --- a crash loop reaches quarantine, whoever discovers.}
-Let a \emph{poison death} be a settled dial the display ended with the poison
-scene in its ledger.  The negated goal:
-\[ \# \{ g : settled \mid g > 0 \land ended~g = edisp \land
-     poison \in written~g \setminus acked~g \} \ge thr
-   \;\land\; strikes~poison < thr. \]
-However the deaths were discovered, once $thr$ poison deaths have been settled
-the poison scene is quarantined.  This is the property of the loop: it is
-violated exactly when a death is settled without being charged.
-
-\paragraph{A2 --- no scene is charged for a death it was not in.}
-\[ \exists (s,g) \in chargedOn \spot
-     s \notin written~g \lor s \in acked~g. \]
-A scene is charged on a dial only if it was written to it and not acked on it.
-In the fixed design this is a consequence of charging the ledger; its content
-is that the ledger is a property of the dial, so that no circumstance of the
-discovery can put another scene into it.
-
-\paragraph{A3 --- a Hub-ended dial charges no scene.}
-\[ \exists (s,g) \in chargedOn \spot ended~g = ehub. \]
-The guards of \texttt{DiscoverCharge} and \texttt{RedialCharge} require the
-display to have ended the dial.  Like A4 this is a tautology of the fixed
-design, no operation of which charges otherwise; its content is the guard.
-
-\paragraph{A4 --- each dial's death is charged at most once.}
-\[ \exists g \in Dl \spot times~g > 1. \]
-Both charging operations require the dial unsettled and settle it.  The
-tautology is by the guard; \texttt{DiscoverCharge} and \texttt{RedialCharge}
-race for the same dial, and the race is covered (Section~\ref{sec:verify}).
-
-\paragraph{Deadlock-freedom.}
-Every state other than the quiescent one (\texttt{Halt}) has an enabled step: a
-live dial can always end, an ended one can always be discovered, and a settled
-one redialed unless it is the last.
-
-% ============================================================
-\section{Fidelity Controls}
-\label{sec:fidelity}
-% ============================================================
-
-\paragraph{Charge only when the replicator's own redial fails ---
-\texttt{crash\_attribution\_redial\_only\_buggy.tex}.}
-The code as it stands (silent F1).  \texttt{DiscoverCharge} is enabled only for
-the replicator ($d? = drepl$); \texttt{RedialCharge} is deleted, so no redial
-charges; \texttt{DiscoverQuiet} takes the other discoverer.  A1 is violated, in 7 steps, by
-\texttt{RedialQuiet; Send(1); DisplayEnd; RedialQuiet(dother); Send(1);
-DisplayEnd; DiscoverCharge(drepl)}: the first death is healed by a redial that
-is not the replicator's, and its evidence is discarded; the second is charged
-by the replicator, and the poison scene has one strike after two poison deaths.
-(The same loop with every discoverer \texttt{dother} is longer and is also
-reachable: no strike ever.)  A2, A3 and A4 hold.
-
-\paragraph{Charge the next scene sent after a death ---
-\texttt{crash\_attribution\_idle\_stop\_buggy.tex}.}
-The circumstance of the discovery stands in for the dial's record.  A discovery
-charges nothing but records $blame$, the dial that died; the next \texttt{Send}
-carries the charge, to the scene it sends.  A2 is violated, in 4 steps, by
-\texttt{RedialQuiet; DisplayEnd; RedialBlame; SendBlamed(1)}: the display was
-stopped while idle (an empty ledger), and the scene shown next is charged for a
-dial it was never written to.  A1 is violated too, in 7 steps, by the same
-race with the poison scene in flight (\texttt{RedialQuiet; Send(1); DisplayEnd;
-RedialBlame; SendBlamed(1); DisplayEnd; DiscoverBlame}: the second death is
-settled with no strike).  A3 and A4 hold.
-
-% ============================================================
-\section{Verification}
-\label{sec:verify}
-% ============================================================
-
-Type-checking is a \texttt{fuzz} pass:
-\begin{verbatim}
-  fuzz docs/crash_attribution.tex
-\end{verbatim}
-
-The model has no given sets, so no \texttt{-card}.  The check searches for a
-violation of any of A1 to A4 and for deadlock; a pass is ``no counter example,
-all states visited, \texttt{deadlocked:0}'':
-\begin{verbatim}
-  probcli docs/crash_attribution.tex -model_check -coverage -goal "<ALL>" \
-    -p MAX_OPERATIONS 100
-\end{verbatim}
-where the goal \texttt{<ALL>} is the disjunction, in B syntax, of
-\begin{verbatim}
-  A1  card({g | g:settled & g>0 & ended(g)=edisp
-              & 1 : written(g)-acked(g)}) >= 2 & strikes(1) < 2
-  A2  #(s,g).((s|->g):chargedOn & (s/:written(g) or s:acked(g)))
-  A3  #(s,g).((s|->g):chargedOn & ended(g)=ehub)
-  A4  #g.(g:0..2 & times(g)>1)
-\end{verbatim}
-The negation of one goal, searched for with \texttt{-model\_check -nodead
--goal}, is how a control is shown to violate it.  The scenarios are reachable,
-so the invariants are not vacuous (goal \emph{found} on the fixed design):
-\begin{verbatim}
-  strikes(1) = 2                   the poison scene is quarantined
-  #g.(g:settled & g>0 & ended(g)=ehub & written(g)-acked(g) /= {})
-                                   a Hub-ended dial with a full ledger, settled
-  #g.(g:settled & g>0 & ended(g)=edisp & written(g)-acked(g) = {})
-                                   an idle stop, settled
-  #(s,g).((s|->g):chargedOn & #t.(t:1..2 & t/=s & t:written(g)))
-                                   a charge made with another scene written
-\end{verbatim}
-Results and the bounds are recorded in \texttt{crash\_attribution\_coverage.md}.
-
-Re-run \texttt{fuzz}, the coverage and the goals whenever
-\texttt{batch\_sender.py}, \texttt{recovery.py}, \texttt{display\_connection.py},
-\texttt{dial\_generation.py}, \texttt{reply\_sink.py},
-\texttt{liveness\_probe.py} or \texttt{replicator.py} change who may charge a
-death, from what evidence, or when.
 
 \end{document}
