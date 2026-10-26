@@ -2,7 +2,7 @@
 % crash_attribution_ack_on_receipt_buggy.tex
 %
 % A Z specification of display-crash attribution: which scenes the Hub blames
-% when the display ends a dial.  The design's rulings T10, T11 and T12 are stated in docs/crash_attribution.tex.
+% when the display ends a dial.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.
 %
 % The rulings it models: T10 (a death is charged from the dead dial's own ack
 % ledger, whoever discovers it; a Hub-ended dial charges nothing; an empty
@@ -11,7 +11,10 @@
 % survived the scene), and T12 (a Hub-ended dial's non-empty ledger joins a
 % carried suspect set, which a display-ended death charges and any ack read on
 % a later dial clears).  Deaths are queued at discovery and charged first at the
-% replicator's next push or idle tick.
+% replicator's next push or idle tick.  T13 adds a third retire cause,
+% unresponsive (a dial the probe gave up on while the display may live): queued
+% as a display death and carried as a Hub end.  T14 splits the read into Recv and
+% Deliver and guards a display-ended capture on both being empty.
 %
 % The code it governs: src/punt_lux/domain/hub/{batch_sender,recovery,
 % display_connection,dial_generation,reply_sink,liveness_probe,replicator,
@@ -25,18 +28,18 @@
 % the code as it stands (render_loop.py, _handle_scene).  The ack then means
 % 'received', not 'a frame survived it'.
 %
-% Violates A1, in 7 operations (155 states, breadth-first):
-%   PushStart; Redial; Send(1); Install(1); ReadAck(1); CrashFrame;
-%   DiscoverQuiet(drepl)
+% Violates A1, in 8 operations (431 states, breadth-first):
+%   PushStart; Redial; Send(1); Install(1); Recv(1); Deliver(1); CrashFrame;
+%   DiscoverQuiet(dother)
 % goal  #g.(g:pcrash & g:settled & g/:dom(dqown) & (1|->g)/:chargedOn
 %                     & (1|->g)/:carriedOn)
 % The scene is acked, then the display dies painting it; the ledger is empty and
 % nothing is charged (gvr's trace).  In batching mode A1w (the same goal with a
-% scene charged for the death) is violated too, in 10 operations (888 states):
-%   PushStart; Redial; Send(1); Send(2); Install(1); CrashFrame; ReadAck(1);
-%   DiscoverCharge(drepl); PushEnd; Charge(1)
+% scene charged for the death) is violated too, in 11 operations (2657 states):
+%   PushStart; Redial; Send(1); Send(2); Install(1); PushEnd; Recv(1); CrashFrame;
+%   Deliver(1); DiscoverCharge(drepl); Charge(1)
 % the innocent scene 2 is charged and the culprit is not.  A2, A3 and A4 hold
-% (each searched alone: no counter example, 12334 states).
+% (each searched alone: no counter example, 35069 states).
 %
 % Type-check:  fuzz docs/crash_attribution_ack_on_receipt_buggy.tex
 % Model-check (one negated goal at a time; the goals are those of
@@ -55,7 +58,7 @@
 \date{October 2026}
 \maketitle
 
-This is a control, not the design.  The design's rulings T10, T11 and T12 are stated in docs/crash_attribution.tex.  It is the design's
+This is a control, not the design.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.  It is the design's
 specification with the one change named in the header comment, and nothing
 else; its purpose is to show that the invariants of the design fail when
 that change is made, which is what makes their passing meaningful.
@@ -85,7 +88,7 @@ that change is made, which is what makes their passing meaningful.
 \end{zed}
 
 \begin{zed}
-  ENDT ::= enone | edisp | ehub
+  ENDT ::= enone | edisp | ehub | eunr
 \end{zed}
 
 \begin{zed}
@@ -111,6 +114,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd : Dl \fun (\power Sc) \\
   hold : Sc \pfun Dl \\
   flight : \power Sc \\
+  rbuf : \power Sc \\
   sent : Dl \fun (\power Sc) \\
   acked : Dl \fun (\power Sc) \\
   carry : \power Sc \\
@@ -138,6 +142,7 @@ that change is made, which is what makes their passing meaningful.
   \forall d : Dl \spot rcvd'~d = \emptyset \\
   hold' = \emptyset \\
   flight' = \emptyset \\
+  rbuf' = \emptyset \\
   \forall d : Dl \spot sent'~d = \emptyset \\
   \forall d : Dl \spot acked'~d = \emptyset \\
   carry' = \emptyset \\
@@ -165,6 +170,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -196,6 +202,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -224,6 +231,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \oplus \{ cur \mapsto rcvd~cur \cup \{ s? \} \} \\
   hold' = hold \oplus \{ s? \mapsto cur \} \\
   flight' = flight \cup \{ s? \} \\
+  rbuf' = rbuf \\
   sent' = sent \oplus \{ cur \mapsto sent~cur \cup \{ s? \} \} \\
   acked' = acked \\
   carry' = carry \\
@@ -251,6 +259,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = \emptyset \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -265,11 +274,11 @@ that change is made, which is what makes their passing meaningful.
   pcrash' = pcrash
 \end{schema}
 
-\begin{schema}{ReadAck}
+\begin{schema}{Recv}
   \Delta CA \\
   s? : Sc
 \where
-  up = lup \lor (ended~cur = edisp \land cur \notin settled) \\
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
   s? \in flight \\
   cur' = cur \\
   up' = up \\
@@ -279,6 +288,36 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \setminus \{ s? \} \\
+  rbuf' = rbuf \cup \{ s? \} \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Deliver}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
+  s? \in rbuf \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \setminus \{ s? \} \\
   sent' = sent \\
   acked' = acked \oplus \{ cur \mapsto acked~cur \cup \{ s? \} \} \\
   carry' = \emptyset \\
@@ -305,6 +344,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = \emptyset \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -331,6 +371,34 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Unresponsive}
+  \Delta CA
+\where
+  up = lup \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto eunr \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -358,6 +426,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = \emptyset \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -385,6 +454,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = \emptyset \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -412,6 +482,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = \emptyset \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -434,6 +505,7 @@ that change is made, which is what makes their passing meaningful.
   cur \notin settled \\
   ended~cur = edisp \\
   flight = \emptyset \\
+  rbuf = \emptyset \\
   (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
   cur' = cur \\
   up' = up \\
@@ -443,6 +515,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = \emptyset \\
@@ -465,6 +538,7 @@ that change is made, which is what makes their passing meaningful.
   cur \notin settled \\
   ended~cur = edisp \\
   flight = \emptyset \\
+  rbuf = \emptyset \\
   (written~cur \setminus acked~cur) \cup carry = \emptyset \\
   cur' = cur \\
   up' = up \\
@@ -474,6 +548,73 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverUnrCharge}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = (written~cur \setminus acked~cur) \cup carry \\
+  dqown' = dqown \cup \{ cur \mapsto (written~cur \setminus acked~cur) \} \\
+  dqcar' = dqcar \cup \{ cur \mapsto carry \} \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverUnrQuiet}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -503,6 +644,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \cup (written~cur \setminus acked~cur) \\
@@ -531,6 +673,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = \emptyset \\
+  rbuf' = \emptyset \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -559,6 +702,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
@@ -585,6 +729,7 @@ that change is made, which is what makes their passing meaningful.
   rcvd' = rcvd \\
   hold' = hold \\
   flight' = flight \\
+  rbuf' = rbuf \\
   sent' = sent \\
   acked' = acked \\
   carry' = carry \\
