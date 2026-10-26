@@ -22,12 +22,12 @@ dataclasses; this ABC is the behavioral contract for the ABC kinds.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.domain.event_handler_host import EventHandlerHost
-from punt_lux.domain.handler_writes import HandlerWrites, WriteRefusedError
+from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.property_observers import PropertyObservers
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -37,8 +37,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["Element"]
-
-logger = logging.getLogger(__name__)
 
 
 class Element(EventHandlerHost, ABC):
@@ -59,11 +57,8 @@ class Element(EventHandlerHost, ABC):
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
     _removed: bool
-    _observers: list[Callable[[str], None]]
+    _observers: PropertyObservers
     _children_tuple: tuple[Element, ...]
-    # PY-TS-14 OK: ``None`` means "not inside apply_patch, notify immediately";
-    # a list is the per-patch buffer that defers notifications until commit.
-    _notify_buffer: list[str] | None
 
     def __new__(
         cls,
@@ -76,9 +71,8 @@ class Element(EventHandlerHost, ABC):
         self._emit = emit
         self._handlers = {}
         self._removed = False
-        self._observers = []
+        self._observers = PropertyObservers()
         self._children_tuple = ()
-        self._notify_buffer = None
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -101,7 +95,7 @@ class Element(EventHandlerHost, ABC):
         """Restore instance state after native deserialization."""
         for key, value in state.items():
             object.__setattr__(self, key, value)
-        object.__setattr__(self, "_observers", [])
+        object.__setattr__(self, "_observers", PropertyObservers())
 
     @property
     @abstractmethod
@@ -228,18 +222,16 @@ class Element(EventHandlerHost, ABC):
         """
         HandlerWrites.admit(self, patch)
         snapshot = dict(vars(self))
-        self._notify_buffer = []
+        self._observers.begin()
         try:
             for key, value in self._in_setter_order(patch).items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
             vars(self).clear()
             vars(self).update(snapshot)
-            self._notify_buffer = None
+            self._observers.discard()
             raise
-        pending = self._notify_buffer or []
-        self._notify_buffer = None
-        self.renotify(pending)  # de-duplicated, in first-seen order
+        self._observers.commit(self.id)  # each property once, in first-seen order
         return self
 
     def _in_setter_order(self, patch: Mapping[str, object]) -> dict[str, object]:
@@ -251,29 +243,9 @@ class Element(EventHandlerHost, ABC):
         first = {k: patch[k] for k in self._SETTER_PRIORITY if k in patch}
         return first | {k: v for k, v in patch.items() if k not in first}
 
-    def state_snapshot(self) -> dict[str, object]:
-        """The element's field state now, to be put back by :meth:`restore_state`."""
-        return dict(vars(self))
-
-    def restore_state(self, snapshot: Mapping[str, object]) -> None:
-        """Put the field state back exactly as ``snapshot`` held it; hear no one."""
-        vars(self).clear()
-        vars(self).update(snapshot)
-
     def renotify(self, props: Iterable[str]) -> None:
-        """Tell the observers that each of ``props`` changed, each prop once.
-
-        A refused write an observer made does not stop the props after it from being
-        heard: the first refusal is raised once every prop has been announced.
-        """
-        refused: WriteRefusedError | None = None  # PY-TS-14 OK: None, nothing refused
-        for prop in dict.fromkeys(props):
-            try:
-                self._notify_observers(prop)
-            except WriteRefusedError as exc:
-                refused = refused or exc
-        if refused is not None:
-            raise refused
+        """Tell the observers that each of ``props`` changed, each prop once."""
+        self._observers.announce(props, self.id)
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
@@ -281,7 +253,7 @@ class Element(EventHandlerHost, ABC):
         Parent composites use this to react to children flipping
         ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
         """
-        self._observers.append(observer)
+        self._observers.add(observer)
 
     @property
     def removed(self) -> bool:
@@ -302,32 +274,10 @@ class Element(EventHandlerHost, ABC):
         self._notify_observers("removed")
 
     def _notify_observers(self, prop: str) -> None:
-        """Notify every observer that ``prop`` changed, isolating failures.
+        """Tell the observers that ``prop`` changed; buffered inside ``apply_patch``.
 
         The single fan-out point for property-change notifications (``removed``
         today; a table's ``selected_row_ids`` write-through, and future
-        ``visible`` / ``enabled``). Inside ``apply_patch`` the notification is
-        *buffered* and flushed only when the patch commits, so a mid-patch failure
-        notifies nothing; outside a patch it fires immediately. Observers run
-        against a snapshot so a callback that mutates the registry mid-dispatch
-        cannot affect the in-flight call, and a raising observer is logged and
-        skipped — one bad subscriber must not strand the others (PY-EH-6
-        system-boundary exemption). A write an observer made that the judge refused
-        is no bug of the observer's: it runs its course through the others and is
-        raised after them, so the transaction that woke it can roll back.
+        ``visible`` / ``enabled``): see :class:`PropertyObservers`.
         """
-        if self._notify_buffer is not None:
-            self._notify_buffer.append(prop)
-            return
-        refused: WriteRefusedError | None = None  # PY-TS-14 OK: None, nothing refused
-        for observer in tuple(self._observers):
-            try:
-                observer(prop)
-            except WriteRefusedError as exc:
-                refused = refused or exc
-            except Exception:
-                logger.exception(
-                    "observer %r failed on %r of element %s", observer, prop, self.id
-                )
-        if refused is not None:
-            raise refused
+        self._observers.notify(prop, self.id)

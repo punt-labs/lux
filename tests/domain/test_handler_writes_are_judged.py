@@ -17,7 +17,7 @@ import pytest
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
-from punt_lux.domain.hub.write_errors import NestingExceededError
+from punt_lux.domain.hub.write_refusals import NestingExceededError
 from punt_lux.domain.ids import ClientId, ElementId
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.nesting_cap import NestingCap

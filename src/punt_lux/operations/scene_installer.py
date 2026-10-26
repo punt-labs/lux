@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.write_errors import NestingExceededError
+from punt_lux.domain.hub.write_refusals import NestingExceededError
 from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError

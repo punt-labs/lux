@@ -34,7 +34,7 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.suspect_book import SuspectBook
@@ -263,8 +263,10 @@ class DisplayConnection:
         set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
             dialed,
-            lambda generation, cause: self.retire(generation, cause=cause),
-            self._end_by_writer,
+            DialEnds(
+                lambda generation, cause: self.retire(generation, cause=cause),
+                self._end_by_writer,
+            ),
         )
         # Born holding the listener slot when asked: nobody else has seen this dial
         # yet, so no inline read can be in flight when the listener claims it.

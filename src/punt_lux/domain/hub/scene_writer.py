@@ -16,7 +16,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.handler_writes import WriteRefusedError
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
@@ -106,11 +105,10 @@ class HubSceneWriter:
             rejection = self._rejection_of(scope, realizations)
             if rejection is not None:
                 return rejection
-            try:
-                self._display.write_seam.commit(realizations)
-            except WriteRefusedError as exc:
-                # The batch rolled back, observers' writes included: say why.
-                return WriteRejected(str(exc))
+            # A refused observer write rolls the whole batch back: say why.
+            rolled_back = self._display.write_seam.commit(realizations)
+            if rolled_back is not None:
+                return rolled_back
             self._apply_removals(scope, batch.removals)
             return WriteAccepted()
 

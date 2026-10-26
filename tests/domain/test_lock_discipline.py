@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.lock_discipline import LockDiscipline, LockDisciplineError
@@ -28,8 +28,7 @@ class _Dial:
         ours, self.display = socket.socketpair()
         self.generation = DialGeneration(
             HandshakeResult(sock=ours, endpoint="pair", ready=ReadyMessage()),
-            lambda _g, _c: True,
-            lambda _g, _c: True,
+            DialEnds(lambda _g, _c: True, lambda _g, _c: True),
         )
 
 

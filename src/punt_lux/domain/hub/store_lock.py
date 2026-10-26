@@ -21,39 +21,26 @@ it be enforced.
 from __future__ import annotations
 
 import threading
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 
 if TYPE_CHECKING:
     from types import TracebackType
 
-__all__ = ["StoreLock"]
+__all__ = ["StoreGuard", "StoreLock"]
 
 
-class StoreLock:
-    """Reentrant mutual exclusion between the one reader and every writer.
-
-    ``read()`` is held only long enough to copy a scene's state out for a
-    resend; ``write()`` is held across a whole mutation so no reader observes a
-    torn tree. The two never nest across the boundary, so the store lock and the
-    client send lock are never held at once.
-    """
+@final
+class StoreGuard:
+    """The context manager of the store lock: it holds the lock and notes the holder."""
 
     _lock: threading.RLock
     __slots__ = ("_lock",)
 
-    def __new__(cls) -> Self:
+    def __new__(cls, lock: threading.RLock) -> Self:
         self = super().__new__(cls)
-        self._lock = threading.RLock()
-        return self
-
-    def read(self) -> Self:
-        """Hold the lock while copying scene state out for a resend."""
-        return self
-
-    def write(self) -> Self:
-        """Hold the lock across a mutation so no reader sees a torn tree."""
+        self._lock = lock
         return self
 
     def __enter__(self) -> bool:
@@ -69,3 +56,30 @@ class StoreLock:
     ) -> None:
         LockDiscipline.store_released()
         self._lock.release()
+
+
+@final
+class StoreLock:
+    """Reentrant mutual exclusion between the one reader and every writer.
+
+    ``read()`` is held only long enough to copy a scene's state out for a
+    resend; ``write()`` is held across a whole mutation so no reader observes a
+    torn tree. The two never nest across the boundary, so the store lock and the
+    client send lock are never held at once.
+    """
+
+    _guard: StoreGuard
+    __slots__ = ("_guard",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._guard = StoreGuard(threading.RLock())
+        return self
+
+    def read(self) -> StoreGuard:
+        """Hold the lock while copying scene state out for a resend."""
+        return self._guard
+
+    def write(self) -> StoreGuard:
+        """Hold the lock across a mutation so no reader sees a torn tree."""
+        return self._guard

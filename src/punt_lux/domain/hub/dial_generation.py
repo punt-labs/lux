@@ -16,6 +16,7 @@ connection that makes it, so a peer that stops reading cannot wedge a writer for
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import (
@@ -46,7 +47,19 @@ if TYPE_CHECKING:
         SceneMessage,
     )
 
-__all__ = ["DialGeneration"]
+__all__ = ["DialEnds", "DialGeneration"]
+
+
+@dataclass(frozen=True, slots=True)
+class DialEnds:
+    """How a dial reports its own breakage to whoever holds the current dial.
+
+    ``retire`` ends it for a reason of the Hub's; ``by_writer`` is a failed write's
+    report, which records its cause only when nothing is ending the dial already.
+    """
+
+    retire: Callable[[DialGeneration, RetireCause], bool]
+    by_writer: Callable[[DialGeneration, RetireCause], bool]
 
 
 @final
@@ -58,20 +71,16 @@ class DialGeneration:
     # The identity every failure names this dial by: one per dial, equal to itself.
     _ref: DialRef
     # Reports this dial's own breakage to whoever holds the current dial.
-    _retire: Callable[[DialGeneration, RetireCause], bool]
-    # Reports a failed write: records its cause only if nothing is ending the dial.
-    _write_ended: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_ref", "_retire", "_sink", "_socket", "_write_ended")
+    _ends: DialEnds
+    __slots__ = ("_ends", "_ref", "_sink", "_socket")
 
     def __new__(
         cls,
         dial: HandshakeResult,
-        retire: Callable[[DialGeneration, RetireCause], bool],
-        write_ended: Callable[[DialGeneration, RetireCause], bool],
+        ends: DialEnds,
     ) -> Self:
         self = super().__new__(cls)
-        self._retire = retire
-        self._write_ended = write_ended
+        self._ends = ends
         self._sink = ReplySink()
         self._ref = DialRef(self)
         self._socket = DialSocket(
@@ -149,12 +158,6 @@ class DialGeneration:
     def ended(self) -> RetireCause | None:
         """The first cause recorded for this dial's end; ``None`` while none is."""
         return self._sink.ended
-
-    @property
-    # PY-TS-14 OK: None while nothing has ended the dial or been asked to.
-    def closing(self) -> RetireCause | None:
-        """Who is ending this dial: the cause recorded, else ``hub`` once it asked."""
-        return self._sink.closing
 
     @property
     def is_settled(self) -> bool:
@@ -285,15 +288,16 @@ class DialGeneration:
         winner's cause too.
         """
         if not isinstance(exc, OSError):
-            self._retire(self, "hub")
+            self._ends.retire(self, "hub")
             return
         cause: RetireCause = (
             "unresponsive" if isinstance(exc, BlockingIOError) else "display"
         )
         # A dial already ended, or that the Hub asked to end, records nothing here: the
         # settle decides by what it observes (a queued end of file is the display's).
-        if not self._write_ended(self, cause):
-            raise self.closed_error() from exc  # someone else's end stands
+        if not self._ends.by_writer(self, cause):
+            # Someone else's end stands: the writer reports whose.
+            raise self._error_for(self._sink.closing, self.endpoint) from exc
 
     def _require_open(self) -> None:
         if self._sink.closing is not None:
@@ -308,11 +312,15 @@ class DialGeneration:
         to, with nothing yet decided); only that last changes what recovery does (it
         redials without treating it as a death). ``ValueError`` for a dial still open.
         """
-        ended = self._sink.closing
+        return self._error_for(self._sink.closing, self.endpoint)
+
+    @staticmethod
+    # PY-TS-14 OK: None is a dial nothing has ended or asked to end: still open.
+    def _error_for(ended: RetireCause | None, endpoint: str) -> ConnectionClosedError:
         if ended is None:
-            msg = f"the connection to {self.endpoint} is still open"
+            msg = f"the connection to {endpoint} is still open"
             raise ValueError(msg)
-        msg = f"the connection to {self.endpoint} was closed"
+        msg = f"the connection to {endpoint} was closed"
         if ended == "unresponsive":
             return UnresponsiveError(msg)
         error = ConnectionClosedError if ended == "display" else HubRetiredError

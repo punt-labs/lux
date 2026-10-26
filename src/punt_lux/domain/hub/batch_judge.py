@@ -18,6 +18,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.handler_writes import WriteRefusedError
 
 if TYPE_CHECKING:
@@ -35,8 +36,7 @@ __all__ = ["BatchJudge"]
 class _Written:
     """One element the batch wrote: how it was first, and which properties changed."""
 
-    element: Element
-    first: Mapping[str, object]
+    first: ElementCheckpoint
     props: set[str] = field(default_factory=lambda: set[str]())
 
 
@@ -65,7 +65,7 @@ class BatchJudge:
     @property
     def written(self) -> tuple[Element, ...]:
         """Every element the batch has written so far, in the order it first did."""
-        return tuple(w.element for w in self._written.values())
+        return tuple(w.first.element for w in self._written.values())
 
     def __call__(self, element: Element, patch: Mapping[str, object]) -> None:
         for index, (target, fields) in enumerate(self._unspent):
@@ -86,14 +86,14 @@ class BatchJudge:
         self._is_rolling_back = True
         written = list(self._written.values())
         for entry in reversed(written):
-            entry.element.restore_state(entry.first)
+            entry.first.restore()
         for entry in written:
             try:
-                entry.element.renotify(entry.props)
+                entry.first.element.renotify(entry.props)
             except WriteRefusedError:
                 logger.warning(
                     "an observer's write was refused while rolling back %s",
-                    entry.element.id,
+                    entry.first.element.id,
                 )
 
     def _record(self, element: Element, patch: Mapping[str, object]) -> None:
@@ -101,7 +101,5 @@ class BatchJudge:
             return
         entry = self._written.get(id(element))
         if entry is None:
-            entry = self._written[id(element)] = _Written(
-                element, element.state_snapshot()
-            )
+            entry = self._written[id(element)] = _Written(ElementCheckpoint(element))
         entry.props.update(patch)
