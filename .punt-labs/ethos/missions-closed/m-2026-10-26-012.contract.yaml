@@ -1,0 +1,44 @@
+mission_id: m-2026-10-26-012
+status: closed
+type: implement
+created_at: "2026-10-26T13:56:16Z"
+updated_at: "2026-10-26T16:17:28Z"
+closed_at: "2026-10-26T16:17:28Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T13:56:16Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/m-r11-rulings.md
+        - .tmp/missions/review-r11-code.md
+        - .tmp/missions/review-r11-invariants.md
+        - .tmp/missions/review-r11-silent.md
+        - docs/dial_settlement.tex
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_coverage.md
+    - docs/dial_settlement_writer_records_display_buggy.tex
+    - docs/dial_settlement_drain_gives_up_buggy.tex
+    - docs/dial_settlement_writer_owe_refused_buggy.tex
+    - docs/dial_settlement_drain_no_late_buggy.tex
+    - docs/dial_settlement_writer_split_record_buggy.tex
+    - docs/dial_settlement_stop_no_request_buggy.tex
+    - docs/dial_settlement_unbounded_write_buggy.tex
+    - .tmp/missions/results-model-settle-r11/
+success_criteria:
+    - Round-11 review found three places where the code is not faithful to the accepted model docs/dial_settlement.tex. Refine the model so that each gap has a one-point control reproducing it and the design proves the fix. Work in the main checkout, [REDACTED:home]/Coding/punt-labs/lux, on branch fix/lux-ghhf-details-frame-id, and commit there.
+    - (1) Code C1. The writer's failure classification is check-then-record across two sink-lock holds, so a Hub request can land between them. Control dial_settlement_writer_split_record_buggy.tex splits WRec into a check step and a record step and must violate S5. The design keeps the atomic WRec (rulings A1).
+    - (2) Invariants I1. stop() sets the stop flag before it requests the Hub end. A reader whose read fails in that window returns with nothing recorded or requested. Model the stop flag as its own step. Control dial_settlement_stop_no_request_buggy.tex must violate S1 or S5, or leave a settle with no cause. In the design, a reader that sees stop without an end requests the Hub end (rulings A2).
+    - '(3) Silent S1. On TLS, SO_SNDTIMEO does not bound sendall: a probe blocked more than 9 s. The keepalive ping and queries need the socket lock, so a stalled writer leaves nobody to end the dial. Model that the keepalive''s unresponsive end requires the lock (or a bounded lock wait). Control dial_settlement_unbounded_write_buggy.tex has today''s code (a stalled writer holding lk forever, with the keepalive blocked on lk) and must show the liveness failure: no end is ever recorded, so S1b fails, as a no-rescuer-style deadlock or as a goal. The design is the ruled fix (rulings B1): every scene write ends within a deadline D as unresponsive, recorded by the atomic WRec, and a ping or query that cannot take lk within D ends the dial as unresponsive. Prove S1-S6 with the drain ceiling strictly above D. State the resulting settle bound in terms of D, the ceiling, and the 2 s bound, and state whether WStall and the late path remain reachable (keep them as defense if so). Propose concrete D and ceiling values consistent with the probe (send timeout 1 s on Linux, up to 2.5 s on macOS); the leader rules the constants.'
+    - Update dial_settlement_coverage.md with the new partitions and the red-first test names the code needs. Also flip the P18 and P20 rows once rmh's tests assert the claims (see rulings A14), and correct P20-P22 from GAP to their real test names (tests/domain/test_dial_settlement.py on the r3-fixes worktree).
+    - 'Process. Run probcli one at a time; first check with pgrep that no other lux probcli is running. Run under ulimit -v 8 GB with -p MAX_INITIALISATIONS 100. Run fuzz on each file separately. If the fix is unsound, stop and report the counterexample. Commit only the write set, with an explicit git add and the attribution trailer from your session reminder. Do not push, touch src/ or tests/, restore from git, rm, stash, reset, or spawn agents. probcli: [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-settle-r11/<mission-id>.md; submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Round-11 fidelity refinement of the dial settlement model: atomic writer
+    record, the stop window, and bounded scene writes (TLS).
