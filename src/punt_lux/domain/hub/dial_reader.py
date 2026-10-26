@@ -87,10 +87,14 @@ class DialReader:
                 except (ConnectionClosedError, OSError, ValueError) as exc:
                     if self._read_ended(exc):
                         cause = "display"
+                        # Recorded the moment the reader learns of it, before it drains:
+                        # a Hub end arriving now loses, and leaves the ledger to us.
+                        generation.end(cause)
                     break
                 ended = None if data is None else self._routed(data)
                 if ended is not None:
                     cause = ended
+                    generation.end(cause)
                     readable = False  # a stream we gave up on has nothing to trust
                     break
         finally:
@@ -106,7 +110,7 @@ class DialReader:
         generation = self._generation
         if readable and (generation.ended or cause) != "hub":
             DialDrain(self._route).run(generation)
-        self._connection.close_if_current(generation, cause=cause)
+        self._connection.close_if_current(generation, cause=generation.ended or cause)
 
     def _read_ended(self, exc: Exception) -> bool:
         """Say why a read ended; whether the display ended it.
@@ -132,7 +136,9 @@ class DialReader:
         reconnect begins on a frame boundary: the display sent it, so the display
         ended the dial. A frame of a kind a display never sends (a scene, say) is
         refused on its raw type before any decoding and ends the dial the same way.
-        Returns ``None`` while the stream is still good, else who ended it.
+        Returns ``None`` while the stream is still good, else who ended it. A chunk the
+        loop stops reading because the reader was told to stop, or the dial was
+        settled under it, is not the stream's end: the reader's loop notices.
         """
         generation = self._generation
         messages = generation.messages(data)
@@ -154,7 +160,7 @@ class DialReader:
             ended = self._routed_one(msg)
             if ended is not None:
                 return ended
-        return "hub"
+        return None
 
     def _routed_one(self, msg: Message) -> RetireCause | None:
         """Hand one decoded message to its route; ``None`` while the stream is good.

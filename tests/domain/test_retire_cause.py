@@ -30,6 +30,7 @@ from punt_lux.domain.hub.crash_attribution import (
     ATTRIBUTION_THRESHOLD,
     CrashAttribution,
 )
+from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -49,7 +50,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dirty_signal import DirtySignal
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -812,6 +812,12 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
     def _hub_wins_every_display_retire(monkeypatch: pytest.MonkeyPatch) -> None:
         real_close = DisplayConnection.close_if_current
         real_retire = DisplayConnection.retire
+        real_end = DialGeneration.end
+
+        def racing_end(self: DialGeneration, cause: RetireCause) -> bool:
+            if cause == "display":  # the Hub's end is recorded first
+                real_end(self, "hub")
+            return real_end(self, cause)
 
         def racing_close(
             self: DisplayConnection, generation: DialGeneration, *, cause: RetireCause
@@ -829,6 +835,7 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
 
         monkeypatch.setattr(DisplayConnection, "close_if_current", racing_close)
         monkeypatch.setattr(DisplayConnection, "retire", racing_retire)
+        monkeypatch.setattr(DialGeneration, "end", racing_end)
 
     def test_a_write_that_loses_the_retire_reports_the_hubs_cause_and_queues_nothing(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
@@ -841,6 +848,21 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         with pytest.raises(HubRetiredError):
             writer_of(link).send_scene(_scene("s2"))
 
+        assert deaths_of(link) == ()
+
+    def test_an_inline_read_that_cannot_decode_and_loses_the_end_reports_the_hubs_cause(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        writer_of(link).send_scene(_scene("s1"))
+        self._hub_wins_every_display_retire(monkeypatch)
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)
+
+        display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, HubRetiredError)
         assert deaths_of(link) == ()
 
     def test_an_inline_read_that_loses_the_retire_reports_the_hubs_cause(

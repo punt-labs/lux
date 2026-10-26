@@ -69,17 +69,17 @@ class DisplayListener:
         For a reader that is not the listener thread: it holds the dial's reader
         slot, and what it routes is held or run as ``inline`` says. The cause that
         stands is the one already recorded on the dial; a dial nobody has ended is
-        ended by the display, since this is called on a read that found it so.
+        ended by the display, since this is called on a read that found it so, and
+        that is recorded before the drain, as the listener thread records it.
         Returns whether this call settled it.
         """
-        recorded = generation.ended
+        generation.end("display")
+        recorded = generation.ended or "display"
         if recorded != "hub":
             DialDrain(functools.partial(self._inbound.route, inline=inline)).run(
                 generation
             )
-        return self._connection.close_if_current(
-            generation, cause=recorded or "display"
-        )
+        return self._connection.close_if_current(generation, cause=recorded)
 
     def settle_unread(self, generation: DialGeneration) -> None:
         """Settle a dial someone ended, if no reader holds it, by reading it here.

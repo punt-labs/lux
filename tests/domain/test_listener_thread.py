@@ -200,8 +200,8 @@ class TestAReaderLivesAndDiesWithItsDial:
 
         rig.display.peer.close()
 
-        assert until(lambda: generation.is_closed)
-        assert not rig.connection.is_open
+        assert until(lambda: not rig.connection.is_open)
+        assert generation.is_closed
 
     def test_a_dial_has_one_reader_even_if_the_slot_is_claimed_elsewhere(
         self, rig: _Rig

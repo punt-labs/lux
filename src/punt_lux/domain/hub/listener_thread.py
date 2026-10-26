@@ -111,13 +111,14 @@ class ListenerThread:
         """Stop the thread, retire its dial, and wait for the thread, if running.
 
         The dial is retired first: that wakes a reader blocked in ``recv`` and
-        fails every waiter, so the join is short.
+        fails every waiter, so the join is short. A dial the display had already
+        ended is left to the reader, which drains it and settles it before it exits.
         """
         run = self._run
         if run is None:
             return
         run.stopping.set()
-        self._connection.close_if_current(run.generation, cause="hub")
+        self._connection.retire(run.generation, cause="hub")
         run.thread.join(timeout=_JOIN_TIMEOUT)
         if run.thread.is_alive():
             logger.warning("Listener thread did not exit within timeout")

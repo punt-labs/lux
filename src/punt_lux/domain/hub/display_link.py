@@ -152,7 +152,7 @@ class DisplayLink:
                 self._listener.start_on(dialed)
             except BaseException:
                 # A dial with no reader repairs nothing: retire the one this call made.
-                self._connection.close_if_current(dialed, cause="hub")
+                self._connection.retire(dialed, cause="hub")
                 raise
 
     def open_as_hub(

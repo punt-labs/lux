@@ -226,12 +226,14 @@ class DialGeneration:
         return self._socket.head(count)
 
     def shut(self) -> None:
-        """Release the socket and settle the sink; idempotent, never under a state lock.
+        """Release the socket and fail every waiter; idempotent, never under a state lock.
 
-        ``shutdown`` wakes a reader in ``recv`` and a writer in ``sendall``; then
-        ``close``. On TLS it is the raw socket's: ``unwrap`` blocks on a wedged peer.
+        It records no more than the end a dial already has: the ledger is taken by
+        :meth:`mark_closed` and by nothing here. ``shutdown`` wakes a reader in ``recv``
+        and a writer in ``sendall``; then ``close``. On TLS it is the raw socket's:
+        ``unwrap`` blocks on a wedged peer.
         """
-        self._sink.discard("hub")
+        self._sink.end("hub")
         self._socket.close()
 
     def _write_failed(self, exc: BaseException) -> None:

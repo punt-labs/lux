@@ -467,8 +467,9 @@ class TestAStaleDialIsNeverSettledByTheNudge:
         link = _linked(display, listening=False)  # the old dial's slot is free
         old = generation_of(link)
         old.messages(encode_message(ObserverMessage(topic="stale", payload={})))
-        old.end("display")
-        link.close()  # settled as the display's end, with a frame still buffered
+        link._connection.close_if_current(  # test seam: a reader's settle, undrained
+            old, cause="display"
+        )  # settled as the display's end, with a frame still buffered
         link.connect(listen=True)
 
         link._listener.settle_unread(old)  # test seam: a late nudge for the old dial
