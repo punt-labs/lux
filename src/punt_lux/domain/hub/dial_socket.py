@@ -171,6 +171,10 @@ class DialSocket:
     def drain(self) -> Drained:
         """Take what the socket already holds, without waiting; say if its end came.
 
+        Never waits, on either transport: the read is made on the socket in
+        non-blocking mode, so a TLS socket whose descriptor is readable for records
+        that carry no application byte reports nothing more, not a hang.
+
         The last look before a dial is settled. The stream's end is what the look
         found: end of file, a connection reset (the peer closed with bytes of this
         side's it never read, which a same-host stream delivers after everything it
@@ -198,7 +202,18 @@ class DialSocket:
                 msg = f"the last look at {self.endpoint} could not be made"
                 raise DrainIncompleteError(msg)
             try:
-                chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+                sock = self._dial.sock
+                sock.settimeout(0.0)  # the look never waits, on either transport
+                try:
+                    chunk = sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+                except (BlockingIOError, ssl.SSLWantReadError):
+                    # Readable, but no application byte yet: a TLS socket's
+                    # post-handshake records (session tickets) wake ``select`` and
+                    # hold nothing. Nothing more now; end of file is a read of b"".
+                    return Drained(b"", ended=False)
+                finally:
+                    with contextlib.suppress(OSError):  # closed by its own capture
+                        sock.settimeout(None)
             finally:
                 self._lock.release()
         except (OSError, ValueError) as exc:

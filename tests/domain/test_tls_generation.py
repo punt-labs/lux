@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 import pytest
 
 from punt_lux.domain.hub import bounded_ask
+from punt_lux.domain.hub.dial_socket import Drained
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -27,7 +28,6 @@ from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
     PingMessage,
-    PongMessage,
     QueryRequest,
     QueryResponse,
     ReadyMessage,
@@ -39,7 +39,7 @@ from punt_lux.send_timeout import (
     SEND_TIMEOUT_CEILING_SECONDS,
 )
 from tests.display._mtls_harness import MtlsMaterial
-from tests.domain.display_double import Call, Peer
+from tests.domain.display_double import Call, Peer, until
 from tests.domain.test_retire_cause import _scene
 from tests.link_access import (
     bare_connection,
@@ -50,7 +50,7 @@ from tests.link_access import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -267,32 +267,45 @@ def _a_tls_peer_that_never_reads(generation: DialGeneration) -> None:
     sock.send = would_block  # type: ignore[method-assign]
 
 
+_BOUND = SEND_TIMEOUT_CEILING_SECONDS + bounded_ask.SETTLE_BOUND  # the settle's bound
+
+
+def _ends_within(limit: float, action: Callable[[], object]) -> tuple[float, object]:
+    """Run ``action`` on its own thread; how long it took, and what it raised.
+
+    A rule that is broken fails here with a message, not by hanging the harness.
+    """
+    began = time.monotonic()
+    call = Call(action)
+    assert call.wait(limit), f"the action did not end within {limit}s"
+    return time.monotonic() - began, call.error
+
+
 class TestABoundedWrite:
     """Every write ends within D on either transport, by one user-space deadline.
 
-    The dial's end is recorded at the deadline; these connections settle nothing (the
-    settle's own drain is another matter, and these tests do not wait on it).
+    The dial's end is recorded at the deadline and the dial is settled within the
+    settle's bound: the settle's own drain never waits.
     """
 
     def test_p25_a_tls_peer_that_never_reads_ends_the_write_within_the_deadline(
         self, tls: _TlsDisplay
     ) -> None:
-        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
 
-        began = time.monotonic()
-        with pytest.raises(OSError):
-            generation.send_scene(_big_scene())
-        took = time.monotonic() - began
+        took, error = _ends_within(_BOUND, lambda: generation.send_scene(_big_scene()))
 
+        assert isinstance(error, OSError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
+        assert until(lambda: generation.is_settled, _BOUND)
 
     def test_p25_a_slow_draining_tls_peer_ends_the_write_within_the_deadline(
         self, tls: _TlsDisplay
     ) -> None:
-        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
         peer_sock = tls.peer.raw
@@ -300,6 +313,7 @@ class TestABoundedWrite:
 
         def drain_slowly() -> None:
             while not stop.is_set():
+                peer_sock.settimeout(0.05)
                 with contextlib.suppress(OSError):
                     peer_sock.recv(65536)
                 stop.wait(0.2)  # slower than the writer, but never stopped
@@ -307,31 +321,67 @@ class TestABoundedWrite:
         draining = threading.Thread(target=drain_slowly, daemon=True)
         draining.start()
         try:
-            began = time.monotonic()
-            with pytest.raises(OSError):
-                generation.send_scene(_big_scene())
-            took = time.monotonic() - began
+            took, error = _ends_within(
+                _BOUND, lambda: generation.send_scene(_big_scene())
+            )
         finally:
             stop.set()
             draining.join(2.0)
 
+        assert isinstance(error, OSError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
+        assert until(lambda: generation.is_settled, _BOUND)
 
     def test_p25_a_keepalive_ping_that_is_the_first_write_to_stall_ends_the_dial(
         self, tls: _TlsDisplay
     ) -> None:
-        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
-        tls.peer.send(PongMessage(ts=0.0))  # the post-handshake records, then a frame
-        assert generation.poll_chunk(3.0) is not None
         _a_tls_peer_that_never_reads(generation)  # no scene write in flight
 
-        began = time.monotonic()
-        with pytest.raises(OSError):
-            generation.send_ping(1.0)
-        took = time.monotonic() - began
+        took, error = _ends_within(_BOUND, lambda: generation.send_ping(1.0))
 
+        assert isinstance(error, OSError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
+        assert until(lambda: generation.is_settled, _BOUND)
+
+
+class TestTheDrainNeverWaits:
+    """B2: on TLS, a readable descriptor is not an application byte."""
+
+    def test_a_drain_with_only_post_handshake_records_pending_returns_nothing(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()  # the session tickets sit unread
+
+        took, error = _ends_within(3.0, generation.drain)
+
+        assert error is None
+        assert generation.drain() == Drained(b"", ended=False)
+        assert took < 1.0
+
+    def test_an_ack_queued_behind_those_records_is_not_lost(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()
+        tls.peer.send(AckMessage(scene_id="a"))  # behind the tickets
+        taken = bytearray()
+
+        def looks_until_the_ack_arrives() -> bool:
+            # A look that finds nothing yet is no loss: the ack stays in the socket.
+            look = generation.drain()
+            assert look.ended is False
+            taken.extend(look.chunk)
+            return bool(taken)
+
+        _, error = _ends_within(5.0, lambda: until(looks_until_the_ack_arrives, 4.0))
+
+        assert error is None
+        assert list(generation.messages(bytes(taken))) == [AckMessage(scene_id="a")]

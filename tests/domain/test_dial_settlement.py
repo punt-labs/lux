@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
+from punt_lux.bounded_send import TornStreamError
 from punt_lux.domain.hub import bounded_ask, dial_socket
 from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.batch_sender import BatchSendError
@@ -1058,13 +1059,30 @@ class TestABoundedWrite:
         )
 
         began = time.monotonic()
-        with pytest.raises(OSError):
-            generation.send_scene(big)
+        failing = Call(lambda: generation.send_scene(big))
+        assert failing.wait(5.0), "the write did not end within the bound"
         took = time.monotonic() - began
 
+        assert isinstance(failing.error, OSError)
         assert took < 0.2 + 1.5
         assert generation.ended == "unresponsive"
         assert generation.is_settled
+
+    def test_p25_a_write_the_deadline_cut_half_way_ends_the_dial_unresponsive(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def torn(_this: FlakySocket, _data: bytes) -> int:
+            msg = "send deadline hit after a partial write; stream torn"
+            raise TornStreamError(msg)
+
+        monkeypatch.setattr(FlakySocket, "send", torn)
+        with pytest.raises(TornStreamError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.ended == "unresponsive"
 
     @pytest.mark.parametrize("what", ["ping", "query"])
     def test_p26_a_ping_or_query_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive(  # noqa: E501
@@ -1088,12 +1106,14 @@ class TestABoundedWrite:
 
         began = time.monotonic()
         try:
-            with pytest.raises(OSError):
-                if what == "ping":
-                    generation.send_ping(1.0)
-                else:
-                    generation.send_query(QueryRequest(method="m"))
+            waiting = Call(
+                (lambda: generation.send_ping(1.0))
+                if what == "ping"
+                else (lambda: generation.send_query(QueryRequest(method="m")))
+            )
+            assert waiting.wait(5.0), "the wait for the socket lock did not end"
             took = time.monotonic() - began
+            assert isinstance(waiting.error, OSError)
 
             assert took < 0.3 + 1.5
             assert generation.ended == "unresponsive"

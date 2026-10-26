@@ -223,3 +223,27 @@ class TestDeadPeer:
                 cast("socket.socket", sock), b"payload", time.monotonic() + 1.0
             )
         assert sock.calls == 1  # raised on the first send, never looped
+
+
+class TestAWaitWatchesOnlyTheDirectionTheSendNeeds:
+    """Unread data from the peer keeps a socket readable; it is not a ready write."""
+
+    def test_a_full_buffer_with_the_peer_data_unread_waits_the_whole_deadline(
+        self,
+    ) -> None:
+        a, b = socket.socketpair()
+        try:
+            b.send(b"unread")  # a is readable and nobody reads it
+            a.setblocking(False)
+            with pytest.raises(BlockingIOError):
+                while True:  # fill a's send buffer: its next send would block
+                    a.send(b"x" * 65536)
+            began = time.monotonic()
+
+            with pytest.raises(BlockingIOError):
+                BoundedSend().send(a, b"y" * 65536, time.monotonic() + 0.5)
+
+            assert time.monotonic() - began >= 0.4  # the deadline, not a wake-up
+        finally:
+            a.close()
+            b.close()
