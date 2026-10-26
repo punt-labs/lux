@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.domain.ids import ElementId, SceneId
 
@@ -23,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from punt_lux.domain.event_protocol import Event
-    from punt_lux.domain.handler_writes import WriteJudge
+    from punt_lux.domain.hub.batch_transaction import BatchTransaction
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -41,19 +40,27 @@ class ResolvedInteraction:
     owner: ConnectionId | None
     scene_id: SceneId
 
-    def fire(self, event: Event, judge: WriteJudge) -> None:
-        """Fire ``event`` on the element, judging every patch its handlers write.
+    def fire(self, event: Event, transaction: BatchTransaction) -> None:
+        """Fire ``event`` on the element: its handlers' writes stand together or not.
 
-        A patch is shown to ``judge`` before the element it names is touched, so one
-        the judge refuses leaves that element, and anything observing it, as it was.
-        The refusal is logged with the handler's other failures. Raises
+        Every patch a handler writes, and every patch an observer it wakes writes, is
+        shown to the judge before the element it names is touched. One the judge
+        refuses puts every element the handlers wrote back, observers' state
+        included, and is logged at WARNING with the event, the element and the
+        reason; it is not a handler that raised. Raises
         :class:`~punt_lux.domain.hub.lock_discipline.LockDisciplineError` unless the
         store write lock is held: a handler's writes walk the element index an agent's
         ``show`` mutates.
         """
         LockDiscipline.require_store("firing a handler")
-        with HandlerWrites.judged(judge):
-            self.element.fire(event)
+        refusal = transaction.run_handler(lambda: self.element.fire(event))
+        if refusal is not None:
+            logger.warning(
+                "handler of %s on element %s refused, its writes rolled back: %s",
+                type(event).__name__,
+                self.element.id,
+                refusal,
+            )
 
 
 @final

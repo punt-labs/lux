@@ -36,7 +36,7 @@ def generation() -> Iterator[DialGeneration]:
     ours, theirs = socket.socketpair()
     made = DialGeneration(
         HandshakeResult(sock=ours, endpoint="pair", ready=ReadyMessage()),
-        DialEnds(lambda _g, _c: True, lambda _g, _c: True),
+        DialEnds(retire=lambda _g, _c: True, by_writer=lambda _g, _c: True),
     )
     yield made
     made.shut()
@@ -48,7 +48,7 @@ def _another() -> tuple[DialGeneration, socket.socket]:
     return (
         DialGeneration(
             HandshakeResult(sock=ours, endpoint="other", ready=ReadyMessage()),
-            DialEnds(lambda _g, _c: True, lambda _g, _c: True),
+            DialEnds(retire=lambda _g, _c: True, by_writer=lambda _g, _c: True),
         ),
         theirs,
     )

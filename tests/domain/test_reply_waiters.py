@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_end import DialEnd
+from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.domain.hub.pending import Pending
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
@@ -198,37 +200,82 @@ class TestTheEnd:
 
 
 _Call = Callable[[_Rig], object]
-_LOCKING: list[_Call] = [
-    lambda rig: rig.waiters.expect_pong(1.0),
-    lambda rig: rig.waiters.expect_query(),
-    lambda rig: rig.waiters.await_reply(_STRANGER, 0.0),
-    lambda rig: rig.waiters.answered(_STRANGER),
-    lambda rig: rig.waiters.abandon(_STRANGER),
-]
-_LOCKED_BODIES: list[_Call] = [
-    lambda rig: rig.waiters.deliver_pong_locked(PongMessage(ts=1.0)),
-    lambda rig: rig.waiters.ledger_emptied_locked(AckMessage(scene_id="a")),
-    lambda rig: rig.waiters.fail_all_locked(),
-    lambda rig: rig.waiters.expect_drained_locked(owed=False),
-]
+# The calls that take the sink's lock themselves.
+_LOCKING: dict[str, _Call] = {
+    "expect_pong": lambda rig: rig.waiters.expect_pong(1.0),
+    "expect_query": lambda rig: rig.waiters.expect_query(),
+    "await_reply": lambda rig: rig.waiters.await_reply(_STRANGER, 0.0),
+    "answered": lambda rig: rig.waiters.answered(_STRANGER),
+    "abandon": lambda rig: rig.waiters.abandon(_STRANGER),
+}
+
+
+def _in_flight(rig: _Rig) -> None:
+    """A ping, a query and a drained wait, all in flight and all waited on."""
+    rig.waiters.expect_pong(1.0)
+    rig.waiters.expect_query()
+    rig.drained(owed=True)
+
+
+def _nothing(_rig: _Rig) -> None:
+    """No state to prepare."""
+
+
+# The bodies that run only under the lock: how to set the state up (outside it, so
+# the answering path is the one that runs) and the call made while it is held.
+_LOCKED: dict[str, tuple[Callable[[_Rig], None], _Call]] = {
+    "deliver_pong_locked": (
+        _in_flight,
+        lambda rig: rig.waiters.deliver_pong_locked(PongMessage(ts=1.0)),
+    ),
+    "deliver_query_locked": (
+        _in_flight,
+        lambda rig: rig.waiters.deliver_query_locked(_response()),
+    ),
+    "ledger_emptied_locked": (
+        _in_flight,
+        lambda rig: rig.waiters.ledger_emptied_locked(AckMessage(scene_id="a")),
+    ),
+    "fail_all_locked": (_in_flight, lambda rig: rig.waiters.fail_all_locked()),
+    "expect_drained_locked": (
+        _nothing,
+        lambda rig: rig.waiters.expect_drained_locked(owed=True),
+    ),
+}
+
+
+def _public_methods() -> tuple[set[str], set[str]]:
+    """The public methods of ReplyWaiters, derived: those that lock, and those that
+    run only under the sink's lock (by the ``_locked`` suffix)."""
+    names = {
+        name
+        for name, member in vars(ReplyWaiters).items()
+        if inspect.isfunction(member) and not name.startswith("_")
+    }
+    locked = {name for name in names if name.endswith("_locked")}
+    return names - locked, locked
 
 
 class TestTheOneLock:
     """Every public method takes the sink's lock, or runs only under it."""
 
-    @pytest.mark.parametrize(
-        "call",
-        _LOCKING,
-        ids=["expect_pong", "expect_query", "await_reply", "answered", "abandon"],
-    )
+    def test_every_public_method_has_a_probe_and_no_probe_is_for_a_stranger(
+        self,
+    ) -> None:
+        locking, locked = _public_methods()
+
+        assert locking == set(_LOCKING), "a public method of ReplyWaiters is unprobed"
+        assert locked == set(_LOCKED), "a *_locked method of ReplyWaiters is unprobed"
+
+    @pytest.mark.parametrize("name", sorted(_LOCKING))
     def test_a_locking_method_waits_while_the_sinks_lock_is_held(
-        self, call: Callable[[_Rig], object]
+        self, name: str
     ) -> None:
         rig = _Rig()
         done = threading.Event()
 
         def run() -> None:
-            call(rig)
+            _LOCKING[name](rig)
             done.set()
 
         with rig.cond:  # the sink's step holds the lock
@@ -239,15 +286,13 @@ class TestTheOneLock:
 
         assert done.is_set()
 
-    @pytest.mark.parametrize(
-        "call",
-        _LOCKED_BODIES,
-        ids=["deliver_pong", "ledger_emptied", "fail_all", "expect_drained"],
-    )
+    @pytest.mark.parametrize("name", sorted(_LOCKED))
     def test_a_locked_body_never_takes_the_lock_its_caller_holds(
-        self, call: Callable[[_Rig], object]
+        self, name: str
     ) -> None:
         rig = _Rig()  # a lock that cannot be re-entered: a re-take would hang
+        prepare, call = _LOCKED[name]
+        prepare(rig)
         done = threading.Event()
 
         def run() -> None:
@@ -258,7 +303,16 @@ class TestTheOneLock:
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
 
-        assert done.wait(3.0), "the locked body took the lock its caller holds"
+        assert done.wait(3.0), f"{name} took the lock its caller holds"
+
+    @pytest.mark.parametrize("name", sorted(_LOCKED))
+    def test_a_locked_body_called_without_the_lock_is_refused(self, name: str) -> None:
+        rig = _Rig()
+        prepare, call = _LOCKED[name]
+        prepare(rig)
+
+        with pytest.raises(LockDisciplineError, match="without the sink's lock"):
+            call(rig)
 
     def test_the_waiters_make_no_lock_of_their_own(self) -> None:
         names = {

@@ -2,20 +2,28 @@
 
 A display that stops reading fills the kernel send buffer; a send with no time
 limit then waits forever, which is how one MCP ``clear`` once froze an agent for
-38 minutes. ``SO_SNDTIMEO`` puts a ceiling on the wait.
+38 minutes. Two bounds keep that from happening, and they bound different sends.
+
+``SO_SNDTIMEO`` (``set_send_timeout``) bounds only the blocking send of the dial's
+handshake, made before the dial is handed to its connection. Every write after it,
+on either transport, is a user-space bounded send (``BoundedSend``) on a socket made
+non-blocking for that write, under one deadline ``D``
+(``SCENE_WRITE_DEADLINE_SECONDS``) that covers the wait for the dial's socket lock as
+well. ``SO_SNDTIMEO`` bounds nothing on a TLS write at all.
 
 The packed value and the real limit it produces differ by platform, so the
-number here is not the contract — the measured limit is, which the probe test
+number here is not the contract -- the measured limit is, which the probe test
 pins. ``struct.pack("ll", 1, 0)`` is a 16-byte ``timeval`` of one second; macOS
 applies double the value (two seconds) and rejects the 12-byte form, while Linux
 takes it at face value (one second). Both stay under the 2.5-second limit the
 probe asserts (``SEND_TIMEOUT_PROBE_LIMIT_SECONDS``).
 
 Setting the option leaves the socket in blocking mode as far as CPython is
-concerned — ``gettimeout()`` still returns ``None`` — so a full buffer surfaces
-as ``BlockingIOError`` (``EWOULDBLOCK``), never ``TimeoutError``. Nothing in this
-path ever makes the socket non-blocking, so ``BlockingIOError`` unambiguously
-means "the send hit its time limit," which is safe to key on.
+concerned -- ``gettimeout()`` still returns ``None`` -- so a full buffer on the
+handshake's send surfaces as ``BlockingIOError`` (``EWOULDBLOCK``), never
+``TimeoutError``. ``BlockingIOError`` on a dial's write is the other bound's: the
+deadline ``D`` passed with no byte sent, or the socket lock was not free in time.
+Either ends the dial as unresponsive.
 """
 
 from __future__ import annotations

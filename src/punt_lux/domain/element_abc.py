@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.domain.observer_state import ObserversCheckpoint, StatefulObserver
     from punt_lux.domain.validation import ValidationError
     from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
@@ -60,6 +61,23 @@ class Element(EventHandlerHost, ABC):
     _removed: bool
     _observers: PropertyObservers
     _children_tuple: tuple[Element, ...]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse a kind whose ``_SETTER_PRIORITY`` names a key it has no setter for.
+
+        ``_in_setter_order`` skips a priority key the patch lacks, so a misspelt one
+        would be ignored for ever and the ordering it was written to guarantee would
+        silently be lost.
+        """
+        super().__init_subclass__(**kwargs)
+        unset = [
+            k
+            for k in cls._SETTER_PRIORITY
+            if not callable(getattr(cls, f"_set_{k}", None))
+        ]
+        if unset:
+            msg = f"{cls.__name__}._SETTER_PRIORITY names {unset} with no _set_<key>"
+            raise TypeError(msg)
 
     def __new__(
         cls,
@@ -212,10 +230,18 @@ class Element(EventHandlerHost, ABC):
         property changed (via ``_notify_observers``) into a per-patch buffer, and
         the observers fire only after every key has succeeded. A later key failing
         rolls back the element and fires nothing, so an observer's own state (a
-        bound ``FilteredTableModel``'s selection) can never reflect a patch that
-        reported failure — atomicity extends through the observers. Each distinct
-        property fires once even if several setters flag it (e.g. a patch that
-        sets both ``rows`` and ``selected_row_ids``).
+        bound ``FilteredTableModel``'s selection) never reflects a setter that failed.
+        Each distinct property fires once even if several setters flag it (e.g. a
+        patch that sets both ``rows`` and ``selected_row_ids``).
+
+        That is the whole of this method's atomicity. Once the observers have been
+        told, a write one of them makes that the judge refuses is raised out of here
+        with this element already patched: undoing it, and every other write made
+        under the same transaction, is the enclosing
+        :class:`~punt_lux.domain.hub.batch_transaction.BatchTransaction`'s work, which
+        checkpoints the element and the state its observers keep. A kind whose
+        override checks the whole element after ``super().apply_patch`` (slider,
+        radio, combo, input number) has told its observers before that check.
 
         A patch a Hub handler writes is first shown to the judge in scope
         (:class:`~punt_lux.domain.handler_writes.HandlerWrites`), which refuses it by
@@ -243,17 +269,31 @@ class Element(EventHandlerHost, ABC):
         first = {k: patch[k] for k in self._SETTER_PRIORITY if k in patch}
         return first | {k: v for k, v in patch.items() if k not in first}
 
-    def renotify(self, props: Iterable[str]) -> None:
-        """Tell the observers that each of ``props`` changed, each prop once."""
-        self._observers.announce(props, self.id)
+    def announce_restored(self, props: Iterable[str]) -> None:
+        """Tell the observers that keep no state that each of ``props`` is restored.
 
-    def add_observer(self, observer: Callable[[str], None]) -> None:
-        """Register a property-change observer.
+        A rollback's undo: an observer that keeps state of its own got it back from
+        its checkpoint (``observer_checkpoint``) and is not told.
+        """
+        self._observers.announce_restored(props, self.id)
+
+    def observer_checkpoint(self) -> ObserversCheckpoint:
+        """Return the state of the observers that keep any, to restore on a rollback."""
+        return self._observers.checkpoint()
+
+    def add_observer(
+        self,
+        observer: Callable[[str], None],
+        state: StatefulObserver | None = None,  # PY-TS-14 OK: most keep no state
+    ) -> None:
+        """Register a property-change observer, and the state it keeps if any.
 
         Parent composites use this to react to children flipping
-        ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
+        ``_removed`` (and, in future, ``_visible`` / ``_enabled``). An observer that
+        derives state of its own passes itself as ``state`` so a rollback restores
+        that state with the element.
         """
-        self._observers.add(observer)
+        self._observers.add(observer, state)
 
     @property
     def removed(self) -> bool:

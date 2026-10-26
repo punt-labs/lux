@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 import pytest
 
 from punt_lux.domain.hub import bounded_ask
+from punt_lux.domain.hub.connection_closed import UnresponsiveError
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.drain_result import Drained
@@ -40,8 +41,8 @@ from punt_lux.send_timeout import (
     SEND_TIMEOUT_CEILING_SECONDS,
 )
 from tests.display._mtls_harness import MtlsMaterial
-from tests.domain.display_double import Call, Peer, until
-from tests.domain.test_retire_cause import _scene
+from tests.domain.display_double import Call, Display, Peer, until
+from tests.domain.test_retire_cause import _linked, _scene
 from tests.link_access import (
     bare_connection,
     deaths_of,
@@ -302,7 +303,7 @@ class TestABoundedWrite:
 
         took, error = _ends_within(_BOUND, lambda: generation.send_scene(_big_scene()))
 
-        assert isinstance(error, OSError)
+        assert isinstance(error, UnresponsiveError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
@@ -333,7 +334,7 @@ class TestABoundedWrite:
             stop.set()
             draining.join(2.0)
 
-        assert isinstance(error, OSError)
+        assert isinstance(error, UnresponsiveError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
@@ -348,7 +349,7 @@ class TestABoundedWrite:
 
         took, error = _ends_within(_BOUND, lambda: generation.send_ping(1.0))
 
-        assert isinstance(error, OSError)
+        assert isinstance(error, UnresponsiveError)
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
@@ -421,3 +422,73 @@ class TestTheDrainNeverWaits:
 
         assert error is None
         assert list(generation.messages(bytes(taken))) == [PongMessage(ts=2.0)]
+
+
+def test_a_tls_dial_reaches_another_host_and_names_how_it_ended(
+    tls: _TlsDisplay,
+) -> None:
+    connection = bare_connection(tls, 5.0)
+    connection.open()
+    generation = connection.require()
+    try:
+        assert (generation.ref.is_cross_host, generation.ref.ended) == (True, None)
+
+        generation.end("unresponsive")
+
+        assert generation.ref.ended == "unresponsive"
+    finally:
+        connection.close()
+
+
+def test_a_local_dial_does_not_reach_another_host() -> None:
+    display = Display()
+    try:
+        link = _linked(display, listening=False)
+
+        assert generation_of(link).ref.is_cross_host is False
+    finally:
+        display.close()
+
+
+class TestAReadThatNeedsToWriteIsNotTheDisplaysEnd:
+    """A TLS read may need to write (a key update); with a full send buffer it waits."""
+
+    def test_a_poll_that_wants_to_write_finds_nothing_not_the_displays_end(
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()
+        _wants_to_write(monkeypatch)
+
+        polling = Call(lambda: generation.poll_chunk(0.5))
+
+        assert polling.wait(4.0), "the poll did not end"
+        assert polling.result is None
+        assert generation.ended is None
+
+    def test_a_drain_that_wants_to_write_is_not_the_end_of_the_stream(
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()
+        tls.peer.send(AckMessage(scene_id="a"))
+        _wants_to_write(monkeypatch)
+
+        looking = Call(generation.drain)
+
+        assert looking.wait(4.0), "the drain did not end"
+        assert looking.result == Drained(b"", ended=False)
+
+
+def _wants_to_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the Hub's dialed TLS socket report that its next read needs to write."""
+    real = ssl.SSLSocket.recv
+
+    def recv(this: ssl.SSLSocket, buflen: int = 1024, flags: int = 0) -> bytes:
+        if this.server_side:
+            return real(this, buflen, flags)
+        raise ssl.SSLWantWriteError("the read needs to write first")
+
+    monkeypatch.setattr(ssl.SSLSocket, "recv", recv)

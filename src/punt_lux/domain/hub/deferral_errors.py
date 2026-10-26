@@ -9,15 +9,13 @@ door — use ``show``".
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Self
 
 from punt_lux.domain.ids import ElementId
 
 __all__ = ["StructuralFieldWriteError"]
 
 
-@dataclass(frozen=True, slots=True)
 class StructuralFieldWriteError(TypeError):
     """Raised when a ``set`` names a field that carries child elements.
 
@@ -31,12 +29,28 @@ class StructuralFieldWriteError(TypeError):
     rebuilds the subtree correctly.
     """
 
-    element_id: ElementId
-    field: Literal["children", "tabs"]
+    _element_id: ElementId
+    _field: Literal["children", "tabs"]
+
+    def __new__(cls, element_id: ElementId, field: Literal["children", "tabs"]) -> Self:
+        self = super().__new__(cls, element_id, field)
+        self._element_id = element_id
+        self._field = field
+        return self
+
+    @property
+    def element_id(self) -> ElementId:
+        """The element the write named."""
+        return self._element_id
+
+    @property
+    def field(self) -> Literal["children", "tabs"]:
+        """The structural field the write named."""
+        return self._field
 
     def __str__(self) -> str:
         return (
-            f"cannot set structural field {self.field!r} on element "
-            f"{str(self.element_id)!r} via update; it carries child elements — "
+            f"cannot set structural field {self._field!r} on element "
+            f"{str(self._element_id)!r} via update; it carries child elements — "
             f"resend the whole tree via show"
         )

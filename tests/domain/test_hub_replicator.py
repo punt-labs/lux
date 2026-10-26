@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
+from punt_lux.bounded_send import TornStreamError
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.batch_sender import BatchSendError
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
@@ -44,7 +45,7 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
-from tests.dial_double import fake_dial
+from tests.dial_double import end_fake_dial, fake_dial
 from tests.link_access import deaths_of
 
 if TYPE_CHECKING:
@@ -276,6 +277,10 @@ class _FakeSender:
     def _ends_dial(self, exc: Exception) -> None:
         """A socket failure the display caused leaves a death; the Hub's does not."""
         if isinstance(exc, OSError) and not isinstance(exc, HubRetiredError):
+            # The dial's own record, as its writer leaves it: a send the deadline cut
+            # short is the display not answering, anything else is its end.
+            wedged = isinstance(exc, BlockingIOError | TornStreamError)
+            end_fake_dial(self._dial, "unresponsive" if wedged else "display")
             self.die()
 
     def send_scene(self, message: SceneMessage) -> None:

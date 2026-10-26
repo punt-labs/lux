@@ -8,11 +8,10 @@ errors so the caller can distinguish ``unknown scene`` from
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Self, final
 
 from punt_lux.domain.element import Element as WireElement
-from punt_lux.domain.element_identity import ElementIdentity
+from punt_lux.domain.element_identity import ElementIdentity, HasId
 from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
@@ -24,25 +23,49 @@ __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
 _ANON_KEY_PREFIX = "\x00lux-anon:"
 
 
-@dataclass(frozen=True, slots=True)
 class UnknownSceneError(LookupError):
     """Raised when ``lookup`` targets a scene that has never been added."""
 
-    scene_id: SceneId
+    _scene_id: SceneId
+
+    def __new__(cls, scene_id: SceneId) -> Self:
+        self = super().__new__(cls, scene_id)
+        self._scene_id = scene_id
+        return self
+
+    @property
+    def scene_id(self) -> SceneId:
+        """The scene that was never added."""
+        return self._scene_id
 
     def __str__(self) -> str:
-        return f"unknown scene: {self.scene_id!r}"
+        return f"unknown scene: {self._scene_id!r}"
 
 
-@dataclass(frozen=True, slots=True)
 class UnknownElementError(LookupError):
     """Raised when ``lookup`` targets an element that is not in the index."""
 
-    scene_id: SceneId
-    element_id: ElementId
+    _scene_id: SceneId
+    _element_id: ElementId
+
+    def __new__(cls, scene_id: SceneId, element_id: ElementId) -> Self:
+        self = super().__new__(cls, scene_id, element_id)
+        self._scene_id = scene_id
+        self._element_id = element_id
+        return self
+
+    @property
+    def scene_id(self) -> SceneId:
+        """The scene that was searched."""
+        return self._scene_id
+
+    @property
+    def element_id(self) -> ElementId:
+        """The element that is not in it."""
+        return self._element_id
 
     def __str__(self) -> str:
-        return f"unknown element: {self.element_id!r} in scene {self.scene_id!r}"
+        return f"unknown element: {self._element_id!r} in scene {self._scene_id!r}"
 
 
 @final
@@ -104,9 +127,9 @@ class ElementIndex:
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
-            raise UnknownSceneError(scene_id=scene_id)
+            raise UnknownSceneError(scene_id)
         if parent_id not in scene:
-            raise UnknownElementError(scene_id=scene_id, element_id=parent_id)
+            raise UnknownElementError(scene_id, parent_id)
         key = self._allocate_key(ElementId(element.id), element)
         scene[key] = element
         return key
@@ -127,13 +150,13 @@ class ElementIndex:
         """Return the indexed Element or raise the matching lookup error."""
         scene = self._by_scene.get(scene_id)
         if scene is None:
-            raise UnknownSceneError(scene_id=scene_id)
+            raise UnknownSceneError(scene_id)
         element = scene.get(element_id)
         if element is None:
-            raise UnknownElementError(scene_id=scene_id, element_id=element_id)
+            raise UnknownElementError(scene_id, element_id)
         return element
 
-    def scene_of(self, element: WireElement) -> SceneId | None:
+    def scene_of(self, element: HasId) -> SceneId | None:
         """Return the scene that holds ``element`` itself; ``None`` if none does.
 
         Identity, not id: a same-named element of another scene is not this one.

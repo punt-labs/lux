@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.domain.handler_writes import WriteRefusedError
 from punt_lux.domain.ids import ElementId
 from punt_lux.domain.interaction_errors import WrongKindError
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -84,12 +86,17 @@ class EventHandlerHost:
         cannot affect the in-flight call. A handler that raises is
         logged with full traceback; remaining handlers still run — this
         is a fan-out boundary where one bad subscriber must not stop
-        delivery to the others (PY-EH-6 system-boundary exemption).
+        delivery to the others (PY-EH-6 system-boundary exemption). Two things are
+        no subscriber's own failure and pass through: a write the judge refused (the
+        transaction the handler runs in rolls back and reports it) and a
+        :class:`~punt_lux.domain.programmer_error.ProgrammerError`.
         """
         snapshot = tuple(self._handlers.get(type(event), ()))
         for handler in snapshot:
             try:
                 handler(event)
+            except (WriteRefusedError, ProgrammerError):
+                raise  # the transaction the handler runs in rolls back, or it is a bug
             except Exception:
                 logger.exception(
                     "handler raised on %s for element %s",
@@ -162,10 +169,10 @@ class EventHandlerHost:
                     value=value,
                 )
         raise WrongKindError(
-            scene_id=scene_id,
-            element_id=element_id,
-            expected=self._interactive_kinds_summary(),
-            got=repr(event_kind),
+            scene_id,
+            element_id,
+            self._interactive_kinds_summary(),
+            repr(event_kind),
         )
 
     def _interactive_kinds_summary(self) -> str:

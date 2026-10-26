@@ -305,16 +305,20 @@ def _fires_in(source: str) -> list[str]:
 
 
 def _fires_outside_a_judged_scope(source: str) -> list[str]:
-    """Every ``<x>.fire`` named outside a ``with HandlerWrites.judged(...)`` body."""
+    """Every ``<x>.fire`` named outside the argument of a ``<x>.run_handler(...)``.
+
+    ``BatchTransaction.run_handler`` runs its argument under the judge, and undoes
+    every write the handler made when one is refused.
+    """
     tree = ast.parse(source)
     judged: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.With) and any(
-            isinstance(item.context_expr, ast.Call)
-            and ast.unparse(item.context_expr.func) == "HandlerWrites.judged"
-            for item in node.items
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "run_handler"
         ):
-            judged.update(id(inner) for inner in ast.walk(node))
+            judged.update(id(inner) for arg in node.args for inner in ast.walk(arg))
     return [
         ast.unparse(node)
         for node in ast.walk(tree)
@@ -354,9 +358,8 @@ class TestOnlyAJudgedInteractionFiresAnEventOnTheHub:
 
     def test_a_fire_inside_the_scope_is_not_flagged(self) -> None:
         planted = (
-            "def f(element, event, judge):\n"
-            "    with HandlerWrites.judged(judge):\n"
-            "        element.fire(event)\n"
+            "def f(element, event, transaction):\n"
+            "    transaction.run_handler(lambda: element.fire(event))\n"
         )
 
         assert _fires_outside_a_judged_scope(planted) == []

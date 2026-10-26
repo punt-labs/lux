@@ -72,7 +72,7 @@ class TestAHandlerWritesAnElementOfAnotherScene:
         button = _button_that_writes(_writes_nodes(tree, _DEEP))
         store = _two_scenes(button, tree)
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             _fire(store, button)
 
         assert tree.nodes == ()
@@ -97,7 +97,7 @@ class TestAHandlerWritesAnElementOfAnotherScene:
         store.replace_scene(_OWNER, _SCENE, [button, namesake])
         store.replace_scene(_OWNER, _OTHER, [target])
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             _fire(store, button)
 
         assert target.nodes == ()
@@ -113,7 +113,7 @@ class TestAHandlerWritesAnElementNoSceneHolds:
         button = _button_that_writes(relabel)
         store = _store_with(button)
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             _fire(store, button)
 
         assert tree.label == ""
@@ -147,7 +147,7 @@ class TestAnObserverWokenByAnAgentWrite:
         table, tree = _table_with_a_deepening_observer(_DEEP)
         store = _store_of(table, tree)
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             _update(store, "tb", {"rows": [["s"]]})
 
         assert tree.nodes == ()

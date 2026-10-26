@@ -135,11 +135,6 @@ class FlakySocket:
         with self._exclusive():
             return self._sock.send(data)
 
-    def has_send_timeout(self) -> bool:
-        """Whether ``SO_SNDTIMEO`` is set on the real socket."""
-        packed = self._sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 16)
-        return packed != bytes(len(packed))
-
     def recv(self, size: int) -> bytes:
         """Read, counting a read that overlaps a write (a TLS socket forbids it)."""
         with self._guard:

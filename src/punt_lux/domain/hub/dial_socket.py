@@ -4,7 +4,7 @@ A dial's socket is read by one reader at a time and written by one writer at a t
 who reads is the connection's decision (the
 :class:`~punt_lux.domain.hub.reader_slot.ReaderSlot` it publishes with the dial), and
 this object's I/O does not consult it. Both hold the socket's lock across the
-``recv`` or the ``sendall``, because a TLS socket forbids a read and a write at once;
+``recv`` or the bounded send, because a TLS socket forbids a read and a write at once;
 a write also holds it across the bookkeeping that goes with it (the ack a scene is
 owed, the reply a ping or query waits for), so the reader cannot take a byte of a
 reply before its entry exists.
@@ -106,6 +106,11 @@ class DialSocket:
         """The ``ReadyMessage`` the handshake received."""
         return self._dial.ready
 
+    @property
+    def is_tls(self) -> bool:
+        """Whether this dial's socket is TLS: the cross-host transport."""
+        return isinstance(self._dial.sock, ssl.SSLSocket)
+
     def send(self, msg: Message) -> None:
         """Write ``msg``, serialized against every other writer."""
         self._write_locked(encode_message(msg), lambda: None, lambda _: None)
@@ -143,19 +148,19 @@ class DialSocket:
         closed the stream raises :class:`ConnectionClosedError`; the dial is asked
         again under the socket lock, so a read never starts on an ended dial.
         """
+        # Checked before anything is waited for: a poll made under the store lock
+        # fails the first time it runs, on a quiet socket as on a busy one.
+        LockDiscipline.forbid_store("the dial socket lock")
         readable, _, _ = select.select([self._dial.sock], [], [], timeout)
         if not readable:
             return None
-        LockDiscipline.forbid_store("the dial socket lock")
         with self._lock:
             self._require_open()
-            chunk = self._read_now()
-        if chunk is None:
-            return None  # readable, but no application byte yet
-        if not chunk:
+            look = self._read_now()
+        if look.ended:
             msg = f"the display at {self.endpoint} closed the connection"
             raise ConnectionClosedError(msg)
-        return chunk
+        return look.chunk or None  # readable, but no application byte yet: nothing
 
     def drain(self) -> Drained:
         """Take what the socket already holds, without waiting; say if its end came.
@@ -174,11 +179,11 @@ class DialSocket:
         end, not the Hub's. Raises :class:`DrainIncompleteError` when a writer holds
         the socket past the ceiling: with bytes readable, no look at all is no answer.
         """
+        LockDiscipline.forbid_store("the dial socket lock")  # on every drain, first
         try:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
             if not readable:
                 return Drained(b"", ended=False)
-            LockDiscipline.forbid_store("the dial socket lock")
             if not self._lock.acquire(timeout=SEND_TIMEOUT_CEILING_SECONDS):
                 # A writer holds the lock past the send timeout. Bytes are readable
                 # and unread, so this is no answer: the look is incomplete, and the
@@ -191,34 +196,34 @@ class DialSocket:
                 msg = f"the last look at {self.endpoint} could not be made"
                 raise DrainIncompleteError(msg)
             try:
-                chunk = self._read_now()
+                return self._read_now()
             finally:
                 self._lock.release()
-            if chunk is None:
-                return Drained(b"", ended=False)
         except (OSError, ValueError) as exc:
-            CutShort(self.endpoint, exc).report(
-                captured=self._sink.captured,
-                is_tls=isinstance(self._dial.sock, ssl.SSLSocket),
-            )
+            CutShort(
+                self.endpoint, exc, captured=self._sink.captured, is_tls=self.is_tls
+            ).report()
             return Drained(b"", ended=True)
-        return Drained(chunk, ended=not chunk)
 
-    # PY-TS-14 OK: None is readable but no application byte yet: nothing more now.
-    def _read_now(self) -> bytes | None:
+    def _read_now(self) -> Drained:
         """Read what the socket holds without waiting, on either transport.
 
         The lock is held. The socket is made non-blocking for this read alone: a TLS
         socket's descriptor is readable for post-handshake records (session tickets)
         that carry no application byte, and a blocking ``recv`` would wait for one.
-        ``None`` is nothing more now; ``b""`` is end of file.
+        Three answers, none packed into another: bytes, the stream's end, and nothing
+        more now (no bytes, not ended).
         """
         sock = self._dial.sock
         sock.settimeout(0.0)
         try:
-            return sock.recv(_READ_CHUNK) + self._decrypted_backlog()
-        except (BlockingIOError, ssl.SSLWantReadError):
-            return None
+            chunk = sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+            return Drained(chunk, ended=not chunk)
+        except (BlockingIOError, ssl.SSLWantReadError, ssl.SSLWantWriteError):
+            # Nothing now. A TLS read may need to write (a key update) into a send
+            # buffer a stalled peer has filled: that is the write's deadline to judge,
+            # not an end of the display's.
+            return Drained(b"", ended=False)
         finally:
             with contextlib.suppress(OSError):  # closed by its own capture meanwhile
                 sock.settimeout(None)

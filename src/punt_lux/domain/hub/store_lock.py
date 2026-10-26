@@ -12,10 +12,10 @@ deadlock against itself.
 intent at the call site while a single reentrant slot enforces the one exclusion that
 matters. The lock is its own context manager, not a generator-based one, so an
 exception raised inside a held block — ``HubOwnershipError`` and friends —
-propagates natively, without a re-raise layer reassigning its traceback. It records
-that the thread holds it (:class:`~punt_lux.domain.hub.lock_discipline.
-LockDiscipline`), which is what lets the rule that no dial socket lock is taken under
-it be enforced.
+propagates natively, without a re-raise layer reassigning its traceback. Its guard
+counts, per thread, the holds that thread has made (:class:`StoreGuard`), which is
+what lets the rule that no dial socket lock is taken under it be enforced
+(:class:`~punt_lux.domain.hub.lock_discipline.LockDiscipline`).
 """
 
 from __future__ import annotations
@@ -23,7 +23,8 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.lock_discipline import LockDiscipline
+from punt_lux.domain.hub.guard_registry import GuardRegistry
+from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -31,21 +32,39 @@ if TYPE_CHECKING:
 __all__ = ["StoreGuard", "StoreLock"]
 
 
+class _Held(threading.local):
+    """How many times the current thread holds one guard."""
+
+    depth: int = 0
+
+
 @final
 class StoreGuard:
-    """The context manager of the store lock: it holds the lock and notes the holder."""
+    """The context manager of the store lock: it holds the lock and counts its holders.
+
+    The count is per thread and per guard, and only this class changes it, so it is
+    the number of holds this thread has made and not yet let go, whatever else runs.
+    Letting go of a lock this thread does not hold is a programmer error and raises.
+    """
 
     _lock: threading.RLock
-    __slots__ = ("_lock",)
+    _held: _Held
+    __slots__ = ("__weakref__", "_held", "_lock")
 
     def __new__(cls, lock: threading.RLock) -> Self:
         self = super().__new__(cls)
         self._lock = lock
+        self._held = _Held()
+        GuardRegistry.register(self)
         return self
+
+    def holds_here(self) -> bool:
+        """Whether the current thread holds this lock."""
+        return self._held.depth > 0
 
     def __enter__(self) -> bool:
         acquired = self._lock.acquire()
-        LockDiscipline.store_taken()
+        self._held.depth += 1
         return acquired
 
     def __exit__(
@@ -54,7 +73,10 @@ class StoreGuard:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        LockDiscipline.store_released()
+        if self._held.depth == 0:
+            msg = "a store lock was released by a thread that does not hold it"
+            raise LockDisciplineError(msg)
+        self._held.depth -= 1
         self._lock.release()
 
 

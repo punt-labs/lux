@@ -13,9 +13,9 @@ The judge is held in a context variable, so it follows the thread that fired the
 event, and it is lifted while the judge itself runs: a judge that measures a write on
 a copy would otherwise be judged in turn.
 
-The scope is a plain context manager, not a generator one: a refusal is an exception
-the judge raises inside it, and ``contextlib`` re-assigns the traceback of whatever
-passes through a generator manager, which a frozen, slotted exception does not allow.
+The scope is a plain context manager: a refusal is an exception the judge raises
+inside it, and it passes through untouched. The refusals are plain exception classes
+too, so a generator manager elsewhere on their way out cannot break them.
 """
 
 from __future__ import annotations

@@ -12,6 +12,7 @@ after it would leave.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.handler_writes import HandlerWrites, WriteRefusedError
@@ -45,29 +46,58 @@ class BatchTransaction:
         return self
 
     # PY-TS-14 OK: None is a batch that stood.
-    def run(
-        self, realizations: Sequence[FieldRealization], *, raises_refusal: bool = False
-    ) -> WriteRejected | None:
+    def run(self, realizations: Sequence[FieldRealization]) -> WriteRejected | None:
         """Commit every realization as one unit; why the judge refused it, if it did.
 
         On a refusal, or any other failure, every element written is put back and its
-        observers told. A refusal is returned as the agent's ``WriteRejected``, or
-        raised as the very error the judge made when ``raises_refusal`` (a store-level
-        write has no ``WriteRejected`` to carry it); any other failure is raised once
-        the undo is done.
+        observers told. A refusal is returned as the agent's ``WriteRejected``; any
+        other failure is raised once the undo is done.
         """
         judge = BatchJudge(self._admit, [r.write() for r in realizations])
+        refusal = self._attempt(judge, partial(self._commit_all, realizations))
+        return None if refusal is None else WriteRejected(str(refusal))
+
+    def run_or_raise(self, realizations: Sequence[FieldRealization]) -> None:
+        """Commit every realization as one unit, raising the refusal the judge made.
+
+        A store-level write has no ``WriteRejected`` to carry a refusal, so the very
+        error the judge raised leaves, once every element written is put back.
+        """
+        judge = BatchJudge(self._admit, [r.write() for r in realizations])
+        refusal = self._attempt(judge, partial(self._commit_all, realizations))
+        if refusal is not None:
+            raise refusal
+
+    # PY-TS-14 OK: None is a handler whose writes stood.
+    def run_handler(self, handle: Callable[[], None]) -> WriteRefusedError | None:
+        """Run a handler whose every write stands, or none does; the refusal, if any.
+
+        The handler's own writes, and those the observers they wake make, are judged
+        as they are made and measured once more when the handler has returned. A
+        refusal anywhere puts every element written back, observers' state included,
+        and is returned for the caller to report; any other failure is raised once
+        the undo is done.
+        """
+        return self._attempt(BatchJudge(self._admit, []), handle)
+
+    # PY-TS-14 OK: None is a transaction that stood.
+    def _attempt(
+        self, judge: BatchJudge, work: Callable[[], None]
+    ) -> WriteRefusedError | None:
+        """Run ``work`` under ``judge``; the refusal that rolled it back, if any."""
         with HandlerWrites.judged(judge):
             try:
-                for realization in realizations:
-                    realization.commit()
+                work()
                 self._within_cap(judge.written)
             except WriteRefusedError as exc:
                 judge.roll_back()
-                if raises_refusal:
-                    raise
-                return WriteRejected(str(exc))
+                return exc
             except Exception:
                 judge.roll_back()
                 raise
         return None
+
+    @staticmethod
+    def _commit_all(realizations: Sequence[FieldRealization]) -> None:
+        for realization in realizations:
+            realization.commit()

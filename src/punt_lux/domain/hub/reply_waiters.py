@@ -21,6 +21,7 @@ import threading
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.domain.hub.pending import Pending
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
@@ -99,6 +100,7 @@ class ReplyWaiters:
         The caller holds the lock and says whether the ledger holds anything; the ack
         that empties it answers the wait (:meth:`ledger_emptied_locked`).
         """
+        self._require_held()
         self._require_live_locked()
         if not owed:
             return None
@@ -146,6 +148,7 @@ class ReplyWaiters:
 
     def deliver_pong_locked(self, pong: PongMessage) -> None:
         """Answer the ping in flight if ``pong`` echoes it; a stray is dropped."""
+        self._require_held()
         ping = self._ping
         if ping is None or ping.key != pong.ts:
             logger.debug("dropping a pong for ts %s: no such ping in flight", pong.ts)
@@ -155,6 +158,7 @@ class ReplyWaiters:
 
     def deliver_query_locked(self, response: QueryResponse) -> None:
         """Answer the query in flight; none in flight is a skewed stream."""
+        self._require_held()
         query = self._query
         if query is None:
             what = response.method
@@ -165,6 +169,7 @@ class ReplyWaiters:
 
     def ledger_emptied_locked(self, ack: AckMessage) -> None:
         """Answer the wait for the ledger to empty, if there is one, with ``ack``."""
+        self._require_held()
         drained = self._drained
         if drained is not None:
             self._hand_over_locked(drained, ack)
@@ -172,11 +177,19 @@ class ReplyWaiters:
 
     def fail_all_locked(self) -> None:
         """Forget every ticket and wake every waiter: the dial is ending."""
+        self._require_held()
         self._ping = None
         self._query = None
         self._drained = None
         self._waiting.clear()
         self._cond.notify_all()
+
+    def _require_held(self) -> None:
+        """Raise unless the sink's lock is held: a ``*_locked`` body is its step's."""
+        if self._cond.acquire(blocking=False):
+            self._cond.release()
+            msg = "a *_locked method of the reply waiters ran without the sink's lock"
+            raise LockDisciplineError(msg)
 
     def _require_live_locked(self) -> None:
         """Raise once the dial is ending; the caller holds the lock."""

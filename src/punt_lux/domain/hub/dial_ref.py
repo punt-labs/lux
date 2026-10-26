@@ -40,6 +40,21 @@ class DialRef:
     def __hash__(self) -> int:
         return id(self._generation)
 
+    @property
+    # PY-TS-14 OK: None until a cause is recorded for the dial's end.
+    def ended(self) -> RetireCause | None:
+        """The cause recorded for this dial's end; ``None`` while none is.
+
+        A read, no power over the dial: whoever healed after a failure asks *why* the
+        dial ended, and the dial's own record answers, not the exception it raised.
+        """
+        return self._generation.ended
+
+    @property
+    def is_cross_host(self) -> bool:
+        """Whether this dial reaches a Display on another host (TCP and mTLS)."""
+        return self._generation.is_cross_host
+
     def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
         """End this dial in ``connection`` if it is still the current one.
 

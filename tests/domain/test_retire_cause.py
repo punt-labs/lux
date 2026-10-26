@@ -146,8 +146,10 @@ class TestADialTheDisplayEnded:
         link = _linked(display)
         display.sockets[-1].fail_next_send = True
 
-        with pytest.raises(OSError, match="fell over"):
+        with pytest.raises(ConnectionClosedError) as raised:
             writer_of(link).send_scene(_scene("x"))
+
+        assert "fell over" in str(raised.value.__cause__)
 
         assert _is_the_displays_end(_next_request_error(link))
 

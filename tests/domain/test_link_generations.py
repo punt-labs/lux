@@ -321,7 +321,7 @@ class TestAWriteThatRaises:
         link = _linked(display)
         display.sockets[0].fail_next_send = True
 
-        with pytest.raises(OSError, match="fell over"):
+        with pytest.raises(ConnectionClosedError):
             writer_of(link).send_scene(_scene("lost"))
         assert until(lambda: not link.is_connected)  # the dial's reader settles it
 
@@ -819,7 +819,7 @@ class TestEveryRetirementReachesTheRegistry:
     def test_a_torn_write(self, display: Display) -> None:
         registry, link = self._registry(display)
         display.sockets[0].fail_next_send = True
-        with pytest.raises(OSError, match="fell over"):
+        with pytest.raises(ConnectionClosedError):
             writer_of(link).send_scene(_scene("s"))
         assert until(lambda: not link.is_connected)
 
@@ -947,18 +947,6 @@ class TestAPeerThatStopsReading:
         assert time.monotonic() - began < 5.0
         assert isinstance(showing.error, OSError)
         assert isinstance(pinging.error, OSError)
-
-    def test_every_dial_s_socket_carries_the_send_timeout(
-        self, display: Display
-    ) -> None:
-        link = _linked(display)
-        assert display.sockets[0].has_send_timeout()
-
-        link.close()
-        link.connect()  # a redial gets it too
-
-        assert display.sockets[1].has_send_timeout()
-        link.close()
 
 
 class TestRegistryLocksAreNotHeldUnderTheModelsLocks:
@@ -1353,7 +1341,7 @@ class TestDeclaringWhatTheHubHolds:
             display.sockets[-1].fail_next_send = True
             return (SceneId("a"),)
 
-        with pytest.raises(OSError, match="fell over"):
+        with pytest.raises(ConnectionClosedError):
             link.open_as_hub(failing_manifest)
 
         assert not link.is_connected

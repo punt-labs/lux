@@ -45,8 +45,8 @@ class Owner:
         """Raise ``HubOwnershipError`` unless ``attempting`` is this owner."""
         if self.connection_id != attempting:
             raise HubOwnershipError(
-                scene_id=scene_id,
-                element_id=element_id,
-                attempting=attempting,
-                owning=self.connection_id,
+                scene_id,
+                element_id,
+                attempting,
+                self.connection_id,
             )

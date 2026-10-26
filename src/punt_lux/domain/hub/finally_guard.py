@@ -1,20 +1,23 @@
-"""FinallyGuard -- an action in a ``finally`` that may not hide the failure it follows.
+"""FinallyGuard -- an action that follows a body, and may not hide the body's failure.
 
-A settle or a release runs in a ``finally`` so that it happens whatever the body did.
-When the body raised and the action raises too, Python lets the second replace the
-first, and the read failure that caused everything disappears from the traces. The
-guard runs the action; if a failure is already in flight it logs the action's own
-failure, with its chain, and lets the original go on.
+A settle or a release runs after a body so that it happens whatever the body did. When
+the body raised and the action raises too, Python lets the second replace the first,
+and the read failure that caused everything disappears from the traces. The guard is a
+context manager, so the action learns from ``__exit__`` what the body itself did: the
+body's own exception, or none. If the body failed, the action's own failure is logged,
+with its chain, and the body's failure goes on. If the body succeeded the action's
+failure propagates as any would, even when the whole call runs inside someone else's
+``except`` handler: nothing about the thread's state decides it.
 """
 
 from __future__ import annotations
 
 import logging
-import sys
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import TracebackType
 
 logger = logging.getLogger(__name__)
 
@@ -23,23 +26,32 @@ __all__ = ["FinallyGuard"]
 
 @final
 class FinallyGuard:
-    """Runs the action of a ``finally`` block."""
+    """Runs an action once its ``with`` body ends, by the body's own outcome."""
 
-    __slots__ = ()
+    _action: Callable[[], object]
+    _what: str
+    __slots__ = ("_action", "_what")
 
-    @staticmethod
-    def run(action: Callable[[], object], what: str) -> None:
-        """Run ``action``; its failure never replaces one already being raised.
+    def __new__(cls, action: Callable[[], object], what: str) -> Self:
+        self = super().__new__(cls)
+        self._action = action
+        self._what = what
+        return self
 
-        With nothing in flight the action's failure propagates as any would. With a
-        failure in flight it is logged as ``what`` failing, chained to the original,
-        and the original is the one that goes on.
-        """
-        original = sys.exception()
-        if original is None:
-            action()
+    def __enter__(self) -> None:
+        logger.debug("guarding the action that follows: %s", self._what)
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Run the action; its failure never replaces the body's. Never swallows."""
+        if exc is None:
+            self._action()
             return
         try:
-            action()
+            self._action()
         except Exception:
-            logger.exception("%s failed while handling %r", what, original)
+            logger.exception("%s failed while handling %r", self._what, exc)

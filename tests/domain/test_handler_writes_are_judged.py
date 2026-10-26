@@ -59,7 +59,7 @@ def _fire(store: HubDisplay, button: ButtonElement) -> None:
     """Fire a click on ``button`` the way Hub dispatch does, under the store's judge."""
     with store.write_lock():  # Hub dispatch fires under the store write lock
         ResolvedInteraction(element=button, owner=None, scene_id=_SCENE).fire(
-            _click(), store.write_seam.admit
+            _click(), store.write_seam.transaction()
         )
 
 
@@ -77,11 +77,11 @@ class TestAHandlerWriteThroughTheSeam:
         button, tree = _scene_with_a_handler(_DEEP)
         store = _store_with(button, tree)
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             _fire(store, button)
 
         assert tree.nodes == ()
-        assert "handler raised on ButtonClicked for element b" in caplog.text
+        assert "handler of ButtonClicked on element b refused" in caplog.text
 
     def test_a_shallow_write_is_applied(self) -> None:
         button, tree = _scene_with_a_handler(2)

@@ -203,8 +203,8 @@ class HubSceneWriter:
         owner = self._display.owner_of(scope.scene_id, element_id)
         if owner not in (None, scope.connection_id):
             raise HubOwnershipError(
-                scene_id=scope.scene_id,
-                element_id=element_id,
-                attempting=scope.connection_id,
-                owning=owner,
+                scope.scene_id,
+                element_id,
+                scope.connection_id,
+                owner,
             )

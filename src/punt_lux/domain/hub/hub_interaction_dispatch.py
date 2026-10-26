@@ -85,7 +85,7 @@ class HubInteractionDispatch:
             logger.warning("hub dispatch denied element_id=%s: %s", msg.element_id, exc)
             return
         with hub_display.write_lock():  # handler writes walk the index show mutates
-            resolved.fire(event, hub_display.write_seam.admit)
+            resolved.fire(event, hub_display.write_seam.transaction())
         # A handler may have mutated the scene; the replicator (the sole display
         # writer) resends it. mark_dirty is queue-only, so a click never blocks.
         hub_replicator.mark_dirty(resolved.scene_id)

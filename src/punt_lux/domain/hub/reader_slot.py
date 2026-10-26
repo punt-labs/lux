@@ -17,7 +17,10 @@ critical section that frees it, and a debt keeps the slot: the releaser settles 
 before it lets go. A refused asker waits for the holder, up to
 :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND`, and then settles the dial itself
 through the capability the refusal handed it. A holder whose own drain could not be
-made (a writer held the socket past the ceiling) leaves its capture to the same bound.
+made (a writer held the socket past the ceiling) leaves its capture to the same bound
+(``s2lat``). Those two, and :meth:`Settler.end_stream
+<punt_lux.domain.hub.settler.Settler.end_stream>` (``s2dec``, a stream that cannot be
+read past), are the three undrained captures; every other capture follows a drain.
 """
 
 from __future__ import annotations
@@ -173,13 +176,11 @@ class ReaderSlot:
         debt an end left while it read.
         """
         settler = self._take(route)
-        try:
+        with FinallyGuard(
+            lambda: None if settler is None else self._release(settler),
+            "letting go of the slot",
+        ):
             yield settler
-        finally:
-            if settler is not None:
-                FinallyGuard.run(
-                    lambda: self._release(settler), "letting go of the slot"
-                )
 
     def ask_settle(self, route: Route, cause: RetireCause, *, may_wait: bool) -> None:
         """Ask for the dial to be settled, an end having been recorded or requested.
@@ -202,12 +203,8 @@ class ReaderSlot:
                 )
         if granted:
             settler = self._settler(route)
-            try:
+            with FinallyGuard(lambda: self._release(settler), "letting go of the slot"):
                 settler.settle()
-            finally:
-                FinallyGuard.run(
-                    lambda: self._release(settler), "letting go of the slot"
-                )
         elif may_wait:
             self._late()(cause)
 

@@ -12,7 +12,6 @@ where the bound is the thing under test.
 from __future__ import annotations
 
 import logging
-import socket
 import threading
 import time
 from typing import TYPE_CHECKING, Self, cast, final
@@ -23,13 +22,16 @@ from punt_lux.bounded_send import TornStreamError
 from punt_lux.domain.hub import bounded_ask, dial_socket
 from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.batch_sender import BatchSendError
+from punt_lux.domain.hub.bounded_ask import BoundedAsk
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
+    UnresponsiveError,
 )
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.dial_reader import DialReader
+from punt_lux.domain.hub.dial_socket import DialSocket
 from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -51,7 +53,6 @@ from punt_lux.protocol import (
     TextElement,
     encode_frame,
 )
-from punt_lux.send_timeout import SEND_TIMEOUT_PACKED
 from tests.dial_double import fake_dial
 from tests.domain.display_double import Call, Display, FlakySocket, until
 from tests.domain.test_ack_attribution import _ids
@@ -488,6 +489,84 @@ class TestAStalledHolder:
         assert deaths_of(link) == ()
         link.close()
 
+    @pytest.mark.parametrize("operation", ["scene", "ping"])
+    @pytest.mark.parametrize("failure", [BlockingIOError, OSError])
+    def test_p28_a_bound_never_records_a_cause_over_a_hub_request(
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        failure: type[OSError],
+        operation: str,
+    ) -> None:
+        """A writer that lost to a Hub request leaves the dial to the Hub's end.
+
+        The listener holds the slot past the bound, so the failed write's settle is
+        the bound's capture; it records nothing over the pending request, and the
+        capture decides ``hub``: no death, no suspect carried.
+        """
+        _bounded(monkeypatch, 0.5)
+        _short_deadline(monkeypatch)
+        real = DisplayConnection._end_by_writer
+        holder: list[DialGeneration] = []
+
+        def request_first(
+            this: DisplayConnection, gen: DialGeneration, cause: RetireCause
+        ) -> bool:
+            holder[0].request_hub()  # the Hub asks between the failure and the record
+            return real(this, gen, cause)
+
+        monkeypatch.setattr(DisplayConnection, "_end_by_writer", request_first)
+        asked: list[RetireCause] = []
+        real_ask = DisplayListener.ask_settle
+
+        def spy(this: DisplayListener, gen: DialGeneration, cause: RetireCause) -> None:
+            asked.append(cause)
+            real_ask(this, gen, cause)
+
+        monkeypatch.setattr(DisplayListener, "ask_settle", spy)
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("a"))
+        generation = generation_of(link)
+        holder.append(generation)
+        release = _block_the_listener(link, display)
+
+        def fails(_this: FlakySocket, _data: bytes) -> int:
+            raise failure
+
+        monkeypatch.setattr(FlakySocket, "send", fails)
+        failing = Call(
+            (lambda: generation.send_scene(_scene("b")))
+            if operation == "scene"
+            else (lambda: generation.send_ping(1.0))
+        )
+
+        assert failing.wait(3.0), "the bound never captured the dial"
+        assert isinstance(failing.error, HubRetiredError)
+        assert generation.ended == "hub"
+        assert asked == ["hub"]  # the cause that stands, not the writer's own
+        assert until(lambda: not link.is_connected)
+        assert deaths_of(link) == ()
+        release.set()
+        link.close()
+
+    @pytest.mark.parametrize("cause", ["display", "unresponsive"])
+    def test_p28_the_bound_records_nothing_over_a_pending_hub_request(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch, cause: RetireCause
+    ) -> None:
+        _bounded(monkeypatch, 0.1)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        generation.request_hub()
+        captured: list[RetireCause] = []
+
+        def capture(_gen: DialGeneration, standing: RetireCause) -> bool:
+            captured.append(standing)
+            return True
+
+        assert BoundedAsk(generation, capture).settle_by_bound(cause)
+
+        assert captured == ["hub"]
+
 
 class TestASettleIsOneAndAnEndIsTheFirstRecorded:
     def test_p13_a_recorded_cause_is_never_overridden_by_what_the_drain_sees(
@@ -655,7 +734,7 @@ class TestASendThatTimesOut:
         generation = generation_of(link)
         display.sockets[-1].time_out_next_send = True
 
-        with pytest.raises(BlockingIOError):
+        with pytest.raises(UnresponsiveError):
             generation.send_scene(_scene("b"))
 
         assert generation.ended == "unresponsive"
@@ -845,10 +924,8 @@ class TestTheWriter:
         link = _linked(display, listening=False)
         generation = generation_of(link)
         writer_of(link).send_scene(_scene("a"))
-        # No send timeout: only the capture's shutdown can end the stuck write.
-        display.sockets[-1]._sock.setsockopt(
-            socket.SOL_SOCKET, socket.SO_SNDTIMEO, bytes(len(SEND_TIMEOUT_PACKED))
-        )
+        # Only the capture's shutdown can end the stuck write: it is a kernel send
+        # the deadline cannot cut.
         stuck = threading.Event()
 
         def jam(this: FlakySocket, _data: bytes) -> int:
@@ -869,7 +946,7 @@ class TestTheWriter:
             assert settling.wait(5.0)
             assert generation.is_settled
             assert writing.wait(5.0), "the capture left the writer stuck in sendall"
-            assert isinstance(writing.error, OSError)
+            assert isinstance(writing.error, UnresponsiveError)
         finally:
             display.peer.close()
 
@@ -1045,8 +1122,48 @@ class TestTheWriter:
         assert display.sockets[-1]._sock.fileno() == -1  # the socket was released
 
 
+# Scheduling slack on top of a deadline: the deadline is a ceiling, not an alarm clock.
+_SLACK = 0.25
+
+
 class TestABoundedWrite:
     """Every write, and every wait for the socket lock, ends within the deadline D."""
+
+    def test_p27_one_deadline_covers_the_wait_for_the_lock_and_the_write(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A lock held for most of D, then a write that stalls: D from the start.
+
+        Separate deadlines for the two would make 2D, and a deadline taken after the
+        lock is won would let the wait and the write each have the whole of D.
+        """
+        deadline = 0.8
+        _short_deadline(monkeypatch, deadline)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.send
+
+        def holds_then_stalls_the_next(this: FlakySocket, data: bytes) -> int:
+            holding.set()
+            assert release.wait(10.0)
+            sent = real(this, data)
+            this.time_out_next_send = True  # the next writer meets a peer that stalls
+            return sent
+
+        monkeypatch.setattr(FlakySocket, "send", holds_then_stalls_the_next)
+        first = Call(lambda: generation.send_scene(_scene("a")))
+        assert holding.wait(3.0)
+
+        began = time.monotonic()
+        second = Call(lambda: generation.send_ping(1.0))
+        threading.Timer(deadline * 0.75, release.set).start()  # most of D, then free
+        assert second.wait(deadline + 2.0), "the second write did not end"
+        took = time.monotonic() - began
+        first.wait()
+
+        assert isinstance(second.error, UnresponsiveError)
+        assert took < deadline + _SLACK, f"the write got {took:.2f}s, D is {deadline}"
 
     def test_p25_a_plain_socket_write_ends_within_the_same_deadline(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
@@ -1063,7 +1180,7 @@ class TestABoundedWrite:
         assert failing.wait(5.0), "the write did not end within the bound"
         took = time.monotonic() - began
 
-        assert isinstance(failing.error, OSError)
+        assert isinstance(failing.error, UnresponsiveError)
         assert took < 0.2 + 1.5
         assert generation.ended == "unresponsive"
         assert generation.is_settled
@@ -1079,8 +1196,10 @@ class TestABoundedWrite:
             raise TornStreamError(msg)
 
         monkeypatch.setattr(FlakySocket, "send", torn)
-        with pytest.raises(TornStreamError):
+        with pytest.raises(UnresponsiveError) as raised:
             generation.send_scene(_scene("a"))
+
+        assert isinstance(raised.value.__cause__, TornStreamError)
 
         assert generation.ended == "unresponsive"
 
@@ -1113,11 +1232,83 @@ class TestABoundedWrite:
             )
             assert waiting.wait(5.0), "the wait for the socket lock did not end"
             took = time.monotonic() - began
-            assert isinstance(waiting.error, OSError)
+            assert isinstance(waiting.error, UnresponsiveError)
 
-            assert took < 0.3 + 1.5
+            assert took < 0.3 + _SLACK  # D, not the ceiling above it
             assert generation.ended == "unresponsive"
             assert until(lambda: generation.is_settled, 5.0)
         finally:
             release.set()
             stuck.wait()
+
+
+class TestTheWriterRaisesTheDialsClosedError:
+    """A writer reports what ended the dial, whichever socket call said so (C5, S6)."""
+
+    def test_a_display_end_the_writer_recorded_is_a_closed_error_chained_to_it(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        display.sockets[-1].fail_next_send = True
+
+        with pytest.raises(ConnectionClosedError) as raised:
+            generation.send_scene(_scene("a"))
+
+        assert not isinstance(raised.value, HubRetiredError | UnresponsiveError)
+        assert isinstance(raised.value.__cause__, OSError)
+        assert generation.ended == "display"
+
+    def test_a_closed_descriptor_on_an_ending_dial_is_the_capture_race_not_a_bug(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def closed(_this: FlakySocket, _data: bytes) -> int:
+            generation.request_hub()  # the dial is being ended: the Hub asked
+            msg = "file descriptor cannot be a negative integer (-1)"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(FlakySocket, "send", closed)
+        with pytest.raises(HubRetiredError) as raised:
+            generation.send_scene(_scene("a"))
+
+        assert isinstance(raised.value.__cause__, ValueError)
+
+    def test_a_value_error_on_a_dial_nothing_is_ending_is_still_the_hubs_own(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def bug(_this: FlakySocket, _data: bytes) -> int:
+            msg = "a bug of the Hub's own"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(FlakySocket, "send", bug)
+        with pytest.raises(ValueError, match="bug of the Hub"):
+            generation.send_scene(_scene("a"))
+
+        assert generation.is_closed
+
+    def test_a_closed_descriptor_under_an_inline_read_is_the_dials_closed_error(
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def closed(_this: DialSocket, _timeout: float) -> bytes | None:
+            generation.request_hub()  # a capture shut the descriptor under the wait
+            msg = "file descriptor cannot be a negative integer (-1)"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(DialSocket, "poll", closed)
+
+        with caplog.at_level(logging.ERROR), pytest.raises(HubRetiredError):
+            link.desk.asks().query("m", timeout=2.0)
+
+        assert "Inline reply routing failed" not in caplog.text

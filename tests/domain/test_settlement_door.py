@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 _HUB = "domain/hub/"
 _SCREENSHOTS = "display/screenshot_queue.py"  # has a `_capture` of its own
+_CLI_SHARED = "cli/_shared.py"  # reads JSON "inline" from a command line
 
 
 @final
@@ -198,7 +199,7 @@ class TestTheDoorIsTheSlot:
         found = {
             where: count
             for where, count in _everywhere("inline").items()
-            if where.startswith(_HUB)
+            if not where.startswith(_CLI_SHARED)  # unrelated: a JSON command line
         }
 
         assert found == {
@@ -254,6 +255,37 @@ class TestTheDoorIsTheSlot:
 
         assert found == {f"{_HUB}listener_thread.py:ListenerThread._launch": 1}
 
+    def test_a_settler_is_named_only_by_its_holders_and_the_slot(self) -> None:
+        assert _everywhere("settler") == {
+            f"{_HUB}dial_reader.py:DialReader.__new__": 1,
+            f"{_HUB}display_replies.py:DisplayReplies._ended_by": 4,
+            f"{_HUB}display_replies.py:DisplayReplies._read_inline": 2,
+            f"{_HUB}display_replies.py:DisplayReplies.await_reply": 3,
+            f"{_HUB}listener_thread.py:ListenerThread._launch": 1,
+            f"{_HUB}reader_slot.py:ListenerHold.__new__": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot._release": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 3,
+            f"{_HUB}reader_slot.py:ReaderSlot.inline": 4,
+        }
+
+    def test_the_slots_private_doors_are_opened_only_inside_the_slot(self) -> None:
+        slot = f"{_HUB}reader_slot.py:ReaderSlot"
+
+        assert _everywhere("_take") == {f"{slot}.inline": 1}
+        assert _everywhere("_take_inline_locked") == {
+            f"{slot}._take": 1,
+            f"{slot}.ask_settle": 1,
+        }
+        assert _everywhere("_hold") == {
+            f"{slot}.claim_for_listener": 1,
+            f"{slot}.hold_born": 1,
+        }
+        assert _everywhere("_release") == {
+            f"{slot}._hold": 1,
+            f"{slot}.ask_settle": 1,
+            f"{slot}.inline": 1,
+        }
+
     @pytest.mark.parametrize(
         "gone",
         [
@@ -300,6 +332,10 @@ class TestTheGuardCanFail:
             "settle_by_bound",
             "_late",
             "ask_settle",
+            "_take",
+            "_hold",
+            "_release",
+            "_take_inline_locked",
         ],
     )
     @pytest.mark.parametrize(

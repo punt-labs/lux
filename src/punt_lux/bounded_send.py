@@ -76,7 +76,8 @@ class BoundedSend:
                 if offset > 0:
                     msg = "send deadline hit after a partial write; stream torn"
                     raise TornStreamError(msg) from None
-                raise BlockingIOError from None
+                msg = "the send deadline passed before the first byte went out"
+                raise BlockingIOError(msg) from None
             if sent == 0:
                 msg = "socket accepted zero bytes; stream is dead"
                 raise OSError(msg)

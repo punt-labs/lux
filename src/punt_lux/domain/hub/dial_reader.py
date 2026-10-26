@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.finally_guard import FinallyGuard
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     import threading
@@ -78,15 +79,15 @@ class DialReader:
         the loop and is settled here, after the drain, not by whoever found it.
         """
         gave_up: RetireCause | None = None
-        try:
-            gave_up = self._read()
-        finally:
-            FinallyGuard.run(
-                self._settler.settle
+        with FinallyGuard(
+            lambda: (
+                self._settler.settle()
                 if gave_up is None
-                else lambda: self._settler.end_stream(gave_up),
-                f"settling the dial to {self._generation.endpoint}",
-            )
+                else self._settler.end_stream(gave_up)
+            ),
+            f"settling the dial to {self._generation.endpoint}",
+        ):
+            gave_up = self._read()
 
     def _read(self) -> RetireCause | None:
         """Read until the dial ends; who ended a stream this reader gave up on."""
@@ -181,6 +182,8 @@ class DialReader:
         """
         try:
             self._route(self._generation, msg)
+        except ProgrammerError:
+            raise  # a broken rule ends the reader loudly; it is not the message's
         except Exception:
             logger.exception(
                 "Listener route failed on %s from display %s: %s",

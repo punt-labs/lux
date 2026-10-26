@@ -16,7 +16,7 @@ interaction, and an observer woken by either.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.batch_transaction import BatchTransaction
@@ -106,17 +106,20 @@ class WriteSeam:
 
         The batch was judged whole before this; see :class:`BatchTransaction`.
         """
-        return self._transaction().run(realizations)
+        return self.transaction().run(realizations)
 
-    def _transaction(self) -> BatchTransaction:
+    def transaction(self) -> BatchTransaction:
+        """Return a transaction that commits under this seam's judge and cap."""
         return BatchTransaction(self.admit, self._require_final_state_within_cap)
 
     def _require_final_state_within_cap(self, written: Sequence[AbcElement]) -> None:
         """Raise :class:`NestingExceededError` if a scene written now nests too deep."""
         measured: set[SceneId] = set()
         for element in written:
-            scene_id = self._index.scene_of(cast("WireElement", element))
-            if scene_id is None or scene_id in measured:
+            scene_id = self._index.scene_of(element)
+            if scene_id is None:  # an element no scene holds: its cap cannot be known
+                raise UnheldTargetError(element.id)
+            if scene_id in measured:
                 continue
             measured.add(scene_id)
             self.require_within_cap(self._index.scene_roots(scene_id))
@@ -156,7 +159,7 @@ class WriteSeam:
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
             raise NestingExceededError(refusal)
-        self._transaction().run([realization], raises_refusal=True)
+        self.transaction().run_or_raise([realization])
 
     @staticmethod
     def _mutable(

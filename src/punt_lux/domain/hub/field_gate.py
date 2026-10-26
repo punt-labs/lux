@@ -43,9 +43,9 @@ class FieldGate:
         keys = fields.keys()
         if _IMMUTABLE_FIELDS & keys:
             immutable: Literal["id", "kind"] = "id" if "id" in keys else "kind"
-            raise ImmutableFieldError(element_id=element_id, field=immutable)
+            raise ImmutableFieldError(element_id, immutable)
         if _STRUCTURAL_FIELDS & keys:
             structural: Literal["children", "tabs"] = (
                 "children" if "children" in keys else "tabs"
             )
-            raise StructuralFieldWriteError(element_id=element_id, field=structural)
+            raise StructuralFieldWriteError(element_id, structural)

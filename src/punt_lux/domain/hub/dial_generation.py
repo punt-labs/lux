@@ -10,8 +10,11 @@ Lock order: the socket lock is held across one write (and the ack ledger entry t
 write makes, which takes the sink's lock, the leaf) or across one ``recv``. An end, a
 settlement and ``shut`` take neither: shutdown is what releases a sender wedged in
 ``sendall`` while it holds the socket lock. The sink's lock is never held while taking
-the socket lock. Every socket carries the send timeout (``SO_SNDTIMEO``), set by the
-connection that makes it, so a peer that stops reading cannot wedge a writer for ever.
+the socket lock. A peer that stops reading cannot wedge a writer for ever: every write
+is one user-space bounded send (:class:`~punt_lux.bounded_send.BoundedSend`) on a socket
+made non-blocking for it, under one deadline ``D`` that covers the wait for the socket
+lock as well (:mod:`punt_lux.send_timeout`). ``SO_SNDTIMEO`` bounds only the
+handshake's blocking send, which the dialers set before the dial is handed over.
 """
 
 from __future__ import annotations
@@ -51,12 +54,14 @@ if TYPE_CHECKING:
 __all__ = ["DialEnds", "DialGeneration"]
 
 
-@dataclass(frozen=True, slots=True)
+@final
+@dataclass(frozen=True, slots=True, kw_only=True)
 class DialEnds:
     """How a dial reports its own breakage to whoever holds the current dial.
 
     ``retire`` ends it for a reason of the Hub's; ``by_writer`` is a failed write's
     report, which records its cause only when nothing is ending the dial already.
+    The two callables have one signature, so they are named at every construction.
     """
 
     retire: Callable[[DialGeneration, RetireCause], bool]
@@ -103,6 +108,11 @@ class DialGeneration:
         return self._socket.endpoint
 
     @property
+    def is_cross_host(self) -> bool:
+        """Whether this dial reaches a Display on another host: a TLS socket."""
+        return self._socket.is_tls
+
+    @property
     def ref(self) -> DialRef:
         """A name for this dial that confers no power over it: what a failure names."""
         return self._ref
@@ -111,6 +121,12 @@ class DialGeneration:
     def ready(self) -> ReadyMessage:
         """The ``ReadyMessage`` the handshake received."""
         return self._socket.ready
+
+    @property
+    # PY-TS-14 OK: None while nothing ends the dial: no cause, no Hub request.
+    def closing(self) -> RetireCause | None:
+        """Who is ending this dial: the cause recorded, else ``hub`` once asked."""
+        return self._sink.closing
 
     @property
     def is_closed(self) -> bool:
@@ -287,9 +303,17 @@ class DialGeneration:
         ``sendall`` on purpose) was ended by whoever's cause it carries: the writer
         reports that cause, never the socket error the ending itself produced. A
         writer that loses the record to one landing after the check reports the
-        winner's cause too.
+        winner's cause too, and a writer whose own record stands raises its closed
+        error as well: the caller dispatches on what ended the dial, not on which
+        socket call said so.
+
+        A closed descriptor (``ValueError`` from a socket call after the dial's own
+        capture shut it) on a dial that is ending is that race, not a failure of the
+        Hub's: it is reported as the dial's closed error too.
         """
         if not isinstance(exc, OSError):
+            if isinstance(exc, ValueError) and self._sink.closing is not None:
+                raise self.closed_error() from exc
             self._ends.retire(self, "hub")
             return
         cause: RetireCause = (
@@ -299,9 +323,10 @@ class DialGeneration:
         )
         # A dial already ended, or that the Hub asked to end, records nothing here: the
         # settle decides by what it observes (a queued end of file is the display's).
-        if not self._ends.by_writer(self, cause):
-            # Someone else's end stands: the writer reports whose.
-            raise self._error_for(self._sink.closing, self.endpoint) from exc
+        self._ends.by_writer(self, cause)
+        closing = self._sink.closing
+        if closing is not None:  # none is a dial the connection no longer holds
+            raise self._error_for(closing, self.endpoint) from exc
 
     def _require_open(self) -> None:
         if self._sink.closing is not None:

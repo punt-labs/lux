@@ -13,6 +13,8 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
@@ -78,8 +80,10 @@ class InteractionHandlers:
     @staticmethod
     @contextlib.contextmanager
     def _safely(error_fmt: str, *log_args: object) -> Generator[None]:
-        """Suppress and log any exception raised in the block, per *error_fmt*."""
+        """Log what the block raises, per *error_fmt*; a programmer error passes."""
         try:
             yield
+        except ProgrammerError:
+            raise  # a broken rule is not an interaction's own failure
         except Exception:
             logger.exception(error_fmt, *log_args)

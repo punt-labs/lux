@@ -9,11 +9,13 @@ nesting cap once more.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.domain.hub.batch_transaction import BatchTransaction
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_refusals import NestingExceededError, UnheldTargetError
@@ -25,7 +27,7 @@ from punt_lux.protocol.elements import TableElement, TreeElement
 from tests.domain.test_nesting_cap_at_the_seam import _DEEP, _OWNER, _SCENE, _nodes
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -52,7 +54,9 @@ def _scene() -> tuple[HubDisplay, TableElement, TreeElement, TreeElement]:
     return store, table, shallow, deep
 
 
-def _writes(table: TableElement, tree: TreeElement, levels: int) -> object:
+def _writes(
+    table: TableElement, tree: TreeElement, levels: int
+) -> Callable[[str], None]:
     """An observer of ``table`` that derives ``tree`` from the rows it now holds."""
 
     def on_change(prop: str) -> None:
@@ -65,7 +69,7 @@ def _writes(table: TableElement, tree: TreeElement, levels: int) -> object:
 class TestARefusedObserverWriteRollsTheBatchBack:
     def test_the_agent_is_told_why_and_its_own_write_is_undone(self) -> None:
         store, table, _, deep = _scene()
-        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, deep, _DEEP))
 
         result = _apply(store, _rows("s"))
 
@@ -74,8 +78,8 @@ class TestARefusedObserverWriteRollsTheBatchBack:
 
     def test_an_observer_write_made_before_the_refusal_is_undone_too(self) -> None:
         store, table, shallow, deep = _scene()
-        table.add_observer(_writes(table, shallow, _SHALLOW))  # type: ignore[arg-type]
-        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, shallow, _SHALLOW))
+        table.add_observer(_writes(table, deep, _DEEP))
 
         result = _apply(store, _rows("s"))
 
@@ -84,8 +88,8 @@ class TestARefusedObserverWriteRollsTheBatchBack:
 
     def test_the_observers_of_a_restored_element_hear_the_restored_values(self) -> None:
         store, table, shallow, deep = _scene()
-        table.add_observer(_writes(table, shallow, _SHALLOW))  # type: ignore[arg-type]
-        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, shallow, _SHALLOW))
+        table.add_observer(_writes(table, deep, _DEEP))
         heard: list[str] = []
         shallow.add_observer(heard.append)
         seen_at_restore: list[int] = []
@@ -98,7 +102,7 @@ class TestARefusedObserverWriteRollsTheBatchBack:
 
     def test_a_batch_no_observer_refuses_still_lands(self) -> None:
         store, table, shallow, _ = _scene()
-        table.add_observer(_writes(table, shallow, _SHALLOW))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, shallow, _SHALLOW))
 
         result = _apply(store, _rows("s"))
 
@@ -148,7 +152,7 @@ class TestTheFinalStateIsMeasuredAgainTheCap:
 
         monkeypatch.setattr(WriteSeam, "admit", approve)
         store, table, _, deep = _scene()
-        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, deep, _DEEP))
 
         result = _apply(store, _rows("s"))
 
@@ -159,7 +163,7 @@ class TestTheFinalStateIsMeasuredAgainTheCap:
 class TestAStoreLevelWriteRaisesTheRefusalItself:
     def test_a_nesting_refusal_by_an_observer_is_a_nesting_error(self) -> None:
         store, table, _, deep = _scene()
-        table.add_observer(_writes(table, deep, _DEEP))  # type: ignore[arg-type]
+        table.add_observer(_writes(table, deep, _DEEP))
 
         with pytest.raises(NestingExceededError):
             store.write_seam.set_property(_SCENE, ElementId("tb"), "rows", [["s"]])
@@ -183,3 +187,28 @@ class TestAStoreLevelWriteRaisesTheRefusalItself:
 
         assert not isinstance(raised.value, NestingExceededError)
         assert (loose.label, table.rows) == ("", (("r",),))
+
+
+class TestTwoMethodsForTwoContracts:
+    def test_neither_takes_a_flag_to_choose_what_a_refusal_becomes(self) -> None:
+        for method in (BatchTransaction.run, BatchTransaction.run_or_raise):
+            assert list(inspect.signature(method).parameters) == [
+                "self",
+                "realizations",
+            ]
+
+    def test_the_agents_path_returns_the_reason_and_the_store_path_raises_it(
+        self,
+    ) -> None:
+        store, table, _, deep = _scene()
+        table.add_observer(_writes(table, deep, _DEEP))
+        realization = store.write_seam.field_realization(
+            _SCENE, ElementId("tb"), {"rows": [["s"]]}
+        )
+        transaction = store.write_seam.transaction()
+
+        returned = transaction.run([realization])
+        with pytest.raises(NestingExceededError) as raised:
+            transaction.run_or_raise([realization])
+
+        assert returned == WriteRejected(str(raised.value))

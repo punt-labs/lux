@@ -114,12 +114,22 @@ class SendRecovery:
         self._repaint(batch)
 
     def _heal(self, failure: BatchSendError) -> None:
-        """Reap a wedged display and drop the dial the send failed on."""
-        if isinstance(failure.cause, BlockingIOError):
+        """Reap a wedged display and drop the dial the send failed on.
+
+        What the failure was is read from the dial's own record of who ended it, not
+        from the exception that carried it: a write cut short before its first byte
+        (``BlockingIOError``), one cut short half way (``TornStreamError``) and a
+        display that never acked all left the dial ``unresponsive``. A dial to a
+        Display on another host is only dropped: the reap kills the local socket's
+        owner, and that is not the Display that stalled.
+        """
+        dial = failure.dial
+        if dial is None:
+            return  # nothing was dialed: nothing to reap or to drop
+        if dial.ended == "unresponsive" and not dial.is_cross_host:
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
-        if failure.dial is not None:
-            self._clients.drop(failure.dial)
+        self._clients.drop(dial)
 
     def reset_backoff_if_stable(self) -> None:
         """Reset the respawn backoff once the Display has served stably.

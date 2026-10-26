@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import ssl
 from dataclasses import dataclass
+from typing import final
 
 logger = logging.getLogger(__name__)
 
@@ -15,22 +16,34 @@ class DrainIncompleteError(Exception):
     """The last look could not be made: a writer held the socket past its ceiling."""
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class Drained:
-    """What one last look at a socket found: bytes, whether its stream ended."""
+    """What one last look at a socket found: bytes, whether its stream ended.
+
+    Three answers, none packed into another: bytes (``chunk``), the stream's end
+    (``ended``), and nothing more now (neither).
+    """
 
     chunk: bytes
     ended: bool
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class CutShort:
-    """A last look that found the stream broken: the settle goes ahead on it."""
+    """A last look that found the stream broken: the settle goes ahead on it.
+
+    What the look lost the race to is known when it is made: whether the dial's own
+    capture had already closed the socket, and whether the transport is TLS.
+    """
 
     endpoint: str
-    cause: BaseException
+    cause: OSError | ValueError
+    captured: bool
+    is_tls: bool
 
-    def report(self, *, captured: bool, is_tls: bool) -> None:
+    def report(self) -> None:
         """Say so at the level the cause deserves.
 
         Quietly when the stream simply ended (a reset on the same host, a broken
@@ -40,13 +53,13 @@ class CutShort:
         anything else (a closed descriptor, a TLS fault): a later look at why a
         surviving scene was charged finds the trace.
         """
-        if captured:
+        if self.captured:
             logger.debug(
                 "Drain of %s found the socket closed by its own capture: %r",
                 self.endpoint,
                 self.cause,
             )
-        elif isinstance(self.cause, ConnectionResetError) and is_tls:
+        elif isinstance(self.cause, ConnectionResetError) and self.is_tls:
             logger.warning(
                 "Drain of %s cut short by a reset from a remote display, which may "
                 "have discarded acks queued behind it: a scene it acked may be "

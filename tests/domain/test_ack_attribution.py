@@ -25,7 +25,10 @@ import pytest
 
 from punt_lux.domain.hub import batch_sender
 from punt_lux.domain.hub.batch_sender import BatchSendError
-from punt_lux.domain.hub.connection_closed import UnresponsiveError
+from punt_lux.domain.hub.connection_closed import (
+    ConnectionClosedError,
+    UnresponsiveError,
+)
 from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.ids import SceneId
@@ -351,7 +354,7 @@ class TestTheAckInFlightAtRetire:
         display.peer.send(AckMessage(scene_id="a"))  # sent, and not yet read
         display.sockets[-1].fail_next_send = True
 
-        with pytest.raises(OSError, match="fell over"):
+        with pytest.raises(ConnectionClosedError):
             writer_of(link).send_scene(_scene("b"))
 
         assert not link.is_connected  # settled by the discoverer: no reader existed

@@ -88,10 +88,11 @@ class Settler:
     @staticmethod
     def _standing(generation: DialGeneration) -> RetireCause:
         """Who is ending the dial: the cause recorded, else the Hub that asked."""
-        if not generation.is_closed:
+        closing = generation.closing
+        if closing is None:
             msg = "a dial no one ended or asked to end has no cause to settle by"
             raise ValueError(msg)
-        return generation.ended or "hub"
+        return closing
 
     def end_stream(self, cause: RetireCause) -> bool:
         """End a dial whose stream cannot be trusted, undrained; whether ``cause`` won.
@@ -102,5 +103,6 @@ class Settler:
         """
         generation = self._generation
         won = generation.end(cause)
-        self._capture(generation, cause)
+        # The cause that stands, which is not ``cause`` when another recorded first.
+        self._capture(generation, self._standing(generation))
         return won

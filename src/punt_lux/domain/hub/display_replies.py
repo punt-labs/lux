@@ -166,7 +166,9 @@ class DisplayReplies:
             msg = f"{generation.endpoint} sent a frame that broke its stream"
             won = settler.end_stream("display")
             return ConnectionClosedError(msg) if won else generation.closed_error()
-        logger.error("Inline reply routing failed on %s: %r", generation.endpoint, exc)
+        logger.exception(
+            "Inline reply routing failed on %s: %r", generation.endpoint, exc
+        )
         settler.end_stream("hub")
         return exc
 

@@ -38,7 +38,6 @@ from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.suspect_book import SuspectBook
-from punt_lux.send_timeout import set_send_timeout
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -218,7 +217,9 @@ class DisplayConnection:
             if self._current is None or self._current.generation is not generation:
                 return False
         won = generation.end_by_writer(cause)
-        self._ask_settle(generation, cause)
+        # The settle is asked with the cause that stands, not the writer's own when it
+        # lost: a Hub request pending is the Hub's end, and nothing may record over it.
+        self._ask_settle(generation, cause if won else generation.ended or "hub")
         return won
 
     def take_deaths(self) -> DeathQueue:
@@ -234,8 +235,9 @@ class DisplayConnection:
 
         The one door a settle goes through, handed to the dial's reader slot and to
         nothing else. Atomic with the dial's publication: no interleaving closes a
-        dial made after the check. ``cause`` is the one that stands, which the
-        settler fixed before it came.
+        dial made after the check. ``cause`` is the one that stands: the settler fixed
+        it before it came (a drain's decision, or for an undrained capture the cause
+        the dial already recorded, never the caller's own when another had recorded).
         """
         is_ours = False
         try:
@@ -260,12 +262,11 @@ class DisplayConnection:
         if self.is_open:
             return None
         dialed = self._dialer.dial(self._connect_timeout)  # a failure is the dialer's
-        set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
             dialed,
             DialEnds(
-                lambda generation, cause: self.retire(generation, cause=cause),
-                self._end_by_writer,
+                retire=lambda generation, cause: self.retire(generation, cause=cause),
+                by_writer=self._end_by_writer,
             ),
         )
         # Born holding the listener slot when asked: nobody else has seen this dial
