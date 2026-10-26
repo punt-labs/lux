@@ -98,7 +98,12 @@ One rule: settlement belongs to the holder of the reader slot; everyone else ask
    a model with one writer cannot see: every capture shuts the socket, so a TLS `sendall` wedged on
    a display that reads nothing returns within that bound; and the ceiling is paid at most once
    per settle, because after the end is recorded or requested no new writer passes
-   `_require_open`, so the drain waits for at most the one writer in flight. The late capture is
+   `_require_open`, so the drain waits for at most the one writer in flight. The premise misses one
+   case: a settle that starts on an observed end of file with nothing yet recorded, where a new
+   writer can still pass `_require_open` during the first drain. On the same-host Unix socket that
+   writer fails at once with EPIPE and records the display's end, which closes the door, so the
+   bound stays 5 s; across hosts (TLS) it can wait out its own send timeout first, and the worst
+   case is 3 + 3 + 2 = 8 s. The late capture is
    the fifth exception to A2 (`s2lat`). The lock order
    `rq < sl < st < lk < qu` is kept: the waiting settler holds no lock the writer takes, and the
    writer, which takes `qu` for the ack under `lk`, waits on nothing the settler holds. The

@@ -243,7 +243,13 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     Second, the ceiling is paid at most once per settle: after the end is
     recorded or requested no new writer passes \texttt{\_require\_open}, so the
     drain waits for at most the one writer in flight, and its later looks find
-    the lock free.  Without the second the five seconds would grow by a ceiling
+    the lock free.  The premise misses one case: a settle that starts on an
+    observed end of file with nothing yet recorded, where a new writer can still
+    pass \texttt{\_require\_open} during the first drain.  On the same-host Unix
+    socket that writer fails at once with \texttt{EPIPE} and records the display's
+    end, which closes the door, so the bound stays five seconds; across hosts
+    (TLS) it can wait out its own send timeout first, and the worst case is
+    $3 + 3 + 2 = 8$ seconds.  Without the second the five seconds would grow by a ceiling
     per writer.
     The late capture is the fifth exception to A2 (\texttt{s2lat}), with
     the bound of rule~6 plus the ceiling.  The lock order
@@ -1616,6 +1622,7 @@ never starting (\texttt{SPStart} and \texttt{IAcq} given the unsatisfiable guard
 $pc~a = pidle \land pc~a = pdone$), so that no party outside the settler can
 rescue the dial.  The scratch copies are not committed; the change is those two
 guards and nothing else.
+
 The traces.  \texttt{writer\_owe\_refused}, S6: \texttt{WLock, WSendDone,
 DStartUnresp, RecEnd, WOweRefused}: the keepalive's unresponsive end lands
 between the write and the owed ack, and the scene is on the wire of a current
@@ -1630,7 +1637,7 @@ holds the lock, the settle's drain finds the lock held and reports nothing more
 with an ack readable, and the capture charges the scene the display had
 acknowledged.  \texttt{drain\_no\_late}, no rescuer: \texttt{Die, WLock, WStall,
 Block, DStartDisp, RecEnd, SUGrant}: the display dies, a writer takes the lock
-and never lets go, the listener blocks, the discoverer records the display's end
+and never lets go, the slot, born free, has no listener and \texttt{Block} only sets the flag, the discoverer records the display's end
 and takes the free slot to settle, and its drain waits behind the writer for
 ever; nothing captures the dial.  The design, under the same restriction, has
 no deadlock over all 68157 states: the settler's \texttt{SDrainLate} hands the
