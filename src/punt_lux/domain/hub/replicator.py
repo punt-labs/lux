@@ -198,7 +198,7 @@ class HubReplicator:
         behind it, and is a no-op (nothing to join) before any ``start``.
         """
         self._signal.request_stop()
-        self._clients.request_stop()
+        self._clients.reconnects.request_stop()
         thread = self._thread
         if thread is not None:
             thread.join(timeout=_STOP_JOIN_TIMEOUT)
@@ -286,13 +286,16 @@ class HubReplicator:
         ``OSError`` is healed by ``SendRecovery`` (a wedged display reaped, a
         dead peer reconnected, a Hub-retired dial redialed without blame); a
         death is charged from its own dial's ledger, however it was found."""
-        since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
+        # Snapshotted BEFORE the attempt: race-safe.
+        since_gen = self._clients.reconnects.reconnect_generation
         try:
             emptied = self._sender.push(batch)
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
-                self._disconnected_retry.wait(self._clients, since_gen=since_gen)
+                self._disconnected_retry.wait(
+                    self._clients.reconnects, since_gen=since_gen
+                )
             return _CycleOutcome(outcome="disconnected")
         except BatchSendError as exc:
             return self._recovered(batch, exc, since_gen)
@@ -312,7 +315,9 @@ class HubReplicator:
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
-                self._disconnected_retry.wait(self._clients, since_gen=since_gen)
+                self._disconnected_retry.wait(
+                    self._clients.reconnects, since_gen=since_gen
+                )
             return _CycleOutcome(outcome="disconnected")
         return _CycleOutcome(outcome="recovered")
 

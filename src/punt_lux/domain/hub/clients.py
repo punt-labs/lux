@@ -13,7 +13,7 @@ from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.hub_store_factory import hub_display
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
-from punt_lux.domain.hub.reconnect_wait import ReconnectWait
+from punt_lux.domain.hub.reconnect_signal import ReconnectSignal
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.death_queue import DeathQueue
@@ -42,27 +42,20 @@ class ClientRegistry:
     _client: DisplayLink | None
     _lock: threading.RLock
     _marker: DirtyMarker
-    _reconnect_gen: int
-    _reconnect_cond: threading.Condition
-    _stop_requested: bool
+    _reconnects: ReconnectSignal
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._client = None
         self._lock = threading.RLock()
         self._marker = NullDirtyMarker()
-        self._reconnect_gen = 0
-        self._reconnect_cond = threading.Condition(self._lock)
-        self._stop_requested = False
+        self._reconnects = ReconnectSignal()
         return self
 
     @property
     def is_connected(self) -> bool:
         """Report a live display connection — cheap, read-only, no I/O."""
         return self._client is not None and self._client.is_connected
-
-    def __repr__(self) -> str:
-        return f"ClientRegistry(is_connected={self.is_connected})"
 
     def attach_replicator(self, marker: DirtyMarker) -> None:
         """Wire the replicator marked dirty after a fresh connect (DES-068)."""
@@ -75,12 +68,7 @@ class ClientRegistry:
         between them. Raises what the dial or the pin raises when there is no display.
         """
         with self._lock:
-            was_connected = self.is_connected
-            client = self._ensure_client()
-            if not client.is_connected:
-                self._connect_and_reconcile(client)
-            self._mark_reconnected_if_fresh(was_connected=was_connected)
-            return client.desk.asks()
+            return self._connect_and_reconcile().desk.asks()
 
     def _ensure_client(self) -> DisplayLink:
         """Create the lazy client on first use; its own service unit supervises.
@@ -96,31 +84,10 @@ class ClientRegistry:
             self._client.events.set_fallback_handler(HubInteractionDispatch.dispatch)
         return self._client
 
-    def _mark_reconnected_if_fresh(self, *, was_connected: bool) -> None:
-        """Bump+notify under ``_lock`` on a not-connected -> connected edge."""
-        if not was_connected:
-            self._reconnect_gen += 1
-            self._reconnect_cond.notify_all()
-
     @property
-    def reconnect_generation(self) -> int:
-        """Snapshot BEFORE a dial attempt, so a racing reconnect is caught."""
-        with self._lock:
-            return self._reconnect_gen
-
-    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
-        """Block for a reconnect or a ``request_stop``; race-free via ``wait_for``."""
-        with self._lock:
-            return self._reconnect_cond.wait_for(
-                lambda: self._reconnect_gen > wait.since_gen or self._stop_requested,
-                wait.timeout,
-            )
-
-    def request_stop(self) -> None:
-        """Wake a parked ``wait_for_reconnect``; latches permanently."""
-        with self._lock:
-            self._stop_requested = True
-            self._reconnect_cond.notify_all()
+    def reconnects(self) -> ReconnectSignal:
+        """The wait that paces a replicator while there is no display."""
+        return self._reconnects
 
     def drop(self, dial: DialRef) -> None:
         """Retire the dial a caller saw fail, unless a redial already replaced it.
@@ -157,17 +124,23 @@ class ClientRegistry:
         with self._lock:
             return self._ensure_client().desk.take_seat()
 
-    def _connect_and_reconcile(self, client: DisplayLink) -> None:
-        """Connect a fresh socket, then declare and repaint the Hub's holdings.
+    def _connect_and_reconcile(self) -> DisplayLink:
+        """The connected link: connect a fresh socket if need be, then reconcile.
 
         The one choke point every fresh connect runs through (DES-068): the link
         declares the manifest inside its own connect step (a manifest that cannot be
-        sent closes it), and every manifested scene plus the menu is marked dirty.
+        sent closes it), every manifested scene plus the menu is marked dirty, and
+        the reconnect is noted for whoever waits on it.
         """
+        client = self._ensure_client()
+        if client.is_connected:
+            return client
         scene_ids = client.open_as_hub(hub_display.live_scene_ids)
         for scene_id in scene_ids:
             self._marker.mark_dirty(scene_id)
         self._marker.mark_menus()
+        self._reconnects.reconnected()
+        return client
 
 
 client_registry = ClientRegistry()

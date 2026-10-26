@@ -468,6 +468,11 @@ class _FakeProvider:
             self._needs_reconcile = False
         return _ProbeView(self._sender)
 
+    @property
+    def reconnects(self) -> Self:
+        """The reconnect wait: this fake is its own."""
+        return self
+
     def take_deaths(self) -> _FakeSender:
         """The deaths the display left on its dials: the sender holds the queue."""
         return self._sender

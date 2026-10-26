@@ -340,13 +340,15 @@ def test_get_advances_the_generation_only_on_a_not_connected_to_connected_edge()
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
-    since_gen = registry.reconnect_generation
+    since_gen = registry.reconnects.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 2.0)))
+        woke.append(
+            registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 2.0))
+        )
 
     waiter = threading.Thread(target=wait)
     waiter.start()
@@ -354,12 +356,15 @@ def test_get_advances_the_generation_only_on_a_not_connected_to_connected_edge()
     registry.asks()  # the fresh connect: not-connected -> connected, wakes the waiter
     waiter.join(timeout=2.0)
     assert woke == [True]
-    connected_gen = registry.reconnect_generation
+    connected_gen = registry.reconnects.reconnect_generation
     assert connected_gen > since_gen
 
     registry.asks()  # already connected: no edge, generation unchanged
-    assert registry.reconnect_generation == connected_gen
-    assert registry.wait_for_reconnect(ReconnectWait(connected_gen, 0.05)) is False
+    assert registry.reconnects.reconnect_generation == connected_gen
+    assert (
+        registry.reconnects.wait_for_reconnect(ReconnectWait(connected_gen, 0.05))
+        is False
+    )
 
 
 def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
@@ -376,7 +381,9 @@ def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
     fake = _FakeClient()
     _install_client(registry, fake)
 
-    since_gen = registry.reconnect_generation  # snapshot BEFORE the "dial attempt"
+    since_gen = (
+        registry.reconnects.reconnect_generation
+    )  # snapshot BEFORE the "dial attempt"
     racing_connect_done = threading.Event()
 
     def racing_reconnect() -> None:
@@ -387,7 +394,7 @@ def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
     assert racing_connect_done.wait(2.0)  # the race resolves before we wait
 
     started = time.monotonic()
-    woke = registry.wait_for_reconnect(ReconnectWait(since_gen, 5.0))
+    woke = registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 5.0))
     elapsed = time.monotonic() - started
 
     assert woke is True
@@ -404,10 +411,14 @@ def test_a_wait_snapshotted_after_its_own_connect_waits_out_its_own_timeout() ->
     _install_client(registry, fake)
 
     registry.asks()  # not-connected -> connected
-    since_gen = registry.reconnect_generation  # snapshotted AFTER that connect
+    since_gen = (
+        registry.reconnects.reconnect_generation
+    )  # snapshotted AFTER that connect
 
     started = time.monotonic()
-    assert registry.wait_for_reconnect(ReconnectWait(since_gen, 0.2)) is False
+    assert (
+        registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 0.2)) is False
+    )
     assert time.monotonic() - started >= 0.2  # genuinely waited for a NEW edge
 
 
@@ -416,13 +427,15 @@ def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
-    since_gen = registry.reconnect_generation
+    since_gen = registry.reconnects.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 60.0)))
+        woke.append(
+            registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 60.0))
+        )
 
     waiter = threading.Thread(target=wait)
     waiter.start()
@@ -442,7 +455,7 @@ def test_wait_for_reconnect_does_not_hold_the_registry_lock() -> None:
     done = threading.Event()
 
     waiter = threading.Thread(
-        target=registry.wait_for_reconnect, args=(ReconnectWait(0, 0.5),)
+        target=registry.reconnects.wait_for_reconnect, args=(ReconnectWait(0, 0.5),)
     )
     waiter.start()
 
@@ -468,14 +481,14 @@ def test_request_stop_wakes_a_parked_wait_for_reconnect_promptly() -> None:
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(0, 120.0)))
+        woke.append(registry.reconnects.wait_for_reconnect(ReconnectWait(0, 120.0)))
 
     waiter = threading.Thread(target=wait)
     waiter.start()
     assert entered.wait(2.0)
 
     started = time.monotonic()
-    registry.request_stop()
+    registry.reconnects.request_stop()
     waiter.join(timeout=2.0)
     elapsed = time.monotonic() - started
 
@@ -487,8 +500,8 @@ def test_request_stop_wakes_a_parked_wait_for_reconnect_promptly() -> None:
 def test_request_stop_is_a_no_op_for_a_registry_with_no_parked_waiter() -> None:
     """Calling it early (before any wait) must not raise -- latches quietly."""
     registry = ClientRegistry()
-    registry.request_stop()
-    assert registry.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
+    registry.reconnects.request_stop()
+    assert registry.reconnects.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
 
 
 class TestDropHasNoFormWithoutADial:

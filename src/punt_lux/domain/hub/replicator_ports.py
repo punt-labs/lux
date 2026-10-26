@@ -34,6 +34,7 @@ __all__ = [
     "DisplayProbe",
     "DisplaySender",
     "MenuReader",
+    "ReconnectPort",
     "WriteSeatPort",
 ]
 
@@ -130,7 +131,15 @@ class DeathQueuePort(Protocol):
 
 
 @runtime_checkable
-class ClientProvider(ReconnectWaiter, Protocol):
+class ReconnectPort(ReconnectWaiter, Protocol):
+    """The reconnect wait, and the stop that wakes it past the disconnected backoff."""
+
+    def request_stop(self) -> None:
+        """Wake a parked ``wait_for_reconnect``; latches permanently."""
+
+
+@runtime_checkable
+class ClientProvider(Protocol):
     """Connects the display, hands out its write seat once, drops a dead dial, waits."""
 
     def asks(self) -> DisplayProbe:
@@ -154,8 +163,10 @@ class ClientProvider(ReconnectWaiter, Protocol):
         """Hand over the queue of display deaths; asked once, by the one charger."""
         ...
 
-    def request_stop(self) -> None:
-        """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""
+    @property
+    def reconnects(self) -> ReconnectPort:
+        """The wait that paces a replicator while there is no display."""
+        ...
 
 
 @runtime_checkable
