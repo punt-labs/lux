@@ -17,7 +17,8 @@ Governs `src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
 dial_generation,dial_socket,dial_drain,dial_reader,display_listener,display_replies,
 listener_thread,reply_sink,settlement,suspect_book,death_queue,death_charger,dial_death,
 liveness_probe,replicator}.py` and the display's held ack in
-`src/punt_lux/display/client_sender.py` (with its caller in
+`src/punt_lux/display/client_sender.py` (its release, after a completed swap, in
+`src/punt_lux/display/frame_turn.py`; its hold in
 `src/punt_lux/display/render_loop.py`).
 
 Rulings modelled:
