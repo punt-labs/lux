@@ -120,8 +120,7 @@ class DialSocket:
 
     def send(self, msg: Message) -> None:
         """Write ``msg``, serialized against every other writer."""
-        wire = encode_message(msg)
-        self._write_locked(lambda: None, lambda _, deadline: self._send(wire, deadline))
+        self._write_locked(encode_message(msg), lambda: None, lambda _: None)
 
     def send_scene(self, msg: SceneMessage) -> None:
         """Write a scene and record the ack it is owed, in wire order.
@@ -130,38 +129,24 @@ class DialSocket:
         the reader cannot take a byte before the lock is released, so the ack can
         never be read before its entry exists, and a write that raised owes none.
         """
-        wire = encode_message(msg)
-
-        def write_then_owe(_: None, deadline: float) -> None:
-            self._send(wire, deadline)
-            self._sink.owe_ack(msg.id)
-
-        self._write_locked(lambda: None, write_then_owe)
+        self._write_locked(
+            encode_message(msg), lambda: None, lambda _: self._sink.owe_ack(msg.id)
+        )
         self._require_open()  # owed all the same; the caller learns the dial is ending
 
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
         """Register the ping in flight, then write it; one step under the lock."""
-        wire = encode_message(PingMessage(ts=ts))
-
-        def write(
-            pending: Pending[float, PongMessage], deadline: float
-        ) -> Pending[float, PongMessage]:
-            self._send(wire, deadline)
-            return pending
-
-        return self._write_locked(lambda: self._sink.expect_pong(ts), write)
+        return self._write_locked(
+            encode_message(PingMessage(ts=ts)),
+            lambda: self._sink.expect_pong(ts),
+            lambda pending: pending,
+        )
 
     def send_query(self, request: QueryRequest) -> Pending[None, QueryResponse]:
         """Register the query in flight, then write it; one step under the lock."""
-        wire = encode_message(request)
-
-        def write(
-            pending: Pending[None, QueryResponse], deadline: float
-        ) -> Pending[None, QueryResponse]:
-            self._send(wire, deadline)
-            return pending
-
-        return self._write_locked(self._sink.expect_query, write)
+        return self._write_locked(
+            encode_message(request), self._sink.expect_query, lambda pending: pending
+        )
 
     def poll(self, timeout: float) -> bytes | None:
         """Wait up to ``timeout`` for the display to say something, and read it.
@@ -299,23 +284,27 @@ class DialSocket:
         return backlog
 
     def _write_locked[P, R](
-        self, prepare: Callable[[], P], write: Callable[[P, float], R]
+        self, wire: bytes, prepare: Callable[[], P], finish: Callable[[P], R]
     ) -> R:
-        """Run one write under the socket lock; a failure inside it ends the dial.
+        """Write ``wire`` under the socket lock within one deadline, D; fail the dial.
 
         ``prepare`` is the bookkeeping that precedes the first byte (registering the
-        reply owed): if it refuses, nothing was written and nothing is ended.
-        Anything raised inside ``write`` -- whatever it is, a ``BaseException``
-        included -- may have left a partial frame on the wire, so the dial is told,
+        reply owed): if it refuses, nothing was written and nothing is ended. ``finish``
+        is what follows the last byte, under the same lock hold: the ack entry, or the
+        ticket handed back. Anything raised from the first byte on, a ``BaseException``
+        included, may have left a partial frame on the wire, so the dial is told,
         after the lock is released.
+
+        The same user-space bounded send on either transport, because ``SO_SNDTIMEO``
+        does not bound a TLS write: the socket is made non-blocking for the write alone
+        and :class:`BoundedSend` waits for it, with one deadline for the whole write,
+        the wait for the lock included. A write the deadline cut short, or a lock never
+        free in time, ends the dial as unresponsive. The socket lock is held, so
+        nothing reads meanwhile.
         """
         LockDiscipline.forbid_store("the dial socket lock")
-        # One deadline, D, for the whole write: the wait for the lock and the send.
         deadline = time.monotonic() + SCENE_WRITE_DEADLINE_SECONDS
         if not self._lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
-            # Whoever holds the lock has held it past a whole write's deadline: the
-            # display has stopped answering, and the dial ends as such rather than
-            # leave this caller to wait without a bound.
             stalled = BlockingIOError("the dial's socket lock was not free in time")
             self._failed(stalled)
             raise stalled
@@ -325,28 +314,17 @@ class DialSocket:
                 self._require_open()
                 prepared = prepare()
                 writing = True
-                return write(prepared, deadline)
+                sock = self._dial.sock
+                sock.settimeout(0.0)
+                try:
+                    BoundedSend().send(sock, wire, deadline)
+                finally:
+                    with contextlib.suppress(OSError):  # closed by its own capture
+                        sock.settimeout(None)
+                return finish(prepared)
             finally:
                 self._lock.release()
         except BaseException as exc:
             if writing:
                 self._failed(exc)
             raise
-
-    def _send(self, wire: bytes, deadline: float) -> None:
-        """Write ``wire`` whole before ``deadline`` (the write's own D), or raise.
-
-        The same user-space bounded send on either transport: ``SO_SNDTIMEO`` does
-        not bound a TLS write, so the socket is made non-blocking for the write alone
-        and the send waits for it in :class:`BoundedSend`, with one deadline for the
-        whole frame. Called with the socket lock held, so nothing reads meanwhile. A
-        frame the deadline cut short raises ``BlockingIOError`` untouched or
-        ``TornStreamError`` half written, and either ends the dial as unresponsive.
-        """
-        sock = self._dial.sock
-        sock.settimeout(0.0)
-        try:
-            BoundedSend().send(sock, wire, deadline)
-        finally:
-            with contextlib.suppress(OSError):  # closed by its own capture meanwhile
-                sock.settimeout(None)
