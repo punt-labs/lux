@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.domain.hub import dial_drain
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.reply_sink import ReplyOutOfOrderError, ReplySink
 from punt_lux.domain.ids import SceneId
@@ -188,7 +189,7 @@ class TestACutShortDrainSaysSo:
 
         monkeypatch.setattr(select, "select", reset)
         with caplog.at_level(logging.DEBUG):
-            assert generation.drain_chunk() is None
+            assert generation.drain().ended
 
         (record,) = [r for r in caplog.records if "cut short" in r.getMessage()]
         assert record.levelno == logging.DEBUG
@@ -208,8 +209,16 @@ class TestACutShortDrainSaysSo:
 
         monkeypatch.setattr(select, "select", closed)
         with caplog.at_level(logging.DEBUG):
-            assert generation.drain_chunk() is None
+            assert generation.drain().ended
 
         (record,) = [r for r in caplog.records if "cut short" in r.getMessage()]
         assert record.levelno == logging.WARNING
         assert generation.endpoint in record.getMessage()
+
+
+class TestTheDrainClaimsCompletenessForSameHostSocketsOnly:
+    def test_the_contract_is_stated_where_the_drain_is_defined(self) -> None:
+        text = " ".join((dial_drain.__doc__ or "").split())
+
+        assert "holds for a same-host socket only" in text
+        assert "nothing here claims it is" in text

@@ -15,17 +15,19 @@ out-of-order reply. A late pong is the one legitimate stray: a ping that timed o
 keeps its dial, and the pong is dropped by its ``ts``.
 
 One sink belongs to one generation (:class:`~punt_lux.domain.hub.dial_generation.
-DialGeneration`) and goes with it. Its end has two phases, and they are separate steps:
+DialGeneration`) and goes with it. A dial's end has three steps, and they are separate:
 
-1. :meth:`~ReplySink.end` records who ended the dial (the first cause wins), fails every
-   waiter, and stops a pong or a query response from being parked for a waiter. An ack
-   is still applied to the ledger: the display sent it before the dial ended, so it is
-   evidence that the scene survived, whoever got to the socket first.
-2. :meth:`~ReplySink.capture` takes the ledger, the scenes the display still owed,
-   once the dial's reader has read everything the socket held. After it nothing is
-   delivered.
-
-:meth:`~ReplySink.discard` is both at once, for an end nobody needs to read first.
+1. A display or unresponsive end is *recorded* (:meth:`~ReplySink.end`): the first
+   cause wins. A Hub end is only *requested* (:meth:`~ReplySink.request_hub`) and
+   records nothing, since the display may have died already and the Hub cannot tell
+   until its reader has looked. Either way writes are refused and every waiter fails
+   at once, but the ledger is left alone and an ack is still applied: the display
+   sent it before the dial ended, so it is evidence that the scene survived.
+2. :meth:`~ReplySink.decide` fixes the cause once the dial's reader has read to the
+   point where it would block: the end of file it saw is the display's, else a Hub
+   request is the Hub's, else the cause recorded stands.
+3. :meth:`~ReplySink.capture` takes the ledger, the scenes the display still owed.
+   After it nothing is delivered, and whoever waits to see the dial settled is woken.
 """
 
 from __future__ import annotations
@@ -36,6 +38,8 @@ from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.dial_end import DialEnd
+from punt_lux.domain.hub.pending import Pending
 from punt_lux.domain.hub.settlement import Settlement
 from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
@@ -46,42 +50,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["REPLY_TYPES", "Pending", "ReplyOutOfOrderError", "ReplySink"]
+__all__ = ["REPLY_TYPES", "ReplyOutOfOrderError", "ReplySink"]
 
 REPLY_TYPES = (AckMessage, PongMessage, QueryResponse)
 
 
 class ReplyOutOfOrderError(ValueError):
     """A reply matched nothing the display owes: the stream has skewed."""
-
-
-@final
-class Pending[K, R: Message]:
-    """A ticket for one reply a sink owes: what it must echo, and what it will be.
-
-    Opaque to everyone but the sink that issued it, which keeps the reply and
-    whether a caller still waits; a holder can only give it back to that sink.
-    """
-
-    _key: K
-    _kind: type[R]
-    __slots__ = ("_key", "_kind")
-
-    def __new__(cls, key: K, kind: type[R]) -> Self:
-        self = super().__new__(cls)
-        self._key = key
-        self._kind = kind
-        return self
-
-    @property
-    def key(self) -> K:
-        """What the reply must echo: a ping's ``ts``, an ack's scene id."""
-        return self._key
-
-    @property
-    def kind(self) -> type[R]:
-        """The type of the reply that answers it."""
-        return self._kind
 
 
 @final
@@ -95,8 +70,8 @@ class ReplySink:
     _drained: Pending[None, AckMessage] | None  # a caller waiting for no acks owed
     _waiting: set[object]  # tickets a caller still waits on
     _answers: dict[object, Message]  # replies not yet taken
-    _ended: RetireCause | None  # None while live; else who ended it (phase 1)
-    _captured: bool  # the ledger has been taken (phase 2)
+    _end: DialEnd  # the first cause recorded, and the Hub's request
+    _captured: bool  # the ledger has been taken
     _acked: bool  # an ack was applied on this dial
     __slots__ = (
         "_acked",
@@ -105,7 +80,7 @@ class ReplySink:
         "_captured",
         "_cond",
         "_drained",
-        "_ended",
+        "_end",
         "_ping",
         "_query",
         "_waiting",
@@ -120,16 +95,25 @@ class ReplySink:
         self._drained = None
         self._waiting = set()
         self._answers = {}
-        self._ended = None
+        self._end = DialEnd()
         self._captured = False
         self._acked = False
         return self
 
     @property
     def ended(self) -> RetireCause | None:
-        """Who ended the sink's dial; ``None`` while it is live."""
+        """The first cause recorded for the dial's end; ``None`` while none is."""
         with self._cond:
-            return self._ended
+            return self._end.cause
+
+    @property
+    def closing(self) -> RetireCause | None:
+        """Who is ending the dial: the recorded cause, else ``hub`` once it asked.
+
+        What a refused write or a failed waiter reports: not a decided cause.
+        """
+        with self._cond:
+            return self._end.closing
 
     @property
     def captured(self) -> bool:
@@ -192,11 +176,11 @@ class ReplySink:
     ) -> R | None:
         """Wait up to ``timeout`` for ``pending``'s reply, taking it; or ``None``.
 
-        Raises :class:`ConnectionClosedError` the moment the sink is discarded.
+        Raises :class:`ConnectionClosedError` the moment the dial is ended.
         """
         with self._cond:
             self._cond.wait_for(
-                lambda: self._holds(pending) or self._ended is not None,
+                lambda: self._holds(pending) or self._end.closing is not None,
                 max(timeout, 0.0),
             )
             reply = self._answers.pop(pending, None)
@@ -204,6 +188,14 @@ class ReplySink:
                 return reply
             self._require_live()
             return None
+
+    def await_captured(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` for the ledger to be taken; whether it was.
+
+        Holds nothing but the sink's own lock, and releases it while it waits.
+        """
+        with self._cond:
+            return self._cond.wait_for(lambda: self._captured, max(timeout, 0.0))
 
     def answered(self, pending: Pending[object, Message]) -> bool:
         """Whether ``pending``'s reply has arrived and is waiting to be taken."""
@@ -225,18 +217,17 @@ class ReplySink:
     def deliver(self, msg: Message) -> None:
         """Hand an arrived reply to the request it answers.
 
-        An ack is applied while the dial has ended but not yet been captured; a pong or
-        a query response is parked for nobody once the dial has ended. A captured sink
-        takes nothing. An interaction the dial read is not a reply, and is the link's
-        to run. Raises :class:`ReplyOutOfOrderError` for an ack or a query response
-        that matches nothing owed.
+        An ack is applied until the ledger is captured; a pong or a query response
+        is parked for nobody once the dial is ending. A captured sink takes nothing.
+        Raises :class:`ReplyOutOfOrderError` for an ack or a query response that
+        matches nothing owed.
         """
         with self._cond:
             if self._captured:
                 return
             if isinstance(msg, AckMessage):
                 self._deliver_ack(msg)
-            elif self._ended is not None:
+            elif self._end.closing is not None:
                 return
             elif isinstance(msg, PongMessage):
                 self._deliver_pong(msg)
@@ -251,42 +242,65 @@ class ReplySink:
         the dial's reader can read what the display sent before the ledger is taken.
         """
         with self._cond:
-            if self._ended is not None:
+            if not self._end.record(cause):
                 return False
-            self._ended = cause
-            self._ping = None
-            self._query = None
-            self._drained = None
-            self._waiting.clear()
-            self._cond.notify_all()
+            self._fail_waiters()
             return True
+
+    def request_hub(self) -> bool:
+        """Ask for the Hub's end: refuse writes and fail every waiter; no cause.
+
+        Whether this call asked first. No cause is recorded: a display that died
+        first is the display's end, which only :meth:`decide` can tell.
+        """
+        with self._cond:
+            if not self._end.ask_hub():
+                return False
+            self._fail_waiters()
+            return True
+
+    def decide(self, *, saw_end: bool) -> RetireCause:
+        """Fix the cause, first recorded wins; the one that stands.
+        See :meth:`DialEnd.decide <punt_lux.domain.hub.dial_end.DialEnd.decide>`: the
+        end of file the reader saw is the display's, else a Hub request is the Hub's,
+        else the cause recorded stands.
+        """
+        with self._cond:
+            fresh = self._end.cause is None
+            cause = self._end.decide(saw_end=saw_end)
+            if fresh:
+                self._fail_waiters()
+            return cause
 
     def capture(self) -> Settlement:
         """Take the ledger: the scenes still owed, in write order, once.
 
-        Only an ended sink is captured. A second capture returns what is left, which
-        is nothing. A reply already handed over stays for its waiter to take: it
-        arrived before the retirement.
+        Only a dial whose cause is decided is captured. A second capture returns what
+        is left, which is nothing. A reply already handed over stays for its waiter to
+        take: it arrived before the end.
         """
         with self._cond:
-            if self._ended is None:
+            if self._end.cause is None:
                 msg = "a sink that has not ended has no ledger to capture"
                 raise ValueError(msg)
             owed = tuple(self._acks)
             self._acks.clear()
             self._captured = True
-            return Settlement(owed, self._acked, self._ended)
+            self._cond.notify_all()
+            return Settlement(owed, self._acked, self._end.cause)
 
-    def discard(self, cause: RetireCause) -> Settlement:
-        """End the sink and capture its ledger at once: nothing to read first."""
-        self.end(cause)
-        return self.capture()
+    def _fail_waiters(self) -> None:
+        self._ping = None
+        self._query = None
+        self._drained = None
+        self._waiting.clear()
+        self._cond.notify_all()
 
     def _holds(self, pending: Pending[object, Message]) -> bool:
         return pending in self._answers
 
     def _require_live(self) -> None:
-        if self._ended is not None:
+        if self._end.closing is not None:
             msg = "the display connection closed while a reply was pending"
             raise ConnectionClosedError(msg)
 

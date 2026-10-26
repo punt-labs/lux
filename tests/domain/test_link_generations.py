@@ -44,7 +44,13 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
-from tests.link_access import generation_of, no_reader, reading_of, writer_of
+from tests.link_access import (
+    drop_route,
+    generation_of,
+    no_reader,
+    reading_of,
+    writer_of,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -567,7 +573,7 @@ class TestTheLockWaitAndTheReplyWaitAreSeparateBudgets:
 
 
 class TestARetiredDialNeverDelivers:
-    def test_the_rest_of_a_chunk_is_not_routed_once_its_dial_is_retired(
+    def test_the_rest_of_a_chunk_is_routed_once_by_the_settle_of_its_retired_dial(
         self, display: Display
     ) -> None:
         link = _linked(display)
@@ -577,10 +583,11 @@ class TestARetiredDialNeverDelivers:
         display.peer.send(click, ObserverMessage(topic="after", payload={}))
 
         assert until(lambda: not link.is_connected)
+        link.events.poll_event(0.3)  # the `after` the settle routed, once
         with pytest.raises(TimeoutError):
-            link.events.poll_event(0.3)  # the retired dial's events never arrive
+            link.events.poll_event(0.3)  # and nothing more
 
-    def test_the_rest_of_a_chunk_read_inline_is_not_routed_once_its_dial_is_retired(
+    def test_the_rest_of_a_chunk_read_inline_is_routed_once_by_the_settle_of_its_dial(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         link = _linked(display, listening=False)
@@ -614,12 +621,12 @@ class TestARetiredDialNeverDelivers:
         with contextlib.suppress(queue.Empty):
             while True:
                 topics.append(link._listener._inbound.next_event(0.1).topic)
-        assert topics == ["first"], "the retired dial's later message was routed"
+        assert topics == ["first", "after"], "an event the display sent is routed once"
 
 
 def _slot_is_held(link: DisplayLink) -> bool:
     """Whether a reader holds the dial's slot now (asking takes it for an instant)."""
-    with reading_of(link).inline() as granted:
+    with reading_of(link).inline(drop_route) as granted:
         return not granted
 
 
@@ -1069,7 +1076,7 @@ class TestTheRegistryNeverWaitsOnTheReaderSlot:
         release = threading.Event()
 
         def hold_the_slot() -> None:
-            with reading_of(link).inline():
+            with reading_of(link).inline(drop_route):
                 holding.set()
                 release.wait(5.0)
 
@@ -1115,8 +1122,8 @@ class TestAnInteractionReadInlineRunsOutsideTheLocks:
         seen: list[tuple[bool, bool]] = []
 
         def handler(_event: RemoteEventHandlerInvocation) -> None:
-            with reading_of(link).inline() as free:
-                seen.append((_ping_lock_is_held(link), free))
+            with reading_of(link).inline(drop_route) as free:
+                seen.append((_ping_lock_is_held(link), free is not None))
 
         link.events.set_fallback_handler(handler)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
@@ -1370,7 +1377,7 @@ class TestAPingIsStampedUnderItsLock:
         monkeypatch.setattr(
             "punt_lux.domain.hub.request_exchange.time.time", lambda: 5.0
         )
-        connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
+        connection = DisplayConnection(display, 1.0, ask_settle=no_reader)
         exchange = RequestExchange(
             connection,
             DisplayReplies(connection, DisplayListener(connection, 1.0)),

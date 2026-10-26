@@ -65,9 +65,12 @@ class DisplayLink:
         self._connection = DisplayConnection(
             dialer,
             connect_timeout,
-            # A dial no reader holds is settled by whoever found it ended; the
-            # listener, which owns the readers, knows how.
-            settle_unread=lambda generation: self._listener.settle_unread(generation),
+            # An ended dial is settled by the holder of its reader slot, or by whoever
+            # found it ended if no one holds it; the listener, which owns the readers,
+            # knows how to ask.
+            ask_settle=lambda generation, cause: self._listener.ask_settle(
+                generation, cause
+            ),
         )
         self._listener = DisplayListener(self._connection, recv_timeout)
         self._desk = RequestDesk(self._connection, self._listener, recv_timeout)

@@ -21,14 +21,18 @@ if TYPE_CHECKING:
     import socket
     from collections.abc import Sequence
 
+    from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.domain.hub.reader_slot import ReaderSlot
-    from punt_lux.protocol import Element
+    from punt_lux.protocol import Element, Message
 
 __all__ = [
+    "bare_connection",
     "deaths_of",
+    "drop_route",
     "generation_of",
     "no_reader",
     "reading_of",
@@ -38,8 +42,31 @@ __all__ = [
 ]
 
 
-def no_reader(_generation: DialGeneration) -> None:
-    """The settle a bare connection is given: it has no readers to hand a dial to."""
+def no_reader(_generation: DialGeneration, _cause: RetireCause) -> None:
+    """The ask a connection is given by a test that settles nothing itself."""
+
+
+def drop_route(_generation: DialGeneration, _message: Message) -> None:
+    """The route of a bare connection's settle: what a dial still holds is dropped."""
+
+
+def bare_connection(dialer: DisplayDialer, connect_timeout: float) -> DisplayConnection:
+    """A connection with no listener, whose ended dials are settled by the asker.
+
+    Production hands an ended dial to its reader slot; a bare connection has no
+    listener, so its asker takes the free slot and settles the dial on the spot,
+    which is what a library link without a reader does.
+    """
+    box: list[DisplayConnection] = []
+
+    def ask(generation: DialGeneration, cause: RetireCause) -> None:
+        slot = box[0].reading(generation)
+        if slot is not None:
+            slot.ask_settle(drop_route, cause, may_wait=True)
+
+    connection = DisplayConnection(dialer, connect_timeout, ask_settle=ask)
+    box.append(connection)
+    return connection
 
 
 def deaths_of(

@@ -47,6 +47,7 @@ _HUB = "domain/hub/"
 # module outside this set cannot hold a dial, so it cannot write or read on one.
 _DIAL_MODEL = frozenset(
     {
+        _HUB + "bounded_ask.py",
         _HUB + "dial_drain.py",
         _HUB + "dial_generation.py",
         _HUB + "dial_reader.py",
@@ -58,7 +59,9 @@ _DIAL_MODEL = frozenset(
         _HUB + "display_writer.py",
         _HUB + "inbound_router.py",
         _HUB + "listener_thread.py",
+        _HUB + "reader_slot.py",
         _HUB + "request_exchange.py",
+        _HUB + "settler.py",
     }
 )
 # A reply-waiting registration: a send that makes one is a request, not a write.

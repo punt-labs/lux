@@ -40,12 +40,14 @@ class SuspectBook:
 
     _carried: frozenset[SceneId]
     _deaths: DeathQueue  # not yet charged, oldest first
-    __slots__ = ("_carried", "_deaths")
+    _handed_over: bool  # the queue went to its one charger
+    __slots__ = ("_carried", "_deaths", "_handed_over")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._carried = frozenset()
         self._deaths = DeathQueue()
+        self._handed_over = False
         return self
 
     @property
@@ -56,6 +58,17 @@ class SuspectBook:
     @property
     def deaths(self) -> DeathQueue:
         """The deaths not yet charged: the queue the one charger is handed."""
+        return self._deaths
+
+    def hand_over(self) -> DeathQueue:
+        """Hand the queue of deaths to its one charger; raises on a second ask.
+
+        No second part of the Hub may take a death out from under the charger.
+        """
+        if self._handed_over:
+            msg = "the display's deaths were already handed to a charger"
+            raise ValueError(msg)
+        self._handed_over = True
         return self._deaths
 
     def settle(self, settlement: Settlement, endpoint: str) -> None:

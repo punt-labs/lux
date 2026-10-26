@@ -155,6 +155,18 @@ def _waits(fn: ast.FunctionDef) -> bool:
     )
 
 
+def _calls_any(fn: ast.FunctionDef, names: set[str]) -> bool:
+    """Whether the member calls ``self.<name>`` for any of ``names``."""
+    return any(
+        isinstance(c, ast.Call)
+        and isinstance(c.func, ast.Attribute)
+        and isinstance(c.func.value, ast.Name)
+        and c.func.value.id == "self"
+        and c.func.attr in names
+        for c in ast.walk(fn)
+    )
+
+
 def _is_property(fn: ast.FunctionDef) -> bool:
     return any(
         isinstance(d, ast.Name) and d.id == "property" for d in fn.decorator_list
@@ -186,9 +198,18 @@ class SlotTakers:
     def __new__(cls, slot_source: str) -> Self:
         self = super().__new__(cls)
         slot = _members(slot_source, "ReaderSlot")
-        self._members = frozenset(
-            name for name, m in slot.items() if _locks_the_slot(m)
-        )
+        locking = {name for name, m in slot.items() if _locks_the_slot(m)}
+        # A member that calls a locking member of its own class takes the lock too.
+        grew = True
+        while grew:
+            callers = {
+                name
+                for name, m in slot.items()
+                if name not in locking and _calls_any(m, locking)
+            }
+            grew = bool(callers)
+            locking |= callers
+        self._members = frozenset(locking)
         return self
 
     @property
@@ -344,9 +365,13 @@ class TestTheSlotsLockIsPrivateAndItsWaitIsOne:
 class TestTheStateLockNeverTakesOrWaitsOnTheReaderSlot:
     def test_the_slot_takers_are_derived_from_the_slot(self) -> None:
         assert _takers().names == {
+            "ask_settle",
             "claim_for_listener",
-            "release_listener",
             "inline",
+            "release_listener",
+            "_free",
+            "_release",
+            "_take",
         }
 
     def test_no_state_lock_step_takes_or_waits_on_the_slot(self) -> None:

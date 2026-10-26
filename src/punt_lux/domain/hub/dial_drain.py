@@ -1,12 +1,18 @@
 """DialDrain -- the last look at a dial's socket before its ledger is taken.
 
 The display acks a scene after a swap and may die a moment later, so an ack can be in
-the socket's queue, or in the reader's buffer, when something ends the dial. Reading
-to end of file does not find it (a display that is alive never sends one), and the
+the socket's queue, or in the reader's buffer, when something ends the dial. The
 ledger would then charge a scene the display had already acked. So the dial's own
 reader reads whatever the socket holds, without waiting, and routes every message it
 completes, an ack to the dial's ledger and an interaction to the link, before it
-takes the ledger and shuts the socket.
+takes the ledger and shuts the socket. It also says whether it found the stream's end:
+a display that was dead when the Hub looked is the display's end, never the Hub's.
+
+The claim that the drain is complete holds for a same-host socket only. There a
+display that dies leaves its end of file (or, if it died holding bytes the Hub had
+sent, a reset) queued behind everything it had sent, so reading to that end reads
+every ack. A reset from a remote peer may discard what was queued, so a cross-host
+stream's drain is not complete and nothing here claims it is.
 """
 
 from __future__ import annotations
@@ -39,35 +45,55 @@ class DialDrain:
         self._route = route
         return self
 
-    def run(self, generation: DialGeneration) -> None:
-        """Route every complete message ``generation`` holds, buffered or in the socket.
+    def run(self, generation: DialGeneration) -> bool:
+        """Route every complete message ``generation`` holds; whether its end came.
 
         The frames the reader had already taken off the socket and not yet routed
-        come first, then whatever the socket holds now, and then it stops. A frame
-        that cannot be decoded ends the drain: the stream cannot be trusted past it,
-        and what the ledger owes stays as it is. So does a reply that fails to route
-        (every later reply would be matched to the wrong entry), as it does for the
-        reader. An event or an interaction that fails to route costs only itself.
+        come first, then whatever the socket holds, and then it stops at the point
+        where the next read would block. ``True`` when the look found the stream's end
+        (end of file, a reset, a TLS end of file), which includes a read that was cut
+        short: it is never reported as "nothing more". A frame that cannot be decoded
+        ends the drain with ``False``: the stream cannot be trusted past it, and what
+        the ledger owes stays as it is. So does a reply that fails to route (every
+        later reply would be matched to the wrong entry), as it does for the reader.
+        An event or an interaction that fails to route costs only itself.
         """
-        chunk: bytes | None = b""  # the first pass routes what is already buffered
-        while chunk is not None:
-            try:
-                for msg in generation.messages(chunk):
-                    try:
-                        self._route(generation, msg)
-                    except Exception:
-                        logger.exception(
-                            "Drain route failed on %s from display %s",
-                            type(msg).__name__,
-                            generation.endpoint,
-                        )
-                        if isinstance(msg, REPLY_TYPES):
-                            return
-            except Exception:  # wire boundary: any decoder failure ends the stream
-                logger.exception(
-                    "Drain of %s stopped: its stream could not be read past %r",
-                    generation.endpoint,
-                    generation.head(64),
-                )
-                return
-            chunk = generation.drain_chunk()
+        chunk = b""  # the first pass routes what is already buffered
+        while True:
+            if not self._routed(self._route, generation, chunk):
+                return False
+            look = generation.drain()
+            if look.ended:
+                self._routed(self._route, generation, look.chunk)
+                return True
+            if not look.chunk:
+                return False
+            chunk = look.chunk
+
+    @staticmethod
+    def _routed(
+        route: Callable[[DialGeneration, Message], None],
+        generation: DialGeneration,
+        chunk: bytes,
+    ) -> bool:
+        """Route every message ``chunk`` completes; ``False`` if the stream broke."""
+        try:
+            for msg in generation.messages(chunk):
+                try:
+                    route(generation, msg)
+                except Exception:
+                    logger.exception(
+                        "Drain route failed on %s from display %s",
+                        type(msg).__name__,
+                        generation.endpoint,
+                    )
+                    if isinstance(msg, REPLY_TYPES):
+                        return False
+        except Exception:  # wire boundary: any decoder failure ends the stream
+            logger.exception(
+                "Drain of %s stopped: its stream could not be read past %r",
+                generation.endpoint,
+                generation.head(64),
+            )
+            return False
+        return True

@@ -32,8 +32,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.dial_socket import Drained
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-    from punt_lux.domain.hub.reply_sink import Pending
+    from punt_lux.domain.hub.pending import Pending
     from punt_lux.domain.hub.settlement import Settlement
     from punt_lux.protocol import (
         AckMessage,
@@ -99,21 +100,41 @@ class DialGeneration:
 
     @property
     def is_closed(self) -> bool:
-        """Whether this dial has been ended: nothing more is written to it."""
-        return self._sink.ended is not None
+        """Whether this dial is being ended: nothing more is written to it.
+
+        True once a cause is recorded and once the Hub has asked to end it.
+        """
+        return self._sink.closing is not None
 
     def end(self, cause: RetireCause) -> bool:
         """Record who ended this dial, first cause wins; whether this call did.
 
-        Phase one: writes are refused and waiters fail, but the ledger is left alone
-        and an ack the display already sent is still applied, so the reader can read
-        it before :meth:`mark_closed` takes the ledger.
+        Writes are refused and waiters fail, but the ledger is left alone and an ack
+        the display already sent is still applied, so the reader can read it before
+        the dial is settled.
         """
         return self._sink.end(cause)
 
+    def request_hub(self) -> bool:
+        """Ask for the Hub's end of this dial; whether this call asked first.
+
+        Refuses writes and fails waiters at once, like :meth:`end`, but records no
+        cause: whether the display is already dead is for the reader that settles the
+        dial to find out (:meth:`decide`).
+        """
+        return self._sink.request_hub()
+
+    def decide(self, *, saw_end: bool) -> RetireCause:
+        """Fix the cause of this dial's end: the first recorded, else what was seen.
+
+        ``saw_end`` is the end of the stream a drain found. See
+        :meth:`ReplySink.decide <punt_lux.domain.hub.reply_sink.ReplySink.decide>`.
+        """
+        return self._sink.decide(saw_end=saw_end)
+
     @property
     def ended(self) -> RetireCause | None:
-        """Who ended this dial, if anyone has; ``None`` while it is live."""
+        """The first cause recorded for this dial's end; ``None`` while none is."""
         return self._sink.ended
 
     @property
@@ -121,14 +142,19 @@ class DialGeneration:
         """Whether this dial's ledger has been captured: it delivers nothing more."""
         return self._sink.captured
 
-    def mark_closed(self, cause: RetireCause) -> Settlement:
-        """Settle this dial: end it if no one has, then take its ledger.
+    def await_settled(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` for this dial to be settled; whether it was."""
+        return self._sink.await_captured(timeout)
 
-        Phase two. Called under the connection's state lock, so it takes no I/O. The
-        cause that stands is the first one recorded. Releasing the socket is
-        :meth:`shut`'s job, outside the lock.
+    def mark_closed(self, cause: RetireCause) -> Settlement:
+        """Capture this dial's ledger, ending it with ``cause`` if nothing had.
+
+        Called under the connection's state lock, so it takes no I/O. The cause that
+        stands is the first one recorded. Releasing the socket is :meth:`shut`'s job,
+        outside the lock.
         """
-        return self._sink.discard(cause)
+        self._sink.end(cause)
+        return self._sink.capture()
 
     @trace
     def send(self, msg: Message) -> None:
@@ -201,8 +227,8 @@ class DialGeneration:
                 raise self.closed_error() from exc
             raise
 
-    def drain_chunk(self) -> bytes | None:
-        """Take what the socket already holds without waiting; ``None`` if nothing."""
+    def drain(self) -> Drained:
+        """Take what the socket already holds without waiting, and say if it ended."""
         return self._socket.drain()
 
     def messages(self, chunk: bytes) -> Iterator[Message]:
@@ -227,19 +253,27 @@ class DialGeneration:
     def _write_failed(self, exc: BaseException) -> None:
         """End the dial a failed write left half-written, unless someone already had.
 
-        A socket failure is the display's doing; anything else that stopped a write is
-        the Hub's. A dial already ended was ended by whoever's cause it carries
-        (``shut`` wakes a writer wedged in ``sendall`` on purpose): the writer reports
-        that cause, never the socket error the ending itself produced. A writer that
-        loses the end to one landing after the check reports the winner's cause too.
+        A socket failure is the display's doing, but a send that hit its time limit
+        (``SO_SNDTIMEO``, surfacing as ``BlockingIOError``) is a display that stopped
+        reading and may be alive, so it is recorded as unresponsive. Anything else
+        that stopped a write is the Hub's, and is a request, not a recorded cause. A
+        dial whose cause is already recorded (``shut`` wakes a writer wedged in
+        ``sendall`` on purpose) was ended by whoever's cause it carries: the writer
+        reports that cause, never the socket error the ending itself produced. A
+        writer that loses the record to one landing after the check reports the
+        winner's cause too.
         """
         if not isinstance(exc, OSError):
             self._retire(self, "hub")
-        elif self._sink.ended is not None or not self._retire(self, "display"):
+            return
+        cause: RetireCause = (
+            "unresponsive" if isinstance(exc, BlockingIOError) else "display"
+        )
+        if self._sink.ended is not None or not self._retire(self, cause):
             raise self.closed_error() from exc  # someone else's cause won the end
 
     def _require_open(self) -> None:
-        if self._sink.ended is not None:
+        if self._sink.closing is not None:
             raise self.closed_error()
 
     def closed_error(self) -> ConnectionClosedError:
@@ -247,11 +281,11 @@ class DialGeneration:
 
         A plain :class:`ConnectionClosedError` when the display ended it,
         :class:`UnresponsiveError` when the Hub gave up on its silence, and
-        :class:`HubRetiredError` when the Hub ended it by its own policy; only that
-        last changes what recovery does (it redials without treating it as a death).
-        ``ValueError`` for a dial still open.
+        :class:`HubRetiredError` when the Hub ended it by its own policy (or has asked
+        to, with nothing yet decided); only that last changes what recovery does (it
+        redials without treating it as a death). ``ValueError`` for a dial still open.
         """
-        ended = self._sink.ended
+        ended = self._sink.closing
         if ended is None:
             msg = f"the connection to {self.endpoint} is still open"
             raise ValueError(msg)

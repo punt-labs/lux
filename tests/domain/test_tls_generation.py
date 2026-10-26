@@ -23,7 +23,7 @@ from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.protocol import PingMessage, QueryRequest, QueryResponse, ReadyMessage
 from tests.display._mtls_harness import MtlsMaterial
 from tests.domain.display_double import Call, Peer
-from tests.link_access import no_reader
+from tests.link_access import bare_connection, no_reader
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -88,7 +88,7 @@ def tls(tmp_path: Path) -> Iterator[_TlsDisplay]:
 
 
 def test_a_frame_goes_each_way_over_the_tls_dial(tls: _TlsDisplay) -> None:
-    connection = DisplayConnection(tls, 5.0, settle_unread=no_reader)
+    connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
     connection.open()
     generation = connection.require()
     try:
@@ -125,7 +125,7 @@ def test_a_reply_larger_than_one_tls_record_is_read_whole_inline(
 def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
     tls: _TlsDisplay,
 ) -> None:
-    connection = DisplayConnection(tls, 5.0, settle_unread=no_reader)
+    connection = bare_connection(tls, 5.0)
     connection.open()
     generation = connection.require()
     blob = QueryRequest(method="x", params={"blob": "x" * (15 * 1024 * 1024)})
@@ -143,7 +143,7 @@ def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
     assert sender.is_alive(), "the display reads nothing, so the write wedges"
 
     began = time.monotonic()
-    assert connection.close_if_current(generation, cause="hub")
+    assert connection.retire(generation, cause="hub")
     sender.join(5.0)
 
     assert not sender.is_alive()

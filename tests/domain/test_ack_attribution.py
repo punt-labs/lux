@@ -31,11 +31,9 @@ from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import (
     AckMessage,
-    ObserverMessage,
     PingMessage,
     PongMessage,
     SceneMessage,
-    encode_message,
 )
 from tests.domain.display_double import Call, Display, Responder, until
 from tests.domain.test_retire_cause import _linked, _rig, _scene
@@ -45,7 +43,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.reply_sink import Pending
+    from punt_lux.domain.hub.pending import Pending
+    from punt_lux.domain.hub.settler import Settler
     from punt_lux.protocol import Message
 
 
@@ -369,9 +368,10 @@ class TestTheAckInFlightAtRetire:
         display.sockets[-1].fail_next_send = True
 
         failing = Call(lambda: writer_of(link).send_scene(_scene("b")))
-        assert failing.wait()  # a non-reader found the display dead
+        assert not failing.wait(0.3)  # the asker waits for the holder, which is busy
         assert deaths_of(link) == (), "a non-reader took the ledger"
-        gate.release.set()  # the reader applies the ack, then ends the dial
+        gate.release.set()  # the reader applies the ack, then settles the dial
+        assert failing.wait()
 
         assert until(lambda: not link.is_connected)
         assert deaths_of(link) == ()
@@ -388,9 +388,10 @@ class TestTheAckInFlightAtRetire:
         display.peer.send(AckMessage(scene_id="b"))  # in the socket, not yet read
         display.sockets[-1].fail_next_send = True
         failing = Call(lambda: writer_of(link).send_scene(_scene("c")))
-        assert failing.wait()  # the display's end is recorded; the reader is busy
+        assert not failing.wait(0.3)  # the end is recorded; the reader is busy
 
         gate.release.set()  # the reader finishes a, finds the end, drains b
+        assert failing.wait()
 
         assert until(lambda: not link.is_connected)
         assert deaths_of(link) == ()
@@ -407,11 +408,13 @@ class TestTheAckInFlightAtRetire:
             generation: DialGeneration,
             pending: Pending[object, PongMessage],
             deadline: float,
+            settler: Settler,
         ) -> PongMessage | None:
             try:
-                return real(self, generation, pending, deadline)
+                return real(self, generation, pending, deadline, settler)
             finally:
-                generation.end("display")  # a writer's failure lands just after
+                # test seam: a writer's failure lands just after
+                link._connection.retire(generation, cause="display")
 
         monkeypatch.setattr(DisplayReplies, "_read_inline", read_then_end)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
@@ -437,12 +440,14 @@ class TestTheAckInFlightAtRetire:
         assert gate.entered.wait(3.0)
         display.sockets[-1].fail_next_send = True
         failing = Call(lambda: writer_of(link).send_scene(_scene("c")))
-        assert failing.wait()  # the display's end is recorded; the reader is busy
+        assert not failing.wait(0.3)  # the end is recorded; the reader is busy
         dial = link.desk.asks().dial
 
-        assert link.drop_if_current(dial, cause="hub") is False  # recovery's drop
+        dropping = Call(lambda: link.drop_if_current(dial, cause="hub"))  # recovery
+        assert not dropping.wait(0.3)  # it asks the busy reader, and waits
         assert deaths_of(link) == (), "the Hub's drop took the ledger unread"
         gate.release.set()
+        assert dropping.wait()
 
         assert until(lambda: not link.is_connected)
         (death,) = deaths_of(link)
@@ -461,18 +466,15 @@ class TestTheAckInFlightAtRetire:
 
 
 class TestAStaleDialIsNeverSettledByTheNudge:
-    def test_what_a_replaced_dial_still_buffered_is_not_routed(
+    def test_a_late_ask_for_a_replaced_dial_leaves_its_replacement(
         self, display: Display
     ) -> None:
         link = _linked(display, listening=False)  # the old dial's slot is free
         old = generation_of(link)
-        old.messages(encode_message(ObserverMessage(topic="stale", payload={})))
-        link._connection.close_if_current(  # test seam: a reader's settle, undrained
-            old, cause="display"
-        )  # settled as the display's end, with a frame still buffered
+        link._connection.retire(old, cause="display")  # settled on the spot
         link.connect(listen=True)
 
-        link._listener.settle_unread(old)  # test seam: a late nudge for the old dial
+        link._listener.ask_settle(old, "display")  # test seam: a late ask
 
         with pytest.raises(TimeoutError):
             link.events.poll_event(0.2)
@@ -517,7 +519,7 @@ class TestAnIsolationProbeWaitsOnTheAck:
             assert isinstance(failure, BatchSendError)
             assert isinstance(failure.cause, UnresponsiveError)
             assert len(responder.seen) == 1  # the second scene never went out
-            assert until(lambda: not rig.link.is_connected)
+            rig.after(1)  # found, or already redialed by the recovery
             (death,) = deaths_of(rig.registry)  # queued, as the display's end
             assert death.suspects == _ids(responder.seen[0])
             assert death.cause == "unresponsive"

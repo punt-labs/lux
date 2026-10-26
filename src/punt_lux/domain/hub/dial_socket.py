@@ -24,6 +24,7 @@ import select
 import socket
 import ssl
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
@@ -34,7 +35,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-    from punt_lux.domain.hub.reply_sink import Pending, ReplySink
+    from punt_lux.domain.hub.pending import Pending
+    from punt_lux.domain.hub.reply_sink import ReplySink
     from punt_lux.protocol import (
         Message,
         PongMessage,
@@ -46,9 +48,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialSocket"]
+__all__ = ["DialSocket", "Drained"]
 
 _READ_CHUNK = 65536
+# How long a last look waits for the socket lock: a write in flight finishes within it,
+# a writer wedged on a display that reads nothing does not.
+_DRAIN_LOCK_SECONDS = 0.25
+
+
+@dataclass(frozen=True, slots=True)
+class Drained:
+    """What one last look at a socket found: bytes, and whether its stream ended."""
+
+    chunk: bytes
+    ended: bool
 
 
 @final
@@ -158,25 +171,38 @@ class DialSocket:
             raise ConnectionClosedError(msg)
         return chunk
 
-    def drain(self) -> bytes | None:
-        """Take what the socket already holds, without waiting; ``None`` if nothing.
+    def drain(self) -> Drained:
+        """Take what the socket already holds, without waiting; say if its end came.
 
-        A stream that has ended or failed holds nothing more, so it too is ``None``:
-        the drain is a last look, and what the display sent first is all it wants.
+        The last look before a dial is settled. The stream's end is what the look
+        found: end of file, a connection reset (the peer closed with bytes of this
+        side's it never read, which a same-host stream delivers after everything it
+        had queued), a TLS end of file, or a read that failed, since a stream that
+        cannot be read holds nothing more. A cut-short read is therefore never
+        reported as "nothing more": the reader that settles the dial is told it
+        found the end, which is what makes a display dead when it looked a display's
+        end, not the Hub's.
         """
         try:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
             if not readable:
-                return None
-            with self._lock:
+                return Drained(b"", ended=False)
+            if not self._lock.acquire(timeout=_DRAIN_LOCK_SECONDS):
+                # A writer wedged in ``sendall`` holds the lock: the display reads
+                # nothing, so nothing more is to be had without blocking, and the
+                # settle that follows is what wakes the writer.
+                return Drained(b"", ended=False)
+            try:
                 chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+            finally:
+                self._lock.release()
         except (OSError, ValueError) as exc:
             self._report_cut_short(exc)
-            return None
-        return chunk or None
+            return Drained(b"", ended=True)
+        return Drained(chunk, ended=not chunk)
 
     def _report_cut_short(self, exc: BaseException) -> None:
-        """Say the last look was cut short: the capture goes ahead on what it read.
+        """Say the last look found the stream broken: the settle goes ahead on it.
 
         Quietly when the stream simply ended (a reset, a broken pipe, TLS end of
         file), loudly for anything else (a closed descriptor, a TLS fault): a later

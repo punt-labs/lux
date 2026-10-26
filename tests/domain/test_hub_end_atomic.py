@@ -54,23 +54,24 @@ def display() -> Iterator[Display]:
 def _the_display_lands_before_the_first_hub_end(
     monkeypatch: pytest.MonkeyPatch, link: DisplayLink
 ) -> None:
-    """Make a display end win the link's sink just before the first Hub end reaches it.
+    """Make a display end land on the link's sink just before the first Hub request.
 
     Whatever decision the Hub took before it ended the dial, the display's end was
     recorded after it and before the Hub's own: the first cause stands. Only this
     link's dial is raced, so a thread another test left running cannot spend it.
     """
-    real = ReplySink.end
+    real = ReplySink.request_hub
+    real_end = ReplySink.end
     armed = [True]
     sink = generation_of(link)._sink  # test seam: the one sink to race
 
-    def racing(self: ReplySink, cause: RetireCause) -> bool:
-        if cause == "hub" and self is sink and armed[0]:
+    def racing(self: ReplySink) -> bool:
+        if self is sink and armed[0]:
             armed[0] = False
-            real(self, "display")
-        return real(self, cause)
+            real_end(self, "display")
+        return real(self)
 
-    monkeypatch.setattr(ReplySink, "end", racing)
+    monkeypatch.setattr(ReplySink, "request_hub", racing)
 
 
 def _hold_the_drain(monkeypatch: pytest.MonkeyPatch) -> _Gate:
@@ -101,10 +102,12 @@ class TestAHubEndThatLosesTheCauseLeavesTheLedgerToTheReader:
         dial = link.desk.asks().dial
         _the_display_lands_before_the_first_hub_end(monkeypatch, link)
 
-        link.drop_if_current(dial, cause="hub")  # a query's give-up, say
+        dropping = Call(lambda: link.drop_if_current(dial, cause="hub"))  # a give-up
+        assert not dropping.wait(0.3)  # it asks the busy reader, and waits
 
         assert deaths_of(link) == (), "the Hub's end took the ledger unread"
         gate.release.set()
+        assert dropping.wait()
         assert until(lambda: not link.is_connected)
         assert deaths_of(link) == ()  # a was applied, b drained: nothing is owed
 
@@ -199,7 +202,17 @@ class TestAnInlineReaderThatLosesTheEndReportsTheWinnersCause:
         link = _linked(display, listening=False)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
         display.peer.read(1)
-        _the_display_lands_before_the_first_hub_end(monkeypatch, link)
+        real_end = ReplySink.end
+        sink = generation_of(link)._sink  # test seam: the one sink to race
+
+        def racing(self: ReplySink, cause: RetireCause) -> bool:
+            # A reply nobody was owed ends the stream as the Hub's, recorded at once
+            # (nothing can be read past it): the display's end lands just before.
+            if cause == "hub" and self is sink:
+                real_end(self, "display")
+            return real_end(self, cause)
+
+        monkeypatch.setattr(ReplySink, "end", racing)
 
         display.peer.send(AckMessage(scene_id="unsolicited"))
 
@@ -221,13 +234,14 @@ class TestAStopOrCloseRacingAnEndSomebodyRecorded:
         display.peer.send(AckMessage(scene_id="b"))  # in the socket, unread
         display.sockets[-1].fail_next_send = True
         failing = Call(lambda: writer_of(link).send_scene(_scene("c")))
-        assert failing.wait()  # the display's end is recorded; the reader is busy
+        assert not failing.wait(0.3)  # the end is recorded; the reader is busy
 
         closing = Call(link.close)  # stop joins the reader, which is parked
         time.sleep(0.3)
         assert deaths_of(link) == (), "stop took the ledger before the reader drained"
         gate.release.set()
 
+        assert failing.wait()
         assert closing.wait()
         assert deaths_of(link) == ()
 
@@ -257,49 +271,8 @@ def _calls_to(source: str, name: str) -> int:
     )
 
 
-def _calls_passing(source: str, name: str, keyword: str) -> int:
-    return sum(
-        1
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == name
-        and any(kw.arg == keyword for kw in node.keywords)
-    )
-
-
-class TestOnlyAReaderTakesTheLedgerOfADisplayEnd:
-    """The Hub's ends go through ``retire``; ``close_if_current`` is a reader's door."""
-
-    def test_close_if_current_is_called_only_by_a_dials_readers(self) -> None:
-        callers = {
-            path.stem
-            for path in _SRC.glob("*.py")
-            if path.stem != "display_connection"
-            and _calls_to(path.read_text(), "close_if_current") > 0
-        }
-
-        assert callers == {"dial_reader", "display_listener"}
-
-    def test_only_the_connections_retire_takes_a_ledger_as_a_non_reader(self) -> None:
-        non_readers = {
-            path.stem: _calls_passing(path.read_text(), "close_if_current", "by_reader")
-            for path in _SRC.glob("*.py")
-            if _calls_passing(path.read_text(), "close_if_current", "by_reader")
-        }
-
-        assert non_readers == {"display_connection": 1}
-
-    def test_a_planted_hub_side_capture_is_counted(self) -> None:
-        reader = "def f(connection, g):\n    connection.close_if_current(g)\n"
-        hub = (
-            "def f(connection, g):\n"
-            "    connection.close_if_current(g, by_reader=False)\n"
-        )
-
-        assert _calls_to(reader, "close_if_current") == 1
-        assert _calls_passing(hub, "close_if_current", "by_reader") == 1
-        assert _calls_passing(reader, "close_if_current", "by_reader") == 0
+class TestTheHubsEndsAllGoThroughRetire:
+    """A Hub end only requests: the settle is the dial's holder's."""
 
     def test_the_hub_side_ends_all_retire(self) -> None:
         names = {

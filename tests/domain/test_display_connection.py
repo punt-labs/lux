@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 from typing import Self, final
 
 import pytest
@@ -26,7 +27,13 @@ from punt_lux.protocol import (
     encode_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import deaths_of, no_reader, reading_of
+from tests.link_access import (
+    bare_connection,
+    deaths_of,
+    drop_route,
+    no_reader,
+    reading_of,
+)
 
 
 @final
@@ -62,7 +69,7 @@ _BIG = QueryRequest(method="x", params={"blob": "x" * (8 * 1024 * 1024)})
 
 def _opened() -> tuple[DisplayConnection, _Dialer]:
     dialer = _Dialer()
-    connection = DisplayConnection(dialer, 1.0, settle_unread=no_reader)
+    connection = bare_connection(dialer, 1.0)
     connection.open()
     return connection, dialer
 
@@ -85,7 +92,7 @@ class TestOpen:
             connection.close()
 
     def test_a_dial_that_fails_leaves_the_connection_closed(self) -> None:
-        connection = DisplayConnection(_Dialer(fail=True), 1.0, settle_unread=no_reader)
+        connection = bare_connection(_Dialer(fail=True), 1.0)
 
         with pytest.raises(DisplayNotConnectedError):
             connection.open()
@@ -94,7 +101,7 @@ class TestOpen:
         assert connection.ready is None
 
     def test_a_new_connection_holds_nothing(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
+        connection = bare_connection(_Dialer(), 1.0)
 
         assert not connection.is_open
         assert not connection.is_open
@@ -112,7 +119,7 @@ class TestClose:
         assert connection.ready is None
 
     def test_closing_a_closed_connection_is_not_an_error(self) -> None:
-        DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).close()
+        bare_connection(_Dialer(), 1.0).close()
 
     def test_can_be_reopened_after_closing(self) -> None:
         connection, dialer = _opened()
@@ -139,7 +146,7 @@ class TestRequire:
         with pytest.raises(
             DisplayNotConnectedError, match="open\\(\\) the display connection"
         ):
-            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).require()
+            bare_connection(_Dialer(), 1.0).require()
 
     def test_a_dial_the_hub_dropped_is_a_hub_retirement_for_whoever_asks_next(
         self,
@@ -147,7 +154,7 @@ class TestRequire:
         # The replicator may fetch the dial just as another thread drops it; the
         # display said nothing, so recovery must not blame the batch for it.
         connection, _ = _opened()
-        connection.close_if_current(connection.require(), cause="hub")
+        connection.retire(connection.require(), cause="hub")
 
         with pytest.raises(HubRetiredError):
             connection.require()
@@ -156,7 +163,7 @@ class TestRequire:
         # Nothing was dialed, so there is nothing for the display to have ended: the
         # error is not a closed connection a sender could blame its batch for.
         with pytest.raises(DisplayNotConnectedError) as caught:
-            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).require()
+            bare_connection(_Dialer(), 1.0).require()
 
         assert not isinstance(caught.value, ConnectionClosedError)
 
@@ -167,7 +174,7 @@ class TestRequire:
         # reached it: the sender still learns the display ended it, so the death is
         # charged to what it was sending.
         connection, _ = _opened()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
 
         with pytest.raises(ConnectionClosedError) as caught:
             connection.require()
@@ -176,7 +183,7 @@ class TestRequire:
 
     def test_the_cause_is_the_last_retirements(self) -> None:
         connection, _ = _opened()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
         connection.open()
         connection.close()  # the Hub's own close of the next dial
 
@@ -185,7 +192,7 @@ class TestRequire:
 
     def test_a_live_dial_is_returned_whatever_ended_the_one_before(self) -> None:
         connection, _ = _opened()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
         connection.open()
 
         assert connection.require() is not None
@@ -217,7 +224,7 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_a_dial_the_display_ended_with_an_ack_owed_queues_its_ledger(self) -> None:
         connection, dialer = self._owing()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
 
         (death,) = deaths_of(connection)
 
@@ -228,7 +235,7 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_a_death_is_handed_over_exactly_once(self) -> None:
         connection, dialer = self._owing()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
 
         assert len(deaths_of(connection)) == 1
         assert deaths_of(connection) == ()
@@ -237,7 +244,7 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_a_dial_the_hub_ended_queues_nothing_whatever_it_owed(self) -> None:
         connection, dialer = self._owing()
-        connection.close_if_current(connection.require(), cause="hub")
+        connection.retire(connection.require(), cause="hub")
 
         assert deaths_of(connection) == ()
         if dialer.peer is not None:
@@ -253,7 +260,7 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_a_dial_the_display_ended_owing_nothing_queues_nothing(self) -> None:
         connection, dialer = _opened()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
 
         assert deaths_of(connection) == ()
         if dialer.peer is not None:
@@ -261,10 +268,10 @@ class TestTheDeathsAConnectionKeeps:
 
     def test_each_dial_the_display_ends_queues_its_own_death(self) -> None:
         connection, dialer = self._owing()
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
         connection.open()
         connection.require().send_scene(SceneMessage(id="t", elements=[], frame_id="t"))
-        connection.close_if_current(connection.require(), cause="display")
+        connection.retire(connection.require(), cause="display")
 
         first, second = deaths_of(connection)
 
@@ -325,7 +332,7 @@ class TestThePendingDeathsAreNeverDropped:
                 connection.require().send_scene(
                     SceneMessage(id=f"s{turn}", elements=[], frame_id=f"s{turn}")
                 )
-                connection.close_if_current(connection.require(), cause="display")
+                connection.retire(connection.require(), cause="display")
                 connection.open()
 
         kept = deaths_of(connection)
@@ -341,7 +348,7 @@ class TestCloseIfCurrent:
         connection, _ = _opened()
         generation = connection.require()
 
-        assert connection.close_if_current(generation, cause="hub") is True
+        assert connection.retire(generation, cause="hub") is True
 
         assert not connection.is_open
         assert generation.is_closed
@@ -353,7 +360,7 @@ class TestCloseIfCurrent:
         connection.open()
         replacement = connection.require()
         try:
-            assert connection.close_if_current(stale, cause="hub") is False
+            assert connection.retire(stale, cause="hub") is False
             assert connection.is_open
             assert not replacement.is_closed
         finally:
@@ -362,9 +369,9 @@ class TestCloseIfCurrent:
     def test_closing_twice_is_a_no_op_the_second_time(self) -> None:
         connection, _ = _opened()
         generation = connection.require()
-        connection.close_if_current(generation, cause="hub")
+        connection.retire(generation, cause="hub")
 
-        assert connection.close_if_current(generation, cause="hub") is False
+        assert connection.retire(generation, cause="hub") is False
 
 
 class TestShutdown:
@@ -400,9 +407,7 @@ class TestShutdown:
         sender.join(0.3)
         assert sender.is_alive(), "the peer reads nothing, so the write wedges"
 
-        assert connection.close_if_current(
-            generation, cause="hub"
-        )  # needs no socket lock
+        assert connection.retire(generation, cause="hub")  # needs no socket lock
 
         sender.join(3.0)
         assert not sender.is_alive()
@@ -439,7 +444,9 @@ class TestSend:
     def test_a_write_that_raises_ends_its_generation_for_its_reader_to_settle(
         self,
     ) -> None:
-        connection, dialer = _opened()
+        dialer = _Dialer()
+        connection = DisplayConnection(dialer, 1.0, ask_settle=no_reader)  # no reader
+        connection.open()
         generation = connection.require()
         assert dialer.peer is not None
         dialer.peer.close()  # the display is gone: the next write fails
@@ -451,8 +458,6 @@ class TestSend:
 
         assert generation.ended == "display"
         assert connection.is_open  # the dial's reader settles it, not the writer
-        connection.close_if_current(generation, cause="display")
-        assert not connection.is_open
 
     def test_a_scene_write_records_the_ack_it_is_owed_after_the_write(self) -> None:
         connection, dialer = _opened()
@@ -561,7 +566,7 @@ class TestPollChunk:
 
 class TestOpenForListening:
     def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
+        connection = bare_connection(_Dialer(), 1.0)
 
         born = connection.open_listening()
 
@@ -569,13 +574,13 @@ class TestOpenForListening:
 
         try:
             assert connection.has_reader
-            with reading_of(connection).inline() as free:
+            with reading_of(connection).inline(drop_route) as free:
                 assert not free, "an inline read could slip in before the listener"
         finally:
             connection.close()
 
     def test_open_listening_says_whether_it_dialed(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
+        connection = bare_connection(_Dialer(), 1.0)
 
         connection.open()
         second = connection.open_listening()
@@ -599,7 +604,7 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         release = threading.Event()
 
         def hold() -> None:
-            with reading_of(connection).inline():
+            with reading_of(connection).inline(drop_route):
                 holding.set()
                 release.wait(5.0)
 
@@ -611,8 +616,14 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         def under_the_state_lock() -> None:
             outcome.append(connection.has_reader)
             outcome.append(connection.is_open)
-            outcome.append(connection.close_if_current(generation, cause="hub"))
 
+        def retiring() -> None:
+            # Asks the holder to settle, and waits for it: with no lock held.
+            connection.retire(generation, cause="hub")
+
+        retirer = threading.Thread(target=retiring, daemon=True)
+        retirer.start()
+        time.sleep(0.2)  # the retire has asked, and waits on the holder
         worker = threading.Thread(target=under_the_state_lock, daemon=True)
         worker.start()
         worker.join(1.0)
@@ -622,10 +633,12 @@ class TestTheStateLockNeverWaitsOnTheReaderSlot:
         steps_while_held = list(outcome)
         release.set()
         holder.join(3.0)
+        retirer.join(3.0)
         worker.join(3.0)
 
         assert finished_while_held, "a state-lock step waited on the reader slot"
-        assert steps_while_held == [False, True, True]
+        assert steps_while_held == [False, True]
+        assert not connection.is_open  # the holder settled the debt as it let go
 
 
 class TestReaderSlot:
@@ -633,17 +646,16 @@ class TestReaderSlot:
         connection, _ = _opened()
         slot = reading_of(connection)
         try:
-            assert (slot.claim_for_listener(), slot.claim_for_listener()) == (
-                True,
-                False,
-            )
+            first = slot.claim_for_listener(drop_route)
+            second = slot.claim_for_listener(drop_route)
+            assert (first is not None, second is None) == (True, True)
             assert connection.has_reader
         finally:
             connection.close()
 
     def test_a_new_generation_has_no_reader(self) -> None:
         connection, _ = _opened()
-        reading_of(connection).claim_for_listener()
+        reading_of(connection).claim_for_listener(drop_route)
         connection.close()
         connection.open()
         try:
@@ -663,7 +675,4 @@ class TestEndpoint:
                 dialer.peer.close()
 
     def test_says_so_when_not_open(self) -> None:
-        assert (
-            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).endpoint
-            == "not connected"
-        )
+        assert bare_connection(_Dialer(), 1.0).endpoint == "not connected"

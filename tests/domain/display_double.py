@@ -93,12 +93,13 @@ class Peer:
 
 @final
 class FlakySocket:
-    """A socket that fails its next ``sendall`` when told to; the rest is real."""
+    """A socket that fails or times out its next ``sendall`` when told to."""
 
     _sock: socket.socket
     _active: int
     _guard: threading.Lock
     fail_next_send: bool
+    time_out_next_send: bool
     overlaps: int
     reader_overlaps: int
     _reading: int
@@ -109,6 +110,7 @@ class FlakySocket:
         self._active = 0
         self._guard = threading.Lock()
         self.fail_next_send = False
+        self.time_out_next_send = False
         self.overlaps = 0
         self.reader_overlaps = 0
         self._reading = 0
@@ -116,6 +118,10 @@ class FlakySocket:
 
     def sendall(self, data: bytes) -> None:
         """Raise once, if told to, before writing anything."""
+        if self.time_out_next_send:
+            self.time_out_next_send = False
+            msg = "the send timed out"
+            raise BlockingIOError(msg)
         if self.fail_next_send:
             self.fail_next_send = False
             msg = "the socket fell over"

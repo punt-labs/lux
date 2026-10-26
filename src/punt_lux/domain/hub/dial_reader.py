@@ -3,9 +3,10 @@
 The reader is bound to the generation it was made for: it reads that generation's
 socket and nothing else, hands every decoded message to ``route`` together with
 that generation, and when it ends -- told to stop, the display closed the stream,
-a frame could not be decoded, a reply could not be routed -- it retires its own
-generation with ``close_if_current``, a no-op if a redial already replaced it. So
-a reader that outlived a redial can never close, read or answer for the new dial.
+a frame could not be decoded, a reply could not be routed -- it settles its own
+generation through the :class:`~punt_lux.domain.hub.settler.Settler` the dial's reader
+slot gave it, a no-op if a redial already replaced it. So a reader that outlived a
+redial can never close, read or answer for the new dial.
 The thread that drives it is :class:`~punt_lux.domain.hub.listener_thread.
 ListenerThread`.
 """
@@ -16,7 +17,6 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_connection import DisplayConnection
+    from punt_lux.domain.hub.settler import Settler
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -44,22 +44,22 @@ _HEAD_REPR = 200
 class DialReader:
     """The read loop over one generation."""
 
-    _connection: DisplayConnection
     _generation: DialGeneration
+    _settler: Settler
     _route: Callable[[DialGeneration, Message], None]
     _stopping: threading.Event
-    __slots__ = ("_connection", "_generation", "_route", "_stopping")
+    __slots__ = ("_generation", "_route", "_settler", "_stopping")
 
     def __new__(
         cls,
-        connection: DisplayConnection,
         generation: DialGeneration,
+        settler: Settler,
         route: Callable[[DialGeneration, Message], None],
         stopping: threading.Event,
     ) -> Self:
         self = super().__new__(cls)
-        self._connection = connection
         self._generation = generation
+        self._settler = settler
         self._route = route
         self._stopping = stopping
         return self
@@ -67,50 +67,47 @@ class DialReader:
     def run(self) -> None:
         """Read and route until stopped or the dial ends, then settle the dial.
 
-        The closing report is ``close_if_current`` of this reader's own generation,
-        taken whatever ended the loop: it is a no-op once a redial replaced the
-        generation, and ``stop`` settles it first, so safety rests on that scoping
-        and not on re-testing the stopping flag before the report. Someone else's end
-        (a writer's failure, the keepalive's give-up) is noticed at the top of the
-        loop, and is settled here, after the drain, not by whoever found it.
+        Whatever ended the loop, the dial is settled by the settler this reader
+        holds: it drains the socket, fixes the cause and takes the ledger, a no-op
+        once a redial replaced the generation. A stream this reader gave up on (a
+        frame that did not decode, a reply nobody was owed) is not read again, and is
+        ended undrained. The loop's own exit on its stop flag is the Hub's end and is
+        requested first, so the decision has a cause; someone else's end (a writer's
+        failure, the keepalive's give-up, the Hub's request) is noticed at the top of
+        the loop and is settled here, after the drain, not by whoever found it.
         """
+        gave_up: RetireCause | None = None
+        try:
+            gave_up = self._read()
+        finally:
+            if gave_up is None:
+                self._settler.settle()
+            else:
+                self._settler.end_stream(gave_up)
+
+    def _read(self) -> RetireCause | None:
+        """Read until the dial ends; who ended a stream this reader gave up on."""
         generation = self._generation
-        cause: RetireCause = "hub"  # the Hub's own stop, or a stream it gave up on
-        readable = True  # whether the socket may still hold something worth reading
         try:
             while not self._stopping.is_set():
-                if (recorded := generation.ended) is not None:
-                    cause = recorded
-                    break
+                if generation.is_closed:
+                    return None  # someone else's end or request: settle it
                 try:
                     data = generation.poll_chunk(_POLL_SECONDS)
                 except (ConnectionClosedError, OSError, ValueError) as exc:
                     if self._read_ended(exc):
-                        cause = "display"
-                        # Recorded the moment the reader learns of it, before it drains:
-                        # a Hub end arriving now loses, and leaves the ledger to us.
-                        generation.end(cause)
-                    break
+                        # Recorded the moment the reader learns of it, before it
+                        # drains: a Hub request arriving now cannot make it the Hub's.
+                        generation.end("display")
+                    return None
                 ended = None if data is None else self._routed(data)
                 if ended is not None:
-                    cause = ended
-                    generation.end(cause)
-                    readable = False  # a stream we gave up on has nothing to trust
-                    break
-        finally:
-            self._settle(cause, readable=readable)
-
-    def _settle(self, cause: RetireCause, *, readable: bool) -> None:
-        """Read what the socket still holds if it is owed, then settle the dial.
-
-        The cause that stands is the first one recorded on the dial, which is not
-        always this reader's own. A stream that could not be read past (a frame that
-        did not decode, a reply nobody was owed) is not read again.
-        """
-        generation = self._generation
-        if readable and (generation.ended or cause) != "hub":
-            DialDrain(self._route).run(generation)
-        self._connection.close_if_current(generation, cause=generation.ended or cause)
+                    return ended
+        except BaseException:
+            generation.request_hub()  # an unexpected failure is the Hub's own
+            raise
+        generation.request_hub()  # the stop flag: the Hub's own end
+        return None
 
     def _read_ended(self, exc: Exception) -> bool:
         """Say why a read ended; whether the display ended it.
@@ -132,7 +129,7 @@ class DialReader:
         """Route every message ``data`` completes, each as it is decoded.
 
         A frame that cannot be decoded cannot be skipped -- the stream has no
-        way to say where the next one starts -- so the dial is retired and the
+        way to say where the next one starts -- so the dial is ended and the
         reconnect begins on a frame boundary: the display sent it, so the display
         ended the dial. A frame of a kind a display never sends (a scene, say) is
         refused on its raw type before any decoding and ends the dial the same way.
@@ -142,7 +139,7 @@ class DialReader:
         """
         generation = self._generation
         messages = generation.messages(data)
-        # A retired dial parks no reply, and the undecoded rest of its chunk is not
+        # A settled dial parks no reply, and the undecoded rest of its chunk is not
         # routed. What was already routed stands: an event or an interaction is
         # link-level, not the dial's reply (see ``_routed_one``).
         while not self._stopping.is_set() and not generation.is_settled:
@@ -171,10 +168,10 @@ class DialReader:
         wrong request -- so it ends the dial, and it is the Hub that ends it: the
         stream skewed, or the Hub's own routing failed.
 
-        Retirement orders delivery of *replies* only: a retired dial's sink
-        refuses them. A business event or an interaction belongs to the link, not
-        to the dial that carried it (rule 16), so one the display had already sent
-        is delivered even as its dial retires.
+        A dial that is ending refuses *replies* only: its sink parks none. A business
+        event or an interaction belongs to the link, not to the dial that carried it
+        (rule 16), so one the display had already sent is delivered even as its dial
+        ends.
         """
         try:
             self._route(self._generation, msg)

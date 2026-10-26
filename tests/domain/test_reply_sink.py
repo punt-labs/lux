@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import threading
+from typing import TYPE_CHECKING
 
 import pytest
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.reply_sink import ReplyOutOfOrderError, ReplySink
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.settlement import Settlement
+
+
+def _discard(sink: ReplySink, cause: RetireCause) -> Settlement:
+    """End the sink and take its ledger at once, as a retire that reads nothing."""
+    sink.end(cause)
+    return sink.capture()
 
 
 class TestAcks:
@@ -154,7 +165,7 @@ class TestWaiting:
     def test_discarding_the_sink_fails_the_waiter_at_once(self) -> None:
         sink = ReplySink()
         ping = sink.expect_pong(1.0)
-        timer = threading.Timer(0.05, sink.discard, args=["hub"])
+        timer = threading.Timer(0.05, _discard, args=[sink, "hub"])
         timer.start()
 
         with pytest.raises(ConnectionClosedError, match="closed while a reply"):
@@ -163,7 +174,7 @@ class TestWaiting:
 
     def test_a_discarded_sink_takes_no_new_request(self) -> None:
         sink = ReplySink()
-        sink.discard("hub")
+        _discard(sink, "hub")
 
         with pytest.raises(ConnectionClosedError):
             sink.expect_query()
@@ -174,7 +185,7 @@ class TestWaiting:
         sink = ReplySink()
         sink.owe_ack("a")
 
-        sink.discard("hub")
+        _discard(sink, "hub")
 
         assert sink.owed_acks == 0
 
@@ -187,7 +198,7 @@ class TestTheLedgerIsWhatTheDisplayStillOwed:
         sink.owe_ack("c")
         sink.deliver(AckMessage(scene_id="a"))
 
-        settlement = sink.discard("display")
+        settlement = _discard(sink, "display")
 
         assert settlement.owed == ("b", "c")
         assert settlement.acked
@@ -195,9 +206,9 @@ class TestTheLedgerIsWhatTheDisplayStillOwed:
     def test_a_second_discard_owes_nothing_and_keeps_the_first_cause(self) -> None:
         sink = ReplySink()
         sink.owe_ack("a")
-        sink.discard("display")
+        _discard(sink, "display")
 
-        second = sink.discard("hub")
+        second = _discard(sink, "hub")
 
         assert second.owed == ()
         assert second.cause == "display"
@@ -207,7 +218,7 @@ class TestTheLedgerIsWhatTheDisplayStillOwed:
         sink = ReplySink()
         sink.owe_ack("a")
 
-        assert not sink.discard("display").acked
+        assert not _discard(sink, "display").acked
 
     def test_a_live_sink_has_no_end(self) -> None:
         assert ReplySink().ended is None
@@ -325,7 +336,7 @@ class TestARetiredDialNeverDelivers:
     ) -> None:
         sink = ReplySink()
         ping = sink.expect_pong(1.0)
-        sink.discard("hub")
+        _discard(sink, "hub")
 
         sink.deliver(PongMessage(ts=1.0))
         sink.deliver(AckMessage(scene_id="stray"))  # not even a skew: it is retired
@@ -338,7 +349,7 @@ class TestARetiredDialNeverDelivers:
         ping = sink.expect_pong(1.0)
         sink.deliver(PongMessage(ts=1.0))
 
-        sink.discard("hub")
+        _discard(sink, "hub")
 
         assert sink.await_reply(ping, 0.0) == PongMessage(ts=1.0)
 
@@ -368,7 +379,7 @@ class TestTheClosedFlagIsOneHoldWithTheDiscard:
             thread.start()
             thread.join(timeout=0.1)
             assert thread.is_alive(), "the delivery did not wait for the lock"
-            sink.discard("hub")  # reentrant: the same hold writes the flag
+            _discard(sink, "hub")  # reentrant: the same hold writes the flag
         thread.join(timeout=3.0)
 
         assert outcome == [None], "the delivery read the flag before the hold"

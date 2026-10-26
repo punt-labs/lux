@@ -12,7 +12,13 @@ from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.protocol import AckMessage, RemoteEventHandlerInvocation
 from tests.domain.display_double import Call, Display, until
 from tests.domain.test_retire_cause import _linked, _scene
-from tests.link_access import generation_of, no_reader, reading_of, writer_of
+from tests.link_access import (
+    drop_route,
+    generation_of,
+    no_reader,
+    reading_of,
+    writer_of,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -63,13 +69,13 @@ class TestAClickHeldByAnInlineWaitForAcks:
 
 class TestAConnectionNeedsToKnowWhoSettlesWhatNoReaderHolds:
     def test_the_settle_has_no_default_and_is_keyword_only(self) -> None:
-        parameter = inspect.signature(DisplayConnection).parameters["settle_unread"]
+        parameter = inspect.signature(DisplayConnection).parameters["ask_settle"]
 
         assert parameter.default is inspect.Parameter.empty
         assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
 
     def test_a_connection_given_one_is_made(self, display: Display) -> None:
-        assert DisplayConnection(display, 1.0, settle_unread=no_reader).endpoint
+        assert DisplayConnection(display, 1.0, ask_settle=no_reader).endpoint
 
 
 class TestWhoReadsADialIsNotTheGenerationsToRelay:
@@ -82,7 +88,7 @@ class TestWhoReadsADialIsNotTheGenerationsToRelay:
         relayed = {"has_reader", "claim_reader", "release_reader", "inline_reading"}
         assert relayed.isdisjoint(dir(generation))
         assert "reader_slot" not in dir(generation._socket)
-        assert reading_of(link).claim_for_listener() is True
+        assert reading_of(link).claim_for_listener(drop_route) is not None
         assert reading_of(link).has_listener is True
 
     def test_a_redial_does_not_lend_its_slot_to_the_dial_it_replaced(
