@@ -18,7 +18,7 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
-from punt_lux.protocol import encode_message
+from punt_lux.protocol import AckMessage, encode_message
 
 if TYPE_CHECKING:
     import socket
@@ -42,12 +42,15 @@ class ClientSender:
 
     _host: ClientHost
     _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
-    __slots__ = ("_frame_deadline", "_host")
+    # Scenes installed and not yet acked: the client and the scene, in receipt order.
+    _held_acks: list[tuple[socket.socket, str]]
+    __slots__ = ("_frame_deadline", "_held_acks", "_host")
 
     def __new__(cls, host: ClientHost) -> Self:
         self = super().__new__(cls)
         self._host = host
         self._frame_deadline = None
+        self._held_acks = []
         return self
 
     def set_frame_deadline(self, deadline: float) -> None:
@@ -80,6 +83,28 @@ class ClientSender:
             return  # sent, or a dead peer _transmit already removed
         logger.warning("severing %s: %s missed its deadline", sock, type(msg).__name__)
         self._host.remove_client(sock)
+
+    def hold_ack(self, sock: socket.socket, scene_id: str) -> None:
+        """Note a scene installed for ``sock``; its ack goes out at the next swap.
+
+        The ack tells the Hub the scene survived being drawn, so it is sent only
+        once a buffer swap has completed after the install, never on receipt.
+        """
+        self._held_acks.append((sock, scene_id))
+
+    def release_acks(self) -> None:
+        """Ack every scene installed since the last swap, in the order received.
+
+        Called once a swap has completed. Visibility does not matter: a scene in a
+        background tab or a docked frame is acked with the rest. A client that left
+        before the swap has no one to hear its acks, so they are dropped.
+        """
+        held, self._held_acks = self._held_acks, []
+        for sock, scene_id in held:
+            if self._host.is_client(sock):
+                self.reply_to_client(
+                    sock, AckMessage(scene_id=scene_id, ts=time.time())
+                )
 
     def _transmit(self, sock: socket.socket, msg: Message) -> bool:
         """The one place a byte leaves for a client; whether it beat its deadline.

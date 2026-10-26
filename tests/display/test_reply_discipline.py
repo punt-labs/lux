@@ -119,6 +119,7 @@ class TestAHubThatReads:
 
         for scene_id in ("a", "b", "a", "c"):
             loop._handle_message(sock, _scene(scene_id))
+        loop._on_after_swap()  # an ack goes out once a swap has completed
 
         acked = [r.scene_id for r in peer.replies() if isinstance(r, AckMessage)]
         assert acked == ["a", "b", "a", "c"]
@@ -198,6 +199,8 @@ class TestAHubThatDoesNotRead:
 
         loop._handle_message(sock, _scene("a"))
 
+        loop._on_after_swap()  # the ack leaves once a swap has completed
+
         assert peer.closed
         assert sock not in loop._socket_listener.clients
 
@@ -268,6 +271,7 @@ class TestAHubThatDoesNotRead:
         for i in range(5):
             if sock in loop._socket_listener.clients:
                 loop._handle_message(sock, _scene(f"s{i}"))
+        loop._on_after_swap()  # the held acks leave once a swap has completed
 
         # Either every ack arrived (none did: nothing was writable), or the
         # connection ended; a live connection with a missing ack is the defect.
