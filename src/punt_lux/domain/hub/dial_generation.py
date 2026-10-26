@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_socket import Drained
+    from punt_lux.domain.hub.drain_result import Drained
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.pending import Pending
     from punt_lux.domain.hub.settlement import Settlement

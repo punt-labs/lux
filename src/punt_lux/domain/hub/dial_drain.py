@@ -57,7 +57,7 @@ class DialDrain:
         the ledger owes stays as it is. So does a reply that fails to route (every
         later reply would be matched to the wrong entry), as it does for the reader.
         An event or an interaction that fails to route costs only itself. Raises
-        :class:`~punt_lux.domain.hub.dial_socket.DrainIncompleteError` when a writer
+        :class:`~punt_lux.domain.hub.drain_result.DrainIncompleteError` when a writer
         held the socket past the ceiling, so the last look could not be made; the
         settler, which catches it, leaves the capture to the bound.
         """

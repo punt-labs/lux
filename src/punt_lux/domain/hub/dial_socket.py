@@ -25,11 +25,11 @@ import socket
 import ssl
 import threading
 import time
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.drain_result import Drained, DrainIncompleteError
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
@@ -55,21 +55,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialSocket", "DrainIncompleteError", "Drained"]
+__all__ = ["DialSocket"]
 
 _READ_CHUNK = 65536
-
-
-class DrainIncompleteError(Exception):
-    """The last look could not be made: a writer held the socket past its ceiling."""
-
-
-@dataclass(frozen=True, slots=True)
-class Drained:
-    """What one last look at a socket found: bytes, whether its stream ended."""
-
-    chunk: bytes
-    ended: bool
 
 
 @final

@@ -15,7 +15,7 @@ import pytest
 
 from punt_lux.domain.hub import bounded_ask
 from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.dial_socket import DrainIncompleteError
+from punt_lux.domain.hub.drain_result import DrainIncompleteError
 from punt_lux.domain.hub.reader_slot import InlineHolder
 from punt_lux.domain.hub.settler import Settler
 from tests.domain.display_double import Call, Display

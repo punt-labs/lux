@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Self, final
 import pytest
 
 from punt_lux.domain.hub import bounded_ask
-from punt_lux.domain.hub.dial_socket import Drained
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.drain_result import Drained
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (

@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.dial_socket import DrainIncompleteError
+from punt_lux.domain.hub.drain_result import DrainIncompleteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -30,11 +30,11 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.dial_reader import DialReader
-from punt_lux.domain.hub.dial_socket import DrainIncompleteError
 from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_listener import DisplayListener
+from punt_lux.domain.hub.drain_result import DrainIncompleteError
 from punt_lux.domain.hub.recovery import SendRecovery
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
