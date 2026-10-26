@@ -725,7 +725,7 @@ class TestIsolationNarrowsTheSuspects:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         rig = _rig(display, {"a": "x", "p": "x"})
-        rig.attribution.attribute_death(frozenset())  # a charge has been made
+        rig.attribution.count_death(frozenset())  # a charge has been made
         charged: list[frozenset[SceneId]] = []
         real = CrashAttribution.count_death
 
@@ -789,7 +789,7 @@ class TestAnUnackedProbeIsTheDisplaysEnd:
     ) -> None:
         monkeypatch.setattr(batch_sender, "_PROBE_TIMEOUT_SECONDS", 0.2)
         rig = _rig(display, {"s1": "x"})  # no responder: nothing is ever acked
-        rig.attribution.attribute_death(frozenset())  # isolation mode
+        rig.attribution.count_death(frozenset())  # isolation mode
 
         failure = rig.push("s1")
 

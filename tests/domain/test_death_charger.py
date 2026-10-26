@@ -206,7 +206,7 @@ class TestADeathIsCountedOnceWhateverFailsAfterwards:
         port = _PortThatRefusesOnce()
         attribution = CrashAttribution(port, lambda: 0.0)
         for _ in range(ATTRIBUTION_THRESHOLD - 1):  # one strike short of quarantine
-            attribution.attribute_death(_death("a", "b").suspects)
+            attribution.count_death(_death("a", "b").suspects)
         charger = DeathCharger(_Deaths(_death("a", "b")), attribution)
 
         with pytest.raises(RuntimeError, match="refused"):

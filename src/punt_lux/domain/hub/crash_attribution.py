@@ -13,8 +13,8 @@ poisonous scene is pursued across its clean renders instead of escaping the
 moment it happens to render cleanly.
 
 Internally thread-safe: the tally, mode, and last-death timestamp all live under
-one lock. The replicator thread calls ``attribute_death``/``mode``/
-``exit_isolation_if_stable``; MCP tool threads (via ``HubDisplay``'s
+one lock. The replicator thread calls ``count_death``/``quarantine_counted``/
+``mode``/``exit_isolation_if_stable``; MCP tool threads (via ``HubDisplay``'s
 quarantine-cleared observer wiring) call ``clear_tally`` when an owner's
 re-show or removal lifts a quarantine. Serializing every mutation on one lock
 keeps the "must not re-quarantine off one fresh death" invariant crossable by
@@ -122,47 +122,17 @@ class CrashAttribution:
         """
         return self._port.is_quarantined(scene_id)
 
-    def attribute_death(
-        self,
-        suspect_set: frozenset[SceneId],
-        *,
-        render_error: str | None = None,
-    ) -> frozenset[SceneId]:
-        """Attribute one Display death, now, to every scene in ``suspect_set``.
-
-        Switches the mode to isolating (idempotent if already there) and
-        quarantines any scene that reaches ``ATTRIBUTION_THRESHOLD`` inside the
-        rolling window. Returns the scenes newly quarantined by this death.
-
-        ``render_error`` is the message of the exception that surfaced the
-        death — the ``OSError``/``BlockingIOError`` the replicator caught from
-        the failed send or probe. Any scene the death quarantines carries it
-        on its :class:`QuarantineRecord` so an agent whose scene later goes
-        dark sees WHY, not just that. None is honest for callers that have no
-        exception to attribute (a synthetic priming attribute in tests, etc.).
-
-        The only caller, ``DeathCharger``, passes a recorded death's suspects, and
-        a death with none is never recorded: a dial that owed no acknowledgement
-        charges nothing, so it neither trips isolation nor blames a scene. An empty
-        set passed here directly would still trip isolation and blame no scene.
-
-        Tally updates happen under this class's lock; the ``port.quarantine``
-        callback fires only after the lock is released, so this class never
-        holds two locks at once. Necessary because ``clear_tally`` runs from
-        the store's quarantine-cleared observer under the store lock — the
-        reverse order (store lock while port.quarantine is holding this lock)
-        would deadlock a replicator-thread attribute against a caller-thread
-        ``replace_scene``.
-        """
-        self.count_death(suspect_set)
-        return self.quarantine_counted(suspect_set, render_error=render_error)
-
     def count_death(self, suspect_set: frozenset[SceneId]) -> None:
         """Count one death against every suspect, and switch to isolating.
 
         The step that must run exactly once per death: it raises nothing a caller
         should retry, and a caller whose later step fails calls
         :meth:`quarantine_counted` again, never this.
+
+        The only caller, ``DeathCharger``, passes a recorded death's suspects, and
+        a death with none is never recorded: a dial that owed no acknowledgement
+        charges nothing, so it neither trips isolation nor blames a scene. An empty
+        set passed here directly would still trip isolation and blame no scene.
         """
         now = self._clock()
         with self._lock:
@@ -183,7 +153,19 @@ class CrashAttribution:
 
         Counts nothing, so it can be repeated after a failure: a suspect the port
         already holds is quarantined again with the same tally. Returns the scenes
-        it quarantined. ``port.quarantine`` fires outside the lock.
+        it quarantined.
+
+        ``render_error`` is the message of the exception that surfaced the death,
+        the ``OSError`` the replicator caught from the failed send or probe. Any
+        scene quarantined carries it on its :class:`QuarantineRecord`, so an agent
+        whose scene later goes dark sees WHY, not just that.
+
+        Tally updates happen under this class's lock; ``port.quarantine`` fires only
+        after the lock is released, so this class never holds two locks at once.
+        ``clear_tally`` runs from the store's quarantine-cleared observer under the
+        store lock, and the reverse order (the store lock taken while this lock is
+        held) would deadlock a replicator thread against a caller's
+        ``replace_scene``.
         """
         now = self._clock()
         to_quarantine: list[tuple[SceneId, QuarantineRecord]] = []
@@ -204,28 +186,6 @@ class CrashAttribution:
         for scene_id, record in to_quarantine:
             self._port.quarantine(scene_id, record)
         return frozenset(scene_id for scene_id, _ in to_quarantine)
-
-    def quarantine_if_threshold(self, scene_id: SceneId) -> bool:
-        """Quarantine ``scene_id`` if its windowed tally reached the threshold.
-
-        Returns whether this call quarantined it. Idempotent-safe against a
-        scene the port already holds quarantined — the guard is on the tally,
-        not on the port's own state, since the port is the one place quarantine
-        can also be lifted from. The ``port.quarantine`` call fires outside
-        this class's lock, matching :meth:`attribute_death`'s discipline.
-        """
-        now = self._clock()
-        record: QuarantineRecord | None
-        with self._lock:
-            tally = self._tallies.get(scene_id)
-            if tally is None:
-                return False
-            self._prune(tally, now)
-            if len(tally) < ATTRIBUTION_THRESHOLD:
-                return False
-            record = QuarantineRecord(death_count=len(tally), last_death_at=now)
-        self._port.quarantine(scene_id, record)
-        return True
 
     def clear_tally(self, scene_id: SceneId) -> None:
         """Forget every attributed death for ``scene_id``.

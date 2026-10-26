@@ -1743,7 +1743,7 @@ def test_isolation_probe_blames_the_scene_whose_render_crashed_not_the_next() ->
     right = _seed(store, lifecycle, "right")
     repl, sender, _provider, _lifecycle = _replicator(store, clients)
     sender.crash_forever_on("both-batched")  # a synthetic first death to prime
-    repl._attribution.attribute_death(frozenset({left, right}))  # both tally=1
+    repl._attribution.count_death(frozenset({left, right}))  # both tally=1
 
     sender.crash_after_render("left")  # its send succeeds; probe will detect
     repl.start()
@@ -1884,7 +1884,7 @@ def test_a_failed_isolation_probe_names_the_dial_the_probe_went_out_on() -> None
     store = factory.display
     scene = _seed(store, factory.lifecycle, "left")
     repl, sender, provider, _lifecycle = _replicator(store, factory.clients)
-    repl._attribution.attribute_death(frozenset())  # isolation mode
+    repl._attribution.count_death(frozenset())  # isolation mode
     sender.crash_after_render("left")  # the send lands; the probe is never answered
 
     with pytest.raises(BatchSendError) as caught:
@@ -1935,7 +1935,7 @@ def test_a_scene_a_recorded_death_takes_to_the_threshold_is_not_sent_by_that_pus
     store = factory.display
     scene = _seed(store, factory.lifecycle, "s1")
     repl, sender, _provider, _lifecycle = _replicator(store, factory.clients)
-    repl._attribution.attribute_death(frozenset({scene}))  # one strike already
+    repl._attribution.count_death(frozenset({scene}))  # one strike already
     sender._unacked = {"s1"}
     sender.die()  # the second death, on record and not yet charged
 

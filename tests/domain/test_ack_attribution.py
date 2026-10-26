@@ -488,7 +488,7 @@ class TestAnIsolationProbeWaitsOnTheAck:
     ) -> None:
         responder = Responder(display, at_swap=True, auto_swap=False)
         rig = _rig(display, {"a": "x", "b": "x"})
-        rig.attribution.attribute_death(frozenset())  # a strike: scenes go alone
+        rig.attribution.count_death(frozenset())  # a strike: scenes go alone
         try:
             pushing = Call(lambda: rig.push("a", "b"))
             assert until(lambda: len(responder.seen) == 1)
@@ -510,7 +510,7 @@ class TestAnIsolationProbeWaitsOnTheAck:
         monkeypatch.setattr(batch_sender, "_PROBE_TIMEOUT_SECONDS", 0.2)
         responder = Responder(display, at_swap=True, auto_swap=False)
         rig = _rig(display, {"a": "x", "b": "x"})
-        rig.attribution.attribute_death(frozenset())
+        rig.attribution.count_death(frozenset())
         try:
             failure = rig.push("a", "b")
 
