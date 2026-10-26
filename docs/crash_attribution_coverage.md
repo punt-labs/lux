@@ -15,8 +15,8 @@ guard), and the four T10-era controls regenerated against this specification
 [inflight_ack_drain](./crash_attribution_inflight_ack_drain.tex).
 Governs `src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
 dial_generation,dial_socket,dial_drain,dial_reader,display_listener,display_replies,
-listener_thread,reply_sink,settlement,suspect_book,death_queue,death_charger,dial_death,
-liveness_probe,replicator}.py` and the display's held ack in
+listener_thread,reply_sink,reader_slot,settler,bounded_ask,dial_end,settlement,
+suspect_book,death_queue,death_charger,dial_death,liveness_probe,replicator}.py` and the display's held ack in
 `src/punt_lux/display/client_sender.py` (its release, after a completed swap, in
 `src/punt_lux/display/frame_turn.py`; its hold in
 `src/punt_lux/display/render_loop.py`).
@@ -158,18 +158,30 @@ of its writes is unacked, and A2 is read per write.
   registry hands it out once, to the charger, so no other part of the Hub can take a
   death out of it. A death whose charge raises goes back at the head and is charged
   again before any later one.
-- **O2** The drain (T14): a display-ended or unresponsive capture is made by the dial's own
-  reader, or waits for it. The reader records the end (`end("display")`) the moment it
-  sees the end of file, before it drains, and every Hub end records `end("hub")` first
-  and takes the ledger only if that cause is the one that stands: a Hub end that loses
-  to a display end leaves the capture to the reader (or to the discoverer when no reader
-  holds the dial), so no interleaving turns a display death into a Hub end or lets a
-  non-reader capture an undrained ledger. Before it takes the ledger the reader (1) reads what the socket
-  already holds, non-blocking, until `EAGAIN` or end of file (on `AF_UNIX` an ack the
-  display sent is already in the Hub's receive queue), (2) delivers every complete frame it
-  holds, and only then takes the ledger, before `shut()` discards the queue. A non-reader
-  discoverer signals; it does not capture. A drain that applies an ack clears the carried
-  set as any applied ack does.
+- **O2** The settlement (T14): a dial is settled by the holder of its reader slot, and a
+  display death becomes a Hub end only through the bound or through P9, as DES-102 states.
+  The proof is `dial_settlement.tex` (S1-S5); this is what the code owes it. A display or
+  unresponsive end records its cause, first wins; a Hub end records nothing, it requests a
+  settle and refuses writes (`DialEnd`, `ReplySink`). The holder's `Settler` (`settler.py`,
+  made only by `ReaderSlot`) drains what the socket holds to the point of blocking, routes
+  every complete frame, fixes the cause by the first-wins record (end of file means the
+  display's, a pending Hub request the Hub's, otherwise the recorded cause), drains once
+  more if a display or unresponsive end was recorded after its drain began, and only then
+  takes the ledger (`DisplayConnection._capture`, before `shut()` discards the queue). On
+  `AF_UNIX` an ack the display sent is already in the Hub's receive queue; over a
+  cross-host reset it may not be. Whoever ends a dial without holding the slot asks
+  (`ReaderSlot.ask_settle`): a free slot is taken and the dial settled on the spot; a held
+  slot is refused and leaves a debt, in the critical section that saw it held, and every
+  release honours the debt in the critical section that frees the slot. A refused asker
+  waits for the holder up to `SETTLE_BOUND`; past it the asker captures through the
+  `BoundedAsk` the refusal handed it. Four residuals are named and accepted: P9 (a display
+  that dies after the settler's last observation is captured as a Hub end), s5blk (a
+  display dead while a Hub request is pending, captured by the bound as a Hub end: its
+  suspects are carried, a later ack clears them, and that poison death goes uncharged),
+  s2blk (a display or unresponsive end captured by the bound is undrained, so it may
+  charge scenes whose acks were never read) and s2dec (an undecodable stream is captured
+  without a drain, by `Settler.end_stream`). A drain that applies an ack clears the
+  carried set as any applied ack does.
 - **O3** The carried set is cleared by an applied ack and by a display-ended capture, and
   grows by a Hub-ended ledger; an unresponsive capture replaces it with the suspects it
   queued. A display-ended death with an empty ledger and a non-empty carried set charges
