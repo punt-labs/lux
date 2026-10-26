@@ -1,26 +1,33 @@
-"""Every write to an element reaches the nesting cap, or provably cannot deepen it.
+"""Where an element is patched, and which fields each Hub handler may patch.
 
-A write an agent makes goes through :class:`~punt_lux.domain.hub.write_seam.WriteSeam`,
-which judges the cap. A Hub-side handler also writes: when the display reports a click
-or an edit, the handler patches the Hub's own copy of the element, and nothing judges
-that write. It does not need judging, because what it writes is scalar by construction:
-the event's value is a ``bool | int | float | str``, a row selection is a tuple of ids,
-and an element's setter refuses anything else. A new handler that patched a container
-field would break that, so the guard reads every ``apply_patch`` call in the package:
-a caller is the seam, the display's own replica, an element's override of the method,
-or a handler on the closed list below, and each handler on it patches only the fields
-proven here to refuse a deeper value.
+Every write a Hub-side handler makes is judged at run time: the write seam fires the
+event inside the judge's scope (``tests/domain/test_handler_writes_are_judged.py``), so
+the nesting cap holds whatever a handler patches. This module pins what that relies on
+and what it does not cover:
+
+- the seam is the one Hub-side door an element's event is fired through, so no handler
+  runs outside the judge (``TestOnlyTheSeamFiresAnEventOnTheHub``);
+- every reference to ``apply_patch`` in the package, called or not, is the seam's, the
+  display's own replica's, an element's override, or a handler on the closed list below;
+- each handler on that list patches only fields whose setters refuse a deeper value,
+  as a second line behind the judge: a literal dict of constant keys, or the one
+  computed key pinned to two scalar fields.
+
+A write that does not go through ``apply_patch`` (another verb on an element) is not
+what this module reads.
 """
 
 from __future__ import annotations
 
 import ast
 import typing
+from functools import cache
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 
-from punt_lux.domain.element_abc import Element
+from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
@@ -34,6 +41,9 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.value_change_handlers import ChangedField
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 
@@ -68,19 +78,49 @@ _HANDLERS: dict[str, frozenset[str]] = {
 _CLOSED_KEY = {"protocol/elements/value_change_handlers.py": "self._field"}
 
 
-def _patch_calls(source: str) -> list[ast.Call]:
-    """The ``<receiver>.apply_patch(...)`` calls in ``source``, bar ``super()``'s."""
+@cache
+def _parsed(source: str) -> ast.Module:
+    """One parse per source, so a node found twice is the same object."""
+    return ast.parse(source)
+
+
+def _patch_references(source: str) -> list[ast.Attribute]:
+    """Every ``<receiver>.apply_patch`` in ``source``, called or not, bar ``super()``'s.
+
+    A bound method held in a name or a field and called later is the same write, so
+    the reference is what counts, not the call.
+    """
     return [
         node
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(_parsed(source))
+        if isinstance(node, ast.Attribute)
+        and node.attr == "apply_patch"
+        and not (
+            isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "super"
+        )
+    ]
+
+
+def _called_directly(source: str) -> set[int]:
+    """The ``id`` of every ``apply_patch`` reference that is called where it is named."""
+    return {
+        id(node.func)
+        for node in ast.walk(_parsed(source))
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "apply_patch"
-        and not (
-            isinstance(node.func.value, ast.Call)
-            and isinstance(node.func.value.func, ast.Name)
-            and node.func.value.func.id == "super"
-        )
+    }
+
+
+def _patch_calls(source: str) -> list[ast.Call]:
+    """The ``<receiver>.apply_patch(...)`` calls in ``source``, bar ``super()``'s."""
+    references = {id(node) for node in _patch_references(source)}
+    return [
+        node
+        for node in ast.walk(_parsed(source))
+        if isinstance(node, ast.Call) and id(node.func) in references
     ]
 
 
@@ -109,11 +149,12 @@ def _patched_fields(call: ast.Call, module: str = "") -> frozenset[str] | None:
     )
 
 
-def _callers(source_by_module: dict[str, str]) -> dict[str, list[ast.Call]]:
+def _callers(source_by_module: dict[str, str]) -> dict[str, list[ast.Attribute]]:
+    """The modules that mention ``apply_patch``, and each mention."""
     return {
-        module: calls
+        module: references
         for module, source in source_by_module.items()
-        if (calls := _patch_calls(source))
+        if (references := _patch_references(source))
     }
 
 
@@ -133,11 +174,17 @@ def _unaccounted(source_by_module: dict[str, str]) -> list[str]:
 def _beyond_the_list(source_by_module: dict[str, str]) -> list[str]:
     """Handlers that patch a field their list entry does not vouch for."""
     found: list[str] = []
-    for module, calls in _callers(source_by_module).items():
+    for module, references in _callers(source_by_module).items():
         if module not in _HANDLERS:
             continue
-        for call in calls:
-            fields = _patched_fields(call, module)
+        source = source_by_module[module]
+        direct = _called_directly(source)
+        calls = {id(call.func): call for call in _patch_calls(source)}
+        for reference in references:
+            if id(reference) not in direct:
+                found.append(f"{module}: a reference that is not called where named")
+                continue
+            fields = _patched_fields(calls[id(reference)], module)
             if fields is None:
                 found.append(f"{module}: a patch whose fields are not a literal")
             elif extra := fields - _HANDLERS[module]:
@@ -202,12 +249,87 @@ class TestEveryPatchOfAnElementIsAccountedFor:
             "protocol/elements/slider_codec.py: a patch whose fields are not a literal"
         ]
 
+    @pytest.mark.parametrize(
+        "planted",
+        [
+            "patch = self._elem.apply_patch\n        patch({'nodes': e.n})",
+            "self._write = self._elem.apply_patch\n        self._write({'nodes': e.n})",
+            "run(self._elem.apply_patch, {'nodes': e.n})",
+        ],
+        ids=["bound-name", "stored-field", "passed-on"],
+    )
+    def test_a_bound_apply_patch_in_a_listed_handler_is_unproven(
+        self, planted: str
+    ) -> None:
+        source = {
+            "protocol/elements/slider_codec.py": (
+                f"class H:\n    def __call__(self, e):\n        {planted}\n"
+            )
+        }
+
+        assert _beyond_the_list(source) == [
+            "protocol/elements/slider_codec.py: a reference that is not called where named"
+        ]
+
+    def test_a_bound_apply_patch_in_an_unlisted_module_is_found(self) -> None:
+        planted = {
+            "protocol/elements/new_codec.py": (
+                "class H:\n    def __init__(self, elem):\n"
+                "        self._write = elem.apply_patch\n"
+                "    def __call__(self, e):\n"
+                "        self._write({'nodes': e.n})\n"
+            )
+        }
+
+        assert _unaccounted(planted) == ["protocol/elements/new_codec.py"]
+
     def test_a_super_call_in_an_override_is_not_a_patch_site(self) -> None:
         planted = (
             "class S:\n    def apply_patch(self, p):\n        super().apply_patch(p)\n"
         )
 
         assert _patch_calls(planted) == []
+        assert _patch_references(planted) == []
+
+
+def _fires_in(source: str) -> list[str]:
+    """Every ``<x>.fire`` the source names, called or not, as it is spelled."""
+    return [
+        ast.unparse(node)
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Attribute) and node.attr == "fire"
+    ]
+
+
+class TestOnlyTheSeamFiresAnEventOnTheHub:
+    """The judge is installed by the seam's ``fire``, so no handler runs outside it."""
+
+    def test_the_hub_fires_an_element_only_through_the_seam(self) -> None:
+        firing = {
+            module: names
+            for module, source in _sources().items()
+            if not module.startswith("display/") and (names := _fires_in(source))
+        }
+
+        assert firing == {
+            "domain/hub/write_seam.py": ["element.fire"],  # the seam's own dispatch
+            "domain/hub/hub_interaction_dispatch.py": ["hub_display.write_seam.fire"],
+            "domain/hub/departure_cascade.py": ["self._sinks.fire"],  # not an element
+        }
+
+    @pytest.mark.parametrize(
+        "planted",
+        [
+            "element.fire(event)",
+            "send = element.fire\n    send(event)",
+            "self._fire = element.fire",
+        ],
+        ids=["called", "bound-name", "stored-field"],
+    )
+    def test_every_way_of_naming_a_fire_is_found(self, planted: str) -> None:
+        names = _fires_in(f"def f(element, event):\n    {planted}\n")
+
+        assert names == ["element.fire"]
 
 
 def _deep() -> object:
@@ -217,7 +339,15 @@ def _deep() -> object:
     return value
 
 
-_SCALAR_FIELDS: list[tuple[str, Element, str]] = [
+class _PatchableWire(WireElement, Protocol):
+    """An element with a wire form that a patch can be applied to."""
+
+    def apply_patch(self, patch: Mapping[str, object]) -> object:
+        """Apply ``patch`` in place."""
+        ...
+
+
+_SCALAR_FIELDS: list[tuple[str, _PatchableWire, str]] = [
     ("slider", SliderElement(id="e"), "value"),
     ("input_number", InputNumberElement(id="e"), "value"),
     ("input_text", InputTextElement(id="e"), "value"),
@@ -240,11 +370,11 @@ class TestAHandlerWriteCannotDeepenTheWireForm:
         ids=[f"{kind}.{field}" for kind, _e, field in _SCALAR_FIELDS],
     )
     def test_the_field_refuses_a_value_that_is_not_a_scalar(
-        self, kind: str, element: Element, field: str
+        self, kind: str, element: _PatchableWire, field: str
     ) -> None:
-        before = NestingCap().depth(element)  # type: ignore[arg-type]
+        before = NestingCap().depth(element)
 
         with pytest.raises((TypeError, ValueError)):
             element.apply_patch({field: _deep()})
 
-        assert NestingCap().depth(element) == before  # type: ignore[arg-type]
+        assert NestingCap().depth(element) == before

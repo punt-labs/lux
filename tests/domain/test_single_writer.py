@@ -190,7 +190,9 @@ class TestTheWriteVerbsLiveOnTheWriterAlone:
         )
 
         assert {"send_scene", "set_menu", "set_callback_menus"} <= verbs
-        assert {"send_manifest"} <= verbs
+        assert verbs.isdisjoint(
+            {"send_manifest"}  # the link's own write: no writer has a verb for it
+        )
         assert verbs.isdisjoint(
             {"show", "ping", "query", "probe_alive", "confirm_alive"}
         )
@@ -404,15 +406,27 @@ class TestTheLinkIsTheRegistrysAlone:
 
 
 class TestTheManifestWriteIsTheDesksAlone:
-    def test_only_the_request_desk_sends_a_manifest(self) -> None:
-        assert _modules(lambda s: _calls_of(s, "send_manifest") > 0) == {
-            _HUB + "request_desk.py"
-        }
+    def test_no_writer_has_a_manifest_verb_and_nothing_mentions_one(self) -> None:
+        assert _modules(lambda s: _references(s, "send_manifest") > 0) == set()
 
-    def test_a_second_manifest_sender_is_found(self) -> None:
-        planted = "def f(writer):\n    writer.send_manifest(ids)\n"
+    def test_the_manifest_is_built_only_by_the_request_desk(self) -> None:
+        built = _modules(lambda s: _constructions(s, "HubManifestMessage") > 0)
 
-        assert _calls_of(planted, "send_manifest") == 1
+        assert built == {_HUB + "request_desk.py"}
+        assert _constructions(_source(_HUB + "request_desk.py"), "HubManifestMessage") == 1
+
+    def test_a_called_a_bound_and_a_stored_manifest_verb_are_all_found(self) -> None:
+        for planted in (
+            "def f(writer):\n    writer.send_manifest(ids)\n",
+            "def f(writer):\n    send = writer.send_manifest\n    send(ids)\n",
+            "def f(self, writer):\n    self._send = writer.send_manifest\n",
+        ):
+            assert _references(planted, "send_manifest") == 1, planted
+
+    def test_a_second_manifest_builder_is_found(self) -> None:
+        planted = "def f(ids):\n    return HubManifestMessage(scene_ids=ids)\n"
+
+        assert _constructions(planted, "HubManifestMessage") == 1
 
 
 class TestOnlyTheDialModelCanHoldADial:

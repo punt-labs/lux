@@ -2,7 +2,8 @@
 
 One desk belongs to one link and is reachable only through it. It builds the exchange
 every request port shares, makes the ask port for the dial that is current when asked,
-and holds the one seat writers are made at. The seat is built here and nowhere else.
+and holds the one seat writers are made at. The seat is built here and nowhere else, and so is the manifest the link writes for
+itself when a connection opens: no writer has a verb for it.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.display_writer import WriteSeat
 from punt_lux.domain.hub.request_exchange import RequestExchange
+from punt_lux.protocol import HubManifestMessage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -61,7 +63,8 @@ class RequestDesk:
         The one write the link makes for itself, as the second half of opening a
         connection (``DisplayLink.open_as_hub``); it does not take the seat.
         """
-        self._seat.current().send_manifest(scene_ids)
+        manifest = HubManifestMessage(scene_ids=tuple(scene_ids))
+        self._exchange.current().send(manifest)
 
     def asks(self) -> DisplayRequests:
         """An ask port pinned to the dial that is current now.

@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.event_handler_host import EventHandlerHost
+from punt_lux.domain.handler_writes import HandlerWrites
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -216,7 +217,12 @@ class Element(EventHandlerHost, ABC):
         reported failure — atomicity extends through the observers. Each distinct
         property fires once even if several setters flag it (e.g. a patch that
         sets both ``rows`` and ``selected_row_ids``).
+
+        A patch a Hub handler writes is first shown to the judge in scope
+        (:class:`~punt_lux.domain.handler_writes.HandlerWrites`), which refuses it by
+        raising: nothing has been touched when it does.
         """
+        HandlerWrites.admit(self, patch)
         snapshot = dict(vars(self))
         self._notify_buffer = []
         try:

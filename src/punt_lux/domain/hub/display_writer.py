@@ -5,9 +5,9 @@ writes the store and marks a scene dirty. That is made a matter of what exists, 
 of who calls what. The write verbs live on this class and nowhere else; an instance
 is made only by a :class:`WriteSeat`; the seat is made once, by the link, and given
 away once (:meth:`~punt_lux.domain.hub.request_desk.RequestDesk.take_seat`), so
-there is one holder and a second asker is refused. The link keeps its own use of the
-seat for the one write it makes itself, the manifest that declares what the Hub
-holds when a connection opens.
+there is one holder and a second asker is refused. The one write the link makes for
+itself, the manifest that declares what the Hub holds when a connection opens, is the
+request desk's and is not a verb of any writer.
 
 A writer is pinned to the dial that was current when it was made, and every write
 goes out on that dial: a failure names it (:attr:`dial`), and a redial in between
@@ -19,11 +19,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.dial_ref import DialRef
-from punt_lux.protocol import CallbackMenuMessage, HubManifestMessage, MenuMessage
+from punt_lux.protocol import CallbackMenuMessage, MenuMessage
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.request_exchange import RequestExchange
     from punt_lux.protocol import SceneMessage
@@ -64,15 +62,6 @@ class DisplayWriter:
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu (Hub-composed)."""
         self._generation.send(CallbackMenuMessage(submenus=submenus))
-
-    def send_manifest(self, scene_ids: Sequence[str]) -> None:
-        """Declare the Hub's complete live-scene set to the display (DES-068).
-
-        Meaningful only for a ``kind="hub"`` connection, sent immediately after
-        identifying and before any scene content. The display purges every scene
-        it cannot attribute to this connection that the manifest does not name.
-        """
-        self._generation.send(HubManifestMessage(scene_ids=tuple(scene_ids)))
 
 
 @final
