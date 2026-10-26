@@ -271,15 +271,26 @@ class TestTheEndHasTwoPhases:
 
         assert sink.captured
 
-    def test_an_ended_sink_refuses_a_write_and_fails_a_waiter(self) -> None:
+    def test_an_ended_sink_fails_a_waiter_and_still_owes_a_written_scene(self) -> None:
         sink = ReplySink()
         ping = sink.expect_pong(1.0)
         sink.end("unresponsive")
 
-        with pytest.raises(ConnectionClosedError):
-            sink.owe_ack("a")
+        sink.owe_ack("a")  # the bytes were on the wire: owed whatever the end state
+
+        assert sink.owed_acks == 1
         with pytest.raises(ConnectionClosedError):
             sink.await_reply(ping, 0.0)
+
+    def test_a_captured_sink_refuses_a_scene_and_records_nothing(self) -> None:
+        sink = ReplySink()
+        sink.end("display")
+        sink.capture()
+
+        with pytest.raises(ConnectionClosedError):
+            sink.owe_ack("a")
+
+        assert sink.owed_acks == 0
 
     def test_capturing_a_sink_that_has_not_ended_is_refused(self) -> None:
         with pytest.raises(ValueError, match="not ended"):

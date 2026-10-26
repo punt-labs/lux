@@ -193,7 +193,7 @@ class ReaderSlot:
             finally:
                 self._release(settler)
         elif may_wait:
-            BoundedAsk(self._generation, self._capture).settle_by_bound(cause)
+            self._late()(cause)
 
     def _take(self, route: Route) -> Settler | None:
         """Take the slot for an inline read if free; its settler, else ``None``."""
@@ -205,7 +205,11 @@ class ReaderSlot:
         return self._settler(route)
 
     def _settler(self, route: Route) -> Settler:
-        return Settler(self._generation, route, self._capture)
+        return Settler(self._generation, route, self._capture, self._late())
+
+    def _late(self) -> Callable[[RetireCause], bool]:
+        """The bound's capture: wait for the holder, then settle undrained."""
+        return BoundedAsk(self._generation, self._capture).settle_by_bound
 
     def _hold(self, route: Route) -> ListenerHold:
         """The listener's hold: its settler over ``route``, and its one release."""

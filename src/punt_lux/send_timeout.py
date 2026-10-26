@@ -23,9 +23,17 @@ from __future__ import annotations
 import socket
 import struct
 
-__all__ = ["SEND_TIMEOUT_PACKED", "set_send_timeout"]
+__all__ = [
+    "SEND_TIMEOUT_CEILING_SECONDS",
+    "SEND_TIMEOUT_PACKED",
+    "SEND_TIMEOUT_SECONDS",
+    "set_send_timeout",
+]
 
-SEND_TIMEOUT_PACKED = struct.pack("ll", 1, 0)
+SEND_TIMEOUT_SECONDS = 1
+SEND_TIMEOUT_PACKED = struct.pack("ll", SEND_TIMEOUT_SECONDS, 0)
+# What a stalled send is bounded by on the platform that doubles the packed value.
+SEND_TIMEOUT_CEILING_SECONDS = 2 * SEND_TIMEOUT_SECONDS
 
 
 def set_send_timeout(sock: socket.socket) -> None:

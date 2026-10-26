@@ -268,7 +268,9 @@ class DialGeneration:
         cause: RetireCause = (
             "unresponsive" if isinstance(exc, BlockingIOError) else "display"
         )
-        if self._sink.ended is not None or not self._retire(self, cause):
+        # A dial already ended, or that the Hub asked to end, records nothing here: the
+        # settle decides by what it observes (a queued end of file is the display's).
+        if self._sink.closing is not None or not self._retire(self, cause):
             raise self.closed_error() from exc  # someone else's cause won the end
 
     def _require_open(self) -> None:

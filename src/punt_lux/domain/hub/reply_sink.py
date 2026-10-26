@@ -128,9 +128,17 @@ class ReplySink:
             return len(self._acks)
 
     def owe_ack(self, scene_id: str) -> None:
-        """Record a scene written to the display, in wire order."""
+        """Record a scene written to the display, in wire order.
+
+        The bytes are on the wire, so the scene is owed whatever the end state: a Hub
+        request or a recorded cause does not refuse it. Only a captured dial does,
+        its ledger having been taken: the scene is then not recorded and the writer
+        reports the failure.
+        """
         with self._cond:
-            self._require_live()
+            if self._captured:
+                msg = "the display connection closed before the scene was recorded"
+                raise ConnectionClosedError(msg)
             self._acks.append(SceneId(scene_id))
 
     def expect_pong(self, ts: float) -> Pending[float, PongMessage]:

@@ -79,15 +79,15 @@ class TestDeciding:
 
 
 class TestTheSinkThatOwnsOne:
-    def test_a_hub_request_refuses_writes_but_records_nothing(self) -> None:
+    def test_a_hub_request_records_nothing_and_still_owes_a_written_scene(self) -> None:
         sink = ReplySink()
 
         assert sink.request_hub() is True
+        sink.owe_ack("a")  # the bytes were on the wire: owed whatever the end state
 
         assert sink.ended is None
         assert sink.closing == "hub"
-        with pytest.raises(ConnectionClosedError):
-            sink.owe_ack("a")
+        assert sink.owed_acks == 1
 
     def test_a_request_fails_a_waiter_at_once(self) -> None:
         sink = ReplySink()

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask
+from punt_lux.domain.hub import bounded_ask, dial_socket
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
@@ -26,6 +26,7 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_listener import DisplayListener
+from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.settler import Settler
 from punt_lux.protocol import (
     AckMessage,
@@ -34,7 +35,7 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     encode_frame,
 )
-from tests.domain.display_double import Call, Display, until
+from tests.domain.display_double import Call, Display, FlakySocket, until
 from tests.domain.test_ack_attribution import _ids
 from tests.domain.test_retire_cause import _linked, _scene
 from tests.link_access import (
@@ -631,3 +632,155 @@ class TestASendThatTimesOut:
         assert generation.ended == "unresponsive"
         (death,) = deaths_of(link)
         assert (death.cause, death.suspects) == ("unresponsive", _ids("a"))
+
+
+class TestTheWriter:
+    """Rule 7: what a write straddling an end records, and what the drain waits for."""
+
+    def test_p17_a_write_that_completes_after_a_hub_request_is_owed_and_carried(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        entered, gate = threading.Event(), threading.Event()
+        real = ReplySink.owe_ack
+
+        def parked(this: ReplySink, scene_id: str) -> None:
+            entered.set()
+            assert gate.wait(5.0)
+            real(this, scene_id)
+
+        monkeypatch.setattr(ReplySink, "owe_ack", parked)
+        writing = Call(lambda: writer_of(link).send_scene(_scene("a")))
+        assert entered.wait(3.0)  # sendall returned; the entry is not yet made
+        generation.request_hub()
+        gate.set()
+        assert writing.wait()
+
+        link._connection.retire(generation, cause="hub")
+
+        assert isinstance(writing.error, HubRetiredError)
+        assert generation.ended == "hub"
+        assert deaths_of(link) == ()
+        assert link._connection._suspects.carried == _ids("a")  # test seam
+
+    def test_p18_a_write_that_fails_after_a_hub_request_records_no_cause(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def hub_asks_then_fails(_this: FlakySocket, _data: bytes) -> None:
+            generation.request_hub()
+            msg = "the socket fell over"
+            raise OSError(msg)
+
+        monkeypatch.setattr(FlakySocket, "sendall", hub_asks_then_fails)
+        with pytest.raises(HubRetiredError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.ended is None  # the writer recorded nothing
+        display.peer.close()  # the display really died: its end of file is queued
+        link._connection.retire(generation, cause="hub")
+        assert generation.ended == "display"  # the settle found it, by observing it
+
+    def test_p19_a_drain_waits_for_the_writer_that_holds_the_socket_lock(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("a"))
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.sendall
+
+        def stand_in(this: FlakySocket, data: bytes) -> None:
+            holding.set()
+            assert release.wait(5.0)
+            real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        writing = Call(lambda: generation.send_scene(_scene("b")))
+        assert holding.wait(3.0)  # the writer holds the socket lock, mid-send
+        display.peer.send(AckMessage(scene_id="a"))  # queued behind the writer
+        generation.end("unresponsive")
+        settling = Call(
+            lambda: link._connection.retire(generation, cause="unresponsive")
+        )
+        time.sleep(0.1)  # the settler is now waiting for the writer's lock
+        # K2: the waiting settler holds neither the state lock nor the sink's.
+        probe = Call(lambda: (link._connection.is_open, generation.ended))
+        assert probe.wait(0.3), "the waiting settler holds a lock the Hub needs"
+        # The writer lets go after the old 0.25 s wait would have given up, and well
+        # inside the send timeout.
+        threading.Timer(0.5, release.set).start()
+
+        assert settling.wait(5.0)
+        assert writing.wait()
+
+        assert all("a" not in death.suspects for death in deaths_of(link))
+        assert generation.is_settled
+
+    def test_p20_a_writer_that_never_releases_is_captured_by_the_bound_and_the_drain_says_incomplete(  # noqa: E501
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _bounded(monkeypatch, 0.3)
+        monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", 0.2)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("a"))
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.sendall
+
+        def stand_in(this: FlakySocket, data: bytes) -> None:
+            holding.set()
+            assert release.wait(10.0)
+            real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        writing = Call(lambda: generation.send_scene(_scene("b")))
+        assert holding.wait(3.0)
+        display.peer.send(AckMessage(scene_id="a"))  # readable, behind the writer
+        with caplog.at_level(logging.WARNING):
+            look = generation.drain()
+        assert (look.chunk, look.ended, look.complete) == (b"", False, False)
+        assert any("incomplete" in r.getMessage() for r in caplog.records)
+
+        generation.end("unresponsive")
+        settling = Call(
+            lambda: link._connection.retire(generation, cause="unresponsive")
+        )
+        try:
+            assert settling.wait(5.0)
+            assert generation.is_settled  # captured by the bound, undrained
+            (death,) = deaths_of(link)
+            assert (death.cause, death.suspects) == ("unresponsive", _ids("a"))
+        finally:
+            release.set()
+            writing.wait()
+
+    def test_p21_an_ack_owed_after_the_capture_is_refused_not_recorded(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        real = ReplySink.owe_ack
+
+        def captured_first(this: ReplySink, scene_id: str) -> None:
+            generation.end("display")
+            link._connection._capture(generation, "display")  # test seam: the door
+            real(this, scene_id)
+
+        monkeypatch.setattr(ReplySink, "owe_ack", captured_first)
+
+        with pytest.raises(ConnectionClosedError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.owed_acks == 0
+        assert deaths_of(link) == ()

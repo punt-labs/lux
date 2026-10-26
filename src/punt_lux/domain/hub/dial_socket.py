@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -51,17 +52,19 @@ logger = logging.getLogger(__name__)
 __all__ = ["DialSocket", "Drained"]
 
 _READ_CHUNK = 65536
-# How long a last look waits for the socket lock: a write in flight finishes within it,
-# a writer wedged on a display that reads nothing does not.
-_DRAIN_LOCK_SECONDS = 0.25
 
 
 @dataclass(frozen=True, slots=True)
 class Drained:
-    """What one last look at a socket found: bytes, and whether its stream ended."""
+    """What one last look at a socket found: bytes, whether its stream ended.
+
+    ``complete`` is false when the look could not be made at all, because a writer held
+    the socket past the send timeout: that is no answer, and never "nothing more".
+    """
 
     chunk: bytes
     ended: bool
+    complete: bool = True
 
 
 @final
@@ -129,6 +132,7 @@ class DialSocket:
             self._sink.owe_ack(msg.id)
 
         self._write_locked(lambda: None, write_then_owe)
+        self._require_open()  # owed all the same; the caller learns the dial is ending
 
     def send_ping(self, ts: float) -> Pending[float, PongMessage]:
         """Register the ping in flight, then write it; one step under the lock."""
@@ -187,11 +191,16 @@ class DialSocket:
             readable, _, _ = select.select([self._dial.sock], [], [], 0)
             if not readable:
                 return Drained(b"", ended=False)
-            if not self._lock.acquire(timeout=_DRAIN_LOCK_SECONDS):
-                # A writer wedged in ``sendall`` holds the lock: the display reads
-                # nothing, so nothing more is to be had without blocking, and the
-                # settle that follows is what wakes the writer.
-                return Drained(b"", ended=False)
+            if not self._lock.acquire(timeout=SEND_TIMEOUT_CEILING_SECONDS):
+                # A writer holds the lock past the send timeout. Bytes are readable
+                # and unread, so this is no answer: the look is incomplete, and the
+                # settle leaves the capture to the bound.
+                logger.warning(
+                    "Drain of %s incomplete: a writer held the socket past %ss",
+                    self.endpoint,
+                    SEND_TIMEOUT_CEILING_SECONDS,
+                )
+                return Drained(b"", ended=False, complete=False)
             try:
                 chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
             finally:

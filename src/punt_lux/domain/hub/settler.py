@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.dial_drain import DialDrain, DrainIncompleteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,18 +40,22 @@ class Settler:
     _generation: DialGeneration
     _route: Callable[[DialGeneration, Message], None]
     _capture: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_capture", "_generation", "_route")
+    # What a drain that could not be made leaves the capture to: the bound's.
+    _late: Callable[[RetireCause], bool]
+    __slots__ = ("_capture", "_generation", "_late", "_route")
 
     def __new__(
         cls,
         generation: DialGeneration,
         route: Callable[[DialGeneration, Message], None],
         capture: Callable[[DialGeneration, RetireCause], bool],
+        late: Callable[[RetireCause], bool],
     ) -> Self:
         self = super().__new__(cls)
         self._generation = generation
         self._route = route
         self._capture = capture
+        self._late = late
         return self
 
     def settle(self) -> bool:
@@ -64,12 +68,18 @@ class Settler:
         if generation.is_settled:
             return False  # captured already (by the bound): nothing is read or routed
         recorded_before = generation.ended
-        saw_end = DialDrain(self._route).run(generation)
+        try:
+            saw_end = DialDrain(self._route).run(generation)
+        except DrainIncompleteError:
+            return self._late(generation.ended or "hub")
         cause = generation.decide(saw_end=saw_end)
         # A display or unresponsive end that nothing had recorded when the drain began
         # and the drain did not find itself was recorded under it: look once more.
         if recorded_before is None and not saw_end and cause != "hub":
-            DialDrain(self._route).run(generation)
+            try:
+                DialDrain(self._route).run(generation)
+            except DrainIncompleteError:
+                return self._late(cause)
         return self._capture(generation, cause)
 
     def end_stream(self, cause: RetireCause) -> bool:

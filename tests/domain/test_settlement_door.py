@@ -117,7 +117,7 @@ class TestTheDoorIsTheSlot:
 
     def test_a_bounded_ask_is_made_only_by_the_reader_slots_refusal(self) -> None:
         assert _everywhere("BoundedAsk") == {
-            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1
+            f"{_HUB}reader_slot.py:ReaderSlot._late": 1
         }
 
     def test_a_dial_is_marked_closed_and_shut_only_by_the_connections_capture(
@@ -187,8 +187,8 @@ class TestTheDoorIsTheSlot:
             f"{_HUB}bounded_ask.py:BoundedAsk.settle_by_bound": 1,
             f"{_HUB}display_connection.py:DisplayConnection._dial": 1,
             f"{_HUB}reader_slot.py:ReaderSlot.__new__": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot._late": 1,
             f"{_HUB}reader_slot.py:ReaderSlot._settler": 1,
-            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1,
             f"{_HUB}settler.py:Settler.__new__": 1,
             f"{_HUB}settler.py:Settler.end_stream": 1,
             f"{_HUB}settler.py:Settler.settle": 1,
