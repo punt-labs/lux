@@ -19,6 +19,7 @@ import pytest
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 _HUB = "domain/hub/"
+_SCREENSHOTS = "display/screenshot_queue.py"  # has a `_capture` of its own
 
 
 @final
@@ -127,11 +128,55 @@ class TestTheDoorIsTheSlot:
             f"{_HUB}display_connection.py:DisplayConnection._dial": 1,
         }
 
+    def test_a_listener_hold_is_made_only_by_the_reader_slot(self) -> None:
+        assert _everywhere("ListenerHold") == {
+            f"{_HUB}reader_slot.py:ReaderSlot._hold": 1
+        }
+
+    def test_the_slots_two_hold_doors_are_opened_only_by_the_listener_thread(
+        self,
+    ) -> None:
+        assert _everywhere("claim_for_listener") == {
+            f"{_HUB}listener_thread.py:ListenerThread.start": 1
+        }
+        assert _everywhere("hold_born") == {
+            f"{_HUB}listener_thread.py:ListenerThread.start_on": 1
+        }
+
+    def test_the_slots_settler_is_taken_only_inside_the_slot_and_held_by_the_reader(
+        self,
+    ) -> None:
+        assert _everywhere("_settler") == {
+            f"{_HUB}dial_reader.py:DialReader.__new__": 1,
+            f"{_HUB}dial_reader.py:DialReader.run": 2,
+            f"{_HUB}reader_slot.py:ListenerHold.__new__": 1,
+            f"{_HUB}reader_slot.py:ListenerHold.settler": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot._hold": 2,
+            f"{_HUB}reader_slot.py:ReaderSlot._take": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot.ask_settle": 1,
+        }
+
+    def test_the_sinks_capture_is_reached_only_by_the_dials_mark_closed_and_the_doors(
+        self,
+    ) -> None:
+        found = {
+            where: count
+            for where, count in _everywhere("capture").items()
+            if not where.startswith(_SCREENSHOTS)
+        }
+
+        assert found == {
+            f"{_HUB}bounded_ask.py:BoundedAsk.__new__": 1,
+            f"{_HUB}dial_generation.py:DialGeneration.mark_closed": 1,
+            f"{_HUB}reader_slot.py:ReaderSlot.__new__": 1,
+            f"{_HUB}settler.py:Settler.__new__": 1,
+        }
+
     def test_the_capture_reaches_only_the_slot_its_settler_and_the_bound(self) -> None:
         found = {
             where: count
             for where, count in _everywhere("_capture").items()
-            if where.startswith(_HUB)
+            if not where.startswith(_SCREENSHOTS)  # an unrelated frame grab
         }
 
         assert found == {
@@ -146,7 +191,16 @@ class TestTheDoorIsTheSlot:
             f"{_HUB}settler.py:Settler.settle": 1,
         }
 
-    @pytest.mark.parametrize("gone", ["close_if_current", "by_reader", "settle_unread"])
+    @pytest.mark.parametrize(
+        "gone",
+        [
+            "close_if_current",
+            "by_reader",
+            "settle_unread",
+            "born_settler",
+            "release_listener",
+        ],
+    )
     def test_the_doors_the_design_removed_are_referred_to_nowhere(
         self, gone: str
     ) -> None:
@@ -167,6 +221,32 @@ class TestTheGuardCanFail:
     )
     def test_every_spelling_of_a_second_door_is_counted(self, planted: str) -> None:
         assert sum(References(planted, "Settler").by_function.values()) == 1
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "_settler",
+            "ListenerHold",
+            "claim_for_listener",
+            "hold_born",
+            "_capture",
+            "capture",
+        ],
+    )
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "def f(slot, g):\n    return slot.{name}(g)\n",
+            "def f(slot, g):\n    return getattr(slot, '{name}')(g)\n",
+            "def f(slot, g):\n    take = slot.{name}\n    return take(g)\n",
+        ],
+    )
+    def test_every_capture_route_name_is_counted_wherever_it_is_spelled(
+        self, name: str, template: str
+    ) -> None:
+        planted = template.format(name=name)
+
+        assert sum(References(planted, name).by_function.values()) == 1
 
     @pytest.mark.parametrize(
         "planted",

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
-    from punt_lux.domain.hub.settler import Settler
+    from punt_lux.domain.hub.reader_slot import ListenerHold
     from punt_lux.protocol import Message
 
 logger = logging.getLogger(__name__)
@@ -64,12 +64,12 @@ class ListenerThread:
         cls,
         connection: DisplayConnection,
         route: Callable[[DialGeneration, Message], None],
-        held_route: Callable[[DialGeneration, Message], None] | None = None,
+        held_route: Callable[[DialGeneration, Message], None],
     ) -> Self:
         self = super().__new__(cls)
         self._connection = connection
         self._route = route
-        self._held_route = route if held_route is None else held_route
+        self._held_route = held_route
         self._run = None
         return self
 
@@ -98,9 +98,9 @@ class ListenerThread:
         without one raises :class:`ConnectionClosedError`.
         """
         generation, slot = self._connection.require_reading()
-        settler = slot.claim_for_listener(self._route)
-        if settler is not None:
-            self._launch(generation, settler, release=slot.release_listener)
+        hold = slot.claim_for_listener(self._route)
+        if hold is not None:
+            self._launch(generation, hold)
 
     def start_on(self, born: DialGeneration) -> None:
         """Start a reader on ``born``, a dial made holding the reader slot already.
@@ -114,12 +114,12 @@ class ListenerThread:
         if slot is None:
             msg = f"the dial to {born.endpoint} was retired before its reader"
             raise ConnectionClosedError(msg)
+        hold = slot.hold_born(self._route)
         if born.is_closed:
-            slot.release_listener(self._held_route)
+            hold.release(self._held_route)
             msg = f"the dial to {born.endpoint} was retired before its reader"
             raise ConnectionClosedError(msg)
-        settler = slot.born_settler(self._route)
-        self._launch(born, settler, release=slot.release_listener)
+        self._launch(born, hold)
 
     def stop(self) -> None:
         """Stop the thread, end its dial, and wait for the thread, if running.
@@ -142,20 +142,14 @@ class ListenerThread:
         else:
             self._run = None
 
-    def _launch(
-        self,
-        generation: DialGeneration,
-        settler: Settler,
-        *,
-        release: Callable[[Callable[[DialGeneration, Message], None]], None],
-    ) -> None:
+    def _launch(self, generation: DialGeneration, hold: ListenerHold) -> None:
         """Run a reader over ``generation``, whose reader slot the listener holds."""
         if self.alive:
             logger.error(
                 "Abandoning a listener thread that did not stop; starting a new one"
             )
         stopping = threading.Event()
-        reader = DialReader(generation, settler, self._route, stopping)
+        reader = DialReader(generation, hold.settler, self._route, stopping)
         thread = threading.Thread(target=reader.run, name="lux-listener", daemon=True)
         # Published before the thread starts: it may run, and a ``stop`` may arrive,
         # before ``start`` returns, and both must find this run.
@@ -165,5 +159,5 @@ class ListenerThread:
             thread.start()
         except BaseException:
             self._run = previous
-            release(self._held_route)  # no reader runs: do not claim there is one
+            hold.release(self._held_route)  # no reader runs: do not claim there is one
             raise

@@ -288,11 +288,12 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        assert slot.claim_for_listener(drop_route) is not None  # a holder, no thread
+        hold = slot.claim_for_listener(drop_route)  # a holder, no thread
+        assert hold is not None
         spy = _SpyCondition(slot._cond)  # test seam: the slot's lock
         monkeypatch.setattr(slot, "_cond", spy)
         # The holder lets go the instant after the asker's first look at the slot.
-        spy.hook = lambda: slot.release_listener(drop_route)
+        spy.hook = lambda: hold.release(drop_route)
 
         asking = Call(lambda: link._connection.retire(generation, cause="display"))
 
@@ -309,14 +310,15 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        assert slot.claim_for_listener(drop_route) is not None
+        hold = slot.claim_for_listener(drop_route)
+        assert hold is not None
         generation.end("display")  # recorded: nobody has asked for a settle yet
         spy = _SpyCondition(slot._cond)
         monkeypatch.setattr(slot, "_cond", spy)
         # An end asks for a settle the instant after the release looked for a debt.
         spy.hook = lambda: slot.ask_settle(drop_route, "display", may_wait=False)
 
-        slot.release_listener(drop_route)
+        hold.release(drop_route)
 
         assert not link.is_connected, "a debt left after the release read it is lost"
         (death,) = deaths_of(link)
@@ -499,8 +501,9 @@ class TestASettleIsOneAndAnEndIsTheFirstRecorded:
         link = _linked(display, listening=False)
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
-        settler = reading_of(link).claim_for_listener(drop_route)
-        assert settler is not None
+        hold = reading_of(link).claim_for_listener(drop_route)
+        assert hold is not None
+        settler = hold.settler
         generation.end("display")
         gate = threading.Barrier(2)
 

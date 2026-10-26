@@ -367,9 +367,10 @@ class TestTheStateLockNeverTakesOrWaitsOnTheReaderSlot:
         assert _takers().names == {
             "ask_settle",
             "claim_for_listener",
+            "hold_born",
             "inline",
-            "release_listener",
             "_free",
+            "_hold",
             "_release",
             "_take",
         }
