@@ -5,18 +5,20 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.display_log import DisplayLog
 from punt_lux.display.scene_reports import SceneReports
 from punt_lux.protocol import QueryResponse
 
 if TYPE_CHECKING:
+    from punt_lux.display.display_log import ErrorSeverity
     from punt_lux.display.replica import SceneReplica
 
 logger = logging.getLogger(__name__)
 
 
+@final
 class QueryRouter:
     """Dispatch query requests to registered handlers.
 
@@ -63,6 +65,8 @@ class QueryRouter:
         """Append an event dict to the log for introspection."""
         self._log.record_event(event)
 
-    def record_error(self, severity: str, message: str, context: str = "") -> None:
+    def record_error(
+        self, severity: ErrorSeverity, message: str, context: str = ""
+    ) -> None:
         """Record an error in the log for introspection."""
         self._log.record_error(severity, message, context)

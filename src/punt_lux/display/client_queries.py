@@ -38,7 +38,6 @@ from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 
 if TYPE_CHECKING:
     import socket
-    from collections.abc import Callable
 
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.geometry import GeometryRecorder
@@ -70,12 +69,11 @@ class ClientQueries:
         scenes: SceneReplica,
         geometry: GeometryRecorder,
         settings: WindowSettings,
-        record_error: Callable[[str, str, str], None],
     ) -> Self:
         self = super().__new__(cls)
         self._sender = sender
         self._query_router = query_router
-        self._screenshots = ScreenshotQueue(record_error, sender)
+        self._screenshots = ScreenshotQueue(query_router.record_error, sender)
         self._start_time = time.time()
         query_router.register_handler(
             "inspect_scene", SceneInspector(scenes=scenes, geometry=geometry).inspect

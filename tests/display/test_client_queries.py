@@ -46,7 +46,6 @@ def _queries(
         scenes=MagicMock(),
         geometry=MagicMock(),
         settings=WindowSettings(),
-        record_error=lambda _severity, _message, _context: None,
     )
     return queries, sender, router
 

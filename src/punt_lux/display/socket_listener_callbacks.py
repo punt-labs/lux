@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from punt_lux.display.display_log import ErrorRecorder
     from punt_lux.protocol.messages import Message
 
 __all__ = ["SocketListenerCallbacks"]
@@ -27,4 +28,4 @@ class SocketListenerCallbacks:
 
     on_message: Callable[[socket.socket, Message], None]
     on_client_disconnected: Callable[[int], None]
-    on_error: Callable[[str, str, str], None]
+    on_error: ErrorRecorder

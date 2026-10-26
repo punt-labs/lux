@@ -218,7 +218,6 @@ class RenderLoop:
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
             settings=self._settings,
-            record_error=self._query_router.record_error,
         )
         return self
 

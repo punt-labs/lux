@@ -19,7 +19,7 @@ when the manager was built.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux import __version__
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
@@ -29,7 +29,10 @@ from punt_lux.display.menus.windows_menu import WindowsMenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.display.menus.window_preferences import WindowPreferences
+    from punt_lux.display.menus.window_preferences import (
+        NamedTheme,
+        WindowPreferences,
+    )
     from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
@@ -135,9 +138,9 @@ class OwnMenus:
         """Build the theme picker from the themes the display offers."""
         return Submenu("Theme", [self._theme_item(t) for t in self._settings.themes])
 
-    def _theme_item(self, theme: Any) -> MenuItem:
+    def _theme_item(self, theme: NamedTheme) -> MenuItem:
         """Build one theme choice; selecting it applies that theme."""
-        name = str(theme.name)
+        name = theme.name
         return MenuItem(
             name.replace("_", " ").title(), lambda: self._settings.apply_theme(name)
         )

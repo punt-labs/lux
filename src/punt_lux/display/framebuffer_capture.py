@@ -17,7 +17,7 @@ from PIL import Image
 from punt_lux.protocol import ScreenshotResponse
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from punt_lux.display.display_log import ErrorRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ __all__ = ["FramebufferCapture"]
 class FramebufferCapture:
     """Reads the OpenGL framebuffer into a PNG and says where it was saved."""
 
-    _record_error: Callable[[str, str, str], None]
+    _record_error: ErrorRecorder
     __slots__ = ("_record_error",)
 
-    def __new__(cls, record_error: Callable[[str, str, str], None]) -> Self:
+    def __new__(cls, record_error: ErrorRecorder) -> Self:
         self = super().__new__(cls)
         self._record_error = record_error
         return self

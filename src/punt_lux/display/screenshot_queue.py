@@ -15,9 +15,9 @@ from punt_lux.protocol import ScreenshotResponse
 
 if TYPE_CHECKING:
     import socket
-    from collections.abc import Callable
 
     from punt_lux.display.client_sender import ClientSender
+    from punt_lux.display.display_log import ErrorRecorder
 
 __all__ = ["ScreenshotQueue"]
 
@@ -31,9 +31,7 @@ class ScreenshotQueue:
     _waiting: socket.socket | None  # None = no screenshot waits for the next swap
     __slots__ = ("_capture", "_sender", "_waiting")
 
-    def __new__(
-        cls, record_error: Callable[[str, str, str], None], sender: ClientSender
-    ) -> Self:
+    def __new__(cls, record_error: ErrorRecorder, sender: ClientSender) -> Self:
         self = super().__new__(cls)
         self._capture = FramebufferCapture(record_error)
         self._sender = sender

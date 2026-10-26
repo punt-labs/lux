@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any, Self, cast, final
+from typing import TYPE_CHECKING, Any, Self, cast, final
 
 from imgui_bundle import hello_imgui
 
 from punt_lux.display.glfw_window import GlfwWindow
+
+if TYPE_CHECKING:
+    from punt_lux.display.menus.window_preferences import NamedTheme
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +55,7 @@ class WindowSettings:
         return self
 
     @property
-    def themes(self) -> list[Any]:
+    def themes(self) -> list[NamedTheme]:
         """The themes the window offers; none until :meth:`start`."""
         return list(self._prefs.themes)
 

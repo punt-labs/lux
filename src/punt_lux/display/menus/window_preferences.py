@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
 
-__all__ = ["WindowPreferences"]
+__all__ = ["NamedTheme", "WindowPreferences"]
+
+
+class NamedTheme(Protocol):
+    """A theme the window offers: all the menu needs of it is its snake_case name."""
+
+    @property
+    def name(self) -> str:
+        """The theme's snake_case name, which is what applies it."""
+        ...
 
 
 class WindowPreferences(Protocol):
@@ -16,7 +25,7 @@ class WindowPreferences(Protocol):
     """
 
     @property
-    def themes(self) -> list[Any]:
+    def themes(self) -> list[NamedTheme]:
         """The themes the window offers."""
         ...
 

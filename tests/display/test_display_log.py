@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from punt_lux.display.display_log import DisplayLog
+import pytest
+
+from punt_lux.display.display_log import DisplayLog, LogChannel
 
 
 class TestTheEventsChannel:
@@ -81,3 +83,36 @@ class TestTheChannelsAreSeparate:
             "events": [],
             "total_buffered": 0,
         }
+
+
+class TestHowManyEntriesAReportReturns:
+    @pytest.mark.parametrize("channel", ["events", "errors"])
+    def test_a_count_of_zero_returns_none_of_them(self, channel: LogChannel) -> None:
+        log = DisplayLog()
+        for i in range(5):
+            log.record_event({"index": i})
+            log.record_error("error", f"msg-{i}")
+
+        report = log.report(channel, 0)
+
+        assert report[channel] == []
+        assert report["total_buffered"] == 5
+
+    @pytest.mark.parametrize("channel", ["events", "errors"])
+    def test_a_negative_count_is_refused(self, channel: LogChannel) -> None:
+        log = DisplayLog()
+        log.record_event({"index": 0})
+
+        with pytest.raises(ValueError, match="-5"):
+            log.report(channel, -5)
+
+    @pytest.mark.parametrize("channel", ["events", "errors"])
+    def test_a_count_larger_than_what_is_buffered_returns_all_of_it(
+        self, channel: LogChannel
+    ) -> None:
+        log = DisplayLog()
+        for i in range(3):
+            log.record_event({"index": i})
+            log.record_error("error", f"msg-{i}")
+
+        assert len(log.report(channel, 50)[channel]) == 3

@@ -17,14 +17,11 @@ from punt_lux.domain.identity import HubId, HubIdToken
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
+    from punt_lux.display.display_log import ErrorRecorder
     from punt_lux.display.identity_guard import IdentityGuard
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
     from punt_lux.protocol import ConnectMessage, HubManifestMessage
-
-    _RecordError = Callable[[str, str, str], None]
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +40,7 @@ class HubReconciliation:
 
     _socket_listener: SocketListener
     _scenes: SceneReplica
-    _record_error: _RecordError
+    _record_error: ErrorRecorder
     _identity: IdentityGuard
     _cross_host: CrossHostVerification
 
@@ -51,7 +48,7 @@ class HubReconciliation:
         cls,
         socket_listener: SocketListener,
         scenes: SceneReplica,
-        record_error: _RecordError,
+        record_error: ErrorRecorder,
         identity: IdentityGuard,
     ) -> Self:
         self = super().__new__(cls)

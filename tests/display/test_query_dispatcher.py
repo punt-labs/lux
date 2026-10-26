@@ -198,3 +198,26 @@ class TestDisplayStateQuery:
         qd = _make_dispatcher()
         result = qd.handle_query("display_state", {}).result
         assert result == {"scenes": {}, "frames": []}
+
+
+class TestACountThroughTheQueryPath:
+    def test_a_negative_count_is_an_error_response_not_a_slice(self) -> None:
+        qd = _make_dispatcher()
+        qd.record_event({"index": 0})
+
+        response = qd.handle_query("list_recent_events", {"count": -1})
+
+        assert response.error is not None
+        assert "negative" in response.error
+
+    def test_a_count_of_zero_is_an_empty_report(self) -> None:
+        qd = _make_dispatcher()
+        qd.record_error("warning", "boom")
+
+        response = qd.handle_query("list_errors", {"count": 0})
+
+        assert response.result["errors"] == []
+
+
+def test_the_router_is_final() -> None:
+    assert getattr(QueryRouter, "__final__", False) is True
