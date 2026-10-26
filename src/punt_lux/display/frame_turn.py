@@ -65,14 +65,15 @@ class FrameTurn:
         self._queries = queries
         return self
 
-    def run(self, draw: Callable[[], None]) -> None:
-        """Take the sockets' turn, then ``draw``, all under one send deadline."""
+    def run(self, *then: Callable[[], None]) -> None:
+        """Take the sockets' turn, then each step of ``then``, under one deadline."""
         self._sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
         try:
             self._sockets.accept_connections()
             self.pump_cross_host()
             self._sockets.poll_clients()
-            draw()
+            for step in then:
+                step()
         finally:
             self._sender.clear_frame_deadline()
 

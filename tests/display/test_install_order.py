@@ -93,7 +93,7 @@ class TestAnUnidentifiedSocketsSceneIsRefusedAndNeverAcked:
         _hub(loop, stranger, 10)
 
         loop._handle_message(stranger, _scene("s1"))
-        loop._on_after_swap()
+        loop._turn.after_swap()
 
         assert loop._scenes.resolve_scene("s1") is None
         stranger.send.assert_not_called()

@@ -72,7 +72,9 @@ class TestTheSocketsTurn:
     def test_it_accepts_pumps_and_polls_then_draws_under_one_deadline(self) -> None:
         rec = _Recorder()
 
-        _turn(rec, cross_host=True).run(lambda: rec.calls.append("draw"))
+        _turn(rec, cross_host=True).run(
+            lambda: rec.calls.append("draw"), lambda: rec.calls.append("flush")
+        )
 
         assert rec.calls == [
             "deadline-set",
@@ -80,6 +82,7 @@ class TestTheSocketsTurn:
             "accept-pending",
             "poll",
             "draw",
+            "flush",
             "deadline-clear",
         ]
 

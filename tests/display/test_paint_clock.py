@@ -147,6 +147,6 @@ def test_the_display_marks_a_scene_painted_as_it_renders_it(
     frame.scenes["s1"].elements.clear()
     with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
         server._render_framed_scene(frame, "s1")
-        server._on_after_swap()
+        server._turn.after_swap()
     assert len(caplog.messages) == 1
     assert caplog.messages[0].startswith("paint scene=s1 ")

@@ -41,7 +41,7 @@ def _acked(peer: _Peer) -> list[str]:
 
 
 def _swap(loop: RenderLoop) -> None:
-    loop._on_after_swap()
+    loop._turn.after_swap()
 
 
 class TestAnAckIsHeldUntilTheSwap:

@@ -10,6 +10,7 @@ method bodies, so unit tests can import this without a GPU (``run()`` needs one)
 from __future__ import annotations
 
 import dataclasses
+import functools
 import logging
 import socket
 import time
@@ -288,8 +289,10 @@ class RenderLoop:
         runner_params.callbacks.load_additional_fonts = FontLoader().load
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
-        runner_params.callbacks.show_gui = self._on_frame
-        runner_params.callbacks.after_swap = self._on_after_swap
+        runner_params.callbacks.show_gui = functools.partial(
+            self._turn.run, self._render_scene, self._flush_events
+        )
+        runner_params.callbacks.after_swap = self._turn.after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
         self._exit_signal = ExitSignal(runner_params)
@@ -329,18 +332,6 @@ class RenderLoop:
         set_regular_activation_policy()
 
         self._settings.start()
-
-    def _on_frame(self) -> None:
-        """Called every frame by ImGui: the sockets' turn, then draw and flush."""
-        self._turn.run(self._draw_and_flush)
-
-    def _draw_and_flush(self) -> None:
-        self._render_scene()
-        self._flush_events()
-
-    def _on_after_swap(self) -> None:
-        """Called after GL buffer swap -- GL_FRONT has rendered content."""
-        self._turn.after_swap()
 
     def _clear_all(self) -> None:
         """Callback for MenuReplica: throw every frame out, then clear scenes
