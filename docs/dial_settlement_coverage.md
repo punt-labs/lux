@@ -22,7 +22,7 @@ change.
 | S2 | A dead display's end is captured only after a drain that began after it was recorded | checked: `s2bad` not found; `split_settle` and `stop_skip_drain` trip it |
 | S3 | One capture per dial | **structural** (every capture guarded by `current`); `s3_unguarded` trips it |
 | S4 | The captured cause is the first recorded | **structural** (one first-wins writer); `s4_overwrite` trips it |
-| S5 | No recorded cause contradicts the observation: a display dead when observed is never recorded as hub; (round 4) a writer never records a display end for a display that is alive; and (round 5) a writer never records a cause while a Hub request is pending, because the request refuses writes and its end is the Hub's, charging nothing | **structural** (the cause is a function of the observation, and `WRec` records only when no request is pending); `hub_record`, `hub_peek`, `writer_records_display` and `writer_split_record` trip it. `writer_split_record` is one point, the check and the record under two lock holds: `WLock, WSendTimeout, WCheck, SPStart, HubReq, WRec` (4318 states, depth 6). Rule 7b is therefore no longer policy |
+| S5 | No recorded cause contradicts the observation: a display dead when observed is never recorded as hub; (round 4) a writer never records a display end for a display that is alive; and (round 5) a writer never records a cause while a Hub request is pending, because the request refuses writes and its end is the Hub's, charging nothing | **structural** (the cause is a function of the observation, and `WRec` records only when no request is pending); `hub_record`, `hub_peek`, `writer_records_display` and `writer_split_record` trip it. `writer_split_record` is one point, the check and the record under two lock holds: `WLock, WSendTimeout, WCheck, SPStart, HubReq, WRec` (4318 states, depth 6). The writer clause is **structural** in the design: the design's `WRec` flag names only the live-display clause, and only the control's record, over a stale check, names the writer clause, where it is live. Removing the design's false `hubreq = fset` disjunct changes no transition, so the safety run (2267293 states, not found) stands. Rule 7b is therefore no longer policy |
 | S6 | A scene on the wire of a current dial is in the ledger once its writer lets go of the socket lock (an end never withdraws the entry; a capture before the entry is the `a1late` exception) | checked: `wire = fset & ledger = fclear & lk = fclear & current = fset` unreachable over 2267293 states; `writer_owe_refused` (1819 states, depth 5) and `writer_records_display` each reach it |
 | S2w | A drain that finds the socket readable never reports "nothing more" | **structural** (the content is `SDrain`'s guard; `gu` is identically clear in the design); `drain_gives_up` sets `gu` and trips `s2bad` (9878 states, depth 7). The timed-out branch that replaces the give-up, `SDrainLate`, is checked: the deadlock check passes (54 of 55 operations covered, the 55th the unreachable `SDecideNone`), S1a and S1b hold, and it ends in the bound's capture flagged `s2lat` |
 
@@ -115,13 +115,20 @@ One rule: settlement belongs to the holder of the reader slot; everyone else ask
    writer, which takes `qu` for the ack under `lk`, waits on nothing the settler holds. The
    model is the code as built on `fix/lux-ghhf-r3-fixes`; the round-1 idea of a polling re-drain
    is not what was built.
-   (d) **Every scene write ends within a deadline `D` (round 5).** On TLS `SO_SNDTIMEO` does not
-   bound `sendall` (a probe blocked for more than 9 s), so the premise of (c) is false there.
-   Every scene write goes through the user-space bounded send (`bounded_send.py`) with one
-   deadline for the whole write, on both transports; a missed deadline is the writer's
-   `unresponsive`, recorded by the atomic record of (b) (`WDeadline`). A keepalive ping or a
-   query that cannot take the socket lock within `D` ends the dial as `unresponsive` (`KPing`,
-   enabled whether the lock is held or not). The ceiling stays strictly above `D`, so a drain
+   (d) **Every write under the socket lock ends within a deadline `D` (round 5).** On TLS
+   `SO_SNDTIMEO` does not bound `sendall` (a probe blocked for more than 9 s), so the premise of
+   (c) is false there. Every write made under the socket lock, `send_scene`, `send_ping`,
+   `send_query` and `send` (`dial_socket.py`), goes through the user-space bounded send
+   (`bounded_send.py`) with one deadline for the whole write, on both transports; a missed
+   deadline is the writer's `unresponsive`, recorded by the atomic record of (b) (`WDeadline`).
+   A ping or a query has **one** deadline `D`, measured from when it starts to wait for the lock
+   and covering that wait and its own write together; missing it ends the dial as
+   `unresponsive` (`KPing`, enabled whether the lock is held or not). `KPing` is one step that
+   never holds the lock, which is sound only under this obligation, as `WDeadline` is sound only
+   under the scene write's: a ping that took the lock and then wedged in an unbounded write
+   would be the stuck writer again. The one deadline is also what makes a keepalive's end
+   recorded at most `D` after it gives up; separate deadlines for the wait and the write would
+   make it `2D`. The ceiling stays strictly above `D`, so a drain
    behind a writer waits at most `D` and the late path is defence for a broken deadline; the
    model is untimed, so `WStall` and `SDrainLate` stay reachable there. Proposed constants (the
    leader rules): `D` = 2.5 s, no shorter than the longest send timeout the probe admits, and the
@@ -171,7 +178,8 @@ stalled holder missing.
 | P23 the writer's check and record are one step (round 5) | `WSendTimeout`/`WSendDead`, `HubReq`, `WRec` | Red first on the two lock holds. Inject `request_hub()` between the write's failure and its record (wrap the writer-side entry); for `BlockingIOError` and `OSError`, assert the dial settles as `hub`, no death is queued, and the writer raises `HubRetiredError`. Control: `writer_split_record` (S5) |
 | P24 a read that fails in the stop window asks for the Hub's end (round 5) | `SPStart`, `RReadErr`, `SDrain`, `SDecide` (never `SDecideNone`) | Red first on today's `_read`. Set the stop flag, make `poll_chunk` raise, run the reader: assert no `ValueError`, the dial settles as `hub`, no death; and a `send_scene` made in the window is refused. Control: `stop_no_request` (S0) |
 | P25 every scene write ends within `D` (round 5) | `WLock`, `WStall`, `WDeadline`, `WRec`, `SUGrant`, `SDrain` | Red first on a blocking TLS `sendall`. A TLS peer that never reads: `send_scene` ends within `D` (plus scheduling slack) as `unresponsive`, recorded once, and the dial settles. The same for a slow-draining peer that keeps the write partially progressing past `D`. The plain-socket leg too, since the deadline is one path on both transports. Control: `unbounded_write` (no rescuer, deadlock) |
-| P26 a ping or query that cannot take the socket lock within `D` ends the dial (round 5) | `DStartUnresp`, `KPing` with `lk = fset`, `RecEnd` | Red first on the unbounded lock wait. Hold the socket lock on another thread (a writer stand-in that never lets go); call `send_ping` and `send_query`: each returns within `D`, the dial records `unresponsive`, and a settle follows. Control: `unbounded_write` (no rescuer, deadlock) |
+| P26 a ping or query that cannot take the socket lock within `D` ends the dial (round 5) | `DStartUnresp`, `KPing` with `lk = fset`, `RecEnd` | Red first on the unbounded lock wait. Hold the socket lock on another thread (a writer stand-in that never lets go); call `send_ping` and `send_query`: each returns within `D`, measured from the start of its wait, the dial records `unresponsive`, and a settle follows. Control: `unbounded_write` (no rescuer, deadlock) |
+| P27 the keepalive's ping is the first write to stall (round 5) | `DStartUnresp`, `KPing` (its write bounded by the same `D` as its lock wait), `RecEnd` | Red first on the unbounded `sendall` in `send_ping`. A TLS peer that never reads, no scene in flight: the keepalive's ping takes the free lock and its write stalls; assert it returns within `D` of the start of its lock wait (not `2D`), the dial records `unresponsive` once, the lock is released, and the dial settles. Also a query in the ping's place. No control in the model: `KPing` is one step, sound only under this obligation |
 
 ## Test mapping
 
@@ -210,6 +218,7 @@ the partitions rest on: `TestRecording`, `TestTheHubsRequest`, `TestDeciding`,
 | P24 | `TestTheWriter::test_a2_a_read_failing_while_the_reader_is_stopped_requests_the_hub_end`. **GAP in it**: it does not assert that a `send_scene` made in the window is refused |
 | P25 | **GAP**: `TestABoundedWrite::test_p25_a_tls_peer_that_never_reads_ends_the_write_within_the_deadline`, `::test_p25_a_slow_draining_tls_peer_ends_the_write_within_the_deadline`, `::test_p25_a_plain_socket_write_ends_within_the_same_deadline` |
 | P26 | **GAP**: `TestABoundedWrite::test_p26_a_ping_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive`, `::test_p26_a_query_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive` |
+| P27 | **GAP**: `TestABoundedWrite::test_p27_a_keepalive_ping_that_is_the_first_write_to_stall_ends_the_dial_within_one_deadline`, `::test_p27_a_query_that_is_the_first_write_to_stall_ends_within_one_deadline` |
 
 P18 and P20 to P24 are named as they stand on `fix/lux-ghhf-r3-fixes` (rmh's rounds 10 and
 11); P20 to P22 are also on this branch. P25 and P26 wait for the rule 7d constants. The model
@@ -277,12 +286,18 @@ All in `docs/`, each `dial_settlement_<name>_buggy.tex`: `start_fail`, `stop_ski
 against the file with the writer) `writer_owe_refused` (one point: the refused ack; S6),
 `writer_records_display` (today's code, two changes: the refused ack and a classification that
 ignores a Hub request; S5 and S6), `drain_gives_up` (one point in `SDrain`; S2) and
-`drain_no_late` (one point: `SDrainLate` removed; deadlock with no rescuer and the write
-deadline broken), and (round 5) `writer_split_record` (one point: the check and the record under
+`drain_no_late` (one point: `SDrainLate` removed; a **defence** control since round 5: it wedges
+only when the write deadline is also broken, and its witness is the deadlock with no rescuer and
+`WDeadline` disabled), and (round 5) `writer_split_record` (one point: the check and the record under
 two lock holds; S5), `stop_no_request` (one point: a read failing in the stop window asks for
 nothing; S0) and `unbounded_write` (today's code, two changes: no write deadline and a keepalive
 that waits for the lock without a bound; deadlock with no rescuer, and neither change alone
-deadlocks). All seven writer controls are rebuilt from the round-5 design and re-run on it. The
+deadlocks). All seven writer controls are rebuilt from the round-5 design and re-run on it, except
+`writer_owe_refused`'s exhaustive run showing it never reaches `s5bad` (round 4, 2619753 states).
+That result stands by a direct argument, not by the one that carries found traces forward: only
+`WRec` sets `s5bad`, and it records, so flags, only with no cause and no request; the refused ack,
+the control's one source of a `display` for a live display, is enabled only with a cause or a
+request, and neither clears while the dial is current; and no round-5 step sets `s5bad`. The
 first twelve were committed against the round-3 file, which had no writer; they are one-point
 mutations of it. They still stand: with the writer idle (`pc(aWr) = pidle`, `lk = fclear`) and
 `KPing` inserted after each `DStartUnresp`, every round-3 trace is a round-5 trace (the actor

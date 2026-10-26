@@ -287,19 +287,26 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     weighed in round 1, a drain that returns ``incomplete'' so that the settler
     drains again, is the ceiling taken in polling steps; the code does not poll,
     it hands the capture to the bound.
-    (d)~(Round~5.)  Every scene write ends within a deadline $D$, on both
-    transports: the write goes through the user-space bounded send with one
+    (d)~(Round~5.)  Every write made under the socket lock ends within a
+    deadline $D$, on both transports: a scene (\texttt{send\_scene}), a ping
+    (\texttt{send\_ping}), a query (\texttt{send\_query}) and any other message
+    (\texttt{send}) all go through the user-space bounded send, with one
     deadline for the whole write, and a missed deadline is the writer's
     failure, \texttt{unresponsive}, recorded by the atomic \texttt{WRec}.  On TLS
     \texttt{SO\_SNDTIMEO} bounds nothing, so without (d) the premise of (c), that
-    a writer fails or times out, is false there.  A keepalive ping or a query
-    that cannot take the socket lock within $D$ ends the dial as
-    \texttt{unresponsive}; it never waits behind a writer without a bound.  The
-    drain's ceiling stays strictly above $D$, so a drain behind a writer waits
-    at most $D$ and reads the acks; the late path fires only if the deadline is
-    broken.  The settle bound is then $D$ for a writer that keeps to its
-    deadline, and the ceiling plus the 2~s bound as defence.  The keepalive's
-    own lock wait adds at most $D$ before its end is recorded.
+    a writer fails or times out, is false there, and a ping or a query that
+    took the lock and then wedged in its own write would be the stuck writer.
+    A ping or a query has \emph{one} deadline $D$, measured from when it starts
+    to wait for the socket lock and covering both that wait and its own write:
+    if it cannot take the lock, or cannot finish its write, by then, it ends the
+    dial as \texttt{unresponsive}; it never waits behind a writer, or in its own
+    write, without a bound.  The drain's ceiling stays strictly above $D$, so a
+    drain behind a writer waits at most $D$ and reads the acks; the late path
+    fires only if the deadline is broken.  The settle bound is then $D$ for a
+    writer that keeps to its deadline, and the ceiling plus the 2~s bound as
+    defence.  Because the lock wait and the write share the one deadline, the
+    keepalive's end is recorded at most $D$ after it gives up; separate
+    deadlines for the two would make that $2D$.
   \item \textbf{A reader that leaves on the stop flag asks for the Hub's end
     (round~5).}  \texttt{stop} sets the listener's stop flag and then asks for
     the Hub's end, two steps.  A reader that leaves on the flag, at the top of
@@ -764,11 +771,17 @@ A discoverer: a write that failed with a broken pipe (the display's end, so the
 display is dead), or the keepalive giving up (unresponsive, the display perhaps
 alive).  The keepalive's ping, and a query, take the socket lock
 (\texttt{send\_ping} and \texttt{send\_query} go through \texttt{\_write\_locked}).
-In the design (rule~7d, round~5) a ping that cannot take the lock within the
-write deadline $D$ ends the dial as unresponsive, so \texttt{KPing} is enabled
-whether the lock is held or not: the ping either goes out or times out, and
-either way the keepalive's verdict is recorded.  In today's code the lock wait
-has no bound, which is half of the control \texttt{unbounded\_write}.
+In the design (rule~7d, round~5) a ping has one deadline $D$ for its wait for
+the lock and its own write together, and a ping that misses it ends the dial as
+unresponsive, so \texttt{KPing} is enabled whether the lock is held or not: the
+ping either goes out or times out, and either way the keepalive's verdict is
+recorded.  \texttt{KPing} is one step and never holds the lock; that abstraction
+is sound only under rule~7d's obligation that the ping's own write is bounded
+by the same deadline, exactly as \texttt{WDeadline} is sound only under the
+obligation that a scene write is.  A ping that took the lock and then wedged in
+an unbounded write would be the stuck writer of \texttt{unbounded\_write} again,
+with the keepalive in its place.  In today's code the lock wait has no bound,
+which is half of the control \texttt{unbounded\_write}.
 
 \begin{schema}{RecEnd}
   DialPc
@@ -1367,10 +1380,10 @@ left alone (\texttt{WRecGone}).
   current = fset \\
   ((ended = nocause \land hubreq = fclear \land ended' = wcs) \lor
     (\lnot (ended = nocause \land hubreq = fclear) \land ended' = ended)) \\
-  ((ended = nocause \land hubreq = fclear \land
-      (hubreq = fset \lor (wcs = cdisp \land eof = fclear)) \land s5bad' = fset) \lor
-    (\lnot (ended = nocause \land hubreq = fclear \land
-      (hubreq = fset \lor (wcs = cdisp \land eof = fclear))) \land s5bad' = s5bad)) \\
+  ((ended = nocause \land hubreq = fclear \land wcs = cdisp \land eof = fclear \land
+      s5bad' = fset) \lor
+    (\lnot (ended = nocause \land hubreq = fclear \land wcs = cdisp \land
+      eof = fclear) \land s5bad' = s5bad)) \\
   slot' = slot \\
   debt' = debt \\
   current' = current \\
@@ -1409,8 +1422,10 @@ why this is a safety property and not taste: the Hub's request refuses writes, s
 a write that fails after the request may be the request's own doing, and the
 Hub's end must be decided as \texttt{hub} and charge nothing (A3), not queued as
 an unresponsive death.  In the design the clause is structural, since
-\texttt{WRec} records only when no request is pending; the control
-\texttt{writer\_split\_record}, today's two lock holds, trips it.
+\texttt{WRec} records only when no request is pending, so \texttt{WRec}'s flag
+names only the live-display clause; the control \texttt{writer\_split\_record},
+today's two lock holds, records over a stale check, and its flag names the
+writer clause, which trips there.
 
 \section{The inline reader}
 
