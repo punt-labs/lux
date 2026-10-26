@@ -14,11 +14,22 @@ import time
 
 import pytest
 
-from punt_lux.send_timeout import SEND_TIMEOUT_PACKED, set_send_timeout
+from punt_lux.send_timeout import (
+    SEND_TIMEOUT_CEILING_SECONDS,
+    SEND_TIMEOUT_PACKED,
+    SEND_TIMEOUT_PROBE_LIMIT_SECONDS,
+    set_send_timeout,
+)
 
-# The kernel may round or double the packed value; 2.5 s leaves headroom over the
-# ~1-2 s the one-second timeval produces on macOS and Linux without flaking.
-_CEILING_SECONDS = 2.5
+# The kernel may round or double the packed value; the probe limit leaves headroom
+# over the ~1-2 s the one-second timeval produces on macOS and Linux.
+_CEILING_SECONDS = SEND_TIMEOUT_PROBE_LIMIT_SECONDS
+
+
+def test_the_drains_ceiling_is_strictly_above_the_longest_send_the_probe_allows() -> (
+    None
+):
+    assert SEND_TIMEOUT_CEILING_SECONDS > SEND_TIMEOUT_PROBE_LIMIT_SECONDS
 
 
 def test_set_send_timeout_applies_the_option() -> None:

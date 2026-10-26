@@ -8,8 +8,8 @@ The packed value and the real limit it produces differ by platform, so the
 number here is not the contract — the measured limit is, which the probe test
 pins. ``struct.pack("ll", 1, 0)`` is a 16-byte ``timeval`` of one second; macOS
 applies double the value (two seconds) and rejects the 12-byte form, while Linux
-takes it at face value (one second). Both stay under the 2.5-second ceiling the
-probe asserts.
+takes it at face value (one second). Both stay under the 2.5-second limit the
+probe asserts (``SEND_TIMEOUT_PROBE_LIMIT_SECONDS``).
 
 Setting the option leaves the socket in blocking mode as far as CPython is
 concerned — ``gettimeout()`` still returns ``None`` — so a full buffer surfaces
@@ -26,14 +26,18 @@ import struct
 __all__ = [
     "SEND_TIMEOUT_CEILING_SECONDS",
     "SEND_TIMEOUT_PACKED",
+    "SEND_TIMEOUT_PROBE_LIMIT_SECONDS",
     "SEND_TIMEOUT_SECONDS",
     "set_send_timeout",
 ]
 
 SEND_TIMEOUT_SECONDS = 1
 SEND_TIMEOUT_PACKED = struct.pack("ll", SEND_TIMEOUT_SECONDS, 0)
-# What a stalled send is bounded by on the platform that doubles the packed value.
-SEND_TIMEOUT_CEILING_SECONDS = 2 * SEND_TIMEOUT_SECONDS
+# The longest a stalled send may take on any platform: the probe test asserts it.
+SEND_TIMEOUT_PROBE_LIMIT_SECONDS = 2.5
+# How long a drain waits on a writer: strictly above the probe's limit, so a writer
+# that merely times out is never mistaken for one that never lets go.
+SEND_TIMEOUT_CEILING_SECONDS = SEND_TIMEOUT_PROBE_LIMIT_SECONDS + 0.5
 
 
 def set_send_timeout(sock: socket.socket) -> None:

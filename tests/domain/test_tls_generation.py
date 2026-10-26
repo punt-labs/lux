@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from punt_lux.domain.hub import bounded_ask
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -28,6 +29,7 @@ from punt_lux.protocol import (
     QueryResponse,
     ReadyMessage,
 )
+from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
 from tests.display._mtls_harness import MtlsMaterial
 from tests.domain.display_double import Call, Peer
 from tests.domain.test_retire_cause import _scene
@@ -211,12 +213,16 @@ def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
     sender.join(0.5)
     assert sender.is_alive(), "the display reads nothing, so the write wedges"
 
+    # A wedged writer holds the socket lock, so the settle's drain waits the ceiling
+    # and the bound then captures it, whose shutdown frees the writer. An unwrap that
+    # waited on the peer would not end at all.
+    settle = SEND_TIMEOUT_CEILING_SECONDS + bounded_ask.SETTLE_BOUND
     began = time.monotonic()
     assert connection.retire(generation, cause="hub")
-    sender.join(5.0)
+    sender.join(settle + 3.0)
 
     assert not sender.is_alive()
     assert outcome
-    assert time.monotonic() - began < 5.0, (
+    assert time.monotonic() - began < settle + 3.0, (
         "shutdown, not an unwrap that waits on the peer"
     )
