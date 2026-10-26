@@ -657,7 +657,7 @@ class TestADeathTheHubEndedChargesNothing:
         assert isinstance(pinging.error, HubRetiredError)
         assert deaths_of(link) == ()
 
-    def test_only_a_display_end_queues_a_death(self, display: Display) -> None:
+    def test_a_hub_end_queues_no_death(self, display: Display) -> None:
         link = _linked(display)
         writer_of(link).send_scene(_scene("s1"))
 

@@ -1,14 +1,24 @@
 # Crash attribution: model results and coverage audit
 
 Spec: [crash_attribution.tex](./crash_attribution.tex). Fidelity controls:
-[ack_on_receipt](./crash_attribution_ack_on_receipt_buggy.tex) (today's code),
+[ack_on_receipt](./crash_attribution_ack_on_receipt_buggy.tex) (the code before T11),
 [no_carry](./crash_attribution_no_carry_buggy.tex) (T11 without T12, through both the
 Hub's retire and the probe's),
+[unresponsive_no_carry](./crash_attribution_unresponsive_no_carry_buggy.tex) (only the
+unresponsive door's carry removed),
 [inflight_ack](./crash_attribution_inflight_ack_buggy.tex) (capture without the split-read
-guard). Design variant: [inflight_ack_drain](./crash_attribution_inflight_ack_drain.tex).
+guard), and the four T10-era controls regenerated against this specification
+([redial_only](./crash_attribution_redial_only_buggy.tex),
+[idle_stop](./crash_attribution_idle_stop_buggy.tex),
+[hub_end_charged](./crash_attribution_hub_end_charged_buggy.tex),
+[double_charge](./crash_attribution_double_charge_buggy.tex)). Design variant:
+[inflight_ack_drain](./crash_attribution_inflight_ack_drain.tex).
 Governs `src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
-dial_generation,reply_sink,liveness_probe,replicator,death_charger}.py` and the display's
-ack in `src/punt_lux/display/render_loop.py`.
+dial_generation,dial_socket,dial_drain,dial_reader,display_listener,display_replies,
+listener_thread,reply_sink,settlement,suspect_book,death_queue,death_charger,dial_death,
+liveness_probe,replicator}.py` and the display's held ack in
+`src/punt_lux/display/client_sender.py` (with its caller in
+`src/punt_lux/display/render_loop.py`).
 
 Rulings modelled:
 
@@ -42,10 +52,10 @@ this model (`eval-jra-r1.md`, F1 to F8).
 
 | Id | Statement | By |
 |---|---|---|
-| A1 | Every poison death observed on a live dial is, once settled and no longer queued, charged to the poison scene (own ledger or carried set), whichever party discovered it, across Hub-ended and unresponsive dials and while the replicator is away. A1w: the wrong scene is charged in its place | `close_if_current` queues the dead dial's suspects once, at discovery, in the hold that retires it; `take_deaths` hands the queue over once; the one replicator charges it first at its next push or idle tick, before the quarantine filter; the carried set rides in the death |
+| A1 | Every poison death observed on a live dial is, once settled and no longer queued, charged to the poison scene (own ledger or carried set), whichever party discovered it, across Hub-ended and unresponsive dials and while the replicator is away. A1w: the wrong scene is charged in its place | the settle of the dead dial queues its suspects once, at discovery, in the hold that retires it; `take_deaths` hands the queue out once (a capability, as the write seat is); the one replicator charges it first at its next push or idle tick, before the quarantine filter; the carried set rides in the death |
 | A2 | No scene is charged for a death of a display this Hub was attached to unless it was in that death. Per write, not per scene id: an acked earlier write of a scene does not clear a later, unacked one. Own ledger: a scene written to the dial whose ack the display did not send (an ack in flight, or taken off the socket and not applied, counts as sent). Carried set: a scene written to an earlier Hub-ended or unresponsive dial, with no ack applied and no display-ended death since | ledger = written minus acked, captured by the reader after the drain; carried set = Hub-ended and unresponsive ledgers since the last applied ack |
 | A3 | A Hub-ended dial charges no scene (its ledger is carried, which is not a charge). An unresponsive dial is the display's end for DES-102 and does charge | queue only when `cause` is `display` or `unresponsive`; a Hub-ended retire appends to the carried set |
-| A4 | Each dial's death is charged at most once | `close_if_current` succeeds once per generation; the queue is drained under the state lock |
+| A4 | Each dial's death is charged at most once | the capture succeeds once per generation, under the state lock; a death is popped from the queue once, and one whose charge failed goes back at the head |
 
 A3 and A4 are tautologies of the fixed design; their content is the guards. The A1 row's
 "By" is the code's mechanism, not the model's: in the model a discovery enqueues and a
@@ -107,9 +117,9 @@ of its writes is unacked, and A2 is read per write.
 6. **The death queue needs no bound the model can see, and a bound of one loses a
    death.** Two deaths queued at once is reachable (`card(dom(dqown)) = 2`; the
    replicator mid-push, the dial redialled twice by other parties). A control that keeps
-   one queued death and evicts the older violates A1. The code's `deque(maxlen=64)` is
-   the same defect at a larger scale (`review-r7-invariants.md` F-4); the queue must be
-   unbounded or coalesce by summing strikes.
+   one queued death and evicts the older violates A1. The code's earlier
+   `deque(maxlen=64)` was the same defect at a larger scale (`review-r7-invariants.md`
+   F-4); the queue is now unbounded (`death_queue.py`) and warns past 64.
 
 ## Known bounds (stated, not defects)
 
@@ -143,9 +153,17 @@ of its writes is unacked, and A2 is read per write.
 
 - **O1** The replicator is the only charger, and it charges the whole queue before it
   filters or sends in a push, and on its idle tick (a mid-push redial may leave a death
-  queued until the next push; the model includes that).
+  queued until the next push; the model includes that). The queue is a capability: the
+  registry hands it out once, to the charger, so no other part of the Hub can take a
+  death out of it. A death whose charge raises goes back at the head and is charged
+  again before any later one.
 - **O2** The drain (T14): a display-ended or unresponsive capture is made by the dial's own
-  reader, or waits for it. Before it takes the ledger the reader (1) reads what the socket
+  reader, or waits for it. The reader records the end (`end("display")`) the moment it
+  sees the end of file, before it drains, and every Hub end records `end("hub")` first
+  and takes the ledger only if that cause is the one that stands: a Hub end that loses
+  to a display end leaves the capture to the reader (or to the discoverer when no reader
+  holds the dial), so no interleaving turns a display death into a Hub end or lets a
+  non-reader capture an undrained ledger. Before it takes the ledger the reader (1) reads what the socket
   already holds, non-blocking, until `EAGAIN` or end of file (on `AF_UNIX` an ack the
   display sent is already in the Hub's receive queue), (2) delivers every complete frame it
   holds, and only then takes the ledger, before `shut()` discards the queue. A non-reader
@@ -234,13 +252,14 @@ The `no_carry` control's probe door is reached with the goal conjoined with `end
 Extra controls, regenerated in scratch and not committed (they test the checks, not the
 design): a control in which an applied ack does not clear the carried set violates the
 carried-set clause of A2 (18,262 states), so that clause is not vacuous; a control that
-keeps one queued death and evicts the older violates A1 (1,095 states); a control in which
-only the unresponsive discovery carries nothing violates A1 and A1w (945 and 6,572
-states) and leaves the Hub-end door closed.
+keeps one queued death and evicts the older violates A1 (1,095 states). A control in
+which only the unresponsive discovery carries nothing violates A1 and A1w (945 and 6,572
+states) and leaves the Hub-end door closed; it is committed as
+`crash_attribution_unresponsive_no_carry_buggy.tex`.
 
-The T10 controls, regenerated against this specification in scratch (their committed
-files still model the T10 state: no hold, swap, carry or queue), each still reproduce
-their defect:
+The four T10 controls are committed beside the specification, regenerated against it:
+each models the hold, the swap, the carried set and the queue, and each reproduces its
+defect:
 
 | T10 control | Violated | States | Trace |
 |---|---|---|---|
@@ -249,8 +268,8 @@ their defect:
 | `hub_end_charged` | A3 | 255 | `PushStart; Redial; Send(1); HubEnd; PushEnd; DiscoverCharge(dother); Charge`: a dial the Hub retired is charged (code F1's shape) |
 | `double_charge` | A4 | 1,018 | `PushStart; Redial; Send(1); PushEnd; DisplayEnd; DiscoverCharge(drepl); Charge; DiscoverCharge(dother); Charge`: two discoverers of one death, two strikes |
 
-The regenerated files are at `.tmp/missions/results-model-t12/controls/`, with the scratch
-unresponsive-door control. Replacing the committed T10 files with them is a separate pass.
+The files are `crash_attribution_{redial_only,idle_stop,hub_end_charged,double_charge}_buggy.tex`
+and `crash_attribution_unresponsive_no_carry_buggy.tex` in this directory.
 
 What T10 does not cover, by construction: a death that the Hub retires first (cause
 `hub`) is never charged as the display's own, even when the display had in fact died;
@@ -266,17 +285,17 @@ poisoned scene or acks it on receipt. A test that stubs the mechanism is a gap.
 
 | Partition | Model operations | Tests |
 |---|---|---|
-| P1 Display death discovered by the replicator's own send | `DisplayEnd; DiscoverCharge(drepl); Charge` | `tests/domain/test_retire_cause.py::TestADeathDiscoveredByAnyParty::test_p1_the_replicators_own_send_leaves_the_death_of_the_unacked_scene`, `::test_p1_the_ledger_names_the_written_scene_not_the_one_that_failed`; `tests/integration/test_crash_quarantine.py::test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold` (its scripted display never acks the poison scene: rerun against the acking display, P24) |
-| P2 Death discovered by a non-replicator redial between pushes | `DisplayEnd; DiscoverCharge(dother); Redial` | `test_retire_cause.py::TestADeathDiscoveredByAnyParty::test_p2_a_poison_scene_is_quarantined_when_another_party_wins_every_redial` |
+| P1 Display death discovered by the replicator's own send | `DisplayEnd; DiscoverCharge(drepl); Charge` | `tests/domain/test_retire_cause.py::TestADeathDiscoveredByAnyParty::test_p1_the_replicators_own_send_leaves_the_death_of_the_unacked_scene`, `::test_p1_the_ledger_names_the_written_scene_not_the_one_that_failed`; `tests/integration/test_crash_quarantine.py::test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold` (the acking `Responder(at_swap=True)`, P24); the at-swap rig for the same discovery: `tests/domain/test_ack_attribution.py::TestAScenePaintedToDeathIsCharged::test_p13_a_crash_before_the_swap_leaves_every_installed_scene_unacked` |
+| P2 Death discovered by a non-replicator redial between pushes | `DisplayEnd; DiscoverCharge(dother); Redial` | `tests/domain/test_retire_cause.py::TestADeathDiscoveredByAnyParty::test_p2_a_poison_scene_is_quarantined_when_another_party_wins_every_redial` |
 | P3 Death discovered by the reader or keepalive, no redial yet | `DisplayEnd; DiscoverCharge(dother)` | `::test_p3_a_death_is_charged_at_discovery_and_the_redial_does_not_recharge_it` |
 | P4 Charge once per dial, however many parties discover | `DiscoverCharge`, a settled dial, `Charge` | `::test_p4_two_discoverers_of_one_dial_charge_one_strike_and_a_new_dial_another`; `tests/domain/test_death_charger.py::TestCharging::test_a_death_is_charged_once_however_often_the_charger_looks` |
-| P4b The charge is first in the push, before the filter and any send | `PushStart` enabled only with the queue empty | `::test_the_next_push_charges_a_death_before_it_sends_anything`. The "only charger" half (O1): `tests/domain/test_single_writer.py::TestTheReplicatorIsTheOnlyCharger` (`DeathCharger` is built once, inside `BatchSender`, which only the replicator builds) |
-| P5 Hub-ended dial, ledger non-empty, writer woken | `HubEnd; DiscoverHub` | `::TestADeathTheHubEndedChargesNothing::test_p5_a_write_woken_by_the_hubs_retire_charges_nothing`; `::test_only_a_display_end_queues_a_death`; `::TestADialTheHubEnded` |
+| P4b The charge is first in the push, before the filter and any send | `PushStart` enabled only with the queue empty | `::test_the_next_push_charges_a_death_before_it_sends_anything`. The "only charger" half (O1): `tests/domain/test_single_writer.py::TestTheReplicatorIsTheOnlyCharger` (`DeathCharger` is built once, inside `BatchSender`, which only the replicator builds) and `::TestTheDeathQueueIsTheChargersAlone` (the queue is asked for only where it is handed on, once per hop, and `tests/domain/test_link_generations.py::TestTheDeathQueueIsHandedOutOnce` refuses a second asker) |
+| P5 Hub-ended dial, ledger non-empty, writer woken | `HubEnd; DiscoverHub` | `::TestADeathTheHubEndedChargesNothing::test_p5_a_write_woken_by_the_hubs_retire_charges_nothing`; `::test_a_hub_end_queues_no_death`; `::TestADialTheHubEnded` |
 | P5b Hub-ended dial, **inline read** woken by a Hub retire on another thread | `HubEnd; DiscoverHub` | `tests/domain/test_retire_cause.py::TestADeathTheHubEndedChargesNothing::test_p5_an_unlistened_inline_read_woken_by_the_hubs_retire_charges_nothing` (`_linked(display, listening=False)`, a scene owed, asserts `HubRetiredError` and no death); the listener-waiting form is `::test_p5_a_ping_waiting_on_the_reader_woken_by_the_hubs_retire_charges_nothing` |
 | P6 Display-ended dial, empty ledger and empty carried set (idle stop) | `DisplayEnd; DiscoverQuiet` | `::TestADeathThatOwedNothing::test_p6_a_stop_while_idle_charges_no_later_scene` |
-| P7 An acked scene is not a suspect | `Swap; Recv; Deliver; DisplayEnd` | `::test_p7_an_acked_scene_is_not_a_suspect` (acks at receipt in its rig: to be rerun against T11 acks, P12) |
+| P7 An acked scene is not a suspect | `Swap; Recv; Deliver; DisplayEnd` | `::test_p7_an_acked_scene_is_not_a_suspect`; at the swap, with the acking display: `tests/domain/test_ack_attribution.py::TestAScenePaintedToDeathIsCharged::test_p13_a_crash_after_the_swap_does_not_charge_the_acked_scene` (P13) |
 | P8 A scene written only to a later dial is not charged for an earlier | `Send` on dial 1, redial, `Send` on dial 2 | `::test_p8_a_scene_written_only_to_a_later_dial_is_not_charged_for_an_earlier`; `tests/domain/test_death_charger.py::TestCharging::test_a_scene_outside_the_ledger_is_never_charged`, `::test_every_scene_in_a_ledger_takes_a_strike_and_none_outside_it` |
-| P9 Isolation narrows the suspects | `Send` guard: ledger empty once a strike exists | `::TestIsolationNarrowsTheSuspects::test_p9_a_death_in_isolation_charges_the_one_scene_in_flight`; `::TestAnUnansweredProbeIsTheDisplaysEnd::test_an_unanswered_isolation_probe_leaves_the_death_of_the_scene_sent` (a pong, not the ack: to be rerun for P21) |
+| P9 Isolation narrows the suspects | `Send` guard: ledger empty once a strike exists | `::TestIsolationNarrowsTheSuspects::test_p9_a_death_in_isolation_charges_the_one_scene_in_flight`; `::TestAnUnackedProbeIsTheDisplaysEnd::test_an_unacked_isolation_probe_leaves_the_death_of_the_scene_sent`; with the acking display, the probe waits on the ack (P21): `tests/domain/test_ack_attribution.py::TestAnIsolationProbeWaitsOnTheAck::test_p21_the_next_scene_is_not_sent_until_the_previous_is_acked` |
 | P10 Quarantine boundary | `strikes = thr` leaves `dirty`; `Send` guard | `::test_p10_a_quarantined_scene_is_never_sent_again` |
 | P11 Deadlock-freedom, the last dial | `Halt` | `::TestTheLastDial::test_p11_a_display_that_stays_down_is_charged_once_not_every_cycle` |
 | P12 An ack is held until the swap | `Install; Swap; Recv; Deliver` | Display: `tests/display/test_held_acks.py::TestAnAckIsHeldUntilTheSwap` (`test_installing_a_scene_sends_no_ack`, `test_the_swap_sends_the_ack`, `test_an_ack_is_sent_once_whatever_the_number_of_swaps`); Hub: the acking `Responder(at_swap=True)` of `tests/domain/display_double.py` drives every case of `tests/domain/test_ack_attribution.py` |
@@ -289,11 +308,14 @@ poisoned scene or acks it on receipt. A test that stubs the mechanism is a gap.
 | P19 An ack in flight at retire: the drain | `Swap; DisplayEnd; Recv; Deliver; DiscoverCharge` | `tests/domain/test_ack_attribution.py::TestTheAckInFlightAtRetire`: `test_an_ack_in_the_socket_when_a_non_reader_ends_the_dial_is_not_charged` (the discoverer, with no reader, takes the slot and drains), `test_an_ack_the_reader_has_read_and_not_applied_is_not_charged` (the reader holds the ack off the socket; a non-reader ends the dial; the ledger is taken only after it is applied), `test_an_ack_still_in_the_socket_when_the_reader_settles_is_not_charged`, `test_a_hub_retire_after_a_display_end_leaves_the_ledger_to_the_reader`, `test_an_end_recorded_as_an_inline_read_finishes_is_settled_before_it_lets_go`; the drain itself: `tests/domain/test_dial_drain.py`; the two phases of the end: `tests/domain/test_reply_sink.py::TestTheEndHasTwoPhases` |
 | P20 The swap stall | `Install; Install; DisplayEnd` with no `Swap` | `tests/domain/test_ack_attribution.py::TestAStalledDisplay::test_p20_a_death_charges_every_scene_since_the_last_swap_and_none_outside`; the isolation probe's timeout retires the dial as unresponsive, queued and carried: `::TestAnIsolationProbeWaitsOnTheAck::test_p21_when_no_ack_comes_the_next_scene_is_not_sent_and_the_dial_is_given_up` |
 | P21 The isolation probe clears on the applied ack | `Send` guard | `tests/domain/test_ack_attribution.py::TestAnIsolationProbeWaitsOnTheAck::test_p21_the_next_scene_is_not_sent_until_the_previous_is_acked` (a pong is answered at once and the next scene still waits) and `::test_p21_when_no_ack_comes_the_next_scene_is_not_sent_and_the_dial_is_given_up`; at the port: `tests/domain/test_link_generations.py::TestBusyIsNotDead` (`test_a_pong_does_not_answer_an_ack_wait`, `test_the_ack_that_empties_the_ledger_answers_the_wait`, `test_an_ack_wait_the_display_never_answers_is_false_and_keeps_the_dial`) |
-| P22 The death queue drops nothing while the replicator is away | `Charge` with `card(dom(dqown)) = 2` | `tests/domain/test_suspect_book.py::TestTheDeathsWaitingToBeCharged::test_past_the_warning_mark_every_death_is_kept_and_the_book_says_so` (70 deaths, all kept, one warning); through the connection: `tests/domain/test_display_connection.py::TestThePendingDeathsAreNeverDropped` |
+| P22 The death queue drops nothing while the replicator is away | `Charge` with `card(dom(dqown)) = 2` | `tests/domain/test_death_queue.py::TestAQueueThatGrows::test_past_the_warning_mark_every_death_is_kept_and_it_says_so` and `tests/domain/test_suspect_book.py::TestTheDeathsWaitingToBeCharged::test_past_the_warning_mark_every_death_is_kept_and_the_book_says_so` (70 deaths, all kept, one warning); through the connection: `tests/domain/test_display_connection.py::TestThePendingDeathsAreNeverDropped` |
 | P23 A crash with no dial live: the carried set outlives it | `HubEnd; DisplayEndDown; Redial` | `tests/domain/test_ack_attribution.py::TestSuspectsOutliveAHubEndedDial::test_p23_the_carried_set_outlives_a_crash_no_dial_saw` |
 | P24 The integration display behaves like the real one | all | `tests/integration/test_crash_quarantine.py::test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold` runs the real replicator and keepalive against `Responder(at_swap=True)`, which holds every ack to a swap and dies on the swap that carries the poison scene; and `tests/domain/test_ack_attribution.py::TestAScenePaintedToDeathIsCharged::test_p24_the_poison_scene_reaches_quarantine_within_the_threshold` with another party winning every redial |
 | P25 A probe retire of a live display that holds the culprit, then a crash on the next dial | `Send; Install; Unresponsive; DiscoverUnrCharge; Redial; CrashFrame; DiscoverCharge; Charge` | `tests/domain/test_ack_attribution.py::TestAnUnresponsiveDialIsCarriedAndCharged::test_p25_a_scene_held_on_an_unresponsive_dial_is_charged_on_the_next_crash` (the culprit is charged on the probe dial and again through the carried set); `::test_a_request_on_an_unresponsive_dial_is_told_the_display_stopped_answering`; `::test_an_unresponsive_death_says_the_display_stopped_answering` |
 | P26 O7: the predecessor is preempted before the new dial's first scene | `Install` only on the live dial | `tests/display/test_install_order.py::TestAPredecessorIsClosedBeforeTheNewDialsFirstScene` (nothing from the predecessor is installed after the new dial identifies) and `::TestAnUnidentifiedSocketsSceneIsRefusedAndNeverAcked`; the preemption policy itself: `tests/display/test_render_loop.py::TestHandleConnectDispatch`, `tests/display/test_hub_reconciliation.py::TestHandleConnect` |
+| P27 A Hub end is atomic with its cause; a display end is recorded when the reader sees it; only the reader captures it | `HubEnd`, `DisplayEnd`, `DiscoverHub` interleaved with the reader's `Recv`, `Deliver`, capture | `tests/domain/test_hub_end_atomic.py`: `TestAHubEndThatLosesTheCauseLeavesTheLedgerToTheReader` (a display end landing between the Hub's decision and its end, with a reader busy and with none), `TestADisplayEndIsRecordedWhenTheReaderSeesIt` (a Hub retire during the reader's drain, listener and inline), `TestAStopOrCloseRacingAnEndSomebodyRecorded`, `TestOnlyAReaderTakesTheLedgerOfADisplayEnd` (the callers of the reader's door); the inline reader that loses the end: `tests/domain/test_retire_cause.py::TestAHubRetireThatLandsBetweenTheCheckAndTheRetire` |
+| P28 A skewed ack leaves the ledger whole; a drain that cannot route a reply stops | `Deliver` with an ack that is not the head | `tests/domain/test_dial_drain.py::TestASkewedAckLeavesTheLedgerWhole`; the drain says when it is cut short: `::TestACutShortDrainSaysSo` |
+| P29 The acks held for a swap share one bounded post-swap deadline | `Swap` | `tests/display/test_held_acks.py::TestTheHeldAcksShareOnePostSwapBudget` |
 | B1 A late reveal is not attributed | none (outside the model) | documented by `tests/display/test_held_acks.py::TestAnAckDoesNotDependOnVisibility` (a scene in a docked or closed frame is acked at the swap, before it is first painted) and `tests/domain/test_ack_attribution.py::TestAScenePaintedToDeathIsCharged::test_p13_a_crash_after_the_swap_does_not_charge_the_acked_scene` (an acked scene is not charged for a later crash) |
 | B7 Another Hub's crash charges this Hub's ledger and carried set | none (one Hub modelled) | `tests/domain/test_ack_attribution.py::TestAnotherHubsCrash::test_b7_each_hub_charges_its_own_ledger_and_no_more` (Hub A's death is exactly its own ledger, struck for a crash Hub B's scene caused) |
 

@@ -59,7 +59,7 @@
 %
 % Fidelity controls (each differs from this file in the stated places only):
 %   docs/crash_attribution_ack_on_receipt_buggy.tex  the ack is sent at receipt
-%                                                    (today's code)
+%                                                    (the code before T11)
 %   docs/crash_attribution_no_carry_buggy.tex        T11 without T12
 %   docs/crash_attribution_inflight_ack_buggy.tex    capture without the drain
 % Design variant:
@@ -1156,7 +1156,7 @@ breadth-first shortest, with the number of states searched.
 
 \paragraph{The ack is sent at receipt ---
 \texttt{crash\_attribution\_ack\_on\_receipt\_buggy.tex}.}
-Today's code.  \texttt{Install} sends the ack at once, \texttt{Swap} sends none.
+The code before T11.  \texttt{Install} sends the ack at once, \texttt{Swap} sends none.
 A1 is violated, in 8 steps and 431 states, by \texttt{PushStart; Redial;
 Send(1); Install(1); Recv(1); Deliver(1); CrashFrame; DiscoverQuiet}: the scene is
 acked, then the display dies painting it, the ledger is empty, nothing is
