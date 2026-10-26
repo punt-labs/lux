@@ -3,9 +3,11 @@
 Only the holder of a dial's :class:`~punt_lux.domain.hub.reader_slot.ReaderSlot` (its
 listener thread, an inline reader, or a releaser taking over) is handed a settler, and
 only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is
-captured only after the party that reads its socket has read it, except by the two
+captured only after the party that reads its socket has read it, except by the three
 undrained captures the design accepts: the bound's, which a refused asker makes once
-:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
+:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed; the holder's own late
+capture, which :meth:`Settler.settle` leaves to the bound when a writer held the socket
+past the ceiling and the last look could not be made (``s2lat``); and
 :meth:`Settler.end_stream`'s, for a stream that cannot be read past.
 
 Settling is two steps. The drain reads the socket to the point where it would block

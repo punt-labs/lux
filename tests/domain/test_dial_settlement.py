@@ -38,6 +38,7 @@ from punt_lux.domain.hub.recovery import SendRecovery
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 from punt_lux.domain.hub.settler import Settler
+from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import (
     AckMessage,
@@ -610,6 +611,8 @@ class TestTheEndOfAStreamTheDrainSees:
         assert generation.owed_acks == 0  # the ack was read before the reset
         assert generation.ended == "display"  # and the reset was the end
         assert any("cut short" in r.getMessage() for r in caplog.records)
+        # On the same host the reset delivers what was queued: it is no warning.
+        assert all(r.levelno < logging.WARNING for r in caplog.records)
         assert deaths_of(link) == ()
 
     def test_a_plain_end_of_file_is_the_displays_end(
@@ -782,6 +785,12 @@ class TestTheWriter:
             assert generation.is_settled  # captured by the bound, undrained
             (death,) = deaths_of(link)
             assert (death.cause, death.suspects) == ("unresponsive", _ids("a"))
+            # A later settle, by anyone holding a settler, finds nothing to do.
+            later = Settler(
+                generation, drop_route, link._connection._capture, lambda _c: True
+            )
+            assert later.settle() is False
+            assert deaths_of(link) == ()  # nothing new queued behind the first
         finally:
             release.set()
             writing.wait()
@@ -964,3 +973,37 @@ class TestTheWriter:
 
         assert generation.ended == "hub"
         assert deaths_of(link) == ()
+
+    def test_a_drain_that_loses_the_race_to_its_own_capture_stays_quiet(
+        self, display: Display, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        generation.end("display")
+        generation.mark_closed("display")  # the bound's capture ...
+        generation.shut()  # ... closed the descriptor under the holder's look
+
+        with caplog.at_level(logging.DEBUG):
+            look = generation.drain()
+
+        assert look.ended  # the settle goes ahead on a stream that cannot be read
+        assert all(r.levelno < logging.WARNING for r in caplog.records)
+        assert any("its own capture" in r.getMessage() for r in caplog.records)
+
+    def test_a_capture_whose_bookkeeping_raises_still_releases_the_socket(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        generation.request_hub()
+
+        def broken(*_args: object) -> None:
+            msg = "the suspect book broke"
+            raise RuntimeError(msg)
+
+        monkeypatch.setattr(SuspectBook, "settle", broken)
+
+        with pytest.raises(RuntimeError, match="suspect book"):
+            link._connection._capture(generation, "hub")  # test seam: the one door
+
+        assert display.sockets[-1]._sock.fileno() == -1  # the socket was released

@@ -13,9 +13,11 @@ may have died already), and then asks for the dial to be settled: the holder of 
 dial's reader slot, which has read what the socket held, drains it, fixes the cause and
 takes its ledger. The one door to that capture is private to the connection and handed
 to the slot alone, so a settle is the reader's and no flag can lend it to anyone else,
-save the two undrained captures the design accepts: the bound's, by a refused asker
-once :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
-``Settler.end_stream``'s, for a stream that cannot be read past. Every capture is
+save the three undrained captures the design accepts: the bound's, by a refused asker
+once :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed; the holder's own
+late capture, when a writer held the socket past the ceiling and its drain could not
+be made (``s2lat``); and ``Settler.end_stream``'s, for a stream that cannot be read
+past. Every capture is
 guarded by "this dial is still current", so a reader or a waiter that outlived a redial
 can settle its own dial without touching the new one. The connection also holds the
 suspects dials leave behind (the
@@ -235,13 +237,22 @@ class DisplayConnection:
         dial made after the check. ``cause`` is the one that stands, which the
         settler fixed before it came.
         """
-        with self._state_lock:
-            if self._current is None or self._current.generation is not generation:
-                return False
-            self._current = None
-            self._last = generation
-            self._suspects.settle(generation.mark_closed(cause), generation.endpoint)
-        generation.shut()
+        is_ours = False
+        try:
+            with self._state_lock:
+                if self._current is None or self._current.generation is not generation:
+                    return False
+                self._current = None
+                self._last = generation
+                is_ours = True
+                self._suspects.settle(
+                    generation.mark_closed(cause), generation.endpoint
+                )
+        finally:
+            # Whatever the bookkeeping did, the socket is released once the dial is
+            # no longer current: a writer wedged in ``sendall`` is woken only by this.
+            if is_ours:
+                generation.shut()
         return True
 
     def _dial(self, reader: Literal["none", "listener"]) -> DialGeneration | None:

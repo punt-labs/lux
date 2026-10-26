@@ -16,14 +16,15 @@ interaction, and an observer woken by either.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
-from punt_lux.domain.hub.write_errors import NestingExceededError
+from punt_lux.domain.hub.write_errors import NestingExceededError, UnheldTargetError
+from punt_lux.domain.ids import ElementId
 from punt_lux.domain.nesting_cap import NestingCap
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.field_realization import FieldRealization
-    from punt_lux.domain.ids import ElementId, SceneId
+    from punt_lux.domain.ids import SceneId
 
 __all__ = ["WriteSeam"]
 
@@ -96,37 +97,41 @@ class WriteSeam:
         realization = AbcFieldRealization(element, patch)
         scene_id = self._index.scene_of(realization.current())
         if scene_id is None:
-            msg = f"write target {element.id!r} is installed in no scene the Hub holds"
-            raise LookupError(msg)
+            raise UnheldTargetError(ElementId(element.id))
         refusal = self.nesting_refusal(scene_id, [realization])
         if refusal is not None:
             raise NestingExceededError(refusal)
 
     def commit(self, realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization, judging the writes they set off.
+        """Commit every realization as one transaction, judging the writes it sets off.
 
         The batch was judged whole before this, so each realization's own write is
         let through, once; every other write, an observer's say, meets :meth:`admit`.
+        When anything fails, a refused observer write included, every element the
+        transaction wrote is put back and its observers told, and the failure is
+        raised. Once everything is committed, the final state of each element written
+        is measured against the cap once more, since each write was judged when it
+        was made and not against what the writes after it would leave.
         """
         judge = BatchJudge(self.admit, [r.write() for r in realizations])
         with HandlerWrites.judged(judge):
-            self._commit_atomically(realizations)
+            try:
+                for realization in realizations:
+                    realization.commit()
+                self._require_final_state_within_cap(judge.written)
+            except Exception:
+                judge.roll_back()
+                raise
 
-    @staticmethod
-    def _commit_atomically(realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization atomically.
-
-        Each snapshots its own undo state, so a mid-batch raise rolls all back.
-        """
-        committed: list[FieldRealization] = []
-        try:
-            for realization in realizations:
-                realization.commit()
-                committed.append(realization)
-        except Exception:
-            for realization in reversed(committed):
-                realization.restore()
-            raise
+    def _require_final_state_within_cap(self, written: Sequence[AbcElement]) -> None:
+        """Raise :class:`NestingExceededError` if a scene written now nests too deep."""
+        measured: set[SceneId] = set()
+        for element in written:
+            scene_id = self._index.scene_of(cast("WireElement", element))
+            if scene_id is None or scene_id in measured:
+                continue
+            measured.add(scene_id)
+            self.require_within_cap(self._index.scene_roots(scene_id))
 
     @staticmethod
     def require_within_cap(roots: Sequence[WireElement]) -> None:
@@ -157,9 +162,13 @@ class WriteSeam:
         """
         FieldGate.reject(element_id, {field: value})
         target = self._index.lookup(scene_id, element_id)
-        element = self._mutable(target, scene_id, element_id)
-        with HandlerWrites.judged(self.admit):
-            element.apply_patch({field: value})
+        realization = AbcFieldRealization(
+            self._mutable(target, scene_id, element_id), {field: value}
+        )
+        refusal = self.nesting_refusal(scene_id, [realization])
+        if refusal is not None:
+            raise NestingExceededError(refusal)
+        self.commit([realization])
 
     @staticmethod
     def _mutable(

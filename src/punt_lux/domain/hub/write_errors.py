@@ -18,9 +18,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from punt_lux.domain.handler_writes import WriteRefusedError
 from punt_lux.domain.ids import ElementId
 
-__all__ = ["ImmutableFieldError", "MalformedPatchError", "NestingExceededError"]
+__all__ = [
+    "ImmutableFieldError",
+    "MalformedPatchError",
+    "NestingExceededError",
+    "UnheldTargetError",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +72,7 @@ class ImmutableFieldError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
-class NestingExceededError(ValueError):
+class NestingExceededError(WriteRefusedError, ValueError):
     """Raised when a write would nest an element's wire form past the cap.
 
     The write seam raises it for an install and a store-level property write; the
@@ -78,3 +84,18 @@ class NestingExceededError(ValueError):
 
     def __str__(self) -> str:
         return self.reason
+
+
+@dataclass(frozen=True, slots=True)
+class UnheldTargetError(WriteRefusedError, LookupError):
+    """Raised when a write names an element no scene the Hub holds contains.
+
+    Its scene, and so its nesting cap, cannot be known: the judge refuses it.
+    """
+
+    element_id: ElementId
+
+    def __str__(self) -> str:
+        return (
+            f"write target {self.element_id!r} is installed in no scene the Hub holds"
+        )

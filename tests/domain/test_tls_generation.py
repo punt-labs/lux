@@ -190,6 +190,9 @@ def test_a_tls_reset_is_the_displays_end_though_it_may_discard_a_queued_ack(
 
     assert generation.ended == "display"
     assert any("cut short" in r.getMessage() for r in caplog.records)
+    # A reset from a remote peer may have discarded acks: it is a warning.
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("remote display" in r.getMessage() for r in warnings)
     assert {death.cause for death in deaths_of(link)} <= {"display"}
 
 

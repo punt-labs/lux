@@ -17,9 +17,11 @@ import pytest
 from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_result import WriteAccepted
+from punt_lux.domain.hub.write_errors import NestingExceededError
+from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.protocol.elements import ButtonElement, TableElement, TreeElement
 from tests.domain.test_handler_writes_are_judged import _fire
 from tests.domain.test_nesting_cap_at_the_seam import (
@@ -150,13 +152,16 @@ class TestAnObserverWokenByAnAgentWrite:
 
         assert tree.nodes == ()
 
-    def test_the_agents_own_write_still_lands(self) -> None:
+    def test_a_refused_write_rolls_the_agents_own_write_back_and_says_why(
+        self,
+    ) -> None:
         table, tree = _table_with_a_deepening_observer(_DEEP)
         store = _store_of(table, tree)
 
-        _update(store, "tb", {"rows": [["s"]]})
+        result = _update(store, "tb", {"rows": [["s"]]})
 
-        assert table.rows == (("s",),)
+        assert result == WriteRejected(NestingCap.reason())
+        assert table.rows == (("r",),)
 
     def test_a_shallow_write_it_makes_is_applied(self) -> None:
         table, tree = _table_with_a_deepening_observer(2)
@@ -166,16 +171,14 @@ class TestAnObserverWokenByAnAgentWrite:
 
         assert tree.nodes != ()
 
-    def test_a_store_level_property_write_judges_the_observer_too(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_a_store_level_property_write_judges_the_observer_too(self) -> None:
         table, tree = _table_with_a_deepening_observer(_DEEP)
         store = _store_of(table, tree)
 
-        with caplog.at_level(logging.ERROR):
+        with pytest.raises(NestingExceededError):
             store.write_seam.set_property(_SCENE, ElementId("tb"), "rows", [["s"]])
 
-        assert tree.nodes == ()
+        assert (tree.nodes, table.rows) == ((), (("r",),))
 
 
 class TestABatchJudge:
@@ -254,10 +257,7 @@ class TestABatchWhoseObserverWritesAnotherTarget:
         assert tree.nodes == ()
 
     @pytest.mark.parametrize("first", ["tb", "t"])
-    def test_the_batchs_own_writes_still_land_and_nothing_escapes(
-        self, first: str
-    ) -> None:
-        """The refused observer write is its own failure; the batch is accepted."""
+    def test_a_refused_observer_write_rejects_the_whole_batch(self, first: str) -> None:
         table, tree = _table_with_a_deepening_observer(_DEEP)
         store = _store_of(table, tree)
 
@@ -267,9 +267,9 @@ class TestABatchWhoseObserverWritesAnotherTarget:
         )
 
         assert (result, table.rows, tree.label) == (
-            WriteAccepted(),
-            (("s",),),
-            "L",
+            WriteRejected(NestingCap.reason()),
+            (("r",),),
+            "",
         )
 
     def test_a_shallow_observer_write_lets_the_batch_through(self) -> None:

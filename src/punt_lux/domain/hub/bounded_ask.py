@@ -7,8 +7,10 @@ that never lets go (a handler that blocks the listener thread, an inline read th
 never returns) would leave the dial ended, current and unsettled for ever, and a dial
 that is still current is one the Hub cannot replace. So the wait is bounded: after
 :data:`SETTLE_BOUND` the asker records its own cause, first recorded wins, and settles
-the dial without a drain. That is the one capture that does not belong to a holder,
-and only a slot hands out the capability to make it.
+the dial without a drain. Only a slot hands out the capability to make it, to a
+refused asker and to a holder whose own drain could not be made (a writer held the
+socket past the ceiling): the holder leaves the capture to the same bound, with no
+asker to time it.
 
 A capture by the bound is undrained, so it may charge scenes whose acknowledgements
 sit unread in the stalled holder's buffer; a Hub end captured this way charges nothing

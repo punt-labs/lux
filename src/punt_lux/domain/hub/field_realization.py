@@ -2,8 +2,8 @@
 
 A field patch on an ABC element is realized in place: identity, handlers, and
 observers survive the mutation. The realization stages the patch — rank a
-candidate, commit atomically, restore on a mid-batch failure — so the writer
-stages, validates, and commits a batch through a single uniform loop.
+candidate, commit — so the writer stages, validates, and commits a batch through a
+single uniform loop. The batch's undo lives in the judge that sees every write.
 
 Child-bearing fields (``children`` / ``tabs``) are refused before the seam and
 deferred to ``show``.
@@ -34,11 +34,10 @@ __all__ = ["AbcFieldRealization", "FieldRealization"]
 
 
 class FieldRealization(Protocol):
-    """A staged field mutation: rank a candidate, commit, or restore.
+    """A staged field mutation: rank a candidate, or commit.
 
     The writer treats every target uniformly through this contract:
-    ``rejection`` decides the batch before any ``commit`` runs; ``restore``
-    undoes a commit when a later target fails.
+    ``rejection`` decides the batch before any ``commit`` runs.
     """
 
     def rejection(self) -> WriteRejected | None:
@@ -58,11 +57,7 @@ class FieldRealization(Protocol):
         ...
 
     def commit(self) -> None:
-        """Apply the mutation, snapshotting enough to restore it exactly."""
-        ...
-
-    def restore(self) -> None:
-        """Undo a committed mutation, returning the store to its prior state."""
+        """Apply the mutation in place."""
         ...
 
 
@@ -79,15 +74,13 @@ class AbcFieldRealization:
 
     _element: AbcElement
     _fields: Mapping[str, object]
-    _snapshot: dict[str, object]
     _patched: AbcElement | None
-    __slots__ = ("_element", "_fields", "_patched", "_snapshot")
+    __slots__ = ("_element", "_fields", "_patched")
 
     def __new__(cls, element: AbcElement, fields: Mapping[str, object]) -> Self:
         self = super().__new__(cls)
         self._element = element
         self._fields = fields
-        self._snapshot = {}
         self._patched = None  # PY-TS-14 OK: absent until first asked for
         return self
 
@@ -149,11 +142,5 @@ class AbcFieldRealization:
         return self._patched
 
     def commit(self) -> None:
-        """Snapshot the element's field state, then patch it in place."""
-        self._snapshot = dict(vars(self._element))
+        """Patch the element in place."""
         self._element.apply_patch(self._fields)
-
-    def restore(self) -> None:
-        """Roll the element back to its pre-commit field state."""
-        vars(self._element).clear()
-        vars(self._element).update(self._snapshot)

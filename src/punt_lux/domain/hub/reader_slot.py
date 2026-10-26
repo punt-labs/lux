@@ -16,7 +16,8 @@ section that observed it held. Every release of the slot reads the debt in the o
 critical section that frees it, and a debt keeps the slot: the releaser settles the dial
 before it lets go. A refused asker waits for the holder, up to
 :data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND`, and then settles the dial itself
-through the capability the refusal handed it.
+through the capability the refusal handed it. A holder whose own drain could not be
+made (a writer held the socket past the ceiling) leaves its capture to the same bound.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
 from punt_lux.domain.hub.bounded_ask import BoundedAsk
+from punt_lux.domain.hub.finally_guard import FinallyGuard
 from punt_lux.domain.hub.settler import Settler
 
 if TYPE_CHECKING:
@@ -175,7 +177,9 @@ class ReaderSlot:
             yield settler
         finally:
             if settler is not None:
-                self._release(settler)
+                FinallyGuard.run(
+                    lambda: self._release(settler), "letting go of the slot"
+                )
 
     def ask_settle(self, route: Route, cause: RetireCause, *, may_wait: bool) -> None:
         """Ask for the dial to be settled, an end having been recorded or requested.
@@ -201,7 +205,9 @@ class ReaderSlot:
             try:
                 settler.settle()
             finally:
-                self._release(settler)
+                FinallyGuard.run(
+                    lambda: self._release(settler), "letting go of the slot"
+                )
         elif may_wait:
             self._late()(cause)
 

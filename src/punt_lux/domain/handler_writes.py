@@ -29,7 +29,17 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element_abc import Element
 
-__all__ = ["HandlerWrites", "JudgedScope", "WriteJudge"]
+__all__ = ["HandlerWrites", "JudgedScope", "WriteJudge", "WriteRefusedError"]
+
+
+class WriteRefusedError(Exception):
+    """The judge refused a write: the transaction that made it rolls back.
+
+    Raised by the judge before the element is touched. An observer fan-out lets it
+    through after the other observers have run, so a batch that woke the observer
+    never reports success for a write that was refused.
+    """
+
 
 # Raises to refuse the write; returns to admit it.
 type WriteJudge = Callable[[Element, Mapping[str, object]], None]
