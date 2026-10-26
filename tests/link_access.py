@@ -69,6 +69,19 @@ def bare_connection(dialer: DisplayDialer, connect_timeout: float) -> DisplayCon
     return connection
 
 
+# The queue each connection handed over, kept with its connection so a test that reads
+# a link's deaths more than once sees one queue; production hands it over once.
+_HANDED: dict[int, tuple[DisplayConnection, DeathQueuePort]] = {}
+
+
+def _handed_queue(connection: DisplayConnection) -> DeathQueuePort:
+    """The deaths queue of ``connection``, taken from it the one time it allows."""
+    held = _HANDED.get(id(connection))
+    if held is None:
+        held = _HANDED[id(connection)] = (connection, connection.take_deaths())
+    return held[1]
+
+
 def deaths_of(
     source: ClientRegistry | DisplayLink | DisplayConnection | DeathQueuePort,
 ) -> tuple[DialDeath, ...]:
@@ -84,9 +97,7 @@ def deaths_of(
     if isinstance(source, DisplayLink):
         source = source._connection  # test seam: production holds only the queue
     queue: DeathQueuePort = (
-        source._suspects.deaths  # test seam: the connection's own book
-        if isinstance(source, DisplayConnection)
-        else source
+        _handed_queue(source) if isinstance(source, DisplayConnection) else source
     )
     drained: list[DialDeath] = []
     while (death := queue.take()) is not None:

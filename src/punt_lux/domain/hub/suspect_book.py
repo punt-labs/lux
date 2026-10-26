@@ -55,11 +55,6 @@ class SuspectBook:
         """The scenes earlier dials left behind and no ack has cleared."""
         return self._carried
 
-    @property
-    def deaths(self) -> DeathQueue:
-        """The deaths not yet charged: the queue the one charger is handed."""
-        return self._deaths
-
     def hand_over(self) -> DeathQueue:
         """Hand the queue of deaths to its one charger; raises on a second ask.
 
