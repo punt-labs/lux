@@ -7897,8 +7897,9 @@ are added to `docs/listener_lifecycle.tex`.
     that poison death goes uncharged. If the holder settles, a display that
     died before its drain is recorded as display and charged.
   - The drain's claim to have read everything a dead display sent holds for
-    a same-host socket only; a cross-host reset can discard queued data.
-    A reset counts as end of file.
+    the same-host Unix socket only. Over TLS, the cross-host transport, a
+    reset can discard an ack already queued, so that acked scene is charged.
+    A reset counts as end of file on either transport.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
