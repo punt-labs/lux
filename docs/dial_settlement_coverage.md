@@ -1,9 +1,10 @@
 # Dial settlement: coverage audit
 
 Companion to [dial_settlement.tex](./dial_settlement.tex) and its controls. It lists the
-partitions of the model and the tests that must cover them. No test here exists yet: the
-implementation follows the model. Each row names the test that must be red on the code as
-it stands at `41e90082` and green on the design.
+partitions of the model and the tests that cover them. The implementation follows the
+model. Each row names the test that was red on the code as it stood at `41e90082` and is
+green on the design. The design column says what the test does; the mapping that follows
+names it. A row marked GAP has no test.
 
 Governs: `src/punt_lux/domain/hub/{display_connection,dial_reader,display_listener,
 listener_thread,display_replies,reply_sink,dial_generation,reader_slot,dial_drain}.py`.
@@ -79,7 +80,7 @@ stalled holder missing.
 
 ## Partitions
 
-| Partition | Model operations | Test (two threads where stated) |
+| Partition | Model operations | Test design (two threads where stated) |
 |-----------|------------------|-------------------------------|
 | P1 start fails on an ended dial | `StFail`, `StRel0`, `HubReq`, `SURefuse`/`SUGrant` | Hold `open_as_hub` between `open_listening` and `start_on`; end G2 on thread B (`_write_failed`); release A. Assert G2 not current, one `DialDeath(display)` with G2's owed scenes, the next `asks()` redials. Red on HEAD. Control: `start_fail_buggy` |
 | P2 start fails on a healthy dial (thread cannot start) | `StFail` with `current` | Make `Thread.start` raise; assert the slot is free, then the Hub end settles synchronously and the dial is not current |
@@ -97,6 +98,34 @@ stalled holder missing.
 | P14 decode-error ends | `IBad`, `RBad` | A malformed frame with an ack behind it: the dial is captured as `display` undrained, once; `s2dec` is the bound, and S2 does not apply |
 | P15 settle is idempotent and single | `SDecide`, `SettleGone` | Call `settle()` twice, and from the releaser and the listener at once; one capture |
 | P16 the door is structural | `SettleGone` (listener unreachable) | Guard: `DisplayConnection` has no public method that captures; `Settler` is constructed only by `ReaderSlot`; the bound's capture is the one other site and is named. The refusal hands the asker a handle whose capture becomes enabled only after the bound has passed; a refusal that returned a `close_if_current`-shaped door would reopen it. Count references per qualified function across `src/punt_lux` recursively; plant bound-reference and `getattr` spellings |
+
+## Test mapping
+
+Tests are in `tests/domain/test_dial_settlement.py` unless a file is named. The `DialEnd` unit
+tests (`tests/domain/test_dial_end.py`) cover the first-wins record and the Hub request that
+the partitions rest on: `TestRecording`, `TestTheHubsRequest`, `TestDeciding`,
+`TestTheSinkThatOwnsOne`. The drain's routing is covered by `tests/domain/test_dial_drain.py`
+(`TestWhatTheDrainRoutes`, `TestWhatTheDrainSurvives`, `TestASkewedAckLeavesTheLedgerWhole`,
+`TestACutShortDrainSaysSo`).
+
+| Partition | Test |
+|-----------|------|
+| P1 | `TestAStartThatFails::test_p1_a_dial_ended_before_its_reader_started_is_settled_by_the_release` |
+| P2 | `TestAStartThatFails::test_p2_a_thread_that_cannot_start_leaves_the_slot_free_and_the_dial_gone` |
+| P3 | `TestARecordThatLandsInTheSettle::test_p3_the_listener_that_stops_drains_again_before_it_captures` |
+| P4 | `TestAnInlineHolderPastItsLastCheck::test_p4_an_end_that_lands_before_the_release_is_settled_by_it` |
+| P5 | `TestTheCriticalSections::test_p5_a_refusal_and_its_debt_are_one_critical_section` |
+| P6 | `TestTheCriticalSections::test_p6_a_release_and_its_debt_read_are_one_critical_section` |
+| P7 | `TestARecordThatLandsInTheSettle::test_p7_a_settle_with_no_reader_drains_again_before_it_captures` |
+| P8 | `TestADisplayThatDiesBeforeTheHubEndIsDecided::test_p8_a_display_dead_with_its_ack_ahead_of_the_end_is_the_displays_end`; `::test_p8_a_display_dead_before_it_acked_is_charged_for_the_scene` |
+| P9 | `TestADisplayThatDiesBeforeTheHubEndIsDecided::test_p9_a_live_display_asked_to_end_is_the_hubs_end_and_carries_its_scene` |
+| P10 | `TestAStalledHolder::test_p10_a_hub_end_refuses_at_once_and_is_captured_by_the_bound` |
+| P11 | `TestAStalledHolder::test_p11_a_recorded_end_is_captured_by_the_bound_with_its_cause` |
+| P12 | `TestAStalledHolder::test_p12_the_holders_settle_after_the_bound_captured_is_not_a_second_capture` |
+| P13 | `TestASettleIsOneAndAnEndIsTheFirstRecorded::test_p13_a_recorded_cause_is_never_overridden_by_what_the_drain_sees` |
+| P14 | `TestASettleIsOneAndAnEndIsTheFirstRecorded::test_p14_a_frame_that_cannot_be_decoded_ends_the_dial_undrained` |
+| P15 | `TestASettleIsOneAndAnEndIsTheFirstRecorded::test_p15_a_settle_made_twice_or_at_once_captures_once` |
+| P16 | `tests/domain/test_settlement_door.py`: `TestTheDoorIsTheSlot` (`test_a_settler_is_made_only_by_the_reader_slot`, `test_a_bounded_ask_is_made_only_by_the_reader_slots_refusal`, `test_a_dial_is_marked_closed_and_shut_only_by_the_connections_capture`, `test_the_capture_reaches_only_the_slot_its_settler_and_the_bound`, `test_the_doors_the_design_removed_are_referred_to_nowhere`); `TestTheGuardCanFail` (`test_every_spelling_of_a_second_door_is_counted`, `test_a_type_or_a_plain_import_is_not_a_reference`, `test_references_are_keyed_by_the_qualified_function`) |
 
 ## Not modelled
 
@@ -135,6 +164,16 @@ drain must read the ack and then report an end on `ECONNRESET`, over both `AF_UN
 byte queued toward the Hub behind the ack gives a plain EOF and does not exercise the reset);
 for 3, a test that a drain over TCP is not claimed complete, or that the cross-host path is
 not routed through the complete-drain rule.
+
+Tests for the obligations:
+
+| Obligation | Test |
+|------------|------|
+| 1 asker on the holder's thread | `TestAnAskerOnTheHoldersOwnThread::test_the_listeners_own_failed_write_is_settled_on_its_return_not_at_the_bound`; `::test_an_inline_holders_own_ask_leaves_a_debt_and_never_waits` |
+| 2 end of file includes a reset | `TestTheEndOfAStreamTheDrainSees::test_a_reset_that_follows_queued_acks_is_the_displays_end` (`AF_UNIX`); `::test_a_plain_end_of_file_is_the_displays_end`. **GAP**: the TLS leg of the reset has no test |
+| 2 send timeout (F5) | `TestASendThatTimesOut::test_f5_a_send_timeout_is_recorded_unresponsive_not_the_displays_death` |
+| 3 same-host claim only | `tests/domain/test_dial_drain.py::TestTheDrainClaimsCompletenessForSameHostSocketsOnly::test_the_contract_is_stated_where_the_drain_is_defined` (asserts the stated contract; it does not exercise a TCP drain) |
+| drain wedge on TLS | `tests/domain/test_tls_generation.py::test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket` |
 
 ## Controls
 
