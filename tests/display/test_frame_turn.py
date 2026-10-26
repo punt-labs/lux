@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -58,12 +59,14 @@ class _Recorder:
         self.calls.append("shutdown")
 
 
-def _turn(rec: _Recorder, *, cross_host: bool = False) -> FrameTurn:
+def _turn(
+    rec: _Recorder, *, cross_host: bool = False, clock: bool = False
+) -> FrameTurn:
     return FrameTurn(
         sockets=cast("SocketListener", rec),
         sender=cast("ClientSender", rec),
         cross_host=cast("CrossHostPump", rec) if cross_host else None,
-        paint_clock=cast("PaintClock", rec),
+        paint_clock=cast("PaintClock", rec) if clock else None,
         queries=cast("ClientQueries", rec),
     )
 
@@ -109,9 +112,24 @@ class TestWhatASwapReleases:
     def test_the_clock_the_held_acks_and_the_screenshot_in_that_order(self) -> None:
         rec = _Recorder()
 
-        _turn(rec).after_swap()
+        _turn(rec, clock=True).after_swap()
 
         assert rec.calls == ["swapped", "release-acks", "screenshot"]
+
+
+class TestTheFrameTimeline:
+    def test_a_scene_received_and_painted_is_timed_at_the_swap(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        rec = _Recorder()
+        turn = _turn(rec)
+
+        with caplog.at_level(logging.INFO, logger="punt_lux.display.paint_clock"):
+            turn.scene_received("s1")
+            turn.scene_painted("s1")
+            turn.after_swap()
+
+        assert [m for m in caplog.messages if m.startswith("paint scene=s1 ")]
 
 
 class TestShuttingDown:

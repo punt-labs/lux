@@ -18,13 +18,14 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.paint_clock import PaintClock
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.display.client_queries import ClientQueries
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
-    from punt_lux.display.paint_clock import PaintClock
     from punt_lux.display.socket_server import SocketListener
 
 logger = logging.getLogger(__name__)
@@ -54,14 +55,15 @@ class FrameTurn:
         sockets: SocketListener,
         sender: ClientSender,
         cross_host: CrossHostPump | None,
-        paint_clock: PaintClock,
         queries: ClientQueries,
+        # PY-TS-14 OK: absent means the turn keeps the one clock it makes itself.
+        paint_clock: PaintClock | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._sockets = sockets
         self._sender = sender
         self._cross_host = cross_host
-        self._paint_clock = paint_clock
+        self._paint_clock = PaintClock() if paint_clock is None else paint_clock
         self._queries = queries
         return self
 
@@ -109,6 +111,14 @@ class FrameTurn:
         """Close the cross-host listen socket and its pending peers, if there is one."""
         if self._cross_host is not None:
             self._cross_host.shutdown()
+
+    def scene_received(self, scene_id: str) -> None:
+        """Start the clock on a scene that has just arrived."""
+        self._paint_clock.received(scene_id)
+
+    def scene_painted(self, scene_id: str) -> None:
+        """Note that a scene was drawn this frame: its swap is the one to time."""
+        self._paint_clock.painted(scene_id)
 
     def after_swap(self) -> None:
         """Flush what a completed buffer swap releases: GL_FRONT has the frame."""

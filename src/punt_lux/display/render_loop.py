@@ -32,7 +32,6 @@ from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import set_regular_activation_policy
 from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
-from punt_lux.display.paint_clock import PaintClock
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -81,7 +80,6 @@ class RenderLoop:
     _interaction_delivery: InteractionDelivery
     _pending: PendingInteractions
     _textures: TextureCache
-    _paint_clock: PaintClock
     _widget_state: WidgetState
     _menus: MenuReplica
     _frame_info_button: FrameInfoButton
@@ -196,7 +194,6 @@ class RenderLoop:
         self._event_queue = []
         self._pending = PendingInteractions()
         self._textures = TextureCache()
-        self._paint_clock = PaintClock()
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._test_auto_click = test_auto_click
         self._current_scene_id = None
@@ -219,7 +216,6 @@ class RenderLoop:
             sockets=self._socket_listener,
             sender=self._sender,
             cross_host=cross_host_listener,
-            paint_clock=self._paint_clock,
             queries=self._queries,
         )
         return self
@@ -447,7 +443,7 @@ class RenderLoop:
         """Route a scene into its frame, creating the frame if needed."""
         if self._hub_reconciliation.reject_scene_unless_hub(sock):
             return
-        self._paint_clock.received(msg.id)
+        self._turn.scene_received(msg.id)
         self._wrap_abc_elements(msg)
         hub = self._hub_reconciliation.hub_of(sock)
         self._scenes.handle_framed_scene(msg, sock.fileno(), hub)
@@ -715,7 +711,7 @@ class RenderLoop:
         # whatever a prior frame's render last set (stale or None), and the
         # Hub could never resolve which scene the click belongs to.
         self._current_scene_id = scene_id
-        self._paint_clock.painted(scene_id)
+        self._turn.scene_painted(scene_id)
         self._imgui_renderer_factory.geometry.enter_scene(scene_id)
         scene = frame.scenes[scene_id]
         # Every kind is an Element-ABC subclass, so painting is one render() call.

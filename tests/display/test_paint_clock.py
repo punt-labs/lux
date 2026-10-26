@@ -123,8 +123,8 @@ def test_the_display_stamps_a_scene_when_it_arrives(
         ),
     )
     with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        server._paint_clock.painted("s1")
-        server._paint_clock.swapped()
+        server._turn.scene_painted("s1")
+        server._turn.after_swap()
     assert len(caplog.messages) == 1
     assert caplog.messages[0].startswith("paint scene=s1 ")
 
