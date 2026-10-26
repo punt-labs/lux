@@ -160,39 +160,3 @@ class TestReport:
         ProjectPermissions(tmp_path).report(add=True, quiet=True)
         assert capsys.readouterr().err == ""
         assert _allow(tmp_path) == list(LUX_RULES)
-
-
-class TestDisplayModeCommand:
-    def test_mode_on_grants_and_off_revokes(self, tmp_path: Path) -> None:
-        from typer.testing import CliRunner
-
-        from punt_lux.cli.display import display_app
-
-        runner = CliRunner()
-        assert (
-            runner.invoke(
-                display_app, ["mode", "on", "--repo", str(tmp_path)]
-            ).exit_code
-            == 0
-        )
-        assert _allow(tmp_path) == list(LUX_RULES)
-        assert (
-            runner.invoke(
-                display_app, ["mode", "off", "--repo", str(tmp_path)]
-            ).exit_code
-            == 0
-        )
-        assert _allow(tmp_path) == []
-
-    def test_refused_settings_leave_mode_unwritten(self, tmp_path: Path) -> None:
-        from typer.testing import CliRunner
-
-        from punt_lux.cli.display import display_app
-
-        _settings(tmp_path).parent.mkdir()
-        _settings(tmp_path).write_text("{not json")
-        result = CliRunner().invoke(
-            display_app, ["mode", "on", "--repo", str(tmp_path)]
-        )
-        assert result.exit_code == 1
-        assert not (tmp_path / ".punt-labs" / "lux.md").exists()

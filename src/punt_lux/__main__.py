@@ -62,9 +62,10 @@ def enable(
     quiet: QuietFlag = False,
 ) -> None:
     """Enable visual output for this project."""
-    from punt_lux.display_enablement import set_display
+    from punt_lux.display_enablement import DisplayEnablement
 
-    set_display(OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet), on=True)
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+    DisplayEnablement(flags).apply(on=True)
 
 
 @app.command()
@@ -77,9 +78,10 @@ def disable(
     quiet: QuietFlag = False,
 ) -> None:
     """Disable visual output for this project."""
-    from punt_lux.display_enablement import set_display
+    from punt_lux.display_enablement import DisplayEnablement
 
-    set_display(OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet), on=False)
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+    DisplayEnablement(flags).apply(on=False)
 
 
 # Hook dispatcher (internal)

@@ -351,9 +351,9 @@
 - **Permission rules are repo-level, granted by `lux enable`.** The
   SessionStart hook used to add `mcp__plugin_lux_lux__*` (or the `-dev` glob)
   and a `Skill(...)` rule per command to `~/.claude/settings.json` in every
-  session. Now `lux enable` (and `lux display mode on --repo`, which `/lux y`
-  runs) adds lux's rules to the repo's `.claude/settings.json` and prints each
-  one, and `lux disable` / `display mode off` remove exactly those. The rules
+  session. Now `lux enable` (which `/lux y` now runs) adds lux's rules to the
+  repo's `.claude/settings.json` and prints each one, and `lux disable` (run by
+  `/lux n`) removes exactly those. The rules
   change first: a malformed, non-UTF-8 or symlinked settings file, a symlinked
   lock, or the home directory is refused with exit 1 and the display mode left
   unchanged, even under `--quiet`. It never grants the `lux-dev` rules. Rules earlier versions
