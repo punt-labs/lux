@@ -1,0 +1,47 @@
+mission_id: m-2026-10-26-001
+status: closed
+type: implement
+created_at: "2026-10-26T01:51:19Z"
+updated_at: "2026-10-26T03:51:33Z"
+closed_at: "2026-10-26T03:51:33Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-26T01:51:19Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/m-010-r8-rulings.md
+        - .tmp/missions/review-r8-code.md
+        - .tmp/missions/review-r8-silent.md
+        - .tmp/missions/review-r8-invariants.md
+        - .tmp/missions/review-r8-types.md
+        - .tmp/missions/results-r6fix/eval-gvr-r2.md
+        - docs/crash_attribution.tex
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - docs/crash_attribution_coverage.md
+    - docs/listener_lifecycle_coverage.md
+    - docs/crash_attribution.tex
+    - docs/README.md
+    - .tmp/missions/results-r8fix/
+success_criteria:
+    - 'WORK IN THE WORKTREE [REDACTED:home]/Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes. First fast-forward it: git -C <worktree> merge --ff-only fix/lux-ghhf-details-frame-id. Use make -C, git -C and absolute paths. FIX every finding in the four review-r8-*.md files and gvr''s advisory A3 exactly as the binding leader rulings in .tmp/missions/m-010-r8-rulings.md (R1-R7) direct. R1 (the Hub end atomic with the cause, only the reader captures) is the priority: the same defect was reported five times.'
+    - Tests lead (red on the base first). Mutation-check each new rule and guard; record the red runs. Keep the lock order rq < sl < st < lk < qu and K2 inviolate. Score each touched file against the IN-TREE baselines (avg_lcom cap 0.5, max_lcom 0.8, efferent 7, module_size 300, classes_per_module 3). Report every regressed row in one message and stop for the leader's bless; over cap means redesign. Commit per finding group with explicit git add <file>. Ratchet files go in the last commit. The last commit leaves make check and make test-integration green. Never run gui/e2e tests or pytest -m "". Do not touch DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except the worktree), .github/ or .punt-labs/. Do not spawn agents. fuzz must stay clean on docs/crash_attribution.tex (run it on that file alone).
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results-r8fix/<mission-id>.md (lux repo root); submit it with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+context: |
+    Final local review round 8. One defect (the Hub end racing a display end
+    and capturing without the drain) was reported five times. R1 closes it
+    structurally, matching the model's two-phase end.

@@ -1,0 +1,284 @@
+mission: m-2026-10-26-001
+round: 1
+created_at: "2026-10-26T03:43:40Z"
+author: rmh
+verdict: pass
+confidence: 0.8
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 3
+      removed: 0
+    - path: .oo-baseline.json
+      added: 137
+      removed: 72
+    - path: .oo-coupling-audit.jsonl
+      added: 2
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 67
+      removed: 32
+    - path: docs/README.md
+      added: 1
+      removed: 1
+    - path: docs/crash_attribution.tex
+      added: 2
+      removed: 2
+    - path: docs/crash_attribution_coverage.md
+      added: 48
+      removed: 26
+    - path: docs/listener_lifecycle_coverage.md
+      added: 90
+      removed: 100
+    - path: src/punt_lux/display/client_queries.py
+      added: 1
+      removed: 3
+    - path: src/punt_lux/display/client_sender.py
+      added: 23
+      removed: 6
+    - path: src/punt_lux/display/display_log.py
+      added: 25
+      removed: 6
+    - path: src/punt_lux/display/frame_turn.py
+      added: 127
+      removed: 0
+    - path: src/punt_lux/display/framebuffer_capture.py
+      added: 3
+      removed: 3
+    - path: src/punt_lux/display/hub_reconciliation.py
+      added: 3
+      removed: 6
+    - path: src/punt_lux/display/identity_guard.py
+      added: 3
+      removed: 6
+    - path: src/punt_lux/display/menus/own_menus.py
+      added: 7
+      removed: 4
+    - path: src/punt_lux/display/menus/window_preferences.py
+      added: 12
+      removed: 3
+    - path: src/punt_lux/display/query_dispatcher.py
+      added: 6
+      removed: 2
+    - path: src/punt_lux/display/render_loop.py
+      added: 16
+      removed: 70
+    - path: src/punt_lux/display/screenshot_queue.py
+      added: 2
+      removed: 4
+    - path: src/punt_lux/display/socket_listener_callbacks.py
+      added: 2
+      removed: 1
+    - path: src/punt_lux/display/window_settings.py
+      added: 5
+      removed: 2
+    - path: src/punt_lux/domain/element_abc.py
+      added: 6
+      removed: 0
+    - path: src/punt_lux/domain/handler_writes.py
+      added: 61
+      removed: 0
+    - path: src/punt_lux/domain/hub/batch_sender.py
+      added: 3
+      removed: 3
+    - path: src/punt_lux/domain/hub/clients.py
+      added: 20
+      removed: 47
+    - path: src/punt_lux/domain/hub/connection_closed.py
+      added: 7
+      removed: 6
+    - path: src/punt_lux/domain/hub/crash_attribution.py
+      added: 40
+      removed: 23
+    - path: src/punt_lux/domain/hub/death_charger.py
+      added: 29
+      removed: 11
+    - path: src/punt_lux/domain/hub/death_queue.py
+      added: 62
+      removed: 0
+    - path: src/punt_lux/domain/hub/dial_drain.py
+      added: 7
+      removed: 2
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 25
+      removed: 34
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 9
+      removed: 3
+    - path: src/punt_lux/domain/hub/dial_ref.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/dial_socket.py
+      added: 30
+      removed: 22
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 85
+      removed: 41
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 14
+      removed: 17
+    - path: src/punt_lux/domain/hub/display_listener.py
+      added: 31
+      removed: 9
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 20
+      removed: 10
+    - path: src/punt_lux/domain/hub/display_requests.py
+      added: 9
+      removed: 7
+    - path: src/punt_lux/domain/hub/display_writer.py
+      added: 6
+      removed: 17
+    - path: src/punt_lux/domain/hub/handler_firing.py
+      added: 57
+      removed: 0
+    - path: src/punt_lux/domain/hub/hub_interaction_dispatch.py
+      added: 4
+      removed: 1
+    - path: src/punt_lux/domain/hub/keepalive_ports.py
+      added: 2
+      removed: 2
+    - path: src/punt_lux/domain/hub/listener_thread.py
+      added: 16
+      removed: 9
+    - path: src/punt_lux/domain/hub/reconnect_signal.py
+      added: 64
+      removed: 0
+    - path: src/punt_lux/domain/hub/replicator.py
+      added: 9
+      removed: 4
+    - path: src/punt_lux/domain/hub/replicator_ports.py
+      added: 34
+      removed: 10
+    - path: src/punt_lux/domain/hub/reply_sink.py
+      added: 3
+      removed: 1
+    - path: src/punt_lux/domain/hub/request_desk.py
+      added: 6
+      removed: 2
+    - path: src/punt_lux/domain/hub/request_exchange.py
+      added: 8
+      removed: 5
+    - path: src/punt_lux/domain/hub/suspect_book.py
+      added: 11
+      removed: 26
+    - path: src/punt_lux/protocol/messages/introspect.py
+      added: 32
+      removed: 15
+    - path: src/punt_lux/protocol/messages/pickled_element_codec.py
+      added: 1
+      removed: 1
+    - path: tests/display/test_client_queries.py
+      added: 0
+      removed: 1
+    - path: tests/display/test_display_log.py
+      added: 36
+      removed: 1
+    - path: tests/display/test_frame_turn.py
+      added: 148
+      removed: 0
+    - path: tests/display/test_held_acks.py
+      added: 65
+      removed: 3
+    - path: tests/display/test_install_order.py
+      added: 1
+      removed: 1
+    - path: tests/display/test_paint_clock.py
+      added: 3
+      removed: 3
+    - path: tests/display/test_query_dispatcher.py
+      added: 23
+      removed: 0
+    - path: tests/display/test_render_loop_cross_host.py
+      added: 3
+      removed: 3
+    - path: tests/display/test_reply_discipline.py
+      added: 5
+      removed: 5
+    - path: tests/domain/test_ack_attribution.py
+      added: 4
+      removed: 2
+    - path: tests/domain/test_await_acks.py
+      added: 124
+      removed: 0
+    - path: tests/domain/test_death_charger.py
+      added: 114
+      removed: 15
+    - path: tests/domain/test_death_queue.py
+      added: 69
+      removed: 0
+    - path: tests/domain/test_dial_drain.py
+      added: 112
+      removed: 8
+    - path: tests/domain/test_dial_model_lock_discipline.py
+      added: 53
+      removed: 91
+    - path: tests/domain/test_display_connection.py
+      added: 18
+      removed: 15
+    - path: tests/domain/test_display_link.py
+      added: 4
+      removed: 1
+    - path: tests/domain/test_handler_writes_are_judged.py
+      added: 136
+      removed: 0
+    - path: tests/domain/test_handler_writes_cannot_deepen.py
+      added: 166
+      removed: 31
+    - path: tests/domain/test_hub_end_atomic.py
+      added: 316
+      removed: 0
+    - path: tests/domain/test_hub_replicator.py
+      added: 16
+      removed: 7
+    - path: tests/domain/test_inbound_router.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_link_generations.py
+      added: 40
+      removed: 17
+    - path: tests/domain/test_listener_thread.py
+      added: 10
+      removed: 8
+    - path: tests/domain/test_open_as_hub.py
+      added: 80
+      removed: 0
+    - path: tests/domain/test_reconnect_signal.py
+      added: 76
+      removed: 0
+    - path: tests/domain/test_retire_cause.py
+      added: 32
+      removed: 14
+    - path: tests/domain/test_single_writer.py
+      added: 66
+      removed: 12
+    - path: tests/domain/test_suspect_book.py
+      added: 13
+      removed: 13
+    - path: tests/domain/test_tls_generation.py
+      added: 3
+      removed: 2
+    - path: tests/integration/test_hub_display_reconciliation.py
+      added: 2
+      removed: 2
+    - path: tests/link_access.py
+      added: 44
+      removed: 11
+    - path: tests/test_client_registry.py
+      added: 29
+      removed: 16
+    - path: tests/test_protocol.py
+      added: 24
+      removed: 0
+evidence:
+    - name: 'make check at 41e90082: exit 0, 7321 passed, 193 deselected, 1 warning in 323.83s'
+      status: pass
+    - name: 'make test-integration at 41e90082: exit 0, 92 passed, 7422 deselected'
+      status: pass
+    - name: 'mutation record: 54 mutations, every rule and guard RED (results-r8fix/mutations.txt)'
+      status: pass
+    - name: 'fuzz docs/crash_attribution.tex: OK'
+      status: pass
+open_questions:
+    - The reader slot is built and published by DisplayConnection and lent for the current dial only, not handed out once from DialGeneration; leader accepted.
+    - 'run() needs a GPU: the functools.partial wiring of show_gui and after_swap is not exercised by a test.'
+prose: See .tmp/missions/results-r8fix/m-2026-10-26-001.md for the commits, deviations, ratchet rows and mutation record.
