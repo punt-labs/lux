@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.drain_result import Drained, DrainIncompleteError
+from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
@@ -197,7 +197,10 @@ class DialSocket:
             if chunk is None:
                 return Drained(b"", ended=False)
         except (OSError, ValueError) as exc:
-            self._report_cut_short(exc)
+            CutShort(self.endpoint, exc).report(
+                captured=self._sink.captured,
+                is_tls=isinstance(self._dial.sock, ssl.SSLSocket),
+            )
             return Drained(b"", ended=True)
         return Drained(chunk, ended=not chunk)
 
@@ -219,43 +222,6 @@ class DialSocket:
         finally:
             with contextlib.suppress(OSError):  # closed by its own capture meanwhile
                 sock.settimeout(None)
-
-    def _report_cut_short(self, exc: BaseException) -> None:
-        """Say the last look found the stream broken: the settle goes ahead on it.
-
-        Quietly when the stream simply ended (a reset on the same host, a broken
-        pipe, TLS end of file) or was closed by the dial's own capture, which this
-        look lost the race to. Loudly for a reset from a remote peer, which can
-        discard acks queued behind it and so charge a scene that survived, and for
-        anything else (a closed descriptor, a TLS fault): a later look at why a
-        surviving scene was charged finds the trace.
-        """
-        if self._sink.captured:
-            logger.debug(
-                "Drain of %s found the socket closed by its own capture: %r",
-                self._dial.endpoint,
-                exc,
-            )
-            return
-        remote_reset = isinstance(exc, ConnectionResetError) and isinstance(
-            self._dial.sock, ssl.SSLSocket
-        )
-        ended = isinstance(exc, ConnectionError | ssl.SSLEOFError) and not remote_reset
-        if remote_reset:
-            logger.warning(
-                "Drain of %s cut short by a reset from a remote display, which may "
-                "have discarded acks queued behind it: a scene it acked may be "
-                "charged: %r",
-                self._dial.endpoint,
-                exc,
-            )
-            return
-        logger.log(
-            logging.DEBUG if ended else logging.WARNING,
-            "Drain of %s cut short: %r",
-            self._dial.endpoint,
-            exc,
-        )
 
     def messages(self, chunk: bytes) -> Iterator[Message]:
         """Feed ``chunk`` to the frame buffer; yield each message it completes.
