@@ -7891,9 +7891,11 @@ are added to `docs/listener_lifecycle.tex`.
     may still ack after any drain, within one drain-to-capture gap.
   - A peek for a pending end of file cannot replace the drain: an ack
     queued ahead of the display's close hides the close.
-  - A display that dies before any settler observes it, while a Hub
-    request is pending, is settled as a Hub end: its suspects are carried,
-    and a later ack read clears them, so that poison death goes uncharged.
+  - A display that dies while a Hub request is pending, when the holder
+    has not settled within the bound, is captured by the bound as a Hub
+    end: its suspects are carried, and a later ack read clears them, so
+    that poison death goes uncharged. If the holder settles, a display that
+    died before its drain is recorded as display and charged.
   - The drain's claim to have read everything a dead display sent holds for
     a same-host socket only; a cross-host reset can discard queued data.
     A reset counts as end of file.
