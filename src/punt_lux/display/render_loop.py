@@ -23,6 +23,7 @@ from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_placement import FramePlacement
 from punt_lux.display.frame_tiling import FrameTiling
+from punt_lux.display.frame_turn import FrameTurn
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.idle_screen import render_idle
@@ -66,11 +67,6 @@ logger = logging.getLogger(__name__)
 # it persists until the user closes the frame or a new client adopts it.
 _ORPHAN_FD = -1
 
-# Total wall-clock a frame's synchronous sends may wait on a backpressured Hub.
-# Below the 1 s ping timeout and ~2 s macOS "not responding" threshold, so a
-# slow-but-alive peer never wedges the render thread; over-budget sends defer.
-_FRAME_SEND_BUDGET = 0.1
-
 
 class RenderLoop:
     """The ImGui render loop, with non-blocking Unix socket IPC."""
@@ -101,7 +97,7 @@ class RenderLoop:
     _hub_reconciliation: HubReconciliation
     _content_gate: ContentMessageGate
     _exit_signal: ExitSignal
-    _cross_host: CrossHostPump | None
+    _turn: FrameTurn
 
     def __new__(
         cls,
@@ -111,7 +107,6 @@ class RenderLoop:
         cross_host_listener: CrossHostPump | None = None,
     ) -> Self:
         self = super().__new__(cls)
-        self._cross_host = cross_host_listener
         paths = DisplayPaths(Path(socket_path) if socket_path else None)
         self._socket_path = paths.socket_path
         self._display_paths = paths
@@ -218,6 +213,13 @@ class RenderLoop:
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
             settings=self._settings,
+        )
+        self._turn = FrameTurn(
+            sockets=self._socket_listener,
+            sender=self._sender,
+            cross_host=cross_host_listener,
+            paint_clock=self._paint_clock,
+            queries=self._queries,
         )
         return self
 
@@ -329,59 +331,16 @@ class RenderLoop:
         self._settings.start()
 
     def _on_frame(self) -> None:
-        """Called every frame by ImGui.
+        """Called every frame by ImGui: the sockets' turn, then draw and flush."""
+        self._turn.run(self._draw_and_flush)
 
-        One bounded send deadline is armed for the whole frame so a burst of Pongs and
-        query responses under Hub backpressure cannot stack per-send waits and wedge
-        the render thread past the ping timeout or the macOS "not responding"
-        threshold. Sends past the budget defer, they do not block. The acks of the
-        scenes this frame installs go out after the swap, under their own one budget
-        (``ClientSender.release_acks``).
-        """
-        sender = self._sender
-        sender.set_frame_deadline(time.monotonic() + _FRAME_SEND_BUDGET)
-        try:
-            self._socket_listener.accept_connections()
-            self._pump_cross_host()
-            self._socket_listener.poll_clients()
-            self._render_scene()
-            self._flush_events()
-        finally:
-            sender.clear_frame_deadline()
-
-    def _pump_cross_host(self) -> None:
-        """Advance the opt-in cross-host TLS listener one frame (DES-090 W10).
-
-        ``accept_pending()`` is called **at most once per frame** -- the
-        listener's pending-handshake self-bounding depends on that cadence --
-        and every socket whose mTLS handshake completed this frame is promoted
-        onto the ordinary client set, where the content gate holds it to the
-        same verify -> identify -> content order the ``AF_UNIX`` leg follows
-        (Invariant 1). Fail-closed: no listener configured, nothing happens.
-
-        A transport error accepting or pumping the cross-host leg drops that
-        frame's cross-host work and keeps rendering -- a wedged listen socket
-        must never stop the display or freeze the same-host ``AF_UNIX`` leg
-        (the render loop is a crash boundary). The log fires only on the
-        exceptional path, never per frame.
-        """
-        listener = self._cross_host
-        if listener is None:
-            return
-        try:
-            listener.accept_pending()
-            ready = listener.pump_ready()
-        except OSError as exc:
-            logger.warning("cross-host accept/pump failed this frame: %s", exc)
-            return
-        for tls_sock in ready:
-            self._socket_listener.promote_connection(tls_sock)
+    def _draw_and_flush(self) -> None:
+        self._render_scene()
+        self._flush_events()
 
     def _on_after_swap(self) -> None:
         """Called after GL buffer swap -- GL_FRONT has rendered content."""
-        self._paint_clock.swapped()
-        self._sender.release_acks()
-        self._queries.after_swap()
+        self._turn.after_swap()
 
     def _clear_all(self) -> None:
         """Callback for MenuReplica: throw every frame out, then clear scenes
@@ -403,8 +362,7 @@ class RenderLoop:
     def _on_exit(self) -> None:
         """Called before the window closes."""
         self._textures.cleanup()
-        if self._cross_host is not None:
-            self._cross_host.shutdown()  # close the TLS listen socket + pending peers
+        self._turn.shutdown()  # the cross-host listen socket and pending peers
         self._socket_listener.shutdown()
         self._socket_path.unlink(missing_ok=True)
         self._display_paths.remove_pid()
