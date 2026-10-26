@@ -617,6 +617,12 @@ class TestARetiredDialNeverDelivers:
         assert topics == ["first"], "the retired dial's later message was routed"
 
 
+def _slot_is_held(generation: DialGeneration) -> bool:
+    """Whether a reader holds the dial's slot now (asking takes it for an instant)."""
+    with generation.inline_reading() as granted:
+        return not granted
+
+
 class TestOneReaderPerDial:
     def test_a_listener_started_during_an_inline_wait_waits_for_it(
         self, display: Display
@@ -626,6 +632,8 @@ class TestOneReaderPerDial:
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
 
+        generation = generation_of(link)
+        assert until(lambda: _slot_is_held(generation))  # the wait has the slot
         starting = Call(lambda: link.connect(listen=True))
         assert not starting.wait(0.3), (
             "the inline read holds the dial's one reader slot"

@@ -1,9 +1,9 @@
 """Crash-loop quarantine end to end — real store, real worker, real operations.
 
 The runtime companion to ``docs/display_crash_loop.tex``: installs a scene
-the scripted display hangs up on, drives the real background
+the display dies painting, drives the real background
 ``HubReplicator`` (composing real ``CrashAttribution`` and ``RespawnBackoff``
-instances) over the real registry, link and dials against a scripted display,
+instances) over the real registry, link and dials against a display that acks at a swap,
 and proves the four properties the design promises end to end — quarantine triggers at
 ``ATTRIBUTION_THRESHOLD``, the scene is excluded from replication, an owner's
 patch-style write is rejected with the record, and quarantine clears on a
@@ -28,6 +28,7 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.replicator import HubReplicator
@@ -93,20 +94,25 @@ def display() -> Iterator[Display]:
 
 @pytest.fixture
 def poisoned(display: Display) -> Iterator[Responder]:
-    """A display that hangs up on the scene it reads when that scene is "poison"."""
-    responder = Responder(display, frozenset({_scoped("poison")}))
+    """The real display's ack discipline, and a scene it dies painting: "poison".
+
+    Every scene is held and acked at a swap, as the display does, and a swap with the
+    poison scene held never completes: the display hangs up with no ack sent.
+    """
+    responder = Responder(display, frozenset({_scoped("poison")}), at_swap=True)
     yield responder
     responder.stop()
 
 
 def _stack(
     display: Display, monkeypatch: pytest.MonkeyPatch
-) -> tuple[HubDisplay, HubReplicator, SceneOperations]:
-    """The real replicator over the real registry, link and dials; a scripted display.
+) -> tuple[HubDisplay, HubReplicator, SceneOperations, DisplayLiveness]:
+    """The real replicator and keepalive over the real registry, link and dials.
 
-    The scene's death is found and charged by the production code: the display
-    reads the scene and hangs up, the reader retires the dial with its ledger,
-    and recovery or the replicator's tick charges it.
+    The scene's death is found and charged by the production code: the display dies
+    painting the scene, the dial's reader settles it with its ledger, the keepalive
+    redials (which re-marks every live scene), and the replicator's next push charges
+    the death before it sends.
     """
     factory = HubStoreFactory()
     store = factory.display
@@ -124,13 +130,14 @@ def _stack(
     )
     registry.attach_replicator(repl)
     deps = SceneOperationsDeps(store, repl, hub_element_factory, Hub())
-    return store, repl, SceneOperations(deps)
+    liveness = DisplayLiveness(registry, interval=0.05, ping_timeout=1.0)
+    return store, repl, SceneOperations(deps), liveness
 
 
 def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold(
     display: Display, poisoned: Responder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, repl, ops = _stack(display, monkeypatch)
+    store, repl, ops, liveness = _stack(display, monkeypatch)
     request = RenderRequest.parse(
         {
             "scene_id": "poison",
@@ -141,6 +148,7 @@ def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold(
     assert isinstance(result, SceneShown)
 
     repl.start()
+    liveness.start()
     try:
         repl.mark_dirty(_scoped("poison"))
         assert _wait_until(lambda: store.is_quarantined(_scoped("poison")))
@@ -148,13 +156,14 @@ def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold(
         assert record is not None
         assert record.death_count >= ATTRIBUTION_THRESHOLD
     finally:
+        liveness.stop()
         repl.stop()
 
 
 def test_a_quarantined_scene_is_excluded_from_replication(
     display: Display, poisoned: Responder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, repl, ops = _stack(display, monkeypatch)
+    store, repl, ops, liveness = _stack(display, monkeypatch)
     request = RenderRequest.parse(
         {
             "scene_id": "poison",
@@ -164,6 +173,7 @@ def test_a_quarantined_scene_is_excluded_from_replication(
     ops.render(request, scope=_SCOPE)
 
     repl.start()
+    liveness.start()
     try:
         repl.mark_dirty(_scoped("poison"))
         assert _wait_until(lambda: store.is_quarantined(_scoped("poison")))
@@ -175,13 +185,14 @@ def test_a_quarantined_scene_is_excluded_from_replication(
         threading.Event().wait(0.5)
         assert len(poisoned.seen) == sent
     finally:
+        liveness.stop()
         repl.stop()
 
 
 def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record(
     display: Display, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, _repl, ops = _stack(display, monkeypatch)
+    store, _repl, ops, _liveness = _stack(display, monkeypatch)
     store.replace_scene(
         Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
     )
@@ -203,7 +214,7 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record(
 def test_quarantine_clears_on_a_wholesale_re_show(
     display: Display, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, _repl, ops = _stack(display, monkeypatch)
+    store, _repl, ops, _liveness = _stack(display, monkeypatch)
     store.replace_scene(
         Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
     )

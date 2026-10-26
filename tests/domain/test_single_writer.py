@@ -264,6 +264,30 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
         assert _calls_of(_source(_HUB + "replicator.py"), "take_writer") == 1
 
 
+class TestTheReplicatorIsTheOnlyCharger:
+    """O1: one charger, built inside the sender the replicator alone builds."""
+
+    def test_the_death_charger_is_built_only_inside_the_batch_sender(self) -> None:
+        assert _modules(lambda s: _constructions(s, "DeathCharger") > 0) == {
+            _HUB + "batch_sender.py"
+        }
+        assert _constructions(_source(_HUB + "batch_sender.py"), "DeathCharger") == 1
+
+    def test_the_batch_sender_is_built_only_by_the_replicator(self) -> None:
+        assert _modules(lambda s: _constructions(s, "BatchSender") > 0) == {
+            _HUB + "replicator.py"
+        }
+        assert _constructions(_source(_HUB + "replicator.py"), "BatchSender") == 1
+
+    def test_a_second_charger_is_counted(self) -> None:
+        planted = (
+            "def f(clients, attribution):\n"
+            "    return DeathCharger(clients, attribution)\n"
+        )
+
+        assert _constructions(planted, "DeathCharger") == 1
+
+
 class TestTheLinkIsTheRegistrysAlone:
     """The manifest and the close are not the ask port's, nor any caller's."""
 

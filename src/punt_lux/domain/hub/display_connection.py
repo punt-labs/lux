@@ -17,7 +17,6 @@ share no socket state of their own.
 
 from __future__ import annotations
 
-import logging
 import threading
 from typing import TYPE_CHECKING, Literal, Self, final
 
@@ -35,13 +34,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.protocol import ReadyMessage
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["DisplayConnection"]
-
-
-def _nobody_settles(_generation: DialGeneration) -> None:
-    """The default for a connection with no reader of its own to settle a dial."""
 
 
 @final
@@ -77,7 +70,7 @@ class DisplayConnection:
         cls,
         dialer: DisplayDialer,
         connect_timeout: float,
-        settle_unread: Callable[[DialGeneration], None] = _nobody_settles,
+        settle_unread: Callable[[DialGeneration], None] = lambda _generation: None,
     ) -> Self:
         self = super().__new__(cls)
         self._dialer = dialer

@@ -29,7 +29,14 @@ from punt_lux.domain.hub.connection_closed import UnresponsiveError
 from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.inbound_router import InboundRouter
 from punt_lux.domain.ids import SceneId
-from punt_lux.protocol import AckMessage, PingMessage, PongMessage, SceneMessage
+from punt_lux.protocol import (
+    AckMessage,
+    ObserverMessage,
+    PingMessage,
+    PongMessage,
+    SceneMessage,
+    encode_message,
+)
 from tests.domain.display_double import Call, Display, Responder, until
 from tests.domain.test_retire_cause import _linked, _rig, _scene
 from tests.link_access import deaths_of, generation_of, writer_of
@@ -451,6 +458,25 @@ class TestTheAckInFlightAtRetire:
         assert until(lambda: not link.is_connected)
         (death,) = deaths_of(link)
         assert death.suspects == _ids("a")
+
+
+class TestAStaleDialIsNeverSettledByTheNudge:
+    def test_what_a_replaced_dial_still_buffered_is_not_routed(
+        self, display: Display
+    ) -> None:
+        link = _linked(display, listening=False)  # the old dial's slot is free
+        old = generation_of(link)
+        old.messages(encode_message(ObserverMessage(topic="stale", payload={})))
+        old.end("display")
+        link.close()  # settled as the display's end, with a frame still buffered
+        link.connect(listen=True)
+
+        link._listener.settle_unread(old)  # test seam: a late nudge for the old dial
+
+        with pytest.raises(TimeoutError):
+            link.events.poll_event(0.2)
+        assert link.is_connected
+        link.close()
 
 
 class TestAnIsolationProbeWaitsOnTheAck:
