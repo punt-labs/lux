@@ -132,15 +132,17 @@ class _FailingOnceAttribution:
         self._raised = False
         return self
 
-    def attribute_death(
-        self, suspects: frozenset[SceneId], *, render_error: str | None = None
-    ) -> frozenset[SceneId]:
-        del render_error
+    def count_death(self, suspects: frozenset[SceneId]) -> None:
         if not self._raised:
             self._raised = True
             msg = "the store refused"
             raise RuntimeError(msg)
         self.charged.append(suspects)
+
+    def quarantine_counted(
+        self, suspects: frozenset[SceneId], *, render_error: str | None = None
+    ) -> frozenset[SceneId]:
+        del suspects, render_error
         return frozenset()
 
 
@@ -167,3 +169,90 @@ class TestWhenChargingOneDeathRaises:
 
         with pytest.raises(RuntimeError, match="the store refused"):
             charger.charge()
+
+
+@final
+class _PortThatRefusesOnce:
+    """A store whose first quarantine raises, as a store invariant can."""
+
+    quarantined: dict[SceneId, QuarantineRecord]
+    attempts: int
+    __slots__ = ("attempts", "quarantined")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.quarantined = {}
+        self.attempts = 0
+        return self
+
+    def quarantine(self, scene_id: SceneId, record: QuarantineRecord) -> None:
+        self.attempts += 1
+        if self.attempts == 1:
+            msg = "the store refused"
+            raise RuntimeError(msg)
+        self.quarantined[scene_id] = record
+
+    def is_quarantined(self, scene_id: SceneId) -> bool:
+        return scene_id in self.quarantined
+
+    def add_quarantine_cleared_observer(self, observer: object) -> None:
+        """Unused."""
+
+
+class TestADeathIsCountedOnceWhateverFailsAfterwards:
+    """A4: each death is charged at most once, so a retry never counts it again."""
+
+    def test_a_quarantine_that_raises_is_retried_without_a_second_tally(self) -> None:
+        port = _PortThatRefusesOnce()
+        attribution = CrashAttribution(port, lambda: 0.0)
+        for _ in range(ATTRIBUTION_THRESHOLD - 1):  # one strike short of quarantine
+            attribution.attribute_death(_death("a", "b").suspects)
+        charger = DeathCharger(_Deaths(_death("a", "b")), attribution)
+
+        with pytest.raises(RuntimeError, match="refused"):
+            charger.charge()
+        charger.charge()
+
+        assert {r.death_count for r in port.quarantined.values()} == {
+            ATTRIBUTION_THRESHOLD
+        }
+        assert set(port.quarantined) == {SceneId("a"), SceneId("b")}
+
+    def test_a_death_that_was_not_counted_is_counted_on_retry(self) -> None:
+        port = _Port()
+        attribution = CrashAttribution(port, lambda: 0.0)
+        failing = _FailsBeforeCounting(attribution)
+        charger = DeathCharger(_Deaths(_death("a")), cast("CrashAttribution", failing))
+
+        with pytest.raises(RuntimeError, match="before counting"):
+            charger.charge()
+        charger.charge()
+
+        assert attribution.mode == "isolating"
+
+
+@final
+class _FailsBeforeCounting:
+    """An attribution whose first count raises before it touches a tally."""
+
+    _inner: CrashAttribution
+    _raised: bool
+    __slots__ = ("_inner", "_raised")
+
+    def __new__(cls, inner: CrashAttribution) -> Self:
+        self = super().__new__(cls)
+        self._inner = inner
+        self._raised = False
+        return self
+
+    def count_death(self, suspects: frozenset[SceneId]) -> None:
+        if not self._raised:
+            self._raised = True
+            msg = "before counting"
+            raise RuntimeError(msg)
+        self._inner.count_death(suspects)
+
+    def quarantine_counted(
+        self, suspects: frozenset[SceneId], *, render_error: str | None = None
+    ) -> frozenset[SceneId]:
+        return self._inner.quarantine_counted(suspects, render_error=render_error)

@@ -727,18 +727,13 @@ class TestIsolationNarrowsTheSuspects:
         rig = _rig(display, {"a": "x", "p": "x"})
         rig.attribution.attribute_death(frozenset())  # a charge has been made
         charged: list[frozenset[SceneId]] = []
-        real = CrashAttribution.attribute_death
+        real = CrashAttribution.count_death
 
-        def spy(
-            self: CrashAttribution,
-            suspect_set: frozenset[SceneId],
-            *,
-            render_error: str | None = None,
-        ) -> frozenset[SceneId]:
+        def spy(self: CrashAttribution, suspect_set: frozenset[SceneId]) -> None:
             charged.append(suspect_set)
-            return real(self, suspect_set, render_error=render_error)
+            real(self, suspect_set)
 
-        monkeypatch.setattr(CrashAttribution, "attribute_death", spy)
+        monkeypatch.setattr(CrashAttribution, "count_death", spy)
 
         dials = display.dials
         rig.push("a", "p")

@@ -154,20 +154,17 @@ class CrashAttribution:
         would deadlock a replicator-thread attribute against a caller-thread
         ``replace_scene``.
         """
-        now = self._clock()
-        to_quarantine = self._record_death(suspect_set, now, render_error)
-        for scene_id, record in to_quarantine:
-            self._port.quarantine(scene_id, record)
-        return frozenset(scene_id for scene_id, _ in to_quarantine)
+        self.count_death(suspect_set)
+        return self.quarantine_counted(suspect_set, render_error=render_error)
 
-    def _record_death(
-        self,
-        suspect_set: frozenset[SceneId],
-        now: float,
-        render_error: str | None,
-    ) -> list[tuple[SceneId, QuarantineRecord]]:
-        """Update tallies and mode under the lock; return records to quarantine."""
-        to_quarantine: list[tuple[SceneId, QuarantineRecord]] = []
+    def count_death(self, suspect_set: frozenset[SceneId]) -> None:
+        """Count one death against every suspect, and switch to isolating.
+
+        The step that must run exactly once per death: it raises nothing a caller
+        should retry, and a caller whose later step fails calls
+        :meth:`quarantine_counted` again, never this.
+        """
+        now = self._clock()
         with self._lock:
             self._last_death_at = now
             self._mode = "isolating"
@@ -175,18 +172,38 @@ class CrashAttribution:
                 tally = self._tallies.setdefault(scene_id, deque())
                 tally.append(now)
                 self._prune(tally, now)
+
+    def quarantine_counted(
+        self,
+        suspect_set: frozenset[SceneId],
+        *,
+        render_error: str | None = None,
+    ) -> frozenset[SceneId]:
+        """Quarantine every suspect whose counted deaths reached the threshold.
+
+        Counts nothing, so it can be repeated after a failure: a suspect the port
+        already holds is quarantined again with the same tally. Returns the scenes
+        it quarantined. ``port.quarantine`` fires outside the lock.
+        """
+        now = self._clock()
+        to_quarantine: list[tuple[SceneId, QuarantineRecord]] = []
+        with self._lock:
+            died_at = self._last_death_at if self._last_death_at is not None else now
+            for scene_id in suspect_set:
+                tally = self._tallies.get(scene_id)
+                if tally is None:
+                    continue
+                self._prune(tally, now)
                 if len(tally) >= ATTRIBUTION_THRESHOLD:
-                    to_quarantine.append(
-                        (
-                            scene_id,
-                            QuarantineRecord(
-                                death_count=len(tally),
-                                last_death_at=now,
-                                render_error=render_error,
-                            ),
-                        )
+                    record = QuarantineRecord(
+                        death_count=len(tally),
+                        last_death_at=died_at,
+                        render_error=render_error,
                     )
-        return to_quarantine
+                    to_quarantine.append((scene_id, record))
+        for scene_id, record in to_quarantine:
+            self._port.quarantine(scene_id, record)
+        return frozenset(scene_id for scene_id, _ in to_quarantine)
 
     def quarantine_if_threshold(self, scene_id: SceneId) -> bool:
         """Quarantine ``scene_id`` if its windowed tally reached the threshold.
