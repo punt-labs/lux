@@ -12,21 +12,29 @@ where the bound is the thing under test.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask
+from punt_lux.domain.hub import bounded_ask, dial_socket
+from punt_lux.domain.hub.backoff_config import BackoffConfig
+from punt_lux.domain.hub.batch_sender import BatchSendError
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
 from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_listener import DisplayListener
+from punt_lux.domain.hub.recovery import SendRecovery
+from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 from punt_lux.domain.hub.settler import Settler
+from punt_lux.domain.ids import SceneId
 from punt_lux.protocol import (
     AckMessage,
     PingMessage,
@@ -34,8 +42,11 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     encode_frame,
 )
-from tests.domain.display_double import Call, Display, until
+from punt_lux.send_timeout import SEND_TIMEOUT_PACKED
+from tests.dial_double import fake_dial
+from tests.domain.display_double import Call, Display, FlakySocket, until
 from tests.domain.test_ack_attribution import _ids
+from tests.domain.test_recovery import _FakeLifecycle, _FakeProvider
 from tests.domain.test_retire_cause import _linked, _scene
 from tests.link_access import (
     deaths_of,
@@ -47,10 +58,12 @@ from tests.link_access import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from types import TracebackType
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.reader_slot import ReaderSlot
+    from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
 
 
 @pytest.fixture
@@ -113,8 +126,13 @@ class _SpyCondition:
     def __enter__(self) -> bool:
         return self._inner.__enter__()
 
-    def __exit__(self, *exc: object) -> None:
-        self._inner.__exit__(*exc)  # type: ignore[arg-type]  # forwarded as received
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self._inner.__exit__(exc_type, exc, tb)
         hook, self.hook = self.hook, None
         if hook is not None:
             hook()
@@ -253,12 +271,12 @@ class TestAnInlineHolderPastItsLastCheck:
         real = type(slot)._release
         gated = [False]
 
-        def held_release(this: ReaderSlot, settler: object) -> None:
+        def held_release(this: ReaderSlot, settler: Settler) -> None:
             if not gated[0]:
                 gated[0] = True
                 entered.set()
                 assert release.wait(5.0)
-            real(this, settler)  # type: ignore[arg-type]  # forwarded as received
+            real(this, settler)
 
         monkeypatch.setattr(type(slot), "_release", held_release)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
@@ -288,11 +306,12 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        assert slot.claim_for_listener(drop_route) is not None  # a holder, no thread
+        hold = slot.claim_for_listener(drop_route)  # a holder, no thread
+        assert hold is not None
         spy = _SpyCondition(slot._cond)  # test seam: the slot's lock
         monkeypatch.setattr(slot, "_cond", spy)
         # The holder lets go the instant after the asker's first look at the slot.
-        spy.hook = lambda: slot.release_listener(drop_route)
+        spy.hook = lambda: hold.release(drop_route)
 
         asking = Call(lambda: link._connection.retire(generation, cause="display"))
 
@@ -309,14 +328,15 @@ class TestTheCriticalSections:
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
         slot = reading_of(link)
-        assert slot.claim_for_listener(drop_route) is not None
+        hold = slot.claim_for_listener(drop_route)
+        assert hold is not None
         generation.end("display")  # recorded: nobody has asked for a settle yet
         spy = _SpyCondition(slot._cond)
         monkeypatch.setattr(slot, "_cond", spy)
         # An end asks for a settle the instant after the release looked for a debt.
         spy.hook = lambda: slot.ask_settle(drop_route, "display", may_wait=False)
 
-        slot.release_listener(drop_route)
+        hold.release(drop_route)
 
         assert not link.is_connected, "a debt left after the release read it is lost"
         (death,) = deaths_of(link)
@@ -499,8 +519,9 @@ class TestASettleIsOneAndAnEndIsTheFirstRecorded:
         link = _linked(display, listening=False)
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
-        settler = reading_of(link).claim_for_listener(drop_route)
-        assert settler is not None
+        hold = reading_of(link).claim_for_listener(drop_route)
+        assert hold is not None
+        settler = hold.settler
         generation.end("display")
         gate = threading.Barrier(2)
 
@@ -622,3 +643,258 @@ class TestASendThatTimesOut:
         assert generation.ended == "unresponsive"
         (death,) = deaths_of(link)
         assert (death.cause, death.suspects) == ("unresponsive", _ids("a"))
+
+
+class TestTheWriter:
+    """Rule 7: what a write straddling an end records, and what the drain waits for."""
+
+    def test_p17_a_write_that_completes_after_a_hub_request_is_owed_and_carried(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        entered, gate = threading.Event(), threading.Event()
+        real = ReplySink.owe_ack
+
+        def parked(this: ReplySink, scene_id: str) -> None:
+            entered.set()
+            assert gate.wait(5.0)
+            real(this, scene_id)
+
+        monkeypatch.setattr(ReplySink, "owe_ack", parked)
+        writing = Call(lambda: writer_of(link).send_scene(_scene("a")))
+        assert entered.wait(3.0)  # sendall returned; the entry is not yet made
+        generation.request_hub()
+        gate.set()
+        assert writing.wait()
+
+        link._connection.retire(generation, cause="hub")
+
+        assert isinstance(writing.error, HubRetiredError)
+        assert generation.ended == "hub"
+        assert deaths_of(link) == ()
+        assert link._connection._suspects.carried == _ids("a")  # test seam
+
+    def test_p18_a_write_that_fails_after_a_hub_request_records_no_cause(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+
+        def hub_asks_then_fails(_this: FlakySocket, _data: bytes) -> None:
+            generation.request_hub()
+            msg = "the socket fell over"
+            raise OSError(msg)
+
+        monkeypatch.setattr(FlakySocket, "sendall", hub_asks_then_fails)
+        with pytest.raises(HubRetiredError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.ended is None  # the writer recorded nothing
+        display.peer.close()  # the display really died: its end of file is queued
+        link._connection.retire(generation, cause="hub")
+        assert generation.ended == "display"  # the settle found it, by observing it
+
+    def test_p19_a_drain_waits_for_the_writer_that_holds_the_socket_lock(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("a"))
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.sendall
+
+        def stand_in(this: FlakySocket, data: bytes) -> None:
+            holding.set()
+            assert release.wait(5.0)
+            real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        writing = Call(lambda: generation.send_scene(_scene("b")))
+        assert holding.wait(3.0)  # the writer holds the socket lock, mid-send
+        display.peer.send(AckMessage(scene_id="a"))  # queued behind the writer
+        generation.end("unresponsive")
+        settling = Call(
+            lambda: link._connection.retire(generation, cause="unresponsive")
+        )
+        time.sleep(0.1)  # the settler is now waiting for the writer's lock
+        # K2: the waiting settler holds neither the state lock nor the sink's.
+        probe = Call(lambda: (link._connection.is_open, generation.ended))
+        assert probe.wait(0.3), "the waiting settler holds a lock the Hub needs"
+        # The writer lets go after the old 0.25 s wait would have given up, and well
+        # inside the send timeout.
+        threading.Timer(0.5, release.set).start()
+
+        assert settling.wait(5.0)
+        assert writing.wait()
+
+        assert all("a" not in death.suspects for death in deaths_of(link))
+        assert generation.is_settled
+
+    def test_p20_a_writer_that_never_releases_is_captured_by_the_bound_and_the_drain_says_incomplete(  # noqa: E501
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _bounded(monkeypatch, 0.3)
+        monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", 0.2)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("a"))
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.sendall
+
+        def stand_in(this: FlakySocket, data: bytes) -> None:
+            holding.set()
+            assert release.wait(10.0)
+            real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        writing = Call(lambda: generation.send_scene(_scene("b")))
+        assert holding.wait(3.0)
+        display.peer.send(AckMessage(scene_id="a"))  # readable, behind the writer
+        with caplog.at_level(logging.WARNING):
+            look = generation.drain()
+        assert (look.chunk, look.ended, look.complete) == (b"", False, False)
+        assert any("incomplete" in r.getMessage() for r in caplog.records)
+
+        generation.end("unresponsive")
+        settling = Call(
+            lambda: link._connection.retire(generation, cause="unresponsive")
+        )
+        try:
+            assert settling.wait(5.0)
+            assert generation.is_settled  # captured by the bound, undrained
+            (death,) = deaths_of(link)
+            assert (death.cause, death.suspects) == ("unresponsive", _ids("a"))
+        finally:
+            release.set()
+            writing.wait()
+
+    def test_p21_an_ack_owed_after_the_capture_is_refused_not_recorded(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        real = ReplySink.owe_ack
+
+        def captured_first(this: ReplySink, scene_id: str) -> None:
+            generation.end("display")
+            link._connection._capture(generation, "display")  # test seam: the door
+            real(this, scene_id)
+
+        monkeypatch.setattr(ReplySink, "owe_ack", captured_first)
+
+        with pytest.raises(ConnectionClosedError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.owed_acks == 0
+        assert deaths_of(link) == ()
+
+    def test_p20_the_captures_shutdown_wakes_a_writer_stuck_in_sendall(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _bounded(monkeypatch, 0.3)
+        monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", 0.2)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("a"))
+        # No send timeout: only the capture's shutdown can end the stuck write.
+        display.sockets[-1]._sock.setsockopt(
+            socket.SOL_SOCKET, socket.SO_SNDTIMEO, bytes(len(SEND_TIMEOUT_PACKED))
+        )
+        stuck = threading.Event()
+
+        def jam(this: FlakySocket, _data: bytes) -> None:
+            stuck.set()
+            this._sock.sendall(b"x" * (64 << 20))  # the peer never reads it
+
+        monkeypatch.setattr(FlakySocket, "sendall", jam)
+        writing = Call(lambda: generation.send_scene(_scene("b")))
+        assert stuck.wait(3.0)
+        display.peer.send(AckMessage(scene_id="a"))  # readable: the drain must wait
+        generation.end("unresponsive")
+        settling = Call(
+            lambda: link._connection.retire(generation, cause="unresponsive")
+        )
+        try:
+            assert settling.wait(5.0)
+            assert generation.is_settled
+            assert writing.wait(5.0), "the capture left the writer stuck in sendall"
+            assert isinstance(writing.error, OSError)
+        finally:
+            display.peer.close()
+
+    @pytest.mark.parametrize("how", ["capture", "decode_error"])
+    def test_p21_a_scene_refused_after_the_capture_is_re_marked_for_the_next_dial(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch, how: str
+    ) -> None:
+        # The writer holds the socket lock across sendall and owe_ack, so a settle by
+        # another thread cannot drain: it captures at the bound, undrained. The
+        # decode-error variant ends the dial as a frame that cannot be decoded does
+        # (the display's end), then settles it from that other thread.
+        _bounded(monkeypatch, 0.3)
+        monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", 0.2)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        real = ReplySink.owe_ack
+
+        def captured_first(this: ReplySink, scene_id: str) -> None:
+            if how == "capture":
+                generation.end("display")
+                link._connection._capture(generation, "display")  # test seam
+            else:
+                generation.end("display")  # the decode error's end
+                Call(lambda: link._connection.retire(generation, cause="display"))
+                assert until(lambda: generation.is_settled, 5.0)
+            real(this, scene_id)
+
+        monkeypatch.setattr(ReplySink, "owe_ack", captured_first)
+
+        with pytest.raises(ConnectionClosedError) as refused:
+            generation.send_scene(_scene("a"))
+
+        signal = DirtySignal()
+        SendRecovery(
+            cast("ClientProvider", _FakeProvider()),
+            cast("DisplayLifecycle", _FakeLifecycle()),
+            signal,
+            RespawnBackoff(BackoffConfig(clock=lambda: 0.0)),
+        ).recover(
+            DrainedBatch(frozenset({SceneId("a")}), shutting=False),
+            BatchSendError(refused.value, fake_dial()),
+        )
+
+        assert SceneId("a") in signal.wait_and_drain(0.0).scenes  # resent next dial
+        assert generation.owed_acks == 0  # in no ledger: nothing was charged for it
+
+    def test_p22_a_drain_of_an_unreadable_socket_does_not_wait_for_the_writer(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.sendall
+
+        def stand_in(this: FlakySocket, data: bytes) -> None:
+            holding.set()
+            assert release.wait(10.0)
+            real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        writing = Call(lambda: generation.send_scene(_scene("a")))
+        assert holding.wait(3.0)  # the writer holds the socket lock, mid-send
+        try:
+            looking = Call(generation.drain)  # nothing readable: no lock is taken
+            assert looking.wait(1.0), "the drain waited for the writer's lock"
+            look = looking.result
+            assert (look.chunk, look.ended, look.complete) == (b"", False, True)
+        finally:
+            release.set()
+            writing.wait()

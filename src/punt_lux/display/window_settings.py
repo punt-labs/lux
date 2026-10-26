@@ -134,6 +134,7 @@ class WindowSettings:
     @staticmethod
     def _glfw_window() -> GlfwWindow:
         """Return a control handle to the process's live GLFW window."""
+        # The imgui_bundle stub omits get_glfw_window_address, so the call is untyped.
         address = cast(
             "int",
             hello_imgui.get_glfw_window_address(),  # type: ignore[attr-defined]

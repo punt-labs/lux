@@ -56,7 +56,9 @@ class _Rig:
         self.connection = bare_connection(self.display, 1.0)
         self.connection.open()
         self.routed = []
-        self.listener = ListenerThread(self.connection, route or self._record)
+        self.listener = ListenerThread(
+            self.connection, route or self._record, route or self._record
+        )
 
     def _record(self, _generation: DialGeneration, msg: Message) -> None:
         self.routed.append(msg)
@@ -145,7 +147,8 @@ class TestLifecycle:
     def test_starting_with_no_connection_raises(self) -> None:
         listener = ListenerThread(
             DisplayConnection(Display(), 1.0, ask_settle=no_reader),
-            lambda _g, _m: None,
+            drop_route,
+            drop_route,
         )
 
         with pytest.raises(DisplayNotConnectedError):
@@ -845,7 +848,7 @@ class TestABornClaimedDialReplacedInTheGap:
     def test_start_for_a_replaced_dial_starts_nothing_on_its_replacement(self) -> None:
         display = Display()
         connection = DisplayConnection(display, 1.0, ask_settle=no_reader)
-        listener = ListenerThread(connection, lambda _g, _m: None)
+        listener = ListenerThread(connection, drop_route, drop_route)
         try:
             born = connection.open_listening()
             assert born is not None
@@ -878,7 +881,9 @@ class TestTheReaderLoopStopsOnItsDialsRetirement:
 
         monkeypatch.setattr(DialGeneration, "poll_chunk", spy)
         generation.mark_closed("hub")  # retired; its stopping flag was never set
-        settler = reading_of(rig.connection).born_settler(rig._record)
+        hold = reading_of(rig.connection).claim_for_listener(rig._record)
+        assert hold is not None
+        settler = hold.settler
         rig.display.peer.send_raw(_pong(1.0))
         reader = DialReader(generation, settler, rig._record, threading.Event())
 

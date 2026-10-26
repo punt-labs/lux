@@ -8,7 +8,8 @@ out an inline read in flight, so no caller may hold a lock the request model or 
 registry shares.
 
 The slot is also the door through which a dial is settled. Only its holder is handed a
-:class:`~punt_lux.domain.hub.settler.Settler`, and only the slot makes one. Whoever ends
+:class:`~punt_lux.domain.hub.settler.Settler` (a listener, through its
+:class:`ListenerHold`, once), and only the slot makes one. Whoever ends
 a dial and is not the holder asks (:meth:`ask_settle`): a free slot is taken and the
 dial settled on the spot; a held slot is refused and a *debt* left, in the one critical
 section that observed it held. Every release of the slot reads the debt in the one
@@ -37,7 +38,42 @@ if TYPE_CHECKING:
     type Route = Callable[[DialGeneration, Message], None]
     type Capture = Callable[[DialGeneration, RetireCause], bool]
 
-__all__ = ["ReaderSlot"]
+__all__ = ["ListenerHold", "ReaderSlot"]
+
+
+@final
+class ListenerHold:
+    """A listener's hold on a dial's reader slot: its settler and its one release.
+
+    Only the slot makes one, and hands it to the listener alone; the release gives the
+    hold back when the listener's thread could not be started, honouring any debt an
+    end left meanwhile before the slot is free. It can be given back once.
+    """
+
+    _settler: Settler
+    _give_back: Callable[[Route], None]
+    _is_released: bool
+    __slots__ = ("_give_back", "_is_released", "_settler")
+
+    def __new__(cls, settler: Settler, give_back: Callable[[Route], None]) -> Self:
+        self = super().__new__(cls)
+        self._settler = settler
+        self._give_back = give_back
+        self._is_released = False
+        return self
+
+    @property
+    def settler(self) -> Settler:
+        """The right to settle the dial that the hold carries."""
+        return self._settler
+
+    def release(self, held_route: Route) -> None:
+        """Give the hold back; the dial is settled over ``held_route`` first if owed."""
+        if self._is_released:
+            msg = "a listener hold is given back once"
+            raise RuntimeError(msg)
+        self._is_released = True
+        self._give_back(held_route)
 
 
 @final
@@ -50,9 +86,12 @@ class ReaderSlot:
     _debt: bool
     # The thread of an inline holder, so an end it makes itself never waits on it.
     _inline_thread: int | None  # PY-TS-14 OK: absent unless an inline read holds it
+    # A dial born held by its listener hands that hold out once.
+    _born_unclaimed: bool
     _generation: DialGeneration
     _capture: Capture
     __slots__ = (
+        "_born_unclaimed",
         "_capture",
         "_cond",
         "_debt",
@@ -72,6 +111,7 @@ class ReaderSlot:
         self._holder = holder
         self._debt = False
         self._inline_thread = None
+        self._born_unclaimed = holder == "listener"
         self._generation = generation
         self._capture = capture
         return self
@@ -86,8 +126,8 @@ class ReaderSlot:
         """
         return self._holder == "listener"
 
-    def claim_for_listener(self, route: Route) -> Settler | None:
-        """Take the slot for a listener; its settler, or ``None`` if one holds it.
+    def claim_for_listener(self, route: Route) -> ListenerHold | None:
+        """Take the slot for a listener; its hold, or ``None`` if one holds it.
 
         Waits out a caller's inline read in flight: a dial has one reader at a
         time, so two threads never feed one frame buffer.
@@ -97,19 +137,20 @@ class ReaderSlot:
             if self._holder == "listener":
                 return None
             self._holder = "listener"
-        return self._settler(route)
+        return self._hold(route)
 
-    def born_settler(self, route: Route) -> Settler:
-        """The settler of a listener that the dial was born holding the slot for."""
-        return self._settler(route)
+    def hold_born(self, route: Route) -> ListenerHold:
+        """The hold of the listener the dial was born holding the slot for, once.
 
-    def release_listener(self, route: Route) -> None:
-        """Give the listener's hold back: its thread could not be started.
-
-        A debt left meanwhile is honoured first: the dial is settled, by this
-        releaser, before the slot is free.
+        Raises ``RuntimeError`` if the dial was not born held, or the hold was
+        already handed out: a hold is the holder's, so there is one.
         """
-        self._release(self._settler(route))
+        with self._cond:
+            if not self._born_unclaimed:
+                msg = "this dial has no unclaimed born hold on its reader slot"
+                raise RuntimeError(msg)
+            self._born_unclaimed = False
+        return self._hold(route)
 
     @contextlib.contextmanager
     def inline(self, route: Route) -> Generator[Settler | None]:
@@ -152,7 +193,7 @@ class ReaderSlot:
             finally:
                 self._release(settler)
         elif may_wait:
-            BoundedAsk(self._generation, self._capture).settle_by_bound(cause)
+            self._late()(cause)
 
     def _take(self, route: Route) -> Settler | None:
         """Take the slot for an inline read if free; its settler, else ``None``."""
@@ -164,7 +205,18 @@ class ReaderSlot:
         return self._settler(route)
 
     def _settler(self, route: Route) -> Settler:
-        return Settler(self._generation, route, self._capture)
+        return Settler(self._generation, route, self._capture, self._late())
+
+    def _late(self) -> Callable[[RetireCause], bool]:
+        """The bound's capture: wait for the holder, then settle undrained."""
+        return BoundedAsk(self._generation, self._capture).settle_by_bound
+
+    def _hold(self, route: Route) -> ListenerHold:
+        """The listener's hold: its settler over ``route``, and its one release."""
+        return ListenerHold(
+            self._settler(route),
+            lambda held_route: self._release(self._settler(held_route)),
+        )
 
     def _release(self, settler: Settler) -> None:
         """Let go of the slot, settling first for as long as a debt is owed.

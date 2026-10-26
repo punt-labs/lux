@@ -12,8 +12,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import pytest
+
 from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.domain.hub.write_result import WriteAccepted
 from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements import ButtonElement, TableElement, TreeElement
@@ -29,8 +33,6 @@ from tests.domain.test_nesting_cap_at_the_seam import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
-
-    import pytest
 
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.hub.hub_display import HubDisplay
@@ -177,26 +179,42 @@ class TestAnObserverWokenByAnAgentWrite:
 
 
 class TestABatchJudge:
-    """The batch was judged whole, so each target's first write is let through."""
+    """The batch was judged whole, so each pre-judged write is let through, once."""
 
-    def test_the_first_write_to_a_target_is_not_judged_again(self) -> None:
+    def test_the_pre_judged_write_is_not_judged_again(self) -> None:
         seen: list[Element] = []
         target = TreeElement(id="t")
-        judge = BatchJudge(lambda element, _patch: seen.append(element), [target])
-        patch: Mapping[str, object] = {"label": "x"}
+        fields: Mapping[str, object] = {"label": "x"}
+        judge = BatchJudge(
+            lambda element, _patch: seen.append(element), [(target, fields)]
+        )
 
-        judge(target, patch)
+        judge(target, fields)
 
         assert seen == []
 
-    def test_a_second_write_to_that_target_is_judged(self) -> None:
+    def test_a_second_write_of_the_same_patch_is_judged(self) -> None:
         seen: list[Element] = []
         target = TreeElement(id="t")
-        judge = BatchJudge(lambda element, _patch: seen.append(element), [target])
-        patch: Mapping[str, object] = {"label": "x"}
+        fields: Mapping[str, object] = {"label": "x"}
+        judge = BatchJudge(
+            lambda element, _patch: seen.append(element), [(target, fields)]
+        )
 
-        judge(target, patch)
-        judge(target, patch)
+        judge(target, fields)
+        judge(target, fields)
+
+        assert seen == [target]
+
+    def test_another_patch_to_the_target_is_judged(self) -> None:
+        """An observer's write to a batch target is not the batch's own write."""
+        seen: list[Element] = []
+        target = TreeElement(id="t")
+        judge = BatchJudge(
+            lambda element, _patch: seen.append(element), [(target, {"label": "x"})]
+        )
+
+        judge(target, {"label": "x"})  # equal, but not the same mapping
 
         assert seen == [target]
 
@@ -204,8 +222,62 @@ class TestABatchJudge:
         seen: list[Element] = []
         target = TreeElement(id="t")
         other = TreeElement(id="o")
-        judge = BatchJudge(lambda element, _patch: seen.append(element), [target])
+        fields: Mapping[str, object] = {"label": "x"}
+        judge = BatchJudge(
+            lambda element, _patch: seen.append(element), [(target, fields)]
+        )
 
-        judge(other, {"label": "x"})
+        judge(other, fields)
 
         assert seen == [other]
+
+
+def _batch(first: str, second: str) -> list[dict[str, object]]:
+    rows: dict[str, object] = {"id": "tb", "set": {"rows": [["s"]]}}
+    label: dict[str, object] = {"id": "t", "set": {"label": "L"}}
+    return [rows, label] if first == "tb" else [label, rows]
+
+
+class TestABatchWhoseObserverWritesAnotherTarget:
+    """An observer's write to a later target is judged, whatever the batch's order."""
+
+    @pytest.mark.parametrize("first", ["tb", "t"])
+    def test_the_deep_write_leaves_no_deep_tree(self, first: str) -> None:
+        table, tree = _table_with_a_deepening_observer(_DEEP)
+        store = _store_of(table, tree)
+
+        HubSceneWriter(store).apply(
+            SceneScope(caller=_OWNER, scene_id=_SCENE),
+            _batch(first, "t" if first == "tb" else "tb"),
+        )
+
+        assert tree.nodes == ()
+
+    @pytest.mark.parametrize("first", ["tb", "t"])
+    def test_the_batchs_own_writes_still_land_and_nothing_escapes(
+        self, first: str
+    ) -> None:
+        """The refused observer write is its own failure; the batch is accepted."""
+        table, tree = _table_with_a_deepening_observer(_DEEP)
+        store = _store_of(table, tree)
+
+        result = HubSceneWriter(store).apply(
+            SceneScope(caller=_OWNER, scene_id=_SCENE),
+            _batch(first, "t" if first == "tb" else "tb"),
+        )
+
+        assert (result, table.rows, tree.label) == (
+            WriteAccepted(),
+            (("s",),),
+            "L",
+        )
+
+    def test_a_shallow_observer_write_lets_the_batch_through(self) -> None:
+        table, tree = _table_with_a_deepening_observer(2)
+        store = _store_of(table, tree)
+
+        result = HubSceneWriter(store).apply(
+            SceneScope(caller=_OWNER, scene_id=_SCENE), _batch("tb", "t")
+        )
+
+        assert (isinstance(result, WriteAccepted), tree.label) == (True, "L")

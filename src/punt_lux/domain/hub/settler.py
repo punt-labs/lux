@@ -2,8 +2,11 @@
 
 Only the holder of a dial's :class:`~punt_lux.domain.hub.reader_slot.ReaderSlot` (its
 listener thread, an inline reader, or a releaser taking over) is handed a settler, and
-only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is never
-captured before the party that reads its socket has read it.
+only the slot makes one. Nothing else in the Hub can capture a dial, so a dial is
+captured only after the party that reads its socket has read it, except by the two
+undrained captures the design accepts: the bound's, which a refused asker makes once
+:data:`~punt_lux.domain.hub.bounded_ask.SETTLE_BOUND` has passed, and
+:meth:`Settler.end_stream`'s, for a stream that cannot be read past.
 
 Settling is two steps. The drain reads the socket to the point where it would block
 and notes whether the stream's end came. The decision then fixes the cause by the
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.dial_drain import DialDrain, DrainIncompleteError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -37,18 +40,22 @@ class Settler:
     _generation: DialGeneration
     _route: Callable[[DialGeneration, Message], None]
     _capture: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_capture", "_generation", "_route")
+    # What a drain that could not be made leaves the capture to: the bound's.
+    _late: Callable[[RetireCause], bool]
+    __slots__ = ("_capture", "_generation", "_late", "_route")
 
     def __new__(
         cls,
         generation: DialGeneration,
         route: Callable[[DialGeneration, Message], None],
         capture: Callable[[DialGeneration, RetireCause], bool],
+        late: Callable[[RetireCause], bool],
     ) -> Self:
         self = super().__new__(cls)
         self._generation = generation
         self._route = route
         self._capture = capture
+        self._late = late
         return self
 
     def settle(self) -> bool:
@@ -61,11 +68,18 @@ class Settler:
         if generation.is_settled:
             return False  # captured already (by the bound): nothing is read or routed
         recorded_before = generation.ended
-        saw_end = DialDrain(self._route).run(generation)
+        try:
+            saw_end = DialDrain(self._route).run(generation)
+        except DrainIncompleteError:
+            return self._late(generation.ended or "hub")
         cause = generation.decide(saw_end=saw_end)
-        if recorded_before is None and cause != "hub":
-            # a record made after the drain began
-            DialDrain(self._route).run(generation)
+        # A display or unresponsive end that nothing had recorded when the drain began
+        # and the drain did not find itself was recorded under it: look once more.
+        if recorded_before is None and not saw_end and cause != "hub":
+            try:
+                DialDrain(self._route).run(generation)
+            except DrainIncompleteError:
+                return self._late(cause)
         return self._capture(generation, cause)
 
     def end_stream(self, cause: RetireCause) -> bool:

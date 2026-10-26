@@ -240,14 +240,13 @@ class DialGeneration:
         return self._socket.head(count)
 
     def shut(self) -> None:
-        """Release the socket and fail every waiter; idempotent, never under ``st``.
+        """Release the socket; idempotent, never under ``st``.
 
-        It records no more than the end a dial already has: the ledger is taken by
+        It records no end at all: a Hub end records nothing, and the ledger is taken by
         :meth:`mark_closed` and by nothing here. ``shutdown`` wakes a reader in ``recv``
         and a writer in ``sendall``; then ``close``. On TLS it is the raw socket's:
         ``unwrap`` blocks on a wedged peer.
         """
-        self._sink.end("hub")
         self._socket.close()
 
     def _write_failed(self, exc: BaseException) -> None:
@@ -269,7 +268,9 @@ class DialGeneration:
         cause: RetireCause = (
             "unresponsive" if isinstance(exc, BlockingIOError) else "display"
         )
-        if self._sink.ended is not None or not self._retire(self, cause):
+        # A dial already ended, or that the Hub asked to end, records nothing here: the
+        # settle decides by what it observes (a queued end of file is the display's).
+        if self._sink.closing is not None or not self._retire(self, cause):
             raise self.closed_error() from exc  # someone else's cause won the end
 
     def _require_open(self) -> None:

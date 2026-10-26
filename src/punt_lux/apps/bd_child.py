@@ -156,7 +156,7 @@ class BdChild:
         self = super().__new__(cls)
         self._argv = tuple(argv)
         self._leash = leash
-        self._process = subprocess.Popen(  # noqa: S603
+        self._process = subprocess.Popen(  # noqa: S603  # argv is "bd" plus fixed verbs
             argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

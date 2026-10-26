@@ -30,7 +30,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DialDrain"]
+__all__ = ["DialDrain", "DrainIncompleteError"]
+
+
+class DrainIncompleteError(Exception):
+    """The last look could not be made: a writer held the socket past its timeout."""
 
 
 @final
@@ -63,6 +67,9 @@ class DialDrain:
             if not self._routed(self._route, generation, chunk):
                 return False
             look = generation.drain()
+            if not look.complete:
+                msg = f"the last look at {generation.endpoint} could not be made"
+                raise DrainIncompleteError(msg)
             if look.ended:
                 self._routed(self._route, generation, look.chunk)
                 return True

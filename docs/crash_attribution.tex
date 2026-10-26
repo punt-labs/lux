@@ -46,8 +46,9 @@
 % next dial, and an innocent scene is charged); T12 is the repair.  The code it
 % governs: src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
 % dial_generation,dial_socket,dial_drain,dial_reader,display_listener,
-% display_replies,listener_thread,reply_sink,settlement,suspect_book,death_queue,
-% death_charger,dial_death,liveness_probe,replicator}.py and the display's held ack
+% display_replies,listener_thread,reply_sink,reader_slot,settler,bounded_ask,
+% dial_end,settlement,suspect_book,death_queue,death_charger,dial_death,
+% liveness_probe,replicator}.py and the display's held ack
 % in src/punt_lux/display/client_sender.py (its release in
 % src/punt_lux/display/frame_turn.py, its hold in
 % src/punt_lux/display/render_loop.py).  ADRs: DES-102 (attribution, isolation and

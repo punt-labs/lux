@@ -53,6 +53,10 @@ class FieldRealization(Protocol):
         """The target's id and the element it would become, without applying it."""
         ...
 
+    def write(self) -> tuple[AbcElement, Mapping[str, object]]:
+        """The element this realization patches and the very mapping it patches with."""
+        ...
+
     def commit(self) -> None:
         """Apply the mutation, snapshotting enough to restore it exactly."""
         ...
@@ -124,6 +128,10 @@ class AbcFieldRealization:
         itself, and any observer of it, is untouched.
         """
         return self._element.id, self._wire(self._patched_copy())
+
+    def write(self) -> tuple[AbcElement, Mapping[str, object]]:
+        """The element and the mapping ``commit`` hands its ``apply_patch``."""
+        return self._element, self._fields
 
     @staticmethod
     def _wire(element: AbcElement) -> WireElement:
