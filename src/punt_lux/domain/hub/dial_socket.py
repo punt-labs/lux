@@ -17,6 +17,7 @@ is the display's.
 from __future__ import annotations
 
 import contextlib
+import logging
 import select
 import socket
 import ssl
@@ -41,6 +42,8 @@ if TYPE_CHECKING:
         ReadyMessage,
         SceneMessage,
     )
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["DialSocket"]
 
@@ -178,9 +181,25 @@ class DialSocket:
                 return None
             with self._lock:
                 chunk = self._dial.sock.recv(_READ_CHUNK) + self._decrypted_backlog()
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            self._report_cut_short(exc)
             return None
         return chunk or None
+
+    def _report_cut_short(self, exc: BaseException) -> None:
+        """Say the last look was cut short: the capture goes ahead on what it read.
+
+        Quietly when the stream simply ended (a reset, a broken pipe, TLS end of
+        file), loudly for anything else (a closed descriptor, a TLS fault): a later
+        look at why a surviving scene was charged finds the trace.
+        """
+        ended = isinstance(exc, ConnectionError | ssl.SSLEOFError)
+        logger.log(
+            logging.DEBUG if ended else logging.WARNING,
+            "Drain of %s cut short: %r",
+            self.endpoint,
+            exc,
+        )
 
     def messages(self, chunk: bytes) -> Iterator[Message]:
         """Feed ``chunk`` to the frame buffer; yield each message it completes.

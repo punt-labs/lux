@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -43,8 +45,9 @@ class DialDrain:
         The frames the reader had already taken off the socket and not yet routed
         come first, then whatever the socket holds now, and then it stops. A frame
         that cannot be decoded ends the drain: the stream cannot be trusted past it,
-        and what the ledger owes stays as it is. A message that fails to route costs
-        only itself, as it does for the reader.
+        and what the ledger owes stays as it is. So does a reply that fails to route
+        (every later reply would be matched to the wrong entry), as it does for the
+        reader. An event or an interaction that fails to route costs only itself.
         """
         chunk: bytes | None = b""  # the first pass routes what is already buffered
         while chunk is not None:
@@ -58,6 +61,8 @@ class DialDrain:
                             type(msg).__name__,
                             generation.endpoint,
                         )
+                        if isinstance(msg, REPLY_TYPES):
+                            return
             except Exception:  # wire boundary: any decoder failure ends the stream
                 logger.exception(
                     "Drain of %s stopped: its stream could not be read past %r",

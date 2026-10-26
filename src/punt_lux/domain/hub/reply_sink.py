@@ -303,10 +303,12 @@ class ReplySink:
         if not self._acks:
             msg = f"ack for {ack.scene_id!r} arrived when none was owed"
             raise ReplyOutOfOrderError(msg)
-        owed = self._acks.popleft()
+        owed = self._acks[0]
         if owed != ack.scene_id:
+            # The head stays: a skew must not destroy the record of what was owed.
             msg = f"ack for {ack.scene_id!r} arrived where {owed!r} was owed"
             raise ReplyOutOfOrderError(msg)
+        self._acks.popleft()
         self._acked = True
         if not self._acks and self._drained is not None:
             self._hand_over(self._drained, ack)
