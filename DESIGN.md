@@ -7891,6 +7891,12 @@ are added to `docs/listener_lifecycle.tex`.
     may still ack after any drain, within one drain-to-capture gap.
   - A peek for a pending end of file cannot replace the drain: an ack
     queued ahead of the display's close hides the close.
+  - A display that dies before any settler observes it, while a Hub
+    request is pending, is settled as a Hub end: its suspects are carried,
+    and a later ack read clears them, so that poison death goes uncharged.
+  - The drain's claim to have read everything a dead display sent holds for
+    a same-host socket only; a cross-host reset can discard queued data.
+    A reset counts as end of file.
 - **The wire nesting limit follows from the scene depth cap, at the one
   write seam.** Every element write (show, update, a property set) passes
   the cap in the seam all writes share. A write that does not deepen the
