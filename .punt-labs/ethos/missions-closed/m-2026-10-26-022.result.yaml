@@ -1,0 +1,57 @@
+mission: m-2026-10-26-022
+round: 2
+created_at: "2026-10-26T21:26:13Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 89
+      removed: 25
+    - path: docs/dial_settlement_bound_records_asker_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_coverage.md
+      added: 21
+      removed: 9
+    - path: docs/dial_settlement_drain_gives_up_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_drain_no_late_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_stop_no_request_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_unbounded_write_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_whole_write_deadline_buggy.tex
+      added: 71
+      removed: 23
+    - path: docs/dial_settlement_writer_owe_refused_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_writer_records_display_buggy.tex
+      added: 50
+      removed: 19
+    - path: docs/dial_settlement_writer_split_record_buggy.tex
+      added: 50
+      removed: 19
+evidence:
+    - name: 'F1: superset argument restricted to S0-S6; S7 restated as the writer''s verdict only; keepalive clause stated as a code obligation (last-progress time, bytes either direction); both backwards sentences rewritten; same prose in all nine controls (pairs script, each pair matched once per file)'
+      status: pass
+    - name: 'F1: coverage S7 row and rule 7(d) rescoped; new partition P31 with red-first tests test_p31_the_keepalive_gives_no_verdict_while_bytes_move_either_way and test_p31_the_keepalive_gives_its_verdict_once_d_passes_with_no_byte_either_way; P29''s keepalive test folded into P31'
+      status: pass
+    - name: 'F2: jra''s LTL check (formula, WEF, Die and IAcq disabled with the vacuity reason, design TRUE, drain_no_late FALSE with its lasso, no-fairness FALSE, why weak fairness suffices, scratch and output paths) in the Verification section and coverage row S1b'
+      status: pass
+    - name: 'Advisory: whole_write_deadline header and CONTROL paragraph say rdb is observation only, why it beats prog = fset, that it may over-report on untimable traces, and that the witness is realisable'
+      status: pass
+    - name: fuzz clean on each of the ten .tex files separately; markdownlint 0 issues on the coverage doc
+      status: pass
+    - name: Z paragraphs of every dial_settlement*.tex identical to HEAD~1 (md5 of extracted zed/schema/axdef blocks), so probcli was not re-run
+      status: pass
+open_questions:
+    - P31 is the only guard on S7's keepalive clause; the model cannot check it without a faithful last-progress clock, which costs more state than the 8 GB cap allows.
+prose: |
+    Round 2 of m-2026-10-26-022: jra's F1, F2 and the advisory folded in, prose and evidence only. Commit 46dec264.

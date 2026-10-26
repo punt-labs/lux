@@ -163,11 +163,19 @@ unsettled.  Five properties are claimed of that interval.
     each on its own.  A capture that lands before the entry is the exception to
     A1 below (\texttt{a1late}).
   \item[S7] (round 6) No \texttt{unresponsive} verdict while progress occurred
-    within $D$: a writer is failed by its deadline, and the keepalive gives its
-    verdict, only when no byte has moved for $D$.  Flag \texttt{s7bad};
-    structural in the design (both steps require \texttt{prog = fclear}); the
-    control \texttt{whole\_write\_deadline}, a deadline on the whole write,
-    trips it.
+    within $D$.  The model establishes it for the \emph{writer's} verdict only:
+    a writer is failed by its deadline (\texttt{WSendTimeout},
+    \texttt{WDeadline}) only when no byte has moved for $D$.  Flag
+    \texttt{s7bad}; structural in the design (both steps require
+    \texttt{prog = fclear}, and \texttt{prog} is faithful from \texttt{WLock} to
+    the writer's verdict); the control \texttt{whole\_write\_deadline}, a
+    deadline on the whole write, trips it.  The keepalive's verdict is not
+    covered: the model clears \texttt{prog} when the writer leaves the lock and
+    does not count an incoming byte, so its \texttt{KPing} may fire at once
+    after a write completes or an ack arrives, and nothing flags it.  The
+    keepalive's clause is an obligation on the code: the keepalive reads the
+    socket's one last-progress time, counting bytes in either direction, and
+    gives no verdict within $D$ of it (partition P31 of the coverage audit).
 \end{description}
 
 S2 is read with one more clause (round 4): a drain that finds the socket
@@ -324,7 +332,9 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     scene reaches the ledger, and the display is not reaped (round~5's
     whole-write deadline did all three, the control
     \texttt{whole\_write\_deadline}; property S7).  The keepalive treats progress
-    within $D$ as liveness and needs no lock to see it (\texttt{KPing}).  The
+    within $D$, a byte in either direction, as liveness and needs no lock to see
+    it (\texttt{KPing}); the model does not check this half, which is an
+    obligation on the code (S7).  The
     drain's ceiling stays strictly above $D$, so a drain behind a writer that
     stalls waits at most $D$ and reads the acks.  A settle behind a writer that
     keeps progressing falls to the late path, which captures, and the capture's
@@ -523,16 +533,32 @@ starts then; \texttt{Expire}, an environment step, clears it, and stands for $D$
 passing with no byte moving.  A writer that leaves \texttt{wsend} or
 \texttt{wstuck} clears it too, so that \texttt{prog} is set only while a writer
 holds the lock and is sending; this keeps a stale value from splitting the state
-space, and it lets the keepalive give its verdict at once after a write
-completes, which only makes the keepalive more ready to give up than the code's,
-a superset of its behaviour.  A no-progress verdict, the writer's deadline or
-the keepalive's, is enabled only with \texttt{prog = fclear}.  \texttt{s7bad} is
-set by an \texttt{unresponsive} verdict taken while \texttt{prog = fset}: a
-dial charged as stalled while bytes were moving within $D$.  The property is
-\emph{S7}: no unresponsive verdict while progress occurred within $D$.  Only an
-outgoing byte counts here; an incoming one (\texttt{Ack}) is not modelled as
-progress, which makes the keepalive more ready to give up, never less, so S7
-loses nothing by it.
+space.  A no-progress verdict, the writer's deadline or the keepalive's, is
+enabled only with \texttt{prog = fclear}.  \texttt{s7bad} is set by a writer's
+\texttt{unresponsive} verdict taken while \texttt{prog = fset}: a dial charged
+as stalled while bytes were moving within $D$.  The property is \emph{S7}: no
+unresponsive verdict while progress occurred within $D$.
+
+Two abstractions make \texttt{prog} cruder than the code's last-progress time:
+the early clearing just described, and that only an outgoing byte counts (an
+incoming one, \texttt{Ack}, is not modelled as progress).  Both clear
+\texttt{prog} sooner than the code would.  For S0 to S6 that is a superset.
+The steps guarded on \texttt{prog} are \texttt{WSendTimeout} and
+\texttt{WDeadline}, which belong to a writer in \texttt{wsend} or
+\texttt{wstuck} and are unreachable once it has left, whatever \texttt{prog}
+is, and \texttt{KPing}, which is enabled in at least as many states;
+\texttt{Expire} becomes a stutter, and \texttt{WLock} sets \texttt{prog} again
+on the next write.  Every trace of a model that kept \texttt{prog} until
+\texttt{Expire} maps to a trace of this one with the same state outside
+\texttt{prog}, so every property that does not mention \texttt{prog} (S0 to S6,
+S1a, S1b) carries over.  For S7 the direction is the wrong one: a keepalive
+more ready to give up gives more unresponsive verdicts.  \texttt{KPing} can fire
+at once after \texttt{WSendDone} or an \texttt{Ack}, while a byte moved a moment
+ago; in the code that is an S7 violation, and the model does not flag it.  So
+S7 is established for the writer's verdict only, where \texttt{prog} is faithful
+from \texttt{WLock} to the verdict, and the keepalive's clause is an obligation
+on the code: the keepalive reads the socket's one last-progress time, counting
+bytes in either direction, and gives no verdict within $D$ of it.
 
 (Round 5.)  \texttt{stopf} is the listener's stop flag, which
 \texttt{ListenerThread.stop} sets before it asks for the Hub's end, a step of its
@@ -828,9 +854,14 @@ display is dead), or the keepalive giving up (unresponsive, the display perhaps
 alive).  The keepalive's ping, and a query, take the socket lock
 (\texttt{send\_ping} and \texttt{send\_query} go through \texttt{\_write\_locked}).
 In the design (rule~7d, round~6) the keepalive treats progress as liveness: its
-verdict lands only when no byte has moved for $D$ (\texttt{KPing}, enabled only
-with \texttt{prog = fclear}), and it does not need the lock to reach it, since
-the socket's last-progress time answers the question a ping would have asked.
+verdict lands only when no byte, in either direction, has moved for $D$, and it
+does not need the lock to reach it, since the socket's last-progress time
+answers the question a ping would have asked.  The model's \texttt{KPing} is
+enabled only with \texttt{prog = fclear}, but \texttt{prog} is cruder than that
+time (cleared when the writer leaves the lock, blind to an incoming byte), so
+the model's keepalive may give its verdict sooner than the code's: safe for S0
+to S6, and not checked for S7, whose keepalive clause is an obligation on the
+code.
 A ping or a query that does take the lock waits for it, and writes, under the
 same no-progress deadline, measured on the socket's one last-progress time, so
 that neither its wait nor its write can outlast $D$ of no progress.

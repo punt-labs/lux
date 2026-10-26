@@ -1,0 +1,44 @@
+mission_id: m-2026-10-26-022
+status: closed
+type: implement
+created_at: "2026-10-26T19:31:18Z"
+updated_at: "2026-10-26T21:27:10Z"
+closed_at: "2026-10-26T21:27:10Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T19:31:18Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/m-r12-rulings.md
+        - .tmp/missions/review-r12-code.md
+        - .tmp/missions/review-r12-silent.md
+        - docs/dial_settlement.tex
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_coverage.md
+    - docs/dial_settlement_writer_records_display_buggy.tex
+    - docs/dial_settlement_drain_gives_up_buggy.tex
+    - docs/dial_settlement_writer_owe_refused_buggy.tex
+    - docs/dial_settlement_drain_no_late_buggy.tex
+    - docs/dial_settlement_writer_split_record_buggy.tex
+    - docs/dial_settlement_stop_no_request_buggy.tex
+    - docs/dial_settlement_unbounded_write_buggy.tex
+    - docs/dial_settlement_whole_write_deadline_buggy.tex
+    - docs/dial_settlement_bound_records_asker_buggy.tex
+    - .tmp/missions/results-model-settle-r12/
+success_criteria:
+    - Round-12 review found two model-level problems in the accepted docs/dial_settlement.tex. Fix both in the model, in the main checkout [REDACTED:home]/Coding/punt-labs/lux on branch fix/lux-ghhf-details-frame-id, and commit there.
+    - (1) The bound records the asker's cause over a pending Hub request (code C1). BoundedAsk.settle_by_bound calls generation.end(asker cause), which checks only for an existing cause. The model's LateCapture records hub when no cause stands. Model the bound's record as the code does it. Add control dial_settlement_bound_records_asker_buggy.tex (the bound records the asker's cause regardless of hubreq). It must violate S5 or A3. The design keeps LateCapture deciding hub with a request pending (rulings A3).
+    - '(2) The deadline is a NO-PROGRESS deadline (rulings Phase B, leader''s ruling on C3/S2). The current WDeadline/KPing bound the WHOLE write plus the lock wait by D, which cuts off slow-but-live writes. That leaves the scene out of the ledger, reaps a live display, and makes the resend loop. Re-model: a dial is unresponsive when no byte moved for D while some party needs it to move (a writer sending, or a ping, query or writer waiting for lk). Progress is observable and resets the window. The keepalive treats progress within D as liveness. A writer that progresses forever never fails; a settle behind it falls to the late path, whose capture shuts the socket and so ends the writer (WStuckOut). Control dial_settlement_whole_write_deadline_buggy.tex is today''s code: a whole-write deadline that ends a progressing writer as unresponsive. Give it a checked property it violates, e.g. no unresponsive end is recorded while progress occurred within D (abstract time by a progress flag or a bounded counter). The design must hold S0-S6, S1a and S1b, with a perpetual-progress writer and with a stalled writer. State the resulting bounds (a stalled dial ends within D of no progress; a settle behind a progressing writer ends within the ceiling plus 2 s) and the code obligations: last-progress tracking on the socket, and every lock wait and write bounded by no-progress D.'
+    - 'Rebuild every existing control from the new design and re-apply its one mutation (diff the Z paragraphs). Update dial_settlement_coverage.md: new partitions with red-first test names, rule 7d and 8 rewritten, and the stale rows I6 lists in .tmp/missions/review-r12-invariants.md item 6 (P18, P20, P24, P25, P26, P27 against the tests now on the r3-fixes worktree).'
+    - 'Process: probcli one at a time; pgrep first for any other lux probcli; ulimit -v 8 GB; -p MAX_INITIALISATIONS 100. fuzz on each file separately. If the design is unsound, stop and report the counterexample. Commit only the write set, with an explicit git add and the attribution trailer from your session reminder. Do not push, touch src/ or tests/, restore from git, rm, stash, reset, or spawn agents. probcli: [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-settle-r12/<mission-id>.md; submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Round-12 model work: the bound's record over a Hub request, and the
+    no-progress deadline replacing the whole-write deadline.
