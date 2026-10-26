@@ -279,7 +279,7 @@ class TestOnlyAReaderTakesTheLedgerOfADisplayEnd:
             if _calls_to(path.read_text(), "retire") > 0
         }
 
-        assert {"display_link", "listener_thread", "display_connection"} <= names
+        assert {"display_listener", "listener_thread", "display_connection"} <= names
 
 
 def test_the_scene_ids_these_tests_name_are_scene_ids() -> None:

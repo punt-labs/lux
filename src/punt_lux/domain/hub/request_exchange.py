@@ -4,9 +4,11 @@ A request locks its kind, writes on the dial it was made for, and waits for the 
 reply that write elicits, from the dial's sink when a listener reads it and from the
 dial's socket when none does. The reply carries no request id, so what keeps replies
 and requests together is exclusion: one lock per reply kind, held across the write
-and the wait, so at most one request of a kind is in flight on a dial. The locks
+and the wait, so at most one request of a kind is in flight on a dial. The wait for
+the acks of what was written (``ack``) is a request of its own: it writes nothing,
+and its stamp goes unused. The locks
 belong to the link, not to any one dial or request port, so every port made for a
-dial, however many and however often, queues behind the same two.
+dial, however many and however often, queues behind the same three.
 
 Each request has two budgets, spent one after the other: the wait for its request
 lock, and, once the lock is held, the wait for the reply, which gets its full
@@ -38,7 +40,7 @@ if TYPE_CHECKING:
 
 __all__ = ["RequestExchange", "RequestKind"]
 
-type RequestKind = Literal["ping", "query"]
+type RequestKind = Literal["ping", "query", "ack"]
 
 # A ping's timestamp must exceed the last one's by at least this: the wall clock
 # alone can repeat within a tick, and a pong is matched by the ts it echoes.
@@ -47,7 +49,7 @@ _TS_STEP = 1e-6
 
 @final
 class RequestExchange:
-    """The locking, the waiting and the naming every request port shares."""
+    """The locking and the waiting every request port shares."""
 
     _connection: DisplayConnection
     _replies: DisplayReplies
@@ -66,8 +68,9 @@ class RequestExchange:
         self._locks = {
             "ping": threading.Lock(),
             "query": threading.Lock(),
+            "ack": threading.Lock(),
         }
-        self._last_ts = {"ping": 0.0, "query": 0.0}
+        self._last_ts = {"ping": 0.0, "query": 0.0, "ack": 0.0}
         return self
 
     def current(self) -> DialGeneration:

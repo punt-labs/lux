@@ -49,6 +49,7 @@ from tests.link_access import deaths_of, generation_of, writer_of
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from punt_lux.domain.hub.batch_sender import _InFlight
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dirty_signal import DirtySignal
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
@@ -591,9 +592,9 @@ class TestADeathDiscoveredByAnyParty:
         modes: list[str] = []
         real = BatchSender._send_scene
 
-        def spy(self: BatchSender, scene_id: SceneId, flight: object) -> bool:
+        def spy(self: BatchSender, scene_id: SceneId, flight: _InFlight) -> bool:
             modes.append(rig.attribution.mode)
-            return real(self, scene_id, flight)  # type: ignore[arg-type]
+            return real(self, scene_id, flight)
 
         monkeypatch.setattr(BatchSender, "_send_scene", spy)
 

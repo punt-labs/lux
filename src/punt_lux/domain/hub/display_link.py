@@ -67,7 +67,7 @@ class DisplayLink:
             connect_timeout,
             # A dial no reader holds is settled by whoever found it ended; the
             # listener, which owns the readers, knows how.
-            lambda generation: self._listener.settle_unread(generation),
+            settle_unread=lambda generation: self._listener.settle_unread(generation),
         )
         self._listener = DisplayListener(self._connection, recv_timeout)
         self._desk = RequestDesk(self._connection, self._listener, recv_timeout)
@@ -148,12 +148,7 @@ class DisplayLink:
         elif (dialed := self._connection.open_listening()) is None:
             self._listener.start()  # connected already: a reader, if it lacks one
         else:
-            try:
-                self._listener.start_on(dialed)
-            except BaseException:
-                # A dial with no reader repairs nothing: retire the one this call made.
-                self._connection.retire(dialed, cause="hub")
-                raise
+            self._listener.start_on(dialed)
 
     def open_as_hub(
         self, manifest: Callable[[], Sequence[SceneId]]
@@ -162,14 +157,16 @@ class DisplayLink:
 
         The manifest is read once the dial is up, and its scene ids are written as the
         manifest: the second half of opening the connection, before anything else is
-        sent on it. Declares only on a dial this call made; a link already open
-        returns ``()``. A manifest that cannot be sent closes the link and raises, so
-        the next call redials and declares again. Returns the scene ids declared.
+        sent on it. Declares only on a dial this call made, which is what the dial's
+        own opening reports; a link already open returns ``()``. A manifest that
+        cannot be sent closes the link and raises, so the next call redials and
+        declares again. Returns the scene ids declared.
         """
-        was_open = self._connection.is_open
-        self.connect(listen=True)
-        if was_open:
+        dialed = self._connection.open_listening()
+        if dialed is None:
+            self._listener.start()  # connected already: a reader, if it lacks one
             return ()
+        self._listener.start_on(dialed)
         scene_ids = tuple(manifest())
         try:
             self._desk.declare(scene_ids)

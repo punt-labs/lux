@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.connection_closed import UnresponsiveError
 from punt_lux.domain.hub.death_charger import DeathCharger
 
 if TYPE_CHECKING:
@@ -197,7 +197,7 @@ class BatchSender:
             if not probe.await_acks(_PROBE_TIMEOUT_SECONDS):
                 self._clients.drop_unresponsive(probe.dial)
                 msg = f"display did not ack {scene_id!r} after a swap"
-                raise ConnectionClosedError(msg)
+                raise UnresponsiveError(msg)
         return tuple(emptied)
 
     def _sender(self, flight: _InFlight) -> DisplaySender:

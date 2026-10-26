@@ -26,7 +26,7 @@ from punt_lux.protocol import (
     encode_message,
 )
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from tests.link_access import deaths_of
+from tests.link_access import deaths_of, no_reader
 
 
 @final
@@ -62,7 +62,7 @@ _BIG = QueryRequest(method="x", params={"blob": "x" * (8 * 1024 * 1024)})
 
 def _opened() -> tuple[DisplayConnection, _Dialer]:
     dialer = _Dialer()
-    connection = DisplayConnection(dialer, 1.0)
+    connection = DisplayConnection(dialer, 1.0, settle_unread=no_reader)
     connection.open()
     return connection, dialer
 
@@ -85,7 +85,7 @@ class TestOpen:
             connection.close()
 
     def test_a_dial_that_fails_leaves_the_connection_closed(self) -> None:
-        connection = DisplayConnection(_Dialer(fail=True), 1.0)
+        connection = DisplayConnection(_Dialer(fail=True), 1.0, settle_unread=no_reader)
 
         with pytest.raises(DisplayNotConnectedError):
             connection.open()
@@ -94,7 +94,7 @@ class TestOpen:
         assert connection.ready is None
 
     def test_a_new_connection_holds_nothing(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0)
+        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
 
         assert not connection.is_open
         assert not connection.is_open
@@ -112,7 +112,7 @@ class TestClose:
         assert connection.ready is None
 
     def test_closing_a_closed_connection_is_not_an_error(self) -> None:
-        DisplayConnection(_Dialer(), 1.0).close()
+        DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).close()
 
     def test_can_be_reopened_after_closing(self) -> None:
         connection, dialer = _opened()
@@ -139,7 +139,7 @@ class TestRequire:
         with pytest.raises(
             DisplayNotConnectedError, match="open\\(\\) the display connection"
         ):
-            DisplayConnection(_Dialer(), 1.0).require()
+            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).require()
 
     def test_a_dial_the_hub_dropped_is_a_hub_retirement_for_whoever_asks_next(
         self,
@@ -156,7 +156,7 @@ class TestRequire:
         # Nothing was dialed, so there is nothing for the display to have ended: the
         # error is not a closed connection a sender could blame its batch for.
         with pytest.raises(DisplayNotConnectedError) as caught:
-            DisplayConnection(_Dialer(), 1.0).require()
+            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).require()
 
         assert not isinstance(caught.value, ConnectionClosedError)
 
@@ -561,7 +561,7 @@ class TestPollChunk:
 
 class TestOpenForListening:
     def test_a_dial_opened_for_listening_is_born_holding_the_reader_slot(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0)
+        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
 
         born = connection.open_listening()
 
@@ -575,7 +575,7 @@ class TestOpenForListening:
             connection.close()
 
     def test_open_listening_says_whether_it_dialed(self) -> None:
-        connection = DisplayConnection(_Dialer(), 1.0)
+        connection = DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader)
 
         connection.open()
         second = connection.open_listening()
@@ -663,4 +663,7 @@ class TestEndpoint:
                 dialer.peer.close()
 
     def test_says_so_when_not_open(self) -> None:
-        assert DisplayConnection(_Dialer(), 1.0).endpoint == "not connected"
+        assert (
+            DisplayConnection(_Dialer(), 1.0, settle_unread=no_reader).endpoint
+            == "not connected"
+        )

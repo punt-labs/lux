@@ -23,7 +23,9 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
     UnresponsiveError,
 )
+from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.dial_socket import DialSocket
+from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.tracing import trace
 
@@ -54,9 +56,11 @@ class DialGeneration:
 
     _sink: ReplySink
     _socket: DialSocket
+    # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
+    _slot: ReaderSlot
     # Reports this dial's own breakage to whoever holds the current dial.
     _retire: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_retire", "_sink", "_socket")
+    __slots__ = ("_retire", "_sink", "_slot", "_socket")
 
     def __new__(
         cls,
@@ -68,10 +72,12 @@ class DialGeneration:
         self = super().__new__(cls)
         self._retire = retire
         self._sink = ReplySink()
+        # Born holding the listener slot when asked: nobody else has seen this dial
+        # yet, so no inline read can be in flight when the listener claims it.
+        self._slot = ReaderSlot(reader)
         self._socket = DialSocket(
             dial,
             self._sink,
-            reader=reader,
             require_open=self._require_open,
             failed=self._write_failed,
         )
@@ -88,6 +94,11 @@ class DialGeneration:
         return self._socket.endpoint
 
     @property
+    def ref(self) -> DialRef:
+        """A name for this dial that confers no power over it: what a failure names."""
+        return DialRef(self)
+
+    @property
     def ready(self) -> ReadyMessage:
         """The ``ReadyMessage`` the handshake received."""
         return self._socket.ready
@@ -100,19 +111,19 @@ class DialGeneration:
     @property
     def has_reader(self) -> bool:
         """Whether a listener thread reads this dial (it ends with the dial)."""
-        return self._socket.reader_slot.has_listener
+        return self._slot.has_listener
 
     def claim_reader(self) -> bool:
         """Take this dial's one reader slot for a listener; ``False`` if it has one."""
-        return self._socket.reader_slot.claim_for_listener()
+        return self._slot.claim_for_listener()
 
     def release_reader(self) -> None:
         """Give the listener's slot back: its thread could not be started."""
-        self._socket.reader_slot.release_listener()
+        self._slot.release_listener()
 
     def inline_reading(self) -> AbstractContextManager[bool]:
         """Hold the reader slot for an inline read; yield whether it was free."""
-        return self._socket.reader_slot.inline()
+        return self._slot.inline()
 
     def end(self, cause: RetireCause) -> bool:
         """Record who ended this dial, first cause wins; whether this call did.
@@ -257,10 +268,11 @@ class DialGeneration:
     def closed_error(self) -> ConnectionClosedError:
         """The error that says this dial is gone, and who ended it.
 
-        A plain :class:`ConnectionClosedError` when the display ended it and
-        :class:`UnresponsiveError` when the Hub gave up on its silence: a sender may
-        blame what it was sending. :class:`HubRetiredError` when the Hub ended it by
-        its own policy. ``ValueError`` for a dial still open.
+        A plain :class:`ConnectionClosedError` when the display ended it,
+        :class:`UnresponsiveError` when the Hub gave up on its silence, and
+        :class:`HubRetiredError` when the Hub ended it by its own policy; only that
+        last changes what recovery does (it redials without treating it as a death).
+        ``ValueError`` for a dial still open.
         """
         ended = self._sink.ended
         if ended is None:

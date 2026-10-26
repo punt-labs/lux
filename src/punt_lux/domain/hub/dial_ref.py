@@ -3,7 +3,7 @@
 A request that fails says which dial it failed on by handing back this reference,
 and the retirement it asks for is made in the connection that owns the dial: the
 reference carries no socket, no write and no read, so naming a dial confers no
-power over it; only the dial model, which holds a generation, makes one. Two
+power over it; only the generation makes one, of itself (``DialGeneration.ref``). Two
 references to one dial are equal, so whoever remembers a dial can tell it again.
 """
 

@@ -148,7 +148,7 @@ class ClientProvider(ReconnectWaiter, Protocol):
         """Retire ``dial`` if still current, so the next ``asks`` binds afresh."""
 
     def drop_unresponsive(self, dial: DialRef) -> None:
-        """Retire ``dial``, open but silent, as the display's end; charge its ledger."""
+        """Retire ``dial``, open but silent: its ledger is charged and carried on."""
 
     def take_deaths(self) -> DeathQueuePort:
         """Hand over the queue of display deaths; asked once, by the one charger."""

@@ -104,8 +104,17 @@ class DisplayListener:
         self._thread.start()
 
     def start_on(self, born: DialGeneration) -> None:
-        """Start a reader on ``born``, a dial made holding the listener's slot."""
-        self._thread.start_on(born)
+        """Start a reader on ``born``, a dial made holding the listener's slot.
+
+        A dial with no reader repairs nothing: if the reader cannot start, the dial
+        this call was given is retired and the error raised, so the next connect
+        redials.
+        """
+        try:
+            self._thread.start_on(born)
+        except BaseException:
+            self._connection.retire(born, cause="hub")
+            raise
 
     def stop(self) -> None:
         """Stop the reader and retire its dial, if running."""

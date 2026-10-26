@@ -26,7 +26,11 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.protocol import Element
 
-__all__ = ["deaths_of", "generation_of", "shown", "socket_of", "writer_of"]
+__all__ = ["deaths_of", "generation_of", "no_reader", "shown", "socket_of", "writer_of"]
+
+
+def no_reader(_generation: DialGeneration) -> None:
+    """The settle a bare connection is given: it has no readers to hand a dial to."""
 
 
 def deaths_of(

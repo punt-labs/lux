@@ -44,7 +44,7 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.domain.display_double import Call, Display, until
-from tests.link_access import generation_of, writer_of
+from tests.link_access import generation_of, no_reader, writer_of
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -1372,7 +1372,7 @@ class TestAPingIsStampedUnderItsLock:
         monkeypatch.setattr(
             "punt_lux.domain.hub.request_exchange.time.time", lambda: 5.0
         )
-        connection = DisplayConnection(display, 1.0)
+        connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
         exchange = RequestExchange(
             connection,
             DisplayReplies(connection, DisplayListener(connection, 1.0)),

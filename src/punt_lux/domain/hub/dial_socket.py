@@ -1,11 +1,12 @@
-"""DialSocket -- one dial's socket: who may read it, what it says, and every write.
+"""DialSocket -- one dial's socket: what it says, and every write.
 
-A dial's socket is read by one reader at a time (see
-:class:`~punt_lux.domain.hub.reader_slot.ReaderSlot`) and written by one writer at a
-time. Both hold the socket's lock across the ``recv`` or the ``sendall``, because a TLS
-socket forbids a read and a write at once; a write also holds it across the bookkeeping
-that goes with it (the ack a scene is owed, the reply a ping or query waits for), so the
-reader cannot take a byte of a reply before its entry exists.
+A dial's socket is read by one reader at a time and written by one writer at a time;
+who reads is the generation's decision (its
+:class:`~punt_lux.domain.hub.reader_slot.ReaderSlot`), and this object's I/O does not
+consult it. Both hold the socket's lock across the ``recv`` or the ``sendall``, because
+a TLS socket forbids a read and a write at once; a write also holds it across the
+bookkeeping that goes with it (the ack a scene is owed, the reply a ping or query
+waits for), so the reader cannot take a byte of a reply before its entry exists.
 
 A read waits for the display to speak, or takes only what is already there (the drain,
 which never waits), and both take what TLS already decrypted but ``select`` cannot see.
@@ -22,10 +23,9 @@ import select
 import socket
 import ssl
 import threading
-from typing import TYPE_CHECKING, Literal, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.reader_slot import ReaderSlot
 from punt_lux.protocol import FrameReader, PingMessage, encode_message
 from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
@@ -58,8 +58,6 @@ class DialSocket:
     _lock: threading.Lock
     _sink: ReplySink
     _frames: FrameReader
-    # Who reads this dial: nobody, its listener thread, or one caller's inline wait.
-    _slot: ReaderSlot
     _require_open: Callable[[], None]
     _failed: Callable[[BaseException], None]
     __slots__ = (
@@ -69,7 +67,6 @@ class DialSocket:
         "_lock",
         "_require_open",
         "_sink",
-        "_slot",
     )
 
     def __new__(
@@ -77,7 +74,6 @@ class DialSocket:
         dial: HandshakeResult,
         sink: ReplySink,
         *,
-        reader: Literal["none", "listener"],
         require_open: Callable[[], None],
         failed: Callable[[BaseException], None],
     ) -> Self:
@@ -86,9 +82,6 @@ class DialSocket:
         self._lock = threading.Lock()
         self._sink = sink
         self._frames = FrameReader()
-        # Born holding the listener slot when asked: nobody else has seen this dial
-        # yet, so no inline read can be in flight when the listener claims it.
-        self._slot = ReaderSlot(reader)
         self._require_open = require_open
         self._failed = failed
         return self
@@ -102,11 +95,6 @@ class DialSocket:
     def ready(self) -> ReadyMessage:
         """The ``ReadyMessage`` the handshake received."""
         return self._dial.ready
-
-    @property
-    def reader_slot(self) -> ReaderSlot:
-        """Who may read this dial: nobody, its listener thread, or one inline wait."""
-        return self._slot
 
     def send(self, msg: Message) -> None:
         """Write ``msg``, serialized against every other writer."""

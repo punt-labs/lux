@@ -515,6 +515,7 @@ class TestAnIsolationProbeWaitsOnTheAck:
             failure = rig.push("a", "b")
 
             assert isinstance(failure, BatchSendError)
+            assert isinstance(failure.cause, UnresponsiveError)
             assert len(responder.seen) == 1  # the second scene never went out
             assert until(lambda: not rig.link.is_connected)
             (death,) = deaths_of(rig.registry)  # queued, as the display's end

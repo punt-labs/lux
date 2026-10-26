@@ -30,6 +30,7 @@ from punt_lux.protocol import (
     encode_message,
 )
 from tests.domain.display_double import Display, until
+from tests.link_access import no_reader
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -52,7 +53,7 @@ class _Rig:
         self, route: Callable[[DialGeneration, Message], None] | None = None
     ) -> None:
         self.display = Display()
-        self.connection = DisplayConnection(self.display, 1.0)
+        self.connection = DisplayConnection(self.display, 1.0, settle_unread=no_reader)
         self.connection.open()
         self.routed = []
         self.listener = ListenerThread(self.connection, route or self._record)
@@ -143,7 +144,8 @@ class TestLifecycle:
 
     def test_starting_with_no_connection_raises(self) -> None:
         listener = ListenerThread(
-            DisplayConnection(Display(), 1.0), lambda _g, _m: None
+            DisplayConnection(Display(), 1.0, settle_unread=no_reader),
+            lambda _g, _m: None,
         )
 
         with pytest.raises(DisplayNotConnectedError):
@@ -473,7 +475,7 @@ class TestAStaleReportCannotTouchTheReplacement:
         # must wait for the lock, so the dial it publishes is never the one the
         # report closes.
         display = Display()
-        connection = DisplayConnection(display, 1.0)
+        connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
         connection.open()
         old = connection.require()
         redial_started = threading.Event()
@@ -841,7 +843,7 @@ class TestReportingTheEnd:
 class TestABornClaimedDialReplacedInTheGap:
     def test_start_for_a_replaced_dial_starts_nothing_on_its_replacement(self) -> None:
         display = Display()
-        connection = DisplayConnection(display, 1.0)
+        connection = DisplayConnection(display, 1.0, settle_unread=no_reader)
         listener = ListenerThread(connection, lambda _g, _m: None)
         try:
             born = connection.open_listening()

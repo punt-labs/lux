@@ -76,7 +76,8 @@ class DisplayConnection:
         cls,
         dialer: DisplayDialer,
         connect_timeout: float,
-        settle_unread: Callable[[DialGeneration], None] = lambda _generation: None,
+        *,
+        settle_unread: Callable[[DialGeneration], None],
     ) -> Self:
         self = super().__new__(cls)
         self._dialer = dialer
@@ -252,9 +253,10 @@ class DisplayConnection:
         """Return the current dial, or raise the error that says why there is none.
 
         The error carries who ended the last dial: :class:`ConnectionClosedError`
-        when the display did (it died, so a sender may blame what it was sending),
-        :class:`HubRetiredError` when the Hub did (the display is not at fault), and
-        :class:`DisplayNotConnectedError` when no dial was ever made.
+        when the display did, :class:`UnresponsiveError` when the Hub gave up on its
+        silence, :class:`HubRetiredError` when the Hub ended it by its own policy
+        (the display is not at fault), and :class:`DisplayNotConnectedError` when no
+        dial was ever made.
         """
         with self._state_lock:
             held = self._current

@@ -37,16 +37,17 @@ class HubRetiredError(ConnectionClosedError):
     A query that timed out, a reply that came out of order, a write interrupted
     by something other than a socket failure, and the Hub's own close all end a
     dial this way. A sender that finds a dial ended this way has learned nothing
-    about the display, so it must not be blamed on whatever the sender was
-    sending. A dial the display ended (it closed the stream, reset the
-    connection, sent a frame that cannot be decoded, or stopped reading until a
-    send timed out) is a plain :class:`ConnectionClosedError`.
+    about the display, and recovery redials without treating it as a death. A dial
+    the display ended (it closed the stream, reset the connection, sent a frame
+    that cannot be decoded, or stopped reading until a send timed out) is a plain
+    :class:`ConnectionClosedError`.
     """
 
 
 class UnresponsiveError(ConnectionClosedError):
     """The Hub gave up on this dial because the display stopped answering on it.
 
-    The display may be alive and still hold what it was sent, so a sender that finds
-    a dial ended this way blames what it was sending, as for a display death.
+    The display may be alive and still hold what it was sent: the dial's ledger is
+    charged and carried to the next dial. A sender that finds a dial ended this way
+    blames nothing itself; what is charged is read from the dial.
     """
