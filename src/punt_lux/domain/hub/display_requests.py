@@ -61,7 +61,15 @@ class DisplayRequests:
         A ping already in flight is itself probing the display, so finding the dial
         busy is no evidence of a dead one: it counts as alive. This is the one place
         that rule lives; a caller that needs proof of a scene asks :meth:`await_acks`.
+
+        Bytes that moved on the socket in either direction within ``D``, sends
+        included, are liveness too, and judging that needs no lock: the keepalive gives
+        an unresponsive verdict only after ``D`` of silence, and then by a ping that
+        goes unanswered. The look is made before the ping is sent, so its own bytes
+        cannot vouch for the ping's answer.
         """
+        if self._generation.is_progressing():
+            return True
         try:
             return self.ping(timeout) is not None
         except DisplayBusyError:

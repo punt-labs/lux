@@ -54,7 +54,7 @@ from punt_lux.protocol import (
     encode_frame,
 )
 from tests.dial_double import fake_dial
-from tests.domain.display_double import Call, Display, FlakySocket, until
+from tests.domain.display_double import Call, Display, FlakySocket, SteadyDrain, until
 from tests.domain.test_ack_attribution import _ids
 from tests.domain.test_recovery import _FakeLifecycle, _FakeProvider
 from tests.domain.test_retire_cause import _linked, _scene
@@ -489,20 +489,26 @@ class TestAStalledHolder:
         assert deaths_of(link) == ()
         link.close()
 
-    @pytest.mark.parametrize("operation", ["scene", "ping"])
+
+class TestTheBound:
+    """The bound decides ``hub`` over a pending request, whoever asked (rule 8)."""
+
+    @pytest.mark.parametrize("asker", ["writer", "keepalive"])
     @pytest.mark.parametrize("failure", [BlockingIOError, OSError])
-    def test_p28_a_bound_never_records_a_cause_over_a_hub_request(
+    def test_p28_a_bound_past_a_hub_request_settles_as_hub_whoever_asked(
         self,
         display: Display,
         monkeypatch: pytest.MonkeyPatch,
         failure: type[OSError],
-        operation: str,
+        asker: str,
     ) -> None:
         """A writer that lost to a Hub request leaves the dial to the Hub's end.
 
         The listener holds the slot past the bound, so the failed write's settle is
         the bound's capture; it records nothing over the pending request, and the
-        capture decides ``hub``: no death, no suspect carried.
+        capture decides ``hub``, which is the model's ``decide(saw_end=False)`` with a
+        request pending: no death, no suspect carried. The keepalive asks through the
+        write of its ping, as the writer asks through a scene's.
         """
         _bounded(monkeypatch, 0.5)
         _short_deadline(monkeypatch)
@@ -536,7 +542,7 @@ class TestAStalledHolder:
         monkeypatch.setattr(FlakySocket, "send", fails)
         failing = Call(
             (lambda: generation.send_scene(_scene("b")))
-            if operation == "scene"
+            if asker == "writer"
             else (lambda: generation.send_ping(1.0))
         )
 
@@ -550,7 +556,7 @@ class TestAStalledHolder:
         link.close()
 
     @pytest.mark.parametrize("cause", ["display", "unresponsive"])
-    def test_p28_the_bound_records_nothing_over_a_pending_hub_request(
+    def test_p28_the_bound_alone_records_nothing_over_a_pending_hub_request(
         self, display: Display, monkeypatch: pytest.MonkeyPatch, cause: RetireCause
     ) -> None:
         _bounded(monkeypatch, 0.1)
@@ -950,6 +956,42 @@ class TestTheWriter:
         finally:
             display.peer.close()
 
+    def test_p30_a_settle_behind_a_writer_that_keeps_progressing_ends_by_the_late_path(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A writer that never stalls holds the lock for many ``D``; the settle ends.
+
+        The drain waits the ceiling for the lock and finds it incomplete; the capture
+        is then the bound's, so the dial is settled within ceiling plus bound, though
+        the writer has not gone ``D`` without progress.
+        """
+        window, bound = 0.3, 0.5
+        _short_deadline(monkeypatch, window)  # the ceiling is window + 0.5
+        _bounded(monkeypatch, bound)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        big = ScenePresentation(frame_id="long").message(
+            "long", [TextElement(id="t", content="x" * (512 << 10))]
+        )
+
+        with SteadyDrain(display.peer.raw, display.sockets[-1]._sock):
+            writing = Call(lambda: generation.send_scene(big))
+            time.sleep(0.2)  # the writer holds the lock and is moving bytes
+            display.peer.send(AckMessage(scene_id="a"))  # readable: the drain waits
+            generation.end("display")
+            began = time.monotonic()
+            settling = Call(
+                lambda: link._connection.retire(generation, cause="display")
+            )
+
+            assert settling.wait(window + 0.5 + bound + 2.0), "the settle never ended"
+            took = time.monotonic() - began
+            assert generation.is_settled
+            writing.wait(5.0)
+
+        assert took > window + 0.5  # it did wait the ceiling out first
+        assert generation.ended == "display"
+
     @pytest.mark.parametrize("how", ["capture", "decode_error"])
     def test_p21_a_scene_refused_after_the_capture_is_re_marked_for_the_next_dial(
         self, display: Display, monkeypatch: pytest.MonkeyPatch, how: str
@@ -1129,41 +1171,90 @@ _SLACK = 0.25
 class TestABoundedWrite:
     """Every write, and every wait for the socket lock, ends within the deadline D."""
 
-    def test_p27_one_deadline_covers_the_wait_for_the_lock_and_the_write(
+    def test_p29_a_slow_but_steady_plain_peer_keeps_its_write(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A lock held for most of D, then a write that stalls: D from the start.
-
-        Separate deadlines for the two would make 2D, and a deadline taken after the
-        lock is won would let the wait and the write each have the whole of D.
-        """
-        deadline = 0.8
-        _short_deadline(monkeypatch, deadline)
+        """No gap of ``D`` anywhere, so the write that takes many ``D`` is not cut."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
         link = _linked(display, listening=False)
         generation = generation_of(link)
-        holding, release = threading.Event(), threading.Event()
-        real = FlakySocket.send
+        scene = ScenePresentation(frame_id="steady").message(
+            "steady", [TextElement(id="t", content="x" * (192 << 10))]
+        )
 
-        def holds_then_stalls_the_next(this: FlakySocket, data: bytes) -> int:
-            holding.set()
-            assert release.wait(10.0)
-            sent = real(this, data)
-            this.time_out_next_send = True  # the next writer meets a peer that stalls
-            return sent
+        with SteadyDrain(display.peer.raw, display.sockets[-1]._sock):
+            began = time.monotonic()
+            writing = Call(lambda: generation.send_scene(scene))
+            assert writing.wait(30.0), "the steady write did not end"
+            took = time.monotonic() - began
 
-        monkeypatch.setattr(FlakySocket, "send", holds_then_stalls_the_next)
-        first = Call(lambda: generation.send_scene(_scene("a")))
-        assert holding.wait(3.0)
+        assert writing.error is None
+        assert took > 3 * window  # the premise: the write outlasted the window
+        assert generation.ended is None
+        assert generation.owed_acks == 1  # the scene is in the ledger
 
-        began = time.monotonic()
-        second = Call(lambda: generation.send_ping(1.0))
-        threading.Timer(deadline * 0.75, release.set).start()  # most of D, then free
-        assert second.wait(deadline + 2.0), "the second write did not end"
-        took = time.monotonic() - began
-        first.wait()
+    def test_p29_a_wait_for_the_lock_behind_a_steady_writer_is_not_cut(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lock wait is silence too: a holder that keeps moving is waited for."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        big = ScenePresentation(frame_id="long").message(
+            "long", [TextElement(id="t", content="x" * (512 << 10))]
+        )
 
-        assert isinstance(second.error, UnresponsiveError)
-        assert took < deadline + _SLACK, f"the write got {took:.2f}s, D is {deadline}"
+        with SteadyDrain(display.peer.raw, display.sockets[-1]._sock):
+            writing = Call(lambda: generation.send_scene(big))
+            time.sleep(0.1)
+            began = time.monotonic()
+            waiting = Call(lambda: generation.send_ping(1.0))
+
+            assert writing.wait(30.0), "the steady write did not end"
+            assert waiting.wait(5.0), "the wait for the lock did not end"
+            waited = time.monotonic() - began
+
+        assert writing.error is None
+        assert waiting.error is None, "the wait was cut while the holder moved bytes"
+        assert waited > 2 * window  # the premise: it waited out many windows
+        assert generation.ended is None
+
+    def test_p31_the_keepalive_gives_no_verdict_while_bytes_move_either_way(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Right after a write, and while acks keep arriving, there is no verdict."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        port = link.desk.asks()
+
+        writer_of(link).send_scene(_scene("a"))
+        assert port.probe_alive(0.05), "a verdict right after a write completed"
+
+        time.sleep(window + 0.1)  # the write's bytes are old: only acks can speak now
+        ends = time.monotonic() + 3 * window
+        while time.monotonic() < ends:
+            display.peer.send(AckMessage(scene_id="a"))
+            generation.poll_chunk(0.05)  # the reader takes it: a byte moved
+            assert port.probe_alive(0.05), "a verdict while acks keep arriving"
+            time.sleep(0.1)
+
+    def test_p31_the_keepalive_gives_its_verdict_once_d_passes_with_no_byte_either_way(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Once nothing has moved for ``D``, in either direction, the ping decides."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
+        link = _linked(display, listening=False)
+        port = link.desk.asks()
+        writer_of(link).send_scene(_scene("a"))
+
+        time.sleep(window + 0.1)  # nothing moves for D
+
+        assert not port.probe_alive(0.05), "no verdict after D of silence"
 
     def test_p25_a_plain_socket_write_ends_within_the_same_deadline(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

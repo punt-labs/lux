@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.dial_end import DialEnd
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.replicator_ports import DeathQueuePort
@@ -20,6 +21,8 @@ from tests.domain.display_double import until
 if TYPE_CHECKING:
     import socket
     from collections.abc import Callable, Sequence
+
+    import pytest
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.death_queue import DeathQueue
@@ -33,6 +36,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "bare_connection",
+    "count_end_records",
     "deaths_of",
     "drop_route",
     "generation_of",
@@ -42,6 +46,24 @@ __all__ = [
     "socket_of",
     "writer_of",
 ]
+
+
+def count_end_records(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Watch every cause recorded for a dial's end: each call's result, in order.
+
+    A cause is recorded once or the dial's end has two owners; ``results.count(True)``
+    is how many times one was.
+    """
+    results: list[bool] = []
+    real = DialEnd.record
+
+    def record(this: DialEnd, cause: RetireCause) -> bool:
+        recorded = real(this, cause)
+        results.append(recorded)
+        return recorded
+
+    monkeypatch.setattr(DialEnd, "record", record)
+    return results
 
 
 def no_reader(_generation: DialGeneration, _cause: RetireCause) -> None:

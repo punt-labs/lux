@@ -24,10 +24,9 @@ import select
 import socket
 import ssl
 import threading
-import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.bounded_send import BoundedSend
+from punt_lux.bounded_send import BoundedSend, ProgressClock
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
@@ -68,6 +67,7 @@ class DialSocket:
     _lock: threading.Lock
     _sink: ReplySink
     _frames: FrameReader
+    _progress: ProgressClock
     _require_open: Callable[[], None]
     _failed: Callable[[BaseException], None]
     __slots__ = (
@@ -75,6 +75,7 @@ class DialSocket:
         "_failed",
         "_frames",
         "_lock",
+        "_progress",
         "_require_open",
         "_sink",
     )
@@ -92,9 +93,18 @@ class DialSocket:
         self._lock = threading.Lock()
         self._sink = sink
         self._frames = FrameReader()
+        self._progress = ProgressClock()
         self._require_open = require_open
         self._failed = failed
         return self
+
+    def is_progressing(self) -> bool:
+        """Whether a byte moved on this socket within ``D``: the dial is live.
+
+        The one clock the writer's deadline, a lock wait and the keepalive all read, so
+        none of them judges a dial that is moving bytes unresponsive.
+        """
+        return self._progress.progressed_within(SCENE_WRITE_DEADLINE_SECONDS)
 
     @property
     def endpoint(self) -> str:
@@ -218,6 +228,8 @@ class DialSocket:
         sock.settimeout(0.0)
         try:
             chunk = sock.recv(_READ_CHUNK) + self._decrypted_backlog()
+            if chunk:
+                self._progress.moved()  # application data came: the display is moving
             return Drained(chunk, ended=not chunk)
         except (BlockingIOError, ssl.SSLWantReadError, ssl.SSLWantWriteError):
             # Nothing now. A TLS read may need to write (a key update) into a send
@@ -282,17 +294,19 @@ class DialSocket:
 
         The same user-space bounded send on either transport, because ``SO_SNDTIMEO``
         does not bound a TLS write: the socket is made non-blocking for the write alone
-        and :class:`BoundedSend` waits for it, with one deadline for the whole write,
-        the wait for the lock included. A write the deadline cut short, or a lock never
-        free in time, ends the dial as unresponsive. The socket lock is held, so
-        nothing reads meanwhile.
+        and :class:`BoundedSend` waits for it. The bound is ``D`` of *no progress*, not
+        ``D`` of elapsed time: every byte that moves on the socket, the write's own
+        included, restarts it, for the wait for the lock as for the write. A write that
+        keeps moving bytes is never cut short; one that has moved none for ``D``, or a
+        lock still held with no byte moving for ``D``, ends the dial as unresponsive.
+        The socket lock is held, so nothing reads meanwhile.
         """
         LockDiscipline.forbid_store("the dial socket lock")
-        deadline = time.monotonic() + SCENE_WRITE_DEADLINE_SECONDS
-        if not self._lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
+        if not self._progress.acquire(self._lock, SCENE_WRITE_DEADLINE_SECONDS):
             stalled = BlockingIOError("the dial's socket lock was not free in time")
             self._failed(stalled)
             raise stalled
+        self._progress.moved()  # a writer that has the lock starts its own window
         writing = False
         try:
             try:
@@ -302,7 +316,9 @@ class DialSocket:
                 sock = self._dial.sock
                 sock.settimeout(0.0)
                 try:
-                    BoundedSend().send(sock, wire, deadline)
+                    BoundedSend().send_while_progressing(
+                        sock, wire, self._progress, SCENE_WRITE_DEADLINE_SECONDS
+                    )
                 finally:
                     with contextlib.suppress(OSError):  # closed by its own capture
                         sock.settimeout(None)

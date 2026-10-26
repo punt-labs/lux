@@ -9,17 +9,16 @@ same dial code over a real mTLS loopback pair.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import socket
 import ssl
 import threading
 import time
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask
+from punt_lux.domain.hub import bounded_ask, dial_socket
 from punt_lux.domain.hub.connection_closed import UnresponsiveError
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
@@ -45,6 +44,7 @@ from tests.domain.display_double import Call, Display, Peer, until
 from tests.domain.test_retire_cause import _linked, _scene
 from tests.link_access import (
     bare_connection,
+    count_end_records,
     deaths_of,
     generation_of,
     no_reader,
@@ -273,6 +273,28 @@ def _a_tls_peer_that_never_reads(generation: DialGeneration) -> None:
     sock.send = would_block  # type: ignore[method-assign]
 
 
+def _a_tls_peer_that_trickles(generation: DialGeneration, every: float) -> None:
+    """Make the dial's TLS socket take 8 KiB each ``every`` seconds, else would block.
+
+    A slow peer that never stops: some bytes go in every ``every`` seconds, so no gap
+    anywhere comes near ``D``. Faked at the socket, because a real TLS write shows no
+    byte to the sender until a whole record is out, and a real slow peer on loopback
+    stalls in the kernel for longer than any ``D`` a test can afford.
+    """
+    sock = generation._socket._dial.sock  # test seam: the dial's own TLS socket
+    last = [time.monotonic()]
+
+    def trickle(*args: object) -> int:
+        if time.monotonic() - last[0] < every:
+            time.sleep(0.01)  # the select on a writable socket would spin
+            msg = "the send buffer is full"
+            raise ssl.SSLWantWriteError(msg)
+        last[0] = time.monotonic()
+        return min(len(cast("memoryview", args[0])), 8 << 10)
+
+    sock.send = trickle  # type: ignore[method-assign]
+
+
 _BOUND = SEND_TIMEOUT_CEILING_SECONDS + bounded_ask.SETTLE_BOUND  # the settle's bound
 
 
@@ -295,8 +317,9 @@ class TestABoundedWrite:
     """
 
     def test_p25_a_tls_peer_that_never_reads_ends_the_write_within_the_deadline(
-        self, tls: _TlsDisplay
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        records = count_end_records(monkeypatch)
         connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
@@ -307,41 +330,35 @@ class TestABoundedWrite:
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
+        assert records.count(True) == 1  # the cause is recorded once
 
-    def test_p25_a_slow_draining_tls_peer_ends_the_write_within_the_deadline(
-        self, tls: _TlsDisplay
+    def test_p29_a_slow_but_steady_tls_peer_keeps_its_write(
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """No gap of ``D`` anywhere, so the write that takes many ``D`` is not cut."""
+        window = 0.3
+        monkeypatch.setattr(dial_socket, "SCENE_WRITE_DEADLINE_SECONDS", window)
         connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
-        peer_sock = tls.peer.raw
-        stop = threading.Event()
+        scene = ScenePresentation(frame_id="steady").message(
+            "steady", [TextElement(id="t", content="x" * (512 << 10))]
+        )
 
-        def drain_slowly() -> None:
-            while not stop.is_set():
-                peer_sock.settimeout(0.05)
-                with contextlib.suppress(OSError):
-                    peer_sock.recv(65536)
-                stop.wait(0.2)  # slower than the writer, but never stopped
+        _a_tls_peer_that_trickles(generation, every=0.1)
 
-        draining = threading.Thread(target=drain_slowly, daemon=True)
-        draining.start()
-        try:
-            took, error = _ends_within(
-                _BOUND, lambda: generation.send_scene(_big_scene())
-            )
-        finally:
-            stop.set()
-            draining.join(2.0)
+        took, error = _ends_within(30.0, lambda: generation.send_scene(scene))
 
-        assert isinstance(error, UnresponsiveError)
-        assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
-        assert generation.ended == "unresponsive"
-        assert until(lambda: generation.is_settled, _BOUND)
+        assert error is None
+        assert took > 3 * window  # the premise: the write outlasted the window
+        assert generation.ended is None
+        assert generation.owed_acks == 1  # the scene is in the ledger
+        connection.close()
 
-    def test_p25_a_keepalive_ping_that_is_the_first_write_to_stall_ends_the_dial(
-        self, tls: _TlsDisplay
+    def test_p27_a_keepalive_ping_that_is_the_first_write_to_stall_ends_the_dial(
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        records = count_end_records(monkeypatch)
         connection = bare_connection(tls, 5.0)
         connection.open()
         generation = connection.require()
@@ -353,6 +370,30 @@ class TestABoundedWrite:
         assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
         assert generation.ended == "unresponsive"
         assert until(lambda: generation.is_settled, _BOUND)
+        assert records.count(True) == 1
+        assert generation._socket._lock.acquire(timeout=1.0), "the lock was kept"
+        generation._socket._lock.release()
+
+    def test_p27_a_query_that_is_the_first_write_to_stall_ends_the_dial(
+        self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        records = count_end_records(monkeypatch)
+        connection = bare_connection(tls, 5.0)
+        connection.open()
+        generation = connection.require()
+        _a_tls_peer_that_never_reads(generation)
+
+        took, error = _ends_within(
+            _BOUND, lambda: generation.send_query(QueryRequest(method="m"))
+        )
+
+        assert isinstance(error, UnresponsiveError)
+        assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
+        assert generation.ended == "unresponsive"
+        assert until(lambda: generation.is_settled, _BOUND)
+        assert records.count(True) == 1
+        assert generation._socket._lock.acquire(timeout=1.0), "the lock was kept"
+        generation._socket._lock.release()
 
 
 class TestTheDrainNeverWaits:

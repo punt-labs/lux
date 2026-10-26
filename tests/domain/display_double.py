@@ -208,6 +208,56 @@ class Display:
 
 
 @final
+class SteadyDrain:
+    """A peer that reads a little, again and again: slow, but never stopped.
+
+    Its two ends are small buffers (the writer's send buffer, this end's receive
+    buffer), so each read frees room the writer can use at once: the write takes many
+    times a short deadline, with no gap anywhere near it.
+    """
+
+    _sock: socket.socket
+    _chunk: int
+    _every: float
+    _stop: threading.Event
+    _thread: threading.Thread
+    __slots__ = ("_chunk", "_every", "_sock", "_stop", "_thread")
+
+    def __new__(
+        cls,
+        reader: socket.socket,
+        writer: socket.socket,
+        *,
+        chunk: int = 4096,
+        every: float = 0.03,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._sock = reader
+        self._chunk = chunk
+        self._every = every
+        self._stop = threading.Event()
+        writer.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, chunk)
+        reader.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, chunk)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        return self
+
+    def __enter__(self) -> Self:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        self._thread.join(2.0)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._sock.settimeout(0.02)
+            with contextlib.suppress(OSError):
+                self._sock.recv(self._chunk)
+            self._stop.wait(self._every)
+
+
+@final
 class Call[T]:
     """A call running on its own thread; its result or its exception, afterwards."""
 

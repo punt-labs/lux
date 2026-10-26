@@ -107,6 +107,10 @@ class DialGeneration:
         """The label of the display this dial reached, for logs only."""
         return self._socket.endpoint
 
+    def is_progressing(self) -> bool:
+        """Whether a byte moved on this dial's socket within ``D``: it is live."""
+        return self._socket.is_progressing()
+
     @property
     def is_cross_host(self) -> bool:
         """Whether this dial reaches a Display on another host: a TLS socket."""
