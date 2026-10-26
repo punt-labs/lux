@@ -9,6 +9,7 @@ same dial code over a real mTLS loopback pair.
 
 from __future__ import annotations
 
+import logging
 import socket
 import ssl
 import threading
@@ -20,10 +21,23 @@ import pytest
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-from punt_lux.protocol import PingMessage, QueryRequest, QueryResponse, ReadyMessage
+from punt_lux.protocol import (
+    AckMessage,
+    PingMessage,
+    QueryRequest,
+    QueryResponse,
+    ReadyMessage,
+)
 from tests.display._mtls_harness import MtlsMaterial
 from tests.domain.display_double import Call, Peer
-from tests.link_access import bare_connection, no_reader
+from tests.domain.test_retire_cause import _scene
+from tests.link_access import (
+    bare_connection,
+    deaths_of,
+    generation_of,
+    no_reader,
+    writer_of,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -120,6 +134,61 @@ def test_a_reply_larger_than_one_tls_record_is_read_whole_inline(
     assert querying.wait(5.0)
     assert querying.result == big
     link.close()
+
+
+def test_a_tls_end_of_file_that_follows_queued_acks_is_read_then_the_displays_end(
+    tls: _TlsDisplay, caplog: pytest.LogCaptureFixture
+) -> None:
+    """O-eof over TLS: the drain reads the ack a closing display left, then its end.
+
+    The display reads the scene, queues an ack and closes with nothing of the Hub's
+    unread, so TCP sends a FIN after the ack. The TLS stack delivers that as a plain
+    end of file (a ragged one, with no ``close_notify``, which Python reads as an
+    empty chunk), not a reset: the drain reads the ack first, and the empty chunk
+    that follows is the display's end, so the acked scene is never charged.
+    """
+    link = DisplayLink(tls, recv_timeout=3.0)
+    link.connect()
+    generation = generation_of(link)
+    writer_of(link).send_scene(_scene("a"))
+    tls.peer.read(1)  # the display read it: nothing of the Hub's is left unread
+    tls.peer.send(AckMessage(scene_id="a"))  # queued toward the Hub
+    tls.peer.close()
+
+    with caplog.at_level(logging.DEBUG):
+        link.close()
+
+    assert generation.owed_acks == 0  # the ack was read before the end
+    assert generation.ended == "display"  # and the end was the display's
+    assert not any("cut short" in r.getMessage() for r in caplog.records)
+    assert deaths_of(link) == ()
+
+
+def test_a_tls_reset_is_the_displays_end_though_it_may_discard_a_queued_ack(
+    tls: _TlsDisplay, caplog: pytest.LogCaptureFixture
+) -> None:
+    """O-eof over TLS, the reset leg: the end is the display's, never the Hub's.
+
+    The display closes with the scene unread, so TCP sends a reset, which the TLS
+    stack raises as ``ConnectionResetError``: the drain reports the end as cut short.
+    A reset from a remote peer may discard what was queued behind it (on Linux the
+    ack here is lost, which the drain's own contract names as the cross-host
+    carve-out), so the test pins only what holds on every stack: the end is
+    recorded as the display's, and a death, if one is charged, is the display's.
+    """
+    link = DisplayLink(tls, recv_timeout=3.0)
+    link.connect()
+    generation = generation_of(link)
+    writer_of(link).send_scene(_scene("a"))  # the display never reads it
+    tls.peer.send(AckMessage(scene_id="a"))  # queued toward the Hub
+    tls.peer.close()  # closed with the scene unread: a reset
+
+    with caplog.at_level(logging.DEBUG):
+        link.close()
+
+    assert generation.ended == "display"
+    assert any("cut short" in r.getMessage() for r in caplog.records)
+    assert {death.cause for death in deaths_of(link)} <= {"display"}
 
 
 def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
