@@ -15,11 +15,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.ids import ElementId, SceneId
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from punt_lux.domain.event_protocol import Event
+    from punt_lux.domain.handler_writes import WriteJudge
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -36,6 +39,16 @@ class ResolvedInteraction:
     # an unowned element still fires; nothing here required an owner check.
     owner: ConnectionId | None
     scene_id: SceneId
+
+    def fire(self, event: Event, judge: WriteJudge) -> None:
+        """Fire ``event`` on the element, judging every patch its handlers write.
+
+        A patch is shown to ``judge`` before the element it names is touched, so one
+        the judge refuses leaves that element, and anything observing it, as it was.
+        The refusal is logged with the handler's other failures.
+        """
+        with HandlerWrites.judged(judge):
+            self.element.fire(event)
 
 
 @final

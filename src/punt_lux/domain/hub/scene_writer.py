@@ -105,7 +105,7 @@ class HubSceneWriter:
             rejection = self._rejection_of(scope, realizations)
             if rejection is not None:
                 return rejection
-            self._commit(realizations)
+            self._display.write_seam.commit(realizations)
             self._apply_removals(scope, batch.removals)
             return WriteAccepted()
 
@@ -176,22 +176,6 @@ class HubSceneWriter:
             scope.scene_id, realizations
         )
         return None if too_deep is None else WriteRejected(too_deep)
-
-    @staticmethod
-    def _commit(realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization atomically.
-
-        Each snapshots its own undo state, so a mid-batch raise rolls all back.
-        """
-        committed: list[FieldRealization] = []
-        try:
-            for realization in realizations:
-                realization.commit()
-                committed.append(realization)
-        except Exception:
-            for realization in reversed(committed):
-                realization.restore()
-            raise
 
     def _apply_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Evict each removed element from the store after all sets have committed.

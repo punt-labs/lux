@@ -304,10 +304,32 @@ def _fires_in(source: str) -> list[str]:
     ]
 
 
-class TestOnlyTheSeamFiresAnEventOnTheHub:
-    """The judge is installed by the seam's ``fire``, so no handler runs outside it."""
+def _fires_outside_a_judged_scope(source: str) -> list[str]:
+    """Every ``<x>.fire`` named outside a ``with HandlerWrites.judged(...)`` body."""
+    tree = ast.parse(source)
+    judged: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.With) and any(
+            isinstance(item.context_expr, ast.Call)
+            and ast.unparse(item.context_expr.func) == "HandlerWrites.judged"
+            for item in node.items
+        ):
+            judged.update(id(inner) for inner in ast.walk(node))
+    return [
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and node.attr == "fire"
+        and id(node) not in judged
+    ]
 
-    def test_the_hub_fires_an_element_only_through_the_seam(self) -> None:
+
+class TestOnlyAJudgedInteractionFiresAnEventOnTheHub:
+    """The one element fire on the Hub runs inside the judge; no handler escapes it."""
+
+    def test_the_hub_fires_an_element_only_through_a_resolved_interaction(
+        self,
+    ) -> None:
         firing = {
             module: names
             for module, source in _sources().items()
@@ -315,12 +337,29 @@ class TestOnlyTheSeamFiresAnEventOnTheHub:
         }
 
         assert firing == {
-            "domain/hub/handler_firing.py": ["element.fire"],  # the one dispatch
-            "domain/hub/hub_interaction_dispatch.py": [
-                "HandlerFiring(hub_display.write_seam).fire"
-            ],
+            "domain/hub/element_invocation_resolver.py": ["self.element.fire"],
+            "domain/hub/hub_interaction_dispatch.py": ["resolved.fire"],
             "domain/hub/departure_cascade.py": ["self._sinks.fire"],  # not an element
         }
+
+    def test_that_fire_runs_inside_the_judged_scope(self) -> None:
+        source = _sources()["domain/hub/element_invocation_resolver.py"]
+
+        assert _fires_outside_a_judged_scope(source) == []
+
+    def test_a_fire_outside_the_scope_is_found(self) -> None:
+        planted = "def f(element, event):\n    element.fire(event)\n"
+
+        assert _fires_outside_a_judged_scope(planted) == ["element.fire"]
+
+    def test_a_fire_inside_the_scope_is_not_flagged(self) -> None:
+        planted = (
+            "def f(element, event, judge):\n"
+            "    with HandlerWrites.judged(judge):\n"
+            "        element.fire(event)\n"
+        )
+
+        assert _fires_outside_a_judged_scope(planted) == []
 
     @pytest.mark.parametrize(
         "planted",

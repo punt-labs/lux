@@ -133,6 +133,25 @@ class ElementIndex:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
         return element
 
+    def scene_of(self, element: WireElement) -> SceneId | None:
+        """Return the scene that holds ``element`` itself; ``None`` if none does.
+
+        Identity, not id: a same-named element of another scene is not this one.
+        A named element is one keyed probe per scene; an anonymous one, stored
+        under a synthesized handle, is found by scanning. ``None`` is the answer,
+        not an error: whether an element is installed anywhere is the question.
+        """
+        key = ElementId(element.id)
+        named = not ElementIdentity.of(element).is_anonymous
+        for scene_id, scene in self._by_scene.items():
+            if (
+                scene.get(key) is element
+                if named
+                else any(held is element for held in scene.values())
+            ):
+                return scene_id
+        return None
+
     def contains(self, scene_id: SceneId, element_id: ElementId) -> bool:
         """Return whether ``element_id`` is installed — ``lookup`` without a raise."""
         scene = self._by_scene.get(scene_id)
