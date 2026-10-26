@@ -58,7 +58,7 @@ class _Port:
 
 
 def _death(*scenes: str) -> DialDeath:
-    return DialDeath(frozenset(SceneId(s) for s in scenes), "pair-1")
+    return DialDeath(frozenset(SceneId(s) for s in scenes), "pair-1", "display")
 
 
 def _charger(*deaths: DialDeath) -> tuple[DeathCharger, CrashAttribution, _Port]:

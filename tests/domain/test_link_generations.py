@@ -317,7 +317,7 @@ class TestAWriteThatRaises:
 
         with pytest.raises(OSError, match="fell over"):
             writer_of(link).send_scene(_scene("lost"))
-        assert not link.is_connected
+        assert until(lambda: not link.is_connected)  # the dial's reader settles it
 
         link.connect()
         link.connect(listen=True)
@@ -464,63 +464,67 @@ class TestBusyIsNotDead:
         assert first.wait()
         link.close()
 
-    def test_a_confirmation_that_only_finds_a_ping_in_flight_is_unproved_not_dead(
+    def test_an_ack_wait_with_nothing_owed_needs_no_wait(
         self, display: Display
     ) -> None:
-        # The isolation loop must learn that the display survived the scene it just
-        # sent. A ping already in flight proves nothing about that scene, and says
-        # nothing against the display: the confirmation waits it out, asks again, and
-        # a dial that stays busy is not a death.
+        link = _linked(display)
+
+        assert link.desk.asks().await_acks(0.05) is True
+        link.close()
+
+    def test_the_ack_that_empties_the_ledger_answers_the_wait(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("s"))
+        waiting = Call(lambda: link.desk.asks().await_acks(3.0))
+        (scene,) = display.peer.read(1)
+        assert isinstance(scene, SceneMessage)
+
+        display.peer.send(AckMessage(scene_id="s"))
+
+        assert waiting.wait()
+        assert waiting.result is True
+        link.close()
+
+    def test_a_pong_does_not_answer_an_ack_wait(self, display: Display) -> None:
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("s"))
+        waiting = Call(lambda: link.desk.asks().await_acks(0.3))
+        display.peer.read(1)
+
+        display.peer.send(PongMessage(ts=1.0))  # the display is reading, nothing more
+
+        assert waiting.wait()
+        assert waiting.result is False
+        link.close()
+
+    def test_an_ack_wait_the_display_never_answers_is_false_and_keeps_the_dial(
+        self, display: Display
+    ) -> None:
+        link = _linked(display)
+        writer_of(link).send_scene(_scene("s"))
+
+        assert link.desk.asks().await_acks(0.05) is False
+        assert link.is_connected  # giving the dial up is the caller's decision
+        link.close()
+
+    def test_a_ping_in_flight_does_not_make_an_ack_wait_busy(
+        self, display: Display
+    ) -> None:
         link = _linked(display)
         first = Call(lambda: link.desk.asks().ping(timeout=3.0))
         (sent,) = display.peer.read(1)
         assert isinstance(sent, PingMessage)
+        writer_of(link).send_scene(_scene("s"))
+        waiting = Call(lambda: link.desk.asks().await_acks(3.0))
+        display.peer.read(1)
 
-        assert link.desk.asks().confirm_alive(0.05) == "unproved"
+        display.peer.send(AckMessage(scene_id="s"), PongMessage(ts=sent.ts))
 
-        assert display.peer.read(1, timeout=0.1) == [], "a busy dial wrote nothing"
-        display.peer.send(PongMessage(ts=sent.ts))
+        assert waiting.wait()
+        assert waiting.result is True
         assert first.wait()
-        link.close()
-
-    def test_a_confirmation_that_waited_out_a_ping_gets_the_displays_own_pong(
-        self, display: Display
-    ) -> None:
-        link = _linked(display)
-        first = Call(lambda: link.desk.asks().ping(timeout=3.0))
-        (sent,) = display.peer.read(1)
-        assert isinstance(sent, PingMessage)
-        confirming = Call(lambda: link.desk.asks().confirm_alive(1.0))
-        time.sleep(0.1)  # the confirmation is queued behind the first ping
-
-        display.peer.send(PongMessage(ts=sent.ts))
-        (own,) = display.peer.read(1)
-        assert isinstance(own, PingMessage), "the confirmation asked again"
-        display.peer.send(PongMessage(ts=own.ts))
-
-        assert first.wait()
-        assert confirming.wait()
-        assert confirming.result == "answered"
-        link.close()
-
-    def test_a_confirmation_is_the_displays_own_pong(self, display: Display) -> None:
-        link = _linked(display)
-        confirming = Call(lambda: link.desk.asks().confirm_alive(3.0))
-        (sent,) = display.peer.read(1)
-        assert isinstance(sent, PingMessage)
-
-        display.peer.send(PongMessage(ts=sent.ts))
-
-        assert confirming.wait()
-        assert confirming.result == "answered"
-        link.close()
-
-    def test_a_confirmation_the_display_never_answers_is_false(
-        self, display: Display
-    ) -> None:
-        link = _linked(display)
-
-        assert link.desk.asks().confirm_alive(0.05) == "silent"
         link.close()
 
     def test_a_query_that_lost_its_lock_wait_says_busy_and_keeps_its_dial(
@@ -803,6 +807,7 @@ class TestEveryRetirementReachesTheRegistry:
         display.sockets[0].fail_next_send = True
         with pytest.raises(OSError, match="fell over"):
             writer_of(link).send_scene(_scene("s"))
+        assert until(lambda: not link.is_connected)
 
         self._redialed(display, registry)
 

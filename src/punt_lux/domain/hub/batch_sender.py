@@ -10,13 +10,11 @@ again by recovery, whoever found the dial dead.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.death_charger import DeathCharger
-from punt_lux.domain.hub.push_result import PushResult
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import CrashAttribution
@@ -34,12 +32,10 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
 
-logger = logging.getLogger(__name__)
-
 __all__ = ["BatchSendError", "BatchSender"]
 
 # The isolation-mode roundtrip budget: after each singleton send, wait this
-# long for the display to ack a ping -- long enough under load, short enough
+# long for the display to ack the scene -- long enough under load, short enough
 # that a wedged display trips recovery quickly and blames the real crasher.
 _PROBE_TIMEOUT_SECONDS = 1.0
 
@@ -124,8 +120,8 @@ class BatchSender:
         """Charge every death on record, once; the idle replicator's look."""
         self._charger.charge()
 
-    def push(self, batch: DrainedBatch) -> PushResult:
-        """Send the batch; report the scenes found empty and the scenes left unsent.
+    def push(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
+        """Send the batch; report the scenes found empty, the reclaim candidates.
 
         Deaths already on record are charged first, so a scene they take to the
         threshold is quarantined before the batch is filtered. A socket failure
@@ -143,7 +139,7 @@ class BatchSender:
         except OSError as exc:
             raise flight.failed(exc) from exc
 
-    def _push(self, batch: DrainedBatch, flight: _InFlight) -> PushResult:
+    def _push(self, batch: DrainedBatch, flight: _InFlight) -> tuple[SceneId, ...]:
         scenes = frozenset(
             s for s in batch.scenes if not self._attribution.is_quarantined(s)
         )
@@ -159,48 +155,39 @@ class BatchSender:
             return self._isolating(scenes, flight)
         return self._batching(scenes, flight)
 
-    def _batching(self, scenes: frozenset[SceneId], flight: _InFlight) -> PushResult:
+    def _batching(
+        self, scenes: frozenset[SceneId], flight: _InFlight
+    ) -> tuple[SceneId, ...]:
         """Send every scene as one coalesced batch.
 
         Each ``_send_scene`` sends and reports whether the scene was empty; the
         comprehension keeps the empties as reclaim candidates.
         """
-        return PushResult(
-            tuple(scene for scene in scenes if self._send_scene(scene, flight))
-        )
+        return tuple(scene for scene in scenes if self._send_scene(scene, flight))
 
-    def _isolating(self, scenes: frozenset[SceneId], flight: _InFlight) -> PushResult:
-        """Send every scene alone, with a liveness probe between sends.
+    def _isolating(
+        self, scenes: frozenset[SceneId], flight: _InFlight
+    ) -> tuple[SceneId, ...]:
+        """Send every scene alone, and wait for its ack before the next goes out.
 
-        A synchronous probe runs *after* each send, *before* the next, so the display
-        has taken scene N (acked it, or died holding it) before N+1 goes out: a death
-        leaves a ledger of one. A pong that never comes is the display's end of a dial
-        it left open, retired as such so its ledger is charged. A dial too busy to ask
-        proves nothing and is no death: the scene stays queued, the cycle stops with
-        the rest unsent, and a warning names it.
+        The ack is sent only after a swap that completed with the scene installed, so
+        waiting for it makes the display take scene N (survive it, or die holding it)
+        before N+1 goes out: a death leaves a ledger of one. A pong would say only
+        that the display is reading. An ack that never comes is a display that stalled
+        or died holding the scene, so the dial is given up as unresponsive: its ledger
+        is charged and carried, and nothing more is sent on it.
         """
         emptied: list[SceneId] = []
-        pending = list(scenes)
-        while pending:
-            scene_id = pending.pop(0)
+        for scene_id in scenes:
             if self._send_scene(scene_id, flight):
                 emptied.append(scene_id)
             probe = self._connected(flight)  # connects if the dial is gone
             flight.on(probe.dial)
-            verdict = probe.confirm_alive(_PROBE_TIMEOUT_SECONDS)
-            if verdict == "silent":
+            if not probe.await_acks(_PROBE_TIMEOUT_SECONDS):
                 self._clients.drop_unresponsive(probe.dial)
-                msg = f"display did not ack probe after sending {scene_id!r}"
+                msg = f"display did not ack {scene_id!r} after a swap"
                 raise ConnectionClosedError(msg)
-            if verdict == "unproved":
-                logger.warning(
-                    "isolation could not confirm the display took %r (the dial stayed "
-                    "busy); it and %d more scene(s) stay queued",
-                    scene_id,
-                    len(pending),
-                )
-                return PushResult(tuple(emptied), (scene_id, *pending))
-        return PushResult(tuple(emptied))
+        return tuple(emptied)
 
     def _sender(self, flight: _InFlight) -> DisplaySender:
         """A sender pinned to the dial that is current, noting it for a failure."""

@@ -291,7 +291,7 @@ class HubReplicator:
         death is charged from its own dial's ledger, however it was found."""
         since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
         try:
-            pushed = self._sender.push(batch)
+            emptied = self._sender.push(batch)
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
@@ -299,8 +299,7 @@ class HubReplicator:
             return _CycleOutcome(outcome="disconnected")
         except BatchSendError as exc:
             return self._recovered(batch, exc, since_gen)
-        self._signal.add_all(pushed.deferred)  # left unsent: queued for the next cycle
-        return _CycleOutcome(outcome="clean", emptied=pushed.emptied)
+        return _CycleOutcome(outcome="clean", emptied=emptied)
 
     def _recovered(
         self, batch: DrainedBatch, failure: BatchSendError, since_gen: int

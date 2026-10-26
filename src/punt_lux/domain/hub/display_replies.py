@@ -36,6 +36,9 @@ __all__ = ["DisplayReplies"]
 # How long a caller that could not take the reader slot waits on the sink before
 # trying for the slot again (the holder may have finished with its own reply).
 _SLOT_RETRY_SECONDS = 0.05
+# How long one wait on the socket runs before the dial is checked for an end that
+# someone else recorded (an end by a writer or the keepalive wakes no one).
+_POLL_SECONDS = 0.1
 
 
 @final
@@ -73,7 +76,10 @@ class DisplayReplies:
                 return generation.await_reply(pending, remaining)
             with generation.inline_reading() as granted:
                 if granted:
-                    return self._read_inline(generation, pending, deadline)
+                    try:
+                        return self._read_inline(generation, pending, deadline)
+                    finally:
+                        self._settle_if_ended(generation)
             if remaining <= 0:
                 return None
             reply = generation.await_reply(pending, min(remaining, _SLOT_RETRY_SECONDS))
@@ -84,27 +90,41 @@ class DisplayReplies:
         """Run the interactions inline reads held; call with no request lock held."""
         self._listener.run_held()
 
+    def _settle_if_ended(self, generation: DialGeneration) -> None:
+        """Settle a dial someone ended while this read held its reader slot.
+
+        The end was recorded and no one else could read the dial's ledger whole: this
+        reader had the slot, so it reads to the end and settles before it lets go.
+        """
+        if generation.ended is not None and not generation.is_settled:
+            self._listener.settle(generation, inline=True)
+
     def _read_inline[R: Message](
         self, generation: DialGeneration, pending: Pending[object, R], deadline: float
     ) -> R | None:
         """Read ``generation``'s socket until ``pending`` is answered or time is up.
 
         The same routing the listener applies, so the ack ledger stays in step
-        with the wire. A failed read or an undecodable frame retires the dial, as
-        the reader would, naming who ended it the way the reader does.
+        with the wire. This is the dial's reader for the time it holds the slot, so a
+        dial ended under it, or by a failed read, is settled here after reading to the
+        end what it holds; an undecodable frame ends the dial as the reader would,
+        naming who ended it the way the reader does.
         """
         while not generation.answered(pending):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
+            if generation.ended is not None:  # someone ended it: settle it as reader
+                self._listener.settle(generation, inline=True)
+                raise generation.closed_error()
             try:
-                chunk = generation.poll_chunk(remaining)
+                chunk = generation.poll_chunk(min(remaining, _POLL_SECONDS))
                 if chunk is not None:
                     self._route_inline(generation, chunk)
             except (ConnectionClosedError, OSError) as exc:
-                # The display's end, or our own retirement: either way it is over.
-                # A retire that loses to another's reports the winner's cause.
-                if not self._connection.close_if_current(generation, cause="display"):
+                # The display's end, or the dial ended under the wait: either way it is
+                # over. A settle that loses to another's reports the winner's cause.
+                if not self._listener.settle(generation, inline=True):
                     raise generation.closed_error() from exc
                 raise
             except ReplyOutOfOrderError as exc:
@@ -134,8 +154,8 @@ class DisplayReplies:
         whichever dial carried it (rule 16).
         """
         for msg in generation.messages(chunk):
-            if generation.is_closed:
-                return  # a retired dial routes nothing more
+            if generation.is_settled:
+                return  # a settled dial routes nothing more
             try:
                 self._listener.route(generation, msg, inline=True)
             except Exception:

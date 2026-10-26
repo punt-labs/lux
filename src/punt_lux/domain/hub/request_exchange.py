@@ -122,4 +122,4 @@ class RequestExchange:
 
     def give_up(self, generation: DialGeneration) -> None:
         """Retire a dial whose query timed out, if it is still the current one."""
-        self._connection.close_if_current(generation, cause="hub")
+        self._connection.retire(generation, cause="hub")

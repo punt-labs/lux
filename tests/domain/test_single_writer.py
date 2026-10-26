@@ -47,6 +47,7 @@ _HUB = "domain/hub/"
 # module outside this set cannot hold a dial, so it cannot write or read on one.
 _DIAL_MODEL = frozenset(
     {
+        _HUB + "dial_drain.py",
         _HUB + "dial_generation.py",
         _HUB + "dial_reader.py",
         _HUB + "dial_ref.py",
@@ -160,11 +161,15 @@ def _modules(predicate: Callable[[str], object]) -> set[str]:
 
 
 def _dial_writes() -> set[str]:
-    """The dial's write methods: every ``send*`` that registers no reply to wait for."""
+    """The dial's write methods: every ``send*`` that registers no reply to wait for.
+
+    The writes live on the dial's outbound side; the generation exposes them by the same
+    names.
+    """
     return {
         name
         for name, fn in _public_methods(
-            _source(_HUB + "dial_generation.py"), "DialGeneration"
+            _source(_HUB + "dial_outbound.py"), "DialOutbound"
         ).items()
         if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
     }

@@ -128,19 +128,28 @@ class ClientRegistry:
         The Hub ends it by its own policy: a sender that finds it gone blames
         nothing on what it was sending.
         """
-        with self._lock:
-            if self._client is not None:
-                self._client.drop_if_current(dial, cause="hub")
+        client = self._link()
+        if client is not None:
+            client.drop_if_current(dial, cause="hub")
 
     def drop_unresponsive(self, dial: DialRef) -> None:
         """Retire a dial that is open but does not answer, unless a redial replaced it.
 
-        An unanswering dial is evidence about the display, so it is the display's
-        end: a sender pinned to it that finds it gone is charged to what it sent.
+        An unanswering dial is evidence about the display that the display may outlive:
+        its suspects are queued for charging as for a death, and carried to the next
+        dial too. A sender pinned to it that finds it gone is charged to what it sent.
+        """
+        client = self._link()
+        if client is not None:
+            client.drop_if_current(dial, cause="unresponsive")
+
+    def _link(self) -> DisplayLink | None:
+        """The link, if one was made; read under the lock, used outside it.
+
+        Ending a dial may read the socket, so it must not hold the registry's lock.
         """
         with self._lock:
-            if self._client is not None:
-                self._client.drop_if_current(dial, cause="display")
+            return self._client
 
     def take_death(self) -> DialDeath | None:
         """The oldest display-ended dial not yet charged, handed over once."""

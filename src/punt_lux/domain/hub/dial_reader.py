@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 
 if TYPE_CHECKING:
@@ -64,17 +65,23 @@ class DialReader:
         return self
 
     def run(self) -> None:
-        """Read and route until stopped or the stream ends, then retire the dial.
+        """Read and route until stopped or the dial ends, then settle the dial.
 
         The closing report is ``close_if_current`` of this reader's own generation,
         taken whatever ended the loop: it is a no-op once a redial replaced the
-        generation, and ``stop`` retires it first, so safety rests on that scoping
-        and not on re-testing the stopping flag before the report.
+        generation, and ``stop`` settles it first, so safety rests on that scoping
+        and not on re-testing the stopping flag before the report. Someone else's end
+        (a writer's failure, the keepalive's give-up) is noticed at the top of the
+        loop, and is settled here, after the drain, not by whoever found it.
         """
         generation = self._generation
         cause: RetireCause = "hub"  # the Hub's own stop, or a stream it gave up on
+        readable = True  # whether the socket may still hold something worth reading
         try:
-            while not self._stopping.is_set() and not generation.is_closed:
+            while not self._stopping.is_set():
+                if (recorded := generation.ended) is not None:
+                    cause = recorded
+                    break
                 try:
                     data = generation.poll_chunk(_POLL_SECONDS)
                 except (ConnectionClosedError, OSError, ValueError) as exc:
@@ -84,9 +91,22 @@ class DialReader:
                 ended = None if data is None else self._routed(data)
                 if ended is not None:
                     cause = ended
+                    readable = False  # a stream we gave up on has nothing to trust
                     break
         finally:
-            self._connection.close_if_current(generation, cause=cause)
+            self._settle(cause, readable=readable)
+
+    def _settle(self, cause: RetireCause, *, readable: bool) -> None:
+        """Read what the socket still holds if it is owed, then settle the dial.
+
+        The cause that stands is the first one recorded on the dial, which is not
+        always this reader's own. A stream that could not be read past (a frame that
+        did not decode, a reply nobody was owed) is not read again.
+        """
+        generation = self._generation
+        if readable and (generation.ended or cause) != "hub":
+            DialDrain(self._route).run(generation)
+        self._connection.close_if_current(generation, cause=cause)
 
     def _read_ended(self, exc: Exception) -> bool:
         """Say why a read ended; whether the display ended it.
@@ -119,7 +139,7 @@ class DialReader:
         # A retired dial parks no reply, and the undecoded rest of its chunk is not
         # routed. What was already routed stands: an event or an interaction is
         # link-level, not the dial's reply (see ``_routed_one``).
-        while not self._stopping.is_set() and not generation.is_closed:
+        while not self._stopping.is_set() and not generation.is_settled:
             try:
                 msg = next(messages, None)
             except Exception:  # wire boundary: any decoder failure ends the stream

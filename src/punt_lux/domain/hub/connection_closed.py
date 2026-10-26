@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from typing import Literal
 
-__all__ = ["ConnectionClosedError", "HubRetiredError", "RetireCause"]
+__all__ = [
+    "ConnectionClosedError",
+    "HubRetiredError",
+    "RetireCause",
+    "UnresponsiveError",
+]
 
 # Who ended a dial: the display (it closed the stream, or a read or write failed on
-# the socket) or the Hub (its own policy: a query timeout, a reply out of order, a
-# write interrupted by something other than a socket failure, a deliberate close).
-# Only the first is evidence the display died.
-type RetireCause = Literal["display", "hub"]
+# the socket), the Hub (its own policy: a query timeout, a reply out of order, a
+# write interrupted by something other than a socket failure, a deliberate close),
+# or the Hub's give-up on a display that may still be alive (the keepalive or the
+# isolation probe heard nothing). The display's end is evidence the display died;
+# an unresponsive dial is evidence of the same kind, but the display may outlive it.
+type RetireCause = Literal["display", "hub", "unresponsive"]
 
 
 class ConnectionClosedError(ConnectionError):
@@ -34,4 +41,12 @@ class HubRetiredError(ConnectionClosedError):
     sending. A dial the display ended (it closed the stream, reset the
     connection, sent a frame that cannot be decoded, or stopped reading until a
     send timed out) is a plain :class:`ConnectionClosedError`.
+    """
+
+
+class UnresponsiveError(ConnectionClosedError):
+    """The Hub gave up on this dial because the display stopped answering on it.
+
+    The display may be alive and still hold what it was sent, so a sender that finds
+    a dial ended this way blames what it was sending, as for a display death.
     """

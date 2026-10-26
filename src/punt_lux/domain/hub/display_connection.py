@@ -2,12 +2,14 @@
 
 The connection dials the display and says which :class:`DialGeneration` is current;
 the generation owns its socket, its writes, its reader's bytes and the replies it
-is owed, and reports its own breakage back through :meth:`close_if_current`. A
+is owed, and reports its own breakage back through :meth:`retire`. A
 state lock, distinct from every generation's socket lock, guards the current
 generation and is held only for a field update, never across a dial, a write or a
-close. Retiring a generation is :meth:`close_if_current`: a no-op unless that
-generation is still current, so a reader or a waiter that outlived a redial can
-report its own dial's end without touching the new one.
+close. Ending a generation is :meth:`close_if_current` for its reader and :meth:`retire`
+for anyone else: each is a no-op unless that generation is still current, so a reader
+or a waiter that outlived a redial can report its own dial's end without touching the
+new one. The connection also holds the suspects dials leave behind (the
+:class:`~punt_lux.domain.hub.suspect_book.SuspectBook`) and the deaths not yet charged.
 
 The link's typed calls, the reader and the request waits are clients of it and
 share no socket state of their own.
@@ -20,12 +22,14 @@ import threading
 from collections import deque
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.dial_death import DialDeath
 from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.send_timeout import set_send_timeout
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.display_dialer import DisplayDialer
@@ -57,13 +61,20 @@ class DisplayConnection:
     _last: DialGeneration | None
     # Display-ended dials whose ledger nobody has charged yet, oldest first.
     _deaths: deque[DialDeath]
+    # The scenes earlier dials left behind that the display may still hold.
+    _suspects: SuspectBook
+    # Asked, when a dial is ended by someone who is not its reader, to see that its
+    # reader settles it; set by whatever owns the readers.
+    _settle_unread: Callable[[DialGeneration], None]
     __slots__ = (
         "_connect_timeout",
         "_current",
         "_deaths",
         "_dialer",
         "_last",
+        "_settle_unread",
         "_state_lock",
+        "_suspects",
     )
 
     def __new__(cls, dialer: DisplayDialer, connect_timeout: float) -> Self:
@@ -74,7 +85,13 @@ class DisplayConnection:
         self._current = None
         self._last = None
         self._deaths = deque()
+        self._suspects = SuspectBook()
+        self._settle_unread = lambda _generation: None
         return self
+
+    def settle_unread_with(self, settle: Callable[[DialGeneration], None]) -> None:
+        """Say who settles a dial that someone other than its reader ended."""
+        self._settle_unread = settle
 
     @property
     def is_open(self) -> bool:
@@ -131,7 +148,7 @@ class DisplayConnection:
             held = self._current
             self._current = None
             if held is not None:
-                held.mark_closed("hub")  # the Hub's own close owes no one a death
+                self._settled(held, "hub")  # the Hub's own close owes no one a death
                 self._last = held
         if held is not None:
             held.shut()
@@ -139,26 +156,54 @@ class DisplayConnection:
     def close_if_current(
         self, generation: DialGeneration, *, cause: RetireCause
     ) -> bool:
-        """Retire ``generation`` if it is still the current dial; whether it was.
+        """Settle ``generation`` if it is still the current dial; whether it was.
 
-        Atomic with the dial's publication: no interleaving closes a dial made
-        after the check. ``cause`` says who ended it, for whoever finds it gone.
+        The end of a dial whose reader is the caller, or of one the Hub ends outright:
+        the dial's ledger is captured here, so a display-ended dial must have been read
+        to the end first (:meth:`retire` is the door for everyone else). Atomic with
+        the dial's publication: no interleaving closes a dial made after the check.
+        ``cause`` is recorded unless someone already recorded one.
         """
         with self._state_lock:
             if self._current is not generation:
                 return False
             self._current = None
             self._last = generation
-            death = generation.mark_closed(cause)
-            if death is not None:
-                self._record(death)
+            self._settled(generation, cause)
         generation.shut()
         return True
+
+    def retire(self, generation: DialGeneration, *, cause: RetireCause) -> bool:
+        """End ``generation`` on behalf of a caller that is not its reader.
+
+        The Hub's own end settles at once. A display end or an unresponsive end is
+        only recorded, first cause wins, and the dial's reader settles it after it has
+        read everything the socket held: only then is the ledger complete. A Hub end
+        arriving after one of those is dropped, for the same reason. Returns whether
+        this call ended the dial.
+        """
+        with self._state_lock:
+            if self._current is not generation:
+                return False
+        if cause == "hub":
+            if generation.ended in ("display", "unresponsive"):
+                return False  # the reader settles it, ledger and all
+            return self.close_if_current(generation, cause="hub")
+        won = generation.end(cause)
+        self._settle_unread(generation)  # a dial with no reader has no one else
+        return won
 
     def take_death(self) -> DialDeath | None:
         """Hand over the oldest display-ended dial not yet charged; each once."""
         with self._state_lock:
             return self._deaths.popleft() if self._deaths else None
+
+    def _settled(self, generation: DialGeneration, cause: RetireCause) -> None:
+        """Take a dial's ledger; keep its suspects or queue its death (state lock)."""
+        settlement = generation.mark_closed(cause)
+        death = self._suspects.settle(settlement, generation.endpoint)
+        if death is not None:
+            self._record(death)
 
     def _record(self, death: DialDeath) -> None:
         """Queue a death for the replicator: never dropped, but never unnoticed."""
@@ -177,7 +222,7 @@ class DisplayConnection:
         set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
             dialed,
-            lambda generation, cause: self.close_if_current(generation, cause=cause),
+            lambda generation, cause: self.retire(generation, cause=cause),
             reader=reader,
         )
         with self._state_lock:

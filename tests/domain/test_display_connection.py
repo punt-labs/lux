@@ -275,26 +275,31 @@ class TestTheDeathsAConnectionKeeps:
 
 
 class TestTheLedgerAndTheError:
-    def test_a_generation_the_display_ended_owing_an_ack_returns_its_death(
+    def test_a_generation_the_display_ended_owing_an_ack_settles_with_its_ledger(
         self,
     ) -> None:
         connection, dialer = _opened()
         generation = connection.require()
         generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
 
-        death = generation.mark_closed("display")
+        settlement = generation.mark_closed("display")
 
-        assert death is not None
-        assert death.suspects == frozenset({SceneId("s")})
+        assert settlement.owed == (SceneId("s"),)
+        assert settlement.cause == "display"
+        assert not settlement.acked
         if dialer.peer is not None:
             dialer.peer.close()
 
-    def test_a_generation_the_hub_ended_returns_no_death(self) -> None:
+    def test_the_first_cause_recorded_is_the_one_that_stands(self) -> None:
         connection, dialer = _opened()
         generation = connection.require()
         generation.send_scene(SceneMessage(id="s", elements=[], frame_id="s"))
+        generation.end("unresponsive")
 
-        assert generation.mark_closed("hub") is None
+        settlement = generation.mark_closed("hub")
+
+        assert settlement.cause == "unresponsive"
+        assert settlement.owed == (SceneId("s"),)
         if dialer.peer is not None:
             dialer.peer.close()
 
@@ -431,7 +436,9 @@ class TestSend:
         if dialer.peer is not None:
             dialer.peer.close()
 
-    def test_a_write_that_raises_retires_its_generation(self) -> None:
+    def test_a_write_that_raises_ends_its_generation_for_its_reader_to_settle(
+        self,
+    ) -> None:
         connection, dialer = _opened()
         generation = connection.require()
         assert dialer.peer is not None
@@ -442,7 +449,9 @@ class TestSend:
             for _ in range(64):
                 generation.send(PingMessage())
 
-        assert generation.is_closed
+        assert generation.ended == "display"
+        assert connection.is_open  # the dial's reader settles it, not the writer
+        connection.close_if_current(generation, cause="display")
         assert not connection.is_open
 
     def test_a_scene_write_records_the_ack_it_is_owed_after_the_write(self) -> None:

@@ -13,7 +13,7 @@ declaring its manifest, DES-068).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from punt_lux.domain.hub.disconnected_retry import ReconnectWaiter
 from punt_lux.domain.hub.scene_presentation import ScenePusher
@@ -33,13 +33,8 @@ __all__ = [
     "DisplayProbe",
     "DisplaySender",
     "MenuReader",
-    "ProbeVerdict",
     "WriteSeatPort",
 ]
-
-
-# What a probe proved: the display answered, nobody answered, or the dial was too busy.
-type ProbeVerdict = Literal["answered", "silent", "unproved"]
 
 
 @runtime_checkable
@@ -109,16 +104,14 @@ class DisplayProbe(Protocol):
         """The dial the probe goes out on: what a failed probe names to drop."""
         ...
 
-    def confirm_alive(self, timeout: float) -> ProbeVerdict:
-        """Ask the display for a pong of its own and say what the answer proved.
+    def await_acks(self, timeout: float) -> bool:
+        """Wait for the display to ack every scene written to this dial.
 
-        The synchronous liveness check between consecutive singleton sends: it makes
-        the display take scene N (ack it, or die holding it) before N+1 goes out, so
-        a death leaves a ledger of one scene. ``"answered"``: the display's own pong
-        came. ``"silent"``: nobody answered a ping of its own. ``"unproved"``: another
-        ping kept the dial busy through every try, which proves nothing and is no
-        death either. Raising OSError/BlockingIOError is a "silent" too -- the caller
-        propagates it as a failure of the dial.
+        The synchronous check between consecutive singleton sends: it makes the
+        display take scene N (ack it after a swap, or die holding it) before N+1 goes
+        out, so a death leaves a ledger of one scene. A pong would say only that the
+        display is reading. ``False``: no ack came in time. Raising OSError is a
+        failure of the dial, and the caller propagates it.
         """
         ...
 
