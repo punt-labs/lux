@@ -348,6 +348,15 @@
 
 ### Changed
 
+- **Permission rules are repo-level, granted by `lux enable`.** The
+  SessionStart hook used to add `mcp__plugin_lux_lux__*` (or the `-dev` glob)
+  and a `Skill(...)` rule per command to `~/.claude/settings.json` in every
+  session. Now `lux enable` adds lux's rules to the repo's
+  `.claude/settings.json` and prints each one, and `lux disable` removes
+  exactly those. It refuses a malformed or symlinked settings file and the
+  home directory, and never grants the `lux-dev` rules. Rules earlier versions
+  wrote to `~/.claude/settings.json` are left alone; delete them by hand
+  ([punt-kit#396](https://github.com/punt-labs/punt-kit/pull/396)).
 - **`make check-oo` now runs on the shared `oo_ratchet` package, vendored from
   vox (bead punt-5aj), replacing lux's monolithic `tools/oo_score.py`.** The
   ratchet now scores a branch's whole cumulative diff — `git merge-base
