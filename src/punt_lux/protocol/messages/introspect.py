@@ -57,6 +57,36 @@ class ListScenesResponse:
     # says so, and is never an empty success.
     error: str | None = None
 
+    def __post_init__(self) -> None:
+        """Refuse a response that reports a failure and lists scenes too."""
+        if self.error is not None and (self.scenes or self.frames):
+            msg = (
+                "a list_scenes response carries an error or what it listed, "
+                f"not both: {self.error!r} with {len(self.scenes)} scene(s) "
+                f"and {len(self.frames)} frame(s)"
+            )
+            raise ValueError(msg)
+
+    def to_dict(self) -> dict[str, Any]:
+        """The wire form: ``error`` is present only when the listing failed."""
+        d: dict[str, Any] = {
+            "type": self.type,
+            "scenes": self.scenes,
+            "frames": self.frames,
+        }
+        if self.error is not None:
+            d["error"] = self.error
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ListScenesResponse:
+        """Read the wire form; raises ``ValueError`` for an error beside scenes."""
+        return cls(
+            scenes=d.get("scenes", []),
+            frames=d.get("frames", []),
+            error=d.get("error"),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ScreenshotRequest:
@@ -112,13 +142,6 @@ def _list_scenes_request_to_dict(m: ListScenesRequest) -> dict[str, Any]:
     return {"type": m.type}
 
 
-def _list_scenes_response_to_dict(m: ListScenesResponse) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": m.type, "scenes": m.scenes, "frames": m.frames}
-    if m.error is not None:
-        d["error"] = m.error
-    return d
-
-
 def _screenshot_request_to_dict(m: ScreenshotRequest) -> dict[str, Any]:
     return {"type": m.type}
 
@@ -158,12 +181,6 @@ def _introspect_response_from_dict(d: dict[str, Any]) -> IntrospectResponse:
 
 def _list_scenes_request_from_dict(_d: dict[str, Any]) -> ListScenesRequest:
     return ListScenesRequest()
-
-
-def _list_scenes_response_from_dict(d: dict[str, Any]) -> ListScenesResponse:
-    return ListScenesResponse(
-        scenes=d.get("scenes", []), frames=d.get("frames", []), error=d.get("error")
-    )
 
 
 def _screenshot_request_from_dict(_d: dict[str, Any]) -> ScreenshotRequest:
@@ -218,8 +235,8 @@ def register_codecs(register: _Register) -> None:
     register(
         "list_scenes_response",
         ListScenesResponse,
-        _list_scenes_response_to_dict,
-        _list_scenes_response_from_dict,
+        ListScenesResponse.to_dict,
+        ListScenesResponse.from_dict,
     )
     register(
         "screenshot_request",

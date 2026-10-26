@@ -1509,6 +1509,30 @@ class TestListScenes:
         assert restored.error == "the listing failed"
         assert restored.scenes == []
 
+    def test_a_response_cannot_report_a_failure_and_list_scenes(self) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse(scenes=[{"scene_id": "s1"}], error="the listing failed")
+
+    def test_a_response_cannot_report_a_failure_and_list_frames(self) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse(frames=[{"frame_id": "f1"}], error="the listing failed")
+
+    def test_the_wire_form_of_an_error_beside_scenes_is_refused_on_read(self) -> None:
+        wire = {
+            "type": "list_scenes_response",
+            "scenes": [{"scene_id": "s1"}],
+            "error": "the listing failed",
+        }
+
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse.from_dict(wire)
+
+    def test_the_codec_is_the_class_s_own_pair(self) -> None:
+        original = ListScenesResponse(scenes=[{"scene_id": "s1"}])
+
+        assert message_to_dict(original) == original.to_dict()
+        assert ListScenesResponse.from_dict(original.to_dict()) == original
+
     def test_list_scenes_response_without_an_error_carries_no_error_key(self) -> None:
         d = message_to_dict(ListScenesResponse())
         assert "error" not in d
