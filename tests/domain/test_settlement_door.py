@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 _HUB = "domain/hub/"
@@ -85,8 +88,8 @@ class References:
             self._visit_all([*node.decorator_list, *node.body])
         self._scope.pop()
 
-    def _visit_all(self, nodes: object) -> None:
-        for child in nodes:  # type: ignore[attr-defined]  # an iterable of nodes
+    def _visit_all(self, nodes: Iterable[ast.AST]) -> None:
+        for child in nodes:
             self._visit(child)
 
     def _count(self) -> None:

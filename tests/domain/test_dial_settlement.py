@@ -47,6 +47,7 @@ from tests.link_access import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from types import TracebackType
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -113,8 +114,13 @@ class _SpyCondition:
     def __enter__(self) -> bool:
         return self._inner.__enter__()
 
-    def __exit__(self, *exc: object) -> None:
-        self._inner.__exit__(*exc)  # type: ignore[arg-type]  # forwarded as received
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self._inner.__exit__(exc_type, exc, tb)
         hook, self.hook = self.hook, None
         if hook is not None:
             hook()
@@ -253,12 +259,12 @@ class TestAnInlineHolderPastItsLastCheck:
         real = type(slot)._release
         gated = [False]
 
-        def held_release(this: ReaderSlot, settler: object) -> None:
+        def held_release(this: ReaderSlot, settler: Settler) -> None:
             if not gated[0]:
                 gated[0] = True
                 entered.set()
                 assert release.wait(5.0)
-            real(this, settler)  # type: ignore[arg-type]  # forwarded as received
+            real(this, settler)
 
         monkeypatch.setattr(type(slot), "_release", held_release)
         pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
