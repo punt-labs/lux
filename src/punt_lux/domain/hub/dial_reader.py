@@ -99,6 +99,10 @@ class DialReader:
                         # Recorded the moment the reader learns of it, before it
                         # drains: a Hub request arriving now cannot make it the Hub's.
                         generation.end("display")
+                    else:
+                        # A stop or a close the read raced: the settle needs a cause
+                        # or a request to start from, or it has nothing to decide.
+                        generation.request_hub()
                     return None
                 ended = None if data is None else self._routed(data)
                 if ended is not None:

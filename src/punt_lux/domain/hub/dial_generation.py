@@ -59,15 +59,19 @@ class DialGeneration:
     _ref: DialRef
     # Reports this dial's own breakage to whoever holds the current dial.
     _retire: Callable[[DialGeneration, RetireCause], bool]
-    __slots__ = ("_ref", "_retire", "_sink", "_socket")
+    # Reports a failed write: records its cause only if nothing is ending the dial.
+    _write_ended: Callable[[DialGeneration, RetireCause], bool]
+    __slots__ = ("_ref", "_retire", "_sink", "_socket", "_write_ended")
 
     def __new__(
         cls,
         dial: HandshakeResult,
         retire: Callable[[DialGeneration, RetireCause], bool],
+        write_ended: Callable[[DialGeneration, RetireCause], bool],
     ) -> Self:
         self = super().__new__(cls)
         self._retire = retire
+        self._write_ended = write_ended
         self._sink = ReplySink()
         self._ref = DialRef(self)
         self._socket = DialSocket(
@@ -114,6 +118,14 @@ class DialGeneration:
         the dial is settled.
         """
         return self._sink.end(cause)
+
+    def end_by_writer(self, cause: RetireCause) -> bool:
+        """Record the cause of a failed write unless the dial is already ending.
+
+        The check and the record are one step, so a Hub request landing between a
+        write's failure and its record is never overwritten by the write's cause.
+        """
+        return self._sink.end_by_writer(cause)
 
     def request_hub(self) -> bool:
         """Ask for the Hub's end of this dial; whether this call asked first.
@@ -270,8 +282,8 @@ class DialGeneration:
         )
         # A dial already ended, or that the Hub asked to end, records nothing here: the
         # settle decides by what it observes (a queued end of file is the display's).
-        if self._sink.closing is not None or not self._retire(self, cause):
-            raise self.closed_error() from exc  # someone else's cause won the end
+        if not self._write_ended(self, cause):
+            raise self.closed_error() from exc  # someone else's end stands
 
     def _require_open(self) -> None:
         if self._sink.closing is not None:

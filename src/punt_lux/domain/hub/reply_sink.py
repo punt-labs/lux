@@ -213,6 +213,18 @@ class ReplySink:
             self._fail_waiters()
             return True
 
+    def end_by_writer(self, cause: RetireCause) -> bool:
+        """Record ``cause`` for a failed write, unless the dial is already ending.
+
+        One step under the sink's lock: nothing is recorded when a cause stands or the
+        Hub has asked, and waiters fail when it records. Whether this call recorded.
+        """
+        with self._cond:
+            if not self._end.record_unless_closing(cause):
+                return False
+            self._fail_waiters()
+            return True
+
     def request_hub(self) -> bool:
         """Ask for the Hub's end: refuse writes and fail every waiter; no cause.
 

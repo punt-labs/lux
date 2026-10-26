@@ -49,6 +49,16 @@ class DialEnd:
         self._cause = cause
         return True
 
+    def record_unless_closing(self, cause: RetireCause) -> bool:
+        """Record ``cause`` unless one stands or the Hub has asked; whether it did.
+
+        The writer's record: a write that fails after the Hub asked to end the dial
+        records nothing, and the check and the record are one step.
+        """
+        if self._hub_asked:
+            return False
+        return self.record(cause)
+
     def ask_hub(self) -> bool:
         """Note that the Hub asked to end the dial; whether this call asked first."""
         if self._hub_asked:

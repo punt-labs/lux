@@ -206,6 +206,19 @@ class DisplayConnection:
         self._ask_settle(generation, cause)
         return won
 
+    def _end_by_writer(self, generation: DialGeneration, cause: RetireCause) -> bool:
+        """End ``generation`` for a failed write; whether the write's cause stands.
+
+        The record refuses, in one step with its own check, when a cause stands or the
+        Hub has asked; the settle is asked for in every case.
+        """
+        with self._state_lock:
+            if self._current is None or self._current.generation is not generation:
+                return False
+        won = generation.end_by_writer(cause)
+        self._ask_settle(generation, cause)
+        return won
+
     def take_deaths(self) -> DeathQueue:
         """Hand over the queue of deaths not yet charged, once: its holder charges.
 
@@ -238,7 +251,9 @@ class DisplayConnection:
         dialed = self._dialer.dial(self._connect_timeout)  # a failure is the dialer's
         set_send_timeout(dialed.sock)  # every dial path: a wedged peer ends a send
         fresh = DialGeneration(
-            dialed, lambda generation, cause: self.retire(generation, cause=cause)
+            dialed,
+            lambda generation, cause: self.retire(generation, cause=cause),
+            self._end_by_writer,
         )
         # Born holding the listener slot when asked: nobody else has seen this dial
         # yet, so no inline read can be in flight when the listener claims it.

@@ -27,7 +27,10 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
 )
 from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.dial_reader import DialReader
 from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
+from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.display_listener import DisplayListener
 from punt_lux.domain.hub.recovery import SendRecovery
@@ -61,7 +64,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.reader_slot import ReaderSlot
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
 
@@ -676,12 +678,22 @@ class TestTheWriter:
         assert deaths_of(link) == ()
         assert link._connection._suspects.carried == _ids("a")  # test seam
 
+    @pytest.mark.parametrize(
+        ("dead", "decided"), [(False, "hub"), (True, "display")], ids=["live", "dead"]
+    )
     def test_p18_a_write_that_fails_after_a_hub_request_records_no_cause(
-        self, display: Display, monkeypatch: pytest.MonkeyPatch
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        dead: bool,
+        decided: str,
     ) -> None:
+        """The writer records nothing; the settle decides by what it observes."""
         _unbounded(monkeypatch)
         link = _linked(display, listening=False)
         generation = generation_of(link)
+        if dead:
+            display.peer.close()  # the display really died: its end of file is queued
 
         def hub_asks_then_fails(_this: FlakySocket, _data: bytes) -> None:
             generation.request_hub()
@@ -689,13 +701,12 @@ class TestTheWriter:
             raise OSError(msg)
 
         monkeypatch.setattr(FlakySocket, "sendall", hub_asks_then_fails)
-        with pytest.raises(HubRetiredError):
+        with pytest.raises(ConnectionClosedError) as raised:
             generation.send_scene(_scene("a"))
 
-        assert generation.ended is None  # the writer recorded nothing
-        display.peer.close()  # the display really died: its end of file is queued
-        link._connection.retire(generation, cause="hub")
-        assert generation.ended == "display"  # the settle found it, by observing it
+        assert isinstance(raised.value, HubRetiredError) is not dead
+        assert generation.ended == decided
+        assert deaths_of(link) == ()  # nothing was owed: nothing to charge
 
     def test_p19_a_drain_waits_for_the_writer_that_holds_the_socket_lock(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
@@ -898,3 +909,58 @@ class TestTheWriter:
         finally:
             release.set()
             writing.wait()
+
+    @pytest.mark.parametrize("failure", [BlockingIOError, OSError])
+    def test_a1_a_hub_request_landing_before_the_writers_record_wins(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch, failure: type[OSError]
+    ) -> None:
+        """The writer's record and its refusal are one step: WRec."""
+        _unbounded(monkeypatch)
+        real = DisplayConnection._end_by_writer
+        holder: list[object] = []
+
+        def request_first(
+            this: DisplayConnection, gen: object, cause: RetireCause
+        ) -> bool:
+            holder[0].request_hub()  # type: ignore[attr-defined]  # between the two
+            return real(this, gen, cause)  # type: ignore[arg-type]  # a DialGeneration
+
+        monkeypatch.setattr(DisplayConnection, "_end_by_writer", request_first)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        holder.append(generation)
+
+        def fails(_this: FlakySocket, _data: bytes) -> None:
+            raise failure
+
+        monkeypatch.setattr(FlakySocket, "sendall", fails)
+        with pytest.raises(HubRetiredError):
+            generation.send_scene(_scene("a"))
+
+        assert generation.ended == "hub"  # settled by the request, not the write
+        assert deaths_of(link) == ()
+
+    def test_a2_a_read_failing_while_the_reader_is_stopped_requests_the_hub_end(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The window between ``stop()`` setting its flag and its ``retire(hub)``."""
+        _unbounded(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        hold = reading_of(link).claim_for_listener(drop_route)
+        assert hold is not None
+        stopping = threading.Event()
+
+        def stopped_then_fails(_this: DialGeneration, _timeout: float) -> bytes | None:
+            stopping.set()  # the flag lands; the read then fails
+            msg = "the read fell over"
+            raise OSError(msg)
+
+        monkeypatch.setattr(DialGeneration, "poll_chunk", stopped_then_fails)
+
+        DialReader(
+            generation, hold.settler, drop_route, stopping
+        ).run()  # no ValueError
+
+        assert generation.ended == "hub"
+        assert deaths_of(link) == ()

@@ -42,6 +42,12 @@ _SLOT_RETRY_SECONDS = 0.05
 # How long one wait on the socket runs before the dial is checked for an end that
 # someone else recorded (an end by a writer or the keepalive wakes no one).
 _POLL_SECONDS = 0.1
+# How much of a frame that did not decode is written to the log.
+_HEAD_BYTES = 64
+
+
+class _MalformedFrameError(ValueError):
+    """A frame of the display's stream did not decode: the display's end."""
 
 
 @final
@@ -136,10 +142,11 @@ class DisplayReplies:
 
         The display's end, or the dial ended under the wait, is over either way: a
         read that found the end is the display's, recorded before the drain, and an
-        end another recorded first is reported as that one's. A reply nobody was owed
-        skewed the stream: the Hub gives up on a dial it can no longer match replies
-        on, and the display is not blamed. A frame that cannot be decoded is the
-        display's, who sent it. Anything else is the Hub's own failure.
+        end another recorded first is reported as that one's. A frame that cannot be
+        decoded is the display's, who sent it. A reply nobody was owed skewed the
+        stream, and any other failure of routing a decoded reply is the Hub's own:
+        the Hub gives up on a dial it can no longer match replies on, and the display
+        is not blamed.
         """
         if isinstance(exc, ConnectionClosedError | OSError):
             if not generation.is_closed:
@@ -155,10 +162,11 @@ class DisplayReplies:
             msg = f"{generation.endpoint} sent a reply nobody was owed"
             won = settler.end_stream("hub")
             return HubRetiredError(msg) if won else generation.closed_error()
-        if isinstance(exc, ValueError | KeyError | TypeError):
+        if isinstance(exc, _MalformedFrameError):
             msg = f"{generation.endpoint} sent a frame that broke its stream"
             won = settler.end_stream("display")
             return ConnectionClosedError(msg) if won else generation.closed_error()
+        logger.error("Inline reply routing failed on %s: %r", generation.endpoint, exc)
         settler.end_stream("hub")
         return exc
 
@@ -169,10 +177,20 @@ class DisplayReplies:
         the stream was given up on can be matched to a request, and a reply it was
         owed is refused by its sink. Events and interactions are link-level, not
         the dial's: one already routed (or held, see ``run_held``) is delivered
-        whichever dial carried it (rule 16).
+        whichever dial carried it.
         """
-        for msg in generation.messages(chunk):
-            if generation.is_settled:
+        messages = generation.messages(chunk)
+        while True:
+            try:
+                msg = next(messages, None)
+            except Exception as exc:  # wire boundary: any decoder failure
+                logger.exception(
+                    "Inline read closing: display %s sent a malformed frame: %r",
+                    generation.endpoint,
+                    generation.head(_HEAD_BYTES),
+                )
+                raise _MalformedFrameError(str(exc)) from exc
+            if msg is None or generation.is_settled:
                 return  # a settled dial routes nothing more
             try:
                 self._listener.route(generation, msg, inline=True)

@@ -12,6 +12,7 @@ scene that caused it however the retirement raced the send.
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, final
@@ -34,6 +35,7 @@ from punt_lux.domain.hub.dial_generation import DialGeneration
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.display_listener import DisplayListener
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
@@ -42,7 +44,13 @@ from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
-from punt_lux.protocol import AckMessage, SceneMessage, TextElement, encode_frame
+from punt_lux.protocol import (
+    AckMessage,
+    PongMessage,
+    SceneMessage,
+    TextElement,
+    encode_frame,
+)
 from tests.domain.display_double import Call, Display, Responder, until
 from tests.link_access import deaths_of, generation_of, writer_of
 
@@ -806,16 +814,16 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
 
     @staticmethod
     def _hub_wins_every_display_retire(monkeypatch: pytest.MonkeyPatch) -> None:
-        real_retire = DisplayConnection.retire
+        real_end = DisplayConnection._end_by_writer
 
-        def racing_retire(
-            self: DisplayConnection, generation: DialGeneration, *, cause: RetireCause
+        def racing_end(
+            self: DisplayConnection, generation: DialGeneration, cause: RetireCause
         ) -> bool:
             if cause == "display":  # the Hub's retire lands first
-                real_retire(self, generation, cause="hub")
-            return real_retire(self, generation, cause=cause)
+                self.retire(generation, cause="hub")
+            return real_end(self, generation, cause)
 
-        monkeypatch.setattr(DisplayConnection, "retire", racing_retire)
+        monkeypatch.setattr(DisplayConnection, "_end_by_writer", racing_end)
 
     @staticmethod
     def _hub_asks_before_every_display_record(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -836,9 +844,9 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
     def test_a_write_that_loses_the_retire_reports_the_hubs_cause_and_queues_nothing(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        self._hub_wins_every_display_retire(monkeypatch)  # before the dial binds it
         link = _linked(display)
         writer_of(link).send_scene(_scene("s1"))  # owed an ack: a ledger to be charged
-        self._hub_wins_every_display_retire(monkeypatch)
         display.sockets[-1].fail_next_send = True
 
         with pytest.raises(HubRetiredError):
@@ -862,6 +870,44 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         assert _is_the_displays_end(pinging.error)
         (death,) = deaths_of(link)
         assert death.cause == "display"
+
+    def test_an_inline_decode_failure_logs_the_bad_frame_and_is_the_displays_end(
+        self, display: Display, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        link = _linked(display, listening=False)
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(1)
+
+        with caplog.at_level(logging.ERROR):
+            display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id
+            assert pinging.wait()
+
+        assert any("malformed frame" in r.getMessage() for r in caplog.records)
+        assert any("ack" in r.getMessage() for r in caplog.records)  # its first bytes
+        assert pinging.error is not None
+        assert _is_the_displays_end(pinging.error)
+
+    def test_a_reply_the_hub_fails_to_route_inline_is_the_hubs_end_not_the_displays(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        writer_of(link).send_scene(_scene("s1"))  # owed an ack: a ledger to charge
+
+        def broken(*_args: object, **_kwargs: object) -> None:
+            msg = "the Hub's own routing bug"
+            raise ValueError(msg)
+
+        monkeypatch.setattr(DisplayListener, "route", broken)
+        pinging = Call(lambda: link.desk.asks().ping(timeout=3.0))
+        display.peer.read(2)
+
+        display.peer.send(PongMessage(ts=1.0))  # a decoded reply the Hub then mangles
+
+        assert pinging.wait()
+        assert isinstance(pinging.error, ValueError)
+        assert generation.ended == "hub"
+        assert deaths_of(link) == ()  # the display is not charged for the Hub's bug
 
     def test_an_inline_read_that_finds_the_stream_closed_is_the_displays_end(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
