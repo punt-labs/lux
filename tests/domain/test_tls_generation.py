@@ -372,8 +372,8 @@ class TestABoundedWrite:
         assert until(lambda: generation.is_settled, _BOUND)
         assert records.count(True) == 1
         line = generation._socket._line  # test seam: the socket's own line
-        assert line.acquire_within(1.0), "the lock was kept"
-        line.release()
+        with line.draining(1.0) as free:
+            assert free, "the lock was kept"
 
     def test_p27_a_query_that_is_the_first_write_to_stall_ends_the_dial(
         self, tls: _TlsDisplay, monkeypatch: pytest.MonkeyPatch
@@ -394,8 +394,8 @@ class TestABoundedWrite:
         assert until(lambda: generation.is_settled, _BOUND)
         assert records.count(True) == 1
         line = generation._socket._line  # test seam: the socket's own line
-        assert line.acquire_within(1.0), "the lock was kept"
-        line.release()
+        with line.draining(1.0) as free:
+            assert free, "the lock was kept"
 
 
 class TestTheDrainNeverWaits:
@@ -474,7 +474,10 @@ def test_a_tls_dial_reaches_another_host_and_names_how_it_ended(
     connection.open()
     generation = connection.require()
     try:
-        assert (generation.ref.is_cross_host, generation.ref.ended) == (True, None)
+        assert (generation.ref.reaches_local_display(), generation.ref.ended) == (
+            False,
+            None,
+        )
 
         generation.end("unresponsive")
 
@@ -488,7 +491,7 @@ def test_a_local_dial_does_not_reach_another_host() -> None:
     try:
         link = _linked(display, listening=False)
 
-        assert generation_of(link).ref.is_cross_host is False
+        assert generation_of(link).ref.reaches_local_display() is True
     finally:
         display.close()
 

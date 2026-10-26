@@ -1,9 +1,11 @@
 """SendRecovery — heal the display after a send failure and re-mark the work.
 
-When a send to the display fails, the worker hands the failure here. A wedged
-display (send timeout, ``BlockingIOError``) is killed — its launchd/systemd
-unit respawns it (lux-5uc7); the Hub never spawns a competing process — and a
-dead peer (``OSError``) is only dropped so the next send reconnects. Either way
+When a send to the display fails, the worker hands the failure here, and what to do
+is decided by the cause the dial recorded for its own end, not by the exception that
+carried the failure. A display that stopped reading (recorded ``unresponsive``) is
+killed — its launchd/systemd unit respawns it (lux-5uc7); the Hub never spawns a
+competing process — and a dead peer (``OSError``) is only dropped so the next send
+reconnects. Either way
 the heal re-marks every live scene, a consumed clear, and the menu, so a display
 that came back blank is fully repainted — scenes, the old clear, and the agent
 bar alike.
@@ -36,12 +38,12 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import HubRetiredError
+from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.batch_sender import BatchSendError
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
-    from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,13 @@ class SendRecovery:
         self._respawn = respawn
         return self
 
+    @classmethod
+    def pacing_respawns(
+        cls, clients: ClientProvider, lifecycle: DisplayLifecycle, signal: DirtySignal
+    ) -> Self:
+        """Build the recovery that paces respawns with a fresh ``RespawnBackoff``."""
+        return cls(clients, lifecycle, signal, RespawnBackoff())
+
     def recover(self, batch: DrainedBatch, failure: BatchSendError) -> None:
         """Heal the display after ``failure``, then re-mark the failed batch.
 
@@ -87,12 +96,13 @@ class SendRecovery:
         A failure whose cause is a :class:`HubRetiredError` says nothing about the
         display, so nothing is reaped or dropped: the dial is redialed and the batch
         repainted. Any other failure is a death: a ``BlockingIOError`` (a send
-        timeout) is a wedged display, killed so its service unit respawns it; any
-        other ``OSError`` is a dead peer, only dropped. Who is to blame for it is
-        not decided here: the dial left its own record, which the next push charges
-        before it sends anything (see :class:`~punt_lux.domain.hub.batch_sender.
-        BatchSender`), so a scene that reaches the threshold is excluded from the
-        very batch this repaints.
+        timeout) is recorded by the dial as an unresponsive display, killed so its
+        service unit respawns it when it is this host's own; any other ``OSError`` is
+        a dead peer, only dropped. Who is to blame for it is not decided here: the
+        dial left its own record, which the next push charges before it sends
+        anything (see :class:`~punt_lux.domain.hub.batch_sender.BatchSender`), so a
+        scene that reaches the threshold is excluded from the very batch this
+        repaints.
 
         The failure's ``dial`` is the dial the failed send went out on (``None`` if
         none was had); only it is dropped, and only if no redial has replaced it.
@@ -126,7 +136,7 @@ class SendRecovery:
         dial = failure.dial
         if dial is None:
             return  # nothing was dialed: nothing to reap or to drop
-        if dial.ended == "unresponsive" and not dial.is_cross_host:
+        if dial.ended == "unresponsive" and dial.reaches_local_display():
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
         self._clients.drop(dial)

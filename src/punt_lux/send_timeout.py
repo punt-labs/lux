@@ -8,8 +8,9 @@ limit then waits forever, which is how one MCP ``clear`` once froze an agent for
 handshake, made before the dial is handed to its connection. Every write after it,
 on either transport, is a user-space bounded send (``BoundedSend``) on a socket made
 non-blocking for that write, under one deadline ``D``
-(``SCENE_WRITE_DEADLINE_SECONDS``) that covers the wait for the dial's socket lock as
-well. ``SO_SNDTIMEO`` bounds nothing on a TLS write at all.
+(``SCENE_WRITE_DEADLINE_SECONDS``) of *no progress*: every byte that moves restarts
+it, and it covers the wait for the dial's socket lock as well. ``SO_SNDTIMEO``
+bounds nothing on a TLS write at all.
 
 The packed value and the real limit it produces differ by platform, so the
 number here is not the contract -- the measured limit is, which the probe test
@@ -48,9 +49,13 @@ SEND_TIMEOUT_PROBE_LIMIT_SECONDS = 2.5
 # a query waits for the socket lock. It is the probe's limit, so no write that
 # completes today is cut short.
 SCENE_WRITE_DEADLINE_SECONDS = SEND_TIMEOUT_PROBE_LIMIT_SECONDS
-# How long a drain waits on a writer: strictly above D, so a writer that is still
-# inside its deadline is always waited out, and one that breaks the deadline (which
-# the write's own bound should make impossible) is left to the settle bound.
+# How long a drain waits on a writer, in elapsed time: strictly above D, so a writer
+# that is moving no bytes is waited out past its own deadline. It is not a bound on a
+# writer that keeps moving bytes: that writer's deadline is re-armed by every byte,
+# and may hold the socket lock past this ceiling. The drain then gives up
+# (``DrainIncompleteError``) and the settle falls to its late path, which bounds a
+# settle behind a progressing writer at this ceiling plus the settle bound
+# (``SETTLE_BOUND``): 3.5 s + 2.0 s = 5.5 s.
 SEND_TIMEOUT_CEILING_SECONDS = SCENE_WRITE_DEADLINE_SECONDS + 1.0
 
 

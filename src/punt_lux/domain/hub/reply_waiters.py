@@ -5,11 +5,12 @@ that wants the ledger empty waits for the ack that empties it. This holds the th
 in-flight slots (the ping, the query and the drained-ack wait), the tickets a caller
 still waits on, and the answers not yet taken.
 
-It owns no lock, and makes none: it works under the one :class:`threading.Condition`
-its :class:`~punt_lux.domain.hub.reply_sink.ReplySink` passes in. A Hub request or a
+It owns no lock, and makes none: it works under the one
+:class:`~punt_lux.domain.hub.owned_condition.OwnedCondition` its
+:class:`~punt_lux.domain.hub.reply_sink.ReplySink` passes in. A Hub request or a
 recorded end must refuse the next wait and fail every pending one in one step, and a
 second lock would make that two steps; the sink's lock order is left as it was. The
-Condition need not be re-entrant, and the sink gives it one that is not: a public
+condition need not be re-entrant, and the sink gives it one that is not: a public
 method that takes the lock never calls another that does, and the ``*_locked`` methods
 are the bodies the sink runs while it already holds the lock for a step of its own.
 """
@@ -17,11 +18,11 @@ are the bodies the sink runs while it already holds the lock for a step of its o
 from __future__ import annotations
 
 import logging
-import threading
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.domain.hub.owned_condition import OwnedCondition
 from punt_lux.domain.hub.pending import Pending
 from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
@@ -42,7 +43,7 @@ class ReplyOutOfOrderError(ValueError):
 class ReplyWaiters:
     """What a dial is waited on for, under the sink's one lock."""
 
-    _cond: threading.Condition
+    _cond: OwnedCondition
     _end: DialEnd
     # PY-TS-14 OK: None while no ping is in flight; at most one is, and it names it.
     _ping: Pending[float, PongMessage] | None
@@ -62,7 +63,7 @@ class ReplyWaiters:
         "_waiting",
     )
 
-    def __new__(cls, cond: threading.Condition, end: DialEnd) -> Self:
+    def __new__(cls, cond: OwnedCondition, end: DialEnd) -> Self:
         self = super().__new__(cls)
         self._cond = cond
         self._end = end
@@ -185,9 +186,8 @@ class ReplyWaiters:
         self._cond.notify_all()
 
     def _require_held(self) -> None:
-        """Raise unless the sink's lock is held: a ``*_locked`` body is its step's."""
-        if self._cond.acquire(blocking=False):
-            self._cond.release()
+        """Raise unless this thread holds the sink's lock."""
+        if not self._cond.held_here():
             msg = "a *_locked method of the reply waiters ran without the sink's lock"
             raise LockDisciplineError(msg)
 

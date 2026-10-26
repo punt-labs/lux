@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Literal, Self, final
 from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.reader_slot import ReaderSlot
+from punt_lux.domain.hub.settle_errors import UnendedDialError
 from punt_lux.domain.hub.suspect_book import SuspectBook
 
 if TYPE_CHECKING:
@@ -219,7 +220,11 @@ class DisplayConnection:
         won = generation.end_by_writer(cause)
         # The settle is asked with the cause that stands, not the writer's own when it
         # lost: a Hub request pending is the Hub's end, and nothing may record over it.
-        self._ask_settle(generation, cause if won else generation.ended or "hub")
+        standing = cause if won else generation.closing
+        if standing is None:
+            msg = "a write lost to an end that no one recorded or asked for"
+            raise UnendedDialError(msg)
+        self._ask_settle(generation, standing)
         return won
 
     def take_deaths(self) -> DeathQueue:
@@ -252,7 +257,7 @@ class DisplayConnection:
                 )
         finally:
             # Whatever the bookkeeping did, the socket is released once the dial is
-            # no longer current: a writer wedged in ``sendall`` is woken only by this.
+            # no longer current: a writer blocked in a send is woken only by this.
             if is_ours:
                 generation.shut()
         return True

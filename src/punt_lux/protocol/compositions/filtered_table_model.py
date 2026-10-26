@@ -14,19 +14,23 @@ Display.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.handler_writes import HandlerWrites
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.protocol.compositions.table_selection_handlers import (
         DetailBindingHandler,
     )
     from punt_lux.protocol.elements.table import TableElement
 
-__all__ = ["FilteredTableCheckpoint", "FilteredTableModel", "FilteredTableState"]
+__all__ = ["FilteredTableCheckpoint", "FilteredTableModel"]
 
 
+@final
 @dataclass(frozen=True, slots=True)
 class FilteredTableState:
     """What a :class:`FilteredTableModel` keeps outside its table, at one moment."""
@@ -41,21 +45,20 @@ class FilteredTableState:
 class FilteredTableCheckpoint:
     """A model's state at one moment, able to put the model back as it was."""
 
-    _model: FilteredTableModel
-    _state: FilteredTableState
-    __slots__ = ("_model", "_state")
+    _undo: Callable[[], None]
+    __slots__ = ("_undo",)
 
-    def __new__(cls, model: FilteredTableModel, state: FilteredTableState) -> Self:
+    def __new__(cls, undo: Callable[[], None]) -> Self:
         self = super().__new__(cls)
-        self._model = model
-        self._state = state
+        self._undo = undo
         return self
 
     def restore(self) -> None:
         """Put the model back as it was, without folding anything in."""
-        self._model.restore_state(self._state)
+        self._undo()
 
 
+@final
 class FilteredTableModel:
     """Owns the unfiltered rows and the full selection; projects onto the table."""
 
@@ -101,22 +104,20 @@ class FilteredTableModel:
         self._visible_cache_ids = None
         # __new__-only: an apply_patch folds in like a gesture; a pickled replica
         # restores via object.__new__ and never mutates the Hub copy.
-        table.add_observer(self._on_table_change, self)
+        table.add_stateful(self)
         return self
 
     def checkpoint(self) -> FilteredTableCheckpoint:
         """Return the state a rollback restores: not the table's, the model's own."""
-        return FilteredTableCheckpoint(
-            self,
-            FilteredTableState(
-                all_rows=self._all_rows,
-                full_selection=frozenset(self._full_selection),
-                search=self._search,
-                combo_picks=tuple(self._combo_picks.items()),
-            ),
+        state = FilteredTableState(
+            all_rows=self._all_rows,
+            full_selection=frozenset(self._full_selection),
+            search=self._search,
+            combo_picks=tuple(self._combo_picks.items()),
         )
+        return FilteredTableCheckpoint(partial(self._restore, state))
 
-    def restore_state(self, state: FilteredTableState) -> None:
+    def _restore(self, state: FilteredTableState) -> None:
         """Put the model's own state back as ``state`` was; it is not a new dataset."""
         self._all_rows = state.all_rows
         self._full_selection = set(state.full_selection)
@@ -175,12 +176,12 @@ class FilteredTableModel:
         """Tell a transaction in force that this model's state is about to change.
 
         The transaction checkpoints the table, and so this model, before the first
-        write it makes; a filter or a selection set before that write would otherwise
-        be in the checkpoint and survive a rollback.
+        change it makes; a filter or a selection set before that checkpoint would
+        otherwise be in it and survive a rollback.
         """
-        HandlerWrites.admit(self._table, {})
+        HandlerWrites.will_derive(self._table)
 
-    def _on_table_change(self, prop: str) -> None:
+    def on_change(self, prop: str) -> None:
         """Fold a table write into the model (the observer callback).
 
         ``selected_row_ids`` folds into the full selection and re-drives a

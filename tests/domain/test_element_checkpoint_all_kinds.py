@@ -16,6 +16,7 @@ import pytest
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.element_checkpoint import ElementCheckpoint
+from punt_lux.domain.setter_priority import SetterPriority
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from tests.conftest import _build_test_factory
 
@@ -132,7 +133,7 @@ def test_the_scan_leaves_a_replacing_setter_alone() -> None:
 
 def _define_a_kind_with_priority(priority: tuple[str, ...]) -> type[Element]:
     """Define a kind with no setters, whose ``_SETTER_PRIORITY`` is ``priority``."""
-    return type("_Kind", (Element,), {"_SETTER_PRIORITY": priority})
+    return type("_Kind", (Element,), {"_SETTER_PRIORITY": SetterPriority(priority)})
 
 
 class TestASetterPriorityNamesOnlyKeysWithSetters:
@@ -142,9 +143,13 @@ class TestASetterPriorityNamesOnlyKeysWithSetters:
 
     def test_a_key_with_a_setter_is_accepted(self) -> None:
         class _Good(Element):
-            _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = ("label",)
+            _SETTER_PRIORITY: ClassVar[SetterPriority] = SetterPriority(("label",))
 
             def _set_label(self, value: object) -> None:
                 self._label = value
 
-        assert _Good._SETTER_PRIORITY == ("label",)
+        assert _Good._SETTER_PRIORITY.keys == ("label",)
+
+    def test_a_key_named_twice_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="more than once"):
+            SetterPriority(("label", "label"))

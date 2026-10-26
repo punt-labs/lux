@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, ClassVar, Self
 from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.event_handler_host import EventHandlerHost
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.notification_buffer import NotificationBuffer
 from punt_lux.domain.property_observers import PropertyObservers
 from punt_lux.domain.setter_priority import SetterPriority
 
@@ -55,18 +56,23 @@ class Element(EventHandlerHost, ABC):
     ``_SETTER_PRIORITY``; every other key follows in the caller's order.
     """
 
-    _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = ()
+    _SETTER_PRIORITY: ClassVar[SetterPriority] = SetterPriority(())
+    # The attributes holding objects this kind owns whose own state is part of its
+    # state, because they change in place (a dialog's model): a checkpoint of the
+    # element copies their fields too.
+    OWNED_PARTS: ClassVar[tuple[str, ...]] = ()
     _renderer_factory: RendererFactory
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
     _removed: bool
     _observers: PropertyObservers
+    _notifications: NotificationBuffer
     _children_tuple: tuple[Element, ...]
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         """Refuse a kind whose ``_SETTER_PRIORITY`` names a key it has no setter for."""
         super().__init_subclass__(**kwargs)
-        SetterPriority(cls._SETTER_PRIORITY).require_setters(cls)
+        cls._SETTER_PRIORITY.require_setters(cls)
 
     def __new__(
         cls,
@@ -80,6 +86,7 @@ class Element(EventHandlerHost, ABC):
         self._handlers = {}
         self._removed = False
         self._observers = PropertyObservers()
+        self._notifications = NotificationBuffer()
         self._children_tuple = ()
         return self
 
@@ -96,7 +103,8 @@ class Element(EventHandlerHost, ABC):
         are preserved so ``wrap_handlers_for_remote`` can wrap them on
         the Display side.
         """
-        state = {k: v for k, v in self.__dict__.items() if k != "_observers"}
+        local = ("_observers", "_notifications")
+        state = {k: v for k, v in self.__dict__.items() if k not in local}
         return (object.__new__, (type(self),), state)
 
     def __setstate__(self, state: dict[str, object]) -> None:
@@ -104,6 +112,7 @@ class Element(EventHandlerHost, ABC):
         for key, value in state.items():
             object.__setattr__(self, key, value)
         object.__setattr__(self, "_observers", PropertyObservers())
+        object.__setattr__(self, "_notifications", NotificationBuffer())
 
     @property
     @abstractmethod
@@ -241,28 +250,29 @@ class Element(EventHandlerHost, ABC):
         """
         HandlerWrites.admit(self, patch)
         before = ElementCheckpoint(self)
-        self._observers.begin()
+        self._notifications.begin()
         try:
-            for key, value in (
-                SetterPriority(self._SETTER_PRIORITY).arrange(patch).items()
-            ):
+            for key, value in self._SETTER_PRIORITY.arrange(patch).items():
                 getattr(self, f"_set_{key}")(value)
             errors = self._final_state_errors()
             if errors:
                 raise ValueError(errors[0])
         except Exception:
             before.restore()
-            self._observers.discard()
+            self._notifications.discard()
             raise
-        self._observers.commit(self.id)  # each property once, in first-seen order
+        # each property once, in first-seen order
+        self._observers.announce(self._notifications.take(), self.id)
         return self
 
     def _final_state_errors(self) -> tuple[str, ...]:
         """Return why the element is invalid now, after every setter ran; else ``()``.
 
-        The hook a kind overrides when its invariants span fields.
+        The element's own ``validate()`` is the whole answer, so a patch made by a
+        handler or an observer meets the same rule an agent's does, for every kind. A
+        kind that needs something narrower overrides it.
         """
-        return ()
+        return tuple(error.message for error in self.validate())
 
     def announce_restored(self, props: Iterable[str]) -> None:
         """Tell the observers that keep no state that each of ``props`` is restored.
@@ -270,25 +280,27 @@ class Element(EventHandlerHost, ABC):
         A rollback's undo: an observer that keeps state of its own got it back from
         its checkpoint (``observer_checkpoint``) and is not told.
         """
-        self._observers.announce_restored(props, self.id)
+        self._observers.announce(props, self.id, restored=True)
 
     def observer_checkpoint(self) -> ObserversCheckpoint:
         """Return the state of the observers that keep any, to restore on a rollback."""
         return self._observers.checkpoint()
 
-    def add_observer(
-        self,
-        observer: Callable[[str], None],
-        state: StatefulObserver | None = None,  # PY-TS-14 OK: most keep no state
-    ) -> None:
-        """Register a property-change observer, and the state it keeps if any.
+    def add_observer(self, observer: Callable[[str], None]) -> None:
+        """Register a property-change observer that keeps no state of its own.
 
         Parent composites use this to react to children flipping
-        ``_removed`` (and, in future, ``_visible`` / ``_enabled``). An observer that
-        derives state of its own passes itself as ``state`` so a rollback restores
-        that state with the element.
+        ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
         """
-        self._observers.add(observer, state)
+        self._observers.add(observer)
+
+    def add_stateful(self, observer: StatefulObserver) -> None:
+        """Register an observer that derives state of its own from this element.
+
+        A rollback restores that state from the observer's checkpoint, with the
+        element, and does not tell the observer the restored values.
+        """
+        self._observers.add_stateful(observer)
 
     @property
     def removed(self) -> bool:
@@ -301,9 +313,11 @@ class Element(EventHandlerHost, ABC):
         The single mechanism for marking any Element removed; all three
         removal paths (agent ``RemoveElement``, component self-dismiss,
         connection disconnect) reach it. The ``removed`` notification fans out
-        through ``_notify_observers``.
+        through ``_notify_observers``. Inside a transaction the removal is handed to
+        it instead and carried out only once everything the transaction wrote stood,
+        so a rollback has no removal to undo.
         """
-        if self._removed:
+        if self._removed or HandlerWrites.defer_removal(self):
             return
         self._removed = True
         self._notify_observers("removed")
@@ -315,4 +329,5 @@ class Element(EventHandlerHost, ABC):
         today; a table's ``selected_row_ids`` write-through, and future
         ``visible`` / ``enabled``): see :class:`PropertyObservers`.
         """
-        self._observers.notify(prop, self.id)
+        if not self._notifications.record(prop):
+            self._observers.announce((prop,), self.id)

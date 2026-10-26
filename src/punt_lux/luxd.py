@@ -23,6 +23,7 @@ import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.log_level import level_from_env
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.proctitle import set_process_title
@@ -167,6 +168,8 @@ async def _periodic_sweep_running(
             await task
         except asyncio.CancelledError:
             pass
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("%s sweep task failed before shutdown", name)
 

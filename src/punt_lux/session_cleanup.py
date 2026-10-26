@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub import disconnect_connection
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.tools.tools import OPERATIONS
 
 if TYPE_CHECKING:
@@ -52,6 +53,8 @@ class SessionCleanup:
         """Run one teardown leg, logging and swallowing its failure."""
         try:
             step()
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "MCP session teardown failed: leg=%s session_key=%s", leg, key

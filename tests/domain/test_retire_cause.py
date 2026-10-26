@@ -313,7 +313,8 @@ class TestARedialThatFindsNobodyHome:
         assert first == again
         assert hash(first) == hash(again)
         assert first != link.desk.asks().dial
-        assert first != "a dial"
+        stranger: object = "a dial"
+        assert first != stranger
 
 
 class TestTheCauseFollowsTheLastDial:

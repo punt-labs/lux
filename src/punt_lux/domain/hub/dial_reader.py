@@ -153,6 +153,8 @@ class DialReader:
         while not self._stopping.is_set() and not generation.is_settled:
             try:
                 msg = next(messages, None)
+            except ProgrammerError:
+                raise
             except Exception:  # wire boundary: any decoder failure ends the stream
                 logger.exception(
                     "Listener closing: display %s sent a malformed frame: %r",

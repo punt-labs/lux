@@ -18,10 +18,12 @@ Protocol stays satisfied (PY-OO-2).
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
 
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.validation import ValidationError
@@ -55,11 +57,21 @@ class ModalModel:
 
     _visible: bool
     _on_dismiss: Callable[[], None]
+    _before_change: Callable[[], None]
 
-    def __new__(cls, *, visible: bool, on_dismiss: Callable[[], None]) -> Self:
+    def __new__(
+        cls,
+        *,
+        visible: bool,
+        on_dismiss: Callable[[], None],
+        before_change: Callable[[], None],
+    ) -> Self:
         self = super().__new__(cls)
         self._visible = visible
         self._on_dismiss = on_dismiss
+        # Told before the model's own state moves, so a transaction in force can
+        # checkpoint it: the model changes in place, with no patch to name it.
+        self._before_change = before_change
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -78,6 +90,7 @@ class ModalModel:
 
     def close(self) -> None:
         """Drop visibility and notify the owning Element through the callback."""
+        self._before_change()
         self._visible = False
         self._on_dismiss()
 
@@ -94,6 +107,8 @@ class ModalElement(Element):
     contract for an optional tooltip.
     """
 
+    # The model changes in place, so a checkpoint of the modal copies it too.
+    OWNED_PARTS: ClassVar[tuple[str, ...]] = ("_model",)
     _id: str
     _title: str
     _model: ModalModel
@@ -127,7 +142,11 @@ class ModalElement(Element):
         self._kind = "modal"
         # ``open`` seeds the initial visibility; the user's only visibility
         # transition is the dismiss, which removes the modal via ``mark_removed``.
-        self._model = ModalModel(visible=open, on_dismiss=self.mark_removed)
+        self._model = ModalModel(
+            visible=open,
+            on_dismiss=self.mark_removed,
+            before_change=partial(HandlerWrites.will_derive, self),
+        )
         return self
 
     # -- read-only accessors -----------------------------------------------

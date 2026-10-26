@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -56,5 +58,7 @@ class GuardedMenu:
         """Show the menu, logging whatever could not be composed or drawn."""
         try:
             self._surface.render(imgui, self._compose)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("Error rendering menus")

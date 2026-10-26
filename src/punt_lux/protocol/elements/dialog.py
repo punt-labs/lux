@@ -12,9 +12,11 @@ cascade to notify the parent composite.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.dialog_codec import (
@@ -50,12 +52,21 @@ class DialogModel:
     _visible: bool
     _confirmed: bool
     _on_dismiss: Callable[[], None]
+    _before_change: Callable[[], None]
 
-    def __new__(cls, *, on_dismiss: Callable[[], None]) -> Self:
+    def __new__(
+        cls,
+        *,
+        on_dismiss: Callable[[], None],
+        before_change: Callable[[], None],
+    ) -> Self:
         self = super().__new__(cls)
         self._visible = True
         self._confirmed = False
         self._on_dismiss = on_dismiss
+        # Told before the model's own state moves, so a transaction in force can
+        # checkpoint it: the model changes in place, with no patch to name it.
+        self._before_change = before_change
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -94,6 +105,7 @@ class DialogModel:
 
     def confirm(self) -> None:
         """Record confirmation and dismiss the dialog."""
+        self._before_change()
         self._confirmed = True
         self._dismiss()
 
@@ -107,6 +119,7 @@ class DialogModel:
 
     def _dismiss(self) -> None:
         """Drop visibility and notify the owning Element through the callback."""
+        self._before_change()
         self._visible = False
         self._on_dismiss()
 
@@ -120,6 +133,8 @@ class DialogElement(Element):
     to ``self.mark_removed``) to flip ``_removed``.
     """
 
+    # The model changes in place, so a checkpoint of the dialog copies it too.
+    OWNED_PARTS: ClassVar[tuple[str, ...]] = ("_model",)
     _id: str
     _title: str
     _model: DialogModel
@@ -145,7 +160,10 @@ class DialogElement(Element):
         # ``on_dismiss`` binds to this Element's mark_removed so the
         # single removal mechanism (agent RemoveElement, model dismiss,
         # connection disconnect) all converge.
-        self._model = DialogModel(on_dismiss=self.mark_removed)
+        self._model = DialogModel(
+            on_dismiss=self.mark_removed,
+            before_change=partial(HandlerWrites.will_derive, self),
+        )
         return self
 
     # -- read-only accessors -----------------------------------------------

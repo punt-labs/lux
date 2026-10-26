@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import final
 
-from punt_lux.domain.hub.guard_registry import GuardRegistry
+from punt_lux.domain.hub.guard_registry import GuardRegistry, Holder
 from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 
 __all__ = ["LockDiscipline"]
@@ -33,9 +33,13 @@ class LockDiscipline:
         return GuardRegistry.is_held()
 
     @classmethod
-    def require_store(cls, what: str) -> None:
-        """Raise unless the current thread holds the store lock for ``what``."""
-        if not cls.holds_store():
+    def require_store(cls, what: str, store: Holder) -> None:
+        """Raise unless the current thread holds ``store``'s lock, for ``what``.
+
+        The lock asked is the one of the store being walked: a hold on another
+        store's lock guards nothing here.
+        """
+        if not store.holds_here():
             msg = f"{what} requires the store write lock, which this thread lacks"
             raise LockDisciplineError(msg)
 

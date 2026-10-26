@@ -11,13 +11,14 @@ the observer rolls back and the agent is told why:
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.handler_writes import WriteRefusedError
 
 __all__ = ["NestingExceededError", "UnheldTargetError"]
 
 
+@final
 class NestingExceededError(WriteRefusedError, ValueError):
     """Raised when a write would nest an element's wire form past the cap.
 
@@ -27,17 +28,26 @@ class NestingExceededError(WriteRefusedError, ValueError):
 
     A plain exception class, not a frozen dataclass: ``contextlib`` sets
     ``__traceback__`` on whatever passes through a ``@contextmanager``, which a
-    frozen instance refuses. It is made by :meth:`at`, an alternative constructor.
+    frozen instance refuses. :meth:`of` is its named constructor.
     """
 
     _reason: str
 
-    @classmethod
-    def at(cls, reason: str) -> Self:
-        """Return the refusal that says ``reason``."""
-        refusal = cls(reason)
+    def __new__(cls, *args: object) -> Self:
+        match args:
+            case (str() as reason,):
+                pass
+            case _:
+                msg = f"{cls.__name__} takes (reason: str), got {args!r}"
+                raise TypeError(msg)
+        refusal = super().__new__(cls, *args)
         refusal._reason = reason
         return refusal
+
+    @classmethod
+    def of(cls, reason: str) -> Self:
+        """Return the refusal that says ``reason``."""
+        return cls(reason)
 
     @property
     def reason(self) -> str:
@@ -48,6 +58,7 @@ class NestingExceededError(WriteRefusedError, ValueError):
         return self._reason
 
 
+@final
 class UnheldTargetError(WriteRefusedError, LookupError):
     """Raised when a write names an element no scene the Hub holds contains.
 
@@ -56,12 +67,21 @@ class UnheldTargetError(WriteRefusedError, LookupError):
 
     _element_id: str
 
+    def __new__(cls, *args: object) -> Self:
+        match args:
+            case (str() as element_id,):
+                pass
+            case _:
+                msg = f"{cls.__name__} takes (element_id: str), got {args!r}"
+                raise TypeError(msg)
+        refusal = super().__new__(cls, *args)
+        refusal._element_id = element_id
+        return refusal
+
     @classmethod
     def of(cls, element_id: str) -> Self:
         """Return the refusal for a write to ``element_id``."""
-        refusal = cls(element_id)
-        refusal._element_id = element_id
-        return refusal
+        return cls(element_id)
 
     @property
     def element_id(self) -> str:

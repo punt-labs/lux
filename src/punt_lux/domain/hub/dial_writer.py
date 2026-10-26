@@ -10,7 +10,7 @@ whether the failure is the display's.
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, NoReturn, Self, final
 
 if TYPE_CHECKING:
     import socket
@@ -66,17 +66,17 @@ class DialWriter:
         ``D``, ends the dial as unresponsive. The socket lock is held, so nothing reads
         meanwhile.
         """
-        self._line.forbid_store()
-        if not self._line.acquire_unless_silent():
-            stalled = BlockingIOError("the dial's socket lock was not free in time")
-            self._failed(stalled)
-            raise stalled
-        writing = False
+        # Told when the first byte may have gone, and for a lock held silent for D:
+        # the dial is told after the lock is let go, and it decides who ended it.
+        tell_dial = False
         try:
-            try:
+            with self._line.writing() as free:
+                if not free:
+                    tell_dial = True
+                    self._refuse()
                 self._require_open()
                 prepared = prepare()
-                writing = True
+                tell_dial = True
                 self._sock.settimeout(0.0)
                 try:
                     self._line.send(self._sock, wire)
@@ -84,9 +84,13 @@ class DialWriter:
                     with contextlib.suppress(OSError):  # closed by its own capture
                         self._sock.settimeout(None)
                 return finish(prepared)
-            finally:
-                self._line.release()
         except BaseException as exc:
-            if writing:
+            if tell_dial:
                 self._failed(exc)
             raise
+
+    @staticmethod
+    def _refuse() -> NoReturn:
+        """Raise the refusal of a write whose lock stayed held, silent, for ``D``."""
+        msg = "the dial's socket lock was not free in time"
+        raise BlockingIOError(msg)

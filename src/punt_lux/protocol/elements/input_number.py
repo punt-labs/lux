@@ -177,10 +177,6 @@ class InputNumberElement(Element):
     def _set_tooltip(self, value: object) -> None:
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
-    def _final_state_errors(self) -> tuple[str, ...]:
-        """Judge the final state: range and format both."""
-        return self._error_messages()
-
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the value-changed bucket's spec under the fixed 'changed' action."""
         return (RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)

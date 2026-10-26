@@ -16,6 +16,7 @@ import pytest
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
 from punt_lux.domain.hub.write_refusals import NestingExceededError
 from punt_lux.domain.ids import ClientId, ElementId
@@ -58,9 +59,12 @@ def _click() -> ButtonClicked:
 def _fire(store: HubDisplay, button: ButtonElement) -> None:
     """Fire a click on ``button`` the way Hub dispatch does, under the store's judge."""
     with store.write_lock():  # Hub dispatch fires under the store write lock
-        ResolvedInteraction(element=button, owner=None, scene_id=_SCENE).fire(
-            _click(), store.write_seam.transaction()
-        )
+        ResolvedInteraction(
+            element=button,
+            owner=None,
+            scene_id=_SCENE,
+            store_guard=store.write_lock(),
+        ).fire(_click(), store.write_seam.transaction())
 
 
 def _scene_with_a_handler(levels: int) -> tuple[ButtonElement, TreeElement]:
@@ -128,7 +132,7 @@ class TestTheJudgeIsScopedToTheFire:
             seen.append(target.id)
             target.apply_patch({"label": "judged"})  # would recurse if it were judged
 
-        with HandlerWrites.judged(judge):
+        with HandlerWrites.judged(BatchJudge(judge, [])):
             tree.apply_patch({"label": "x"})
 
         assert seen == ["t"]
@@ -139,7 +143,10 @@ class TestTheJudgeIsScopedToTheFire:
         def refuse(target: Element, patch: Mapping[str, object]) -> None:
             raise ValueError("refused")
 
-        with pytest.raises(ValueError, match="refused"), HandlerWrites.judged(refuse):
+        with (
+            pytest.raises(ValueError, match="refused"),
+            HandlerWrites.judged(BatchJudge(refuse, [])),
+        ):
             tree.apply_patch({"label": "x"})
         tree.apply_patch({"label": "y"})
 

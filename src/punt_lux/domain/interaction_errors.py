@@ -18,7 +18,7 @@ exception), not because of which call site produces each.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.ids import ElementId, SceneId
 
@@ -35,6 +35,7 @@ class InteractionError(Exception):
         return self.__class__.__name__
 
 
+@final
 class WrongKindError(InteractionError):
     """Element's wire kind does not match the interaction value shape."""
 
@@ -43,17 +44,29 @@ class WrongKindError(InteractionError):
     _expected: str
     _got: str
 
+    def __new__(cls, *args: object) -> Self:
+        match args:
+            case (str() as scene_id, str() as element_id, str() as want, str() as got):
+                pass
+            case _:
+                msg = (
+                    f"{cls.__name__} takes (scene_id, element_id, expected, got), "
+                    f"all str, got {args!r}"
+                )
+                raise TypeError(msg)
+        error = super().__new__(cls, *args)
+        error._scene_id = SceneId(scene_id)
+        error._element_id = ElementId(element_id)
+        error._expected = want
+        error._got = got
+        return error
+
     @classmethod
     def of(
         cls, scene_id: SceneId, element_id: ElementId, expected: str, got: str
     ) -> Self:
         """Return the error for ``got`` fired at an element that wants ``expected``."""
-        error = cls(scene_id, element_id, expected, got)
-        error._scene_id = scene_id
-        error._element_id = element_id
-        error._expected = expected
-        error._got = got
-        return error
+        return cls(scene_id, element_id, expected, got)
 
     @property
     def scene_id(self) -> SceneId:

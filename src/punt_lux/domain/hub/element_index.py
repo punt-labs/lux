@@ -23,17 +23,27 @@ __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
 _ANON_KEY_PREFIX = "\x00lux-anon:"
 
 
+@final
 class UnknownSceneError(LookupError):
     """Raised when ``lookup`` targets a scene that has never been added."""
 
     _scene_id: SceneId
 
+    def __new__(cls, *args: object) -> Self:
+        match args:
+            case (str() as scene_id,):
+                pass
+            case _:
+                msg = f"{cls.__name__} takes (scene_id: str), got {args!r}"
+                raise TypeError(msg)
+        error = super().__new__(cls, *args)
+        error._scene_id = SceneId(scene_id)
+        return error
+
     @classmethod
     def of(cls, scene_id: SceneId) -> Self:
         """Return the error for the scene that was never added."""
-        error = cls(scene_id)
-        error._scene_id = scene_id
-        return error
+        return cls(scene_id)
 
     @property
     def scene_id(self) -> SceneId:
@@ -44,19 +54,29 @@ class UnknownSceneError(LookupError):
         return f"unknown scene: {self._scene_id!r}"
 
 
+@final
 class UnknownElementError(LookupError):
     """Raised when ``lookup`` targets an element that is not in the index."""
 
     _scene_id: SceneId
     _element_id: ElementId
 
+    def __new__(cls, *args: object) -> Self:
+        match args:
+            case (str() as scene_id, str() as element_id):
+                pass
+            case _:
+                msg = f"{cls.__name__} takes (scene_id, element_id), got {args!r}"
+                raise TypeError(msg)
+        error = super().__new__(cls, *args)
+        error._scene_id = SceneId(scene_id)
+        error._element_id = ElementId(element_id)
+        return error
+
     @classmethod
     def of(cls, scene_id: SceneId, element_id: ElementId) -> Self:
         """Return the error for the element missing from ``scene_id``."""
-        error = cls(scene_id, element_id)
-        error._scene_id = scene_id
-        error._element_id = element_id
-        return error
+        return cls(scene_id, element_id)
 
     @property
     def scene_id(self) -> SceneId:

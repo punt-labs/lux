@@ -36,7 +36,7 @@ from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.recovery import SendRecovery
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import QuarantinePort
@@ -142,9 +142,7 @@ class HubReplicator:
         # scene needs the full ATTRIBUTION_THRESHOLD again, not one fresh
         # death against a lingering in-window tally.
         quarantine.add_quarantine_cleared_observer(self._attribution.clear_tally)
-        self._recovery = SendRecovery(
-            clients, lifecycle, self._signal, RespawnBackoff()
-        )
+        self._recovery = SendRecovery.pacing_respawns(clients, lifecycle, self._signal)
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
         # A second, independently-tuned pacer for the never-connected case.
@@ -239,6 +237,8 @@ class HubReplicator:
             self._sender.charge_deaths()
             self._attribution.exit_isolation_if_stable()
             self._recovery.reset_backoff_if_stable()
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("replicator idle tick failed; continuing")
 
@@ -254,6 +254,8 @@ class HubReplicator:
         """
         try:
             result = self._push_cycle(batch)
+        except ProgrammerError:
+            raise
         except Exception:
             if batch.shutting:
                 logger.exception("replicator shutdown flush failed; dropping the batch")

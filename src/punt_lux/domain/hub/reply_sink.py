@@ -32,13 +32,12 @@ DialGeneration`) and goes with it. A dial's end has three steps, and they are se
 
 from __future__ import annotations
 
-import threading
 from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_end import DialEnd
-from punt_lux.domain.hub.pending import Pending
+from punt_lux.domain.hub.owned_condition import OwnedCondition
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
 from punt_lux.domain.hub.settlement import Settlement
 from punt_lux.domain.ids import SceneId
@@ -46,6 +45,7 @@ from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.domain.hub.pending import Pending
     from punt_lux.protocol import Message
 
 __all__ = ["REPLY_TYPES", "ReplySink"]
@@ -57,7 +57,7 @@ REPLY_TYPES = (AckMessage, PongMessage, QueryResponse)
 class ReplySink:
     """The replies one dial is owed: acks in write order, a ping, a query."""
 
-    _cond: threading.Condition
+    _cond: OwnedCondition
     _acks: deque[SceneId]  # scenes written and not yet acked, in wire order
     _waiters: ReplyWaiters  # what callers wait on, under this sink's lock
     _end: DialEnd  # the first cause recorded, and the Hub's request
@@ -76,7 +76,7 @@ class ReplySink:
         self = super().__new__(cls)
         # A lock that cannot be re-entered: ReplyWaiters never takes it twice, and a
         # re-entry would be a deadlock a test catches, not a hidden dependence.
-        self._cond = threading.Condition(threading.Lock())
+        self._cond = OwnedCondition()
         self._acks = deque()
         self._end = DialEnd()
         self._waiters = ReplyWaiters(self._cond, self._end)

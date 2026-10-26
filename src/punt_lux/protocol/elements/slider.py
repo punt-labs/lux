@@ -161,10 +161,6 @@ class SliderElement(Element):
     def _set_tooltip(self, value: object) -> None:
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
-    def _final_state_errors(self) -> tuple[str, ...]:
-        """Judge the final state, so ``{"value": 150, "max": 200}`` is fine."""
-        return self._range_error_messages()
-
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the value-changed bucket's spec under the fixed 'changed' action."""
         return (RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)

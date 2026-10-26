@@ -1349,7 +1349,7 @@ class TestABoundedWrite:
 
 
 class TestTheWriterRaisesTheDialsClosedError:
-    """A writer reports what ended the dial, whichever socket call said so (C5, S6)."""
+    """A writer reports what ended the dial, whichever socket call said so."""
 
     def test_a_display_end_the_writer_recorded_is_a_closed_error_chained_to_it(
         self, display: Display

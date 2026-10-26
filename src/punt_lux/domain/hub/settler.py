@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.drain_result import DrainIncompleteError
+from punt_lux.domain.hub.settle_errors import UnendedDialError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -91,7 +92,7 @@ class Settler:
         closing = generation.closing
         if closing is None:
             msg = "a dial no one ended or asked to end has no cause to settle by"
-            raise ValueError(msg)
+            raise UnendedDialError(msg)
         return closing
 
     def end_stream(self, cause: RetireCause) -> bool:

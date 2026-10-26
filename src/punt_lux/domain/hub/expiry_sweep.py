@@ -21,6 +21,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.ids import SceneId
     from punt_lux.operations.ports import DirtyMarker
@@ -92,6 +94,8 @@ class ExpirySweep:
             try:
                 await asyncio.sleep(self.next_wait())
                 self.sweep()
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception("frame-expiry cycle failed; backing off the idle poll")
                 await asyncio.sleep(_IDLE_POLL_SECONDS)

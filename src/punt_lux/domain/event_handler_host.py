@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
-from punt_lux.domain.handler_writes import WriteRefusedError
+from punt_lux.domain.handler_failed_error import HandlerFailedError
+from punt_lux.domain.handler_writes import HandlerWrites, WriteRefusedError
 from punt_lux.domain.ids import ElementId
 from punt_lux.domain.interaction_errors import WrongKindError
 from punt_lux.domain.programmer_error import ProgrammerError
@@ -90,6 +91,12 @@ class EventHandlerHost:
         no subscriber's own failure and pass through: a write the judge refused (the
         transaction the handler runs in rolls back and reports it) and a
         :class:`~punt_lux.domain.programmer_error.ProgrammerError`.
+
+        Inside a transaction a handler that raises fails the event: the writes and
+        removals of every handler of it are undone together, so a half-applied action
+        is never left standing. The remaining handlers do not run, since nothing they
+        did would stand; the failure is raised as :class:`HandlerFailedError`, chained
+        to what the handler raised.
         """
         snapshot = tuple(self._handlers.get(type(event), ()))
         for handler in snapshot:
@@ -97,7 +104,10 @@ class EventHandlerHost:
                 handler(event)
             except (WriteRefusedError, ProgrammerError):
                 raise  # the transaction the handler runs in rolls back, or it is a bug
-            except Exception:
+            except Exception as exc:
+                if HandlerWrites.in_transaction():
+                    msg = f"handler {handler!r} raised on {type(event).__name__}"
+                    raise HandlerFailedError(msg) from exc
                 logger.exception(
                     "handler raised on %s for element %s",
                     type(event).__name__,

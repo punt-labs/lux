@@ -2,41 +2,68 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.domain.hub.display_connection import DisplayConnection
 
-__all__ = ["end_fake_dial", "fake_dial"]
+__all__ = ["FakeDial", "end_fake_dial", "fake_dial"]
 
 
 @final
-class _FakeDial:
-    """What a fake is asked about a dial: how it ended, and where it reaches."""
+class FakeDial:
+    """A dial a fake never reads or writes, satisfying ``DialRef`` by its shape.
 
-    ended: RetireCause | None  # PY-TS-14 OK: None is a dial nothing has ended
-    is_cross_host: bool
+    The code under test hands it back (``drop(dial)``) and asks how it ended and
+    whether its Display is local; nothing retires it, as nothing connects to it.
+    """
 
-    def __init__(self, ended: RetireCause | None, *, cross_host: bool) -> None:
-        self.ended = ended
-        self.is_cross_host = cross_host
+    # PY-TS-14 OK: None is a dial nothing has ended.
+    _ended: RetireCause | None
+    _local: bool
+    __slots__ = ("_ended", "_local")
+
+    def __new__(
+        cls,
+        ended: RetireCause | None = None,  # PY-TS-14 OK: a dial nothing has ended
+        *,
+        local: bool = True,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._ended = ended
+        self._local = local
+        return self
+
+    @property
+    # PY-TS-14 OK: None is a dial nothing has ended.
+    def ended(self) -> RetireCause | None:
+        """How the dial ended; ``None`` while nothing has ended it."""
+        return self._ended
+
+    def end(self, cause: RetireCause) -> None:
+        """Record who ended the dial, as a real dial's writer would."""
+        self._ended = cause
+
+    def reaches_local_display(self) -> bool:
+        """Whether this stand-in stands for a dial to this host's own Display."""
+        return self._local
+
+    def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
+        """Retire nothing: no connection holds a stand-in dial."""
+        del connection, cause
+        return False
 
 
 def fake_dial(
     ended: RetireCause | None = None,  # PY-TS-14 OK: None is a dial nothing has ended
     *,
     cross_host: bool = False,
-) -> DialRef:
-    """Return an opaque token standing for a dial the fake never reads or writes.
-
-    The code under test hands it back (``drop(dial)``) and asks how it ended and
-    whether it reaches another host, so a stand-in with just those answers takes the
-    place of a real :class:`DialRef` and the dial behind it.
-    """
-    return cast("DialRef", _FakeDial(ended, cross_host=cross_host))
+) -> FakeDial:
+    """Return a stand-in for a dial the fake never reads or writes."""
+    return FakeDial(ended, local=not cross_host)
 
 
-def end_fake_dial(dial: DialRef, cause: RetireCause) -> None:
+def end_fake_dial(dial: FakeDial, cause: RetireCause) -> None:
     """Record on a stand-in dial who ended it, as a real dial's writer would."""
-    cast("_FakeDial", dial).ended = cause
+    dial.end(cause)

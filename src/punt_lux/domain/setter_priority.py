@@ -24,9 +24,18 @@ class SetterPriority:
     __slots__ = ("_keys",)
 
     def __new__(cls, keys: tuple[str, ...]) -> Self:
+        duplicated = sorted({k for k in keys if keys.count(k) > 1})
+        if duplicated:
+            msg = f"a setter priority names {duplicated} more than once"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._keys = keys
         return self
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        """The keys that run first, in the order they run."""
+        return self._keys
 
     def require_setters(self, kind: type) -> None:
         """Refuse a kind that names a key it has no ``_set_<key>`` for.

@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import importlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
+import punt_lux
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
@@ -31,7 +33,7 @@ if TYPE_CHECKING:
 _S, _E = SceneId("s"), ElementId("e")
 
 _MADE: list[Callable[[], BaseException]] = [
-    lambda: NestingExceededError.at("too deep"),
+    lambda: NestingExceededError.of("too deep"),
     lambda: UnheldTargetError.of("e"),
     lambda: HubOwnershipError.of(_S, _E, ConnectionId("a"), ConnectionId("b")),
     lambda: ImmutableFieldError.of(_E, "id"),
@@ -85,15 +87,19 @@ def test_it_survives_a_copy_with_the_same_message(
 
 
 def test_no_exception_class_in_src_is_a_frozen_dataclass() -> None:
-    src = Path(__file__).resolve().parents[2] / "src"
-
-    assert ExceptionScan(src).frozen_exceptions() == []
+    assert ExceptionScan(punt_lux).frozen_exceptions() == []
 
 
-def test_the_scan_sees_a_planted_frozen_exception(tmp_path: Path) -> None:
-    (tmp_path / "planted.py").write_text(
+def test_the_scan_sees_a_planted_frozen_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "planted_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "base.py").write_text("class Base(ValueError): ...\n", encoding="utf-8")
+    (package / "found.py").write_text(
         "from dataclasses import dataclass\n"
-        "class Base(ValueError): ...\n"
+        "from planted_pkg.base import Base\n"
         "@dataclass(frozen=True, slots=True)\n"
         "class Planted(Base):\n"
         "    reason: str\n"
@@ -102,7 +108,8 @@ def test_the_scan_sees_a_planted_frozen_exception(tmp_path: Path) -> None:
         "    reason: str\n",
         encoding="utf-8",
     )
+    monkeypatch.syspath_prepend(str(tmp_path))
 
-    found = ExceptionScan(tmp_path).frozen_exceptions()
+    found = ExceptionScan(importlib.import_module("planted_pkg")).frozen_exceptions()
 
-    assert [line.split(" at ")[0] for line in found] == ["Planted"]
+    assert found == ["planted_pkg.found.Planted"]

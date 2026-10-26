@@ -9,13 +9,14 @@ door — use ``show``".
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Literal, Self, final
 
 from punt_lux.domain.ids import ElementId
 
 __all__ = ["StructuralFieldWriteError"]
 
 
+@final
 class StructuralFieldWriteError(TypeError):
     """Raised when a ``set`` names a field that carries child elements.
 
@@ -32,13 +33,28 @@ class StructuralFieldWriteError(TypeError):
     _element_id: ElementId
     _field: Literal["children", "tabs"]
 
+    def __new__(cls, *args: object) -> Self:
+        field: Literal["children", "tabs"]
+        match args:
+            case (str() as raw, "children"):
+                field = "children"
+            case (str() as raw, "tabs"):
+                field = "tabs"
+            case _:
+                msg = (
+                    f"{cls.__name__} takes "
+                    f"(element_id: str, field: 'children' | 'tabs'), got {args!r}"
+                )
+                raise TypeError(msg)
+        error = super().__new__(cls, *args)
+        error._element_id = ElementId(raw)
+        error._field = field
+        return error
+
     @classmethod
     def of(cls, element_id: ElementId, field: Literal["children", "tabs"]) -> Self:
         """Return the error for a write to the structural ``field``."""
-        error = cls(element_id, field)
-        error._element_id = element_id
-        error._field = field
-        return error
+        return cls(element_id, field)
 
     @property
     def element_id(self) -> ElementId:

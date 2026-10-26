@@ -21,6 +21,7 @@ from typing import (
 )
 
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.domain.validation import ValidationReport
@@ -140,7 +141,10 @@ class AbcFieldRealization:
 
     def _patched_copy(self) -> AbcElement:
         if self._patched is None:
-            self._patched = deepcopy(self._element).apply_patch(self._fields)
+            # A copy is no element of any scene: the transaction in force, if there is
+            # one, has nothing to judge, record or undo about it.
+            with HandlerWrites.unjudged():
+                self._patched = deepcopy(self._element).apply_patch(self._fields)
         return self._patched
 
     def commit(self) -> None:

@@ -1,13 +1,18 @@
 """BatchTransaction -- an agent's batch of field writes, committed as one unit.
 
 Every write a batch makes, its own and those the observers it wakes make, stands or
-none does. The batch was judged whole before this runs, so each realization's own write
-is let through by the :class:`~punt_lux.domain.hub.batch_judge.BatchJudge`, and every
-other write meets the seam's own judge. When anything fails, a refused observer write
-included, every element written is put back and its observers told. When everything
-committed, the final state of each element written is measured against the cap once
-more, since each write was judged when it was made and not against what the writes
-after it would leave.
+none does; so does every removal it asks for (a dialog's own dismissal), which is
+carried out once everything else stood. The batch was judged whole before this runs,
+so each realization's own write is let through by the
+:class:`~punt_lux.domain.hub.batch_judge.BatchJudge`, and every other write meets the
+seam's own judge. When anything fails, a refused observer write included, every
+element written is put back and its observers told. When everything committed, the
+final state of each element written is measured against the cap once more, since each
+write was judged when it was made and not against what the writes after it would leave.
+
+A transaction opened inside one that is in force joins it: it judges and records
+nothing of its own, and what it writes stands or falls with the outer transaction. A
+refusal inside it is raised for the outer transaction to roll back, not returned.
 """
 
 from __future__ import annotations
@@ -68,15 +73,15 @@ class BatchTransaction:
         if refusal is not None:
             raise refusal
 
-    # PY-TS-14 OK: None is a handler whose writes stood.
+    # PY-TS-14 OK: None is a handler whose writes and removals stood.
     def run_handler(self, handle: Callable[[], None]) -> WriteRefusedError | None:
-        """Run a handler whose every write stands, or none does; the refusal, if any.
+        """Run a handler whose every write and removal stands, or none does.
 
         The handler's own writes, and those the observers they wake make, are judged
         as they are made and measured once more when the handler has returned. A
         refusal anywhere puts every element written back, observers' state included,
-        and is returned for the caller to report; any other failure is raised once
-        the undo is done.
+        drops the removals asked for, and is returned for the caller to report; any
+        other failure is raised once the undo is done.
         """
         return self._attempt(BatchJudge(self._admit, []), handle)
 
@@ -85,6 +90,9 @@ class BatchTransaction:
         self, judge: BatchJudge, work: Callable[[], None]
     ) -> WriteRefusedError | None:
         """Run ``work`` under ``judge``; the refusal that rolled it back, if any."""
+        if HandlerWrites.in_transaction():
+            work()  # joins the transaction in force: it records, it settles
+            return None
         with HandlerWrites.judged(judge):
             try:
                 work()
@@ -95,6 +103,7 @@ class BatchTransaction:
             except Exception:
                 judge.roll_back()
                 raise
+        judge.commit()  # outside the scope: a removal is an ordinary one again
         return None
 
     @staticmethod

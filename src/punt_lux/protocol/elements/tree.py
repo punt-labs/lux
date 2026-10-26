@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, final
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.setter_priority import SetterPriority
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
 from punt_lux.protocol.elements.tree_model import TreeModel
@@ -38,10 +39,8 @@ class TreeElement(Element):
     PY-TS-14 OK: only ``tooltip`` is ``str | None``; every other field is total.
     """
 
-    _SETTER_PRIORITY: ClassVar[tuple[str, ...]] = (
-        "nodes",
-        "selected_node_ids",
-        "anchor_node_id",
+    _SETTER_PRIORITY: ClassVar[SetterPriority] = SetterPriority(
+        ("nodes", "selected_node_ids", "anchor_node_id")
     )
     _model: TreeModel
 

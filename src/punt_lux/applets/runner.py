@@ -26,6 +26,7 @@ from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
 from punt_lux.apps.bd_child import BdLeash
 from punt_lux.client.facade import LuxClient
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -33,7 +34,9 @@ if TYPE_CHECKING:
     from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
     from punt_lux.applets.service import AppletService
+    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.operations import Ok, OpError
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +59,15 @@ class ServiceRunner:
         # One query at a time, across every click this session's entry gets.
         self._running = SingleFlight()
         return self
+
+    def register(self) -> Ok | OpError:
+        """Register the service's menu entry with the Hub over REST — blocking.
+
+        Built per use, under the session's identity, like every connection the
+        runner makes; it runs on a worker thread, never on the leg's loop.
+        """
+        rest: CallbackConvenienceOps = LuxClient.for_identity(self._identity).sync
+        return self._service.entry.register_with(rest)
 
     async def clicked(self, latency: ClickLatency) -> None:
         """Service one click on a worker thread, leaving the loop free to renew.
@@ -87,6 +99,8 @@ class ServiceRunner:
         """Run *job* as one call with its own ``bd`` leash; a failure is a log line."""
         try:
             await BdLeash().served(job)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(failure)
 

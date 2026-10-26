@@ -222,22 +222,21 @@ class _RecordingRegistration:
 
 
 def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
-    """Point the leg's and runner's per-use Hub connection at a stand-in.
+    """Point the runner's per-use Hub connections at a stand-in.
 
-    ``AppletLeg._rest`` (registration) and ``ServiceRunner._rest`` (click
-    work) each build their own connection per use, so both are patched
-    directly to the same stand-in rather than patching the transport they
-    build it from -- the stand-in serves whichever of the two a given test
-    exercises.
+    ``ServiceRunner`` builds a connection per use for registration
+    (``register``) and another for click work (``_rest``), so both are patched
+    to the same stand-in rather than patching the transport they build it
+    from -- the stand-in serves whichever of the two a given test exercises.
     """
 
-    def _stand_in_leg(self: AppletLeg) -> object:
-        return client
+    def _stand_in_registration(self: ServiceRunner) -> Ok | OpError:
+        return self._service.entry.register_with(client)  # type: ignore[arg-type]  # a stand-in
 
     def _stand_in_runner(self: ServiceRunner) -> object:
         return client
 
-    monkeypatch.setattr(AppletLeg, "_rest", _stand_in_leg)
+    monkeypatch.setattr(ServiceRunner, "register", _stand_in_registration)
     monkeypatch.setattr(ServiceRunner, "_rest", _stand_in_runner)
 
 

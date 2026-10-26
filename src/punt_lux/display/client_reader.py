@@ -17,6 +17,7 @@ import ssl
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.want_write_state import WantWriteState
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol import HEADER_SIZE, MAX_MESSAGE_SIZE
 from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
@@ -131,6 +132,8 @@ class ClientReader:
             return
         try:
             messages = reader.drain_typed(CLIENT_VOCABULARY)
+        except ProgrammerError:
+            raise
         except Exception as exc:  # wire boundary: any decoder failure drops the peer
             logger.exception("Malformed message from fd %d", fd)
             self._callbacks.on_error("error", str(exc), "message_parse")
@@ -140,6 +143,8 @@ class ClientReader:
             logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
             try:
                 self._callbacks.on_message(sock, msg)
+            except ProgrammerError:
+                raise
             except Exception as exc:  # handler boundary: no reply may be skipped
                 # A request whose handling raised leaves no reply, and the Hub
                 # matches replies to requests by order, so the connection ends.

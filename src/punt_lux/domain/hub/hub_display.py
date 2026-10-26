@@ -62,13 +62,12 @@ from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
-    from contextlib import AbstractContextManager
 
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.hub.store_lock import StoreLock
+    from punt_lux.domain.hub.store_lock import StoreGuard, StoreLock
     from punt_lux.domain.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]
@@ -162,7 +161,7 @@ class HubDisplay:
         """Return the field-mutation seam the authoritative write path uses."""
         return self._seam
 
-    def write_lock(self) -> AbstractContextManager[bool]:
+    def write_lock(self) -> StoreGuard:
         """Hold the store lock across an external mutation batch; reentrant."""
         return self._lock.write()
 

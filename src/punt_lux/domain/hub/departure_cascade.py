@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.departure_sinks import DepartureSinks
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -61,6 +62,8 @@ class DepartureCascade:
         """
         try:
             self._hub.on_disconnect(connection_id)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "departure cascade on_disconnect failed for connection_id=%s",
@@ -68,6 +71,8 @@ class DepartureCascade:
             )
         try:
             self._sinks.fire(connection_id)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "departure cascade sink failed for connection_id=%s", connection_id

@@ -14,6 +14,7 @@ import OpenGL.GL as GL
 from imgui_bundle import hello_imgui, imgui
 from PIL import Image
 
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol import ScreenshotResponse
 
 if TYPE_CHECKING:
@@ -63,6 +64,8 @@ class FramebufferCapture:
             )
             os.close(fd)
             image.save(path)
+        except ProgrammerError:
+            raise
         except Exception as exc:
             logger.exception("Screenshot capture failed")
             self._record_error("error", str(exc), "screenshot")

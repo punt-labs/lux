@@ -23,6 +23,7 @@ from punt_lux.domain.hub.connection_closed import (
 )
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
@@ -127,6 +128,8 @@ class DisplayReplies:
                 chunk = generation.poll_chunk(min(remaining, _POLL_SECONDS))
                 if chunk is not None:
                     self._route_inline(generation, chunk)
+            except ProgrammerError:
+                raise
             except Exception as exc:  # the dial's stream cannot be trusted past it
                 error = self._ended_by(generation, settler, exc)
                 if error is exc:
@@ -185,6 +188,8 @@ class DisplayReplies:
         while True:
             try:
                 msg = next(messages, None)
+            except ProgrammerError:
+                raise
             except Exception as exc:  # wire boundary: any decoder failure
                 logger.exception(
                     "Inline read closing: display %s sent a malformed frame: %r",
@@ -196,6 +201,8 @@ class DisplayReplies:
                 return  # a settled dial routes nothing more
             try:
                 self._listener.route(generation, msg, inline=True)
+            except ProgrammerError:
+                raise
             except Exception:
                 if isinstance(msg, REPLY_TYPES):
                     raise

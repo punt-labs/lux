@@ -47,9 +47,12 @@ def _click() -> ButtonClicked:
 
 def _fire(store: HubDisplay, button: ButtonElement) -> None:
     with store.write_lock():
-        ResolvedInteraction(element=button, owner=None, scene_id=_SCENE).fire(
-            _click(), store.write_seam.transaction()
-        )
+        ResolvedInteraction(
+            element=button,
+            owner=None,
+            scene_id=_SCENE,
+            store_guard=store.write_lock(),
+        ).fire(_click(), store.write_seam.transaction())
 
 
 def _scene(*roots: WireElement) -> HubDisplay:

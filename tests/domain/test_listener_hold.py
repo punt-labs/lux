@@ -17,6 +17,7 @@ from punt_lux.domain.hub import bounded_ask
 from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.drain_result import DrainIncompleteError
 from punt_lux.domain.hub.reader_slot import InlineHolder
+from punt_lux.domain.hub.settle_errors import UnendedDialError
 from punt_lux.domain.hub.settler import Settler
 from tests.domain.display_double import Call, Display
 from tests.link_access import bare_connection, drop_route, reading_of
@@ -187,5 +188,5 @@ class TestTheSettlersCause:
         monkeypatch.setattr(DialDrain, "run", incomplete)
         settler = Settler(generation, drop_route, lambda _g, _c: True, lambda _c: True)
 
-        with pytest.raises(ValueError, match="no one ended or asked"):
+        with pytest.raises(UnendedDialError, match="no one ended or asked"):
             settler.settle()

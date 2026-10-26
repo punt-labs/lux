@@ -45,7 +45,7 @@ from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.scope import Scope
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.text import TextElement
-from tests.dial_double import end_fake_dial, fake_dial
+from tests.dial_double import FakeDial, end_fake_dial, fake_dial
 from tests.link_access import deaths_of
 
 if TYPE_CHECKING:
@@ -126,8 +126,8 @@ class _FakeSender:
     _lock: threading.Lock
     _sent: threading.Event
     _entered: threading.Event
-    _dial: DialRef
-    _probe_dial: DialRef
+    _dial: FakeDial
+    _probe_dial: FakeDial
     __slots__ = (
         "_crasher",
         "_deaths",

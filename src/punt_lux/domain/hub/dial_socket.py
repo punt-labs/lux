@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import select
 import socket
 import ssl
 from typing import TYPE_CHECKING, Self, final
@@ -111,13 +110,12 @@ class DialSocket:
         closed the stream raises :class:`ConnectionClosedError`; the dial is asked
         again under the socket lock, so a read never starts on an ended dial.
         """
-        # Checked before anything is waited for: a poll made under the store lock
-        # fails the first time it runs, on a quiet socket as on a busy one.
-        self._line.forbid_store()
-        readable, _, _ = select.select([self._dial.sock], [], [], timeout)
-        if not readable:
+        # The line refuses a poll made under the store lock before anything is
+        # waited for: it fails the first time it runs, on a quiet socket as on a busy
+        # one.
+        if not self._line.readable(self._dial.sock, timeout):
             return None
-        with self._line:
+        with self._line.reading():
             self._require_open()
             look = self._read_now()
         if look.ended:
@@ -142,31 +140,27 @@ class DialSocket:
         end, not the Hub's. Raises :class:`DrainIncompleteError` when a writer holds
         the socket past the ceiling: with bytes readable, no look at all is no answer.
         """
-        self._line.forbid_store()  # on every drain, first
         try:
-            readable, _, _ = select.select([self._dial.sock], [], [], 0)
-            if not readable:
-                return Drained(b"", ended=False)
-            if not self._line.acquire_within(SEND_TIMEOUT_CEILING_SECONDS):
-                # A writer holds the lock past the send timeout. Bytes are readable
-                # and unread, so this is no answer: the look is incomplete, and the
-                # settle leaves the capture to the bound.
-                logger.warning(
-                    "Drain of %s incomplete: a writer held the socket past %ss",
-                    self.endpoint,
-                    SEND_TIMEOUT_CEILING_SECONDS,
-                )
-                msg = f"the last look at {self.endpoint} could not be made"
-                raise DrainIncompleteError(msg)
-            try:
-                return self._read_now()
-            finally:
-                self._line.release()
+            if not self._line.readable(self._dial.sock, 0):
+                return Drained.quiet()
+            with self._line.draining(SEND_TIMEOUT_CEILING_SECONDS) as free:
+                if free:
+                    return self._read_now()
+            # A writer holds the lock past the send timeout. Bytes are readable and
+            # unread, so this is no answer: the look is incomplete, and the settle
+            # leaves the capture to the bound.
+            logger.warning(
+                "Drain of %s incomplete: a writer held the socket past %ss",
+                self.endpoint,
+                SEND_TIMEOUT_CEILING_SECONDS,
+            )
+            msg = f"the last look at {self.endpoint} could not be made"
+            raise DrainIncompleteError(msg)
         except (OSError, ValueError) as exc:
             CutShort(
                 self.endpoint, exc, captured=self._sink.captured, is_tls=self.is_tls
             ).report()
-            return Drained(b"", ended=True)
+            return Drained.end()
 
     def _read_now(self) -> Drained:
         """Read what the socket holds without waiting, on either transport.
@@ -183,12 +177,12 @@ class DialSocket:
             chunk = sock.recv(_READ_CHUNK) + self._decrypted_backlog()
             if chunk:
                 self._line.moved()
-            return Drained(chunk, ended=not chunk)
+            return Drained.holding(chunk) if chunk else Drained.end()
         except (BlockingIOError, ssl.SSLWantReadError, ssl.SSLWantWriteError):
             # Nothing now. A TLS read may need to write (a key update) into a send
             # buffer a stalled peer has filled: that is the write's deadline to judge,
             # not an end of the display's.
-            return Drained(b"", ended=False)
+            return Drained.quiet()
         finally:
             with contextlib.suppress(OSError):  # closed by its own capture meanwhile
                 sock.settimeout(None)
@@ -209,9 +203,10 @@ class DialSocket:
     def close(self) -> None:
         """Wake whoever is blocked on the socket, then release it; never raises.
 
-        ``shutdown`` first, so a reader blocked in ``recv`` and a writer wedged in
-        ``sendall`` are both woken; then ``close``. On a TLS socket ``shutdown`` is the
-        raw socket's, never ``unwrap``, which blocks on a wedged peer.
+        ``shutdown`` first, so a reader blocked in ``recv`` and a writer blocked in a
+        send are both woken; then ``close``. On a TLS socket ``shutdown`` is the
+        raw socket's, never ``unwrap``, which blocks on a peer that has stopped
+        reading.
         """
         with contextlib.suppress(OSError):
             self._dial.sock.shutdown(socket.SHUT_RDWR)

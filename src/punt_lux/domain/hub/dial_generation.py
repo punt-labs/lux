@@ -11,7 +11,7 @@ new dial's bytes or waiters.
 Lock order: the socket lock (:class:`~punt_lux.domain.hub.socket_line.SocketLine`) is
 held across one write, and the ledger entry the write makes, which takes the sink's
 lock, the leaf, or across one ``recv``. An end, a settlement and ``shut`` take
-neither: shutdown is what releases a sender wedged in ``sendall`` while it holds the
+neither: shutdown is what releases a sender blocked in a send while it holds the
 socket lock. The sink's lock is never held while taking the socket lock.
 """
 
@@ -26,8 +26,8 @@ from punt_lux.domain.hub.connection_closed import (
     HubRetiredError,
     UnresponsiveError,
 )
-from punt_lux.domain.hub.dial_ref import DialRef
 from punt_lux.domain.hub.dial_socket import DialSocket
+from punt_lux.domain.hub.generation_ref import GenerationRef
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.protocol import PingMessage, encode_message
 from punt_lux.tracing import trace
@@ -76,7 +76,7 @@ class DialGeneration:
     _socket: DialSocket
     _writer: DialWriter
     # The identity every failure names this dial by: one per dial, equal to itself.
-    _ref: DialRef
+    _ref: GenerationRef
     # Reports this dial's own breakage to whoever holds the current dial.
     _ends: DialEnds
     __slots__ = ("_ends", "_ref", "_sink", "_socket", "_writer")
@@ -89,7 +89,7 @@ class DialGeneration:
         self = super().__new__(cls)
         self._ends = ends
         self._sink = ReplySink()
-        self._ref = DialRef(self)
+        self._ref = GenerationRef(self)
         self._socket = DialSocket(dial, self._sink, require_open=self._require_open)
         self._writer = self._socket.writer(self._write_failed)
         return self
@@ -109,12 +109,12 @@ class DialGeneration:
         return self._socket.is_progressing()
 
     @property
-    def is_cross_host(self) -> bool:
-        """Whether this dial reaches a Display on another host: a TLS socket."""
+    def is_tls(self) -> bool:
+        """Whether this dial's socket is TLS: the cross-host transport."""
         return self._socket.is_tls
 
     @property
-    def ref(self) -> DialRef:
+    def ref(self) -> GenerationRef:
         """A name for this dial that confers no power over it: what a failure names."""
         return self._ref
 
@@ -292,8 +292,8 @@ class DialGeneration:
 
         It records no end at all: a Hub end records nothing, and the ledger is taken by
         :meth:`mark_closed` and by nothing here. ``shutdown`` wakes a reader in ``recv``
-        and a writer in ``sendall``; then ``close``. On TLS it is the raw socket's:
-        ``unwrap`` blocks on a wedged peer.
+        and a writer in a send; then ``close``. On TLS it is the raw socket's:
+        ``unwrap`` blocks on a peer that has stopped reading.
         """
         self._socket.close()
 
@@ -305,8 +305,8 @@ class DialGeneration:
         written, or a socket lock never free in time) is a display that stopped reading
         and may be alive, so it is recorded as unresponsive. Anything else
         that stopped a write is the Hub's, and is a request, not a recorded cause. A
-        dial whose cause is already recorded (``shut`` wakes a writer wedged in
-        ``sendall`` on purpose) was ended by whoever's cause it carries: the writer
+        dial whose cause is already recorded (``shut`` wakes a writer blocked in a
+        send on purpose) was ended by whoever's cause it carries: the writer
         reports that cause, never the socket error the ending itself produced. A
         writer that loses the record to one landing after the check reports the
         winner's cause too, and a writer whose own record stands raises its closed

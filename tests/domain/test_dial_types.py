@@ -19,7 +19,10 @@ from punt_lux.domain.hub.dial_drain import DialDrain
 from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.settle_errors import UnendedDialError
+from punt_lux.domain.hub.transaction_errors import JudgeReusedError
 from punt_lux.domain.hub.write_refusals import UnheldTargetError
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol import PongMessage
 from punt_lux.protocol.elements import TableElement
 from tests.domain.display_double import Display
@@ -54,8 +57,8 @@ class TestTheTypesAreClosed:
     def test_what_a_batch_wrote_cannot_be_reassigned(self) -> None:
         table = TableElement(id="t", columns=["c"], rows=[["r"]])
         judge = BatchJudge(lambda _e, _p: None, [])
-        judge(table, {"rows": [["s"]]})
-        (entry,) = judge._written.values()
+        judge.admit(table, {"rows": [["s"]]})
+        (entry,) = judge._touched.values()
 
         field = "props"
         with pytest.raises(FrozenInstanceError):
@@ -129,14 +132,23 @@ def _read_until_ended(generation: DialGeneration) -> Drained:
 
 
 class TestTheBatchJudgeServesOneBatch:
-    def test_a_second_roll_back_raises(self) -> None:
+    def test_a_second_roll_back_raises_a_programmer_error(self) -> None:
         table = TableElement(id="t", columns=["c"], rows=[["r"]])
         judge = BatchJudge(lambda _e, _p: None, [])
-        judge(table, {"rows": [["s"]]})
+        judge.admit(table, {"rows": [["s"]]})
         judge.roll_back()
 
-        with pytest.raises(RuntimeError, match="rolls back once"):
+        with pytest.raises(JudgeReusedError, match="settles once") as caught:
             judge.roll_back()
+
+        assert isinstance(caught.value, ProgrammerError)
+
+    def test_a_commit_after_a_roll_back_is_refused(self) -> None:
+        judge = BatchJudge(lambda _e, _p: None, [])
+        judge.roll_back()
+
+        with pytest.raises(JudgeReusedError):
+            judge.commit()
 
 
 class TestTheFinalStateCheck:
@@ -158,8 +170,10 @@ class TestTheSettlerAsksTheDialOnce:
         assert hold is not None
         monkeypatch.setattr(DialDrain, "run", _incomplete)  # the look cannot be made
 
-        with pytest.raises(ValueError, match="no cause to settle by"):
+        with pytest.raises(UnendedDialError, match="no cause to settle by") as caught:
             hold.settler.settle()
+
+        assert isinstance(caught.value, ProgrammerError)
 
     def test_an_undrained_end_captures_with_the_cause_that_stands(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

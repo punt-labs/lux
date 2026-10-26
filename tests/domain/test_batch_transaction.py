@@ -185,7 +185,7 @@ class TestAStoreLevelWriteRaisesTheRefusalItself:
         with pytest.raises(UnheldTargetError) as raised:
             store.write_seam.set_property(_SCENE, ElementId("tb"), "rows", [["s"]])
 
-        assert not isinstance(raised.value, NestingExceededError)
+        assert type(raised.value) is UnheldTargetError
         assert (loose.label, table.rows) == ("", (("r",),))
 
 

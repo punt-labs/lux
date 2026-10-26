@@ -51,7 +51,7 @@ _DIAL_MODEL = frozenset(
         _HUB + "dial_drain.py",
         _HUB + "dial_generation.py",
         _HUB + "dial_reader.py",
-        _HUB + "dial_ref.py",
+        _HUB + "generation_ref.py",
         _HUB + "display_connection.py",
         _HUB + "display_listener.py",
         _HUB + "display_replies.py",
@@ -254,11 +254,11 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
 
     def test_a_dial_is_named_only_inside_the_dial_model(self) -> None:
         built = {
-            rel: _constructions(_source(rel), "DialRef")
-            for rel in _modules(lambda s: _constructions(s, "DialRef"))
+            rel: _constructions(_source(rel), "GenerationRef")
+            for rel in _modules(lambda s: _constructions(s, "GenerationRef"))
         }
 
-        assert set(built) <= _DIAL_MODEL | {_HUB + "dial_ref.py"}
+        assert set(built) <= _DIAL_MODEL | {_HUB + "generation_ref.py"}
         assert built == {_HUB + "dial_generation.py": 1}
 
     def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:

@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from types import TracebackType
@@ -53,5 +55,9 @@ class FinallyGuard:
             return
         try:
             self._action()
+        except ProgrammerError as bug:
+            # A violated invariant is never logged and forgotten, even under a
+            # failing body: it propagates, with the body's failure as its cause.
+            raise bug from exc
         except Exception:
             logger.exception("%s failed while handling %r", self._what, exc)

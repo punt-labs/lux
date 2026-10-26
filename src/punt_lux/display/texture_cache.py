@@ -15,6 +15,7 @@ from PIL import Image
 from punt_lux.display.data_key_memo import DataKeyMemo
 from punt_lux.display.gl_texture import GLTexture
 from punt_lux.display.texture_lru import TextureLru
+from punt_lux.domain.programmer_error import ProgrammerError
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,8 @@ class TextureCache:
         """Load an image file and upload it as an OpenGL texture."""
         try:
             img = Image.open(path).convert("RGBA")
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("Failed to load image: %s", path)
             return None

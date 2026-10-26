@@ -18,6 +18,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
@@ -74,6 +76,8 @@ class LeaseReapSweep:
             try:
                 self.sweep()
                 await asyncio.sleep(self._interval)
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception("lease-reap cycle failed; backing off the poll")
                 await asyncio.sleep(self._interval)

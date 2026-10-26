@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.handler_failed_error import HandlerFailedError
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.domain.ids import ElementId, SceneId
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from punt_lux.domain.event_protocol import Event
     from punt_lux.domain.hub.batch_transaction import BatchTransaction
+    from punt_lux.domain.hub.guard_registry import Holder
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -39,24 +41,39 @@ class ResolvedInteraction:
     # an unowned element still fires; nothing here required an owner check.
     owner: ConnectionId | None
     scene_id: SceneId
+    # The lock of the store the element was resolved in: firing walks that index.
+    store_guard: Holder
 
     def fire(self, event: Event, transaction: BatchTransaction) -> None:
-        """Fire ``event`` on the element: its handlers' writes stand together or not.
+        """Fire ``event`` on the element: its writes and removals stand or fall.
 
         Every patch a handler writes, and every patch an observer it wakes writes, is
         shown to the judge before the element it names is touched. One the judge
         refuses puts every element the handlers wrote back, observers' state
-        included, and is logged at WARNING with the event, the element and the
-        reason; it is not a handler that raised. Raises
+        included, drops the removals they asked for, and is logged at WARNING with the
+        event, the element and the reason. A handler that raises does the same and is
+        logged at ERROR, with the handler, the event, the element and its traceback;
+        a :class:`~punt_lux.domain.programmer_error.ProgrammerError` is no handler's
+        own failure and propagates once the undo is done. Raises
         :class:`~punt_lux.domain.hub.lock_discipline.LockDisciplineError` unless the
         store write lock is held: a handler's writes walk the element index an agent's
         ``show`` mutates.
         """
-        LockDiscipline.require_store("firing a handler")
-        refusal = transaction.run_handler(lambda: self.element.fire(event))
+        LockDiscipline.require_store("firing a handler", self.store_guard)
+        try:
+            refusal = transaction.run_handler(lambda: self.element.fire(event))
+        except HandlerFailedError as failure:
+            logger.error(
+                "%s on element %s: its writes and removals were rolled back",
+                failure,
+                self.element.id,
+                exc_info=failure,
+            )
+            return
         if refusal is not None:
             logger.warning(
-                "handler of %s on element %s refused, its writes rolled back: %s",
+                "handler of %s on element %s refused a write: its writes and "
+                "removals were rolled back: %s",
                 type(event).__name__,
                 self.element.id,
                 refusal,
@@ -113,4 +130,9 @@ class ElementInvocationResolver:
                 dismissed,
             )
             return None
-        return ResolvedInteraction(element=element, owner=owner, scene_id=sid)
+        return ResolvedInteraction(
+            element=element,
+            owner=owner,
+            scene_id=sid,
+            store_guard=self._hub_display.write_lock(),
+        )

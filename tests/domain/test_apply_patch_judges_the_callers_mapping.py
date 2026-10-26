@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.handler_writes import HandlerWrites
-from punt_lux.domain.setter_priority import SetterPriority
+from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.protocol.elements import ImageElement, MarkdownElement, TextElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.tree import TreeElement
@@ -48,7 +48,7 @@ def test_the_judge_is_shown_the_callers_own_mapping(kind: type[Element]) -> None
         seen.append((target, written))
 
     with (
-        HandlerWrites.judged(judge),
+        HandlerWrites.judged(BatchJudge(judge, [])),
         contextlib.suppress(Exception),  # the kind may reject the field
     ):
         element.apply_patch(patch)
@@ -66,7 +66,7 @@ def test_a_reorder_can_only_order_the_keys_the_judge_approved() -> None:
         "selected_node_ids": [],
     }
 
-    ordered = SetterPriority(TreeElement._SETTER_PRIORITY).arrange(patch)
+    ordered = TreeElement._SETTER_PRIORITY.arrange(patch)
 
     assert list(ordered)[:3] == ["nodes", "selected_node_ids", "anchor_node_id"]
     assert ordered == patch

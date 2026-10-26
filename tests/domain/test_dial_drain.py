@@ -10,6 +10,7 @@ import pytest
 
 from punt_lux.domain.hub import dial_drain
 from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
 from punt_lux.domain.ids import SceneId
@@ -105,6 +106,18 @@ class TestWhatTheDrainSurvives:
 
         assert seen == ["good"]
         assert "Drain route failed" in caplog.text
+
+    def test_a_route_that_breaks_a_rule_is_not_swallowed(
+        self, display: Display
+    ) -> None:
+        generation = _generation(display)
+        display.peer.send(ObserverMessage(topic="any", payload={}))
+
+        def route(_generation: DialGeneration, _msg: Message) -> None:
+            raise LockDisciplineError("planted: a lock taken in the wrong order")
+
+        with pytest.raises(LockDisciplineError):
+            DialDrain(route).run(generation)
 
     def test_a_frame_that_cannot_be_decoded_ends_the_drain_and_says_so(
         self, display: Display, caplog: pytest.LogCaptureFixture

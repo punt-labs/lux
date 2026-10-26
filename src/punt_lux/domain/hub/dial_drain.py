@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,6 +85,8 @@ class DialDrain:
             for msg in generation.messages(chunk):
                 try:
                     route(generation, msg)
+                except ProgrammerError:
+                    raise
                 except Exception:
                     logger.exception(
                         "Drain route failed on %s from display %s",
@@ -92,6 +95,8 @@ class DialDrain:
                     )
                     if isinstance(msg, REPLY_TYPES):
                         return False
+        except ProgrammerError:
+            raise
         except Exception:  # wire boundary: any decoder failure ends the stream
             logger.exception(
                 "Drain of %s stopped: its stream could not be read past %r",

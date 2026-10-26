@@ -127,7 +127,7 @@ def _table_with_a_deepening_observer(levels: int) -> tuple[TableElement, TreeEle
     deepen = _writes_nodes(tree, levels)
 
     def on_change(prop: str) -> None:
-        if prop == "rows":
+        if prop == "rows" and table.rows == (("s",),):  # not the restored rows
             deepen(prop)
 
     table.add_observer(on_change)
@@ -192,7 +192,7 @@ class TestABatchJudge:
             lambda element, _patch: seen.append(element), [(target, fields)]
         )
 
-        judge(target, fields)
+        judge.admit(target, fields)
 
         assert seen == []
 
@@ -204,8 +204,8 @@ class TestABatchJudge:
             lambda element, _patch: seen.append(element), [(target, fields)]
         )
 
-        judge(target, fields)
-        judge(target, fields)
+        judge.admit(target, fields)
+        judge.admit(target, fields)
 
         assert seen == [target]
 
@@ -217,7 +217,7 @@ class TestABatchJudge:
             lambda element, _patch: seen.append(element), [(target, {"label": "x"})]
         )
 
-        judge(target, {"label": "x"})  # equal, but not the same mapping
+        judge.admit(target, {"label": "x"})  # equal, but not the same mapping
 
         assert seen == [target]
 
@@ -230,7 +230,7 @@ class TestABatchJudge:
             lambda element, _patch: seen.append(element), [(target, fields)]
         )
 
-        judge(other, fields)
+        judge.admit(other, fields)
 
         assert seen == [other]
 

@@ -22,6 +22,7 @@ from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegis
 from punt_lux.domain.hub.writer_registry import WriterRegistry
 from punt_lux.domain.hub_id import HubId
 from punt_lux.domain.ids import ConnectionId, Topic
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
@@ -149,6 +150,8 @@ class Hub:
         for handler in subscribers:
             try:
                 received = handler(message)
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception(
                     "subscriber raised handling publish "

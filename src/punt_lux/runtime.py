@@ -12,6 +12,8 @@ import traceback
 from collections.abc import Callable
 from typing import Any, Self, cast
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 
 class RenderContext:
     """Per-frame context passed to user-defined render functions.
@@ -150,6 +152,8 @@ class CodeExecutor:
         namespace: dict[str, Any] = {}
         try:
             exec(code, namespace)  # Gated by consent dialog
+        except ProgrammerError:
+            raise
         except Exception as exc:  # Must catch anything user code throws
             self._error = f"Module-level error: {exc}"
             self._error_tb = traceback.format_exc()
@@ -225,6 +229,8 @@ class CodeExecutor:
 
         try:
             self._render_fn(ctx)
+        except ProgrammerError:
+            raise
         except Exception as exc:  # Must catch anything user code throws
             self._error = f"Runtime error: {exc}"
             self._error_tb = traceback.format_exc()

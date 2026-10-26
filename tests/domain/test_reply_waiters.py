@@ -13,6 +13,7 @@ import pytest
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_end import DialEnd
 from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.domain.hub.owned_condition import OwnedCondition
 from punt_lux.domain.hub.pending import Pending
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
@@ -34,7 +35,7 @@ class _Rig:
     """A ReplyWaiters on a lock that cannot be re-entered, as the sink gives it."""
 
     def __init__(self) -> None:
-        self.cond = threading.Condition(threading.Lock())
+        self.cond = OwnedCondition()
         self.end = DialEnd()
         self.waiters = ReplyWaiters(self.cond, self.end)
 
@@ -314,6 +315,31 @@ class TestTheOneLock:
         with pytest.raises(LockDisciplineError, match="without the sink's lock"):
             call(rig)
 
+    @pytest.mark.parametrize("name", sorted(_LOCKED))
+    def test_a_locked_body_called_while_another_thread_holds_the_lock_is_refused(
+        self, name: str
+    ) -> None:
+        rig = _Rig()
+        prepare, call = _LOCKED[name]
+        prepare(rig)
+        held, release = threading.Event(), threading.Event()
+
+        def hold() -> None:
+            with rig.cond:
+                held.set()
+                release.wait(3.0)
+
+        holder = threading.Thread(target=hold, daemon=True)
+        holder.start()
+        assert held.wait(3.0)
+
+        try:
+            with pytest.raises(LockDisciplineError, match="without the sink's lock"):
+                call(rig)
+        finally:
+            release.set()
+            holder.join(3.0)
+
     def test_the_waiters_make_no_lock_of_their_own(self) -> None:
         names = {
             node.attr if isinstance(node, ast.Attribute) else node.id
@@ -332,11 +358,19 @@ class TestTheOneLock:
 
 
 class TestThroughTheSink:
-    def test_the_sinks_lock_cannot_be_re_entered(self) -> None:
+    def test_the_sinks_lock_is_held_by_one_thread_at_a_time(self) -> None:
         sink = ReplySink()
+        seen: list[bool] = []
 
         with sink._cond:  # test seam: the lock the waiters are lent
-            assert sink._cond.acquire(blocking=False) is False
+            looking = threading.Thread(
+                target=lambda: seen.append(sink._cond.held_here()), daemon=True
+            )
+            looking.start()
+            looking.join(3.0)
+
+            assert (sink._cond.held_here(), seen) == (True, [False])
+        assert not sink._cond.held_here()
 
     @pytest.mark.parametrize("how", ["request_hub", "end"])
     @pytest.mark.parametrize("what", ["query", "ping"])

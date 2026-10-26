@@ -46,9 +46,12 @@ def dial() -> Iterator[_Dial]:
 _TRANSACTION = BatchTransaction(lambda _e, _p: None, lambda _w: None)
 
 
-def _interaction() -> ResolvedInteraction:
+def _interaction(store: StoreLock) -> ResolvedInteraction:
     return ResolvedInteraction(
-        element=ButtonElement(id="b", label="x"), owner=None, scene_id=SceneId("s")
+        element=ButtonElement(id="b", label="x"),
+        owner=None,
+        scene_id=SceneId("s"),
+        store_guard=store.write(),
     )
 
 
@@ -78,11 +81,18 @@ class TestTheStoreLockRecordsItsHolder:
 class TestFiringRequiresTheStoreWriteLock:
     def test_a_handler_fired_without_the_lock_is_refused(self) -> None:
         with pytest.raises(LockDisciplineError, match="firing a handler"):
-            _interaction().fire(_click(), _TRANSACTION)
+            _interaction(StoreLock()).fire(_click(), _TRANSACTION)
 
     def test_a_handler_fired_under_the_lock_runs(self) -> None:
-        with StoreLock().write():
-            _interaction().fire(_click(), _TRANSACTION)
+        store = StoreLock()
+        with store.write():
+            _interaction(store).fire(_click(), _TRANSACTION)
+
+    def test_a_handler_fired_under_another_stores_lock_is_refused(self) -> None:
+        walked, other = StoreLock(), StoreLock()
+
+        with other.write(), pytest.raises(LockDisciplineError, match="firing"):
+            _interaction(walked).fire(_click(), _TRANSACTION)
 
 
 class TestTheDialSocketLockIsNeverTakenUnderTheStoreLock:

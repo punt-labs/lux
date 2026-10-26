@@ -89,7 +89,7 @@ def test_stateless_observers_hear_the_restore_in_the_order_it_was_written() -> N
     names = [f"prop_{n}" for n in range(12)]
     judge = BatchJudge(lambda _element, _patch: None, [])
 
-    judge(table, dict.fromkeys(names))
+    judge.admit(table, dict.fromkeys(names))
     judge.roll_back()
 
     assert heard == names

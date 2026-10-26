@@ -14,8 +14,10 @@ before the dial is handed over.
 
 from __future__ import annotations
 
+import select
 import threading
 import time
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
@@ -25,7 +27,7 @@ from punt_lux.send_timeout import SCENE_WRITE_DEADLINE_SECONDS
 
 if TYPE_CHECKING:
     import socket
-    from types import TracebackType
+    from collections.abc import Generator
 
 __all__ = ["SocketLine"]
 
@@ -44,47 +46,49 @@ class SocketLine:
         self._clock = ProgressClock()
         return self
 
-    def __enter__(self) -> Self:
-        """Take the lock, waiting as long as it takes: a reader's way in."""
-        self._lock.acquire()
-        return self
+    def readable(self, sock: socket.socket, timeout: float) -> bool:
+        """Wait up to ``timeout`` for ``sock`` to be readable; whether it is.
 
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc: BaseException | None,
-        _tb: TracebackType | None,
-    ) -> None:
-        self._lock.release()
-
-    @staticmethod
-    def forbid_store() -> None:
-        """Fail if the caller holds a store lock: this lock is never taken under it."""
+        Fails first if the caller holds a store lock: a wait made under it breaks the
+        rule on a quiet socket as on a busy one.
+        """
         LockDiscipline.forbid_store("the dial socket lock")
+        readable, _, _ = select.select([sock], [], [], timeout)
+        return bool(readable)
 
-    def acquire_within(self, timeout: float) -> bool:
-        """Take the lock if it is free within ``timeout`` seconds; whether it was."""
-        return self._lock.acquire(timeout=timeout)
+    @contextmanager
+    def reading(self) -> Generator[None]:
+        """Hold the lock for a read, waiting as long as it takes."""
+        LockDiscipline.forbid_store("the dial socket lock")
+        with self._lock:
+            yield
 
-    def acquire_unless_silent(self) -> bool:
-        """Take the lock for a write; ``False`` if no byte moves for ``D`` meanwhile.
+    @contextmanager
+    def draining(self, timeout: float) -> Generator[bool]:
+        """Hold the lock if it is free within ``timeout`` seconds; say whether it is."""
+        LockDiscipline.forbid_store("the dial socket lock")
+        free = self._lock.acquire(timeout=timeout)
+        try:
+            yield free
+        finally:
+            if free:
+                self._lock.release()
+
+    @contextmanager
+    def writing(self) -> Generator[bool]:
+        """Hold the lock for a write; ``False`` if no byte moves for ``D`` meanwhile.
 
         The wait is re-armed by progress: a lock held by a writer that keeps moving
         bytes is waited for, since that peer is alive, and only silence ends the wait.
         The writer that gets the lock starts its own window.
         """
-        window = SCENE_WRITE_DEADLINE_SECONDS
-        while True:
-            wait = max(self._clock.expires_at(window) - time.monotonic(), 0.0)
-            if self._lock.acquire(timeout=wait):
-                self._clock.moved()
-                return True
-            if not self._clock.progressed_within(window):
-                return False
-
-    def release(self) -> None:
-        """Let go of the lock."""
-        self._lock.release()
+        LockDiscipline.forbid_store("the dial socket lock")
+        free = self._acquire_unless_silent()
+        try:
+            yield free
+        finally:
+            if free:
+                self._lock.release()
 
     def moved(self) -> None:
         """Note that application data came in: the display is moving."""
@@ -99,3 +103,13 @@ class SocketLine:
         BoundedSend().send_while_progressing(
             sock, wire, self._clock, SCENE_WRITE_DEADLINE_SECONDS
         )
+
+    def _acquire_unless_silent(self) -> bool:
+        window = SCENE_WRITE_DEADLINE_SECONDS
+        while True:
+            wait = max(self._clock.expires_at(window) - time.monotonic(), 0.0)
+            if self._lock.acquire(timeout=wait):
+                self._clock.moved()
+                return True
+            if not self._clock.progressed_within(window):
+                return False

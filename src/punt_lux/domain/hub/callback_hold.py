@@ -38,6 +38,8 @@ from collections import deque
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Literal, Self, final
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping
 
@@ -192,6 +194,8 @@ class CallbackRouter:
         """
         try:
             listener.wake()
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("callback listener wake failed; the click stays held")
 
