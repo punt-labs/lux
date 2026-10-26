@@ -37,6 +37,7 @@ from punt_lux.domain.hub.display_listener import DisplayListener
 from punt_lux.domain.hub.recovery import SendRecovery
 from punt_lux.domain.hub.reply_sink import ReplySink
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.settler import Settler
 from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.domain.ids import SceneId
@@ -44,7 +45,9 @@ from punt_lux.protocol import (
     AckMessage,
     PingMessage,
     PongMessage,
+    QueryRequest,
     RemoteEventHandlerInvocation,
+    TextElement,
     encode_frame,
 )
 from punt_lux.send_timeout import SEND_TIMEOUT_PACKED
@@ -84,6 +87,12 @@ def _unbounded(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _bounded(monkeypatch: pytest.MonkeyPatch, seconds: float) -> None:
     monkeypatch.setattr(bounded_ask, "SETTLE_BOUND", seconds)
+
+
+def _short_deadline(monkeypatch: pytest.MonkeyPatch, seconds: float = 0.2) -> None:
+    """Shorten a write's deadline D, and the drain ceiling with it (kept above D)."""
+    monkeypatch.setattr(dial_socket, "SCENE_WRITE_DEADLINE_SECONDS", seconds)
+    monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", seconds + 0.5)
 
 
 def _connected(link: DisplayLink) -> bool:
@@ -423,6 +432,7 @@ class TestAStalledHolder:
         self, display: Display, monkeypatch: pytest.MonkeyPatch, cause: str
     ) -> None:
         _bounded(monkeypatch, 0.5)
+        _short_deadline(monkeypatch)
         link = _linked(display)
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
@@ -434,7 +444,7 @@ class TestAStalledHolder:
             display.sockets[-1].time_out_next_send = True
         failing = Call(lambda: generation.send_scene(_scene("b")))
 
-        assert not failing.wait(0.2)  # it waits for the stalled holder
+        assert not failing.wait(0.05)  # it waits for the stalled holder
         assert failing.wait(3.0)  # and the bound captures the dial
         assert not link.is_connected
         (death,) = deaths_of(link)
@@ -636,8 +646,9 @@ class TestTheEndOfAStreamTheDrainSees:
 
 class TestASendThatTimesOut:
     def test_f5_a_send_timeout_is_recorded_unresponsive_not_the_displays_death(
-        self, display: Display
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        _short_deadline(monkeypatch)
         link = _linked(display, listening=False)
         writer_of(link).send_scene(_scene("a"))
         generation = generation_of(link)
@@ -699,12 +710,12 @@ class TestTheWriter:
         if dead:
             display.peer.close()  # the display really died: its end of file is queued
 
-        def hub_asks_then_fails(_this: FlakySocket, _data: bytes) -> None:
+        def hub_asks_then_fails(_this: FlakySocket, _data: bytes) -> int:
             generation.request_hub()
             msg = "the socket fell over"
             raise OSError(msg)
 
-        monkeypatch.setattr(FlakySocket, "sendall", hub_asks_then_fails)
+        monkeypatch.setattr(FlakySocket, "send", hub_asks_then_fails)
         with pytest.raises(ConnectionClosedError) as raised:
             generation.send_scene(_scene("a"))
 
@@ -720,14 +731,14 @@ class TestTheWriter:
         generation = generation_of(link)
         writer_of(link).send_scene(_scene("a"))
         holding, release = threading.Event(), threading.Event()
-        real = FlakySocket.sendall
+        real = FlakySocket.send
 
-        def stand_in(this: FlakySocket, data: bytes) -> None:
+        def stand_in(this: FlakySocket, data: bytes) -> int:
             holding.set()
             assert release.wait(5.0)
-            real(this, data)
+            return real(this, data)
 
-        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        monkeypatch.setattr(FlakySocket, "send", stand_in)
         writing = Call(lambda: generation.send_scene(_scene("b")))
         assert holding.wait(3.0)  # the writer holds the socket lock, mid-send
         display.peer.send(AckMessage(scene_id="a"))  # queued behind the writer
@@ -761,14 +772,14 @@ class TestTheWriter:
         generation = generation_of(link)
         writer_of(link).send_scene(_scene("a"))
         holding, release = threading.Event(), threading.Event()
-        real = FlakySocket.sendall
+        real = FlakySocket.send
 
-        def stand_in(this: FlakySocket, data: bytes) -> None:
+        def stand_in(this: FlakySocket, data: bytes) -> int:
             holding.set()
             assert release.wait(10.0)
-            real(this, data)
+            return real(this, data)
 
-        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        monkeypatch.setattr(FlakySocket, "send", stand_in)
         writing = Call(lambda: generation.send_scene(_scene("b")))
         assert holding.wait(3.0)
         display.peer.send(AckMessage(scene_id="a"))  # readable, behind the writer
@@ -789,7 +800,16 @@ class TestTheWriter:
             later = Settler(
                 generation, drop_route, link._connection._capture, lambda _c: True
             )
+            drained: list[object] = []
+            real_run = DialDrain.run
+
+            def counting_run(this: DialDrain, gen: DialGeneration) -> bool:
+                drained.append(gen)
+                return real_run(this, gen)
+
+            monkeypatch.setattr(DialDrain, "run", counting_run)
             assert later.settle() is False
+            assert drained == []  # the settler's own refusal: it reads nothing
             assert deaths_of(link) == ()  # nothing new queued behind the first
         finally:
             release.set()
@@ -830,11 +850,13 @@ class TestTheWriter:
         )
         stuck = threading.Event()
 
-        def jam(this: FlakySocket, _data: bytes) -> None:
+        def jam(this: FlakySocket, _data: bytes) -> int:
             stuck.set()
+            this._sock.setblocking(True)  # a kernel send the deadline cannot cut
             this._sock.sendall(b"x" * (64 << 20))  # the peer never reads it
+            return 0
 
-        monkeypatch.setattr(FlakySocket, "sendall", jam)
+        monkeypatch.setattr(FlakySocket, "send", jam)
         writing = Call(lambda: generation.send_scene(_scene("b")))
         assert stuck.wait(3.0)
         display.peer.send(AckMessage(scene_id="a"))  # readable: the drain must wait
@@ -900,14 +922,14 @@ class TestTheWriter:
         link = _linked(display, listening=False)
         generation = generation_of(link)
         holding, release = threading.Event(), threading.Event()
-        real = FlakySocket.sendall
+        real = FlakySocket.send
 
-        def stand_in(this: FlakySocket, data: bytes) -> None:
+        def stand_in(this: FlakySocket, data: bytes) -> int:
             holding.set()
             assert release.wait(10.0)
-            real(this, data)
+            return real(this, data)
 
-        monkeypatch.setattr(FlakySocket, "sendall", stand_in)
+        monkeypatch.setattr(FlakySocket, "send", stand_in)
         writing = Call(lambda: generation.send_scene(_scene("a")))
         assert holding.wait(3.0)  # the writer holds the socket lock, mid-send
         try:
@@ -939,10 +961,10 @@ class TestTheWriter:
         generation = generation_of(link)
         holder.append(generation)
 
-        def fails(_this: FlakySocket, _data: bytes) -> None:
+        def fails(_this: FlakySocket, _data: bytes) -> int:
             raise failure
 
-        monkeypatch.setattr(FlakySocket, "sendall", fails)
+        monkeypatch.setattr(FlakySocket, "send", fails)
         with pytest.raises(HubRetiredError):
             generation.send_scene(_scene("a"))
 
@@ -966,6 +988,18 @@ class TestTheWriter:
             raise OSError(msg)
 
         monkeypatch.setattr(DialGeneration, "poll_chunk", stopped_then_fails)
+        in_the_window: list[BaseException] = []
+        real_run = DialDrain.run
+
+        def drain_after_trying_a_write(this: DialDrain, gen: DialGeneration) -> bool:
+            # The settle's drain starts in the window: a scene sent now is refused.
+            try:
+                gen.send_scene(_scene("late"))
+            except HubRetiredError as exc:
+                in_the_window.append(exc)
+            return real_run(this, gen)
+
+        monkeypatch.setattr(DialDrain, "run", drain_after_trying_a_write)
 
         DialReader(
             generation, hold.settler, drop_route, stopping
@@ -973,6 +1007,7 @@ class TestTheWriter:
 
         assert generation.ended == "hub"
         assert deaths_of(link) == ()
+        assert len(in_the_window) == 1  # the write in the stop window was refused
 
     def test_a_drain_that_loses_the_race_to_its_own_capture_stays_quiet(
         self, display: Display, caplog: pytest.LogCaptureFixture
@@ -1007,3 +1042,62 @@ class TestTheWriter:
             link._connection._capture(generation, "hub")  # test seam: the one door
 
         assert display.sockets[-1]._sock.fileno() == -1  # the socket was released
+
+
+class TestABoundedWrite:
+    """Every write, and every wait for the socket lock, ends within the deadline D."""
+
+    def test_p25_a_plain_socket_write_ends_within_the_same_deadline(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _short_deadline(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)  # the display never reads what it is sent
+        big = ScenePresentation(frame_id="big").message(
+            "big", [TextElement(id="t", content="x" * (8 << 20))]
+        )
+
+        began = time.monotonic()
+        with pytest.raises(OSError):
+            generation.send_scene(big)
+        took = time.monotonic() - began
+
+        assert took < 0.2 + 1.5
+        assert generation.ended == "unresponsive"
+        assert generation.is_settled
+
+    @pytest.mark.parametrize("what", ["ping", "query"])
+    def test_p26_a_ping_or_query_that_cannot_take_the_socket_lock_ends_the_dial_unresponsive(  # noqa: E501
+        self, display: Display, monkeypatch: pytest.MonkeyPatch, what: str
+    ) -> None:
+        _short_deadline(monkeypatch, 0.3)
+        _bounded(monkeypatch, 0.3)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        holding, release = threading.Event(), threading.Event()
+        real = FlakySocket.send
+
+        def stand_in(this: FlakySocket, data: bytes) -> int:
+            holding.set()
+            assert release.wait(10.0)  # a writer that never lets go of the lock
+            return real(this, data)
+
+        monkeypatch.setattr(FlakySocket, "send", stand_in)
+        stuck = Call(lambda: generation.send_scene(_scene("a")))
+        assert holding.wait(3.0)
+
+        began = time.monotonic()
+        try:
+            with pytest.raises(OSError):
+                if what == "ping":
+                    generation.send_ping(1.0)
+                else:
+                    generation.send_query(QueryRequest(method="m"))
+            took = time.monotonic() - began
+
+            assert took < 0.3 + 1.5
+            assert generation.ended == "unresponsive"
+            assert until(lambda: generation.is_settled, 5.0)
+        finally:
+            release.set()
+            stuck.wait()

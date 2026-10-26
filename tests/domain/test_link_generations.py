@@ -348,10 +348,10 @@ class TestAnInterruptedWriteRetiresItsDial:
         # Bytes may already be on the wire, so the frame stream cannot be trusted.
         link = _linked(display)
 
-        def interrupted(_data: bytes) -> None:
+        def interrupted(_data: bytes) -> int:
             raise failure
 
-        monkeypatch.setattr(display.sockets[0], "sendall", interrupted)
+        monkeypatch.setattr(display.sockets[0], "send", interrupted)
 
         with pytest.raises(type(failure)):
             writer_of(link).send_scene(_scene("x"))

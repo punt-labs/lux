@@ -9,6 +9,7 @@ same dial code over a real mTLS loopback pair.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import socket
 import ssl
@@ -22,14 +23,21 @@ from punt_lux.domain.hub import bounded_ask
 from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.handshake_outcome import HandshakeResult
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.protocol import (
     AckMessage,
     PingMessage,
+    PongMessage,
     QueryRequest,
     QueryResponse,
     ReadyMessage,
+    SceneMessage,
+    TextElement,
 )
-from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
+from punt_lux.send_timeout import (
+    SCENE_WRITE_DEADLINE_SECONDS,
+    SEND_TIMEOUT_CEILING_SECONDS,
+)
 from tests.display._mtls_harness import MtlsMaterial
 from tests.domain.display_double import Call, Peer
 from tests.domain.test_retire_cause import _scene
@@ -45,7 +53,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
+    from punt_lux.domain.hub.dial_generation import DialGeneration
+
 _HOST = "display.example.com"
+# Scheduling slack on top of D: the deadline is a ceiling, not an alarm clock.
+_MARGIN = 1.5
 
 
 @final
@@ -229,3 +241,97 @@ def test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket(
     assert time.monotonic() - began < settle + 3.0, (
         "shutdown, not an unwrap that waits on the peer"
     )
+
+
+_BIG = 11 << 20  # more than any socket buffer holds, under the wire size cap
+
+
+def _big_scene() -> SceneMessage:
+    return ScenePresentation(frame_id="big").message(
+        "big", [TextElement(id="t", content="x" * _BIG)]
+    )
+
+
+def _a_tls_peer_that_never_reads(generation: DialGeneration) -> None:
+    """Make every send on the dial's TLS socket report that it would block.
+
+    That is all a peer that never reads shows the writer once the send buffer is full,
+    and it leaves no scene write in flight: the next write, whatever it is, stalls.
+    """
+    sock = generation._socket._dial.sock  # test seam: the dial's own TLS socket
+
+    def would_block(*_args: object) -> int:
+        msg = "the send buffer is full"
+        raise ssl.SSLWantWriteError(msg)
+
+    sock.send = would_block  # type: ignore[method-assign]
+
+
+class TestABoundedWrite:
+    """Every write ends within D on either transport, by one user-space deadline.
+
+    The dial's end is recorded at the deadline; these connections settle nothing (the
+    settle's own drain is another matter, and these tests do not wait on it).
+    """
+
+    def test_p25_a_tls_peer_that_never_reads_ends_the_write_within_the_deadline(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection.open()
+        generation = connection.require()
+
+        began = time.monotonic()
+        with pytest.raises(OSError):
+            generation.send_scene(_big_scene())
+        took = time.monotonic() - began
+
+        assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
+        assert generation.ended == "unresponsive"
+
+    def test_p25_a_slow_draining_tls_peer_ends_the_write_within_the_deadline(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection.open()
+        generation = connection.require()
+        peer_sock = tls.peer.raw
+        stop = threading.Event()
+
+        def drain_slowly() -> None:
+            while not stop.is_set():
+                with contextlib.suppress(OSError):
+                    peer_sock.recv(65536)
+                stop.wait(0.2)  # slower than the writer, but never stopped
+
+        draining = threading.Thread(target=drain_slowly, daemon=True)
+        draining.start()
+        try:
+            began = time.monotonic()
+            with pytest.raises(OSError):
+                generation.send_scene(_big_scene())
+            took = time.monotonic() - began
+        finally:
+            stop.set()
+            draining.join(2.0)
+
+        assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
+        assert generation.ended == "unresponsive"
+
+    def test_p25_a_keepalive_ping_that_is_the_first_write_to_stall_ends_the_dial(
+        self, tls: _TlsDisplay
+    ) -> None:
+        connection = DisplayConnection(tls, 5.0, ask_settle=no_reader)
+        connection.open()
+        generation = connection.require()
+        tls.peer.send(PongMessage(ts=0.0))  # the post-handshake records, then a frame
+        assert generation.poll_chunk(3.0) is not None
+        _a_tls_peer_that_never_reads(generation)  # no scene write in flight
+
+        began = time.monotonic()
+        with pytest.raises(OSError):
+            generation.send_ping(1.0)
+        took = time.monotonic() - began
+
+        assert took < SCENE_WRITE_DEADLINE_SECONDS + _MARGIN
+        assert generation.ended == "unresponsive"

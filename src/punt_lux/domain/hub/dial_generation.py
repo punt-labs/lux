@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.bounded_send import TornStreamError
 from punt_lux.domain.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
@@ -277,9 +278,10 @@ class DialGeneration:
     def _write_failed(self, exc: BaseException) -> None:
         """End the dial a failed write left half-written, unless someone already had.
 
-        A socket failure is the display's doing, but a send that hit its time limit
-        (``SO_SNDTIMEO``, surfacing as ``BlockingIOError``) is a display that stopped
-        reading and may be alive, so it is recorded as unresponsive. Anything else
+        A socket failure is the display's doing, but a write that hit its deadline
+        (``BlockingIOError`` for a frame untouched, ``TornStreamError`` for one half
+        written, or a socket lock never free in time) is a display that stopped reading
+        and may be alive, so it is recorded as unresponsive. Anything else
         that stopped a write is the Hub's, and is a request, not a recorded cause. A
         dial whose cause is already recorded (``shut`` wakes a writer wedged in
         ``sendall`` on purpose) was ended by whoever's cause it carries: the writer
@@ -291,7 +293,9 @@ class DialGeneration:
             self._ends.retire(self, "hub")
             return
         cause: RetireCause = (
-            "unresponsive" if isinstance(exc, BlockingIOError) else "display"
+            "unresponsive"
+            if isinstance(exc, BlockingIOError | TornStreamError)
+            else "display"
         )
         # A dial already ended, or that the Hub asked to end, records nothing here: the
         # settle decides by what it observes (a queued end of file is the display's).
