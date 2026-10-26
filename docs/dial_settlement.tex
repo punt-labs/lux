@@ -12,16 +12,20 @@
 % the same class of defect in two or more rounds is a state-space problem, and
 % the state space is finite.
 %
-% THIS FILE IS THE PROPOSED DESIGN (round 4: round 3 plus the WRITER).  Round 3
-% abstracted the writer away; the round-10 review found that the writer path breaks
-% S5 and A2, and the section "The writer" models it.  Each fidelity control differs
-% from it in the stated place only, and reproduces one trace.  The controls listed
-% first below were committed against the round-3 file, which had no writer; they are
-% one-point mutations of THAT file and are not regenerated here.  They still
-% stand: with the writer idle (pc(aWr) = pidle, lk = fclear) every round-3 trace is
-% a round-4 trace, the actor sets only grew, and the flags never clear, so each
-% control's violation remains reachable in this file.  The writer controls are
-% mutations of this one:
+% THIS FILE IS THE PROPOSED DESIGN (round 5: round 4, the WRITER, plus the atomic
+% writer record, the stop flag as its own step, and every scene write bounded by a
+% deadline D).  Round 3 abstracted the writer away; the round-10 review found that
+% the writer path breaks S5 and A2, and the section "The writer" models it; the
+% round-11 review found three places where the code was not faithful to it.  Each
+% fidelity control differs from it in the stated place only, and reproduces one
+% trace.  The controls listed first below were committed against the round-3 file,
+% which had no writer; they are one-point mutations of THAT file and are not
+% regenerated here.  They still stand: with the writer idle (pc(aWr) = pidle,
+% lk = fclear) and KPing inserted after each DStartUnresp, every round-3 trace is a
+% round-5 trace (the actor sets only grew, the drain lost a guard, and SPStart now
+% also sets a flag nothing in those traces reads), and the flags never clear, so
+% each control's violation remains reachable in this file.  The writer controls are
+% mutations of this one, rebuilt from it in round 5:
 %   dial_settlement_writer_owe_refused_buggy.tex      the owed ack is refused after a
 %                                                     Hub request or a recorded end (S6)
 %   dial_settlement_writer_records_display_buggy.tex  today's code, TWO changes: the
@@ -33,6 +37,15 @@
 %                                                     with no asker waits for a stuck
 %                                                     writer for ever (deadlock with
 %                                                     no rescuer)
+%   dial_settlement_writer_split_record_buggy.tex     the writer checks for a Hub
+%                                                     request and records under two
+%                                                     lock holds (S5)
+%   dial_settlement_stop_no_request_buggy.tex         a read that fails in the stop
+%                                                     window asks for nothing (S0)
+%   dial_settlement_unbounded_write_buggy.tex         today's code, TWO changes: no
+%                                                     write deadline, and a keepalive
+%                                                     that waits for the lock without
+%                                                     a bound (deadlock, no rescuer)
 % In docs/:
 %   dial_settlement_start_fail_buggy.tex       start_on on an ended dial keeps the slot
 %   dial_settlement_stop_skip_drain_buggy.tex  the listener's exit reads ended twice
@@ -109,6 +122,11 @@ unsettled.  Five properties are claimed of that interval.
     therefore \emph{policy}, stated to match the order \texttt{decide} uses (a
     Hub request outranks what a writer reports), and no checked property
     depends on it.
+  \item[S0] (round 5) No settle decides from nothing: a holder never reaches its
+    decision with no cause recorded, no end of file observed and no Hub request.
+    The code's \texttt{decide} raises there and the settling thread dies, a
+    listener holding the slot.  Flag \texttt{s0bad}; the control
+    \texttt{stop\_no\_request} trips it.
   \item[S6] (round 4) A scene whose bytes are on the wire of a current dial is in
     the ledger once its writer has let go of the socket lock; an end never
     withdraws that entry, and only a capture, which takes the ledger, may precede
@@ -259,6 +277,26 @@ Settlement belongs to the \emph{holder of the reader slot}; everyone else only
     weighed in round 1, a drain that returns ``incomplete'' so that the settler
     drains again, is the ceiling taken in polling steps; the code does not poll,
     it hands the capture to the bound.
+    (d)~(Round~5.)  Every scene write ends within a deadline $D$, on both
+    transports: the write goes through the user-space bounded send with one
+    deadline for the whole write, and a missed deadline is the writer's
+    failure, \texttt{unresponsive}, recorded by the atomic \texttt{WRec}.  On TLS
+    \texttt{SO\_SNDTIMEO} bounds nothing, so without (d) the premise of (c), that
+    a writer fails or times out, is false there.  A keepalive ping or a query
+    that cannot take the socket lock within $D$ ends the dial as
+    \texttt{unresponsive}; it never waits behind a writer without a bound.  The
+    drain's ceiling stays strictly above $D$, so a drain behind a writer waits
+    at most $D$ and reads the acks; the late path fires only if the deadline is
+    broken.  The settle bound is then $D$ for a writer that keeps to its
+    deadline, and the ceiling plus the 2~s bound as defence.  The keepalive's
+    own lock wait adds at most $D$ before its end is recorded.
+  \item \textbf{A reader that leaves on the stop flag asks for the Hub's end
+    (round~5).}  \texttt{stop} sets the listener's stop flag and then asks for
+    the Hub's end, two steps.  A reader that leaves on the flag, at the top of
+    its loop or through a read that failed in the window between them, asks for
+    the Hub's end itself before it settles.  Every settle therefore starts from a
+    recorded cause, a request, or an end of file the drain will see; none
+    decides from nothing (S0).
 \end{enumerate}
 
 Rules 4 and 5 are what close S5.  The model assumes the observation is one
@@ -338,12 +376,14 @@ the lock is released after a failure and the failure is to be classified.
 \begin{zed}
   PC ::= pidle | pst0 | prel0 | phub | pend | psu | pwait | pset | pdec | prel |
     pdone | iread | ilast | rtop | rnone | rdone | wsend | wowe | wunl | wfail |
-    wstuck | plate
+    wstuck | plate | pping
 \end{zed}
 
-\texttt{wstuck}: the writer holds the socket lock and never lets go of it on its
-own (a TLS \texttt{sendall} that makes slow partial progress, so that its send
-timeout never fires).  \texttt{plate}: a settler whose drain could not be made
+\texttt{wstuck}: the writer holds the socket lock and makes no progress of its
+own (a TLS \texttt{sendall} whose \texttt{SO\_SNDTIMEO} never fires; round~5
+bounds it by the write deadline $D$).  \texttt{pping}: the keepalive has given up
+on the display and is to send its last ping, which takes the socket lock.
+\texttt{plate}: a settler whose drain could not be made
 (the lock was held past the ceiling) has handed its capture to the bound.
 
 \begin{schema}{Dial}
@@ -424,8 +464,20 @@ what an actor's last drain saw (end of file, or nothing); \texttt{dsaw} is the
 cause that stood when that drain began.  \texttt{rcause}, \texttt{rdec} and
 \texttt{rdb} are locals that only controls use.
 
+\begin{schema}{Stp}
+  stopf : FLAG \\
+  s0bad : FLAG
+\end{schema}
+
+(Round 5.)  \texttt{stopf} is the listener's stop flag, which
+\texttt{ListenerThread.stop} sets before it asks for the Hub's end, a step of its
+own.  \texttt{s0bad} is set by a settle that reaches its decision with no cause
+recorded, none observed, and no Hub request: the code's \texttt{decide} raises
+\texttt{ValueError} there, and the settling thread dies holding the slot.  The
+property is \emph{S0}: no settle decides from nothing.
+
 \begin{schema}{Sys}
-  Dial \\ Env \\ Flags \\ Carve \\ Pc \\ Dc \\ RLoc \\ Loc \\ Wr
+  Dial \\ Env \\ Flags \\ Carve \\ Pc \\ Dc \\ RLoc \\ Loc \\ Wr \\ Stp
 \end{schema}
 
 \begin{axdef}
@@ -471,6 +523,8 @@ its end.
   wire' = fclear \\
   ledger' = fclear \\
   wcs' = nocause \\
+  stopf' = fclear \\
+  s0bad' = fclear \\
   (slot' = slistener \land pc' = \{ aSt \mapsto pst0, aSp \mapsto pidle,
     aDi \mapsto pidle, aIn \mapsto pidle, aRd \mapsto rnone, aWr \mapsto pidle \}) \lor
   (slot' = sfree \land pc' = \{ aSt \mapsto pdone, aSp \mapsto pidle,
@@ -482,62 +536,67 @@ state it may change; the rest are unchanged.
 
 \begin{schema}{OnlyPc}
   \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{DialPc}
   \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{DialOnly}
   \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Xi Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{EnvOnly}
   \Xi Dial \\ \Delta Env \\ \Xi Flags \\ \Xi Carve \\ \Xi Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{EnvPc}
   \Xi Dial \\ \Delta Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{PcDc}
   \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Delta Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{Drain}
   \Delta Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Delta Loc \\ \Xi Wr
+  \Xi RLoc \\ \Delta Loc \\ \Xi Wr \\ \Xi Stp
+\end{schema}
+
+\begin{schema}{StpPc}
+  \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Delta Stp
 \end{schema}
 
 \begin{schema}{Cap}
   \Delta Dial \\ \Xi Env \\ \Delta Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{CapCarve}
   \Delta Dial \\ \Xi Env \\ \Delta Flags \\ \Delta Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{WrPc}
   \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Delta Wr
+  \Xi RLoc \\ \Xi Loc \\ \Delta Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{WrLate}
   \Xi Dial \\ \Xi Env \\ \Xi Flags \\ \Delta Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Delta Wr
+  \Xi RLoc \\ \Xi Loc \\ \Delta Wr \\ \Xi Stp
 \end{schema}
 
 \begin{schema}{WrRec}
   \Delta Dial \\ \Xi Env \\ \Delta Flags \\ \Xi Carve \\ \Delta Pc \\ \Xi Dc \\
-  \Xi RLoc \\ \Xi Loc \\ \Xi Wr
+  \Xi RLoc \\ \Xi Loc \\ \Xi Wr \\ \Xi Stp
 \end{schema}
 
 \section{The environment}
@@ -606,12 +665,15 @@ that is ended but still current is never replaced: that is the wedge.
 \begin{schema}{Halt}
   \Xi Sys
 \where
-  current = fclear \lor (ended = nocause \land hubreq = fclear)
+  current = fclear \lor
+    (ended = nocause \land hubreq = fclear \land pc~aDi \neq pping)
 \end{schema}
 
 The model may stop only when the dial is settled or has not been ended.  A
 state with the dial ended or end-requested, still current, and nothing enabled
-is a deadlock, and probcli reports it.
+is a deadlock, and probcli reports it.  A keepalive that has given up and waits
+to ping (\texttt{pping}) counts as an end under way (round~5): its verdict is
+taken, and only its delivery is pending.
 
 \section{The starter}
 
@@ -678,12 +740,25 @@ start (\texttt{retire(born, hub)}).
 \where
   pc~aDi = pidle \\
   dcs' = cunresp \\
+  pc' = pc \oplus \{ aDi \mapsto pping \}
+\end{schema}
+
+\begin{schema}{KPing}
+  OnlyPc
+\where
+  pc~aDi = pping \\
   pc' = pc \oplus \{ aDi \mapsto pend \}
 \end{schema}
 
 A discoverer: a write that failed with a broken pipe (the display's end, so the
 display is dead), or the keepalive giving up (unresponsive, the display perhaps
-alive).
+alive).  The keepalive's ping, and a query, take the socket lock
+(\texttt{send\_ping} and \texttt{send\_query} go through \texttt{\_write\_locked}).
+In the design (rule~7d, round~5) a ping that cannot take the lock within the
+write deadline $D$ ends the dial as unresponsive, so \texttt{KPing} is enabled
+whether the lock is held or not: the ping either goes out or times out, and
+either way the keepalive's verdict is recorded.  In today's code the lock wait
+has no bound, which is half of the control \texttt{unbounded\_write}.
 
 \begin{schema}{RecEnd}
   DialPc
@@ -712,14 +787,20 @@ alive).
 The cause is recorded, first wins.  A dial no longer current is left alone.
 
 \begin{schema}{SPStart}
-  OnlyPc
+  StpPc
 \where
   pc~aSp = pidle \\
+  stopf' = fset \\
+  s0bad' = s0bad \\
   pc' = pc \oplus \{ aSp \mapsto phub \}
 \end{schema}
 
 The stopper: \texttt{stop} (when a listener exists) or \texttt{close}.  Both end
-by asking for the Hub's end.  A \texttt{stop} on a dial with no listener
+by asking for the Hub's end.  \texttt{stop} first sets the listener's stop flag
+and then asks (round~5); the flag is its own step, because a listener that
+leaves on the flag between the two steps is the window the control
+\texttt{stop\_no\_request} exposes.  For \texttt{close} with no listener the flag
+is read by nobody, so setting it there changes nothing.  A \texttt{stop} on a dial with no listener
 returns without ending anything; that is a subset of \texttt{close}.
 
 \begin{schema}{HubReq}
@@ -859,7 +940,6 @@ display that has died unobserved (\texttt{s5blk}).
   pc~a? = pset \\
   slot \neq sfree \\
   current = fset \\
-  (ended \neq nocause \lor hubreq = fset \lor eof = fset) \\
   (lk = fclear \lor (sock = 0 \land eof = fclear)) \\
   gu' = fclear \\
   sock' = 0 \\
@@ -885,6 +965,36 @@ Behind a held lock the settler waits for the writer, which is the environment's
 step, or gives up at the ceiling, which is \texttt{SDrainLate}.  A drain that
 took the lock-held branch and reported ``nothing more'' with the socket unread
 is the control \texttt{drain\_gives\_up}.
+
+The drain has no guard on a cause (round~5): the code drains whenever a holder
+settles, and does not wait for an end to be recorded or requested.  Round~4's
+guard \texttt{ended} $\neq$ \texttt{nocause} $\lor$ \texttt{hubreq = fset} $\lor$
+\texttt{eof = fset} made a settle with nothing to decide wait for the stopper's
+request, and so hid the defect of the control \texttt{stop\_no\_request}.  Every
+path into \texttt{pset} in the design has a cause, a request or the end of file
+behind it, so dropping the guard leaves the design's behaviour as it was;
+\texttt{SDecideNone} below says what happens when one does not.
+
+\begin{schema}{SDecideNone}
+  StpPc \\
+  a? : ACTOR
+\where
+  pc~a? = pdec \\
+  slot \neq sfree \\
+  current = fset \\
+  ended = nocause \\
+  obs~a? = nocause \\
+  hubreq = fclear \\
+  stopf' = stopf \\
+  s0bad' = fset \\
+  pc' = pc \oplus \{ a? \mapsto pdone \}
+\end{schema}
+
+A decision with nothing to decide from: no cause recorded, none observed by the
+drain, no Hub request.  The code's \texttt{decide} raises \texttt{ValueError}; the
+settling thread dies, and a listener dies holding the slot, so a debt left later
+is honoured by no one and only the bound settles the dial.  The step sets
+\texttt{s0bad} (S0).  It is unreachable in the design.
 
 \begin{schema}{SDecide}
   Cap \\
@@ -953,7 +1063,6 @@ holder does nothing.
   pc~a? = pset \\
   slot \neq sfree \\
   current = fset \\
-  (ended \neq nocause \lor hubreq = fset \lor eof = fset) \\
   lk = fset \\
   (sock > 0 \lor eof = fset) \\
   pc' = pc \oplus \{ a? \mapsto plate \}
@@ -1208,10 +1317,32 @@ lock.  The design admits no state in which the scene is on the wire of a
   pc' = pc \oplus \{ aWr \mapsto wfail \}
 \end{schema}
 
-A writer that keeps making partial progress, so that its send timeout never
-fires, and holds the lock for ever: a behaviour of the environment, like
-\texttt{Block}.  It is released only by a capture, which shuts the socket and
-makes \texttt{sendall} raise.  Such a writer is what the ceiling and the bound
+\begin{schema}{WDeadline}
+  WrPc
+\where
+  pc~aWr = wstuck \\
+  current = fset \\
+  lk' = fclear \\
+  wire' = wire \\
+  ledger' = ledger \\
+  wcs' = cunresp \\
+  pc' = pc \oplus \{ aWr \mapsto wfail \}
+\end{schema}
+
+A writer that makes no progress of its own and holds the lock.  On TLS this is
+the case: \texttt{SO\_SNDTIMEO} does not bound \texttt{sendall} (a probe blocked
+for more than nine seconds).  In the design (rule~7d, round~5) every scene write
+goes through the user-space bounded send with one deadline $D$ for the whole
+write, on both transports, so the stuck writer always has \texttt{WDeadline}
+enabled: it lets go of the lock and reports \texttt{unresponsive}, which the
+atomic \texttt{WRec} records.  A capture before the deadline wakes it too
+(\texttt{WStuckOut}: the shutdown makes \texttt{sendall} raise).  In today's code
+\texttt{WDeadline} is absent, and that is the other half of the control
+\texttt{unbounded\_write}.  The stuck writer and the late path stay in the design
+as defence: the model is untimed, so \texttt{WStall} and \texttt{SDrainLate}
+remain reachable, while in the code, with the ceiling strictly above $D$, the
+drain's wait ends at the deadline and the late path fires only if the deadline
+is broken.  Such a writer is what the ceiling and the bound
 exist for: without \texttt{SDrainLate} a settler with no refused asker behind it
 waits for a writer that never lets go (the control \texttt{drain\_no\_late},
 which deadlocks once no stopper or inline reader can rescue the dial; see the
@@ -1226,10 +1357,10 @@ left alone (\texttt{WRecGone}).
   current = fset \\
   ((ended = nocause \land hubreq = fclear \land ended' = wcs) \lor
     (\lnot (ended = nocause \land hubreq = fclear) \land ended' = ended)) \\
-  ((ended = nocause \land hubreq = fclear \land wcs = cdisp \land eof = fclear \land
-      s5bad' = fset) \lor
-    (\lnot (ended = nocause \land hubreq = fclear \land wcs = cdisp \land
-      eof = fclear) \land s5bad' = s5bad)) \\
+  ((ended = nocause \land hubreq = fclear \land
+      (hubreq = fset \lor (wcs = cdisp \land eof = fclear)) \land s5bad' = fset) \lor
+    (\lnot (ended = nocause \land hubreq = fclear \land
+      (hubreq = fset \lor (wcs = cdisp \land eof = fclear))) \land s5bad' = s5bad)) \\
   slot' = slot \\
   debt' = debt \\
   current' = current \\
@@ -1259,6 +1390,17 @@ that is alive (\texttt{wcs = cdisp} with \texttt{eof = fclear}, which only a
 failure that the display did not cause can produce) is the violation of S5; the
 design cannot reach it, because \texttt{WSendDead} requires \texttt{eof = fset}
 and \texttt{eof} never clears.
+
+The check and the record are one step (round~5, rule~7b made atomic): the code's
+\texttt{ReplySink.end\_by\_writer} refuses under the sink's lock when a cause stands
+or a Hub request is pending, and records otherwise.  S5 gains a clause with it:
+\emph{a writer never records a cause while a Hub request is pending}.  Rule~5 says
+why this is a safety property and not taste: the Hub's request refuses writes, so
+a write that fails after the request may be the request's own doing, and the
+Hub's end must be decided as \texttt{hub} and charge nothing (A3), not queued as
+an unresponsive death.  In the design the clause is structural, since
+\texttt{WRec} records only when no request is pending; the control
+\texttt{writer\_split\_record}, today's two lock holds, trips it.
 
 \section{The inline reader}
 
@@ -1381,11 +1523,59 @@ display's end and captures at once, undrained: the first carve-out.
   pc' = pc \oplus \{ aRd \mapsto rdone \}
 \end{schema}
 
-The listener's loop tests, in turn, the Hub's request (its stop flag), a
+\begin{schema}{RStop}
+  DialPc
+\where
+  pc~aRd = rtop \\
+  blocked = fclear \\
+  current = fset \\
+  stopf = fset \\
+  hubreq' = fset \\
+  ended' = ended \\
+  slot' = slot \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  pc' = pc \oplus \{ aRd \mapsto pset \}
+\end{schema}
+
+\begin{schema}{RReadErr}
+  DialPc
+\where
+  pc~aRd = rtop \\
+  blocked = fclear \\
+  current = fset \\
+  stopf = fset \\
+  ended = nocause \\
+  hubreq = fclear \\
+  hubreq' = fset \\
+  ended' = ended \\
+  slot' = slot \\
+  debt' = debt \\
+  current' = current \\
+  sock' = sock \\
+  capN' = capN \\
+  pc' = pc \oplus \{ aRd \mapsto pset \}
+\end{schema}
+
+The listener's loop tests, in turn, the Hub's request, a
 recorded end, and the display's end of file, and on any of them settles through
 the same two steps that every other holder uses.  It records no cause of its
 own and reads none twice.  A malformed frame is the first carve-out
 (\texttt{RBad}).
+
+Round~5 gives the stop flag its own steps.  At the top of its loop the listener
+that finds the flag set leaves, asking for the Hub's end first (\texttt{RStop}).
+A read that fails while the flag is set, in the window between \texttt{stop}
+setting it and asking (\texttt{RReadErr}), is not the display's end: the flag
+says the Hub is ending the dial.  In the design (rule~8, round~5) that reader asks
+for the Hub's end too, before it settles, so the settle always has a request or a
+cause behind it, and no writer passes \texttt{\_require\_open} in the window.  In
+today's code the reader returns with nothing recorded or requested (the control
+\texttt{stop\_no\_request}), and its settle can reach \texttt{SDecideNone}.  A
+read failure that the flag does not cover is the display's end, as before
+(\texttt{RNotice} with the end of file).
 
 \section{Refinement of crash\_attribution\_inflight\_ack\_drain.tex}
 
@@ -1572,15 +1762,18 @@ artefact of an ack that could not arrive, and is withdrawn here.
 
 \paragraph{Round 4: the writer.}
 The design has the writer actor, the socket lock and the ledger, the stuck
-writer (\texttt{WStall}, \texttt{WStuckOut}) and the settler's timed-out drain
-(\texttt{SDrainLate}, \texttt{LateCapture}, \texttt{LateGone}): 50 operations.
-The commands, with the S6 predicate added to the safety goal and a stuck writer
-counted as stuck in S1b:
+writer (\texttt{WStall}, \texttt{WStuckOut}, and since round~5 its deadline
+\texttt{WDeadline}), the settler's timed-out drain (\texttt{SDrainLate},
+\texttt{LateCapture}, \texttt{LateGone}), and since round~5 the keepalive's ping
+(\texttt{KPing}), the stop flag (\texttt{RStop}, \texttt{RReadErr}) and the
+decision with nothing to decide from (\texttt{SDecideNone}): 55 operations.
+The commands, with S0 and the S6 predicate added to the safety goal and a stuck
+writer counted as stuck in S1b:
 \begin{verbatim}
   P="-p MAX_OPERATIONS 200000 -p MAX_INITIALISATIONS 100"
   deadlock:  probcli docs/dial_settlement.tex -model_check -coverage $P
-  safety:    ... -nodead $P -goal "s2bad = fset or s3bad = fset or
-               s4bad = fset or s5bad = fset or
+  safety:    ... -nodead $P -goal "s0bad = fset or s2bad = fset or
+               s3bad = fset or s4bad = fset or s5bad = fset or
                (wire = fset & ledger = fclear & lk = fclear & current = fset)"
   S1a:       ... -nodead $P -goal "current = fset & (ended /= nocause or
                hubreq = fset) & !a.(a : ACTOR =>
@@ -1590,59 +1783,89 @@ counted as stuck in S1b:
                (pc(a) : {pidle,pdone,rdone,rnone,wstuck} or
                 (blocked = fset & pc(a) : {rtop,iread})))"
 \end{verbatim}
-Results for the design, default search mode (state space 2068662, peak 5.8 GB):
-the deadlock check visits all states, 11468719 transitions,
-\texttt{deadlocked:0}, 50 of 50 operations covered.  The safety goal, S1a and
-S1b are each not found over all 2068661 states.  The two new exceptions are
-reachable (\texttt{-bf}): \texttt{s2lat} by \texttt{WLock, DStartUnresp, RecEnd,
-SUGrant, SDrainLate, LateCapture} (5115 states), the settler capturing late with
-no asker behind it; \texttt{a1late} by \texttt{WLock, IAcq, IBad, WSendDone,
-WOweLate} (1868 states), a decode-error capture between the write and its owed
-ack.
+Results for the round-5 design, default search mode (state space 2267294, peak
+6.5 GB): the deadlock check visits all states, 12623735 transitions,
+\texttt{deadlocked:0}, 54 of 55 operations covered; the one not covered is
+\texttt{SDecideNone}, which is unreachable, as S0 requires.  The safety goal
+(now with \texttt{s0bad}), S1a and S1b are each not found over all 2267293
+states.  The exceptions stay reachable (\texttt{-bf}): \texttt{s2lat} by
+\texttt{DStartDisp, WLock, Die, RecEnd, SUGrant, SDrainLate, LateCapture} (9767
+states), \texttt{a1late} by \texttt{WLock, IAcq, IBad, WSendDone, WOweLate}
+(1862 states).  Round~4's figures for comparison: 2068662 states, 50
+operations, the same properties not found.
 
-The writer controls, \texttt{-nodead -bf} except where stated:
+The writer controls, all rebuilt from the round-5 design, \texttt{-nodead -bf}
+for a goal and \texttt{-bf} for a deadlock:
 \begin{center}
 \begin{tabular}{llll}
-control & goal & states analysed & depth \\
-writer\_owe\_refused & S6 predicate & 1773 & 5 \\
-writer\_owe\_refused & \texttt{s5bad}, default mode & 2619753, not found & -- \\
-writer\_records\_display & \texttt{s5bad} & 4332 & 6 \\
-drain\_gives\_up & \texttt{s2bad} & 5146 & 6 \\
-drain\_no\_late, no rescuer & deadlock, \texttt{-bf} & 2328, found & 7 \\
-design, no rescuer & deadlock, \texttt{-bf} & 68157, none found & -- \\
+control & check & states analysed & depth \\
+writer\_owe\_refused & S6 predicate & 1819, found & 5 \\
+writer\_records\_display & \texttt{s5bad} & 4284, found & 6 \\
+drain\_gives\_up & \texttt{s2bad} & 9878, found & 7 \\
+writer\_split\_record & \texttt{s5bad} & 4318, found & 6 \\
+stop\_no\_request & \texttt{s0bad} & 2772, found & 5 \\
+unbounded\_write, no rescuer & deadlock & 671, found & 5 \\
+design, no rescuer & deadlock & 72577, none & -- \\
+design, no rescuer, keepalive waits for the lock & deadlock & 72577, none & -- \\
+design, no rescuer, no write deadline & deadlock & 72577, none & -- \\
+drain\_no\_late, no rescuer, no write deadline & deadlock & 2274, found & 7 \\
 \end{tabular}
 \end{center}
-The last two rows are the \emph{no-rescuer} check.  A plain deadlock check on
-\texttt{drain\_no\_late} itself finds nothing, because an idle stopper or inline
-reader always has a step and might yet rescue the dial; and a state goal cannot
-tell the control from the design, because the state just before
-\texttt{SDrainLate} fires is the same in both.  What \texttt{SDrainLate} buys is
-liveness.  To see it, both files are run with the stopper and the inline reader
-never starting (\texttt{SPStart} and \texttt{IAcq} given the unsatisfiable guard
-$pc~a = pidle \land pc~a = pdone$), so that no party outside the settler can
-rescue the dial.  The scratch copies are not committed; the change is those two
-guards and nothing else.
+The \emph{no-rescuer} rows test liveness, which no state goal expresses: a plain
+deadlock check finds nothing, because an idle stopper or inline reader always has
+a step and might yet rescue the dial.  So the file is run with the stopper and
+the inline reader never starting (\texttt{SPStart} and \texttt{IAcq} given the
+unsatisfiable guard $pc~a = pidle \land pc~a = pdone$).  ``No write deadline''
+gives \texttt{WDeadline} the same guard on the writer, and ``the keepalive waits
+for the lock'' adds \texttt{lk = fclear} to \texttt{KPing}: these are the two
+halves of \texttt{unbounded\_write}, and the two design rows show that neither
+alone wedges the dial.  The scratch copies are not committed; the changes are
+those guards and nothing else.  \texttt{writer\_owe\_refused}'s exhaustive
+\texttt{s5bad} run (not found over 2619753 states) is round~4's and was not
+repeated on the round-5 file.
 
-The traces.  \texttt{writer\_owe\_refused}, S6: \texttt{WLock, WSendDone,
-DStartUnresp, RecEnd, WOweRefused}: the keepalive's unresponsive end lands
-between the write and the owed ack, and the scene is on the wire of a current
-dial and not in the ledger.  This control alone never reaches \texttt{s5bad}.
+The traces.  \texttt{writer\_owe\_refused}, S6: \texttt{WLock, SPStart, HubReq,
+WSendDone, WOweRefused}: a Hub request lands between the write and the owed ack,
+and the scene is on the wire of a current dial and not in the ledger.
 \texttt{writer\_records\_display}, S5: \texttt{WLock, SPStart, HubReq,
-WSendDone, WOweRefused, WRec}: a Hub request lands while a scene write is in
-\texttt{sendall}; the write completes, the owed ack is refused, and the failure
-records \texttt{display} for a display that is alive.
-\texttt{drain\_gives\_up}, S2: \texttt{WLock, DStartUnresp, RecEnd, SUGrant,
-SDrain, SDecide}: the keepalive's unresponsive end is recorded while a writer
-holds the lock, the settle's drain finds the lock held and reports nothing more
-with an ack readable, and the capture charges the scene the display had
-acknowledged.  \texttt{drain\_no\_late}, no rescuer: \texttt{Die, WLock, WStall,
-Block, DStartDisp, RecEnd, SUGrant}: the display dies, a writer takes the lock
-and never lets go, the slot, born free, has no listener and \texttt{Block} only sets the flag, the discoverer records the display's end
-and takes the free slot to settle, and its drain waits behind the writer for
-ever; nothing captures the dial.  The design, under the same restriction, has
-no deadlock over all 68157 states: the settler's \texttt{SDrainLate} hands the
-capture to the bound.  Every run was made one at a time, under
-\texttt{ulimit -v} 8~GB.
+WSendDone, WOweRefused, WRec}: the same, and the refused ack is recorded as the
+display's end for a display that is alive.  \texttt{drain\_gives\_up}, S2:
+\texttt{DStartDisp, WLock, Die, RecEnd, SUGrant, SDrain, SDecide}: a display end
+is recorded while a writer holds the lock, the drain finds the lock held and
+reports nothing more with an ack readable, and the capture charges the scene the
+display had acknowledged.  \texttt{writer\_split\_record}, S5: \texttt{WLock,
+WSendTimeout, WCheck, SPStart, HubReq, WRec}: a send times out, the writer finds
+no request and lets go of the sink's lock, the Hub's stop asks for its end, and
+the writer then records \texttt{unresponsive} over the Hub's request.
+\texttt{stop\_no\_request}, S0: \texttt{SPStart, StOk, RReadErr, SDrain,
+SDecideNone}: \texttt{stop} sets the flag, the listener's read fails in the
+window, it settles with nothing recorded or requested, and its decision has
+nothing to decide from.  \texttt{unbounded\_write}, no rescuer: \texttt{WLock,
+WStall, Die, Block, DStartUnresp}: a writer wedges in \texttt{sendall}, the
+listener is held off (its poll needs the lock once the socket is readable), and
+the keepalive gives up but cannot send its ping; nobody records an end and the
+capture that would wake the writer never comes.  \texttt{drain\_no\_late}, no
+rescuer, no write deadline: \texttt{Die, WLock, WStall, Block, DStartDisp,
+RecEnd, SUGrant}: the discoverer settles behind a writer that never lets go and
+waits for ever.  Every run was made one at a time, under \texttt{ulimit -v}
+8~GB, after \texttt{pgrep} showed no other probcli running.
+
+\paragraph{The deadline and the ceiling (round 5).}  The model is untimed; the
+constants are the code's, and the leader rules them.  Proposed: a write deadline
+$D = 2.5$~s for every scene write, on both transports, and for the keepalive's
+and a query's wait for the socket lock; the drain's ceiling rises from 3~s to
+3.5~s, strictly above $D$, with 1~s of margin for the hand-over of the lock and
+for scheduling.  The bounded send waits in user space against its own deadline,
+so $D$ does not depend on \texttt{SO\_SNDTIMEO}; it is chosen no shorter than the
+longest send timeout the probe admits on a plain socket (1~s measured on Linux,
+2~s on macOS, 2.5~s the probe's limit), so that no write that completes today is
+cut short by the change.  With these, a settle behind a writer that keeps to its
+deadline waits at most $D$ = 2.5~s and reads every ack; the late path, a defence
+for a broken deadline, ends a settle within the ceiling plus the bound, 5.5~s; a
+keepalive's end is recorded at most $D$ after it gives up.  The relation the
+model needs is only ceiling $> D$; a shorter $D$ (2~s, with the ceiling left at
+3~s and the bound at 5~s) is equally sound and cuts short a macOS write that
+would have completed between 2 and 2.5~s.
 
 \paragraph{What is not modelled.}
 A second discoverer, a second inline reader, more than one unread acknowledgement,
