@@ -117,14 +117,20 @@ class ArgvCaptureStub:
         if not self._started.exists():
             msg = f"{self._out} did not appear within {timeout}s (stub never invoked)"
             return TimeoutError(msg)
-        leftovers = sorted(p.name for p in self._staging.iterdir())
         msg = (
             f"{self._path.name} stub started but did not publish its capture "
-            f"{self._out} within {timeout}s; staging leftovers in "
-            f"{self._staging}: {leftovers or 'none'}. Its stderr goes to "
-            "LUX_APPLET_LOG when the hook spawns it."
+            f"{self._out} within {timeout}s; {self._staging_report()}. Its "
+            "stderr goes to LUX_APPLET_LOG when the hook spawns it."
         )
         return TimeoutError(msg)
+
+    def _staging_report(self) -> str:
+        # The diagnostic must survive whatever broke the stub, including a
+        # staging path that is no longer a directory.
+        if not self._staging.is_dir():
+            return f"staging path {self._staging} is not a directory"
+        leftovers = sorted(p.name for p in self._staging.iterdir())
+        return f"staging leftovers in {self._staging}: {leftovers or 'none'}"
 
 
 def _make_executable(path: Path) -> None:
@@ -260,18 +266,18 @@ class TestArgvCaptureStub:
     ) -> None:
         """A stub that cannot write its capture fails fast and is named as such.
 
-        An unwritable staging directory makes the stub's output redirect fail
-        after it has started, so it must exit non-zero, publish nothing, and
-        be reported as started-but-failed rather than never invoked.
+        A regular file where the staging directory should be makes the stub's
+        output redirect fail with ENOTDIR after it has started — for every
+        user, root included, unlike a permission bit. The stub must exit
+        non-zero, publish nothing, and be reported as started-but-failed
+        rather than never invoked.
         """
-        stub.staging_dir.chmod(0o500)
-        try:
-            result = subprocess.run([str(stub.path), "x"], check=False)
-            with pytest.raises(TimeoutError, match="started but did not publish"):
-                stub.argv(timeout=0.2)
-        finally:
-            stub.staging_dir.chmod(0o700)
+        stub.staging_dir.rmdir()
+        stub.staging_dir.write_text("not a directory\n", encoding="utf-8")
+        result = subprocess.run([str(stub.path), "x"], check=False)
         assert result.returncode != 0
+        with pytest.raises(TimeoutError, match="started but did not publish"):
+            stub.argv(timeout=0.2)
 
     def test_a_second_invocation_fails_rather_than_overwrite(
         self, stub: ArgvCaptureStub
