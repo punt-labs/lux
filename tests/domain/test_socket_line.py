@@ -184,13 +184,24 @@ class TestWhatTheKeepaliveTakesForLife:
 
         assert not line.is_progressing()
 
-    def test_a_write_in_progress_is_no_evidence_either(
+    def test_a_write_in_progress_leaves_the_keepalive_no_verdict(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         line, ours, theirs = _idle_line_and_pair(monkeypatch)
         with ours, theirs, line.writing() as free:
             assert free
             line.send(ours, b"x")
+
+            assert line.is_progressing()
+
+    def test_a_write_that_stalled_leaves_the_keepalive_its_verdict(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        line, ours, theirs = _idle_line_and_pair(monkeypatch)
+        with ours, theirs, line.writing() as free:
+            assert free
+            line.send(ours, b"x")
+            time.sleep(0.25)  # no byte moves for longer than D
 
             assert not line.is_progressing()
 

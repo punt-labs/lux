@@ -1239,6 +1239,28 @@ class TestABoundedWrite:
             assert port.probe_alive(0.05), "a verdict while acks keep arriving"
             time.sleep(0.1)
 
+    def test_p31_the_keepalive_gives_no_verdict_while_a_write_is_progressing(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A slow but healthy display is not dropped mid-write; the write's own
+        no-progress deadline covers that period."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        port = link.desk.asks()
+        big = ScenePresentation(frame_id="long").message(
+            "long", [TextElement(id="t", content="x" * (512 << 10))]
+        )
+
+        with SteadyDrain(display.peer.raw, display.sockets[-1]._sock):
+            writing = Call(lambda: generation.send_scene(big))
+            time.sleep(window + 0.1)  # past D from the start, nothing incoming
+            assert not writing.done, "the premise: the write is still going"
+            assert port.probe_alive(0.05), "a verdict while a write is progressing"
+            writing.wait(30.0)
+        assert generation.ended is None
+
     def test_p31_a_write_that_completed_is_no_evidence_the_display_is_alive(
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:

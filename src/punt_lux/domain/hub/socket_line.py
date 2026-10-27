@@ -40,13 +40,15 @@ class SocketLine:
     _lock: threading.Lock
     _clock: ProgressClock  # any byte either way: what a wait measures silence by
     _heard: ProgressClock  # incoming bytes only: the keepalive's evidence of life
-    __slots__ = ("_clock", "_heard", "_lock")
+    _writing: bool  # a write holds the line now
+    __slots__ = ("_clock", "_heard", "_lock", "_writing")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._lock = threading.Lock()
         self._clock = ProgressClock()
         self._heard = ProgressClock()
+        self._writing = False
         return self
 
     @staticmethod
@@ -90,10 +92,12 @@ class SocketLine:
         """
         LockDiscipline.forbid_store("the dial socket lock")
         free = self._acquire_unless_silent()
+        self._writing = free
         try:
             yield free
         finally:
             if free:
+                self._writing = False
                 self._lock.release()
 
     def moved(self) -> None:
@@ -102,12 +106,18 @@ class SocketLine:
         self._heard.moved()
 
     def is_progressing(self) -> bool:
-        """Whether the display spoke within ``D``: the one evidence it is alive.
+        """Whether the keepalive has no verdict to give: the display spoke within ``D``,
+        or a write holds the line and is still moving bytes.
 
-        Bytes the Hub writes prove only that the kernel took them, not that the
-        display reads them, so neither a write nor the lock being taken is evidence.
+        A write that completed proves only that the kernel took its bytes, and the
+        lock being taken proves nothing. A write still progressing is the write's own
+        no-progress deadline to judge, so a slow but healthy display is not dropped
+        under it; a stalled one ends the dial within ``D`` all the same.
         """
-        return self._heard.progressed_within(SCENE_WRITE_DEADLINE_SECONDS)
+        window = SCENE_WRITE_DEADLINE_SECONDS
+        return self._heard.progressed_within(window) or (
+            self._writing and self._clock.progressed_within(window)
+        )
 
     def send(self, sock: socket.socket, wire: bytes) -> None:
         """Write all of ``wire``, unless no byte moves for ``D``; the lock is held.
