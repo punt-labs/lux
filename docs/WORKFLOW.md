@@ -235,6 +235,7 @@ function pr_loop(unit):
     # D. SHIP
     bd close the bead
     push; create the PR (description carries the verification playbook)
+    comment "demo confirmed: <head sha>"    # the operator confirmed step C
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open (Cursor dashboard: once per PR) — no
         #   "bugbot run" comment for round 1
@@ -282,8 +283,11 @@ function pr_loop(unit):
 #                    commit on the PR head, or a ledger comment gives the
 #                    reason and file:line.
 #                  A finding repeated from an earlier round keeps its answer.
-#   new High     = a High not raised in an earlier round; a manual review
-#                  may re-scan the whole PR and repeat old findings
+#   new High     = a High raised by a round-2 review (one that started at or
+#                  after trigger(2)) and not raised in an earlier round; a
+#                  manual review may re-scan the whole PR and repeat old
+#                  findings, and a round-1 High that arrives late is not new
+#                  — it takes the normal fix path
 #   escalation   = the leader's "escalated:" comment on one new round-2
 #                  High; closed by a later ledger entry recording the
 #                  operator's ruling and how it was applied
@@ -294,6 +298,13 @@ function pr_loop(unit):
 #   bugbot_open  = a Cursor Bugbot check run on the head whose status is not
 #                  completed (queued or in progress) and that was created
 #                  under 30 minutes ago
+#   demoed_head  = the commit named in the leader's latest "demo confirmed:"
+#                  PR comment, newer than any "demo failed:" comment; the
+#                  leader posts it when the operator confirms the demo on
+#                  that commit
+#   demo_ok(pr)  = the PR is docs-only, or demoed_head exists, is the head
+#                  or an ancestor of it, and nothing outside *.md, docs/,
+#                  tests/, and .github/ landed since
 # A "ledger comment" is a PR comment that records one finding, its reason,
 # and the code reference. "Pre-existing", "intentional", "expected", and
 # "by design" are not reasons.
@@ -317,6 +328,9 @@ function poll_tick(pr):
             # no deferral beads
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
+        close the escalated finding by its answered(f) path — a finding
+            with a Qodo id through the Qodo CLI (mark-implemented or
+            dismiss), because a ledger line does not close it
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked:
             stop; the operator rules
@@ -327,11 +341,15 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and no review is requested and the PR head is newer
-            than reviewed_head:
+    if not pending(pr) and the PR head is newer than reviewed_head:
         run code_reviewer locally on the reviewed_head..head delta; its
             findings are findings like any other   # bounded rounds, but
                                                    #   no unreviewed merge
+    if not demo_ok(pr) and nothing was pushed this tick:
+        run the demo on the head (make restart, then the real entry point)
+            and ask the operator to confirm; comment "demo confirmed:
+            <sha>", or "demo failed: <sha>" with what was observed — a
+            failure is a finding like any other
     if not pending(pr) and not bugbot_open and no finding is unanswered:
         cadence = 15m                      # only CI or a late thread can
                                            #   change state now
@@ -352,6 +370,8 @@ function merge_gate(state) -> bool:
        and zero unresolved review threads
        and round(pr) ≤ 2
        and no escalation is open
+       and demo_ok(pr)                     # confirmed on this head, or
+                                           #   nothing demo-relevant since
     # A push restarts CI, not review. When this returns true: merge
     # explicitly. No auto-merge. No admin override. Do not ask, do not wait.
 
