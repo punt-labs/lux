@@ -23,6 +23,9 @@ import stat
 import subprocess
 import time
 from pathlib import Path
+from typing import Self, final
+
+import pytest
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "plugin" / "hooks" / "session-start.sh"
@@ -39,21 +42,95 @@ wait
 """
 
 
-def _wait_for_file(path: Path, *, timeout: float = 5.0, interval: float = 0.05) -> None:
-    """Poll until *path* exists, or raise a clear ``TimeoutError``.
+@final
+class ArgvCaptureStub:
+    """A fake executable on ``PATH`` that records the argv it was run with.
 
     The hook backgrounds ``lux-beads`` with ``nohup ... & disown`` — pure
     fire-and-forget — so the hook script's own exit is no guarantee the stub
-    has run yet. Checking immediately races an async process; this polls
-    instead of narrowing the race with a blind ``sleep``.
+    has run yet. ``argv()`` polls for the capture file instead of narrowing
+    the race with a blind ``sleep``.
+
+    *write_delay* holds the stub between opening its output and writing the
+    argv, widening the window in which a reader can observe a half-written
+    capture. Production tests leave it at zero.
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(interval)
-    msg = f"{path} did not appear within {timeout}s (lux-beads stub was never invoked)"
-    raise TimeoutError(msg)
+
+    __slots__ = ("_out", "_path", "_staging", "_started")
+
+    _out: Path
+    _path: Path
+    _staging: Path
+    _started: Path
+
+    def __new__(cls, bin_dir: Path, name: str, *, write_delay: float = 0.0) -> Self:
+        self = super().__new__(cls)
+        self._path = bin_dir / name
+        self._out = bin_dir.parent / f"{name}.argv"
+        self._started = bin_dir.parent / f"{name}.started"
+        self._staging = bin_dir.parent / f"{name}.staging"
+        self._staging.mkdir()
+        self._path.write_text(self._script(write_delay), encoding="utf-8")
+        _make_executable(self._path)
+        return self
+
+    def _script(self, write_delay: float) -> str:
+        # A shell redirect creates and truncates the target before the command
+        # writes to it, so a reader that sees the file can still read it empty.
+        # The capture is staged in its own directory, then hard-linked into
+        # place: link(2) publishes the file atomically with its content and
+        # refuses to clobber an existing capture, so a second spawn fails
+        # loudly instead of silently replacing the first one's argv.
+        # set -e stops a failed write from publishing an empty capture; the
+        # started marker lets argv() tell a failed run from one that never ran.
+        staging = f"{self._staging}/$$.tmp"
+        return (
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f'touch "{self._started}"\n'
+            f'exec > "{staging}"\n'
+            f"sleep {write_delay}\n"
+            "printf '%s\\n' \"$@\"\n"
+            "exec >&-\n"
+            f'ln "{staging}" "{self._out}"\n'
+            f'rm "{staging}"\n'
+        )
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def staging_dir(self) -> Path:
+        return self._staging
+
+    def argv(self, *, timeout: float = 5.0, interval: float = 0.05) -> list[str]:
+        """Return the captured argv, one argument per line, once published."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._out.exists():
+                return self._out.read_text(encoding="utf-8").splitlines()
+            time.sleep(interval)
+        raise self._timeout_error(timeout)
+
+    def _timeout_error(self, timeout: float) -> TimeoutError:
+        if not self._started.exists():
+            msg = f"{self._out} did not appear within {timeout}s (stub never invoked)"
+            return TimeoutError(msg)
+        msg = (
+            f"{self._path.name} stub started but did not publish its capture "
+            f"{self._out} within {timeout}s; {self._staging_report()}. Its "
+            "stderr goes to LUX_APPLET_LOG when the hook spawns it."
+        )
+        return TimeoutError(msg)
+
+    def _staging_report(self) -> str:
+        # The diagnostic must survive whatever broke the stub, including a
+        # staging path that is no longer a directory.
+        if not self._staging.is_dir():
+            return f"staging path {self._staging} is not a directory"
+        leftovers = sorted(p.name for p in self._staging.iterdir())
+        return f"staging leftovers in {self._staging}: {leftovers or 'none'}"
 
 
 def _make_executable(path: Path) -> None:
@@ -89,12 +166,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
 
     stub_bin = tmp_path / "stubbin"
     stub_bin.mkdir()
-    stub_out = tmp_path / "stub_out.txt"
-    (stub_bin / "lux-beads").write_text(
-        f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "{stub_out}"\n',
-        encoding="utf-8",
-    )
-    _make_executable(stub_bin / "lux-beads")
+    stub = ArgvCaptureStub(stub_bin, "lux-beads")
 
     fake_home = tmp_path / "home"
     fake_home.mkdir()
@@ -120,8 +192,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
     assert len(trace_lines) == 2, trace_lines
     wrapper_pid = int(trace_lines[1])
 
-    _wait_for_file(stub_out)
-    stub_args = stub_out.read_text(encoding="utf-8").split()
+    stub_args = stub.argv()
     assert stub_args[:1] == ["--session-pid"], stub_args
     resolved_session_pid = int(stub_args[1])
 
@@ -160,3 +231,66 @@ class TestResolvesTheRealSessionAcrossTheWrapper:
         )
         assert resolved == wrapper_pid
         assert resolved != claude_pid
+
+
+class TestArgvCaptureStub:
+    def test_argv_waits_for_the_write_not_just_the_file(self, tmp_path: Path) -> None:
+        """A reader polling a slow stub never sees a half-written capture.
+
+        The delay sits between the stub opening its output and writing the
+        argv: the window in which a reader that trusts the file's existence
+        reads it empty.
+        """
+        stub_bin = tmp_path / "stubbin"
+        stub_bin.mkdir()
+        stub = ArgvCaptureStub(stub_bin, "lux-beads", write_delay=0.5)
+        with subprocess.Popen([str(stub.path), "--session-pid", "4242"]) as proc:
+            argv = stub.argv()
+            returncode = proc.wait(timeout=5)
+        assert returncode == 0
+        assert argv == ["--session-pid", "4242"]
+
+    def test_argv_keeps_one_argument_per_line(self, stub: ArgvCaptureStub) -> None:
+        """An argument containing whitespace comes back as one argument."""
+        assert subprocess.run([str(stub.path), "a b", "c"], check=False).returncode == 0
+        assert stub.argv() == ["a b", "c"]
+
+    def test_argv_times_out_when_the_stub_never_runs(
+        self, stub: ArgvCaptureStub
+    ) -> None:
+        with pytest.raises(TimeoutError, match="stub never invoked"):
+            stub.argv(timeout=0.2)
+
+    def test_argv_reports_a_stub_that_started_but_failed(
+        self, stub: ArgvCaptureStub
+    ) -> None:
+        """A stub that cannot write its capture fails fast and is named as such.
+
+        A regular file where the staging directory should be makes the stub's
+        output redirect fail with ENOTDIR after it has started — for every
+        user, root included, unlike a permission bit. The stub must exit
+        non-zero, publish nothing, and be reported as started-but-failed
+        rather than never invoked.
+        """
+        stub.staging_dir.rmdir()
+        stub.staging_dir.write_text("not a directory\n", encoding="utf-8")
+        result = subprocess.run([str(stub.path), "x"], check=False)
+        assert result.returncode != 0
+        with pytest.raises(TimeoutError, match="started but did not publish"):
+            stub.argv(timeout=0.2)
+
+    def test_a_second_invocation_fails_rather_than_overwrite(
+        self, stub: ArgvCaptureStub
+    ) -> None:
+        """A duplicate spawn is loud: the second run fails, the first capture stays."""
+        assert subprocess.run([str(stub.path), "first"], check=False).returncode == 0
+        second = subprocess.run([str(stub.path), "second"], check=False)
+        assert second.returncode != 0
+        assert stub.argv() == ["first"]
+
+
+@pytest.fixture
+def stub(tmp_path: Path) -> ArgvCaptureStub:
+    stub_bin = tmp_path / "stubbin"
+    stub_bin.mkdir()
+    return ArgvCaptureStub(stub_bin, "lux-beads")
