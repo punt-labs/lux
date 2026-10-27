@@ -56,15 +56,20 @@ class ArgvCaptureStub:
     capture. Production tests leave it at zero.
     """
 
-    __slots__ = ("_out", "_path")
+    __slots__ = ("_out", "_path", "_staging", "_started")
 
     _out: Path
     _path: Path
+    _staging: Path
+    _started: Path
 
     def __new__(cls, bin_dir: Path, name: str, *, write_delay: float = 0.0) -> Self:
         self = super().__new__(cls)
         self._path = bin_dir / name
         self._out = bin_dir.parent / f"{name}.argv"
+        self._started = bin_dir.parent / f"{name}.started"
+        self._staging = bin_dir.parent / f"{name}.staging"
+        self._staging.mkdir()
         self._path.write_text(self._script(write_delay), encoding="utf-8")
         _make_executable(self._path)
         return self
@@ -72,32 +77,54 @@ class ArgvCaptureStub:
     def _script(self, write_delay: float) -> str:
         # A shell redirect creates and truncates the target before the command
         # writes to it, so a reader that sees the file can still read it empty.
-        # Staging in a sibling temp file and renaming it into place makes the
-        # capture appear atomically with its content: rename(2) on one
-        # filesystem never exposes a partial file.
-        staging = f"{self._out}.$$.tmp"
+        # The capture is staged in its own directory, then hard-linked into
+        # place: link(2) publishes the file atomically with its content and
+        # refuses to clobber an existing capture, so a second spawn fails
+        # loudly instead of silently replacing the first one's argv.
+        # set -e stops a failed write from publishing an empty capture; the
+        # started marker lets argv() tell a failed run from one that never ran.
+        staging = f"{self._staging}/$$.tmp"
         return (
             "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            f'touch "{self._started}"\n'
             f'exec > "{staging}"\n'
             f"sleep {write_delay}\n"
             "printf '%s\\n' \"$@\"\n"
             "exec >&-\n"
-            f'mv -f "{staging}" "{self._out}"\n'
+            f'ln "{staging}" "{self._out}"\n'
+            f'rm "{staging}"\n'
         )
 
     @property
     def path(self) -> Path:
         return self._path
 
+    @property
+    def staging_dir(self) -> Path:
+        return self._staging
+
     def argv(self, *, timeout: float = 5.0, interval: float = 0.05) -> list[str]:
-        """Return the captured argv once the stub has recorded it."""
+        """Return the captured argv, one argument per line, once published."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._out.exists():
-                return self._out.read_text(encoding="utf-8").split()
+                return self._out.read_text(encoding="utf-8").splitlines()
             time.sleep(interval)
-        msg = f"{self._out} did not appear within {timeout}s (stub never invoked)"
-        raise TimeoutError(msg)
+        raise self._timeout_error(timeout)
+
+    def _timeout_error(self, timeout: float) -> TimeoutError:
+        if not self._started.exists():
+            msg = f"{self._out} did not appear within {timeout}s (stub never invoked)"
+            return TimeoutError(msg)
+        leftovers = sorted(p.name for p in self._staging.iterdir())
+        msg = (
+            f"{self._path.name} stub started but did not publish its capture "
+            f"{self._out} within {timeout}s; staging leftovers in "
+            f"{self._staging}: {leftovers or 'none'}. Its stderr goes to "
+            "LUX_APPLET_LOG when the hook spawns it."
+        )
+        return TimeoutError(msg)
 
 
 def _make_executable(path: Path) -> None:
@@ -213,12 +240,51 @@ class TestArgvCaptureStub:
         stub = ArgvCaptureStub(stub_bin, "lux-beads", write_delay=0.5)
         with subprocess.Popen([str(stub.path), "--session-pid", "4242"]) as proc:
             argv = stub.argv()
-            proc.wait(timeout=5)
+            returncode = proc.wait(timeout=5)
+        assert returncode == 0
         assert argv == ["--session-pid", "4242"]
 
-    def test_argv_times_out_when_the_stub_never_runs(self, tmp_path: Path) -> None:
-        stub_bin = tmp_path / "stubbin"
-        stub_bin.mkdir()
-        stub = ArgvCaptureStub(stub_bin, "lux-beads")
+    def test_argv_keeps_one_argument_per_line(self, stub: ArgvCaptureStub) -> None:
+        """An argument containing whitespace comes back as one argument."""
+        assert subprocess.run([str(stub.path), "a b", "c"], check=False).returncode == 0
+        assert stub.argv() == ["a b", "c"]
+
+    def test_argv_times_out_when_the_stub_never_runs(
+        self, stub: ArgvCaptureStub
+    ) -> None:
         with pytest.raises(TimeoutError, match="stub never invoked"):
             stub.argv(timeout=0.2)
+
+    def test_argv_reports_a_stub_that_started_but_failed(
+        self, stub: ArgvCaptureStub
+    ) -> None:
+        """A stub that cannot write its capture fails fast and is named as such.
+
+        An unwritable staging directory makes the stub's output redirect fail
+        after it has started, so it must exit non-zero, publish nothing, and
+        be reported as started-but-failed rather than never invoked.
+        """
+        stub.staging_dir.chmod(0o500)
+        try:
+            result = subprocess.run([str(stub.path), "x"], check=False)
+            with pytest.raises(TimeoutError, match="started but did not publish"):
+                stub.argv(timeout=0.2)
+        finally:
+            stub.staging_dir.chmod(0o700)
+        assert result.returncode != 0
+
+    def test_a_second_invocation_fails_rather_than_overwrite(
+        self, stub: ArgvCaptureStub
+    ) -> None:
+        """A duplicate spawn is loud: the second run fails, the first capture stays."""
+        assert subprocess.run([str(stub.path), "first"], check=False).returncode == 0
+        second = subprocess.run([str(stub.path), "second"], check=False)
+        assert second.returncode != 0
+        assert stub.argv() == ["first"]
+
+
+@pytest.fixture
+def stub(tmp_path: Path) -> ArgvCaptureStub:
+    stub_bin = tmp_path / "stubbin"
+    stub_bin.mkdir()
+    return ArgvCaptureStub(stub_bin, "lux-beads")
