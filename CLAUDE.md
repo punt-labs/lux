@@ -245,7 +245,7 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 **Do not negotiate with the ratchet.** Do not edit `.oo-baseline.json` by hand. Do not suppress `check-oo`. Do not argue a regression is "acceptable." If the ratchet fails, improve the code until it passes. The ratchet is the quality standard's enforcement — working around it defeats the purpose.
 
-**Org standards override review tools.** Copilot, Bugbot, and Cursor are advisory. When a review suggestion conflicts with rules in `punt-labs/.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
+**Org standards override review tools.** Qodo, Bugbot, and Copilot are advisory. When a review suggestion conflicts with rules in `punt-labs/.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
 
 **Verify outputs, not just metrics.** After writing a file, open it and read the content. `make check` passing does not mean the feature works — it means the code compiles and tests pass. Those are necessary but not sufficient.
 
@@ -365,7 +365,7 @@ Lux spans two domains that require distinct expertise: (1) **visual/UX** — ele
 
 ### Pipeline selection
 
-Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Copilot/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
+Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Qodo/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
 
 ## Session Queue
 
@@ -387,6 +387,8 @@ The loops are specified once, in [`docs/WORKFLOW.md`](docs/WORKFLOW.md) —
 imported above, so always in context. It is the single source of truth for the
 three levels (backlog, PR, mission), the review-agent selection, the demo
 gate, and the merge gate. Do not restate loop rules here.
+
+PR review follows punt-kit/standards/pr-review.md: local review (qodo review + silent-failure-hunter + code-reviewer) before the PR, then Qodo and Bugbot once at open, at most two rounds, Copilot only on request.
 
 Two lux-specific operational facts the loops rely on:
 
