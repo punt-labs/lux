@@ -23,6 +23,9 @@ import stat
 import subprocess
 import time
 from pathlib import Path
+from typing import Self, final
+
+import pytest
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "plugin" / "hooks" / "session-start.sh"
@@ -39,21 +42,62 @@ wait
 """
 
 
-def _wait_for_file(path: Path, *, timeout: float = 5.0, interval: float = 0.05) -> None:
-    """Poll until *path* exists, or raise a clear ``TimeoutError``.
+@final
+class ArgvCaptureStub:
+    """A fake executable on ``PATH`` that records the argv it was run with.
 
     The hook backgrounds ``lux-beads`` with ``nohup ... & disown`` — pure
     fire-and-forget — so the hook script's own exit is no guarantee the stub
-    has run yet. Checking immediately races an async process; this polls
-    instead of narrowing the race with a blind ``sleep``.
+    has run yet. ``argv()`` polls for the capture file instead of narrowing
+    the race with a blind ``sleep``.
+
+    *write_delay* holds the stub between opening its output and writing the
+    argv, widening the window in which a reader can observe a half-written
+    capture. Production tests leave it at zero.
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        time.sleep(interval)
-    msg = f"{path} did not appear within {timeout}s (lux-beads stub was never invoked)"
-    raise TimeoutError(msg)
+
+    __slots__ = ("_out", "_path")
+
+    _out: Path
+    _path: Path
+
+    def __new__(cls, bin_dir: Path, name: str, *, write_delay: float = 0.0) -> Self:
+        self = super().__new__(cls)
+        self._path = bin_dir / name
+        self._out = bin_dir.parent / f"{name}.argv"
+        self._path.write_text(self._script(write_delay), encoding="utf-8")
+        _make_executable(self._path)
+        return self
+
+    def _script(self, write_delay: float) -> str:
+        # A shell redirect creates and truncates the target before the command
+        # writes to it, so a reader that sees the file can still read it empty.
+        # Staging in a sibling temp file and renaming it into place makes the
+        # capture appear atomically with its content: rename(2) on one
+        # filesystem never exposes a partial file.
+        staging = f"{self._out}.$$.tmp"
+        return (
+            "#!/usr/bin/env bash\n"
+            f'exec > "{staging}"\n'
+            f"sleep {write_delay}\n"
+            "printf '%s\\n' \"$@\"\n"
+            "exec >&-\n"
+            f'mv -f "{staging}" "{self._out}"\n'
+        )
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def argv(self, *, timeout: float = 5.0, interval: float = 0.05) -> list[str]:
+        """Return the captured argv once the stub has recorded it."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._out.exists():
+                return self._out.read_text(encoding="utf-8").split()
+            time.sleep(interval)
+        msg = f"{self._out} did not appear within {timeout}s (stub never invoked)"
+        raise TimeoutError(msg)
 
 
 def _make_executable(path: Path) -> None:
@@ -89,12 +133,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
 
     stub_bin = tmp_path / "stubbin"
     stub_bin.mkdir()
-    stub_out = tmp_path / "stub_out.txt"
-    (stub_bin / "lux-beads").write_text(
-        f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "{stub_out}"\n',
-        encoding="utf-8",
-    )
-    _make_executable(stub_bin / "lux-beads")
+    stub = ArgvCaptureStub(stub_bin, "lux-beads")
 
     fake_home = tmp_path / "home"
     fake_home.mkdir()
@@ -120,8 +159,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
     assert len(trace_lines) == 2, trace_lines
     wrapper_pid = int(trace_lines[1])
 
-    _wait_for_file(stub_out)
-    stub_args = stub_out.read_text(encoding="utf-8").split()
+    stub_args = stub.argv()
     assert stub_args[:1] == ["--session-pid"], stub_args
     resolved_session_pid = int(stub_args[1])
 
@@ -160,3 +198,27 @@ class TestResolvesTheRealSessionAcrossTheWrapper:
         )
         assert resolved == wrapper_pid
         assert resolved != claude_pid
+
+
+class TestArgvCaptureStub:
+    def test_argv_waits_for_the_write_not_just_the_file(self, tmp_path: Path) -> None:
+        """A reader polling a slow stub never sees a half-written capture.
+
+        The delay sits between the stub opening its output and writing the
+        argv: the window in which a reader that trusts the file's existence
+        reads it empty.
+        """
+        stub_bin = tmp_path / "stubbin"
+        stub_bin.mkdir()
+        stub = ArgvCaptureStub(stub_bin, "lux-beads", write_delay=0.5)
+        with subprocess.Popen([str(stub.path), "--session-pid", "4242"]) as proc:
+            argv = stub.argv()
+            proc.wait(timeout=5)
+        assert argv == ["--session-pid", "4242"]
+
+    def test_argv_times_out_when_the_stub_never_runs(self, tmp_path: Path) -> None:
+        stub_bin = tmp_path / "stubbin"
+        stub_bin.mkdir()
+        stub = ArgvCaptureStub(stub_bin, "lux-beads")
+        with pytest.raises(TimeoutError, match="stub never invoked"):
+            stub.argv(timeout=0.2)
