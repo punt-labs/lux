@@ -152,15 +152,29 @@
   ledger cross-checked against the scene id, and only a query that times out
   retires its generation. Each reply kind has its own request lock, so a slow
   query no longer blocks a ping. A display that stops reading ends a stuck send
-  within the one-second socket send timeout (applied as one to two seconds by
-  platform), which retires that connection and frees every writer queued
-  behind it. A frame the Hub cannot decode is logged at ERROR with the
+  once no byte has moved for 2.5 seconds, on either transport; a slow display
+  that keeps draining a large scene is never cut off. That retires the
+  connection and frees every writer queued behind it. A frame the Hub cannot decode is logged at ERROR with the
   display's endpoint and the frame's first bytes, the messages decoded before
   it are still delivered, and the connection is closed so the reconnect starts
   on a frame boundary. On the display side, a reply that cannot be sent ends
   that client's connection instead of vanishing; events are still held and
   retried. The design is model-checked in `docs/listener_lifecycle.tex`, and
   its lock order is proven deadlock-free in `docs/listener_locks.tex`.
+- **A display that dies is noticed, and the right scenes are blamed
+  (`lux-ghhf`, DES-102).** The keepalive now treats only bytes the display
+  sends back as proof it is alive, so a display that has stopped responding is
+  dropped and redialled instead of being kept alive by its own pings. A
+  connection that sits idle is no longer dropped because a reader held the line
+  for a moment. When the display crashes, the Hub blames only the scenes that
+  display had not yet confirmed drawing, and a connection the Hub itself closed
+  blames nothing. The settlement rules are model-checked in
+  `docs/dial_settlement.tex` and `docs/crash_attribution.tex`.
+- **A button handler's changes apply all or nothing (`lux-ghhf`).** If any
+  write a handler makes is refused, for example one that would nest a tree too
+  deeply, every change the handler made rolls back together, including a
+  dialog it dismissed and any table filter or selection an observer had
+  changed. A handler that raises partway also leaves nothing half-applied.
 - **The client host is recorded for every contact.** A session that shows a
   scene, subscribes or sets a menu without ever identifying now reports the
   host the Hub observed, instead of `unknown`. An empty transport address
