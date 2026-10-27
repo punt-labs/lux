@@ -217,7 +217,7 @@
     "avg_lcom": 0.333
   },
   "src/punt_lux/applets/board_run.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.6,
@@ -283,8 +283,8 @@
     "efferent_coupling": 7.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.778,
-    "avg_lcom": 0.778
+    "max_lcom": 0.667,
+    "avg_lcom": 0.667
   },
   "src/punt_lux/applets/loading_board.py": {
     "efferent_coupling": 0.0,
@@ -315,11 +315,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/applets/runner.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.5,
-    "avg_lcom": 0.5
+    "max_lcom": 0.4,
+    "avg_lcom": 0.4
   },
   "src/punt_lux/applets/service.py": {
     "efferent_coupling": 0.0,
@@ -329,7 +329,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/applets/serviced_click.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -1001,7 +1001,7 @@
     "avg_lcom": 0.381
   },
   "src/punt_lux/display/client_reader.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.2,
@@ -1043,7 +1043,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/display/cross_host_verification.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -1134,7 +1134,7 @@
     "avg_lcom": 0.429
   },
   "src/punt_lux/display/framebuffer_capture.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -1386,7 +1386,7 @@
     "avg_lcom": 0.429
   },
   "src/punt_lux/display/menus/surface.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -1449,7 +1449,7 @@
     "avg_lcom": 0.451
   },
   "src/punt_lux/display/query_dispatcher.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.2,
@@ -2156,7 +2156,7 @@
     "avg_lcom": 0.433
   },
   "src/punt_lux/display/texture_cache.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.381,
@@ -2261,11 +2261,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/element_abc.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.893,
-    "avg_lcom": 0.893
+    "max_lcom": 0.88,
+    "avg_lcom": 0.88
   },
   "src/punt_lux/domain/element_checkpoint.py": {
     "efferent_coupling": 0.0,
@@ -2296,7 +2296,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/event_handler_host.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2319,6 +2319,13 @@
   "src/punt_lux/domain/event_protocol.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/domain/handler_failed_error.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -2418,8 +2425,8 @@
     "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.3,
-    "avg_lcom": 0.3
+    "max_lcom": 0.489,
+    "avg_lcom": 0.489
   },
   "src/punt_lux/domain/hub/batch_sender.py": {
     "efferent_coupling": 2.0,
@@ -2443,7 +2450,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/callback_hold.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.381,
@@ -2569,14 +2576,14 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/departure_cascade.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.5,
     "avg_lcom": 0.5
   },
   "src/punt_lux/domain/hub/departure_sinks.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2625,7 +2632,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/dial_drain.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2702,7 +2709,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/display_connection.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 5.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.425,
@@ -2744,7 +2751,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/display_replies.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.4,
@@ -2772,7 +2779,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/drain_result.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2786,7 +2793,7 @@
     "avg_lcom": 0.379
   },
   "src/punt_lux/domain/hub/element_invocation_resolver.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2800,7 +2807,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/expiry_sweep.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.5,
@@ -2814,14 +2821,14 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/field_realization.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 5.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.389,
     "avg_lcom": 0.389
   },
   "src/punt_lux/domain/hub/finally_guard.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2835,7 +2842,7 @@
     "avg_lcom": 0.333
   },
   "src/punt_lux/domain/hub/frame_lifecycle.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.121,
@@ -2862,6 +2869,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub/generation_ref.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/domain/hub/guard_registry.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
@@ -2884,7 +2898,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/hub.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 6.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.273,
@@ -2960,6 +2974,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub/invalid_drain_error.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/domain/hub/keepalive_ports.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
@@ -2968,7 +2989,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/lease_reap_sweep.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.333,
@@ -3010,7 +3031,7 @@
     "avg_lcom": 0.214
   },
   "src/punt_lux/domain/hub/liveness.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.267,
@@ -3121,6 +3142,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub/owned_condition.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
+  },
   "src/punt_lux/domain/hub/owner.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -3206,7 +3234,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/recovery.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.467,
@@ -3248,7 +3276,7 @@
     "avg_lcom": 0.205
   },
   "src/punt_lux/domain/hub/reply_waiters.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 5.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.33,
@@ -3338,6 +3366,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/hub/settle_errors.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/domain/hub/settlement.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -3346,18 +3381,18 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/settler.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/socket_line.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 5.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.333,
-    "avg_lcom": 0.333
+    "max_lcom": 0.286,
+    "avg_lcom": 0.286
   },
   "src/punt_lux/domain/hub/store_lock.py": {
     "efferent_coupling": 2.0,
@@ -3381,7 +3416,7 @@
     "avg_lcom": 0.6
   },
   "src/punt_lux/domain/hub/subtree_remover.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.2,
@@ -3393,6 +3428,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.167,
     "avg_lcom": 0.167
+  },
+  "src/punt_lux/domain/hub/transaction_errors.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/domain/hub/write_errors.py": {
     "efferent_coupling": 1.0,
@@ -3520,6 +3562,20 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/notification_buffer.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/domain/observer_entries.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.4,
+    "avg_lcom": 0.4
+  },
   "src/punt_lux/domain/observer_state.py": {
     "efferent_coupling": 0.0,
     "public_names": 3.0,
@@ -3542,11 +3598,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/domain/property_observers.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.472,
-    "avg_lcom": 0.472
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/domain/remote_dispatch_spec.py": {
     "efferent_coupling": 0.0,
@@ -3604,6 +3660,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/domain/transaction_scope.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/domain/update.py": {
     "efferent_coupling": 3.0,
     "public_names": 5.0,
@@ -3654,7 +3717,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/hub_client.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 5.0,
     "public_names": 4.0,
     "circular_imports": 0.0,
     "max_lcom": 0.709,
@@ -3696,7 +3759,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/luxd.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 5.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -4320,7 +4383,7 @@
   },
   "src/punt_lux/protocol/compositions/filtered_table_model.py": {
     "efferent_coupling": 1.0,
-    "public_names": 3.0,
+    "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.663,
     "avg_lcom": 0.332
@@ -4361,7 +4424,7 @@
     "avg_lcom": 0.7
   },
   "src/punt_lux/protocol/connection.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 5.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -4546,8 +4609,8 @@
     "efferent_coupling": 10.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.778,
-    "avg_lcom": 0.778
+    "max_lcom": 0.758,
+    "avg_lcom": 0.758
   },
   "src/punt_lux/protocol/elements/combo_codec.py": {
     "efferent_coupling": 5.0,
@@ -4564,11 +4627,11 @@
     "avg_lcom": 0.4
   },
   "src/punt_lux/protocol/elements/dialog.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.818,
-    "avg_lcom": 0.771
+    "max_lcom": 0.8,
+    "avg_lcom": 0.762
   },
   "src/punt_lux/protocol/elements/dialog_codec.py": {
     "efferent_coupling": 11.0,
@@ -4707,8 +4770,8 @@
     "efferent_coupling": 11.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.835,
-    "avg_lcom": 0.835
+    "max_lcom": 0.825,
+    "avg_lcom": 0.825
   },
   "src/punt_lux/protocol/elements/input_number_codec.py": {
     "efferent_coupling": 3.0,
@@ -4746,14 +4809,14 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/protocol/elements/modal.py": {
-    "efferent_coupling": 12.0,
+    "efferent_coupling": 9.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.783,
     "avg_lcom": 0.742
   },
   "src/punt_lux/protocol/elements/modal_codec.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 6.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.5,
@@ -4812,8 +4875,8 @@
     "efferent_coupling": 10.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.778,
-    "avg_lcom": 0.778
+    "max_lcom": 0.758,
+    "avg_lcom": 0.758
   },
   "src/punt_lux/protocol/elements/radio_codec.py": {
     "efferent_coupling": 5.0,
@@ -4868,8 +4931,8 @@
     "efferent_coupling": 10.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.8,
-    "avg_lcom": 0.8
+    "max_lcom": 0.788,
+    "avg_lcom": 0.788
   },
   "src/punt_lux/protocol/elements/slider_codec.py": {
     "efferent_coupling": 3.0,
@@ -4984,7 +5047,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/protocol/elements/tree.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.298,
@@ -5446,7 +5509,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/runtime.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.758,
@@ -5467,7 +5530,7 @@
     "avg_lcom": 0.449
   },
   "src/punt_lux/session_cleanup.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.667,
@@ -5710,6 +5773,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.667,
     "avg_lcom": 0.667
+  },
+  "src/punt_lux/write_progress.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/ws_listen.py": {
     "efferent_coupling": 4.0,
