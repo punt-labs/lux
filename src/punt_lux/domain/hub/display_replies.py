@@ -26,6 +26,8 @@ from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
 from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.display_listener import DisplayListener
@@ -175,6 +177,27 @@ class DisplayReplies:
         settler.end_stream("hub")
         return exc
 
+    @staticmethod
+    # PY-TS-14 OK: None is the end of the chunk's messages.
+    def _decoded(
+        generation: DialGeneration, messages: Iterator[Message]
+    ) -> Message | None:
+        """The next message the chunk completes; a frame that cannot decode raises.
+
+        The wire boundary: any decoder failure is the display's, and ends the stream.
+        """
+        try:
+            return next(messages, None)
+        except ProgrammerError:
+            raise
+        except Exception as exc:
+            logger.exception(
+                "Inline read closing: display %s sent a malformed frame: %r",
+                generation.endpoint,
+                generation.head(_HEAD_BYTES),
+            )
+            raise _MalformedFrameError(str(exc)) from exc
+
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
         """Route every message ``chunk`` completes; a raising reply ends the dial.
 
@@ -186,17 +209,7 @@ class DisplayReplies:
         """
         messages = generation.messages(chunk)
         while True:
-            try:
-                msg = next(messages, None)
-            except ProgrammerError:
-                raise
-            except Exception as exc:  # wire boundary: any decoder failure
-                logger.exception(
-                    "Inline read closing: display %s sent a malformed frame: %r",
-                    generation.endpoint,
-                    generation.head(_HEAD_BYTES),
-                )
-                raise _MalformedFrameError(str(exc)) from exc
+            msg = self._decoded(generation, messages)
             if msg is None or generation.is_settled:
                 return  # a settled dial routes nothing more
             try:
