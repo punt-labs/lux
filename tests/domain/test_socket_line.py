@@ -139,6 +139,84 @@ def test_progress_is_seen_for_the_window_after_a_byte_moves(
     assert not line.is_progressing()
 
 
+def test_an_idle_line_held_briefly_is_not_refused_to_a_writer(
+    monkeypatch: pytest.MonkeyPatch, holders: list[_Holder]
+) -> None:
+    _window(monkeypatch, 0.2)
+    line = SocketLine()
+    time.sleep(0.3)  # idle: nothing has moved for longer than D
+    holder = _Holder(line)  # a reader takes the line for a non-blocking recv
+    holders.append(holder)
+    threading.Timer(0.01, holder.let_go).start()  # and lets go 10 ms later
+
+    assert _write_wait(line) is True
+
+
+def test_taking_the_line_is_not_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    _window(monkeypatch, 0.15)
+    line = SocketLine()
+    time.sleep(0.25)
+
+    with line.writing() as free:
+        assert free
+
+    assert not line.is_progressing()
+
+
+def _idle_line_and_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[SocketLine, socket.socket, socket.socket]:
+    _window(monkeypatch, 0.15)
+    line = SocketLine()
+    time.sleep(0.25)  # nothing has moved for D
+    ours, theirs = socket.socketpair()
+    return line, ours, theirs
+
+
+class TestWhatTheKeepaliveTakesForLife:
+    def test_a_write_that_completed_is_no_evidence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        line, ours, theirs = _idle_line_and_pair(monkeypatch)
+        with ours, theirs, line.writing() as free:
+            assert free
+            line.send(ours, b"x")
+
+        assert not line.is_progressing()
+
+    def test_a_write_in_progress_is_no_evidence_either(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        line, ours, theirs = _idle_line_and_pair(monkeypatch)
+        with ours, theirs, line.writing() as free:
+            assert free
+            line.send(ours, b"x")
+
+            assert not line.is_progressing()
+
+    def test_a_write_keeps_a_waiter_for_the_line_waiting(
+        self, monkeypatch: pytest.MonkeyPatch, holders: list[_Holder]
+    ) -> None:
+        # The bytes of a write are not evidence of life, but a wait behind it is
+        # still re-armed by them: that is the other purpose of the one clock.
+        _window(monkeypatch, 0.15)
+        line = SocketLine()
+        holders.append(_Holder(line, keep_moving_for=0.5))
+        holders[0].let_go()
+
+        assert _write_wait(line) is True
+
+    def test_an_incoming_byte_is_evidence(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        line, ours, theirs = _idle_line_and_pair(monkeypatch)
+        ours.close()
+        theirs.close()
+        line.moved()
+
+        assert line.is_progressing()
+
+
 def _under_the_store_lock(door: Callable[[SocketLine], object]) -> None:
     with StoreLock().write(), pytest.raises(LockDisciplineError):
         door(SocketLine())

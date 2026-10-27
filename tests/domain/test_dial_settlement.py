@@ -1221,41 +1221,37 @@ class TestABoundedWrite:
         assert waited > 2 * window  # the premise: it waited out many windows
         assert generation.ended is None
 
-    @pytest.mark.parametrize(
-        "moving",
-        ["a_completed_write", "an_incoming_ack", "a_write_still_progressing"],
-    )
-    def test_p31_the_keepalive_gives_no_verdict_while_bytes_move_either_way(
-        self, display: Display, monkeypatch: pytest.MonkeyPatch, moving: str
+    def test_p31_the_keepalive_gives_no_verdict_while_the_display_speaks(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A write just done, an ack just read, a write still moving: no verdict."""
+        """An incoming byte is the one evidence the display is alive."""
         window = 0.3
         _short_deadline(monkeypatch, window)
         link = _linked(display, listening=False)
         generation = generation_of(link)
         port = link.desk.asks()
-        big = ScenePresentation(frame_id="long").message(
-            "long", [TextElement(id="t", content="x" * (512 << 10))]
-        )
 
-        if moving == "a_completed_write":
-            writer_of(link).send_scene(_scene("a"))
-            assert port.probe_alive(0.05), "a verdict right after a write completed"
-        elif moving == "an_incoming_ack":
-            time.sleep(window + 0.1)  # nothing has moved for D: only acks can speak
-            ends = time.monotonic() + 3 * window
-            while time.monotonic() < ends:
-                display.peer.send(AckMessage(scene_id="a"))
-                generation.poll_chunk(0.05)  # the reader takes it: a byte moved
-                assert port.probe_alive(0.05), "a verdict while acks keep arriving"
-                time.sleep(0.1)
-        else:
-            with SteadyDrain(display.peer.raw, display.sockets[-1]._sock):
-                writing = Call(lambda: generation.send_scene(big))
-                time.sleep(window + 0.1)  # past D from the start: only progress speaks
-                assert not writing.done, "the premise: the write is still going"
-                assert port.probe_alive(0.05), "a verdict while a write is progressing"
-                writing.wait(30.0)
+        time.sleep(window + 0.1)  # nothing has moved for D: only acks can speak
+        ends = time.monotonic() + 3 * window
+        while time.monotonic() < ends:
+            display.peer.send(AckMessage(scene_id="a"))
+            generation.poll_chunk(0.05)  # the reader takes it: a byte moved
+            assert port.probe_alive(0.05), "a verdict while acks keep arriving"
+            time.sleep(0.1)
+
+    def test_p31_a_write_that_completed_is_no_evidence_the_display_is_alive(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Bytes handed to the kernel say nothing of the display: the ping decides."""
+        window = 0.3
+        _short_deadline(monkeypatch, window)
+        link = _linked(display, listening=False)
+        port = link.desk.asks()
+        time.sleep(window + 0.1)  # nothing has moved for D
+
+        writer_of(link).send_scene(_scene("a"))
+
+        assert not port.probe_alive(0.05), "a write that completed vouched for it"
 
     def test_p31_the_keepalive_gives_its_verdict_once_d_passes_with_no_byte_either_way(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

@@ -24,6 +24,7 @@ from punt_lux.bounded_send import BoundedSend
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
 from punt_lux.progress_clock import ProgressClock
 from punt_lux.send_timeout import SCENE_WRITE_DEADLINE_SECONDS
+from punt_lux.write_progress import WriteProgress
 
 if TYPE_CHECKING:
     import socket
@@ -37,13 +38,15 @@ class SocketLine:
     """One socket's lock, and the clock of the bytes that move on it."""
 
     _lock: threading.Lock
-    _clock: ProgressClock
-    __slots__ = ("_clock", "_lock")
+    _clock: ProgressClock  # any byte either way: what a wait measures silence by
+    _heard: ProgressClock  # incoming bytes only: the keepalive's evidence of life
+    __slots__ = ("_clock", "_heard", "_lock")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._lock = threading.Lock()
         self._clock = ProgressClock()
+        self._heard = ProgressClock()
         return self
 
     def readable(self, sock: socket.socket, timeout: float) -> bool:
@@ -80,7 +83,9 @@ class SocketLine:
 
         The wait is re-armed by progress: a lock held by a writer that keeps moving
         bytes is waited for, since that peer is alive, and only silence ends the wait.
-        The writer that gets the lock starts its own window.
+        The silence is measured from the later of the last byte and the moment this
+        wait began, so a line that was idle before is not refused at once; taking the
+        lock is no progress.
         """
         LockDiscipline.forbid_store("the dial socket lock")
         free = self._acquire_unless_silent()
@@ -93,23 +98,32 @@ class SocketLine:
     def moved(self) -> None:
         """Note that application data came in: the display is moving."""
         self._clock.moved()
+        self._heard.moved()
 
     def is_progressing(self) -> bool:
-        """Whether a byte moved on the socket within ``D``: the dial is live."""
-        return self._clock.progressed_within(SCENE_WRITE_DEADLINE_SECONDS)
+        """Whether the display spoke within ``D``: the one evidence it is alive.
+
+        Bytes the Hub writes prove only that the kernel took them, not that the
+        display reads them, so neither a write nor the lock being taken is evidence.
+        """
+        return self._heard.progressed_within(SCENE_WRITE_DEADLINE_SECONDS)
 
     def send(self, sock: socket.socket, wire: bytes) -> None:
-        """Write all of ``wire``, unless no byte moves for ``D``; the lock is held."""
+        """Write all of ``wire``, unless no byte moves for ``D``; the lock is held.
+
+        Its bytes keep the write's own deadline alive, and make a wait for the line
+        wait on; they do not count as the display speaking.
+        """
         BoundedSend().send_while_progressing(
-            sock, wire, self._clock, SCENE_WRITE_DEADLINE_SECONDS
+            sock, wire, WriteProgress(self._clock), SCENE_WRITE_DEADLINE_SECONDS
         )
 
     def _acquire_unless_silent(self) -> bool:
         window = SCENE_WRITE_DEADLINE_SECONDS
+        began = time.monotonic()
         while True:
-            wait = max(self._clock.expires_at(window) - time.monotonic(), 0.0)
-            if self._lock.acquire(timeout=wait):
-                self._clock.moved()
+            due = max(self._clock.expires_at(window), began + window)
+            if self._lock.acquire(timeout=max(due - time.monotonic(), 0.0)):
                 return True
-            if not self._clock.progressed_within(window):
+            if time.monotonic() >= max(self._clock.expires_at(window), began + window):
                 return False

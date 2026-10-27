@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.progress_clock import ProgressClock
+    from punt_lux.write_progress import ProgressSource
 
 __all__ = ["BoundedSend", "TornStreamError"]
 
@@ -72,7 +72,7 @@ class BoundedSend:
         self._push(sock, data, lambda: deadline, lambda: None)
 
     def send_while_progressing(
-        self, sock: socket.socket, data: bytes, clock: ProgressClock, window: float
+        self, sock: socket.socket, data: bytes, clock: ProgressSource, window: float
     ) -> None:
         """Send all of ``data`` on ``sock``, unless no byte moves for ``window``.
 
