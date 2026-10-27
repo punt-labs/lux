@@ -49,7 +49,8 @@ class SocketLine:
         self._heard = ProgressClock()
         return self
 
-    def readable(self, sock: socket.socket, timeout: float) -> bool:
+    @staticmethod
+    def readable(sock: socket.socket, timeout: float) -> bool:
         """Wait up to ``timeout`` for ``sock`` to be readable; whether it is.
 
         Fails first if the caller holds a store lock: a wait made under it breaks the
