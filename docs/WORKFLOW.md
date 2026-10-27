@@ -235,7 +235,8 @@ function pr_loop(unit):
     # D. SHIP
     bd close the bead
     push; create the PR (description carries the verification playbook)
-    comment "demo confirmed: <head sha>"    # the operator confirmed step C
+    if the PR changes a file that is not demo_exempt:
+        comment "demo confirmed: <head sha>"   # the operator confirmed step C
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open (Cursor dashboard: once per PR) — no
         #   "bugbot run" comment for round 1
@@ -294,7 +295,9 @@ function pr_loop(unit):
 #   skipped(pr)  = the PR author is a bot ([github_app] ignore_bot_pr in
 #                  .pr_agent.toml); no title or label lets an author skip
 #   reviewed_head = the newest commit covered by a Qodo review, the outage
-#                  fallback, or the local delta review below
+#                  fallback, or the local delta review below; a skipped
+#                  (bot-authored) PR has none until the local delta review
+#                  has covered its whole diff
 #   bugbot_open  = a Cursor Bugbot check run on the head whose status is not
 #                  completed (queued or in progress) and that was created
 #                  under 30 minutes ago
@@ -348,10 +351,14 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and the PR head is newer than reviewed_head:
-        run code_reviewer locally on the reviewed_head..head delta; its
-            findings are findings like any other   # bounded rounds, but
-                                                   #   no unreviewed merge
+    if not pending(pr) and (reviewed_head is unset
+            or the PR head is newer than reviewed_head):
+        run code_reviewer locally on the PR's merge-base..head diff when
+            reviewed_head is unset (a bot-authored PR), else on the
+            reviewed_head..head delta; its findings are findings like any
+            other; set reviewed_head to the head once the review has
+            completed                      # bounded rounds, but no
+                                           #   unreviewed merge
     if not demo_ok(pr) and nothing was pushed this tick:
         run the demo on the head (make restart, then the real entry point)
             and ask the operator to confirm; comment "demo confirmed:
@@ -372,7 +379,9 @@ function merge_gate(state) -> bool:
        and not pending(pr)                 # no requested review outstanding
        and not bugbot_open                 # a push-started run's findings
                                            #   land before the merge
-       and (skipped(pr) or reviewed_head is the PR head)
+       and reviewed_head is the PR head    # a bot-authored PR is covered by
+                                           #   the local delta review, never
+                                           #   waived
        and every finding is answered
        and zero unresolved review threads
        and round(pr) ≤ 2
@@ -457,7 +466,8 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ ¬ bugbotOpen(head(pr))                -- bugbot_open was false at the
                                           --   merge
-  ∧ (skipped(pr) ∨ reviewedHead(pr) = head(pr))  -- merged code was reviewed
+  ∧ reviewedHead(pr) = head(pr)           -- merged code was reviewed, bot-
+                                          --   authored PRs included
   ∧ (∀ f : findings(pr) • answered(f))    -- fixed on head, or reasoned
   ∧ round(pr) ≤ 2                         -- round 2 only after a High fix
   ∧ unresolvedThreads(pr) = ∅
