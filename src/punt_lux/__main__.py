@@ -62,12 +62,10 @@ def enable(
     quiet: QuietFlag = False,
 ) -> None:
     """Enable visual output for this project."""
-    from punt_lux.config import ConfigManager
+    from punt_lux.display_enablement import DisplayEnablement
 
-    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
-    ConfigManager().write_field("display", "y")
-    if not quiet:
-        print('{"enabled": true}' if json_out else "Lux display enabled.")
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+    DisplayEnablement(flags).apply(on=True)
 
 
 @app.command()
@@ -80,12 +78,10 @@ def disable(
     quiet: QuietFlag = False,
 ) -> None:
     """Disable visual output for this project."""
-    from punt_lux.config import ConfigManager
+    from punt_lux.display_enablement import DisplayEnablement
 
-    OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
-    ConfigManager().write_field("display", "n")
-    if not quiet:
-        print('{"enabled": false}' if json_out else "Lux display disabled.")
+    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
+    DisplayEnablement(flags).apply(on=False)
 
 
 # Hook dispatcher (internal)

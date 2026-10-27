@@ -274,7 +274,7 @@ command accepts `--json/--verbose/--quiet`.
 | `lux ping` | Ping the display through luxd; print round-trip time |
 | `lux doctor` | Check installation health (Python, fonts, plugin) |
 | `lux version` | Print version |
-| `lux enable` | Enable visual output for this project |
+| `lux enable` | Enable visual output for this project and allow the `lux` CLI, lux's MCP tools and commands in the repo's `.claude/settings.json` (`lux disable` removes them) |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
 | `lux install` | Install the Claude Code plugin via the marketplace |

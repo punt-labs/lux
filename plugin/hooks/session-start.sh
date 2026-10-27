@@ -2,15 +2,13 @@
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SETTINGS="$HOME/.claude/settings.json"
 COMMANDS_DIR="$HOME/.claude/commands"
 PLUGIN_JSON="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
 
 # A missing plugin.json means PLUGIN_ROOT is wrong, not that this is prod.
 # Suppressing grep's error and letting DEV_MODE default to false made a
-# wrong-root hook silently take the prod branch: it would write the *prod* MCP
-# tool glob into the user's settings.json while a dev plugin was actually
-# loaded, and deploy commands from a directory that may not exist. Fail loudly
+# wrong-root hook silently take the prod branch: it would deploy commands from
+# a directory that may not exist while a dev plugin was actually loaded. Fail loudly
 # — this hook is registered async, so exiting non-zero surfaces the error
 # without taking the session down.
 if [[ ! -f "$PLUGIN_JSON" ]]; then
@@ -22,14 +20,6 @@ fi
 DEV_MODE=false
 if grep -q '"lux-dev"' "$PLUGIN_JSON"; then
   DEV_MODE=true
-fi
-
-if [[ "$DEV_MODE" == "true" ]]; then
-  TOOL_PATTERN="mcp__plugin_lux-dev_lux__"
-  TOOL_GLOB="mcp__plugin_lux-dev_lux__*"
-else
-  TOOL_PATTERN="mcp__plugin_lux_lux__"
-  TOOL_GLOB="mcp__plugin_lux_lux__*"
 fi
 
 # ── Deploy top-level commands (prod mode only) ───────────────────────
@@ -48,64 +38,9 @@ if [[ "$DEV_MODE" == "false" ]]; then
   done
 fi
 
-# ── Allow MCP tools and Skill() permissions in user settings ─────────
-if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
-  TMPFILE="$(mktemp)"
-  trap 'rm -f "$TMPFILE"' EXIT
-  NEEDS_UPDATE=false
-
-  # MCP tool glob
-  if ! jq -e ".permissions.allow // [] | map(select(contains(\"$TOOL_PATTERN\"))) | length > 0" "$SETTINGS" >/dev/null 2>&1; then
-    NEEDS_UPDATE=true
-  fi
-
-  # Skill() rules for deployed commands — listed explicitly so the lux repo's
-  # scripts/check-skill-permissions.sh can verify by static grep. That path is
-  # repo-relative, not plugin-relative: the checker is a development gate and
-  # is not installed with this hook.
-  SKILL_RULES=(
-    "Skill(lux)"
-    "Skill(ping)"
-    "Skill(scene.show)"
-    "Skill(scene.update)"
-    "Skill(scene.clear)"
-    "Skill(scene.clear-all)"
-    "Skill(scene.ls)"
-    "Skill(scene.inspect)"
-    "Skill(scene.table)"
-    "Skill(callback.pending)"
-    "Skill(frame.raise)"
-    "Skill(frame.remove)"
-    "Skill(menu.ls)"
-    "Skill(menu.set)"
-    "Skill(session.ls)"
-    "Skill(topic.subscribe)"
-    "Skill(topic.unsubscribe)"
-    "Skill(topic.publish)"
-    "Skill(display.info)"
-    "Skill(display.screenshot)"
-    "Skill(event.ls)"
-    "Skill(error.ls)"
-  )
-
-  PLUGIN_RULES='['
-  for rule in "${SKILL_RULES[@]}"; do
-    if ! jq -e --arg r "$rule" '.permissions.allow // [] | map(select(. == $r)) | length > 0' "$SETTINGS" >/dev/null 2>&1; then
-      NEEDS_UPDATE=true
-    fi
-    PLUGIN_RULES="${PLUGIN_RULES}\"${rule}\","
-  done
-  PLUGIN_RULES="${PLUGIN_RULES%,}]"
-
-  if [[ "$NEEDS_UPDATE" == "true" ]]; then
-    jq --arg glob "$TOOL_GLOB" --argjson skills "$PLUGIN_RULES" \
-      '.permissions.allow = ((.permissions.allow // []) + [$glob] + $skills | unique)' \
-      "$SETTINGS" > "$TMPFILE"
-    mv "$TMPFILE" "$SETTINGS"
-  else
-    rm -f "$TMPFILE"
-  fi
-fi
+# Permission rules are not set up here: SessionStart never edits a settings
+# file. `lux enable` adds lux's allow rules to the repo's .claude/settings.json
+# (punt-kit permissions.md §6).
 
 # ── Launch this session's applets ────────────────────────────────────
 # An applet is a session-bound program that owns an entry in the Lux menu and
