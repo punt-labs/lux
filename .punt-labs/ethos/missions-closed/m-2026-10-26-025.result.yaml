@@ -1,0 +1,39 @@
+mission: m-2026-10-26-025
+round: 1
+created_at: "2026-10-27T00:58:44Z"
+author: rmh
+verdict: pass
+confidence: 0.8
+files_changed:
+    - path: src/punt_lux/
+      added: 1440
+      removed: 537
+    - path: tests/
+      added: 2017
+      removed: 224
+    - path: .oo-baseline.json
+      added: 0
+      removed: 0
+    - path: .oo-audit.jsonl
+      added: 0
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 0
+      removed: 0
+    - path: .oo-coupling-audit.jsonl
+      added: 0
+      removed: 0
+evidence:
+    - name: make check, output in .tmp/r13-final-check.txt, exit 0 (8770 passed)
+      status: pass
+    - name: make test-integration, output in .tmp/r13-final-integ.txt, exit 0
+      status: pass
+    - name: 'mutation checks made and reverted with Edit: A5 final, A6 three, A7 progress, B1, B2, progressing-write term'
+      status: pass
+open_questions:
+    - 'Process breaches are listed in .tmp/missions/results-r13fix/m-2026-10-26-025.md: scripted edits, a restore from a .tmp copy, one git mv, Phase A as one commit.'
+    - A keepalive verdict is withheld only while a write holds the line and moved a byte within D; a slow healthy display is covered by the write's own deadline.
+prose: |
+    Phase A, Phase B, the modal coupling fix, the display_replies complexity fix and
+    the ratchet commit are all on fix/lux-ghhf-r3-fixes. Details, rule changes and
+    process breaches: .tmp/missions/results-r13fix/m-2026-10-26-025.md.
