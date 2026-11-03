@@ -17,6 +17,7 @@ docs/**/*.tfm
 docs/**/*.aux
 docs/**/*.log
 docs/**/*.fuzz
+docs/**/*.fuzz.json
 docs/**/*.toc
 docs/**/*.fdb_latexmk
 docs/**/*.fls
