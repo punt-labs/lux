@@ -46,7 +46,7 @@ docs/*.synctex.gz
 
 # Vendored ethos runtime state (regenerated per-machine — vendored registry only)
 .punt-labs/ethos/missions/
-.punt-labs/ethos/missions.jsonl
+.punt-labs/ethos/missions.jsonl*
 .punt-labs/ethos/sessions/
 .punt-labs/ethos/.biff
 
@@ -88,3 +88,9 @@ demos/
 /prfaq.fdb_latexmk
 /prfaq.xdv
 /prfaq.fls
+
+# ethos runtime (never track) — DES-058 live zone + mission locks
+.punt-labs/**/local/**
+.punt-labs/**/*.ethos-tmp*
+# ethos: machine-local files (.local.*) — may hold secrets, never track
+.punt-labs/**/*.local.*

@@ -470,3 +470,4 @@ documents by meaning, ingest new content, and recall knowledge across sessions.
   outperforms "Q3 margins").
 <!-- quarry:end -->
 @.punt-labs/vox/CLAUDE.md
+@.punt-labs/ethos/CLAUDE.md
