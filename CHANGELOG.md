@@ -381,6 +381,9 @@
 
 ### Security
 
+- Clear Dependabot alert #128 (moderate, compact JWS size guard) by bumping
+  joserfc 1.7.5 → 1.8.0 in `uv.lock`. authlib pulls it in transitively.
+
 - Clear 9 open Dependabot alerts (1 critical, 3 high) by bumping two
   transitive dependencies of fastmcp in `uv.lock`: authlib 1.6.12 → 1.9.3 and
   dnspython 2.8.0 → 2.9.1.
