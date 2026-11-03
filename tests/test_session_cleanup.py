@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.session_cleanup import SessionCleanup
-
-if TYPE_CHECKING:
-    import pytest
 
 
 class _RaisingMenu:
@@ -72,6 +71,33 @@ class TestSessionCleanup:
 
         assert "leg=disconnect session_key=sess-y" in caplog.text
         assert "disconnect cascade exploded" in caplog.text
+
+    def test_a_programmer_error_in_the_menu_leg_still_lets_the_disconnect_run(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The session's scenes, subscriptions, writer and inbox must not leak."""
+        disconnected: list[str] = []
+
+        class _BreaksARule:
+            def drop_session(self, connection_id: ConnectionId) -> None:
+                raise ProgrammerError(f"a rule broken for {connection_id}")
+
+        def _record_disconnect(conn: object) -> None:
+            disconnected.append(str(conn))
+
+        monkeypatch.setattr("punt_lux.session_cleanup.OPERATIONS", _BreaksARule())
+        monkeypatch.setattr(
+            "punt_lux.session_cleanup.disconnect_connection", _record_disconnect
+        )
+
+        with (
+            caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"),
+            pytest.raises(ProgrammerError, match="a rule broken"),
+        ):
+            SessionCleanup(ConnectionId("sess-p")).run("sess-p")
+
+        assert disconnected == ["sess-p"]
+        assert "leg=menu session_key=sess-p" in caplog.text
 
     def test_both_legs_run_on_the_happy_path(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

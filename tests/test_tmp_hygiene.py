@@ -50,7 +50,7 @@ class TestTheGuardIsWiredIntoTheSession:
         self, pytester: pytest.Pytester
     ) -> None:
         pytester.makeconftest(
-            "from tests.conftest import _private_tmpdir  # noqa: F401\n"
+            "from tests.conftest import private_tmpdir  # noqa: F401\n"
         )
         pytester.makepyfile(
             """
@@ -74,7 +74,7 @@ class TestTheGuardIsWiredIntoTheSession:
 
     def test_a_clean_session_passes(self, pytester: pytest.Pytester) -> None:
         pytester.makeconftest(
-            "from tests.conftest import _private_tmpdir  # noqa: F401\n"
+            "from tests.conftest import private_tmpdir  # noqa: F401\n"
         )
         pytester.makepyfile("def test_nothing():\n    pass\n")
 

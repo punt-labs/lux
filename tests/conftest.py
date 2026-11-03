@@ -23,12 +23,12 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _private_tmpdir(
+def private_tmpdir(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Generator[Path]:
     """Run the session in its own TMPDIR, and fail if a ``lux-*`` dir outlives it.
 
-    Every per-test directory is removed by :func:`_test_tmpdir`; what is left
+    Every per-test directory is removed by :func:`per_test_tmpdir`; what is left
     here was made outside a test's window (a module- or session-scoped fixture)
     and nothing else will remove it.
     """
@@ -51,8 +51,8 @@ def _private_tmpdir(
 
 
 @pytest.fixture(autouse=True)
-def _test_tmpdir(
-    _private_tmpdir: Path, monkeypatch: pytest.MonkeyPatch
+def per_test_tmpdir(
+    private_tmpdir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Generator[Path]:
     """Give each test its own TMPDIR, removed when the test ends.
 
@@ -61,7 +61,7 @@ def _test_tmpdir(
     temp root at a per-test directory lets every such call be cleaned up here
     instead of in ~60 call sites.
     """
-    with tempfile.TemporaryDirectory(dir=_private_tmpdir, prefix="lux-t-") as per_test:
+    with tempfile.TemporaryDirectory(dir=private_tmpdir, prefix="lux-t-") as per_test:
         monkeypatch.setenv("TMPDIR", per_test)
         monkeypatch.setattr(tempfile, "tempdir", per_test)
         yield Path(per_test)
@@ -91,7 +91,7 @@ class _TestRecordingSink:
 
 
 @pytest.fixture(autouse=True)
-def _remember_handed_death_queues(
+def remember_handed_death_queues(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[None]:
     """Let a test read the one queue of deaths production hands to its charger."""

@@ -80,7 +80,7 @@ def _end_fake_group(pid: int, _signal: int) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _fake_group_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+def fake_group_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("punt_lux.apps.bd_child.os.killpg", _end_fake_group)
 
 

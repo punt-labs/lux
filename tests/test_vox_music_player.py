@@ -85,29 +85,6 @@ class _HubSink:
         self._hub.publish(_CONN, Topic(topic), payload)
 
 
-@final
-class _MenuFlag:
-    """A DirtyMarker recording the menu re-pushes a teardown triggers."""
-
-    _menus: int
-    __slots__ = ("_menus",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._menus = 0
-        return self
-
-    def mark_dirty(self, scene_id: SceneId) -> None:
-        raise AssertionError("the listen leg must never mark a scene dirty")
-
-    def mark_menus(self) -> None:
-        self._menus += 1
-
-    @property
-    def pushes(self) -> int:
-        return self._menus
-
-
 def _wired() -> tuple[
     TestClient, Hub, HubClientRegistry, CallbackRouter, ClientLifecycle
 ]:

@@ -58,7 +58,7 @@ def display() -> Iterator[Display]:
 
 
 @pytest.fixture(autouse=True)
-def _short_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def short_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket_line, "SCENE_WRITE_DEADLINE_SECONDS", _WINDOW)
     monkeypatch.setattr(dial_socket, "SEND_TIMEOUT_CEILING_SECONDS", _WINDOW + 0.5)
 
