@@ -91,7 +91,7 @@ class InProcessLoop:
         """Return the client double the Hub re-push resolves to.
 
         ``HubInteractionDispatch.dispatch`` re-pushes the mutated scene through
-        ``client_registry.get()``; the conftest points ``get`` at this
+        ``client_registry.asks()``; the conftest points ``get`` at this
         double so the handler-driven re-push lands in the same replica the
         agent's own ``update`` re-pushes to — hermetic, no socket.
         """
@@ -174,7 +174,10 @@ class InProcessLoop:
 
     def inspect(self, scene_id: str) -> dict[str, object]:
         """Return the Display replica's enriched ``inspect_scene`` response."""
-        return self._server._scene_inspector.inspect(scene_id)
+        answer = self._server.query_router.handle_query(
+            "inspect_scene", {"scene_id": scene_id}
+        )
+        return answer.result
 
     def close(self) -> None:
         """Close both ends of the duplex and remove the temp dir; idempotent."""
@@ -211,7 +214,7 @@ class _HubRepushClient:
     """Client double the Hub re-push resolves to — routes to the replica.
 
     Satisfies the one call ``HubInteractionDispatch.dispatch`` makes,
-    ``show_async``, by re-installing the mutated scene into the rig's
+    ``send_scene``, by re-installing the mutated scene into the rig's
     Display replica. Keeps the harness hermetic (no ``DisplayLink``
     socket connect) while still exercising the handler-driven re-push leg.
     """
@@ -223,17 +226,9 @@ class _HubRepushClient:
         self._rig = rig
         return self
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: Sequence[DomainElement],
-        *,
-        frame_id: str | None = None,
-        **_kwargs: object,
-    ) -> None:
-        """Re-install ``elements`` into the replica (the re-push leg)."""
-        _ = frame_id
-        self._rig.push_scene(scene_id, list(elements))
+    def send_scene(self, message: SceneMessage) -> None:
+        """Re-install the message's elements into the replica (the re-push leg)."""
+        self._rig.push_scene(message.id, list(message.elements))
 
 
 class SyncReplicator:
@@ -256,7 +251,8 @@ class SyncReplicator:
     def mark_dirty(self, scene_id: SceneId) -> None:
         """Snapshot the scene from the Hub store and re-push it to the replica."""
         from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.frame_ownership import UNOWNED
 
         roots = hub_display.scene_roots(scene_id)
         presentation = hub_display.frames.presentation_for(scene_id)
-        presentation.push(self._rig.repush_client, scene_id, roots)
+        presentation.push(self._rig.repush_client, scene_id, roots, ownership=UNOWNED)

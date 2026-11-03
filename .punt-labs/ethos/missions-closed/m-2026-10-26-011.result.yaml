@@ -1,0 +1,219 @@
+mission: m-2026-10-26-011
+round: 2
+created_at: "2026-10-26T19:08:46Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 7
+      removed: 0
+    - path: .oo-baseline.json
+      added: 163
+      removed: 72
+    - path: .oo-coupling-audit.jsonl
+      added: 7
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 90
+      removed: 41
+    - path: docs/crash_attribution_coverage.md
+      added: 18
+      removed: 10
+    - path: src/punt_lux/bounded_send.py
+      added: 14
+      removed: 9
+    - path: src/punt_lux/domain/element_abc.py
+      added: 31
+      removed: 45
+    - path: src/punt_lux/domain/element_checkpoint.py
+      added: 41
+      removed: 0
+    - path: src/punt_lux/domain/handler_writes.py
+      added: 11
+      removed: 1
+    - path: src/punt_lux/domain/hub/batch_judge.py
+      added: 60
+      removed: 1
+    - path: src/punt_lux/domain/hub/batch_transaction.py
+      added: 73
+      removed: 0
+    - path: src/punt_lux/domain/hub/bounded_ask.py
+      added: 4
+      removed: 2
+    - path: src/punt_lux/domain/hub/dial_drain.py
+      added: 5
+      removed: 9
+    - path: src/punt_lux/domain/hub/dial_end.py
+      added: 12
+      removed: 0
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 50
+      removed: 16
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 13
+      removed: 7
+    - path: src/punt_lux/domain/hub/dial_socket.py
+      added: 87
+      removed: 66
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 40
+      removed: 12
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 26
+      removed: 8
+    - path: src/punt_lux/domain/hub/drain_result.py
+      added: 64
+      removed: 0
+    - path: src/punt_lux/domain/hub/element_invocation_resolver.py
+      added: 6
+      removed: 1
+    - path: src/punt_lux/domain/hub/field_realization.py
+      added: 7
+      removed: 20
+    - path: src/punt_lux/domain/hub/finally_guard.py
+      added: 45
+      removed: 0
+    - path: src/punt_lux/domain/hub/inbound_router.py
+      added: 2
+      removed: 2
+    - path: src/punt_lux/domain/hub/listener_thread.py
+      added: 4
+      removed: 4
+    - path: src/punt_lux/domain/hub/lock_discipline.py
+      added: 63
+      removed: 0
+    - path: src/punt_lux/domain/hub/reader_slot.py
+      added: 64
+      removed: 37
+    - path: src/punt_lux/domain/hub/reply_sink.py
+      added: 29
+      removed: 31
+    - path: src/punt_lux/domain/hub/reply_waiters.py
+      added: 98
+      removed: 62
+    - path: src/punt_lux/domain/hub/scene_writer.py
+      added: 4
+      removed: 1
+    - path: src/punt_lux/domain/hub/settler.py
+      added: 15
+      removed: 4
+    - path: src/punt_lux/domain/hub/store_lock.py
+      added: 48
+      removed: 16
+    - path: src/punt_lux/domain/hub/write_errors.py
+      added: 1
+      removed: 16
+    - path: src/punt_lux/domain/hub/write_refusals.py
+      added: 48
+      removed: 0
+    - path: src/punt_lux/domain/hub/write_seam.py
+      added: 27
+      removed: 30
+    - path: src/punt_lux/domain/property_observers.py
+      added: 93
+      removed: 0
+    - path: src/punt_lux/operations/scene_installer.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/protocol/elements/tree.py
+      added: 13
+      removed: 10
+    - path: src/punt_lux/protocol/elements/tree_model.py
+      added: 10
+      removed: 3
+    - path: src/punt_lux/protocol/elements/tree_nodes_state.py
+      added: 1
+      removed: 20
+    - path: src/punt_lux/send_timeout.py
+      added: 9
+      removed: 3
+    - path: tests/domain/display_double.py
+      added: 13
+      removed: 7
+    - path: tests/domain/test_apply_patch_judges_the_callers_mapping.py
+      added: 72
+      removed: 0
+    - path: tests/domain/test_await_acks.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_batch_transaction.py
+      added: 185
+      removed: 0
+    - path: tests/domain/test_dial_settlement.py
+      added: 257
+      removed: 34
+    - path: tests/domain/test_display_connection.py
+      added: 3
+      removed: 3
+    - path: tests/domain/test_element_writes_judged_in_their_own_scene.py
+      added: 16
+      removed: 16
+    - path: tests/domain/test_finally_guard.py
+      added: 109
+      removed: 0
+    - path: tests/domain/test_handler_writes_are_judged.py
+      added: 5
+      removed: 4
+    - path: tests/domain/test_inbound_router.py
+      added: 3
+      removed: 3
+    - path: tests/domain/test_link_generations.py
+      added: 6
+      removed: 3
+    - path: tests/domain/test_listener_hold.py
+      added: 104
+      removed: 14
+    - path: tests/domain/test_listener_thread.py
+      added: 3
+      removed: 3
+    - path: tests/domain/test_lock_discipline.py
+      added: 98
+      removed: 0
+    - path: tests/domain/test_nesting_cap_at_the_seam.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_property_observers.py
+      added: 105
+      removed: 0
+    - path: tests/domain/test_reply_sink.py
+      added: 23
+      removed: 8
+    - path: tests/domain/test_reply_waiters.py
+      added: 217
+      removed: 80
+    - path: tests/domain/test_retire_cause.py
+      added: 54
+      removed: 8
+    - path: tests/domain/test_settlement_door.py
+      added: 66
+      removed: 0
+    - path: tests/domain/test_settler_redrain.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_tls_generation.py
+      added: 199
+      removed: 4
+    - path: tests/test_bounded_send.py
+      added: 24
+      removed: 0
+    - path: tests/test_tree_element_setter_order.py
+      added: 73
+      removed: 0
+    - path: tests/test_tree_nodes_state.py
+      added: 0
+      removed: 22
+evidence:
+    - name: 'make check (.tmp/make-check-r11r2.txt): exit 0, 7589 passed'
+      status: pass
+    - name: 'make test-integration (.tmp/integration-r11r2.txt): exit 0, 92 passed'
+      status: pass
+    - name: make update-oo and update-coupling accepted after the leader blesses; ratchet commit last
+      status: pass
+    - name: 'mutation checks: BatchTransaction rollback, the non-blocking read, the refusal re-raise'
+      status: pass
+open_questions:
+    - 'Round 2: F1 BatchTransaction has one public method run(raises_refusal) so set_property raises the judge''s own refusal; F2 poll and drain share one non-blocking read; apply_patch uses ElementCheckpoint; CutShort moved to drain_result.'
+    - 'Out of rulings in round 1: the TLS drain (ruled B2) and the BoundedSend wait direction (accepted by the leader).'
+prose: |
+    Round 2 answers gvr's two findings and the smaller point, with every ratchet row blessed.

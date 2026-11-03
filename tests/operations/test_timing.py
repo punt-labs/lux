@@ -5,18 +5,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import Cleared, OpError, RenderRequest, SceneShown
 from punt_lux.operations.display_reply import DisplayReplied
-from punt_lux.operations.scope import Scope
 from punt_lux.operations.timing import OperationSubject, Timed
 from tests.rest._fakes import StubPort, make_facade
 
 if TYPE_CHECKING:
     import pytest
 
-_LOCAL = Scope(ConnectionId("local"))
+_LOCAL = Scope.in_process(ConnectionId("local"))
 _TIMING_LOGGER = "punt_lux.operations.timing"
 
 
@@ -77,7 +77,9 @@ def test_subject_names_the_scene_and_the_failure() -> None:
 def test_a_render_through_the_facade_is_attested_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    facade = make_facade(display_port=StubPort(DisplayReplied({})), store=HubDisplay())
+    facade = make_facade(
+        display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
+    )
     with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
         result = facade.render(_render_request("s1"), scope=_LOCAL)
     assert isinstance(result, SceneShown)
@@ -90,7 +92,9 @@ def test_a_render_through_the_facade_is_attested_once(
 def test_a_rejected_render_is_attested_with_its_error_code(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    facade = make_facade(display_port=StubPort(DisplayReplied({})), store=HubDisplay())
+    facade = make_facade(
+        display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
+    )
     with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
         request = RenderRequest.parse(
             {"scene_id": "s1", "elements": [{"kind": "no-such-kind", "id": "x"}]}
@@ -102,7 +106,9 @@ def test_a_rejected_render_is_attested_with_its_error_code(
 
 
 def test_a_read_only_query_is_not_attested(caplog: pytest.LogCaptureFixture) -> None:
-    facade = make_facade(display_port=StubPort(DisplayReplied({})), store=HubDisplay())
+    facade = make_facade(
+        display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
+    )
     with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
         facade.list_scenes()
     assert [r for r in caplog.records if r.name == _TIMING_LOGGER] == []

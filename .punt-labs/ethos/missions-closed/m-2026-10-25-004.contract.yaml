@@ -1,0 +1,44 @@
+mission_id: m-2026-10-25-004
+status: closed
+type: implement
+created_at: "2026-10-25T17:42:32Z"
+updated_at: "2026-10-25T19:33:17Z"
+closed_at: "2026-10-25T19:33:17Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-25T17:42:32Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/review-r5-code.md
+        - .tmp/missions/review-r5-silent.md
+        - .tmp/missions/review-r5-invariants.md
+        - .tmp/missions/review-r5-types.md
+        - docs/listener_lifecycle.tex
+        - docs/listener_locks.tex
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - tools/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results-r5fix/
+success_criteria:
+    - 'WORK IN THE WORKTREE [REDACTED:home-path]Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes at 2d70a373 (make -C, git -C, absolute paths). FIX EVERY FINDING in the four review-r5-*.md files under .tmp/missions/ (lux repo root) under the rulings below; duplicates across files are one fix. A finding you believe is wrong: stop and report with file:line evidence.'
+    - 'LEADER RULINGS (binding; DES-102 is amended by the leader). S1 GUARDS BY CAPABILITY, NOT BY CALL-SPOTTING. Three review rounds found a new bypass in every syntactic guard (who calls send_scene/show, who touches _roster, who writes the board, who sends a reply). Stop patching AST matchers. Make each restricted act a capability object the code hands only to its owner, constructed in exactly one place, and make the guard test check the construction site (one, structurally exact) plus that nothing else can perform the act without the object: the display write port (single writer, review-r5-invariants R5-1), the roster release (R5-9), the board writer (R5-10), the reply send on the display (R5-8, I2: a reply message type can only leave through reply_to_client, enforced in the code path itself, e.g. send_to_client refuses reply types, so a dropped reply or raw sendall of a reply is impossible rather than merely detected), and the state-lock/slot discipline (R5-3: the slot''s lock is private to ReaderSlot and its only waiting entry point is the listener claim; the guard checks no other class can reach it). Each with a planted case. S2 THE NESTING CAP LIVES AT THE ONE WRITE CHOKE POINT. Install, update and SetProperty/apply (R5-4) all pass the cap check in the single seam every element write goes through; ''can this write deepen the wire form'' is decided by comparing the written element''s own wire depth before and after (covers element-holding fields AND arbitrary JSON such as a button''s publish payload, review-r5-code C1, silent 2, invariants R5-5); delete NESTING_FIELDS, patches_nested_content and their guard; the scene-level projection runs only when the element''s own depth grew; a RecursionError while measuring is a refusal with the cap reason on every path (silent 3, types 6); NestingCap takes the typed wire element, no isinstance fail-open (types 5); MAX_ELEMENT_NESTING exported. S3 RETIRE CAUSE FOLLOWS WHO ENDED THE DIAL. Display ended it: EOF, ECONNRESET, EPIPE, a malformed frame from the display, the send timeout (a wedged display, reaped). Hub ended it: query timeout, reply skew, the Hub''s own drop/close. The connection keeps the last retirement''s cause; require() raises HubRetiredError only for a Hub-ended dial, ConnectionClosedError for a display-ended one (so recovery attributes it), DisplayNotConnectedError if never opened (types 9). Tests for each, including code I1''s isolating-mode scenario. S4 the isolation probe never counts busy as proof: it waits for a pong or a failure on the dial it is probing (silent 6). S5 a request is bound to the dial its caller snapshotted, so a failure names that dial (types 1, invariants R5-7); one read-call-drop helper, not three copies. S6 recovery''s failed redial goes to the disconnected path, no ERROR traceback (silent 4). S7 delete ClientRegistry.with_reconnect and _reconnect_after_loss and their tests (types 8, silent 5, R5-2). S8 ''a retired generation never delivers'' is a REPLIES rule; events and interactions are link-level (rule 16) and are delivered: document that at run_held and in the reader (R5-6 answered by the leader; no code change unless a reply path is involved). S9 types 2, 3, 4: busy-means-alive decided once (the keepalive port asks probe_alive), recover takes the BatchSendError, BatchSender holds per-push state in a per-push object. Lock order rq < sl < st < lk < qu and K2 stay inviolate.'
+    - Tests lead (red on 2d70a373 first). Mutation-check every new guard and every new rule; record the red runs. Score each touched file against the IN-TREE .oo-baseline.json and .oo-coupling-baseline.json, report every regressed row in one message, stop for the leader's bless; over-cap means redesign. Commit per finding group with explicit git add <file>; ratchet files last; the last commit leaves make check green; make test-integration green. Never run gui/e2e tests or pytest -m "". Do not touch docs/, DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except the worktree), .github/, .punt-labs/. Do not spawn agents.
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results-r5fix/<mission-id>.md (lux repo root), submit with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+context: |
+    Final local review round 5 on the PR. The recurrence rule fired on the
+    guard tests (a new bypass every round) and on the nesting cap (checked at
+    the doors, not the seam); rulings S1 and S2 change the approach.

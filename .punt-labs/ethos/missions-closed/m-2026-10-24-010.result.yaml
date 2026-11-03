@@ -1,0 +1,36 @@
+mission: m-2026-10-24-010
+round: 2
+created_at: "2026-10-24T10:34:49Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/listener_lifecycle.tex
+      added: 23
+      removed: 2
+    - path: docs/listener_locks.tex
+      added: 38
+      removed: 0
+    - path: docs/listener_locks_inverted_buggy.tex
+      added: 18
+      removed: 0
+evidence:
+    - name: 'fuzz on the three changed files: exit 0, no output'
+      status: pass
+    - name: zed blocks untouched; commit 5b7caf51 is prose and header comments only
+      status: pass
+prose: |
+    K1: listener_locks.tex (header and wedge paragraph) and the control's header
+    now say a wedge is ended by SO_SNDTIMEO on every generation's socket, both
+    legs, followed by the write-failure retire; Wedge restricted to a running
+    reporter stands for that bound. jra's trace without the restriction is
+    recorded (Start(showC,T2); Wedge; Start(queryC,T1); Acquire(T2);
+    Acquire(T1); Acquire(T2)). listener_lifecycle.tex Decision 10(a) gains the
+    send-timeout clause and its pinning test.
+    K2: both lock files and the lifecycle lock-discipline section say
+    ClientRegistry._lock and the store lock sit above the model's locks, that no
+    lock of the model is held while taking either, and that a query's timeout
+    retire never calls ClientRegistry.drop() while holding rq.
+    Note: the lifecycle document has no numbered rules 13/21/24; I placed the
+    clauses in Decision 10(a) (rule 21's text) and in the lock-discipline
+    paragraph (the rule-24 text).

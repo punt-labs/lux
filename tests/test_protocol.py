@@ -59,6 +59,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Element construction
@@ -557,6 +558,61 @@ class TestSerialization:
         assert restored.frame_owner_facts is None
         assert any("frame_owner_facts" in record.message for record in caplog.records)
         assert all(record.levelno == logging.WARNING for record in caplog.records)
+
+    def test_framed_scene_with_scope_label_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+            frame_scope_label="lux (2)",
+        )
+        d = message_to_dict(original)
+        assert d["frame_scope_label"] == "lux (2)"
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_scope_label == "lux (2)"
+
+    def test_framed_scene_without_scope_label_omits_the_field(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(original)
+        assert "frame_scope_label" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_scope_label is None
+
+    @pytest.mark.parametrize("bad_label", ["", 7, ["lux"], {"name": "lux"}, True])
+    def test_scene_decode_degrades_a_malformed_scope_label_and_logs(
+        self, caplog: pytest.LogCaptureFixture, bad_label: object
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            restored = SceneMessage.from_dict(
+                {
+                    "id": "s1",
+                    "frame_id": "s1",
+                    "elements": [],
+                    "frame_scope_label": bad_label,
+                }
+            )
+        assert restored.frame_scope_label is None
+        assert any("frame_scope_label" in record.message for record in caplog.records)
+
+    def test_an_old_hub_scene_without_the_field_decodes_with_a_plain_title(self):
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [], "frame_title": "Vox"}
+        )
+        assert restored.frame_scope_label is None
+        assert restored.frame_title == "Vox"
+
+    def test_a_new_hub_scene_decodes_cleanly_when_the_field_is_unknown_to_it(self):
+        # Additive both ways: the field is just another optional key.
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [], "future_field": 1}
+        )
+        assert restored.frame_scope_label is None
 
     def test_scene_decode_rejects_an_out_of_set_layout(self):
         # The layout field is a Literal; decode must reject an out-of-set value
@@ -1348,7 +1404,7 @@ class TestFrameReader:
     def test_drain_typed(self):
         reader = FrameReader()
         reader.feed(encode_frame({"type": "ping", "ts": 42.0}))
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 1
         assert isinstance(messages[0], PingMessage)
         assert messages[0].ts == 42.0
@@ -1443,6 +1499,46 @@ class TestListScenes:
         assert isinstance(restored, ListScenesResponse)
         assert restored.scenes == scenes
         assert restored.frames == frames
+
+    def test_list_scenes_response_error_roundtrip(self) -> None:
+        original = ListScenesResponse(error="the listing failed")
+        d = message_to_dict(original)
+        assert d["error"] == "the listing failed"
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.error == "the listing failed"
+        assert restored.scenes == []
+
+    def test_a_response_cannot_report_a_failure_and_list_scenes(self) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse(scenes=[{"scene_id": "s1"}], error="the listing failed")
+
+    def test_a_response_cannot_report_a_failure_and_list_frames(self) -> None:
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse(frames=[{"frame_id": "f1"}], error="the listing failed")
+
+    def test_the_wire_form_of_an_error_beside_scenes_is_refused_on_read(self) -> None:
+        wire = {
+            "type": "list_scenes_response",
+            "scenes": [{"scene_id": "s1"}],
+            "error": "the listing failed",
+        }
+
+        with pytest.raises(ValueError, match="not both"):
+            ListScenesResponse.from_dict(wire)
+
+    def test_the_codec_is_the_class_s_own_pair(self) -> None:
+        original = ListScenesResponse(scenes=[{"scene_id": "s1"}])
+
+        assert message_to_dict(original) == original.to_dict()
+        assert ListScenesResponse.from_dict(original.to_dict()) == original
+
+    def test_list_scenes_response_without_an_error_carries_no_error_key(self) -> None:
+        d = message_to_dict(ListScenesResponse())
+        assert "error" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.error is None
 
     def test_list_scenes_response_empty_roundtrip(self) -> None:
         original = ListScenesResponse()

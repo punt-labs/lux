@@ -62,7 +62,7 @@ class PickledElementCodec:
         """Reconstruct an element from its base64 pickle, or reject it by name.
 
         Pickling is the only Hub-to-Display transport, so an unhandled raise here
-        crosses the socket boundary and kills the display (``_on_frame`` has no
+        crosses the socket boundary and kills the display (the frame turn has no
         error boundary). A pickle naming a renamed or deleted class — a
         version-skewed Hub/Display pair, the stale-restart failure mode — raises
         ``AttributeError`` / ``ImportError`` (``ModuleNotFoundError``); a

@@ -102,14 +102,13 @@ T6.
 | R4 | Gate order: push-reachability is answered before identity | covered — `push_reachability_is_answered_before_identity` |
 | R5 | Commit with the gated listener still in place | covered — implied by R1 |
 | R6 | Commit after the gated listener **tore down** — must refuse | covered — `a_registration_gated_against_a_departed_leg_is_refused` |
-| R7 | Commit after the gated listener was **replaced** by a successor — must refuse | covered — `a_registration_gated_against_a_replaced_leg_is_refused` |
+| R7 | Commit after the gated listener was **replaced** by a successor — lands on the successor leg (the write reads the slot under the same hold, so there is no earlier leg to be stale against) | covered — `a_registration_lands_on_the_leg_that_now_holds_the_connection` |
 | R8 | Gate refuses on a lapsed lease | covered — `a_session_whose_lease_lapsed_is_challenged_rather_than_registered`, `register_callback_refuses_a_lapsed_session` |
 
 R6 is the regression test for defect (B). It was written the second way it
-describes, which the fix made possible: `register_callback` now takes the leg the
-gate observed, so the test calls it with a leg that is no longer installed and
-asserts it refuses and writes nothing. No paused thread is needed, because the
-comparison and the write are one critical section.
+describes, which the fix made possible: the test detaches the leg, then calls
+`register_callback` and asserts it is `superseded` and writes nothing. No paused
+thread is needed, because the slot read and the write are one critical section.
 
 ## Routing, hold, lease
 

@@ -1,0 +1,33 @@
+mission: m-2026-10-25-007
+round: 1
+created_at: "2026-10-25T20:41:50Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/crash_attribution.tex
+      added: 539
+      removed: 0
+    - path: docs/crash_attribution_coverage.md
+      added: 93
+      removed: 0
+    - path: docs/crash_attribution_idle_stop_buggy.tex
+      added: 569
+      removed: 0
+    - path: docs/crash_attribution_redial_only_buggy.tex
+      added: 520
+      removed: 0
+evidence:
+    - name: 'fuzz on each of the three .tex files separately: exit 0'
+      status: pass
+    - name: 'probcli fixed 2 dials/2 scenes: 373 states, no counter example to A1-A4, deadlocked 0, 0 uncovered'
+      status: pass
+    - name: 'probcli fixed 3 dials/3 scenes: 83553 states, no counter example, deadlocked 0'
+      status: pass
+    - name: redial_only control violates A1 in 7 steps (silent F1 trace)
+      status: pass
+    - name: idle_stop control violates A2 in 4 steps and A1 in 7 steps
+      status: pass
+prose: |
+    Commit 67bb1b9c. T10 is sound against the model. Full detail in
+    .tmp/missions/results-model-attr/m-2026-10-25-007.md and docs/crash_attribution_coverage.md.

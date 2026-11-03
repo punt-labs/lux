@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Self
 
 from punt_lux.protocol import ReadyMessage, recv_message
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.socket_owner import SocketOwner
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,9 @@ class DisplayPaths:
             except OSError:
                 return SocketLiveness.ACCEPTING  # timeout/EMFILE/ambiguous — not dead
             try:
-                reply = recv_message(probe, timeout=_HANDSHAKE_TIMEOUT)
+                reply = recv_message(
+                    probe, DISPLAY_VOCABULARY, timeout=_HANDSHAKE_TIMEOUT
+                )
             except _RECV_ERRS:
                 return SocketLiveness.ACCEPTING  # a live owner answered
             if isinstance(reply, ReadyMessage):

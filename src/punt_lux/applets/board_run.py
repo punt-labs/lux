@@ -23,6 +23,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.beads_source import BoardUnavailableError
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -89,7 +90,7 @@ class BoardRun:
         """Run *run*, or raise the one failure a state above knows how to answer."""
         try:
             return run()
-        except BoardUnavailableError:
+        except (BoardUnavailableError, ProgrammerError):
             raise
         except Exception as exc:
             logger.exception("building the beads board failed")

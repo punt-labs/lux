@@ -6,11 +6,15 @@ asks to register.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.domain.hub.session_callback import SessionCallback
-from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.common import OpError
+
+if TYPE_CHECKING:
+    from punt_lux.operations.models.callback_fields import CallbackFields
 
 __all__ = ["RegisterCallbackRequest"]
 

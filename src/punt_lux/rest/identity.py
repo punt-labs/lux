@@ -1,7 +1,7 @@
 """RestCaller — resolve each REST request's identity and owning scope.
 
 A REST request declares who it is in ``X-Lux-Client-*`` headers; this resolver
-turns that declaration into the :class:`~punt_lux.operations.scope.Scope` the
+turns that declaration into the :class:`~punt_lux.domain.scope.Scope` the
 request's writes own. An identified request records its identity against a
 connection derived deterministically from that identity, so the same caller owns
 the same scenes across requests. A request that carries no identity is refused
@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Final, Self, cast, final
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from punt_lux.client_host import ClientHost
 from punt_lux.commands import (
     Ctx as CommandCtx,
     SessionOps,
@@ -30,9 +31,9 @@ from punt_lux.commands import (
 )
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.scope import Scope
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.models.identity import Identified
-from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
@@ -102,7 +103,9 @@ class RestCaller:
                 detail=_CHALLENGE_REASON,
                 headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
             )
-        scope = Scope(self._connection_for(declaration))
+        scope = Scope.observed(
+            self._connection_for(declaration), ClientHost.of_connection(request)
+        )
         ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=ANONYMOUS_REST)
         outcome: Identified | OpError = asyncio.run(
             session_identify_command.execute(ctx, declaration, scope=scope)

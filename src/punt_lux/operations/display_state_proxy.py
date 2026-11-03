@@ -32,8 +32,8 @@ from punt_lux.operations.models.display_state import (
 )
 
 if TYPE_CHECKING:
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["DisplayStateProxy"]
 

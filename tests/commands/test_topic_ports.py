@@ -39,5 +39,5 @@ def test_an_object_missing_every_method_does_not_satisfy_it() -> None:
 
 
 def test_receive_takes_only_scope() -> None:
-    result = _Implementer().receive(scope=Scope(ConnectionId("c1")))
+    result = _Implementer().receive(scope=Scope.in_process(ConnectionId("c1")))
     assert result == Received(event=None)

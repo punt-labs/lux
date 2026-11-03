@@ -12,7 +12,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Ok, Scope
 
 _IDENTITY = ClientIdentity(kind="cli", name="frame-deps-test")
-_SCOPE = Scope(ConnectionId("c1"))
+_SCOPE = Scope.in_process(ConnectionId("c1"))
 
 
 class _StubFrameOps:
@@ -34,4 +34,4 @@ def test_fields_round_trip() -> None:
 def test_is_frozen() -> None:
     deps = FrameAccessorDeps(_StubFrameOps(), _IDENTITY, _SCOPE)
     with pytest.raises(FrozenInstanceError):
-        deps.scope = Scope(ConnectionId("c2"))  # type: ignore[misc]  # proving frozen=True raises
+        deps.scope = Scope.in_process(ConnectionId("c2"))  # type: ignore[misc]  # proving frozen=True raises

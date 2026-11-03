@@ -23,11 +23,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.client_host import NO_HOSTS, ClientHosts
 from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
 
 if TYPE_CHECKING:
+    from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.lease_term import LeaseTerm
@@ -44,7 +46,8 @@ class ClientSession:
     _identity: ClientIdentity | None
     _lease: SessionLease
     _slot: ListenerSlot
-    __slots__ = ("_connected_at", "_identity", "_lease", "_slot")
+    _hosts: ClientHosts
+    __slots__ = ("_connected_at", "_hosts", "_identity", "_lease", "_slot")
 
     def __new__(
         cls,
@@ -52,6 +55,7 @@ class ClientSession:
         identity: ClientIdentity | None = None,
         lease: SessionLease | None = None,
         slot: ListenerSlot | None = None,
+        client_hosts: ClientHosts = NO_HOSTS,
     ) -> Self:
         self = super().__new__(cls)
         self._connected_at = connected_at
@@ -61,6 +65,7 @@ class ClientSession:
         )
         # Absent means the empty slot — the default for a session with no leg yet.
         self._slot = slot if slot is not None else ListenerSlot()
+        self._hosts = client_hosts
         return self
 
     @property
@@ -74,13 +79,29 @@ class ClientSession:
         return self._identity
 
     @property
-    def declared_repo(self) -> str | None:
-        """The repository this session declared, or ``None`` if it declared none.
+    def client_hosts(self) -> ClientHosts:
+        """The distinct hosts the Hub observed this session connecting from.
 
-        ``None`` for an unidentified session, a headless CLI, or the app — the
-        value the registry's repository projection filters out.
+        First-seen order. Observed on the transport, never declared: the identity
+        carries no host field, and no header is read (DES-099).
         """
-        return self._identity.repo if self._identity is not None else None
+        return self._hosts
+
+    def observed_from(self, host: ClientHost) -> ClientSession:
+        """Return this session also known to have been reached from ``host``.
+
+        An unobserved contact records nothing; a host already seen is not repeated.
+        """
+        hosts = self._hosts.with_host(host)
+        if hosts is self._hosts:
+            return self
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot,
+            hosts,
+        )
 
     @property
     def callbacks(self) -> tuple[SessionCallback, ...]:
@@ -113,8 +134,8 @@ class ClientSession:
         """Whether this session earns a Clients submenu, command or not.
 
         A session earns its place by registering a command; the agent (an
-        mcp-session) is kept present on its kind alone, with its Details, because
-        it drives the display yet registers no command of its own (DES-098).
+        mcp-session) is kept present on its kind alone, with an entry of its
+        own, because it drives the display yet registers no command of its own.
         """
         identity = self._identity
         return bool(self.callbacks) or (identity is not None and identity.is_agent)
@@ -134,8 +155,13 @@ class ClientSession:
 
     def renewed(self, now: float) -> ClientSession:
         """Return this session with its lease renewed at ``now``; any contact renews."""
-        lease = self._lease.renewed(now)
-        return ClientSession(self._connected_at, self._identity, lease, self._slot)
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease.renewed(now),
+            self._slot,
+            self._hosts,
+        )
 
     def with_identity(self, identity: ClientIdentity) -> ClientSession:
         """Return this session carrying ``identity`` and the lease it declared.
@@ -149,7 +175,9 @@ class ClientSession:
         lease = SessionLease.for_declared(
             identity.kind, identity.lease_ttl, self._lease.renewed_at
         )
-        return ClientSession(self._connected_at, identity, lease, self._slot)
+        return ClientSession(
+            self._connected_at, identity, lease, self._slot, self._hosts
+        )
 
     def with_callback(self, callback: SessionCallback) -> ClientSession:
         """Return this session also owning ``callback``, last write winning by id.
@@ -161,6 +189,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.with_callback(callback),
+            self._hosts,
         )
 
     def attached(self, listener: CallbackListener) -> ClientSession:
@@ -177,6 +206,7 @@ class ClientSession:
             self._identity,
             self._lease,
             self._slot.occupied_by(listener),
+            self._hosts,
         )
 
     # None == stale: not this listener's session; a normal decline, not a failure.
@@ -192,12 +222,14 @@ class ClientSession:
         The listener and the callbacks go together, so no reader can observe a
         callback whose listener has already been cleared.
         """
-        return (
-            ClientSession(
-                self._connected_at, self._identity, self._lease, self._slot.released()
-            )
-            if self._slot.held_by(listener)
-            else None
+        if not self._slot.held_by(listener):
+            return None
+        return ClientSession(
+            self._connected_at,
+            self._identity,
+            self._lease,
+            self._slot.released(),
+            self._hosts,
         )
 
     def registering(

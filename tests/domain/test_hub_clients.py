@@ -15,10 +15,13 @@ import threading
 import time
 from typing import final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_session import ClientSession
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.presence_writes import PresenceWrites
 from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.domain.hub.session_write import SessionWrite
 from punt_lux.domain.ids import ConnectionId
 
 
@@ -42,9 +45,9 @@ def _churn(
     """Record then discard every connection until told to stop."""
     while not stop.is_set():
         for conn in conns:
-            reg.record(conn)
+            _writes(reg).record(conn, None, UNOBSERVED)
         for conn in conns:
-            reg.discard(conn)
+            _writes(reg).discard(conn)
 
 
 def _read(reg: HubClientRegistry, stop: threading.Event) -> None:
@@ -57,9 +60,9 @@ def _read(reg: HubClientRegistry, stop: threading.Event) -> None:
 def test_record_is_idempotent_and_stamps_once() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
     first = reg.sessions()[conn].connected_at
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
     # A re-record keeps the original connect time — age never resets.
     assert reg.sessions()[conn].connected_at == first
 
@@ -67,18 +70,18 @@ def test_record_is_idempotent_and_stamps_once() -> None:
 def test_a_bare_record_leaves_the_session_unidentified() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
     assert reg.sessions()[conn].identity is None
 
 
 def test_record_with_identity_keeps_the_connect_time() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
     stamped = reg.sessions()[conn].connected_at
 
     identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
-    reg.record(conn, identity)
+    _writes(reg).record(conn, identity, UNOBSERVED)
 
     session = reg.sessions()[conn]
     assert session.identity == identity
@@ -90,9 +93,9 @@ def test_a_later_bare_record_never_drops_a_declared_identity() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
-    reg.record(conn, identity)
+    _writes(reg).record(conn, identity, UNOBSERVED)
     # The connect path re-records without an identity; the declaration survives.
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
     assert reg.sessions()[conn].identity == identity
 
 
@@ -100,7 +103,7 @@ def test_record_with_identity_registers_an_unseen_connection() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
     assert reg.session_of(conn) is None
-    reg.record(conn, ClientIdentity(kind="cli", name="lux-cli"))
+    _writes(reg).record(conn, ClientIdentity(kind="cli", name="lux-cli"), UNOBSERVED)
     assert reg.session_of(conn) is not None  # membership via the O(1) session read
     assert reg.sessions()[conn].identity is not None
 
@@ -110,8 +113,8 @@ def test_session_of_returns_the_record_or_none() -> None:
     identified = ConnectionId("identified")
     bare = ConnectionId("bare")
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
-    reg.record(identified, identity)
-    reg.record(bare)
+    _writes(reg).record(identified, identity, UNOBSERVED)
+    _writes(reg).record(bare, None, UNOBSERVED)
     identified_session = reg.session_of(identified)
     assert identified_session is not None
     assert identified_session.identity == identity
@@ -124,31 +127,13 @@ def test_session_of_returns_the_record_or_none() -> None:
 def test_discard_drops_the_identity_with_the_connection() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.record(conn, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
-    reg.discard(conn)
-    assert reg.sessions() == {}
-
-
-def test_repos_projects_the_distinct_declared_repositories() -> None:
-    reg = HubClientRegistry()
-    reg.record(ConnectionId("a"), ClientIdentity(kind="cli", name="lux", repo="/w/lux"))
-    reg.record(ConnectionId("b"), ClientIdentity(kind="cli", name="vox", repo="/w/vox"))
-    # A second session in an already-listed repo does not double it.
-    reg.record(
-        ConnectionId("c"),
-        ClientIdentity(
-            kind="mcp-session", name="claude", repo="/w/lux", agent="claude"
-        ),
+    _writes(reg).record(
+        conn,
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        UNOBSERVED,
     )
-    assert reg.repos() == frozenset({"/w/lux", "/w/vox"})
-
-
-def test_repos_excludes_headless_and_unidentified_sessions() -> None:
-    reg = HubClientRegistry()
-    reg.record(ConnectionId("unidentified"))
-    reg.record(ConnectionId("headless"), ClientIdentity(kind="cli", name="lux-cli"))
-    reg.record(ConnectionId("app"), ClientIdentity(kind="app", name="lux"))
-    assert reg.repos() == frozenset()
+    _writes(reg).discard(conn)
+    assert reg.sessions() == {}
 
 
 def _cli(name: str = "lux") -> ClientIdentity:
@@ -160,7 +145,7 @@ def test_live_sessions_filters_an_expired_session_without_sweeping_it() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
     assert conn in reg.live_sessions()
 
     clock.advance(91.0)  # past the 90s cli lease
@@ -172,10 +157,12 @@ def test_any_contact_renews_the_lease() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
 
     clock.advance(80.0)
-    reg.record(conn)  # a bare contact renews, keeping the declared identity
+    _writes(reg).record(
+        conn, None, UNOBSERVED
+    )  # a bare contact renews, keeping the declared identity
     clock.advance(80.0)  # 160s from the start, but only 80s since the renewal
 
     live = reg.live_sessions()
@@ -187,8 +174,12 @@ def test_an_mcp_session_outlives_a_cli_session() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     cli, mcp = ConnectionId("cli"), ConnectionId("mcp")
-    reg.record(cli, _cli())
-    reg.record(mcp, ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+    _writes(reg).record(cli, _cli(), UNOBSERVED)
+    _writes(reg).record(
+        mcp,
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        UNOBSERVED,
+    )
 
     clock.advance(120.0)  # past the cli lease (90s), well within the mcp lease (1800s)
     live = reg.live_sessions()
@@ -201,7 +192,7 @@ def test_no_read_ever_removes_a_lapsed_session() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
     clock.advance(91.0)
     assert conn in reg.sessions()
     reg.live_sessions()  # a read; still non-destructive
@@ -210,43 +201,43 @@ def test_no_read_ever_removes_a_lapsed_session() -> None:
     assert conn in reg.sessions()
 
 
-def test_reap_lapsed_locked_returns_who_lapsed_and_removes_only_them() -> None:
+def test_reap_lapsed_returns_who_lapsed_and_removes_only_them() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
-    reg.record(lapsing, _cli())
-    reg.record(staying, _mcp())
+    _writes(reg).record(lapsing, _cli(), UNOBSERVED)
+    _writes(reg).record(staying, _mcp(), UNOBSERVED)
 
     clock.advance(91.0)  # past the cli lease; the mcp lease (1800s) survives
 
-    assert reg.reap_lapsed_locked() == frozenset({lapsing})
+    assert _writes(reg).reap_lapsed().lapsed == frozenset({lapsing})
     assert lapsing not in reg.sessions()  # actually removed, not just filtered
     assert staying in reg.sessions()
 
 
-def test_reap_lapsed_locked_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
+def test_reap_lapsed_is_empty_and_a_no_op_when_nothing_has_lapsed() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("conn")
-    reg.record(conn, _cli())
-    assert reg.reap_lapsed_locked() == frozenset()
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
+    assert _writes(reg).reap_lapsed().lapsed == frozenset()
     assert conn in reg.sessions()
 
 
-def test_reap_lapsed_locked_honors_its_exclusion() -> None:
+def test_reap_lapsed_honors_its_exclusion() -> None:
     """The exclusion ``apply``'s renewed caller needs, at the registry layer."""
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
     clock.advance(91.0)  # past the 90s cli lease
 
-    assert reg.reap_lapsed_locked(exclude=frozenset({conn})) == frozenset()
+    assert _writes(reg).reap_lapsed(exclude=frozenset({conn})).lapsed == frozenset()
     assert conn in reg.sessions()  # excluded, so left alone
-    assert reg.reap_lapsed_locked() == frozenset({conn})
+    assert _writes(reg).reap_lapsed().lapsed == frozenset({conn})
     assert conn not in reg.sessions()
 
 
-def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
+def test_reap_lapsed_cannot_wipe_a_renewal_that_races_it() -> None:
     """The TOCTOU a split compute-then-discard leaves open, closed by one lock.
 
     A round-1-era renewal path (``record``/``renew_if_registered``/
@@ -255,7 +246,7 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
     set in one lock hold and discards each id in a second, separate hold
     leaves a gap: a renewal landing in that gap makes the connection live
     again, and the second hold discards it anyway -- a live client silently
-    wiped under ordinary threaded load. ``reap_lapsed_locked`` closes the
+    wiped under ordinary threaded load. ``reap_lapsed`` closes the
     gap by construction: nothing else can touch the registry while it
     holds the lock, so a concurrent renewal is strictly serialized before
     or after the sweep, never straddling it.
@@ -263,7 +254,7 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
     clock.advance(91.0)  # past the 90s cli lease
 
     renewal_attempted = threading.Event()
@@ -271,13 +262,15 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
 
     def _renew_concurrently() -> None:
         renewal_attempted.set()
-        reg.record(conn)  # blocks on the registry's own lock until reap yields
+        _writes(reg).record(
+            conn, None, UNOBSERVED
+        )  # blocks on the registry's own lock until reap yields
         renewal_done.set()
 
     real_now = reg._clock
 
     def _now_that_races_a_renewal() -> float:
-        # Fires from inside reap_lapsed_locked's one critical section: start
+        # Fires from inside reap_lapsed's one critical section: start
         # the renewal thread and prove it is genuinely locked out (blocked on
         # the same lock, not just "hasn't run yet") before the sweep proceeds.
         if not renewal_attempted.is_set():
@@ -287,9 +280,9 @@ def test_reap_lapsed_locked_cannot_wipe_a_renewal_that_races_it() -> None:
             assert not renewal_done.is_set()
         return real_now()
 
-    reg._clock = _now_that_races_a_renewal
+    _writes(reg)._clock = _now_that_races_a_renewal
 
-    reaped = reg.reap_lapsed_locked()
+    reaped = _writes(reg).reap_lapsed().lapsed
     assert renewal_done.wait(timeout=2.0)
 
     # conn was lapsed at the one instant the atomic sweep decided -- reaping
@@ -304,23 +297,14 @@ def test_continuous_renewal_prevents_lease_lapse() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    reg.record(conn, _cli())
+    _writes(reg).record(conn, _cli(), UNOBSERVED)
 
     for _ in range(5):
         clock.advance(60.0)  # inside the 90s cli lease if renewed each time
-        reg.record(conn)  # a bare contact renews
+        _writes(reg).record(conn, None, UNOBSERVED)  # a bare contact renews
 
-    assert reg.reap_lapsed_locked() == frozenset()
+    assert _writes(reg).reap_lapsed().lapsed == frozenset()
     assert conn in reg.sessions()
-
-
-def test_repos_excludes_a_session_whose_lease_lapsed() -> None:
-    clock = _Clock()
-    reg = HubClientRegistry(clock)
-    reg.record(ConnectionId("cli"), _cli())
-    assert reg.repos() == frozenset({"/w/lux"})
-    clock.advance(91.0)
-    assert reg.repos() == frozenset()  # the lapsed session drops from live-context
 
 
 def _beads() -> SessionCallback:
@@ -344,21 +328,21 @@ def _attached(
 ) -> _Leg:
     """Connect a leg for ``conn`` and return it — the token every write compares to."""
     leg = _Leg()
-    reg.attach_listener(conn, identity, leg)
+    _writes(reg).attach(conn, identity, leg, UNOBSERVED)
     return leg
 
 
 def test_register_callback_stores_it_on_an_identified_session() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    leg = _attached(reg, conn, _mcp())
-    assert reg.register_callback(conn, _beads(), leg) == "registered"
+    _attached(reg, conn, _mcp())
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "registered"
     assert reg.sessions()[conn].callbacks == (_beads(),)
 
 
 def test_register_callback_refuses_an_unknown_session() -> None:
     reg = HubClientRegistry()
-    outcome = reg.register_callback(ConnectionId("never"), _beads(), _Leg())
+    outcome = _writes(reg).register_callback(ConnectionId("never"), _beads()).outcome
     assert outcome == "superseded"
 
 
@@ -367,9 +351,9 @@ def test_register_callback_refuses_a_lapsed_session() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    leg = _attached(reg, conn, _cli())
+    _attached(reg, conn, _cli())
     clock.advance(91.0)  # past the 90s cli lease
-    assert reg.register_callback(conn, _beads(), leg) == "declined"
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "declined"
     assert reg.sessions()[conn].callbacks == ()
 
 
@@ -383,35 +367,39 @@ def test_a_registration_gated_against_a_departed_leg_is_refused() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.detach_listener(conn, leg) == "released"  # the leg tore down meanwhile
+    assert (
+        _writes(reg).detach(conn, leg).outcome == "released"
+    )  # the leg tore down meanwhile
 
-    assert reg.register_callback(conn, _beads(), leg) == "superseded"
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "superseded"
     assert reg.sessions()[conn].callbacks == ()
 
 
-def test_a_registration_gated_against_a_replaced_leg_is_refused() -> None:
-    """The same window, closed by a successor rather than by a teardown.
+def test_a_registration_lands_on_the_leg_that_now_holds_the_connection() -> None:
+    """A reconnect of the same identity resolves to the same connection.
 
-    A reconnect of the same identity resolves to the same connection, so the leg
-    the caller was gated against can be replaced rather than removed. Its entry
-    would then belong to a session that never asked for it, and its clicks would
-    be pushed to the newcomer.
+    The write reads the slot it writes under the same hold, so there is no earlier
+    leg for it to be stale against: the entry belongs to whichever session holds
+    the connection when the write lands.
     """
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    first = _attached(reg, conn, _mcp())
-    _attached(reg, conn, _mcp())  # the successor takes the connection
+    _attached(reg, conn, _mcp())
+    successor = _attached(reg, conn, _mcp())  # the successor takes the connection
 
-    assert reg.register_callback(conn, _beads(), first) == "superseded"
-    assert reg.sessions()[conn].callbacks == ()
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "registered"
+    assert reg.sessions()[conn].held_by(successor)
+    assert reg.sessions()[conn].callbacks == (_beads(),)
 
 
 def test_registering_the_same_id_replaces_the_earlier_callback() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    leg = _attached(reg, conn, _mcp())
-    reg.register_callback(conn, SessionCallback(id="beads", label="Beads"), leg)
-    reg.register_callback(conn, SessionCallback(id="beads", label="Beads Browser"), leg)
+    _attached(reg, conn, _mcp())
+    _writes(reg).register_callback(conn, SessionCallback(id="beads", label="Beads"))
+    _writes(reg).register_callback(
+        conn, SessionCallback(id="beads", label="Beads Browser")
+    )
     callbacks = reg.sessions()[conn].callbacks
     assert callbacks == (SessionCallback(id="beads", label="Beads Browser"),)
 
@@ -426,14 +414,17 @@ def test_a_new_leg_starts_with_none_of_its_predecessors_callbacks() -> None:
     """
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    first = _attached(reg, conn, _mcp())
-    reg.register_callback(conn, _beads(), first)
+    _attached(reg, conn, _mcp())
+    _writes(reg).register_callback(conn, _beads())
     assert reg.sessions()[conn].callbacks == (_beads(),)
 
     second = _Leg()
     # The arriving session is told it cleared entries, because that is what makes
     # the bar wrong and nothing else is guaranteed to correct it.
-    assert reg.attach_listener(conn, _mcp(), second) == "attached_over_callbacks"
+    assert (
+        _writes(reg).attach(conn, _mcp(), second, UNOBSERVED).slot
+        == "attached_over_callbacks"
+    )
 
     assert reg.sessions()[conn].callbacks == ()
     assert reg.sessions()[conn].held_by(second)
@@ -442,8 +433,11 @@ def test_a_new_leg_starts_with_none_of_its_predecessors_callbacks() -> None:
 def test_a_first_leg_clears_nothing_and_says_so() -> None:
     """An empty slot has no entries to lose, so the bar is already right."""
     reg = HubClientRegistry()
-    conn = ConnectionId("mcp")
-    assert reg.attach_listener(conn, _mcp(), _Leg()) == "attached"
+    app = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
+    assert (
+        _writes(reg).attach(ConnectionId("app"), app, _Leg(), UNOBSERVED).slot
+        == "attached"
+    )
 
 
 def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:
@@ -459,9 +453,9 @@ def test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing() -> None:
     conn = ConnectionId("mcp")
     stale = _attached(reg, conn, _mcp())
     successor = _attached(reg, conn, _mcp())
-    reg.register_callback(conn, _beads(), successor)
+    _writes(reg).register_callback(conn, _beads())
 
-    assert reg.detach_listener(conn, stale) == "kept"
+    assert _writes(reg).detach(conn, stale).outcome == "kept"
 
     assert reg.sessions()[conn].held_by(successor)
     assert reg.sessions()[conn].callbacks == (_beads(),)
@@ -476,9 +470,9 @@ def test_a_teardown_releases_the_leg_and_its_callbacks_together() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    reg.register_callback(conn, _beads(), leg)
+    _writes(reg).register_callback(conn, _beads())
 
-    assert reg.detach_listener(conn, leg) == "released_with_callbacks"
+    assert _writes(reg).detach(conn, leg).outcome == "released_with_callbacks"
 
     session = reg.sessions()[conn]
     assert session.callbacks == ()
@@ -502,29 +496,27 @@ def test_a_teardown_after_a_departure_is_a_release_not_a_keep() -> None:
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
     leg = _attached(reg, conn, _cli())
-    reg.register_callback(conn, _beads(), leg)
+    _writes(reg).register_callback(conn, _beads())
     clock.advance(91.0)  # past the 90s cli lease
     assert reg.live_sessions() == {}  # a read: filtered, not removed
-    reg.discard(conn)  # the departure the background reap timer performs
+    _writes(reg).discard(conn)  # the departure the background reap timer performs
 
-    assert reg.detach_listener(conn, leg) == "released_with_session"
+    assert _writes(reg).detach(conn, leg).outcome == "released_with_session"
 
 
 def test_a_teardown_that_removed_no_entries_asks_for_no_menu_push() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
     leg = _attached(reg, conn, _mcp())
-    assert reg.detach_listener(conn, leg) == "released"
+    assert _writes(reg).detach(conn, leg).outcome == "released"
 
 
-def test_the_leg_read_is_what_the_gate_asks() -> None:
+def test_an_identified_connection_with_no_leg_refuses_a_registration() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    reg.record(conn, _mcp())
-    assert reg.listener_of(conn) is None  # identified, but nothing to push to
+    _writes(reg).record(conn, _mcp(), UNOBSERVED)  # identified, nothing to push to
 
-    leg = _attached(reg, conn, _mcp())
-    assert reg.listener_of(conn) is leg
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "superseded"
 
 
 def test_the_leg_and_its_callbacks_are_written_under_one_lock() -> None:
@@ -551,8 +543,8 @@ def test_the_leg_and_its_callbacks_are_written_under_one_lock() -> None:
     reg = HubClientRegistry(_probing_clock)
     registry.append(reg)
     conn = ConnectionId("mcp")
-    leg = _attached(reg, conn, _mcp())
-    assert reg.register_callback(conn, _beads(), leg) == "registered"
+    _attached(reg, conn, _mcp())
+    assert _writes(reg).register_callback(conn, _beads()).outcome == "registered"
 
     assert held_during  # the probe ran
     assert all(held_during)  # and every write it caught was inside the lock
@@ -562,14 +554,14 @@ def test_a_lapsed_lease_departs_the_session_and_its_callbacks_together() -> None
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("cli")
-    leg = _attached(reg, conn, _cli())
-    reg.register_callback(conn, _beads(), leg)
+    _attached(reg, conn, _cli())
+    _writes(reg).register_callback(conn, _beads())
     clock.advance(91.0)  # past the cli lease
     # A read only filters -- the session and its callbacks are still on paper.
     assert reg.live_sessions() == {}
     assert conn in reg.sessions()
 
-    reg.discard(conn)  # the coordinator's atomic departure
+    _writes(reg).discard(conn)  # the coordinator's atomic departure
 
     assert reg.sessions() == {}  # session and callbacks left in the same motion
 
@@ -582,8 +574,8 @@ def test_a_declared_ttl_lapses_an_app_session_that_would_be_permanent() -> None:
     reg = HubClientRegistry(clock)
     conn = ConnectionId("voxd")
     identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
-    leg = _attached(reg, conn, identity)
-    reg.register_callback(conn, _beads(), leg)
+    _attached(reg, conn, identity)
+    _writes(reg).register_callback(conn, _beads())
     assert conn in reg.live_sessions()
 
     clock.advance(31.0)  # past the declared 30s lease, no contact in between
@@ -597,7 +589,7 @@ def test_an_undeclared_app_lease_stays_permanent() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     conn = ConnectionId("luxd")
-    reg.record(conn, ClientIdentity(kind="app", name="luxd"))
+    _writes(reg).record(conn, ClientIdentity(kind="app", name="luxd"), UNOBSERVED)
     clock.advance(1_000_000.0)
     assert conn in reg.live_sessions()
 
@@ -609,17 +601,17 @@ def test_a_declared_ttl_renews_on_contact_like_any_lease() -> None:
     reg = HubClientRegistry(clock)
     conn = ConnectionId("voxd")
     identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
-    reg.record(conn, identity)
+    _writes(reg).record(conn, identity, UNOBSERVED)
 
     clock.advance(20.0)
-    reg.record(conn, identity)  # a renewal within the 30s window
+    _writes(reg).record(conn, identity, UNOBSERVED)  # a renewal within the 30s window
     clock.advance(20.0)  # 40s from the start, but only 20s since the renewal
     assert conn in reg.live_sessions()
 
 
 def test_discard_is_a_noop_when_absent() -> None:
     reg = HubClientRegistry()
-    reg.discard(ConnectionId("never-registered"))
+    _writes(reg).discard(ConnectionId("never-registered"))
     assert reg.sessions() == {}
 
 
@@ -679,7 +671,7 @@ def _slow_mcp() -> ClientIdentity:
 def test_a_named_client_keeps_its_name_across_reads() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("mcp")
-    reg.record(conn, _mcp())
+    _writes(reg).record(conn, _mcp(), UNOBSERVED)
 
     assert reg.named_sessions().name_of(conn, "client") == "lux"
     assert reg.named_sessions().name_of(conn, "client") == "lux"
@@ -688,7 +680,7 @@ def test_a_named_client_keeps_its_name_across_reads() -> None:
 def test_an_unidentified_session_is_live_but_unnamed() -> None:
     reg = HubClientRegistry()
     conn = ConnectionId("bare")
-    reg.record(conn)
+    _writes(reg).record(conn, None, UNOBSERVED)
 
     named = reg.named_sessions()
 
@@ -705,11 +697,11 @@ def test_a_lapsed_but_undeparted_session_keeps_its_name_reserved() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, arrival = ConnectionId("cli"), ConnectionId("later")
-    reg.record(lapsing, _cli())
+    _writes(reg).record(lapsing, _cli(), UNOBSERVED)
     assert reg.named_sessions().name_of(lapsing, "client") == "lux"
 
     clock.advance(91.0)  # past the 90s cli lease; nobody has departed lapsing
-    reg.record(arrival, _cli())
+    _writes(reg).record(arrival, _cli(), UNOBSERVED)
 
     # lapsing still holds the base name — arrival is numbered against it.
     assert reg.named_sessions().name_of(arrival, "client") == "lux (2)"
@@ -720,13 +712,13 @@ def test_departing_a_lapsed_session_frees_its_name() -> None:
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, arrival = ConnectionId("cli"), ConnectionId("later")
-    reg.record(lapsing, _cli())
+    _writes(reg).record(lapsing, _cli(), UNOBSERVED)
     assert reg.named_sessions().name_of(lapsing, "client") == "lux"  # claims "lux"
     clock.advance(91.0)  # past the 90s cli lease
-    reg.record(arrival, _cli())
+    _writes(reg).record(arrival, _cli(), UNOBSERVED)
     assert reg.named_sessions().name_of(arrival, "client") == "lux (2)"
 
-    reg.discard(lapsing)  # the coordinator's atomic departure
+    _writes(reg).discard(lapsing)  # the coordinator's atomic departure
 
     assert reg.named_sessions().name_of(arrival, "client") == "lux"  # the freed name
 
@@ -734,11 +726,11 @@ def test_departing_a_lapsed_session_frees_its_name() -> None:
 def test_discard_releases_the_name_with_the_session() -> None:
     reg = HubClientRegistry()
     departing, arrival = ConnectionId("first"), ConnectionId("second")
-    reg.record(departing, _mcp())
+    _writes(reg).record(departing, _mcp(), UNOBSERVED)
     reg.named_sessions()
 
-    reg.discard(departing)
-    reg.record(arrival, _mcp())
+    _writes(reg).discard(departing)
+    _writes(reg).record(arrival, _mcp(), UNOBSERVED)
 
     assert reg.named_sessions().name_of(arrival, "client") == "lux"
 
@@ -754,14 +746,14 @@ def test_the_survivor_keeps_its_number_until_the_first_actually_departs() -> Non
     clock = _Clock()
     reg = HubClientRegistry(clock)
     lapsing, staying = ConnectionId("cli"), ConnectionId("mcp")
-    reg.record(lapsing, _cli())
-    reg.record(staying, _mcp())
+    _writes(reg).record(lapsing, _cli(), UNOBSERVED)
+    _writes(reg).record(staying, _mcp(), UNOBSERVED)
     assert reg.named_sessions().name_of(staying, "client") == "lux (2)"
 
     clock.advance(91.0)  # the cli lease lapses; the mcp session's has 1800s
     assert reg.named_sessions().name_of(staying, "client") == "lux (2)"  # unchanged
 
-    reg.discard(lapsing)  # the departure the timer or a disconnect performs
+    _writes(reg).discard(lapsing)  # the departure the timer or a disconnect performs
 
     assert reg.named_sessions().name_of(staying, "client") == "lux"
 
@@ -775,11 +767,11 @@ def test_the_survivor_takes_the_plain_name_when_the_first_is_discarded() -> None
     """
     reg = HubClientRegistry()
     outgoing, arriving = ConnectionId("old-session"), ConnectionId("new-session")
-    reg.record(outgoing, _mcp())
-    reg.record(arriving, _mcp())
+    _writes(reg).record(outgoing, _mcp(), UNOBSERVED)
+    _writes(reg).record(arriving, _mcp(), UNOBSERVED)
     assert reg.named_sessions().name_of(arriving, "client") == "lux (2)"
 
-    reg.discard(outgoing)
+    _writes(reg).discard(outgoing)
 
     assert reg.named_sessions().name_of(arriving, "client") == "lux"
 
@@ -788,11 +780,13 @@ def test_two_clients_that_are_both_here_keep_the_names_they_were_given() -> None
     """Only a removal moves a name: reads and arrivals leave the bar as it is."""
     reg = HubClientRegistry()
     first, second = ConnectionId("first"), ConnectionId("second")
-    reg.record(first, _mcp())
-    reg.record(second, _mcp())
+    _writes(reg).record(first, _mcp(), UNOBSERVED)
+    _writes(reg).record(second, _mcp(), UNOBSERVED)
     assert reg.named_sessions().name_of(second, "client") == "lux (2)"
 
-    reg.record(ConnectionId("third"), _mcp())  # a third arrives on the same repo
+    _writes(reg).record(
+        ConnectionId("third"), _mcp(), UNOBSERVED
+    )  # a third arrives on the same repo
 
     named = reg.named_sessions()
     assert named.name_of(first, "client") == "lux"
@@ -812,7 +806,7 @@ def test_a_name_survives_a_read_taken_while_another_client_arrives() -> None:
     reg = HubClientRegistry()
     conns = [ConnectionId(f"c{n}") for n in range(6)]
     for conn in conns:
-        reg.record(conn, _slow_mcp())
+        _writes(reg).record(conn, _slow_mcp(), UNOBSERVED)
     reads: list[list[str]] = []
     failures: list[BaseException] = []
     stop = threading.Event()
@@ -829,7 +823,7 @@ def test_a_name_survives_a_read_taken_while_another_client_arrives() -> None:
     for reader in readers:
         reader.start()
     for late in range(6, 12):  # more clients arrive while the readers are inside
-        reg.record(ConnectionId(f"c{late}"), _slow_mcp())
+        _writes(reg).record(ConnectionId(f"c{late}"), _slow_mcp(), UNOBSERVED)
     stop.set()
     for reader in readers:
         reader.join(timeout=5.0)
@@ -839,3 +833,138 @@ def test_a_name_survives_a_read_taken_while_another_client_arrives() -> None:
     for names in reads:
         assert "MISSING" not in names, f"a live client lost its name: {names}"
         assert len(set(names)) == len(names), f"a name was shared: {names}"
+
+
+def test_record_reports_a_new_agent_as_gained_and_a_repeat_as_unchanged() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+
+    assert _writes(reg).record(conn, _mcp(), UNOBSERVED).presence == "gained"
+    assert _writes(reg).record(conn, _mcp(), UNOBSERVED).presence == "unchanged"
+
+
+def test_record_reports_a_changed_declaration_as_revised() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("mcp")
+    _writes(reg).record(conn, _mcp(), UNOBSERVED)
+
+    other = ClientIdentity(kind="mcp-session", name="claude", repo="/w/other")
+
+    assert _writes(reg).record(conn, other, UNOBSERVED).presence == "revised"
+
+
+def test_record_reports_a_lapsed_agents_renewal_as_gained() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("mcp")
+    _writes(reg).record(conn, _mcp(), UNOBSERVED)
+    clock.advance(1_000_000.0)  # lapsed; nothing has swept it
+
+    assert _writes(reg).record(conn, None, UNOBSERVED).presence == "gained"
+
+
+_TAKEN: dict[int, tuple[HubClientRegistry, PresenceWrites]] = {}
+
+
+def _writes(reg: HubClientRegistry) -> PresenceWrites:
+    """The registry's listener legs, taken once as the lifecycle would take them."""
+    if id(reg) not in _TAKEN:
+        _TAKEN[id(reg)] = (reg, reg.take_writes())
+    return _TAKEN[id(reg)][1]
+
+
+def _presence(write: SessionWrite | None) -> str:
+    """The presence change of a renewal that found its session."""
+    assert write is not None
+    return write.presence
+
+
+def test_renew_if_registered_reports_a_revival_and_never_registers() -> None:
+    clock = _Clock()
+    reg = HubClientRegistry(clock)
+    conn = ConnectionId("mcp")
+    assert _writes(reg).renew_if_registered(conn, UNOBSERVED) is None
+    assert reg.sessions() == {}
+
+    _writes(reg).record(conn, _mcp(), UNOBSERVED)
+    assert _presence(_writes(reg).renew_if_registered(conn, UNOBSERVED)) == "unchanged"
+    clock.advance(1_000_000.0)
+
+    assert _presence(_writes(reg).renew_if_registered(conn, UNOBSERVED)) == "gained"
+
+
+def test_attaching_over_callbacks_revises_the_menu_though_presence_held() -> None:
+    reg = HubClientRegistry()
+    conn = ConnectionId("app")
+    app = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
+    _attached(reg, conn, app)
+    _writes(reg).register_callback(conn, _beads())
+
+    attachment = _writes(reg).attach(conn, app, _Leg(), UNOBSERVED)
+
+    assert attachment.slot == "attached_over_callbacks"
+    assert attachment.presence == "revised"
+
+
+def _lux(session: str) -> ClientIdentity:
+    return ClientIdentity(kind="mcp-session", name=session, repo="/w/lux")
+
+
+class TestDepartureReportsWhoseNameMoved:
+    def test_discard_reports_the_survivor_that_inherits_the_base_name(self) -> None:
+        reg = HubClientRegistry()
+        first, second = ConnectionId("first"), ConnectionId("second")
+        _writes(reg).record(first, _lux("a"), UNOBSERVED)
+        _writes(reg).record(second, _lux("b"), UNOBSERVED)
+        reg.named_sessions()  # the read that names them: lux, lux (2)
+
+        assert _writes(reg).discard(first) == frozenset({second})
+
+    def test_discard_of_a_junior_moves_nobody(self) -> None:
+        reg = HubClientRegistry()
+        first, second = ConnectionId("first"), ConnectionId("second")
+        _writes(reg).record(first, _lux("a"), UNOBSERVED)
+        _writes(reg).record(second, _lux("b"), UNOBSERVED)
+        reg.named_sessions()
+
+        assert _writes(reg).discard(second) == frozenset()
+
+    def test_discard_of_an_unknown_connection_moves_nobody(self) -> None:
+        assert (
+            _writes(HubClientRegistry()).discard(ConnectionId("ghost")) == frozenset()
+        )
+
+    def test_a_sweep_reports_both_who_lapsed_and_whose_name_moved(self) -> None:
+        clock = _Clock()
+        reg = HubClientRegistry(clock)
+        lapsing, staying = ConnectionId("lapsing"), ConnectionId("staying")
+        _writes(reg).record(
+            lapsing,
+            ClientIdentity(kind="cli", name="x", repo="/w/elsewhere"),
+            UNOBSERVED,
+        )  # its own name: shares nothing
+        _writes(reg).record(staying, _mcp(), UNOBSERVED)
+        reg.named_sessions()
+        clock.advance(91.0)
+
+        reaped = _writes(reg).reap_lapsed()
+
+        assert reaped.lapsed == frozenset({lapsing})
+        assert reaped.relabelled == frozenset()
+
+    def test_a_sweep_that_frees_a_shared_base_name_relabels_the_survivor(self) -> None:
+        clock = _Clock()
+        reg = HubClientRegistry(clock)
+        first, second = ConnectionId("first"), ConnectionId("second")
+        _writes(reg).record(
+            first, ClientIdentity(kind="cli", name="a", repo="/w/lux"), UNOBSERVED
+        )
+        _writes(reg).record(second, _lux("b"), UNOBSERVED)
+        reg.named_sessions()  # first = lux, second = lux (2)
+        clock.advance(91.0)  # the cli lapses; the mcp lease survives
+        _writes(reg).record(second, None, UNOBSERVED)  # a contact renews the survivor
+
+        reaped = _writes(reg).reap_lapsed()
+
+        assert reaped.lapsed == frozenset({first})
+        assert reaped.relabelled == frozenset({second})

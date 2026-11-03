@@ -20,12 +20,14 @@ from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 from punt_lux.domain.hub.frame_expiry import FrameExpiry
 from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )
 from punt_lux.domain.hub.store_lock import StoreLock
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 
 _OWNER = ConnectionId("sweep-owner")
 
@@ -110,7 +112,7 @@ class _StubFrames:
 
 def _seed(display: HubDisplay, scene: SceneId, *, ttl_seconds: float) -> None:
     display.show_scene(
-        _OWNER,
+        Scope.in_process(_OWNER),
         scene,
         [_WireLeaf(id=f"root-{scene}")],
         ScenePresentation(frame_id=str(scene)),
@@ -120,7 +122,8 @@ def _seed(display: HubDisplay, scene: SceneId, *, ttl_seconds: float) -> None:
 
 def test_sweep_marks_and_tears_down_a_due_frame() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     scene = SceneId("s")
     _seed(display, scene, ttl_seconds=5.0)
     marker = SpyMarker()
@@ -135,7 +138,8 @@ def test_sweep_marks_and_tears_down_a_due_frame() -> None:
 
 def test_sweep_marks_nothing_before_the_deadline() -> None:
     clock = FakeClock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
     _seed(display, SceneId("s"), ttl_seconds=5.0)
     marker = SpyMarker()
     sweep = ExpirySweep(display.frames, marker)
@@ -334,10 +338,10 @@ def test_run_expires_a_real_frame_end_to_end() -> None:
     fires (up to a generous window), proving the loop actually retires an armed
     frame through the real expiry path — not a stubbed one.
     """
-    display = HubDisplay()  # real monotonic clock
+    display = HubStoreFactory().display  # real monotonic clock
     scene = SceneId("real")
     display.show_scene(
-        _OWNER,
+        Scope.in_process(_OWNER),
         scene,
         [_WireLeaf(id="r")],
         ScenePresentation(frame_id="real"),
@@ -370,11 +374,11 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
     blink out. Without the cap the loop would sleep ~an hour and the short frame
     would linger; with it, the short frame retires within about the idle poll.
     """
-    display = HubDisplay()  # real monotonic clock
+    display = HubStoreFactory().display  # real monotonic clock
     far = SceneId("far")
     near = SceneId("near")
     display.show_scene(
-        _OWNER,
+        Scope.in_process(_OWNER),
         far,
         [_WireLeaf(id="f")],
         ScenePresentation(frame_id="far"),
@@ -387,7 +391,7 @@ def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
         task = asyncio.create_task(sweep.run())
         await asyncio.sleep(0.02)  # let the loop enter its (capped) first wait
         display.show_scene(
-            _OWNER,
+            Scope.in_process(_OWNER),
             near,
             [_WireLeaf(id="n")],
             ScenePresentation(frame_id="near"),

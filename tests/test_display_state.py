@@ -419,12 +419,13 @@ class TestMalformedMessageDisconnects:
         # Client should be disconnected, not crash
         assert sock not in server._socket_listener.clients
 
-    def test_unknown_message_type_keeps_client_connected(self) -> None:
-        """A client sending an unknown message type should NOT be disconnected.
+    def test_unknown_message_type_keeps_client_connected(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A client sending an unknown message type is NOT disconnected.
 
-        Unknown types return UnknownMessage passthrough, which _handle_message
-        logs and skips. This enables forward compatibility — old displays
-        gracefully ignore new message types from newer clients.
+        The frame is skipped undecoded and logged at WARNING with its type, so
+        an old display carries on beside a newer Hub's new message kinds.
         """
         import json
         import struct
@@ -441,9 +442,13 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._socket_listener._reader.read(sock)
+        with caplog.at_level("WARNING"):
+            server._socket_listener._reader.read(sock)
 
         assert sock in server._socket_listener.clients
+        assert "unknown type bogus" in caplog.text
+        assert server._socket_listener._registry.reader_for(sock.fileno()) is reader
+        assert reader.buffer_size == 0
 
     def test_known_type_missing_fields_disconnects_client(self) -> None:
         """A known message type missing required fields raises KeyError.

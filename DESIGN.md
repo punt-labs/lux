@@ -6267,7 +6267,8 @@ Every surface the Display aggregates — menus, frames/windows, scenes, and
 rung's key — never a label, never a bare Rung-2 id alone) and a **visible**
 title (`LuxAddress.title(...)`, hostname-anchored, a rung elided the
 moment it is unambiguous: `"Vox"` when solo, `"lux (2) :: Vox"` under one
-ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two). A single
+ambiguous Hub, `"pembroke :: lux (2) :: Vox"` under two; *amended by
+DES-100: the connection rung is never elided — `"lux :: Vox"` when solo*). A single
 Display-side `AddressBook` component computes rung ambiguity once per
 frame/menu build and is the one construction path every leaf renderer
 must use — mirroring DES-059's "one `MenuModel`, two projections" shape:
@@ -7268,3 +7269,651 @@ adds a standing tool against DES-040; the reserved `lux.menu` topic keeps the
 event self-identifying on the existing `recv` drain. (c) *B3 — enqueue and push
 when both exist* — double-delivers with no second consumer; the capability-fork
 is the principled hybrid, one item, one leg, chosen by how the owner connects.
+
+## DES-099: A Hub-Native Menu Command Must Carry the Frame It Opens, or a Second Click Is a Silent No-Op
+
+**Status:** Accepted, then narrowed by operator ruling (2026-10-22) — see
+"Ruling" immediately below; it supersedes the per-repo-group Details design
+that the rest of this entry analyses. Branch `fix/lux-ghhf-details-frame-id`
+(bead `lux-ghhf`, P1).
+
+**Ruling (operator, 2026-10-22).** A per-repo-group `Details` item that
+describes whichever connection is "senior" in the group is rejected: it
+reports an arbitrary process, so it answers no question the operator actually
+has. "Where did this window come from" is answered by the per-frame `i` glyph
+(the frame title-bar connection-info popup), which reports the frame's own
+canonical owner. The Clients-menu Details command is therefore narrowed to the
+one case the `i` cannot serve — a connection with no frame to click:
+
+- A Details entry exists **only for a connection that has zero registered
+  callbacks** (no applet menu items). A connection that registered any callback
+  gets no Details entry; its frames carry the `i`.
+- There is **one entry per such connection**, attached to that exact
+  connection — no seniority selection.
+- The entry is **named by the existing naming ADRs, not a new scheme** — never
+  a generic "Details", a "Details (2)", or the raw identity string
+  (`lux · ethos · #1f349f · z-spec`). Its menu label is the plain program
+  token (DES-064 point 3: the hierarchy carries the disambiguation), placed in
+  the connection's `(repo, session)` submenu (DES-067, whose collision
+  numbering — `ethos`, `ethos (2)` — tells sessions apart). Its window title is
+  the connection's DES-089 address title, built by the Display's `AddressBook`
+  (`LuxAddress.title`): a rung elided whenever unambiguous — `z-spec` alone,
+  `ethos (2) :: z-spec` beside another ethos session, Hub-prefixed across
+  Hubs.
+- The entry carries its composed `frame_id` (the mechanism below), so closing
+  the window and re-clicking reopens it without Clear All.
+- *Title amended by DES-100:* the connection rung is always shown, not
+  elided when unambiguous.
+
+**Amendment — where the connection comes from (operator, 2026-10-22).** The
+`i` popup and the Details window also report the connection's hosts — the one
+fact neither carried and the one an operator needs once clients and Hubs span
+machines:
+
+- **Client host** — the peer address the Hub observed on the connection's
+  transport when it connected (`127.0.0.1` locally, the remote address
+  cross-host). Recorded by the Hub at connect, never taken from the client's
+  declaration: the DES-090 rule that a self-reported host is not trusted
+  applies on this leg too.
+- **Hub host** — the frame's Hub by `HubId.hostname`, transport-verified for
+  a cross-host Hub (DES-090).
+
+Both ride the existing owner facts (`frame_owner_facts`) and the Details
+scene; no new message, no new mechanism. Rejected: a client-declared hostname
+(unverifiable, and the observed address answers the question); reverse DNS at
+connect (a blocking lookup on the accept path, for a name the address already
+identifies).
+
+The analysis that follows (why a Hub-native command must carry the frame it
+opens, and the shared `DetailsFrame` naming) still holds for that narrowed
+entry.
+
+**Symptom (operator-reproduced).** A window opened from a menu — `Clients →
+<repo> → Details`, or an applet item (`Beads`, `Vox`, `Z-Spec`) — opens on the
+first click. After the user closes it, re-clicking the *same* menu item does
+nothing. `Windows → Clear All` (which purges frame content) is the only
+workaround; the next click then opens a fresh window. `menu_ls` shows the
+asymmetry directly: `Beads` carries a `frame_id`
+(`238236c3faf1ada6␟beads-biff`), `Vox`/`Details` carry `frame_id: null`.
+
+**Diagnosis — confirmed for one root cause, one leg already fixed.** This is a
+DES-088 content-vs-visibility defect, but tracing the code shows the fix DES-098
+(`lux-m3xr`, PR #495, merged before this design) already closed it for every
+menu leaf that *carries* a `frame_id`. Two distinct mechanisms are in play, and
+only one of them is still broken:
+
+- **The raise mechanism itself (fixed, tested).**
+  `WireMenuDecoder._invoke` (`display/menus/wire_decode.py:73-94`) raises the
+  clicked item's frame **Display-locally, before** the click is even reported
+  to the Hub: `if target.frame_id is not None: handlers.raise_frame(...)`
+  (line 82-83) — `raise_frame` → `SceneReplica.raise_frame`
+  (`display/replica/scene_replica.py:105-107`) → `FrameBook.restore`
+  (`display/replica/frame_book.py:171-185`), which calls `Frame.restore()`
+  regardless of whether the frame is currently closed — exactly the un-close a
+  reopen needs. This path is exercised end-to-end, using the Hub's *real*
+  submenu-composition code (`ClientSubmenu`/`CallbackMenu`), by
+  `tests/display/test_menu_wire.py::TestTheFrameIdRoundTrip::test_a_click_raises_the_exact_id_a_real_frame_book_keys_the_frame_by`
+  (lines 271-322): it builds a session with a registered callback carrying a
+  raw `frame_id`, serializes the resulting `ClientSubmenu` to the wire, decodes
+  it Display-side, fires a real click, and asserts the raised id is
+  byte-identical to the key a real `FrameBook.ensure()` + `.close()` would use,
+  then asserts `book.restore(raised_id) is True`. **This is the Beads shape,
+  and it already passes on current `main`.** DES-088's opposite invariant — a
+  content resend must never re-raise a frame the user closed — is separately
+  covered by `tests/display/replica/test_scene_replica.py::test_a_replace_leaves_a_closed_frame_closed`
+  and `::test_a_new_scene_leaves_a_closed_frame_closed`. Neither test path is
+  touched by this design.
+- **The gap (unfixed).** A menu leaf's `frame_id` has to be known *at
+  menu-build time*, Hub-side, before any click happens — the raise is
+  Display-local and pre-emit, so the Display can only raise a frame it was
+  told about. `MenuAction(...)` is constructed in exactly two places in the
+  whole domain layer (`grep MenuAction( src/punt_lux/domain/hub/` returns only
+  these two): `ClientSubmenu._leaves()` (`domain/hub/client_submenu.py:60-74`),
+  which composes a real `frame_id` for every applet callback that registered
+  one (the Beads shape, above) — and `ClientSubmenu._details()`
+  (`domain/hub/client_submenu.py:76-82`), the Hub's own built-in `Details`
+  command, which constructs `MenuAction(id=..., label=_DETAILS_LABEL)` with
+  **no `frame_id` at all**, so it defaults to `None`
+  (`domain/hub/menu_action.py:45`). `Details` is answered entirely Hub-side
+  (`hub_interaction_dispatch.py:123-129` → `ClientDetailsPort.render_details`
+  → `ClientDetailsOperations.show_client_details`
+  (`operations/client_details.py:61-91`)), which installs the client's Details
+  scene into a **deterministic, stable frame**:
+  `DetailsScene.scene_id` = `f"lux.client-details.{connection_id}"`
+  (`operations/details_scene.py:30,47-50`), used as both scene id and
+  `ScenePresentation(frame_id=self.scene_id, ...)` (`details_scene.py:59-64`).
+  `SceneInstaller.install` (`operations/scene_installer.py:69`) then composes
+  that raw id against the owner via `ConnectionScopedId.compose` (the store
+  key `.scoped(owner)` produces) — the exact composition `ClientSubmenu._leaves()`
+  already performs by hand for applet callbacks
+  (`ConnectionScopedId.compose(member.connection_id, callback.frame_id)`,
+  `client_submenu.py:66-69`). Because `_details()` never performs the parallel
+  computation, the Display never learns which frame `Details` owns, the
+  pre-emit raise never fires (`target.frame_id is not None` is false), the
+  click still reaches the Hub and resends the *content* into the same
+  (now-closed) frame, and DES-088's own rule — a content event never writes
+  visibility — correctly, faithfully leaves it closed. The Hub answered the
+  click; nothing appeared; the user has no way to tell the difference from a
+  swallowed click.
+
+**The applet items — resolved live (2026-10-22).** The repro listed `Vox`,
+`Music`, and `Z-Spec` alongside `Details`. `menu_ls` on the live Hub showed every
+`Beads` item carrying a composed `frame_id` and every `Vox`, `Music`, `Z-Spec
+Browser`, and `Z-Spec Tutorial` item carrying `frame_id: null` — so the
+mechanism above was sound and the defect was in the applets' registration, in
+their own repos. vox and z-spec registered their callbacks without a
+`frame_id`, then tried to compensate after each click with
+`client.frame.raise_`, an operation DES-088 removed (PR #446); luxd answered
+404 and the window stayed closed. That PR also removed the raise without the
+coordinated applet update the rename-train rule
+(`punt-kit/standards/architecture.md`) requires. Both applets were fixed in
+their repos — register `frame_id="vox.music"` / `"vox.panel"` /
+`"z-spec-picker"` / `"z-spec-tutorial"` and delete the dead raise calls — and
+the operator confirmed close-then-reopen from the menu, without Clear All, for
+Music, Vox, and Z-Spec against lux `main`. `Details` is the one remaining
+`frame_id: null` item, and it is lux's own.
+
+**Decision.** Give `Details` — the one Hub-native command that opens a
+deterministic frame — the same treatment `_leaves()` already gives every
+framed applet callback: compute its real, composed frame key at menu-build
+time and carry it on the `MenuAction`. Do this without duplicating the
+`"lux.client-details.{connection_id}"` naming convention, which today lives
+only in `operations/details_scene.py` — a layer `domain/hub/` may not import
+from (`operations → domain`, PY-IC-9; the reverse is a layering violation,
+PL-MD-1). Extract the naming convention itself down into a small value class
+in the domain layer that both `operations/details_scene.py` (which needs the
+raw id) and `domain/hub/client_submenu.py` (which needs the raw id composed
+against the owner, exactly as `SceneInstaller.install`'s `.scoped(owner)` will
+compose it) can share — one definition of "the frame a client's Details lives
+in," read from two call sites instead of typed twice.
+
+**Write set (design-phase output; the implementer owns exact shaping):**
+
+*As built.* The write set below predates the operator's ruling and is kept as
+the design record. The shipped shape differs where the ruling removed
+seniority: there is no `ClientSubmenu._details()`. `MemberEntries` gives each
+callback-less connection one entry of its own, and that entry and the Details
+scene share one `DetailsFrame` value (`domain/hub/details_frame.py`, tested
+in `tests/domain/test_details_frame.py`).
+
+- **New:** `src/punt_lux/domain/hub/details_frame.py` — a small `@final`
+  frozen value class (e.g. `DetailsFrame`) wrapping one `ConnectionId`, exposing
+  the raw id (`f"lux.client-details.{connection_id}"`) and the store-scoped id
+  (`ConnectionScopedId.compose(connection_id, raw_id)` — the exact key
+  `SceneInstaller.install` produces for it). This is the one place the naming
+  convention is spelled out.
+- **Modify:** `src/punt_lux/operations/details_scene.py` — `DetailsScene.scene_id`
+  delegates its raw-id computation to the new class instead of re-deriving
+  `f"{_SCENE_PREFIX}.{connection_id}"` inline (`_SCENE_PREFIX` stays for the
+  table sub-element id, a separate concern).
+- **Modify:** `src/punt_lux/domain/hub/client_submenu.py` — `_details()` sets
+  `frame_id=` the new class's scoped id for `senior.connection_id`, mirroring
+  `_leaves()`'s existing composition.
+- **New/modify tests:**
+  - `tests/domain/hub/test_details_frame.py` (or co-located with an existing
+    `client_submenu`/`session_callback` test file) — unit coverage for the new
+    value class: raw id shape, scoped id shape, and that the scoped id matches
+    `ConnectionScopedId.compose` byte-for-byte (boundary: two different
+    `connection_id`s never collide; invalid: no invalid input surface beyond
+    what `ConnectionId` already validates).
+  - `tests/domain/hub/test_client_submenu.py` (or wherever `ClientSubmenu` is
+    currently tested) — assert `_details()`'s `MenuAction.frame_id` is no longer
+    `None`, and equals the new class's scoped id for the same connection.
+  - `tests/display/test_menu_wire.py` — a new test in the
+    `TestTheFrameIdRoundTrip` class, shaped exactly like
+    `test_a_click_raises_the_exact_id_a_real_frame_book_keys_the_frame_by` but
+    for a session with **no registered callbacks** (only `Details` shows): build
+    `ClientSubmenu`/`CallbackMenu` from a real named session, wire-roundtrip,
+    decode, click, and assert the raised id equals
+    `ConnectionScopedId.compose(conn, DetailsScene.scene_id-equivalent)` — the
+    "open → close → re-click reopens, without Clear All" regression this design
+    exists to close. Pair it with a boundary case (a session with *both* a
+    registered callback and `Details` — assert each raises its own, distinct
+    frame) and an invalid/missing case (a click naming a connection the Hub no
+    longer holds — already covered by `DetailsRefused`/`_no_client`
+    (`operations/client_details.py:93-98`); confirm no exception on the
+    Display-side raise for that same scenario, since the raise is
+    Display-local and does not know the Hub will refuse the click).
+  - Do **not** touch `test_a_replace_leaves_a_closed_frame_closed` /
+    `test_a_new_scene_leaves_a_closed_frame_closed` — the resend-never-raises
+    half of DES-088 is untouched by this change and must keep passing
+    unmodified as the regression guard that the fix does not weaken it.
+
+**Z-spec determination: NOT z-spec class.** This is a sequential Hub-side
+computation — a menu-composition function starts returning a populated string
+field instead of `None` — feeding an *existing, already-proven* mechanism
+(the pre-emit Display-local raise, and the resend-never-raises fork) that
+introduces no new lock, no new ordering, and no new interleaving. It does not
+touch the D21 handler-dispatch fork, the DES-098 `HubMenuRegistry`
+concurrency/departure machinery already modeled in `menu_lifecycle.tex` /
+`menu_lifecycle_delivery.tex`, or the DES-088 visibility state machine modeled
+in `frame-visibility-lifecycle.tex` — it only changes which value is fed into
+inputs those models already treat as arbitrary strings. Per the repo's z-spec
+tripwire rule: if the applet-callback shape (resolved live above) ever turns
+up a genuine new hazard — e.g. a connection-churn race
+between a lease reap minting a new `connection_id` and a menu click still
+carrying the old one's composed `frame_id` — that would be a *new*, separate
+concurrency question, to be modeled on its own bead once reproduced, not
+folded into this data-plumbing fix.
+
+**Test plan summary (happy / invalid / boundary):**
+
+- Happy: `Details` click on a closed Details frame re-raises it, end-to-end,
+  proven the same way the Beads shape already is.
+- Happy: a session with both a callback and `Details` — each raises only its
+  own frame; no cross-talk.
+- Boundary: two different clients' `Details` frames never collide (already
+  guaranteed by `ConnectionScopedId`'s per-connection composition; add a
+  two-connection assertion to the new value-class test).
+- Invalid/missing: a `Details` click for a connection the Hub no longer holds
+  — the existing `DetailsRefused` path is unaffected; add a Display-side
+  assertion that raising a frame id for a frame the Display has never seen
+  (`FrameBook.restore` returns `False`) is a silent, safe no-op, not an
+  exception — already true of `FrameBook.restore`'s contract but worth pinning
+  for this specific caller.
+- Regression guard: the two existing "resend never re-raises a closed frame"
+  tests keep passing unmodified.
+
+## DES-100: The Connection Rung Is Always Shown — Every Owned Frame Carries Its Session Label
+
+**Status:** SETTLED (operator ruling, 2026-10-22). Amends DES-089's elision
+rule for the connection rung only. Bead `lux-xrli`. Design:
+`docs/architecture/connection-rung-design.md`.
+
+**Problem.** Two sessions in one repo on one Hub produce frames with
+identical titles (`claude`, `Vox`). DES-089 specifies a connection rung
+(`lux (2) :: Vox`) but the Display never received its label:
+`AddressRendering.title_for` hard-coded `connection_ambiguous=False`, and
+`AddressBook.connection_ambiguous` counted Display-to-Hub links, never a
+Hub's clients.
+
+**Ruling.** DES-089 elides a rung "the moment it is unambiguous". For the
+connection rung that is wrong: the same applets run in many repos by design,
+so a bare `Beads` or `Vox` never says whose window it is, even when it is the
+only one. Every frame with an owning session shows its session label —
+`lux :: Beads`, `vox :: Vox`, `lux (2) :: Vox` — with one session or many.
+The Hub rung keeps DES-089's rule (elided while one Hub is connected,
+`pembroke :: lux :: Vox` across two).
+
+**Decision.** `SceneMessage` carries `frame_scope_label: str | None`, the
+DES-064/067 roster name of the frame's canonical owner, resolved with the
+same canonical-owner rule as `frame_owner_facts`. The Display composes
+`label :: title` whenever the label is present; there is no ambiguity test
+for this rung. The label is visible text only: `hidden_id` is unchanged, so
+window position and state survive a relabel. A roster release that moves a
+survivor's label (DES-064 renumbering), and identification, mark that
+connection's scenes dirty outside the registry lock; the normal replicator
+resend carries the new label. Windows menu and dock pills render the same
+title through the one `AddressRendering` seam.
+
+**Optional, not required.** Absence has one meaning shared with
+`frame_owner_facts` — the Hub has no name for the owner (an anonymous
+`show()`) — and such a frame stays plain. DES-089's `hub_id` correction
+(every sender can populate it) does not apply.
+
+**Alternatives rejected.** Showing the rung only on a title collision
+(DES-089's elision; the design's first draft) — leaves single-repo frames
+unattributed, which is the common case the ruling targets. A Hub-composed
+full title (duplicates `LuxAddress`, cannot see the Hub rung). A per-scene
+label (a frame's title would follow the last scene sent). Polling the roster
+for label changes (the dirty signal already carries every other content
+change).
+
+**Consequences.** Hub-to-Display only; vox and z-spec unaffected. Additive
+wire field, no coordinated release. Not a z-spec candidate: no new lock, no
+new interleaving, convergence by the existing dirty-then-fresh-read rule.
+
+## DES-101: The Client Door Is a Lifecycle Callers Hold, Not a Store They Ask
+
+**Status:** SETTLED (leader-ruled 2026-10-22; mission m-2026-10-22-034,
+evaluator rmh accepted). Bead `lux-ghhf`. Design:
+`docs/architecture/hub-display-narrowing.md`.
+
+**Context.** The menu-presence fix (`docs/menu_presence.tex`) made every
+change to who the Clients menu lists one `ClientLifecycle` step under the
+store lock. `HubDisplay` still fronted that step through eleven forwarding
+members. That pushed `hub_display.py` to LCOM 0.737 and 27 imports,
+regressing a file already over the 0.5 cap, which DES-096 cannot bless. The
+operator's bar was SOLID design with ratchet numbers as signals. Three
+attempts that moved the number without improving the design were rejected:
+a `StoreLookups` grab-bag, a `HubParts` bundle reached through
+`HubDisplay.parts`, and per-verb scene commands that pushed `facade.py` past
+its cap.
+
+**Decision.**
+
+- **`HubDisplay` has no client member.** Each consumer is constructed with
+  the concrete class it uses: `ClientLifecycle` for door writes,
+  `HubClientRegistry` for door reads, `ListenerLegs` for listen legs. No new
+  Protocol, no bundle, no reach-through.
+- **The store owns its contact rules.** `HubDisplay.writing_as(connection)`
+  renews the caller and holds the store lock for a write. `arriving_as`
+  arrives the caller and holds the same lock across the show path.
+  `apply`'s prologue (renew, then depart the lapsed) is unchanged
+  (`connection_lease_reaping.tex` I6). The Details install path goes through
+  `SceneInstaller` directly and never arrives the client it inspects.
+- **One composition root.** `HubStoreFactory` builds the shared `StoreLock`
+  and `OwnerTracker`, then the door, then the store over them. Neither side
+  can create a shared primitive alone. The process singletons
+  (`hub_display`, `hub_lifecycle`, `hub_clients`) are exported by name from
+  that module.
+- **`ClientLifecycle.exclusive()`** returns the store write lock, for the
+  two callers (`ws_listen`, `inbox.ensure_writer`) that hold the door's
+  compound section without a store.
+
+**Invariants kept.** menu_presence P1/P2: the registry's presence-changing
+writes are called only from `ClientLifecycle`, except `register_callback` and
+`detach`, tracked in bead `lux-s9rl` to be modeled first. The
+store-then-registry lock order and the DES-098 D3 edge gain no new edge.
+`arriving_as` runs the submission gate, scoping and `mark_dirty` under the
+store lock, and the dirty signal is a leaf.
+
+**Ratchet outcome.** `hub_display.py` efferent 26 → 21 and LCOM 0.636 →
+0.580. Consumers that now name their collaborators show small within-cap
+growth in parameters and size, each blessed per file under DES-096/097 with
+a recorded reason. The classless `store_instance.py` failed the strict
+new-file rule and was folded into `hub_store_factory.py`.
+
+**Rejected.** `StoreLookups` (a second read facade forwarding to `HubReads`,
+plus a service locator). `HubParts` (a bundle handed out for callers to reach
+through). Forwarding methods on `HubDisplay` (the wide facade that caused the
+regression). Eleven single-method port Protocols (over-engineering; a fake one
+method shorter is no reason for a type). An AST confinement guard (guards a
+design already deleted). Per-verb scene commands in this unit (pushed
+`facade.py` over its cap; the Command conversion and the naming of
+`Operations`/`Concerns` belong to bead `lux-x4ex`, across all concerns at
+once).
+
+**Consequences.** Constructors name what they use. Narrowing `HubDisplay`'s
+scene reads, frames, writer and quarantine forwards remains `main`'s
+wide-facade debt and is a separate unit.
+
+**Amendment (2026-10-23, leader, after local review): the callback route is a
+lifecycle step too.** Review falsified the exception above. An applet earns
+its entry only by registering a callback, and that write ran under the
+registry lock alone, binding no departure sink, so a stalled applet's entry
+outlived its lease (P1 and P2 broken). The model (`docs/menu_presence.tex`,
+jms, accepted by jra in round 2, with fidelity controls `inv1`, `inv1b`,
+`inv2` and `redeclare`) now covers the callback route, and the code follows
+it.
+
+- **Callback steps.** `ClientLifecycle.register_callback` and
+  `ClientLifecycle.detach` are store-locked steps that settle presence through
+  the same announce, so they mark and bind the one shared sink. This
+  supersedes the `register_callback`/`detach` exception in "Invariants kept"
+  above, and the Decision's "`ListenerLegs` for listen legs": only
+  `ClientLifecycle` holds `ListenerLegs` now, handed to it once by
+  `HubClientRegistry.take_legs()`. `CallbackOperations`, `ws_listen` and
+  `ws_transport` take `ClientLifecycle` instead.
+- **The withdrawal rule is stated once, in `MenuListing`.** A session that
+  earned an entry before, ignoring the lease, and no longer earns one reads
+  `revised` whatever the lease says. A gain still reads the lease. One rule
+  covers a detach, a re-attach that drops callbacks, and re-identifying as a
+  non-agent.
+- **Revival marks the session's scenes, keyed on the lapse ending**
+  (`SessionWrite.revived`), not on the menu's `gained`. A CLI session has a
+  label but no entry.
+
+Builds on DES-057 and DES-058 (leases), DES-064 and DES-067 (roster naming),
+DES-094, DES-098 (menu lifecycle), DES-099, DES-100 (the label a revival
+re-sends) and this entry. Bead `lux-s9rl` is closed by it.
+
+**Amendment (2026-10-23, review round 2).** The presence write surface is
+named for what it does, and the registry is a read port for presence. This
+supersedes the names in the Decision and in the callback-steps amendment
+above, and changes two things in substance: the withdrawal rule now counts a
+session's listed entries (below), and a second take of the write surface is a
+`ValueError`.
+
+- **`PresenceWrites` replaces `ListenerLegs`.** The presence writes (record,
+  renew, discard, reap the lapsed, attach, register and withdraw a callback)
+  live on `PresenceWrites`. `HubClientRegistry` has no method that changes a
+  session; its one remaining side effect is naming, since a read assigns a
+  roster name to a newly identified connection the first time it is listed.
+  `ClientLifecycle` takes the write surface once with
+  `HubClientRegistry.take_writes()`; a second take raises `ValueError`.
+  In `src/`, `PresenceWrites` is imported only by the registry that builds it
+  and the lifecycle that holds it.
+- **`ClientLifecycle.register_callback` takes no expected leg.**
+  `PresenceWrites.register_callback` reads its own slot for the connection
+  and answers `superseded` when there is none, so the compare-and-set read
+  of `listener_for` is gone.
+- **A Hub-internal act under an owner's name is not contact.**
+  `Scope.on_behalf_of` names it; `ClientLifecycle.contact(scope)` renews only
+  a real contact, so the Details install and a root self-removal no longer
+  revive a lapsed client. Every `Scope` carries one closed `Provenance`
+  (observed, in process, on behalf of, client side), set by a named
+  constructor; there is no host default.
+- **The menu departure sink has value equality**, so the two compositions
+  luxd builds bind one sink (P2).
+- **The withdrawal rule compares entries.** `MenuListing` compares the
+  callback entries a session lists, not only whether it earns a listing, so
+  any change to them reads `revised`; the per-write overrides that restated
+  this are gone.
+
+## DES-102: A Display Dial Is a Generation — Replies Reach Only the Dial That Asked
+
+**Status:** SETTLED (operator-ruled 2026-10-23, Option A; models accepted by jra:
+mission m-2026-10-23-024 for `docs/listener_lifecycle.tex`, mission
+m-2026-10-24-010 for `docs/listener_locks.tex`). Implementation mission
+m-2026-10-24-009 (worker rmh, evaluator gvr). Bead `lux-ghhf`. Builds on
+DES-093 (redial and pacing stay in `ClientRegistry`), DES-090 (the
+generation sits above the transport, TLS or not) and DES-101 (a lifecycle
+step is one operation under one lock).
+
+**Context.** The Hub held one `DisplayConnection` that every redial reused,
+one listener thread, and one reply router shared across dials. A listener
+that could not be stopped within its join timeout was abandoned and kept
+reading its old socket into the shared router. On a read failure or a
+malformed frame it called the broken-connection handler, which judged by
+`connection.is_open` (the current, replacement socket) and so closed the new
+connection and failed its waiters. Pongs and acks were matched by kind
+alone, so a late reply from a dead dial could satisfy a waiter on the live
+one. The defect class recurred across review rounds, so it was modelled
+(DES-038) before any code changed.
+
+**Decision.**
+
+- **One dial, one generation.** `DialGeneration` owns the socket, its frame
+  buffer, the socket lock `_lock`, its `ReplySink`, and the one reader slot,
+  and writes and reads only its own socket. It is retired whole: once retired
+  it delivers no reply and routes nothing further it reads (the amendment
+  below states the event rule exactly). Its counter is distinct from
+  DES-093's reconnect generation, which still paces redials.
+- **`DisplayConnection` knows only which dial is current.**
+  `close_if_current(g)` is the one retire step: a no-op unless `g` is
+  current, atomic with publication under the state lock. A reader reports
+  its own end through it, so an abandoned reader can never close a
+  successor.
+- **Replies reach only the dial that asked.** `ReplySink` holds what one dial
+  is owed. Acks are matched by a per-generation ledger in write order that
+  includes un-awaited replicated scenes, with a mandatory `scene_id`
+  cross-check (`ReplyOutOfOrderError`). Pongs are matched by a strictly
+  increasing timestamp and never retire. One query is in flight. Routing
+  never skips a reply.
+- **Only a query timeout retires, at the request layer.** (The keepalive
+  and the isolation probe give a dial up as unresponsive; see the
+  amendment.) A ping that times out, or a request-lock
+  wait that expires, sends and retires nothing; a ping that loses the lock is
+  `DisplayBusyError`, which liveness counts as alive. A write that raises
+  after its ledger entry retires its generation.
+- **One request lock per reply kind** (`DisplayRequests`), held across write
+  and wait, so a slow query no longer blocks a ping.
+- **`DisplayLink` coordinates; it does not forward.** It owns the dial's
+  lifecycle (`connect`, `close`, the listener) and exposes two typed,
+  read-only ports: `link.requests` (`DisplayRequests`) and `link.events`
+  (`DisplayListener`). Callers reach the port they need; nothing forwards a
+  request or event method.
+- **The display never drops a reply on a live connection.**
+  `SocketListener.reply_to_client` ends the client's connection when a reply
+  cannot be sent; events and `ReadyMessage` keep the hold-and-retry
+  semantics of `send_to_client`. The rule lives on the listener because it
+  already owns the defer policy and `remove_client`; a separate object owned
+  nothing but a back-reference to it.
+- **Lock order:** request lock, then state lock, then `_lock`, then the
+  reply-sink lock (a leaf). Proven deadlock-free at two and three threads in
+  `docs/listener_locks.tex`; the inverted control deadlocks. Two locks sit
+  above the model, `ClientRegistry._lock` and the store lock, and no model
+  lock is held while taking either: a query's timeout retire is
+  `close_if_current(g)` and never calls `ClientRegistry.drop()` under its
+  request lock.
+- **What ends a wedge.** A display that stops reading produces no end of
+  file, so nothing reports. Every generation's socket carries the one-second
+  send timeout (applied as one to two seconds by platform); a send that
+  times out raises, retires its generation, and releases every writer queued
+  behind it.
+
+**Rejected alternatives.** (a) Keep one connection and fence the abandoned
+listener with a stop flag only: the flag is read before a blocking `recv`,
+so a reader past the check still routes and reports into the successor.
+(b) Correlate replies with a request id on the wire (Option B): correct, but
+a protocol change both tiers and every client would carry, when per-dial
+generations close the defect with no wire change; the operator chose A.
+(c) Retire on any timeout: a slow-but-live display would be torn down by a
+ping, and a lock-wait expiry would retire a dial that never sent. (d) Keep the reply discipline in its own `ClientReplies` class: it
+owned no state but a back-reference, and pushed `socket_server.py` past the
+efferent-coupling cap.
+
+**Amendment (2026-10-25, final review round 4).** The review found the
+DES-102 defect class one layer up, and four gaps in the rules as written.
+These rulings bind the implementation; the registry and retirement rules
+are added to `docs/listener_lifecycle.tex`.
+
+- **The registry closes only the dial that failed.** A caller that saw its
+  dial fail passes that generation to `ClientRegistry.drop(g)`, which closes
+  only if `g` is still current. No request path drops the link
+  unconditionally, so a predecessor's failure never closes a successor.
+- **A retired generation never delivers a reply.** Retirement and delivery
+  are ordered under the sink lock, and a reader stops routing once its
+  generation is retired. Events and interactions are link-level, not
+  generation-level: an event already routed before the retire is delivered,
+  even if it runs afterwards (held interactions run when the request lock is
+  released); the undecoded rest of a chunk the retired dial had read is
+  dropped.
+- **The lock wait and the reply wait are separate budgets.** A request-lock
+  wait that spends its budget raises `DisplayBusyError` and sends nothing;
+  once the lock is held, the reply wait gets its full timeout from the send.
+  A query that queued behind another no longer sends and then retires a
+  live dial.
+- **Busy is one signal.** `show`, `query` and `ping` all raise
+  `DisplayBusyError`; the operations layer reports it as a timeout fault
+  without dropping, and liveness marks the display connected on every probe
+  path.
+- **A reply nobody is owed is skew.** An ack with an empty ledger, or a query
+  response with none in flight, retires the dial like an out-of-order ack.
+- **The retire cause follows who ended the dial.** The display ended it on
+  end of file, a reset or broken pipe, a malformed frame, or a send that
+  timed out against a display that stopped reading. The Hub ended it on a
+  query timeout, a reply skew, or its own drop. A write woken by a Hub-side
+  retire raises the Hub's closed error, never a display death.
+- **A display death is charged from the dead dial's own record.** When the
+  display ends a dial, the suspects are the scenes written to that dial and
+  not yet acked, captured from its ack ledger in the same hold as the closed
+  mark. The connection queues that suspect set and hands it over once,
+  whichever party discovered the death (the reader, the keepalive, an MCP
+  tool's redial, or the replicator), and the replicator charges every
+  pending death before each push and on its idle tick. A Hub-ended dial
+  queues nothing, and an empty ledger (a deliberate stop while idle)
+  charges nothing; a dial is charged at most once, and a later death on a
+  new dial is charged again. Modelled in `docs/crash_attribution.tex`
+  (A1, A1w, A2–A4, and a fidelity control per defect).
+- **An ack means a frame survived the scene.** The display installs a scene
+  on receipt but holds its ack. It sends every held ack, in receipt order,
+  after the next completed buffer swap, whether or not the scene was visible.
+  A scene that crashes its install or the frame after it is still unacked
+  when the dial ends, so it is a suspect. An ack sent on receipt let a scene
+  that crashed while painting go uncharged; the review found it, and the
+  `ack_on_receipt` control reproduces it.
+- **Suspects outlive a Hub-ended dial.** The display keeps a departed dial's
+  scenes installed, so a scene held unacked when the Hub retires its dial can
+  still crash the display on the next one. A Hub-ended dial's unacked
+  scenes therefore join a carried suspect set. An ack read on any later dial
+  clears it, because that ack follows a swap after every scene the display
+  already held. A display-ended death charges its own ledger together with
+  the carried set. A Hub-ended dial itself still charges nothing.
+- **Every ack the display sent is read before the ledger is captured.** A
+  display-ended capture is taken by the dial's own reader, after a
+  non-blocking drain and after every complete frame it holds is delivered,
+  and before the socket is shut. A scene whose ack was in flight is therefore
+  not charged. Reading to end of file cannot do this, because a live display
+  never sends one.
+- **Unresponsive is its own cause.** A dial the keepalive or the isolation
+  probe gives up on may belong to a display that is still alive. Its
+  suspects are queued for charging, as for a display death, and also
+  carried, as for a Hub end, since the display can outlive the dial. A scene
+  can therefore be struck when a loaded display misses its pings; the
+  quarantine threshold and the isolation probe bound that cost, which is
+  preferred to a display death that is never attributed. A busy display is
+  waited out, never counted as a death.
+- **The isolation probe waits on the ack.** It releases the next scene only
+  once the previous scene's ack has been read, never on a pong. The death
+  queue has no bound that drops a death.
+- **Bounds.** A scene the user brings into view later (a background tab or
+  a restored frame) is acked before it is first painted, so a crash then is
+  not attributed. In batching mode a death may charge every scene written
+  since the last ack read, plus the carried set. With several Hubs on one
+  display, another Hub's poison scene can strike this Hub's scenes.
+  Clearing the carried set on an ack needs an earlier dial's scenes to be
+  installed before a later dial's; DES-068 preemption on connect and the
+  gate on unidentified sockets, both keyed on the Hub id, provide that
+  ordering on every transport that keeps them. A dial another party ended
+  stays current until its reader settles it, so for up to one poll and its
+  drain a request can still be pinned to it and fail as closed. The
+  isolation probe needs the display to complete a frame within its wait;
+  a minimised or occluded window that stops swapping is given up as
+  unresponsive and its unacked scenes are charged. A display that dies
+  while no dial is live is not observed; its suspects stay carried, and if
+  an ack on the next display's dial clears them first, that death goes
+  unattributed.
+- **Settlement belongs to the holder of the reader slot; everyone else
+  asks.** Modelled in `docs/dial_settlement.tex` (S1-S5, a fidelity control
+  per defect), after the end-and-capture race recurred across four review
+  rounds. The slot hands its holder the only object that can settle.
+  - A display or unresponsive end records its cause, and the first cause
+    wins.
+  - A Hub end records nothing. It requests a settle, and it refuses writes
+    and fails waiters at once.
+  - An ask refused because the slot is held leaves a debt, in the same
+    critical section as the refusal. Every release of the slot honours the
+    debt, in the same critical section as the release.
+  - The settler drains to the point of blocking, then fixes the cause with
+    a first-wins record: end of file means display, a pending Hub request
+    means hub, and otherwise the recorded cause stands. If a display or
+    unresponsive end was recorded after the drain began, it drains again
+    before it captures.
+  - Bound: if the holder has not settled within the stop join (2 s), any
+    refused asker records its cause, first wins, and captures. A Hub
+    capture charges nothing and carries its scenes. A display or
+    unresponsive end captured this way is undrained, so it may charge
+    scenes whose acks were never read; that over-charge is accepted, as the
+    stalled holder already cost a bounded wait. Decode-error ends also capture without a drain,
+    because nothing past an undecodable frame can be read. A live display
+    may still ack after any drain, within one drain-to-capture gap.
+  - A peek for a pending end of file cannot replace the drain: an ack
+    queued ahead of the display's close hides the close.
+  - A display that dies while a Hub request is pending, when the holder
+    has not settled within the bound, is captured by the bound as a Hub
+    end: its suspects are carried, and a later ack read clears them, so
+    that poison death goes uncharged. If the holder settles, a display that
+    died before its drain is recorded as display and charged.
+  - The drain's claim to have read everything a dead display sent holds for
+    the same-host Unix socket only. Over TLS, the cross-host transport, a
+    reset can discard an ack already queued, so that acked scene is charged.
+    A reset counts as end of file on either transport.
+- **The wire nesting limit follows from the scene depth cap, at the one
+  write seam.** Every element write (show, update, a property set) passes
+  the cap in the seam all writes share. A write that does not deepen the
+  written element's own wire form is not re-measured; one that does is
+  judged with the whole scene. The frame guard's nesting limit is the cap
+  plus the largest message envelope, so no reply for an accepted scene is
+  refused on the wire.
+- **Restricted acts are capabilities.** Writing to the display, releasing a
+  roster name, writing the beads board and sending a display reply are each
+  an object built in one place and handed only to its owner, so the code
+  cannot perform the act without it. The guard tests check the one place
+  each is built, rather than trying to spot every call. The registry hands
+  its callers the ask port only (`ClientRegistry.asks()`), never the link:
+  the manifest is declared inside the link's own connect step and closing
+  is the registry's alone. The guards catch an accidental regression in any
+  ordinary spelling, aliases included; deliberate obfuscation is code
+  review's job.

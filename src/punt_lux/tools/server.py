@@ -9,9 +9,16 @@ session's task is spawned; absent that binding it stays at the default.
 from __future__ import annotations
 
 import logging
-from contextvars import ContextVar, Token
+from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
+
+from punt_lux.client_host import UNOBSERVED
+from punt_lux.tools.session_binding import SessionBinding
+
+if TYPE_CHECKING:
+    from punt_lux.client_host import ClientHost
 
 logger = logging.getLogger(__name__)
 
@@ -45,21 +52,32 @@ mcp = FastMCP(
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
-def bind_session(session_key: str) -> Token[str]:
-    """Bind the calling context to an MCP session identity; return the reset token.
+# The host the transport observed when the session's task was spawned. Unobserved
+# on stdio and in-process calls, which have no peer; the row then reads "unknown".
+_client_host: ContextVar[ClientHost] = ContextVar("client_host", default=UNOBSERVED)
+
+
+def bind_session(session_key: str, client_host: ClientHost) -> SessionBinding:
+    """Bind the calling context to an MCP session; return the binding to release.
 
     luxd's transport leg binds a session before the SDK spawns its task, so the
-    copied task context carries the identity to every tool and the cleanup
-    cascade. The returned token releases the binding via :func:`unbind_session`.
+    copied task context carries the identity -- and the peer observed at connect
+    -- to every tool and the cleanup cascade. The returned binding releases both
+    via :func:`unbind_session`.
     """
-    return _session_key.set(session_key)
+    return SessionBinding(_session_key.set(session_key), _client_host.set(client_host))
 
 
-def unbind_session(token: Token[str]) -> None:
+def unbind_session(binding: SessionBinding) -> None:
     """Release a session binding created by :func:`bind_session`."""
-    _session_key.reset(token)
+    binding.release()
 
 
 def current_session() -> str:
     """The MCP session identity bound to the calling context."""
     return _session_key.get()
+
+
+def current_client_host() -> ClientHost:
+    """The host observed when the calling context's session connected, if any."""
+    return _client_host.get()

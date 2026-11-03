@@ -164,3 +164,19 @@ def test_clear_prevents_a_recycled_fd_from_inheriting_a_departed_identity() -> N
     assert registry.kind_of(10) is None
     assert registry.hub_id_of(10) is None
     assert registry.hub_fd_for(_HUB) is None
+
+
+def test_report_lists_each_client_with_its_name_and_how_long_it_has_been_here() -> None:
+    registry = ClientRegistry()
+    registry.identify(10, kind="hub", name="lux-mcp", hub_id=_HUB, connect_time=1.5)
+
+    clients = registry.report()["clients"]
+
+    assert isinstance(clients, list)
+    (client,) = clients
+    assert (client["connection_id"], client["name"]) == (10, "lux-mcp")
+    assert client["connected_seconds"] > 0
+
+
+def test_report_of_no_clients_is_an_empty_list() -> None:
+    assert ClientRegistry().report() == {"clients": []}

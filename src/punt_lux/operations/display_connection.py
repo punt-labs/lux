@@ -5,7 +5,7 @@ reaches into the Hub for a liveness check (so a query short-circuits when no
 display is running) and the connection registry that owns the socket, keeping
 the one dependency arrow pointing operations -> domain.
 
-There is no intra-call retry: a failed round-trip drops the dead connection
+There is no intra-call retry: a failed round-trip drops the dial it failed on
 and returns a typed fault, mirroring the replicator's drop-then-reconnect
 discipline. Every outcome folds into a :class:`DisplayReply`.
 """
@@ -15,6 +15,9 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.display_busy import DisplayBusyError
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
@@ -25,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.hub.clients import ClientRegistry
+    from punt_lux.domain.hub.display_requests import DisplayRequests
     from punt_lux.operations.display_reply import DisplayReply
 
 __all__ = ["HubDisplayConnection"]
@@ -50,27 +54,22 @@ class HubDisplayConnection:
         """Proxy a query over one bounded attempt; never raise, never hang.
 
         The socket's send timeout bounds the round-trip: a wedged or dead peer
-        raises ``OSError`` within the limit. Reconnecting can itself fail — the
-        display can die between the liveness check and ``get``, so ``connect``
-        raises ``RuntimeError`` — and that is the same "no display" fault. Either
-        way the dead connection is dropped so the next call reconnects, and a
-        ``None`` reply is the receive-side timeout.
+        raises ``OSError`` within the limit. Reconnecting can itself fail -- the
+        display can die between the liveness check and ``asks`` -- and that is the
+        same "no display" fault. A failed round trip drops only the dial it was
+        made on, so the next call reconnects; a ``None`` reply is the receive-side
+        timeout, and so is a request that lost the lock to another of its kind.
         """
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
-        try:
-            response = self._clients.get().query(method, dict(params))
-        except OSError:
-            self._clients.drop()
+        outcome = self._round_trip(lambda port: port.query(method, dict(params)))
+        if isinstance(outcome, DisplayFault):
+            return outcome
+        if outcome is None:
             return DisplayFault(code="timeout")
-        except RuntimeError:
-            self._clients.drop()
-            return DisplayFault(code="display_unavailable")
-        if response is None:
-            return DisplayFault(code="timeout")
-        if response.error:
-            return DisplayErrored(message=response.error)
-        return DisplayReplied(payload=response.result)
+        if outcome.error:
+            return DisplayErrored(message=outcome.error)
+        return DisplayReplied(payload=outcome.result)
 
     def ping(self, wait: float | None) -> DisplayReply:
         """Round-trip a ping bounded by ``wait`` seconds; return the rtt.
@@ -82,22 +81,42 @@ class HubDisplayConnection:
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
         started = time.monotonic()
-        try:
-            pong = self._clients.get().ping(timeout=wait)
-        except OSError:
-            self._clients.drop()
-            return DisplayFault(code="timeout")
-        except RuntimeError:
-            self._clients.drop()
-            return DisplayFault(code="display_unavailable")
+        outcome = self._round_trip(lambda port: port.ping(timeout=wait))
         elapsed = time.monotonic() - started
-        if pong is None:
+        if isinstance(outcome, DisplayFault):
+            return outcome
+        if outcome is None:
             return DisplayFault(code="timeout")
-        if pong.ts is None:
+        if outcome.ts is None:
             # A pong must echo the ts we sent; one without it is a defective reply,
             # not a zero-latency success — surface it as an error, never 0.0s.
             return DisplayErrored(message="pong carried no timestamp")
         return DisplayReplied(payload={"rtt_seconds": elapsed})
+
+    def _round_trip[T](self, call: Callable[[DisplayRequests], T]) -> T | DisplayFault:
+        """Run ``call`` on the connected link; fold every failure into a fault.
+
+        A failure drops the dial the call was made on and no other: by the time
+        it is seen another thread may have redialed, and that dial did not fail.
+        A request that lost the lock to another of its kind (nothing was sent)
+        drops nothing; any other ``RuntimeError`` is a bug and propagates.
+        """
+        try:
+            port = self._clients.asks()  # pinned to the dial it will use
+        except (DisplayNotConnectedError, ConnectionClosedError):
+            return DisplayFault(code="display_unavailable")
+        except OSError:
+            return DisplayFault(code="timeout")
+        try:
+            return call(port)
+        except DisplayBusyError:
+            return DisplayFault(code="timeout")  # nothing sent; the dial is sound
+        except ConnectionClosedError:
+            self._clients.drop(port.dial)
+            return DisplayFault(code="display_unavailable")
+        except OSError:
+            self._clients.drop(port.dial)
+            return DisplayFault(code="timeout")
 
     @property
     def is_connected(self) -> bool:

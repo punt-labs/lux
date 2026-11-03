@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import hub, hub_display
+from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.domain.hub import hub, hub_lifecycle
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory, hub_clients
 from punt_lux.domain.hub.inbox import (
     drop_session,
     ensure_writer,
@@ -20,13 +21,13 @@ from punt_lux.domain.hub.inbox import (
 )
 from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuSelection
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.models import OpError
 from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubscribed
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.pubsub import PubSubOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -62,13 +63,13 @@ def _ports(
 
 
 def _ops() -> PubSubOperations:
-    return PubSubOperations(hub, hub_display.clients, _ports())
+    return PubSubOperations(hub, hub_lifecycle, _ports())
 
 
 @pytest.fixture
 def scope() -> Iterator[Scope]:
     connection = ConnectionId("anchor-pubsub")
-    yield Scope(connection)
+    yield Scope.in_process(connection)
     hub.on_disconnect(connection)
     drop_session(connection)
 
@@ -113,7 +114,7 @@ def test_receive_drains_without_blocking(scope: Scope) -> None:
         seen.append(timeout)
         return
 
-    ops = PubSubOperations(hub, hub_display.clients, _ports(next_event_fn=_record))
+    ops = PubSubOperations(hub, hub_lifecycle, _ports(next_event_fn=_record))
     result = ops.receive(scope=scope)
     assert result.event is None
     assert seen == [0.0]
@@ -147,25 +148,42 @@ def test_a_pubsub_only_client_keeps_its_scene_ownership_past_its_ttl() -> None:
     the client sits between two ordinary unsubscribe calls.
     """
     clock = _Clock()
-    display = HubDisplay(clock)
+    factory = HubStoreFactory(clock=clock)
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     owner = ConnectionId("pubsub-only")
-    display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
     scene_id = SceneId("pubsub-scene")
     display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(
             scene_id=scene_id, element=TextElement(id="t", content="x"), parent_id=None
         ),
     )
-    ops = PubSubOperations(Hub(), display.clients, _ports(lambda _c: None, _no_event))
+    ops = PubSubOperations(Hub(), lifecycle, _ports(lambda _c, _h: None, _no_event))
 
     for _ in range(3):
         clock.advance(1801.0)  # past the 1800s unidentified-session lease
-        ops.unsubscribe("some.topic", scope=Scope(owner))
-        assert display.reap_lapsed_leases() == frozenset()
+        ops.unsubscribe("some.topic", scope=Scope.in_process(owner))
+        assert lifecycle.depart_lapsed(frozenset()) == frozenset()
 
-    assert display.is_client(owner)
+    assert clients.session_of(owner) is not None
     assert display.owner_of(scene_id, ElementId("t")) == owner
+
+
+def test_unsubscribing_on_behalf_of_a_lapsed_owner_does_not_revive_it() -> None:
+    """Only the owner reaching the Hub renews its lease, whichever verb it is."""
+    clock = _Clock()
+    factory = HubStoreFactory(clock=clock)
+    owner = ConnectionId("quiet")
+    factory.lifecycle.arrive(owner, UNOBSERVED)
+    ops = PubSubOperations(Hub(), factory.lifecycle, _ports(lambda _c, _h: None))
+    clock.advance(1801.0)  # past the 1800s unidentified-session lease
+
+    ops.unsubscribe("some.topic", scope=Scope.on_behalf_of(owner))
+
+    assert owner not in factory.clients.live_sessions()
 
 
 def test_subscribe_to_reserved_topic_is_refused(scope: Scope) -> None:
@@ -181,7 +199,7 @@ def test_publish_to_reserved_topic_is_refused_and_delivers_nothing(
     scope: Scope,
 ) -> None:
     # A listener is armed on the reserved topic so a leaked publish would land.
-    ensure_writer(scope.connection_id)
+    ensure_writer(scope.connection_id, UNOBSERVED)
     result = _ops().publish(
         MENU_TOPIC, PublishRequest(payload={"spoof": 1}), scope=scope
     )
@@ -201,7 +219,7 @@ def test_genuine_hub_menu_click_still_lands_on_recv(scope: Scope) -> None:
     # The reserved gate closes only the public publish/subscribe path. A genuine
     # menu selection is enqueued by the Hub directly on the inbox and must still
     # be drained by recv() under the reserved lux.menu topic.
-    ensure_writer(scope.connection_id)
+    ensure_writer(scope.connection_id, UNOBSERVED)
     delivered = offer(
         scope.connection_id,
         MenuSelection.of("save", {"menu": "File"}).observer_message(),
@@ -224,3 +242,30 @@ def test_non_reserved_topic_is_unaffected(scope: Scope) -> None:
     )
     assert isinstance(published, Published)
     assert published.delivered == 1
+
+
+def test_an_unidentified_session_that_only_subscribes_lists_its_host(
+    scope: Scope,
+) -> None:
+    observed = Scope.observed(scope.connection_id, ClientHost("10.0.0.5"))
+
+    _ops().subscribe("work.saved", scope=observed)
+
+    session = hub_clients.session_of(scope.connection_id)
+    assert session is not None
+    assert session.client_hosts.names == ("10.0.0.5",)
+
+
+def test_a_later_contact_from_a_second_host_is_listed_after_the_first(
+    scope: Scope,
+) -> None:
+    ops = _ops()
+    ops.subscribe(
+        "work.saved", scope=Scope.observed(scope.connection_id, ClientHost("10.0.0.5"))
+    )
+
+    ops.receive(scope=Scope.observed(scope.connection_id, ClientHost("127.0.0.1")))
+
+    session = hub_clients.session_of(scope.connection_id)
+    assert session is not None
+    assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")

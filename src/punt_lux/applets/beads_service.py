@@ -13,22 +13,18 @@ what loaded is kept, then shown -- never the reverse.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.applet_board import AppletBoard
-from punt_lux.applets.beads_source import BoardUnavailableError
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
-from punt_lux.applets.held_board import HeldBoard
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.apps.beads_board import BeadsBoard
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["BeadsService"]
 
@@ -51,33 +47,26 @@ class BeadsService:
     """
 
     _board: AppletBoard
-    __slots__ = ("_board",)
+    _entry: MenuEntry
+    __slots__ = ("_board", "_entry")
 
-    def __new__(cls, board: AppletBoard) -> Self:
+    def __new__(cls, board: AppletBoard, entry: MenuEntry) -> Self:
         self = super().__new__(cls)
         self._board = board
+        self._entry = entry
         return self
 
     @classmethod
     def for_repo(cls) -> Self:
         """Build the service for this repository's one board, loaded from ``bd``."""
-        load = BoardLoad(BeadsBoard.for_repo(), BeadsBrowser())
-        return cls(AppletBoard(load, BoardSlot()))
+        board = BeadsBoard.for_repo()
+        load = BoardLoad(board, BeadsBrowser())
+        return cls(AppletBoard(load, BoardSlot()), load.entry(_CALLBACK_ID, _LABEL))
 
     @property
-    def callback_id(self) -> str:
-        """The id this session's menu clicks carry back to it."""
-        return _CALLBACK_ID
-
-    @property
-    def label(self) -> str:
-        """The entry the display shows under this session's submenu."""
-        return _LABEL
-
-    @property
-    def frame_id(self) -> str:
-        """The frame a click on this entry raises Display-locally."""
-        return self._board.frame_id
+    def entry(self) -> MenuEntry:
+        """The entry this session registers: its id, its label, and its frame."""
+        return self._entry
 
     def prefetch(self) -> None:
         """Load a board before anyone clicks, so the first click has one to show.
@@ -90,10 +79,7 @@ class BeadsService:
         first click pays that wait, as it did before there was a prefetch, so it
         is a log line rather than a red scene.
         """
-        try:
-            self._board.kept(HeldBoard(self._board.fresh()))
-        except BoardUnavailableError as exc:
-            logger.warning("no board could be loaded ahead of the first click: %s", exc)
+        self._board.prefetch()
 
     def acknowledge(self, client: BoardOps, latency: ClickLatency) -> None:
         """Put something on screen now, before any issue has been read.

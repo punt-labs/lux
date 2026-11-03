@@ -1,0 +1,48 @@
+mission_id: m-2026-10-26-002
+status: closed
+type: implement
+created_at: "2026-10-26T03:50:27Z"
+updated_at: "2026-10-26T04:44:49Z"
+closed_at: "2026-10-26T04:44:49Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T03:50:27Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/review-r9-silent.md
+        - .tmp/missions/review-r9-code.md
+        - docs/crash_attribution.tex
+        - docs/listener_lifecycle.tex
+        - docs/listener_locks.tex
+        - DESIGN.md
+        - src/punt_lux/domain/hub/display_connection.py
+        - src/punt_lux/domain/hub/dial_reader.py
+        - src/punt_lux/domain/hub/display_listener.py
+        - src/punt_lux/domain/hub/listener_thread.py
+        - src/punt_lux/domain/hub/display_replies.py
+        - src/punt_lux/domain/hub/reply_sink.py
+        - src/punt_lux/domain/hub/dial_generation.py
+        - src/punt_lux/domain/hub/reader_slot.py
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_start_fail_buggy.tex
+    - docs/dial_settlement_stop_skip_drain_buggy.tex
+    - docs/dial_settlement_inline_strand_buggy.tex
+    - docs/dial_settlement_coverage.md
+    - .tmp/missions/results-model-settle/
+success_criteria:
+    - 'RECURRENCE RULE FIRED. Work on branch fix/lux-ghhf-details-frame-id in [REDACTED:home]/Coding/punt-labs/lux (main checkout; commit there). Round 9 found three defects in how a dial is ended and settled. They are the same class as rounds 6, 7 and 8 (R7-F1, R8 R1). (1) Silent F1: start_on raises on a dial ended between publication and start, but the slot is left holding ''listener''. The Hub retire then loses, settle_unread cannot take the slot, and the dial is wedged forever. (2) Code F1: the listener''s own Hub exit (the stop flag) reads generation.ended twice. A display end landing between the two reads captures the dial undrained. (3) Code F2: settle_unread is refused while an inline holder that has already made its last check still holds the slot. The holder then releases, and nobody settles the dial. crash_attribution.tex abstracts the reader slot and the settle. Model THAT protocol at code granularity in a NEW spec, docs/dial_settlement.tex.'
+    - 'Model state per dial: the ended cause (first wins: display, unresponsive or hub); the reader slot (none, listener or inline, plus the inline holder''s ''last check made'' phase); the listener''s stop flag; socket bytes and the reader''s unread buffer; the captured flag; whether the dial is current. Model the operations the code has: publish; start_on (success, or failure when ended); the reader''s EOF (end display, drain, capture); stop (flag, then exit); retire(hub/display/unresponsive) with the no-reader settle_unread; inline acquire, check and release; write failure; and the Hub''s redial (only when not current). Model the CLAIMED invariants as NEGATED GOALS. S1: no dial stays ended and current forever, i.e. every ended dial is eventually settled and un-published (state as a reachability or deadlock check; a dial ended, current and unsettled with no enabled settling move is the defect). S2: a display or unresponsive end is captured only after the drain (T14/O2). S3: exactly one capture per dial. S4: the cause that is captured is the first recorded.'
+    - 'FIDELITY CONTROLS, one per round-9 defect, each reproducing its trace. docs/dial_settlement_start_fail_buggy.tex: the slot is kept on start failure; violates S1. docs/dial_settlement_stop_skip_drain_buggy.tex: the double read of ended; violates S2. docs/dial_settlement_inline_strand_buggy.tex: settle_unread is refused behind a releasing holder; violates S1. Then PROPOSE the settlement design the model proves, preferably ONE rule that closes all three structurally rather than three patches. Example: whoever releases or gives up the reader slot while the dial is ended must settle it; the settle is idempotent and carries the drain; the cause is read once. Model-check that the design satisfies S1-S4 with no deadlock. Keep the lock order rq < sl < st < lk < qu (docs/listener_locks.tex) and K2.'
+    - 'docs/dial_settlement_coverage.md: list the partitions and the tests that must cover them, including a two-thread test for each control''s trace. If the code''s current structure cannot meet S1-S4 without a different ownership of settlement, say so and give the design. If you find another counterexample beyond the three, report it. Keep each probcli run within about 8 GB, one at a time. Bound the carriers (1-2 dials, 2 scenes) and state why. Run fuzz clean on each file separately. Commit only the write set, with explicit git add and the trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Do not push, and do not touch src/, tests/ or other docs. Never restore from git, rm, stash or reset. Do not spawn agents. probcli: [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-settle/<mission-id>.md; submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Recurrence-rule model for dial settlement (final review rounds 6-9). The
+    implementation (an rmh mission with the remaining round-9 findings) follows
+    once jra accepts.

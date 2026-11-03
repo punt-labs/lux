@@ -1,0 +1,35 @@
+mission_id: m-2026-10-25-007
+status: closed
+type: implement
+created_at: "2026-10-25T20:33:45Z"
+updated_at: "2026-10-25T20:48:51Z"
+closed_at: "2026-10-25T20:48:51Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-25T20:33:45Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/review-r6-silent.md
+        - .tmp/missions/review-r6-code.md
+        - docs/listener_lifecycle.tex
+        - DESIGN.md
+write_set:
+    - docs/crash_attribution.tex
+    - docs/crash_attribution_redial_only_buggy.tex
+    - docs/crash_attribution_idle_stop_buggy.tex
+    - docs/crash_attribution_coverage.md
+    - .tmp/missions/results-model-attr/
+success_criteria:
+    - 'On branch fix/lux-ghhf-details-frame-id in [REDACTED:home-path]Coding/punt-labs/lux (main checkout; commit there). The recurrence rule fired on display-crash attribution: rounds 4, 5 and 6 of the final review each found a path where a display death is blamed on the wrong scene or on none (review-r6-silent.md F1: a crash loop is never attributed when a party other than the replicator wins the redial; review-r6-code.md F1: a write woken by a Hub-side retire is blamed on the scene in flight; a deliberate stop while idle is charged to the next scene shown). Model crash attribution as a state machine in a NEW spec docs/crash_attribution.tex: dials with an ack ledger of written-not-acked scenes; who ends a dial (display or Hub); several discoverers of a death (the reader, the keepalive, an MCP tool''s redial, the replicator''s send); recovery''s per-scene strike count with a quarantine threshold; isolation.'
+    - 'Model the leader''s ruling T10: when the display ends a dial, the suspects are exactly the scenes written to it and not acked at that moment; recovery charges that set once per dial, whoever discovers the death; a Hub-ended dial charges nothing; an empty set charges nothing. State as NEGATED GOALS (never schema conjuncts): A1 a crash loop of a poison scene reaches quarantine within a bounded number of deaths whichever party discovers each death; A2 no scene is charged for a death on a dial it was never written to or was acked on; A3 a Hub-ended dial charges no scene; A4 each dial''s death is charged at most once. Two fidelity controls: docs/crash_attribution_redial_only_buggy.tex (charge only when the replicator''s own redial fails: today''s code) must violate A1 with the silent-F1 trace; docs/crash_attribution_idle_stop_buggy.tex (charge the next scene sent after a death) must violate A2. Coverage doc docs/crash_attribution_coverage.md: partitions and the tests that must cover them.'
+    - 'MEMORY: keep every probcli run within about 8 GB, one at a time, watch free -g (the machine has 30 GB and other work runs); bound carriers (2 dials, 2 scenes, 2 discoverers, threshold 2) and state why the bounds expose the defects (the controls'' traces are the evidence). fuzz clean on each file separately. If T10 is unsound, stop and report the counterexample to the leader before writing more. Commit only your write set with explicit git add, trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Do not push, touch PRs, src/, tests/ or other docs. Never restore from git, rm, stash or reset. Do not spawn agents. probcli is at [REDACTED:home-path]Applications/ProB/probcli. RESULT: .tmp/missions/results-model-attr/<mission-id>.md, submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    Model for the attribution recurrence (final review rounds 4-6), in parallel
+    with implementation mission m-2026-10-25-006 (rmh/gvr), which implements T10.

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
+    from punt_lux.applets.menu_entry import MenuEntry
 
 __all__ = ["AppletService"]
 
@@ -29,18 +30,8 @@ class AppletService(Protocol):
     """One callback a session owns: the entry it puts up and the work a click does."""
 
     @property
-    def callback_id(self) -> str:
-        """The id a click on this entry carries back to the session."""
-        ...
-
-    @property
-    def label(self) -> str:
-        """The entry the display shows under this session's submenu."""
-        ...
-
-    @property
-    def frame_id(self) -> str:
-        """The frame a click on this entry raises Display-locally."""
+    def entry(self) -> MenuEntry:
+        """The menu entry this session registers, and whose clicks it services."""
         ...
 
     def prefetch(self) -> None:

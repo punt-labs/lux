@@ -22,7 +22,7 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
-from punt_lux.tools.server import _session_key
+from punt_lux.tools.server import _session_key, current_client_host
 
 __all__ = [
     "OPERATIONS",
@@ -30,7 +30,7 @@ __all__ = [
     "_format_render",
     "_format_update",
     "_identity",
-    "_scope",
+    "scope",
 ]
 
 
@@ -46,9 +46,13 @@ def _connection_id() -> ConnectionId:
     return ConnectionId(_session_key.get())
 
 
-def _scope() -> Scope:
-    """Resolve the calling MCP session's operation scope."""
-    return Scope(_connection_id())
+def scope() -> Scope:
+    """Resolve the calling MCP session's operation scope, peer included.
+
+    The one place a tool's scope is built: ``identify`` is reachable only through
+    here, and the peer it records is the host observed when the session connected.
+    """
+    return Scope.observed(_connection_id(), current_client_host())
 
 
 def _identity() -> ClientIdentity:
@@ -60,11 +64,11 @@ def _identity() -> ClientIdentity:
     distinct from every other session's, rather than a shared stand-in that
     would collapse every unidentified caller into one bucket.
     """
-    scope = _scope()
-    declared = OPERATIONS.identity_of(scope=scope)
+    caller = scope()
+    declared = OPERATIONS.identity_of(scope=caller)
     if declared is not None:
         return declared
-    return ClientIdentity(kind="mcp-session", name=f"mcp:{scope.connection_id}")
+    return ClientIdentity(kind="mcp-session", name=f"mcp:{caller.connection_id}")
 
 
 def _format_render(result: SceneShown | OpError) -> str:

@@ -72,7 +72,8 @@ class DisplayControlOperations:
             return payload
         return WindowSettings.from_payload(payload)
 
-    def screenshot(self) -> Screenshot | OpError:
+    @staticmethod
+    def screenshot() -> Screenshot | OpError:
         """Refuse cleanly: framebuffer capture is unsupported (DES-028)."""
         return OpError(
             code="rejected",

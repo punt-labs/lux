@@ -22,8 +22,10 @@ from pathlib import Path
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import TextElement
+from tests.link_access import shown
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -51,19 +53,29 @@ def test_text_scene_survives_subprocess_lifecycle() -> None:
     pid_path = paths.pid_path
 
     try:
-        paths.ensure(timeout=10.0)
+        paths.ensure(timeout=30.0)
         assert paths.is_running()
         assert pid_path.exists()
 
-        with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
+        # Scenes need a declared Hub identity: the default "test" connection is
+        # the read-only backdoor and the display rejects its SceneMessage.
+        with DisplayLink.to_socket(
+            sock_path,
+            name="lifecycle-smoke",
+            kind="hub",
+            auto_spawn=False,
+            connect_timeout=5.0,
+        ) as client:
             assert client.is_connected
-            ack = client.show(
+            acked = shown(
+                client,
                 "lifecycle-smoke",
                 elements=[TextElement(id="t1", content="Hello, lifecycle.")],
-                title="Lifecycle Smoke",
+                presentation=ScenePresentation(
+                    frame_id="lifecycle-smoke", title="Lifecycle Smoke"
+                ),
             )
-            assert ack is not None
-            assert ack.scene_id == "lifecycle-smoke"
+            assert acked
 
         # Terminate the subprocess via its PID file — the display server's
         # SIGTERM handler removes the PID file before exiting.

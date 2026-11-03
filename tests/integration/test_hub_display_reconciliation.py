@@ -28,6 +28,8 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from tests.link_access import shown, socket_of
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -42,11 +44,12 @@ def _live_scene_ids(sock_path: Path) -> set[str]:
     A plain, unidentified connection: ``list_scenes`` requires no identity,
     matching the introspection surface's own contract.
     """
-    with DisplayLink(sock_path, auto_spawn=False, connect_timeout=5.0) as probe:
-        sock = probe._sock  # test-only reach-through for a raw request/response
-        assert sock is not None
+    with DisplayLink.to_socket(
+        sock_path, auto_spawn=False, connect_timeout=5.0
+    ) as probe:
+        sock = socket_of(probe)  # raw round-trip
         send_message(sock, ListScenesRequest())
-        resp = recv_message(sock, timeout=5.0)
+        resp = recv_message(sock, DISPLAY_VOCABULARY, timeout=5.0)
     assert isinstance(resp, ListScenesResponse)
     return {scene["scene_id"] for scene in resp.scenes}
 
@@ -82,26 +85,25 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
         # The first "luxd": identifies as the Hub, pushes a scene, then dies
         # -- the Display process itself is untouched.
-        with DisplayLink(
+        with DisplayLink.to_socket(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         ) as first:
-            ack = first.show(
-                "ghost-scene", elements=[TextElement(id="t1", content="Ghost")]
+            acked = shown(
+                first, "ghost-scene", elements=[TextElement(id="t1", content="Ghost")]
             )
-            assert ack is not None
-            assert ack.scene_id == "ghost-scene"
+            assert acked
 
         # Nothing has reconciled yet -- this is the bug's starting condition.
         assert _live_scene_ids(sock_path) == {"ghost-scene"}
 
         # The second "luxd": identifies as the Hub and declares it holds
         # nothing -- the ordinary post-restart manifest.
-        second = DisplayLink(
+        second = DisplayLink.to_socket(
             sock_path, name="lux-mcp", kind="hub", auto_spawn=False, connect_timeout=5.0
         )
         try:
             second.connect()
-            second.send_manifest(())
+            second.desk.declare(())
 
             assert _wait_until(lambda: _live_scene_ids(sock_path) == set()), (
                 "the ghost scene was never purged"
@@ -109,11 +111,10 @@ def test_a_restart_purges_the_dead_hubs_scene() -> None:
 
             # Ordinary traffic still works under the surviving connection --
             # reconciliation does not wedge subsequent pushes.
-            ack = second.show(
-                "fresh-scene", elements=[TextElement(id="t2", content="Fresh")]
+            acked = shown(
+                second, "fresh-scene", elements=[TextElement(id="t2", content="Fresh")]
             )
-            assert ack is not None
-            assert ack.scene_id == "fresh-scene"
+            assert acked
             assert _live_scene_ids(sock_path) == {"fresh-scene"}
         finally:
             second.close()

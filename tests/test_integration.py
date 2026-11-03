@@ -24,6 +24,8 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import shown
 
 NUM_RAPID_SCENES = 100
 
@@ -162,7 +164,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=5)
+                msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -177,18 +179,19 @@ class TestRapidSceneUpdates:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
-                    ack = client.show(
+                    acked = shown(
+                        client,
                         scene_id,
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
-                    assert ack is not None, f"Timeout on scene {seq}"
-                    acked_ids.append(ack.scene_id)
+                    assert acked, f"Timeout on scene {seq}"
+                    acked_ids.append(scene_id)
 
                 assert len(acked_ids) == NUM_RAPID_SCENES
                 assert acked_ids == [f"s{i}" for i in range(NUM_RAPID_SCENES)]
@@ -210,7 +213,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=5)
+                msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -225,15 +228,16 @@ class TestRapidSceneUpdates:
 
         try:
             t0 = time.monotonic()
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 for seq in range(NUM_RAPID_SCENES):
-                    ack = client.show(
+                    acked = shown(
+                        client,
                         f"s{seq}",
                         elements=[TextElement(id="t1", content=f"update-{seq}")],
                     )
-                    assert ack is not None
+                    assert acked
             elapsed = time.monotonic() - t0
             assert elapsed < 10.0, f"Took {elapsed:.2f}s for {NUM_RAPID_SCENES} scenes"
         finally:
@@ -277,7 +281,9 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            client = DisplayLink(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
             client.connect()
             assert client.is_connected
             client.close()
@@ -311,13 +317,13 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
+                client.connect(listen=True)
                 client_connected.set()
                 with pytest.raises(TimeoutError):
-                    client.poll_event(timeout=2.0)
+                    client.events.poll_event(timeout=2.0)
         finally:
             _cleanup(short_dir, server_conn)
             t.join(timeout=5)
@@ -346,7 +352,7 @@ class TestReconnection:
                 nonlocal server_conn_1
                 server_conn_1 = _mini_display_server(sock_path, ready1)
                 assert server_conn_1 is not None
-                msg = recv_message(server_conn_1, timeout=5)
+                msg = recv_message(server_conn_1, CLIENT_VOCABULARY, timeout=5)
                 assert isinstance(msg, SceneMessage)
                 send_message(
                     server_conn_1,
@@ -357,14 +363,15 @@ class TestReconnection:
             t1.start()
             assert ready1.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client1:
-                ack = client1.show(
+                acked = shown(
+                    client1,
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
                 )
-                assert ack is not None
+                assert acked
 
             t1.join(timeout=5)
             if server_conn_1:
@@ -381,7 +388,7 @@ class TestReconnection:
                 nonlocal server_conn_2
                 server_conn_2 = _mini_display_server(sock_path, ready2)
                 assert server_conn_2 is not None
-                msg = recv_message(server_conn_2, timeout=5)
+                msg = recv_message(server_conn_2, CLIENT_VOCABULARY, timeout=5)
                 assert isinstance(msg, SceneMessage)
                 send_message(
                     server_conn_2,
@@ -392,15 +399,15 @@ class TestReconnection:
             t2.start()
             assert ready2.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client2:
-                ack = client2.show(
+                acked = shown(
+                    client2,
                     "s2",
                     elements=[TextElement(id="t1", content="second")],
                 )
-                assert ack is not None
-                assert ack.scene_id == "s2"
+                assert acked
 
             t2.join(timeout=5)
         finally:

@@ -4,6 +4,27 @@
 
 ### Added
 
+- **Every owned frame names its session (`lux-xrli`, DES-100).** A frame whose
+  scene has an owning session reads `label :: title` (`lux :: Board`,
+  `lux (2) :: Board`) whether one session or many are connected, because the
+  same applet runs in many repositories by design. The Hub rung keeps DES-089's
+  elision. The Hub sends the owner's roster label with each scene
+  (`frame_scope_label`); when a departure renumbers the roster (DES-064), the
+  scenes of every survivor whose label moved are marked for re-push in the same
+  step, and a session that comes back from a lapsed lease is marked again, so
+  titles follow by push, never by polling. The Windows menu, dock bar and dock
+  pills title a frame through the same `AddressRendering` seam, and the
+  window's ImGui id is unchanged, so a relabel never resets its position.
+- **The `i` popup and Details report the client and Hub hosts (DES-099
+  amendment).** Two rows follow `Connection`: **Client host**, the address the
+  Hub observed on the connection's transport (REST, the WebSocket listen leg,
+  MCP), and **Hub host**, the Hub's own hostname. The client host is observed,
+  never declared (DES-090): luxd turns uvicorn's `proxy_headers` off so a
+  forwarding header cannot stand in for the socket peer, and the identity
+  model carries no host field. A client seen from several hosts under one
+  identity lists them in first-seen order; a host the Hub did not observe
+  reads `unknown`. `list_clients` and REST `/clients` report the same
+  `client_hosts` and `hub_host`.
 - **Frame title-bar connection-info affordance (`lux-c7xi`).** Every frame's
   title bar carries a small **i** glyph; clicking it opens a popup showing
   the frame's owning-connection details (Client/Kind/Declared name/
@@ -112,6 +133,80 @@
 
 ### Fixed
 
+- **The beads applet leaves when its session does.** An applet whose session
+  ended mid-query stayed alive until `bd` answered (up to 60s), because
+  shutdown joined a worker thread blocked on the `bd` child. Each call now owns
+  its children, and cancelling the call ends only that call's `bd` and any
+  process it started (the whole process group), with a bounded reap. A
+  cancelled query is an ending, not a failure: it no longer shows a red
+  "bd unavailable" board or logs a warning. The trust-anchor test now asserts
+  the server's rejection of an unenrolled client rather than one client-side
+  error form, which removes its flake.
+- **A replaced display connection can no longer break its successor
+  (`lux-ghhf`, DES-102).** Each dial of the display is now a generation that
+  owns its socket, its reader and its pending replies, and dies whole. A
+  listener that could not be stopped in time used to keep reading its old
+  socket into the shared reply router, and on a read error closed the *new*
+  connection and failed its waiters. A reply now reaches only the generation
+  that asked for it: pongs are matched by timestamp, acks by a per-generation
+  ledger cross-checked against the scene id, and only a query that times out
+  retires its generation. Each reply kind has its own request lock, so a slow
+  query no longer blocks a ping. A display that stops reading ends a stuck send
+  once no byte has moved for 2.5 seconds, on either transport; a slow display
+  that keeps draining a large scene is never cut off. That retires the
+  connection and frees every writer queued behind it. A frame the Hub cannot decode is logged at ERROR with the
+  display's endpoint and the frame's first bytes, the messages decoded before
+  it are still delivered, and the connection is closed so the reconnect starts
+  on a frame boundary. On the display side, a reply that cannot be sent ends
+  that client's connection instead of vanishing; events are still held and
+  retried. The design is model-checked in `docs/listener_lifecycle.tex`, and
+  its lock order is proven deadlock-free in `docs/listener_locks.tex`.
+- **A display that dies is noticed, and the right scenes are blamed
+  (`lux-ghhf`, DES-102).** The keepalive now treats only bytes the display
+  sends back as proof it is alive, so a display that has stopped responding is
+  dropped and redialled instead of being kept alive by its own pings. A
+  connection that sits idle is no longer dropped because a reader held the line
+  for a moment. When the display crashes, the Hub blames only the scenes that
+  display had not yet confirmed drawing, and a connection the Hub itself closed
+  blames nothing. The settlement rules are model-checked in
+  `docs/dial_settlement.tex` and `docs/crash_attribution.tex`.
+- **A button handler's changes apply all or nothing (`lux-ghhf`).** If any
+  write a handler makes is refused, for example one that would nest a tree too
+  deeply, every change the handler made rolls back together, including a
+  dialog it dismissed and any table filter or selection an observer had
+  changed. A handler that raises partway also leaves nothing half-applied.
+- **The client host is recorded for every contact.** A session that shows a
+  scene, subscribes or sets a menu without ever identifying now reports the
+  host the Hub observed, instead of `unknown`. An empty transport address
+  counts as unobserved.
+- **Callback applets leave the Clients menu exactly like agents.** Registering
+  and withdrawing a callback are now lifecycle steps under the store lock, so
+  an applet that registered a callback gets the same departure hook as an agent
+  and its entry leaves when its lease is reaped. A withdrawal clears the entry
+  even while the lease is lapsed, which covers a detach, a re-attach that drops
+  callbacks, and a session re-identifying as a non-agent. A session that comes
+  back from a lapsed lease re-pushes its windows, so their session labels catch
+  up. The rules are model-checked in `docs/menu_presence.tex`.
+- **The Clients menu entry for a connection with no commands reopens after you
+  close it (`lux-ghhf`).** The per-group `Details` item, which described an
+  arbitrary "senior" process, is gone; the per-frame `i` glyph answers where a
+  window came from. A connection that registered no menu command (the agent
+  session) now gets one entry of its own, named for the program it runs, and
+  the window it opens carries the same name under its session label
+  (`lux :: claude`), with the Hub's name added when more than one Hub is
+  connected. The entry names the frame its scene is
+  installed into, through one `DetailsFrame` value shared by the menu and the
+  scene, so a closed window reopens on the next click without
+  `Windows → Clear All`. Identifying a connection, and its later departure,
+  now re-push the Clients menu, so the entry appears and disappears on screen.
+- **Clients-menu entries track their connection's lease exactly
+  (`lux-ghhf`).** An agent's entry no longer goes missing after its lease
+  lapses and it renews, after a listen socket outlives a reap, or when an
+  identify races a disconnect. Ghost entries no longer survive their
+  connection either. Every change to who the menu lists is now one step under
+  the store lock that re-pushes the menu and binds one shared departure hook,
+  so repeated reconnects no longer pile up hooks. The design is
+  model-checked in `docs/menu_presence.tex`.
 - **Session-writer publish is now atomic (`lux-wk3p`).** The per-connection
   publish path (`_writer`) looked up the inbox and enqueued in two steps
   across a lock release, so a concurrent session departure could drop the

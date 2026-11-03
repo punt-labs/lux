@@ -23,6 +23,7 @@ from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
 from punt_lux.protocol import ReadyMessage, encode_frame, recv_message
 from punt_lux.protocol.messages.scene_codec import SceneCodec
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 # A pickle whose GLOBAL opcode names a module that does not exist — exactly what
 # a renamed or deleted element class produces at the receiving tier. Raw
@@ -97,7 +98,9 @@ def test_display_survives_an_undecodable_pickle_frame(bad_pickle: str) -> None:
         client.connect(str(sock_path))
         try:
             server.accept_connections()
-            assert isinstance(recv_message(client, timeout=2.0), ReadyMessage)
+            assert isinstance(
+                recv_message(client, DISPLAY_VOCABULARY, timeout=2.0), ReadyMessage
+            )
 
             client.sendall(encode_frame(_scene_wire(bad_pickle)))
             server.poll_clients()  # must not raise — the display survives

@@ -47,6 +47,15 @@ class OwnerTracker:
             key for key, _ in filter(lambda kv: owned(kv[1]), self._owners.items())
         )
 
+    def scenes_of(self, connection_ids: Iterable[ConnectionId]) -> frozenset[SceneId]:
+        """Return the scenes any of ``connection_ids`` installed an element in."""
+        wanted = frozenset(connection_ids)
+        return frozenset(
+            scene_id
+            for (scene_id, _), owner in self._owners.items()
+            if owner.connection_id in wanted
+        )
+
     def release_all(self, connection_id: ConnectionId) -> None:
         """Discard every ownership record this connection holds; vacuous if none."""
         for key in self.keys_for(connection_id):

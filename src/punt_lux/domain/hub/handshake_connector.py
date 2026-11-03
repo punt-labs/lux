@@ -26,6 +26,7 @@ from punt_lux.domain.hub.handshake_outcome import (
 from punt_lux.domain.hub_id import HubId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.send_timeout import set_send_timeout
 
 __all__ = ["HandshakeConnector", "HandshakeResult"]
@@ -112,7 +113,7 @@ class HandshakeConnector:
     ) -> ReadyMessage:
         """Receive and validate the ``ReadyMessage``, closing ``sock`` on failure."""
         try:
-            ready = recv_message(sock, timeout=connect_timeout)
+            ready = recv_message(sock, DISPLAY_VOCABULARY, timeout=connect_timeout)
         except Exception:
             sock.close()
             raise

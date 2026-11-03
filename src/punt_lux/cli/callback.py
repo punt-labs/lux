@@ -28,13 +28,12 @@ from punt_lux.cli._shared import (
     scope_for,
 )
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
-from punt_lux.operations import OpError
 from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
     from punt_lux.client._callback_ops import CallbackConvenienceOps
-    from punt_lux.operations import Ok, Scope
+    from punt_lux.operations import Ok, OpError, Scope
 
 callback_app = typer.Typer(
     name="callback",
@@ -68,11 +67,9 @@ class _CallbackRegisterAdapter:
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
         del scope  # REST composes scope from headers, not this parameter
-        if isinstance(request, OpError):
+        if not isinstance(request, RegisterCallbackRequest):
             return request
-        return self._client.register_callback(
-            request.callback.id, request.callback.label
-        )
+        return self._client.register_callback(*request.rest_args())
 
 
 @callback_app.command("register")

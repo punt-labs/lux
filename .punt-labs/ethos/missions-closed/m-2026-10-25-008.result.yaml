@@ -1,0 +1,19 @@
+mission: m-2026-10-25-008
+round: 1
+created_at: "2026-10-25T21:56:17Z"
+author: jms
+verdict: escalate
+confidence: 0.95
+files_changed: []
+evidence:
+    - name: fuzz on scratch model .tmp/ca-ack/t11.tex (T11 with carry-free ledger)
+      status: pass
+    - name: 'probcli -model_check -nodead -bf, goal: culprit of a death excluded from a non-empty charge: counterexample at depth 10, 826 states'
+      status: pass
+open_questions:
+    - 'COUNTEREXAMPLE to T11: RedialQuiet; Send(1); Install(1); HubEnd; RedialQuiet; Send(2); CrashFrame; DiscoverCharge. Poison is installed on dial 1 with its ack held; the Hub retires dial 1 (cause hub); on dial 2 an innocent scene 2 is written; the display dies painting the held poison scene. Dial 2 ledger is {2}: scene 2 charged, poison never. Violates A2 culprit clause and, repeated, A1. Cause: render_loop.py _on_client_disconnected reassigns a departed dial''s scenes to the orphan fd, so held scenes outlive a Hub-ended dial.'
+    - 'RULED T12 (carry rule): a Hub-ended dial that settles with a non-empty ledger adds it to a carried suspect set susp; reading any ack on a later dial clears susp; a display-ended death charges its own ledger plus susp, then clears it; A3 unchanged. Successor mission with a wider write set (extra control files: ack_on_receipt, no_carry, in_flight, drain) to carry the model forward, input .tmp/ca-ack/t11.tex.'
+    - 'Not yet checked: swap-stall bound on A2; in-flight-ack hazard (addendum b) and drain fix; isolation probe clear step (a); death-queue bound (c); coverage doc rewrite (e).'
+prose: |
+    Stopped under the contract's stop rule before writing any write-set file.
+    Scratch model only: [REDACTED:home]/Coding/punt-labs/lux/.tmp/ca-ack/t11.tex

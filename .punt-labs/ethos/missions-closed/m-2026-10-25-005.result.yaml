@@ -1,0 +1,82 @@
+mission: m-2026-10-25-005
+round: 1
+created_at: "2026-10-25T20:03:20Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 2
+      removed: 0
+    - path: .oo-baseline.json
+      added: 35
+      removed: 22
+    - path: .oo-coupling-audit.jsonl
+      added: 2
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 19
+      removed: 12
+    - path: src/punt_lux/domain/hub/batch_sender.py
+      added: 34
+      removed: 3
+    - path: src/punt_lux/domain/hub/client_roster.py
+      added: 35
+      removed: 30
+    - path: src/punt_lux/domain/hub/clients.py
+      added: 16
+      removed: 2
+    - path: src/punt_lux/domain/hub/dial_ref.py
+      added: 11
+      removed: 1
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 29
+      removed: 4
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 5
+      removed: 3
+    - path: src/punt_lux/domain/hub/display_lost.py
+      added: 30
+      removed: 0
+    - path: src/punt_lux/domain/hub/keepalive_ports.py
+      added: 7
+      removed: 3
+    - path: src/punt_lux/domain/hub/liveness.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/request_desk.py
+      added: 0
+      removed: 5
+    - path: tests/display/test_reply_sites_guard.py
+      added: 41
+      removed: 1
+    - path: tests/domain/test_client_roster.py
+      added: 11
+      removed: 0
+    - path: tests/domain/test_link_generations.py
+      added: 33
+      removed: 15
+    - path: tests/domain/test_presence_writes_only_through_lifecycle.py
+      added: 69
+      removed: 22
+    - path: tests/domain/test_request_desk.py
+      added: 23
+      removed: 0
+    - path: tests/domain/test_retire_cause.py
+      added: 293
+      removed: 1
+    - path: tests/link_access.py
+      added: 11
+      removed: 1
+    - path: tests/roster_access.py
+      added: 2
+      removed: 2
+    - path: tests/test_liveness.py
+      added: 2
+      removed: 2
+evidence:
+    - name: make check exit 0, 7033 passed, 193 deselected (.tmp/rmh-check-final.txt in the worktree)
+      status: pass
+    - name: make test-integration exit 0, 92 passed (.tmp/rmh-integ-final.txt in the worktree)
+      status: pass
+prose: See .tmp/missions/results-r5adv/m-2026-10-25-005.md in the lux repo root. N1-N5 fixed, tests red first and mutation-checked, ratchet rows blessed by the leader, commits 00804097 to cb50fb4e.

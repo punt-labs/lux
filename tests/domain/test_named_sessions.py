@@ -211,3 +211,54 @@ class TestCommandingGroups:
         groups = list(named.commanding_groups())
 
         assert groups[0].members[0].connection_id == ConnectionId("first")
+
+
+class TestFindingOneConnection:
+    """One live connection with its name, or nothing when it is not live."""
+
+    def test_a_live_identified_session_comes_back_with_its_name(self) -> None:
+        named = _over(("a", _session()))
+
+        found = named.named(ConnectionId("a"), "client")
+
+        assert found is not None
+        assert found.connection_id == ConnectionId("a")
+        assert found.name == "lux"
+
+    def test_an_anonymous_live_session_takes_the_fallback_name(self) -> None:
+        named = NamedSessions.over(
+            {ConnectionId("bare"): ClientSession(0.0)}, ClientRoster()
+        )
+
+        found = named.named(ConnectionId("bare"), "client")
+
+        assert found is not None
+        assert found.name == "client"
+
+    def test_a_connection_that_is_not_live_is_nobody(self) -> None:
+        named = _over(("a", _session()))
+
+        assert named.named(ConnectionId("ghost"), "client") is None
+
+
+class TestScopeLabel:
+    """The name a client's windows carry: its roster name, never a fallback."""
+
+    def test_an_identified_session_labels_its_windows_with_its_name(self) -> None:
+        named = _over(("first", _session()), ("second", _session()))
+
+        found = named.named(ConnectionId("second"), "client")
+
+        assert found is not None
+        assert found.scope_label == "lux (2)"
+
+    def test_an_anonymous_session_has_no_label_despite_its_fallback_name(self) -> None:
+        named = NamedSessions.over(
+            {ConnectionId("bare"): ClientSession(0.0)}, ClientRoster()
+        )
+
+        found = named.named(ConnectionId("bare"), "client")
+
+        assert found is not None
+        assert found.name == "client"
+        assert found.scope_label is None

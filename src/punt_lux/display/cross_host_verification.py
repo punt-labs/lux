@@ -25,6 +25,7 @@ import ssl
 from typing import Self, final
 
 from punt_lux.domain.identity import HubId
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.trust import LeafCertificate
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,8 @@ class CrossHostVerification:
             return False
         try:
             verified_hostname = self._verified_hostname(sock)
+        except ProgrammerError:
+            raise
         except Exception as exc:  # noqa: BLE001 -- PY-EH-6: this gate parses a
             # peer's certificate, adversary-influenced DER handed to a
             # third-party library (cryptography/OpenSSL). ANY parse failure

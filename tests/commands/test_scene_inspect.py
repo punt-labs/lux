@@ -10,7 +10,7 @@ from punt_lux.operations import OpError, SceneInspection, Scope
 from punt_lux.operations.models.inspect_scope import HUB_ONLY
 from tests.commands._scene_stub import StubSceneOps, identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def test_inspect_success_returns_typed_result_with_no_envelope() -> None:

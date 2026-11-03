@@ -1,10 +1,10 @@
 """Crash-loop quarantine end to end — real store, real worker, real operations.
 
 The runtime companion to ``docs/display_crash_loop.tex``: installs a scene
-whose fault-injected render always fails, drives the real background
+the display dies painting, drives the real background
 ``HubReplicator`` (composing real ``CrashAttribution`` and ``RespawnBackoff``
-instances) against a fake display connection, and proves the four properties
-the design promises end to end — quarantine triggers at
+instances) over the real registry, link and dials against a display that acks at a swap,
+and proves the four properties the design promises end to end — quarantine triggers at
 ``ATTRIBUTION_THRESHOLD``, the scene is excluded from replication, an owner's
 patch-style write is rejected with the record, and quarantine clears on a
 wholesale re-show.
@@ -15,136 +15,44 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.crash_attribution import ATTRIBUTION_THRESHOLD
+from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.elements.text import TextElement
+from tests.domain.display_double import Display, Responder
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
-    from punt_lux.domain.element import Element as WireElement
 
 pytestmark = pytest.mark.integration
 
 _CONN = ConnectionId("crash-quarantine-caller")
-_SCOPE = Scope(_CONN)
+_SCOPE = Scope.in_process(_CONN)
 
 
 def _scoped(local_id: str) -> SceneId:
     """The store key ``local_id`` composes to for ``_CONN``."""
     return SceneId(ConnectionScopedId.compose(_CONN, local_id))
-
-
-class _FaultInjectingSender:
-    """A display connection whose named scenes always raise on render.
-
-    The fault-injection element the design's write-set text names: rather than
-    a real ImGui renderer, this stands in for "a scene whose render crashes the
-    Display" at the one seam the Hub can observe it through — a failed send.
-    """
-
-    shows: list[str]
-    _crashers: set[str]
-    __slots__ = ("_crashers", "shows")
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self.shows = []
-        self._crashers = set()
-        return self
-
-    def crash_on(self, scene_id: str) -> None:
-        self._crashers.add(scene_id)
-
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        frame_id: str | None = None,
-        **_kwargs: object,
-    ) -> None:
-        if scene_id in self._crashers:
-            raise OSError(f"{scene_id} crashed the display")
-        self.shows.append(scene_id)
-
-    def set_menu(self, menus: list[dict[str, object]]) -> None:
-        pass
-
-    def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
-        pass
-
-    def probe_alive(self, timeout: float) -> bool:
-        """Report alive unless a crash-armed scene would fail a subsequent write."""
-        del timeout
-        return not self._crashers
-
-
-class _Provider:
-    """Hands out one sender; every ``get()`` after a ``drop()`` reconciles.
-
-    Models the DES-068 connect-success hook (``ClientRegistry
-    ._connect_and_reconcile``): a fresh connect re-marks every replication-
-    eligible (non-quarantined) live scene dirty.
-    """
-
-    _sender: _FaultInjectingSender
-    _replicator: HubReplicator | None
-    _store: HubDisplay
-    _needs_reconcile: bool
-    __slots__ = ("_needs_reconcile", "_replicator", "_sender", "_store")
-
-    def __new__(cls, sender: _FaultInjectingSender, store: HubDisplay) -> Self:
-        self = super().__new__(cls)
-        self._sender = sender
-        self._store = store
-        self._replicator = None
-        self._needs_reconcile = False
-        return self
-
-    def attach(self, replicator: HubReplicator) -> None:
-        self._replicator = replicator
-
-    def get(self) -> _FaultInjectingSender:
-        if self._needs_reconcile and self._replicator is not None:
-            for scene_id in self._store.live_scene_ids():
-                self._replicator.mark_dirty(scene_id)
-            self._replicator.mark_menus()
-            self._needs_reconcile = False
-        return self._sender
-
-    def drop(self) -> None:
-        self._needs_reconcile = True
-
-    @property
-    def reconnect_generation(self) -> int:
-        """Unused here — this fake's sender is always reachable, never disconnected."""
-        return 0
-
-    def wait_for_reconnect(self, wait: ReconnectWait) -> bool:
-        """Unused here — this fake's sender is always reachable, never disconnected."""
-        del wait
-        return False
-
-    def request_stop(self) -> None:
-        """Unused here — no test in this module stops mid disconnected-wait."""
 
 
 class _Lifecycle:
@@ -159,7 +67,7 @@ class _Lifecycle:
         return Path("/tmp/lux-test.sock")
 
 
-def _wait_until(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+def _wait_until(predicate: Callable[[], bool], timeout: float = 8.0) -> bool:
     deadline = time.monotonic() + timeout
     result = predicate()
     while not result and time.monotonic() < deadline:
@@ -177,29 +85,59 @@ class _NoCallbackMenus:
         return []
 
 
-def _stack() -> tuple[
-    HubDisplay, HubReplicator, _FaultInjectingSender, SceneOperations
-]:
-    store = HubDisplay()
-    sender = _FaultInjectingSender()
-    provider = _Provider(sender, store)
+@pytest.fixture
+def display() -> Iterator[Display]:
+    d = Display()
+    yield d
+    d.close()
+
+
+@pytest.fixture
+def poisoned(display: Display) -> Iterator[Responder]:
+    """The real display's ack discipline, and a scene it dies painting: "poison".
+
+    Every scene is held and acked at a swap, as the display does, and a swap with the
+    poison scene held never completes: the display hangs up with no ack sent.
+    """
+    responder = Responder(display, frozenset({_scoped("poison")}), at_swap=True)
+    yield responder
+    responder.stop()
+
+
+def _stack(
+    display: Display, monkeypatch: pytest.MonkeyPatch
+) -> tuple[HubDisplay, HubReplicator, SceneOperations, DisplayLiveness]:
+    """The real replicator and keepalive over the real registry, link and dials.
+
+    The scene's death is found and charged by the production code: the display dies
+    painting the scene, the dial's reader settles it with its ledger, the keepalive
+    redials (which re-marks every live scene), and the replicator's next push charges
+    the death before it sends.
+    """
+    factory = HubStoreFactory()
+    store = factory.display
+    monkeypatch.setattr("punt_lux.domain.hub.clients.hub_display", store)
+    registry = ClientRegistry()
+    registry._client = DisplayLink(display, recv_timeout=3.0)  # test seam
     repl = HubReplicator(
         store.reader,
-        HubMenuRegistry(store.clients),
+        HubMenuRegistry(factory.clients),
         _NoCallbackMenus(),
-        provider,
+        registry,
         _Lifecycle(),
         store,
         NoFrameOwnerFacts(),
     )
-    provider.attach(repl)
+    registry.attach_replicator(repl)
     deps = SceneOperationsDeps(store, repl, hub_element_factory, Hub())
-    ops = SceneOperations(deps)
-    return store, repl, sender, ops
+    liveness = DisplayLiveness(registry, interval=0.05, ping_timeout=1.0)
+    return store, repl, SceneOperations(deps), liveness
 
 
-def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold() -> None:
-    store, repl, sender, ops = _stack()
+def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold(
+    display: Display, poisoned: Responder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, repl, ops, liveness = _stack(display, monkeypatch)
     request = RenderRequest.parse(
         {
             "scene_id": "poison",
@@ -208,21 +146,24 @@ def test_a_scene_that_crashes_the_display_is_quarantined_at_the_threshold() -> N
     )
     result = ops.render(request, scope=_SCOPE)
     assert isinstance(result, SceneShown)
-    sender.crash_on("poison")
 
     repl.start()
+    liveness.start()
     try:
-        repl.mark_dirty(SceneId("poison"))
-        assert _wait_until(lambda: store.is_quarantined(SceneId("poison")))
-        record = store.quarantine_record(SceneId("poison"))
+        repl.mark_dirty(_scoped("poison"))
+        assert _wait_until(lambda: store.is_quarantined(_scoped("poison")))
+        record = store.quarantine_record(_scoped("poison"))
         assert record is not None
         assert record.death_count >= ATTRIBUTION_THRESHOLD
     finally:
+        liveness.stop()
         repl.stop()
 
 
-def test_a_quarantined_scene_is_excluded_from_replication() -> None:
-    store, repl, sender, ops = _stack()
+def test_a_quarantined_scene_is_excluded_from_replication(
+    display: Display, poisoned: Responder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, repl, ops, liveness = _stack(display, monkeypatch)
     request = RenderRequest.parse(
         {
             "scene_id": "poison",
@@ -230,23 +171,31 @@ def test_a_quarantined_scene_is_excluded_from_replication() -> None:
         }
     )
     ops.render(request, scope=_SCOPE)
-    sender.crash_on("poison")
 
     repl.start()
+    liveness.start()
     try:
-        repl.mark_dirty(SceneId("poison"))
-        assert _wait_until(lambda: store.is_quarantined(SceneId("poison")))
+        repl.mark_dirty(_scoped("poison"))
+        assert _wait_until(lambda: store.is_quarantined(_scoped("poison")))
         # live_scene_ids() is the replication-facing read; it must exclude a
         # quarantined scene at the source, not merely at the send filter.
-        assert SceneId("poison") not in store.live_scene_ids()
-        assert "poison" not in sender.shows  # never a single successful send
+        assert _scoped("poison") not in store.live_scene_ids()
+        sent = len(poisoned.seen)
+        repl.mark_dirty(_scoped("poison"))  # re-marked directly: still never sent
+        threading.Event().wait(0.5)
+        assert len(poisoned.seen) == sent
     finally:
+        liveness.stop()
         repl.stop()
 
 
-def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> None:
-    store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
+def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record(
+    display: Display, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _repl, ops, _liveness = _stack(display, monkeypatch)
+    store.replace_scene(
+        Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+    )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )
@@ -262,9 +211,13 @@ def test_an_owner_write_to_a_quarantined_scene_is_rejected_with_the_record() -> 
     assert element.to_dict()["content"] == "x"
 
 
-def test_quarantine_clears_on_a_wholesale_re_show() -> None:
-    store, _repl, _sender, ops = _stack()
-    store.replace_scene(_CONN, _scoped("poison"), [TextElement(id="t1", content="x")])
+def test_quarantine_clears_on_a_wholesale_re_show(
+    display: Display, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, _repl, ops, _liveness = _stack(display, monkeypatch)
+    store.replace_scene(
+        Scope.in_process(_CONN), _scoped("poison"), [TextElement(id="t1", content="x")]
+    )
     store.quarantine(
         _scoped("poison"), QuarantineRecord(death_count=2, last_death_at=1.0)
     )

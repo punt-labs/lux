@@ -9,13 +9,11 @@ instead of once per cycle (display-presence-demand-driven.md §6.3, §6.5).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.hub.backoff_config import BackoffConfig
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
-
-if TYPE_CHECKING:
-    from punt_lux.domain.hub.backoff_config import BackoffConfig
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +49,11 @@ class DisconnectedRetry:
         self._backoff = RespawnBackoff(config)
         self._was_disconnected = False
         return self
+
+    @classmethod
+    def paced(cls, *, base_delay: float, max_delay: float) -> Self:
+        """A retry whose delay doubles from ``base_delay`` up to ``max_delay``."""
+        return cls(BackoffConfig(base_delay=base_delay, max_delay=max_delay))
 
     @property
     def current_delay(self) -> float:

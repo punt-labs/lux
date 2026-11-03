@@ -12,11 +12,10 @@ from punt_lux.domain.hub.clients import ClientRegistry, client_registry
 from punt_lux.domain.hub.element_index import ElementIndex
 from punt_lux.domain.hub.hub import Hub, hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import (
-    HubDisplay,
-    UnknownElementError,
-    UnknownSceneError,
+from punt_lux.domain.hub.hub_store_factory import (
+    hub_clients,
     hub_display,
+    hub_lifecycle,
 )
 from punt_lux.domain.hub.lifecycle import disconnect_connection
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
@@ -30,15 +29,14 @@ __all__ = [
     "Handler",
     "Hub",
     "HubClientRegistry",
-    "HubDisplay",
     "OwnerTracker",
     "RootRegistry",
     "SubscriptionRegistry",
-    "UnknownElementError",
-    "UnknownSceneError",
     "WriterRegistry",
     "client_registry",
     "disconnect_connection",
     "hub",
+    "hub_clients",
     "hub_display",
+    "hub_lifecycle",
 ]

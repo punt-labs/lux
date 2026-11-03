@@ -11,6 +11,7 @@ from typing import cast
 import pytest
 
 from punt_lux.bounded_send import BoundedSend, TornStreamError
+from punt_lux.progress_clock import ProgressClock
 
 
 class _FakeSocket:
@@ -223,3 +224,128 @@ class TestDeadPeer:
                 cast("socket.socket", sock), b"payload", time.monotonic() + 1.0
             )
         assert sock.calls == 1  # raised on the first send, never looped
+
+
+class TestAWaitWatchesOnlyTheDirectionTheSendNeeds:
+    """Unread data from the peer keeps a socket readable; it is not a ready write."""
+
+    def test_a_full_buffer_with_the_peer_data_unread_waits_the_whole_deadline(
+        self,
+    ) -> None:
+        a, b = socket.socketpair()
+        try:
+            b.send(b"unread")  # a is readable and nobody reads it
+            a.setblocking(False)
+            with pytest.raises(BlockingIOError):
+                while True:  # fill a's send buffer: its next send would block
+                    a.send(b"x" * 65536)
+            began = time.monotonic()
+
+            with pytest.raises(BlockingIOError):
+                BoundedSend().send(a, b"y" * 65536, time.monotonic() + 0.5)
+
+            assert time.monotonic() - began >= 0.4  # the deadline, not a wake-up
+        finally:
+            a.close()
+            b.close()
+
+
+class _SlowSocket:
+    """Takes one byte per send and would-blocks between bytes: slow, never stopped."""
+
+    sent: bytearray
+    _block_next: bool
+
+    def __new__(cls) -> _SlowSocket:
+        self = super().__new__(cls)
+        self.sent = bytearray()
+        self._block_next = False
+        return self
+
+    def send(self, data: memoryview) -> int:
+        self._block_next = not self._block_next
+        if self._block_next:
+            raise BlockingIOError(errno.EAGAIN, "would block")
+        self.sent.append(data[0])
+        return 1
+
+    def fileno(self) -> int:
+        return -1
+
+
+def _patch_select_that_takes(
+    monkeypatch: pytest.MonkeyPatch, seconds: float, *, writable: bool
+) -> None:
+    """Make every wait last ``seconds``, then report writability (or not)."""
+
+    def fake_select(
+        _r: list[object], w: list[object], _x: list[object], _t: float
+    ) -> tuple[list[object], list[object], list[object]]:
+        time.sleep(seconds)
+        return ([], list(w) if writable else [], [])
+
+    monkeypatch.setattr("punt_lux.bounded_send.select.select", fake_select)
+
+
+class TestSendWhileProgressing:
+    """The deadline is a silence on the clock, not a time: bytes restart it."""
+
+    def test_a_slow_peer_that_keeps_taking_bytes_is_never_cut_short(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_select_that_takes(monkeypatch, 0.03, writable=True)
+        sock = _SlowSocket()
+        payload = bytes(range(16))  # 16 waits of 30ms: elapsed time alone is ~0.5s
+        clock = ProgressClock()
+
+        BoundedSend().send_while_progressing(
+            cast("socket.socket", sock), payload, clock, 0.2
+        )
+
+        assert bytes(sock.sent) == payload
+
+    def test_every_byte_sent_restarts_the_clock(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_writable(monkeypatch, writable=True)
+        clock = ProgressClock()
+        time.sleep(0.15)
+        assert not clock.progressed_within(0.1)
+
+        BoundedSend().send_while_progressing(
+            cast("socket.socket", _FakeSocket()), b"abc", clock, 0.1
+        )
+
+        assert clock.progressed_within(0.1)
+
+    def test_a_peer_that_never_takes_a_byte_ends_it_after_the_window(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_select_that_takes(monkeypatch, 0.05, writable=False)
+        clock = ProgressClock()
+        started = time.monotonic()
+
+        with pytest.raises(BlockingIOError):
+            BoundedSend().send_while_progressing(
+                cast("socket.socket", _FakeSocket(eagain_before=1_000_000)),
+                b"payload",
+                clock,
+                0.2,
+            )
+
+        assert 0.04 <= time.monotonic() - started < 3.0
+
+    def test_a_peer_that_stops_half_way_tears_the_stream(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_writable(monkeypatch, writable=False)
+        clock = ProgressClock()
+        time.sleep(0.05)  # the silence is already longer than the window
+
+        with pytest.raises(TornStreamError):
+            BoundedSend().send_while_progressing(
+                cast("socket.socket", _FakeSocket(chunk=4, block_after=4)),
+                b"a much longer frame",
+                clock,
+                0.01,
+            )

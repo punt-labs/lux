@@ -1,0 +1,36 @@
+mission: m-2026-10-25-003
+round: 1
+created_at: "2026-10-25T18:59:16Z"
+author: jms
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: docs/listener_lifecycle.tex
+      added: 232
+      removed: 57
+    - path: docs/listener_lifecycle_coverage.md
+      added: 95
+      removed: 12
+    - path: docs/listener_lifecycle_registry_drop_buggy.tex
+      added: 1764
+      removed: 0
+    - path: docs/listener_lifecycle_retire_split_buggy.tex
+      added: 1773
+      removed: 0
+evidence:
+    - name: 'probcli T1 C1 maxGen 3, all 13 negated invariants plus deadlock: 541155 states, no counter example, deadlocked 0, uncovered 0 of 32'
+      status: pass
+    - name: 'probcli T2 C1 maxGen 3: 4950738 states, no counter example, deadlocked 0, uncovered 0 of 32'
+      status: pass
+    - name: 'probcli T1 C2 maxGen 2 (maxGen 3 stopped at 7.16M states for memory): 2072834 states, no counter example, deadlocked 0, uncovered 0 of 32'
+      status: pass
+    - name: 'registry_drop control (L10): found: Dial; Close(1); Teardown; Dial; Close(1)'
+      status: pass
+    - name: 'retire_split control (L11): found: Dial; StartListener; Want; Send; Feed; Close; CheckPermit; RouteDeliver'
+      status: pass
+    - name: 'fuzz on each changed .tex, separately: exit 0, no output'
+      status: pass
+open_questions:
+    - T1 C2 not checked at maxGen 3 (28 GB); reduced bound argued in the coverage note.
+    - Controls not isolated against the other invariants (full exploration skipped).
+prose: See .tmp/missions/results-model-r4/m-2026-10-25-003.md. Commit ddf9cb6f3d8c373d3cbb8bb462ff08f674bc29df.

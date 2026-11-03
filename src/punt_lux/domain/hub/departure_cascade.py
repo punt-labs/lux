@@ -1,7 +1,7 @@
 """DepartureCascade — the subscriptions/writer/inbox tail of a departure.
 
-``HubDisplay``'s own ``_depart``/``_depart_lapsed`` already run the
-registry-and-ownership half of a departure atomically, under ``StoreLock``.
+``ClientLifecycle`` already runs the registry-and-ownership half of a
+departure atomically, under ``StoreLock``.
 This collaborator sequences the two remaining legs — dropping the
 connection's Hub subscriptions and writer binding
 (:meth:`~punt_lux.domain.hub.hub.Hub.on_disconnect`), and firing its
@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.departure_sinks import DepartureSinks
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -61,6 +62,8 @@ class DepartureCascade:
         """
         try:
             self._hub.on_disconnect(connection_id)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "departure cascade on_disconnect failed for connection_id=%s",
@@ -68,6 +71,8 @@ class DepartureCascade:
             )
         try:
             self._sinks.fire(connection_id)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "departure cascade sink failed for connection_id=%s", connection_id

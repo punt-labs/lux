@@ -17,20 +17,26 @@ rather than a raise.
 
 from __future__ import annotations
 
-import asyncio
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.board_ops import ScopedBoardOps
 from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
+from punt_lux.apps.bd_child import BdLeash
 from punt_lux.client.facade import LuxClient
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.applets.board_ops import BoardOps
     from punt_lux.applets.latency import ClickLatency
     from punt_lux.applets.service import AppletService
+    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.operations import Ok, OpError
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,15 @@ class ServiceRunner:
         self._running = SingleFlight()
         return self
 
+    def register(self) -> Ok | OpError:
+        """Register the service's menu entry with the Hub over REST — blocking.
+
+        Built per use, under the session's identity, like every connection the
+        runner makes; it runs on a worker thread, never on the leg's loop.
+        """
+        rest: CallbackConvenienceOps = LuxClient.for_identity(self._identity).sync
+        return self._service.entry.register_with(rest)
+
     async def clicked(self, latency: ClickLatency) -> None:
         """Service one click on a worker thread, leaving the loop free to renew.
 
@@ -62,10 +77,10 @@ class ServiceRunner:
         Only the waiting happens here — and a hop that could not be made is
         caught, because nobody is waiting on this coroutine to hear about it.
         """
-        try:
-            await asyncio.to_thread(self._serviced, latency)
-        except Exception:
-            logger.exception("a click could not be serviced at all; the leg stays up")
+        await self._guarded(
+            partial(self._serviced, latency),
+            "a click could not be serviced at all; the leg stays up",
+        )
 
     async def warmed(self) -> None:
         """Run the service's warm-up on a worker thread, absorbing its failures.
@@ -74,10 +89,20 @@ class ServiceRunner:
         leg: the only cost of a warm-up that failed is a first click that waits,
         so it is reported here rather than left to a task nobody awaits.
         """
+        await self._guarded(
+            self._service.prefetch,
+            "the applet's prefetch failed; the first click waits",
+        )
+
+    @staticmethod
+    async def _guarded(job: Callable[[], None], failure: str) -> None:
+        """Run *job* as one call with its own ``bd`` leash; a failure is a log line."""
         try:
-            await asyncio.to_thread(self._service.prefetch)
+            await BdLeash().served(job)
+        except ProgrammerError:
+            raise
         except Exception:
-            logger.exception("the applet's prefetch failed; the first click waits")
+            logger.exception(failure)
 
     def _serviced(self, latency: ClickLatency) -> None:
         """Run one click's servicing, on the worker thread this was handed to."""

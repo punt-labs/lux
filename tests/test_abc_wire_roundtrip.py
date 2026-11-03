@@ -33,6 +33,7 @@ from punt_lux.protocol.elements import (
 )
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from tests.hub_harness import IsolatedHub
 
 # -- native-pickle scene roundtrip for all four exemplars -------------------
@@ -157,7 +158,7 @@ def test_full_wrap_socket_hub_leg_fires_once_on_authoritative_copy(
     )
 
     # -- The invocation crosses the wire and the Hub consumes it --------------
-    invocation = recv_message(hub_end, timeout=2.0)
+    invocation = recv_message(hub_end, DISPLAY_VOCABULARY, timeout=2.0)
     assert isinstance(invocation, RemoteEventHandlerInvocation)
     assert invocation.event_kind == "value_changed"
 

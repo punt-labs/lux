@@ -13,13 +13,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
+from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
@@ -37,7 +42,6 @@ from punt_lux.operations.models.query_visibility import (
     VisibilityUnavailable,
 )
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
 
 if TYPE_CHECKING:
@@ -58,7 +62,7 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
     return 0
 
 
-_C1 = Scope(ConnectionId("c1"))
+_C1 = Scope.in_process(ConnectionId("c1"))
 
 
 class _ForbiddenPort:
@@ -127,16 +131,18 @@ class _CountingPort:
         return True
 
 
-def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
+def _seed_scene(
+    store: HubDisplay, lifecycle: ClientLifecycle, *, scene: str, connection: str
+) -> None:
     """Install a group root with a text child under one connection.
 
     The connection registers itself first, as a client showing a scene does: a
     store write is attribution, never an arrival, so writing alone would leave
     the scene owned by a connection the Hub holds no session for. Seeded at
     the composed key a real show() would produce, so a caller-scoped
-    inspect_scene(scene, scope=Scope(connection)) finds it (DES-086).
+    inspect_scene(scene, scope=Scope.in_process(connection)) finds it (DES-086).
     """
-    store.register_client(ConnectionId(connection))
+    lifecycle.arrive(ConnectionId(connection), UNOBSERVED)
     group = agent_element_factory().element_from_dict(
         {
             "kind": "group",
@@ -145,7 +151,7 @@ def _seed_scene(store: HubDisplay, *, scene: str, connection: str) -> None:
         }
     )
     store.show_scene(
-        ConnectionId(connection),
+        Scope.in_process(ConnectionId(connection)),
         _scoped(connection, scene),
         [cast("DomainElement", group)],
         ScenePresentation(frame_id="frame-a", frame_title="Frame A", layout="single"),
@@ -170,10 +176,15 @@ def test_local_id_of_falls_back_to_the_raw_key_when_not_composed(
 
 
 def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     result = ops.inspect_scene("s1", _C1)
@@ -186,8 +197,11 @@ def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
 
 
 def test_inspect_scene_geometry_round_trips_when_requested() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")  # g1 + t1 = two elements
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")  # g1 + t1 = two elements
     reply = DisplayReplied(
         {
             "scene_id": "s1",
@@ -208,7 +222,9 @@ def test_inspect_scene_geometry_round_trips_when_requested() -> None:
         }
     )
     port = _CountingPort(reply)
-    ops = QueryOperations(store, port, ClientListing(store, Hub(), _zero_inbox_depth))
+    ops = QueryOperations(
+        store, port, ClientListing(store, clients, Hub(), _zero_inbox_depth)
+    )
 
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
 
@@ -221,10 +237,15 @@ def test_inspect_scene_geometry_round_trips_when_requested() -> None:
 
 def test_inspect_scene_geometry_not_requested_issues_zero_queries() -> None:
     # A bare scope wanting neither fact issues no round-trip at all.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     result = ops.inspect_scene("s1", _C1)
@@ -233,10 +254,12 @@ def test_inspect_scene_geometry_not_requested_issues_zero_queries() -> None:
 
 
 def test_inspect_scene_unknown_scene_is_not_found() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
     ops = QueryOperations(
-        HubDisplay(),
+        store,
         _ForbiddenPort(),
-        ClientListing(HubDisplay(), Hub(), _zero_inbox_depth),
+        ClientListing(store, factory.clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("ghost", _C1)
     assert isinstance(result, OpError)
@@ -248,23 +271,30 @@ def test_inspect_scene_cannot_read_another_connections_scene() -> None:
     # put into the hub/display." B's "s1" must never answer A's read — not
     # distinguished from an unknown scene, and no fallback lookup may
     # silently resolve it for a connection that never wrote it.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="b")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="b")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
-    result = ops.inspect_scene("s1", Scope(ConnectionId("a")))
+    result = ops.inspect_scene("s1", Scope.in_process(ConnectionId("a")))
 
     assert isinstance(result, OpError)
     assert result.code == "not_found"
 
 
 def test_inspect_scene_with_a_blank_scene_id_is_rejected_before_composition() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
     ops = QueryOperations(
-        HubDisplay(),
+        store,
         _ForbiddenPort(),
-        ClientListing(HubDisplay(), Hub(), _zero_inbox_depth),
+        ClientListing(store, factory.clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("", _C1)
     assert isinstance(result, OpError)
@@ -272,10 +302,12 @@ def test_inspect_scene_with_a_blank_scene_id_is_rejected_before_composition() ->
 
 
 def test_inspect_scene_with_a_separator_in_the_id_is_rejected() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
     ops = QueryOperations(
-        HubDisplay(),
+        store,
         _ForbiddenPort(),
-        ClientListing(HubDisplay(), Hub(), _zero_inbox_depth),
+        ClientListing(store, factory.clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("foo\x1fbar", _C1)
     assert isinstance(result, OpError)
@@ -283,10 +315,15 @@ def test_inspect_scene_with_a_separator_in_the_id_is_rejected() -> None:
 
 
 def test_inspect_scene_a_live_scene_carries_no_quarantine_info() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     result = ops.inspect_scene("s1", _C1)
@@ -298,14 +335,19 @@ def test_inspect_scene_a_live_scene_carries_no_quarantine_info() -> None:
 def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
     # The store keeps a quarantined scene for inspection — quarantine is a
     # replication decision, not a deletion.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     store.quarantine(
         _scoped("c1", "s1"),
         QuarantineRecord(death_count=2, last_death_at=42.0, render_error="boom"),
     )
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     result = ops.inspect_scene("s1", _C1)
@@ -325,8 +367,11 @@ def test_list_scenes_reports_frame_visibility_when_asked() -> None:
     never replicated back --- so it is proxied from the running display, on the
     same terms ``inspect_scene`` proxies painted geometry: only when asked.
     """
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     port = _StubPort(
         DisplayReplied(
             {
@@ -337,7 +382,9 @@ def test_list_scenes_reports_frame_visibility_when_asked() -> None:
             }
         )
     )
-    ops = QueryOperations(store, port, ClientListing(store, Hub(), _zero_inbox_depth))
+    ops = QueryOperations(
+        store, port, ClientListing(store, clients, Hub(), _zero_inbox_depth)
+    )
 
     result = ops.list_scenes(InspectScope(want_visibility=True))
 
@@ -354,11 +401,16 @@ def test_list_scenes_says_not_requested_rather_than_guessing() -> None:
     "Nobody asked" and "the frame is on screen" are different facts, and a
     nullable field would let a caller read the first as the second.
     """
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
 
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.list_scenes()
 
@@ -368,12 +420,15 @@ def test_list_scenes_says_not_requested_rather_than_guessing() -> None:
 
 def test_list_scenes_marks_a_frame_the_display_never_mentioned_unavailable() -> None:
     """The question was put and went unanswered --- not the same as not asking."""
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     port = _StubPort(DisplayReplied({"scenes": [], "frames": []}))
 
     result = QueryOperations(
-        store, port, ClientListing(store, Hub(), _zero_inbox_depth)
+        store, port, ClientListing(store, clients, Hub(), _zero_inbox_depth)
     ).list_scenes(InspectScope(want_visibility=True))
 
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
@@ -383,12 +438,15 @@ def test_list_scenes_marks_a_frame_the_display_never_mentioned_unavailable() -> 
 
 def test_list_scenes_survives_a_display_that_cannot_be_asked() -> None:
     """A down display costs the visibility, never the Hub-authoritative answer."""
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     port = _StubPort(DisplayFault(code="display_unavailable"))
 
     result = QueryOperations(
-        store, port, ClientListing(store, Hub(), _zero_inbox_depth)
+        store, port, ClientListing(store, clients, Hub(), _zero_inbox_depth)
     ).list_scenes(InspectScope(want_visibility=True))
 
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
@@ -397,10 +455,15 @@ def test_list_scenes_survives_a_display_that_cannot_be_asked() -> None:
 
 
 def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     result = ops.list_scenes()
@@ -423,13 +486,16 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
     # Two sessions each install a root into one scene; the summary names both, in
     # first-appearance order — reporting only the first root's owner (the old
     # singular field) could name the wrong session.
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")  # c1 owns root g1
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")  # c1 owns root g1
     second_root = agent_element_factory().element_from_dict(
         {"kind": "text", "id": "t2", "content": "from c2"}
     )
     store.apply(
-        ConnectionId("c2"),
+        Scope.in_process(ConnectionId("c2")),
         AddElement(
             scene_id=_scoped("c1", "s1"),
             parent_id=None,
@@ -437,7 +503,9 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
         ),
     )
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
@@ -447,14 +515,18 @@ def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
 def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
     # A session that declared its identity before installing is attributed by
     # that identity — kind, name, repo — not just its opaque connection id.
-    from punt_lux.domain.hub.client_identity import ClientIdentity
 
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     identity = ClientIdentity(kind="cli", name="lux", repo="/w/lux")
-    store.identify_client(ConnectionId("c1"), identity)
-    _seed_scene(store, scene="s1", connection="c1")
+    lifecycle.identify(ConnectionId("c1"), identity, UNOBSERVED)
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
@@ -463,10 +535,15 @@ def test_list_scenes_surfaces_the_owner_declared_identity() -> None:
 
 
 def test_list_scenes_reports_live_status_by_default() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
@@ -475,13 +552,18 @@ def test_list_scenes_reports_live_status_by_default() -> None:
 
 
 def test_list_scenes_reports_a_quarantined_scene() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     store.quarantine(
         _scoped("c1", "s1"), QuarantineRecord(death_count=2, last_death_at=99.0)
     )
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     summary = next(s for s in ops.list_scenes().scenes if s.local_id == "s1")
@@ -492,13 +574,18 @@ def test_list_scenes_reports_a_quarantined_scene() -> None:
 
 
 def test_list_clients_reads_the_hub_session_registry() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     hub = Hub()
     hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     hub.subscribe(ConnectionId("c1"), Topic("work.saved"))
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
     )
 
     result = ops.list_clients()
@@ -518,29 +605,37 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
 
 
 def test_list_clients_reports_writer_bound_true_only_for_a_registered_writer() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
-    _seed_scene(store, scene="s2", connection="c2")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
+    _seed_scene(store, lifecycle, scene="s2", connection="c2")
     hub = Hub()
     hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
     )
 
-    clients = {c.connection_id: c for c in ops.list_clients().clients}
+    by_id = {c.connection_id: c for c in ops.list_clients().clients}
 
-    assert clients["c1"].writer_bound is True
-    assert clients["c2"].writer_bound is False
+    assert by_id["c1"].writer_bound is True
+    assert by_id["c2"].writer_bound is False
 
 
 def test_list_clients_reports_inbox_depth_from_the_injected_port() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="s1", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="s1", connection="c1")
     hub = Hub()
     hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     depths = {ConnectionId("c1"): 3}
-    clients = ClientListing(store, hub, lambda cid: depths.get(cid, 0))
-    ops = QueryOperations(store, _ForbiddenPort(), clients)
+    listing = ClientListing(store, clients, hub, lambda cid: depths.get(cid, 0))
+    ops = QueryOperations(store, _ForbiddenPort(), listing)
 
     client = next(c for c in ops.list_clients().clients if c.connection_id == "c1")
 
@@ -551,38 +646,48 @@ def test_list_clients_owned_scenes_round_trips_into_inspect_scene() -> None:
     # The exact regression Bugbot flagged: an agent discovers a scene via
     # list_clients, then feeds that string straight back into inspect_scene.
     # A composed key here would separator-reject; a local id succeeds.
-    store = HubDisplay()
-    _seed_scene(store, scene="foo", connection="c1")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="foo", connection="c1")
     hub = Hub()
     hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
     )
 
     client = next(c for c in ops.list_clients().clients if c.connection_id == "c1")
     discovered = client.owned_scenes[0]
     assert discovered == "foo"
 
-    result = ops.inspect_scene(discovered, Scope(ConnectionId("c1")))
+    result = ops.inspect_scene(discovered, Scope.in_process(ConnectionId("c1")))
 
     assert isinstance(result, SceneInspection)
 
 
 def test_list_clients_owned_scenes_reports_two_connections_separately() -> None:
-    store = HubDisplay()
-    _seed_scene(store, scene="foo", connection="c1")
-    _seed_scene(store, scene="foo", connection="c2")
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    store = factory.display
+    clients = factory.clients
+    _seed_scene(store, lifecycle, scene="foo", connection="c1")
+    _seed_scene(store, lifecycle, scene="foo", connection="c2")
     hub = Hub()
     hub.register_writer(ConnectionId("c1"), lambda _msg: True)
     hub.register_writer(ConnectionId("c2"), lambda _msg: True)
     ops = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, hub, _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
     )
 
-    clients = {c.connection_id: c for c in ops.list_clients().clients}
+    by_id = {c.connection_id: c for c in ops.list_clients().clients}
 
-    assert clients["c1"].owned_scenes == ["foo"]
-    assert clients["c2"].owned_scenes == ["foo"]
+    assert by_id["c1"].owned_scenes == ["foo"]
+    assert by_id["c2"].owned_scenes == ["foo"]
 
 
 def test_list_recent_events_proxies_the_display() -> None:
@@ -598,9 +703,11 @@ def test_list_recent_events_proxies_the_display() -> None:
         ],
         "total_buffered": 1,
     }
-    store = HubDisplay()
-    clients = ClientListing(store, Hub(), _zero_inbox_depth)
-    ops = QueryOperations(store, _StubPort(DisplayReplied(payload)), clients)
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    listing = ClientListing(store, clients, Hub(), _zero_inbox_depth)
+    ops = QueryOperations(store, _StubPort(DisplayReplied(payload)), listing)
     result = ops.list_recent_events(50)
     assert isinstance(result, RecentEvents)
     assert result.events[0].element_id == "btn-go"
@@ -625,9 +732,11 @@ def test_list_errors_accepts_the_live_display_payload() -> None:
         ],
         "total_buffered": 1,
     }
-    store = HubDisplay()
-    clients = ClientListing(store, Hub(), _zero_inbox_depth)
-    ops = QueryOperations(store, _StubPort(DisplayReplied(payload)), clients)
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    listing = ClientListing(store, clients, Hub(), _zero_inbox_depth)
+    ops = QueryOperations(store, _StubPort(DisplayReplied(payload)), listing)
     result = ops.list_errors(20)
     assert isinstance(result, RecentErrors)
     assert result.errors[0].severity == "error"
@@ -636,11 +745,57 @@ def test_list_errors_accepts_the_live_display_payload() -> None:
 
 
 def test_list_errors_maps_a_down_display_to_op_error() -> None:
-    store = HubDisplay()
-    clients = ClientListing(store, Hub(), _zero_inbox_depth)
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    listing = ClientListing(store, clients, Hub(), _zero_inbox_depth)
     ops = QueryOperations(
-        store, _StubPort(DisplayFault(code="display_unavailable")), clients
+        store, _StubPort(DisplayFault(code="display_unavailable")), listing
     )
     result = ops.list_errors(20)
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
+
+
+def test_list_clients_reports_the_observed_hosts_and_the_hubs_own() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
+    factory.lifecycle.identify(
+        ConnectionId("c1"),
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        ClientHost("10.0.0.5"),
+    )
+    factory.lifecycle.identify(
+        ConnectionId("c1"),
+        ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"),
+        ClientHost("127.0.0.1"),
+    )
+    hub = Hub()
+    ops = QueryOperations(
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, hub, _zero_inbox_depth),
+    )
+
+    (client,) = ops.list_clients().clients
+
+    assert client.client_hosts == ("10.0.0.5", "127.0.0.1")
+    assert ops.list_clients().hub_host == hub.hostname
+
+
+def test_a_client_no_host_was_observed_for_reports_no_hosts() -> None:
+    factory = HubStoreFactory()
+    store = factory.display
+    factory.lifecycle.identify(
+        ConnectionId("c1"), ClientIdentity(kind="cli", name="x"), UNOBSERVED
+    )
+    ops = QueryOperations(
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, factory.clients, Hub(), _zero_inbox_depth),
+    )
+
+    (client,) = ops.list_clients().clients
+
+    assert client.client_hosts == ()

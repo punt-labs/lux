@@ -49,6 +49,7 @@ class SceneCodec:
                     if msg.frame_owner_facts is not None
                     else None
                 ),
+                "frame_scope_label": msg.frame_scope_label,
             }
         )
 
@@ -71,6 +72,7 @@ class SceneCodec:
             frame_flags=cls._parse_frame_flags(d.get("frame_flags")),
             frame_layout=cls._parse_frame_layout(d.get("frame_layout")),
             frame_owner_facts=cls._parse_owner_facts(d.get("frame_owner_facts")),
+            frame_scope_label=cls._parse_scope_label(d.get("frame_scope_label")),
         )
 
     @staticmethod
@@ -118,3 +120,16 @@ class SceneCodec:
                     )
                     return None
         return tuple(rows)
+
+    @staticmethod
+    def _parse_scope_label(raw: object) -> str | None:
+        """Return the owner's scope label, or ``None`` if absent or malformed.
+
+        A present value that is not a non-empty string is protocol skew: it
+        is logged and the title stays plain rather than showing a corrupt rung.
+        """
+        if isinstance(raw, str) and raw:
+            return raw
+        if raw is not None:
+            logger.warning("frame_scope_label must be a non-empty str, got %r", raw)
+        return None

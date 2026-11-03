@@ -30,6 +30,7 @@ from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import RemoveElement
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements.dialog import DialogElement
@@ -156,6 +157,31 @@ class _Panel(AbcElement):
         return self._id
 
     @property
+    def kind(self) -> str:
+        """The wire discriminator: a panel is a plain box on the wire."""
+        return "panel"
+
+    @property
+    def tooltip(self) -> str | None:
+        """A panel carries no tooltip."""
+        return None
+
+    def to_dict(self) -> dict[str, object]:
+        """The panel's wire form: itself and its children's, as the cap measures it."""
+        return {
+            "kind": self.kind,
+            "id": self._id,
+            "children": [
+                cast("WireElement", c).to_dict() for c in self._children_tuple
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        """Unused: the test builds panels directly."""
+        raise NotImplementedError(d)
+
+    @property
     def children(self) -> tuple[AbcElement, ...]:
         """Return the panel's child tuple (read-only view)."""
         return self._children_tuple
@@ -174,7 +200,7 @@ class _Panel(AbcElement):
         self._children_tuple = tuple(c for c in self._children_tuple if c is not child)
         child_id = ElementId(_element_id_of(child))
         self._hub_display.apply(
-            self._owner_connection_id,
+            Scope.in_process(self._owner_connection_id),
             RemoveElement(scene_id=self._scene_id, element_id=child_id),
         )
 

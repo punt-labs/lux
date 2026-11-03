@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.container_interaction import (
     HeaderToggled,
     ModalClosed,
@@ -30,6 +31,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer, next_event
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.domain.update import AddElement, SetProperty
 from punt_lux.domain.validation_walk import ElementTreeValidator
@@ -189,7 +191,7 @@ class SimulatedAgent:
         report = ElementTreeValidator().validate_tree(roots)
         assert report.ok, report.describe()
         hub_display.replace_scene(
-            self._connection_id,
+            Scope.in_process(self._connection_id),
             SceneId(scenario.scene_id),
             cast("Sequence[DomainElement]", roots),
         )
@@ -198,7 +200,7 @@ class SimulatedAgent:
 
     def subscribe(self, topic: str) -> None:
         """Bind the inbox writer and subscribe the connection to ``topic``."""
-        ensure_writer(self._connection_id)
+        ensure_writer(self._connection_id, UNOBSERVED)
         hub.subscribe(self._connection_id, Topic(topic))
 
     def inject(self, element_id: str) -> tuple[RemoteEventHandlerInvocation, ...]:
@@ -235,7 +237,7 @@ class SimulatedAgent:
         for patch in react:
             assert isinstance(patch, ReactPatch)
             hub_display.apply(
-                self._connection_id,
+                Scope.in_process(self._connection_id),
                 SetProperty(
                     scene_id=SceneId(scene_id),
                     element_id=ElementId(patch.element_id),
@@ -261,7 +263,7 @@ class SimulatedAgent:
         factory = hub_element_factory(self._connection_id)
         elem = cast("DomainElement", factory.element_from_dict(dict(wire)))
         hub_display.apply(
-            self._connection_id,
+            Scope.in_process(self._connection_id),
             AddElement(scene_id=SceneId(scene_id), element=elem, parent_id=None),
         )
 

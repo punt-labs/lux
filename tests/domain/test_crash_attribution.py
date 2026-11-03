@@ -69,6 +69,17 @@ class _FakePort:
         self.observers.append(observer)
 
 
+def _strike(
+    attribution: CrashAttribution,
+    suspects: frozenset[SceneId],
+    *,
+    render_error: str | None = None,
+) -> frozenset[SceneId]:
+    """Charge one death as production does: count it once, then quarantine."""
+    attribution.count_death(suspects)
+    return attribution.quarantine_counted(suspects, render_error=render_error)
+
+
 def test_constants_match_the_design() -> None:
     # Named exactly, per the design contract, so the policy is one place to
     # read and to tune.
@@ -85,7 +96,7 @@ def test_starts_in_batching_mode() -> None:
 
 def test_a_death_switches_to_isolating_mode() -> None:
     attribution = CrashAttribution(_FakePort(), _FakeClock())
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     assert attribution.mode == "isolating"
 
 
@@ -94,7 +105,7 @@ def test_one_death_does_not_quarantine() -> None:
     # quarantine a scene on its own.
     port = _FakePort()
     attribution = CrashAttribution(port, _FakeClock())
-    newly = attribution.attribute_death(frozenset({_A}))
+    newly = _strike(attribution, frozenset({_A}))
     assert newly == frozenset()
     assert not attribution.is_quarantined(_A)
 
@@ -103,9 +114,9 @@ def test_two_deaths_within_the_window_quarantine() -> None:
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(1.0)
-    newly = attribution.attribute_death(frozenset({_A}))
+    newly = _strike(attribution, frozenset({_A}))
     assert newly == frozenset({_A})
     assert attribution.is_quarantined(_A)
     assert port.records[_A].death_count == 2
@@ -116,8 +127,8 @@ def test_a_batched_death_attributes_every_scene_in_the_batch() -> None:
     # because a socket-level send failure cannot tell which scene crashed
     # the renderer.
     attribution = CrashAttribution(_FakePort(), _FakeClock())
-    attribution.attribute_death(frozenset({_A, _B}))
-    attribution.attribute_death(frozenset({_A, _B}))
+    _strike(attribution, frozenset({_A, _B}))
+    _strike(attribution, frozenset({_A, _B}))
     assert attribution.is_quarantined(_A)
     assert attribution.is_quarantined(_B)
 
@@ -128,16 +139,35 @@ def test_a_death_outside_the_window_does_not_accumulate_with_an_old_one() -> Non
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(ATTRIBUTION_WINDOW + 1.0)
-    newly = attribution.attribute_death(frozenset({_A}))
+    newly = _strike(attribution, frozenset({_A}))
     assert newly == frozenset()
     assert not attribution.is_quarantined(_A)
 
 
-def test_quarantine_if_threshold_is_idempotent_below_threshold() -> None:
+def test_quarantine_counted_names_nothing_for_a_scene_never_counted() -> None:
     attribution = CrashAttribution(_FakePort(), _FakeClock())
-    assert attribution.quarantine_if_threshold(_A) is False
+    assert attribution.quarantine_counted(frozenset({_A})) == frozenset()
+
+
+def test_quarantine_counted_can_be_repeated_without_a_second_count() -> None:
+    # A retry after a failed quarantine must neither count the death again nor
+    # change the record: the tally stays at the one death counted.
+    port = _FakePort()
+    attribution = CrashAttribution(port, _FakeClock())
+    _strike(attribution, frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
+    attribution.quarantine_counted(frozenset({_A}))
+    assert port.records[_A].death_count == 2
+
+
+def test_a_death_with_no_suspects_trips_isolation_and_blames_no_scene() -> None:
+    port = _FakePort()
+    attribution = CrashAttribution(port, _FakeClock())
+    assert _strike(attribution, frozenset()) == frozenset()
+    assert attribution.mode == "isolating"
+    assert port.records == {}
 
 
 def test_exit_isolation_if_stable_does_nothing_in_batching_mode() -> None:
@@ -149,7 +179,7 @@ def test_exit_isolation_if_stable_does_nothing_in_batching_mode() -> None:
 def test_exit_isolation_if_stable_waits_for_the_full_interval() -> None:
     clock = _FakeClock()
     attribution = CrashAttribution(_FakePort(), clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(STABLE_INTERVAL - 1.0)
     assert attribution.exit_isolation_if_stable() is False
     assert attribution.mode == "isolating"
@@ -158,7 +188,7 @@ def test_exit_isolation_if_stable_waits_for_the_full_interval() -> None:
 def test_exit_isolation_if_stable_returns_to_batching_after_the_interval() -> None:
     clock = _FakeClock()
     attribution = CrashAttribution(_FakePort(), clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(STABLE_INTERVAL)
     assert attribution.exit_isolation_if_stable() is True
     assert attribution.mode == "batching"
@@ -169,9 +199,9 @@ def test_a_death_during_isolation_restarts_the_stable_interval() -> None:
     # guard the earlyexit fidelity control exists to prove is load-bearing.
     clock = _FakeClock()
     attribution = CrashAttribution(_FakePort(), clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(STABLE_INTERVAL - 1.0)
-    attribution.attribute_death(frozenset({_B}))  # restarts the interval
+    _strike(attribution, frozenset({_B}))  # restarts the interval
     clock.advance(2.0)  # short of a full interval since the restart
     assert attribution.exit_isolation_if_stable() is False
     assert attribution.mode == "isolating"
@@ -196,10 +226,10 @@ def test_clear_tally_drops_every_attributed_death_for_a_scene() -> None:
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A}))  # tally: [t=0]
+    _strike(attribution, frozenset({_A}))  # tally: [t=0]
     attribution.clear_tally(_A)
     clock.advance(1.0)
-    newly = attribution.attribute_death(frozenset({_A}))  # fresh tally: [t=1]
+    newly = _strike(attribution, frozenset({_A}))  # fresh tally: [t=1]
     assert newly == frozenset()  # would be {A} without the clear
     assert not attribution.is_quarantined(_A)
 
@@ -211,10 +241,10 @@ def test_clear_tally_leaves_other_scenes_intact() -> None:
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A, _B}))  # both tallies: 1
+    _strike(attribution, frozenset({_A, _B}))  # both tallies: 1
     attribution.clear_tally(_A)
     clock.advance(1.0)
-    newly = attribution.attribute_death(frozenset({_B}))  # B: 2 -> quarantined
+    newly = _strike(attribution, frozenset({_B}))  # B: 2 -> quarantined
     assert newly == frozenset({_B})
 
 
@@ -224,28 +254,28 @@ def test_clear_tally_is_a_noop_on_a_scene_that_never_crashed() -> None:
     assert attribution.mode == "batching"
 
 
-def test_attribute_death_plumbs_the_render_error_onto_the_quarantine_record() -> None:
+def test_quarantine_counted_plumbs_the_render_error_onto_the_record() -> None:
     # An agent whose scene later goes dark must see WHY, not just that. The
     # exception message the replicator caught at the failed send lands on the
-    # record via attribute_death's render_error kwarg.
+    # record via quarantine_counted's render_error kwarg.
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A}), render_error="EPIPE from probe")
+    _strike(attribution, frozenset({_A}), render_error="EPIPE from probe")
     clock.advance(1.0)
-    attribution.attribute_death(frozenset({_A}), render_error="EPIPE from send")
+    _strike(attribution, frozenset({_A}), render_error="EPIPE from send")
     assert port.records[_A].render_error == "EPIPE from send"
 
 
-def test_attribute_death_render_error_defaults_to_none() -> None:
+def test_quarantine_counted_render_error_defaults_to_none() -> None:
     # Callers with no exception to attribute (a synthetic priming attribute in
     # tests, etc.) leave the field None — the honest default.
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     clock.advance(1.0)
-    attribution.attribute_death(frozenset({_A}))
+    _strike(attribution, frozenset({_A}))
     assert port.records[_A].render_error is None
 
 
@@ -258,7 +288,7 @@ def test_exit_isolation_if_stable_clears_stale_tallies() -> None:
     port = _FakePort()
     clock = _FakeClock()
     attribution = CrashAttribution(port, clock)
-    attribution.attribute_death(frozenset({_A, _B}))  # both tally 1
+    _strike(attribution, frozenset({_A, _B}))  # both tally 1
     assert attribution._tallies  # test-only: proves state exists to clear
     clock.advance(STABLE_INTERVAL)
     assert attribution.exit_isolation_if_stable() is True

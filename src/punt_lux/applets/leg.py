@@ -35,16 +35,15 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.applets.underway import Underway
-from punt_lux.client.facade import LuxClient
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.hub_client import LuxHubClient
-from punt_lux.operations import Ok, OpError
+from punt_lux.operations import OpError
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.applets.service import AppletService
-    from punt_lux.client._callback_ops import CallbackConvenienceOps
     from punt_lux.domain.hub.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
@@ -99,6 +98,8 @@ class AppletLeg:
             await self._client().listen()
         except HubUnavailableError:
             logger.debug("luxd is not running yet; the applet will retry")
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("the applet's listen leg failed; retrying")
 
@@ -126,17 +127,11 @@ class AppletLeg:
         starts there: an entry nobody can click yet has nothing to prefetch for,
         and one that was refused never will.
         """
-        result = await asyncio.to_thread(self._register_now)
+        result = await asyncio.to_thread(self._runner.register)
         if isinstance(result, OpError):
             logger.error("this session's menu entry was refused: %s", result.reason)
             return
         self._start_prefetch()
-
-    def _register_now(self) -> Ok | OpError:
-        """Register the session's callback over REST — the blocking half."""
-        return self._rest().register_callback(
-            self._service.callback_id, self._service.label, self._service.frame_id
-        )
 
     def _start_prefetch(self) -> None:
         """Warm the service up behind the handshake, never inside it.
@@ -156,7 +151,7 @@ class AppletLeg:
         is started rather than awaited, so the frame behind it — the next click —
         is read while this one is served, off the loop that renews the lease.
         """
-        if callback_id != self._service.callback_id:
+        if not self._service.entry.owns(callback_id):
             logger.warning("no service for callback %r in this session", callback_id)
             return
         self._underway.start(self._runner.clicked(ClickLatency(callback_id)))
@@ -169,7 +164,3 @@ class AppletLeg:
         nothing should still say what arrived if anything ever does.
         """
         logger.debug("unsubscribed event on the session leg: %s %s", topic, payload)
-
-    def _rest(self) -> CallbackConvenienceOps:
-        """Build a Hub connection, sharing this leg's identity; built per use."""
-        return LuxClient.for_identity(self._identity).sync

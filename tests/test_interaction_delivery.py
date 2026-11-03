@@ -34,12 +34,13 @@ def _build(
     def _send(sock: object, _msg: object) -> bool:
         return results.get(sock, True)
 
-    socket_listener.send_to_client.side_effect = _send
+    socket_listener.sender.send_to_client.side_effect = _send
     scenes = MagicMock()
     scenes.scene_to_owner = scene_to_owner or {}
     scenes.widget_state_for.return_value = widget_state
     delivery = InteractionDelivery(
         socket_listener=socket_listener,
+        sender=socket_listener.sender,
         scenes=scenes,
     )
     return delivery, socket_listener
@@ -91,7 +92,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == ((event,), ())  # delivered, none dropped
-        socket_listener.send_to_client.assert_called_once_with(owner_sock, event)
+        socket_listener.sender.send_to_client.assert_called_once_with(owner_sock, event)
 
     def test_routes_a_scene_less_event_to_its_declared_hub(self) -> None:
         # A menu-sourced event carries no scene -- it carries the HubId its
@@ -106,7 +107,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == ((event,), ())
-        socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
+        socket_listener.sender.send_to_client.assert_called_once_with(hub_sock, event)
 
     def test_a_menu_click_never_reaches_a_second_live_hub(self) -> None:
         # Two Hubs connected; a click declaring hub-a's token must resolve to
@@ -121,7 +122,9 @@ class TestDeliver:
 
         delivery.deliver([event])
 
-        sent_to = [c.args[0] for c in socket_listener.send_to_client.call_args_list]
+        sent_to = [
+            c.args[0] for c in socket_listener.sender.send_to_client.call_args_list
+        ]
         assert sent_to == [a_sock]  # exactly hub-a's socket, never hub-b's
 
     def test_a_scene_less_hub_less_event_is_dropped_not_held(self) -> None:
@@ -131,7 +134,7 @@ class TestDeliver:
         event = RemoteEventHandlerInvocation(element_id="b", action="click", ts=1.0)
 
         assert delivery.deliver([event]) == ((event,), (event,))  # removed, dropped
-        socket_listener.send_to_client.assert_not_called()
+        socket_listener.sender.send_to_client.assert_not_called()
 
     def test_an_unresolvable_hub_token_is_deferred_not_dropped(self) -> None:
         # The declared Hub is absent this instant -- perhaps mid-reconnect -- so
@@ -143,7 +146,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == ((), ())  # kept, not dropped
-        socket_listener.send_to_client.assert_not_called()
+        socket_listener.sender.send_to_client.assert_not_called()
 
     def test_a_deferred_event_does_not_stall_a_later_deliverable_one(self) -> None:
         """A menu click whose Hub is absent is held (deferred), yet must not
@@ -163,7 +166,9 @@ class TestDeliver:
 
         assert removed == (deliverable,)  # only the deliverable one leaves the buffer
         assert dropped == ()  # the deferred one is neither sent nor dropped -- held
-        socket_listener.send_to_client.assert_called_once_with(good_sock, deliverable)
+        socket_listener.sender.send_to_client.assert_called_once_with(
+            good_sock, deliverable
+        )
 
     def test_delivery_stops_at_first_unsent_event(self) -> None:
         # A failed send ends the frame: that event and every one after it stay
@@ -207,7 +212,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == ((), ())
-        socket_listener.send_to_client.assert_not_called()
+        socket_listener.sender.send_to_client.assert_not_called()
 
     def test_spent_budget_delivers_nothing(self) -> None:
         # When the frame budget is spent, ``SocketListener.send_to_client`` returns
@@ -222,7 +227,7 @@ class TestDeliver:
         )
 
         assert delivery.deliver([event]) == ((), ())
-        assert socket_listener.send_to_client.call_count == 1
+        assert socket_listener.sender.send_to_client.call_count == 1
 
     def test_a_menu_click_survives_its_hubs_reconnect(self) -> None:
         # The Hub is absent at the first flush -- the click is deferred and kept,
@@ -248,7 +253,7 @@ class TestDeliver:
         buf.discard_delivered(removed)
         assert removed == (event,)
         assert buf.is_empty  # delivered on reconnect, no longer held
-        socket_listener.send_to_client.assert_called_once_with(hub_sock, event)
+        socket_listener.sender.send_to_client.assert_called_once_with(hub_sock, event)
 
     def test_a_deferred_menu_click_ages_out_when_its_hub_never_returns(self) -> None:
         # A truly-departed Hub's click is held only for the bounded window; once
@@ -267,7 +272,7 @@ class TestDeliver:
         delivery.compensate_evicted(buf.expire(now=104.0))  # past max_age
 
         assert buf.is_empty  # aged out once the reconnect window lapsed
-        socket_listener.send_to_client.assert_not_called()
+        socket_listener.sender.send_to_client.assert_not_called()
 
 
 class TestCompensateEvicted:

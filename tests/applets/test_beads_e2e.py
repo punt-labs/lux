@@ -26,7 +26,7 @@ import threading
 import time
 import urllib.request
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -75,13 +75,17 @@ def _a_session() -> Generator[subprocess.Popen[bytes]]:
 
 @contextmanager
 def _applet(
-    port: int, home: Path, session_pid: int
+    port: int, home: Path, session_pid: int, path_first: Path | None = None
 ) -> Generator[subprocess.Popen[str]]:
     """Run the shipped ``lux-beads`` against ``port``, bound to ``session_pid``.
 
     The applet finds luxd through the port file under its home directory, so a
-    temporary home points it at this test's Hub and nothing else.
+    temporary home points it at this test's Hub and nothing else. ``path_first``
+    is a directory put ahead of the rest of PATH, to stand in for a ``bd``.
     """
+    path = os.environ["PATH"]
+    if path_first is not None:
+        path = f"{path_first}{os.pathsep}{path}"
     (home / ".punt-labs" / "lux").mkdir(parents=True)
     (home / ".punt-labs" / "lux" / "hub.port").write_text(str(port))
     proc = subprocess.Popen(
@@ -95,7 +99,7 @@ def _applet(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={**os.environ, "HOME": str(home)},
+        env={**os.environ, "HOME": str(home), "PATH": path},
     )
     try:
         yield proc
@@ -192,4 +196,52 @@ def test_the_applet_leaves_when_its_session_does(tmp_path: Path) -> None:
 
         # Bounded by the watch's poll interval, not by anything this test does.
         applet.wait(timeout=30)
+        assert applet.returncode == 0
+
+
+@contextmanager
+def _a_bd_that_does_not_answer(directory: Path) -> Generator[Path]:
+    """Put a ``bd`` on PATH that starts, says so, and then never answers.
+
+    This is a workstation's ``bd`` against a slow hosted database, which CI's
+    runner (no ``bd`` at all, so the spawn fails at once) never meets. The
+    script records its pid in the returned file when it starts, and is ended
+    here so the test leaves nothing behind.
+    """
+    directory.mkdir(parents=True)
+    started = directory / "bd.started"
+    script = directory / "bd"
+    script.write_text(f'#!/bin/sh\necho $$ > "{started}"\nexec sleep 300\n')
+    script.chmod(0o755)
+    try:
+        yield started
+    finally:
+        if started.exists():
+            with suppress(ProcessLookupError):
+                os.kill(int(started.read_text()), 9)
+
+
+def test_the_applet_leaves_when_its_session_does_while_bd_is_still_running(
+    tmp_path: Path,
+) -> None:
+    """A ``bd`` query in flight must not keep the applet alive past its session.
+
+    The warm-up runs ``bd`` on a worker thread, and the interpreter waits for
+    worker threads when the loop closes. An applet that leaves "when the session
+    does" has to leave with that query still running, not when it answers.
+    """
+    bin_dir = tmp_path / "bin"
+    with (
+        _a_bd_that_does_not_answer(bin_dir) as started,
+        _running_luxd() as port,
+        _a_session() as session,
+        _applet(port, tmp_path / "home", session.pid, path_first=bin_dir) as applet,
+    ):
+        _until(lambda: "Beads" in _get(port, "/menus"))
+        _until(started.exists)
+
+        session.kill()
+        session.wait(timeout=10)
+
+        applet.wait(timeout=20)
         assert applet.returncode == 0

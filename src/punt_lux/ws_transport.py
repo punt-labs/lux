@@ -19,12 +19,9 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocket
 
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub import hub, hub_lifecycle
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.replicator_instance import (
-    hub_callback_router,
-    hub_replicator,
-)
+from punt_lux.domain.hub.replicator_instance import hub_callback_router
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.ws_listen import HubListenSession
 
@@ -32,10 +29,8 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from punt_lux.domain.hub.callback_hold import CallbackRouter
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.operations.ports import DirtyMarker
 
 logger = logging.getLogger(__name__)
 
@@ -53,34 +48,23 @@ class HubListenTransport:
     """Mounts ``/ws`` and builds a :class:`HubListenSession` per connection."""
 
     _hub: Hub
-    _clients: HubClientRegistry
-    _display: HubDisplay
+    _lifecycle: ClientLifecycle
     _router: CallbackRouter
-    _menus: DirtyMarker
-    __slots__ = ("_clients", "_display", "_hub", "_menus", "_router")
+    __slots__ = ("_hub", "_lifecycle", "_router")
 
     def __new__(
-        cls,
-        hub: Hub,
-        clients: HubClientRegistry,
-        display: HubDisplay,
-        router: CallbackRouter,
-        menus: DirtyMarker,
+        cls, hub: Hub, lifecycle: ClientLifecycle, router: CallbackRouter
     ) -> Self:
         self = super().__new__(cls)
         self._hub = hub
-        self._clients = clients
-        self._display = display
+        self._lifecycle = lifecycle
         self._router = router
-        self._menus = menus
         return self
 
     @classmethod
     def for_hub(cls) -> Self:
         """Wire the transport over the Hub's process singletons."""
-        return cls(
-            hub, hub_display.clients, hub_display, hub_callback_router, hub_replicator
-        )
+        return cls(hub, hub_lifecycle, hub_callback_router)
 
     def mount(self, app: FastAPI) -> None:
         """Add the ``/ws`` WebSocket route to the parent app."""
@@ -106,10 +90,8 @@ class HubListenTransport:
             conn,
             identity,
             self._hub,
-            self._clients,
-            self._display,
+            self._lifecycle,
             self._router,
-            self._menus,
         )
         await session.run()
 

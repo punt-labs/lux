@@ -1,0 +1,42 @@
+mission_id: m-2026-10-24-009
+status: failed
+type: implement
+created_at: "2026-10-24T05:13:22Z"
+updated_at: "2026-10-25T14:02:57Z"
+closed_at: "2026-10-25T14:02:57Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-24T05:13:22Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - docs/listener_lifecycle.tex
+        - .tmp/missions/results-listener-model-r3/m-2026-10-23-024.md
+        - .tmp/jra-eval-r3/w/ll_locks.tex
+        - .tmp/missions/review-r3-findings.md
+        - docs/WORKFLOW.md
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+success_criteria:
+    - 'WORK IN THE WORKTREE [REDACTED:home-path]Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes (make -C, git -C, absolute paths). IMPLEMENT LL-1 to the accepted Z model docs/listener_lifecycle.tex: the fixed design, satisfying ALL 25 implementation rules in section 6 of .tmp/missions/results-listener-model-r3/m-2026-10-23-024.md (Option A, leader-ruled: per-dial generations; pong correlated by strictly increasing ts with no retire; acks matched by a per-generation ordered ledger that includes un-awaited replicated scenes and bounds the sink, with the mandatory scene_id cross-check; retire only on a query timeout; one request lock per reply kind; a lock-wait expiry retires nothing; a reader lives and dies with its generation; a write that raises after its ledger append retires; routing never skips a reply; the inline path pops the ledger for every ack and reads under _lock; RULE 17 IS IN THIS REPO: the display (src/punt_lux/display/socket_server.py, render_loop.py, bounded_send.py) never drops a reply on a live connection and severs on a deferred or missed send instead of discarding send_to_client''s result; the lock order stated in the rules (per-kind request lock, then generation state lock, then queue/ledger lock; _lock a leaf), proven deadlock-free by .tmp/jra-eval-r3/w/ll_locks.tex; a committed companion model docs/listener_locks.tex follows in a parallel design mission and binds if it differs). Regression tests for every GAP, M, W and F7* row in docs/listener_lifecycle_coverage.md, the F7c backpressure test included, R4/R6/R7/B7 first.'
+    - 'Choose class boundaries by responsibility: the generation owns a socket''s lifetime; DisplayConnection keeps only which generation is current; do not conflate the per-dial generation with DES-093''s reconnect-generation counter (name them distinctly). Cite DES-093, DES-090, DES-101 in the result. If the code forces a deviation from any rule, stop and report before implementing it.'
+    - 'Also fix: the intermittent test_display_link.py::TestErrorHandling::test_poll_event_after_listener_exit_raises_timeout (ConnectionClosedError) if it is this race. (D3-3 and the menu_presence wording fixes are routed separately; do not touch docs/.)'
+    - 'ALSO FIX gvr''s round-3 advisories (.tmp/missions/results-r3fix/gvr-eval.md): A-1 the W-1 regression test''s bound is ''completes'', so a regression hangs instead of failing; make it fail (bounded work or a hard per-test timeout that fails). A-2 the inline read path closes only on ValueError; a frame of an admitted type that fails decoding with KeyError/TypeError leaves the socket open; close on any decode failure of the request''s own generation, as the listener does. A-3 Registration(''registered'', SessionWrite(s, s, t)) still builds when s already held the callback; make Registration carry what it registered so a no-op write cannot claim ''registered''. Also decide what DisplayReplies.event() means after the listener ended the connection, and make event() and test_poll_event_after_listener_exit_raises_timeout agree (the intermittent ConnectionClosedError).'
+    - Tests lead (each GAP row's test fails on the current code first where it can). The test count never drops without a stated reason. Commit per logical step, explicit git add (git add -N new files before make check). make check and make test-integration green on every commit.
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RATCHET PROCEDURE: find regressions with BOTH `make check` and `make update-oo` / `make update-coupling` dry-run against the branch baseline (the update refuses rows check-oo vs main may not show); report every exact row in one message and keep working while the leader decides. Over-cap means redesign. Never run gui/e2e tests that open windows, never pytest -m "". Do not touch DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except your worktree), .github/ or .punt-labs/. RESULT: [REDACTED:home-path]Coding/punt-labs/lux/.tmp/missions/results-generations/<mission-id>.md, submit with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 3
+context: |
+    Implementation mission for the listener/connection lifecycle fix (LL-1),
+    following the accepted model m-2026-10-23-019. rmh implements, gvr evaluates.

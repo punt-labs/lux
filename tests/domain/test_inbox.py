@@ -9,9 +9,9 @@ from __future__ import annotations
 from collections import deque
 from typing import Self, final
 
-from punt_lux.domain.hub import inbox as inbox_mod
+from punt_lux.client_host import UNOBSERVED
+from punt_lux.domain.hub import hub_lifecycle, inbox as inbox_mod
 from punt_lux.domain.hub.hub import hub
-from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.hub.inbox import (
     drain_inbox,
     drop_session,
@@ -105,7 +105,7 @@ def test_writer_puts_under_the_inboxes_lock() -> None:
     with inbox_mod._inboxes_lock:
         inbox_mod._inboxes[connection] = inbox
 
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
     hub.subscribe(connection, topic)
     delivered = hub.publish(connection, topic, {"k": "v"})
 
@@ -113,7 +113,7 @@ def test_writer_puts_under_the_inboxes_lock() -> None:
     assert spy.put_seen
     assert spy.held_at_put
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_offer_on_a_dropped_session_does_not_resurrect_an_inbox() -> None:
@@ -163,7 +163,7 @@ def test_drop_session_resets_the_depth_to_zero() -> None:
 def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
     """A fresh writer is registered alongside a departure sink, at connect time.
 
-    Departing the connection through the production ``hub_display`` singleton
+    Departing the connection through the production ``hub_lifecycle`` singleton
     must drain its inbox without any transport-layer code passing
     ``drop_session`` explicitly -- the binding done here is what closes that
     gap.
@@ -171,10 +171,10 @@ def test_ensure_writer_binds_drop_session_as_the_departure_sink() -> None:
     connection = ConnectionId("c-depth-ensure-writer")
     inbox_for(connection).put(ObserverMessage(topic="t", payload={}))
 
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
     assert hub.has_writer(connection)
 
-    hub_display.drop_connection(connection)
+    hub_lifecycle.depart(connection)
 
     assert not hub.has_writer(connection)
     assert inbox_depth_for(connection) == 0
@@ -196,14 +196,16 @@ def test_ensure_writer_arms_an_inbox_even_when_a_listener_writer_exists() -> Non
     assert hub.has_writer(connection)
     assert inbox_depth_for(connection) == 0  # no inbox yet
 
-    ensure_writer(connection)  # menu_set's admit calls this on an identified owner
+    ensure_writer(
+        connection, UNOBSERVED
+    )  # menu_set's admit calls this on an identified owner
 
     # The menu-event path delivers, because the inbox now exists despite the
     # pre-existing listener writer.
     assert offer(connection, ObserverMessage(topic="lux.menu", payload={})) is True
     assert inbox_depth_for(connection) == 1
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
     assert inbox_depth_for(connection) == 0
 
 
@@ -211,11 +213,11 @@ def test_ensure_writer_is_idempotent_and_rebinds_nothing_on_a_second_call() -> N
     """A second ``ensure_writer`` call on an already-writered connection no-ops."""
     connection = ConnectionId("c-depth-ensure-writer-idempotent")
 
-    ensure_writer(connection)
-    ensure_writer(connection)  # must not raise, must not rebind
+    ensure_writer(connection, UNOBSERVED)
+    ensure_writer(connection, UNOBSERVED)  # must not raise, must not rebind
 
     assert hub.has_writer(connection)
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() -> None:
@@ -233,12 +235,12 @@ def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() ->
     connection = ConnectionId("c-writer-stale-gen")
     topic = Topic("wg2.stale")
 
-    ensure_writer(connection)  # G1
+    ensure_writer(connection, UNOBSERVED)  # G1
     # The writer Hub.publish's snapshot would have captured for G1.
     stale_writer = hub._writers.writer_for(connection)
 
-    hub_display.drop_connection(connection)  # G1 departs
-    ensure_writer(connection)  # G2 reconnects on the same ConnectionId
+    hub_lifecycle.depart(connection)  # G1 departs
+    ensure_writer(connection, UNOBSERVED)  # G2 reconnects on the same ConnectionId
 
     spy = _LockWatchingQueue()
     inbox_for(connection)._queue = spy  # watch G2's live inbox for a delivery
@@ -247,7 +249,7 @@ def test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session() ->
 
     assert not spy.put_seen  # dropped, never delivered into the successor's inbox
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
@@ -267,7 +269,7 @@ def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
     connection = ConnectionId("c-writer-stale-not-delivered")
     topic = Topic("wg2.notdelivered")
 
-    ensure_writer(connection)  # G1 binds a writer + inbox
+    ensure_writer(connection, UNOBSERVED)  # G1 binds a writer + inbox
     hub.subscribe(connection, topic)  # subscription references G1's writer
     stale_writer = hub._writers.writer_for(connection)
 
@@ -284,7 +286,7 @@ def test_stale_writer_publish_reports_zero_delivered_not_one() -> None:
 
     assert delivered == 0
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_live_writer_publish_reports_one_delivered() -> None:
@@ -292,14 +294,14 @@ def test_live_writer_publish_reports_one_delivered() -> None:
     connection = ConnectionId("c-writer-live-delivered")
     topic = Topic("wg2.delivered")
 
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
     hub.subscribe(connection, topic)
 
     delivered = hub.publish(connection, topic, {"k": "v"})
 
     assert delivered == 1
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
@@ -313,7 +315,7 @@ def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
     connection = ConnectionId("c-writer-current-gen")
     topic = Topic("wg2.current")
 
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
     hub.subscribe(connection, topic)
 
     drain_inbox(connection)  # swaps the inbox; leaves the writer registration alone
@@ -325,7 +327,7 @@ def test_current_writer_delivers_after_a_drain_inbox_swap() -> None:
     assert event is not None
     assert event.payload == {"k": "v"}
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons
 
 
 def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> None:
@@ -342,20 +344,20 @@ def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> N
     connection = ConnectionId("c-depth-rr2")
     topic = Topic("rr2.topic")
 
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
     hub.subscribe(connection, topic)
     assert hub.has_writer(connection)
     assert hub.topics_for(connection) == frozenset({topic})
 
     # Depart -- the full cascade drops the writer and subscriptions together.
-    hub_display.drop_connection(connection)
+    hub_lifecycle.depart(connection)
     assert not hub.has_writer(connection)
     assert hub.topics_for(connection) == frozenset()
 
     # The real reconnect entry point, exercised for real: the
     # `if hub.has_writer(connection_id): return` branch is now on the
     # covered path, since has_writer is correctly False post-departure.
-    ensure_writer(connection)
+    ensure_writer(connection, UNOBSERVED)
 
     assert hub.has_writer(connection)
     assert hub.topics_for(connection) == frozenset()  # nothing inherited
@@ -370,4 +372,4 @@ def test_ensure_writer_installs_a_fresh_writer_after_a_same_identity_reap() -> N
     assert event is not None
     assert event.payload == {"k": "v"}
 
-    hub_display.drop_connection(connection)  # cleanup: production singletons
+    hub_lifecycle.depart(connection)  # cleanup: production singletons

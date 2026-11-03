@@ -31,6 +31,7 @@ def _make_scene(
     frame_flags: dict[str, bool] | None = None,
     frame_layout: str | None = None,
     frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
+    frame_scope_label: str | None = None,
     elements: list[object] | None = None,
     title: str | None = None,
 ) -> SceneMessage:
@@ -54,6 +55,7 @@ def _make_scene(
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
         frame_owner_facts=frame_owner_facts,
+        frame_scope_label=frame_scope_label,
         title=title,
     )
 
@@ -253,7 +255,7 @@ class TestHandleFramedScene:
 
         assert "f1" in mgr.frames
         frame = mgr.frames["f1"]
-        assert frame.title == "My Frame"
+        assert frame.heading.title == "My Frame"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
         assert mgr.scene_to_frame["s1"] == "f1"
@@ -644,6 +646,25 @@ class TestAPushNeverWritesVisibility:
         mgr.handle_framed_scene(_make_scene(frame_id="f1"), owner_fd=10)
 
         assert mgr.frames["f1"].is_docked is True
+        assert mgr.consume_focus("f1") is False
+
+    def test_a_label_moving_resend_leaves_a_closed_frame_closed(self) -> None:
+        """DES-088: a label is content; it never moves placement or visibility."""
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(frame_id="f1", frame_scope_label="lux (2)"), owner_fd=10
+        )
+        frame = mgr.frames["f1"]
+        cascade, tab = frame.cascade_index, frame.active_tab
+        mgr.close("f1")
+
+        mgr.handle_framed_scene(
+            _make_scene(frame_id="f1", frame_scope_label="lux"), owner_fd=10
+        )
+
+        assert frame.heading.scope_label == "lux"
+        assert frame.is_closed is True
+        assert (frame.cascade_index, frame.active_tab) == (cascade, tab)
         assert mgr.consume_focus("f1") is False
 
     def test_a_replace_leaves_a_closed_frame_closed(self) -> None:
@@ -1209,8 +1230,8 @@ class TestTwoHubsCollision:
         assert frame_a is not None
         assert frame_b is not None
         assert frame_a is not frame_b
-        assert frame_a.title == "A's window"
-        assert frame_b.title == "B's window"
+        assert frame_a.heading.title == "A's window"
+        assert frame_b.heading.title == "B's window"
         assert "s1" in frame_a.scenes
         assert "s2" not in frame_a.scenes
         assert "s2" in frame_b.scenes

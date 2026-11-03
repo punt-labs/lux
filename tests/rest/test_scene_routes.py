@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.operations import RenderTableRequest
@@ -291,7 +292,9 @@ def test_list_clients_is_empty_without_sessions() -> None:
     client = make_client()
     resp = client.get("/clients")
     assert resp.status_code == 200
-    assert resp.json() == {"kind": "ok", "clients": []}
+    body = resp.json()
+    assert (body["kind"], body["clients"]) == ("ok", [])
+    assert body["hub_host"]  # the Hub's own fact, reported even with no client
 
 
 def test_a_permanent_lease_survives_the_json_round_trip() -> None:
@@ -302,9 +305,12 @@ def test_a_permanent_lease_survives_the_json_round_trip() -> None:
     structured caller the whole response. The two states are two types now, and
     this drives the real route to prove it — serialise, and parse back.
     """
-    store = HubDisplay()
-    store.identify_client(ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"))
-    client = make_client(store=store)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    lifecycle.identify(
+        ConnectionId("voxd"), ClientIdentity(kind="app", name="voxd"), UNOBSERVED
+    )
+    client = make_client(factory=factory)
 
     resp = client.get("/clients")
 
@@ -316,14 +322,16 @@ def test_a_permanent_lease_survives_the_json_round_trip() -> None:
 
 
 def test_an_expiring_lease_round_trips_with_its_length() -> None:
-    store = HubDisplay()
-    store.identify_client(
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    lifecycle.identify(
         ConnectionId("applet"),
         ClientIdentity(
             kind="applet", name="lux · lux · #4b97 · lux-beads", repo="/w/lux"
         ),
+        UNOBSERVED,
     )
-    client = make_client(store=store)
+    client = make_client(factory=factory)
 
     body = client.get("/clients").json()
 
@@ -346,8 +354,9 @@ def test_render_table_route_installs_the_live_composition() -> None:
     # The MCP surface's show_table works because render_table CONSTRUCTS the
     # composition (its filter handlers + FilteredTableModel) server-side. REST now
     # offers the same, so a REST-pushed composed table has live chrome.
-    store = HubDisplay()
-    client = make_client(store=store)
+    factory = HubStoreFactory()
+    store = factory.display
+    client = make_client(factory=factory)
     resp = client.put("/scenes/issues/table", json=_TABLE_BODY)
     assert resp.status_code == 200
     search = cast(
@@ -365,8 +374,9 @@ def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
     import gc
     import weakref
 
-    store = HubDisplay()
-    client = make_client(store=store)
+    factory = HubStoreFactory()
+    store = factory.display
+    client = make_client(factory=factory)
     client.put("/scenes/issues/table", json=_TABLE_BODY)
     old_table = store.resolve(_scoped("issues"), ElementId("table"))
     ref = weakref.ref(old_table)
@@ -399,8 +409,9 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
     ]
     request = BeadsBoard("beads-proj", "Beads: proj").request(BeadsRows.of(issues))
     assert isinstance(request, RenderTableRequest)  # issues yield a table, not text
-    store = HubDisplay()
-    client = make_client(store=store)
+    factory = HubStoreFactory()
+    store = factory.display
+    client = make_client(factory=factory)
     resp = client.put("/scenes/beads-proj/table", json=request.model_dump())
     assert resp.status_code == 200
     scene = _scoped("beads-proj")
@@ -433,8 +444,9 @@ def test_generic_render_of_composed_json_loses_the_composition_handlers() -> Non
         )
     )
     wire = [cast("WireElement", r).to_dict() for r in roots]
-    store = HubDisplay()
-    client = make_client(store=store)
+    factory = HubStoreFactory()
+    store = factory.display
+    client = make_client(factory=factory)
     resp = client.put("/scenes/issues", json={"scene_id": "issues", "elements": wire})
     assert resp.status_code == 200
     search = cast(
@@ -442,3 +454,27 @@ def test_generic_render_of_composed_json_loses_the_composition_handlers() -> Non
     )
     # The constructed SearchFilterHandler was stripped on decode — dead chrome.
     assert search.handler_count(ValueChanged) < 2
+
+
+def test_list_clients_reports_the_hosts_and_matches_the_library_read() -> None:
+    """DES-087: the REST roster carries the same host fields the library reads.
+
+    One engine read, four surfaces: the route must serialise exactly what the
+    operations facade returns, so a field one surface drops is caught here.
+    """
+    factory = HubStoreFactory()
+    factory.lifecycle.identify(
+        ConnectionId("voxd"),
+        ClientIdentity(kind="app", name="voxd"),
+        ClientHost("127.0.0.1"),
+    )
+    client = make_client(factory=factory)
+
+    body = client.get("/clients").json()
+
+    (reported,) = body["clients"]
+    assert reported["client_hosts"] == ["127.0.0.1"]
+    assert "hub_host" not in reported
+    assert isinstance(body["hub_host"], str)
+    assert body["hub_host"]
+    assert ClientList.model_validate(body).clients[0].client_hosts == ("127.0.0.1",)

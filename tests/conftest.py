@@ -10,13 +10,61 @@ from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
 
+from punt_lux.domain.hub.suspect_book import SuspectBook
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from tests.link_access import forget_handed_queues, recording_hand_over
+from tests.tmp_guard import TmpGuard
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+
+
+@pytest.fixture(scope="session", autouse=True)
+def private_tmpdir(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Generator[Path]:
+    """Run the session in its own TMPDIR, and fail if a ``lux-*`` dir outlives it.
+
+    Every per-test directory is removed by :func:`per_test_tmpdir`; what is left
+    here was made outside a test's window (a module- or session-scoped fixture)
+    and nothing else will remove it.
+    """
+    with (
+        tempfile.TemporaryDirectory(prefix="lux-run-") as run,
+        pytest.MonkeyPatch.context() as patch,
+    ):
+        patch.setenv("TMPDIR", run)
+        # The display's default socket is $LUX_SOCKET, else under $XDG_RUNTIME_DIR;
+        # a test that dials it must reach the session's private root, never the
+        # user's own display.
+        patch.setenv("LUX_SOCKET", f"{run}/display.sock")
+        patch.setenv("XDG_RUNTIME_DIR", run)
+        patch.setattr(tempfile, "tempdir", run)
+        # pytest picks its base temp lazily from the first test's TMPDIR; fix
+        # it here so it lives for the session rather than for one test.
+        tmp_path_factory.getbasetemp()
+        yield Path(run)
+        TmpGuard(Path(run)).assert_clean()
+
+
+@pytest.fixture(autouse=True)
+def per_test_tmpdir(
+    private_tmpdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Path]:
+    """Give each test its own TMPDIR, removed when the test ends.
+
+    Unix socket paths must stay short, so tests make their directories with
+    ``tempfile.mkdtemp(prefix="lux-")`` rather than ``tmp_path``; pointing the
+    temp root at a per-test directory lets every such call be cleaned up here
+    instead of in ~60 call sites.
+    """
+    with tempfile.TemporaryDirectory(dir=private_tmpdir, prefix="lux-t-") as per_test:
+        monkeypatch.setenv("TMPDIR", per_test)
+        monkeypatch.setattr(tempfile, "tempdir", per_test)
+        yield Path(per_test)
 
 
 class _TestRecordingSink:
@@ -40,6 +88,18 @@ class _TestRecordingSink:
     def __call__(self, topic: str, payload: Mapping[str, object]) -> None:
         """Record the publish — tests assert on ``self.calls``."""
         self.calls.append((topic, payload))
+
+
+@pytest.fixture(autouse=True)
+def remember_handed_death_queues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None]:
+    """Let a test read the one queue of deaths production hands to its charger."""
+    monkeypatch.setattr(
+        SuspectBook, "hand_over", recording_hand_over(SuspectBook.hand_over)
+    )
+    yield
+    forget_handed_queues()
 
 
 def _build_test_factory(sink: _TestRecordingSink | None = None) -> JsonElementFactory:

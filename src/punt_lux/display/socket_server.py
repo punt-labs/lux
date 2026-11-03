@@ -7,29 +7,23 @@ import errno
 import logging
 import select
 import socket
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Self
 
-from punt_lux.bounded_send import BoundedSend
 from punt_lux.display.client_reader import ClientReader
 from punt_lux.display.client_registry import ClientRegistry
+from punt_lux.display.client_sender import ClientSender
 from punt_lux.display.nonblocking import Nonblocking
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import ReadyMessage, encode_message
+from punt_lux.protocol import ReadyMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.identity import HubId
-    from punt_lux.protocol.messages import Message
 
 __all__ = ["SocketListener", "SocketListenerCallbacks"]
 
 logger = logging.getLogger(__name__)
-
-# A full buffer drains in tens of ms once the peer reads -- this only bounds
-# a genuinely stuck peer, absent a caller deadline.
-_ONE_OFF_SEND_BUDGET = 1.0
 
 # EADDRINUSE (Linux) / EEXIST (macOS/BSD): a concurrent binder won the race.
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
@@ -39,41 +33,6 @@ _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 _LISTEN_BACKLOG = 128
 
 
-class WantWriteState:
-    """Fds whose non-blocking ``recv()`` awaits writability (a TLS event, not death).
-
-    A TLS ``recv()`` on a non-blocking socket can raise
-    ``ssl.SSLWantWriteError``: OpenSSL needs to *write* (a renegotiation
-    record) before it can finish the read. That fd must be watched for
-    writability on the next poll, not treated as readable-only. Owned by
-    :class:`ClientReader` but defined here so both classes share one module.
-    """
-
-    _fds: set[int]
-    __slots__ = ("_fds",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._fds = set()
-        return self
-
-    def set(self, fd: int, *, wants: bool) -> None:
-        """Track (``wants``) or clear (``not wants``) ``fd``'s want-write flag.
-
-        Clearing an untracked fd is a no-op, so the read path can clear
-        unconditionally at the top of every read without a membership test.
-        """
-        (self._fds.add if wants else self._fds.discard)(fd)
-
-    def clear(self) -> None:
-        """Drop every tracked fd -- shutdown, not one departure."""
-        self._fds.clear()
-
-    def sockets(self, fd_to_client: dict[int, socket.socket]) -> list[socket.socket]:
-        """Return the live sockets among the tracked fds, for a write-select."""
-        return list(map(fd_to_client.__getitem__, self._fds))
-
-
 class SocketListener:
     """Accept/poll/read/send/remove clients; reactions delegate to callbacks."""
 
@@ -81,7 +40,7 @@ class SocketListener:
     _clients: list[socket.socket]
     _registry: ClientRegistry
     _callbacks: SocketListenerCallbacks
-    _frame_deadline: float | None  # bounds in-frame sends when set by the render loop
+    _sender: ClientSender
     _reader: ClientReader
 
     def __new__(cls, callbacks: SocketListenerCallbacks) -> Self:
@@ -90,17 +49,28 @@ class SocketListener:
         self._clients = []
         self._registry = ClientRegistry()
         self._callbacks = callbacks
-        self._frame_deadline = None
+        self._sender = ClientSender(self)
         self._reader = ClientReader(
             registry=self._registry,
-            want_write=WantWriteState(),
             callbacks=callbacks,
             host=self,
         )
         return self
 
+    @classmethod
+    def with_sender(
+        cls, callbacks: SocketListenerCallbacks
+    ) -> tuple[Self, ClientSender]:
+        """Make a listener and the one sender that writes to its clients.
+
+        The sender is handed to the objects that send, once, at construction: the
+        listener keeps no accessor, so nothing reaches through it to write.
+        """
+        listener = cls(callbacks)
+        return listener, listener._sender
+
     def is_client(self, sock: socket.socket) -> bool:
-        """Return whether ``sock`` is still a live registered client (ReaderHost)."""
+        """Return whether ``sock`` is still a live registered client (ClientHost)."""
         return sock in self._clients
 
     # -- public properties --------------------------------------------------
@@ -125,6 +95,10 @@ class SocketListener:
         """Return fd-to-connect-timestamp mapping."""
         return self._registry.client_connect_times
 
+    def client_report(self, **_kwargs: object) -> dict[str, object]:
+        """The connected clients, as the ``list_clients`` query reports them."""
+        return self._registry.report()
+
     @property
     def fd_to_client(self) -> dict[int, socket.socket]:
         """Return fd-to-socket mapping for O(1) lookup."""
@@ -134,21 +108,6 @@ class SocketListener:
     def client_count(self) -> int:
         """Return how many clients are currently connected."""
         return len(self._clients)
-
-    # -- frame-scoped send budget -------------------------------------------
-
-    @property
-    def frame_deadline(self) -> float | None:
-        """Return the deadline armed by :meth:`set_frame_deadline`, if any."""
-        return self._frame_deadline
-
-    def set_frame_deadline(self, deadline: float) -> None:
-        """Bound every deadline-less send this frame against backpressure wedges."""
-        self._frame_deadline = deadline
-
-    def clear_frame_deadline(self) -> None:
-        """Restore the one-off send budget for post-frame sends (screenshot, etc.)."""
-        self._frame_deadline = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -237,7 +196,7 @@ class SocketListener:
         self._clients.append(conn)
         self._registry.register_connection(fd, conn)
         logger.debug("Client connected (total: %d)", self.client_count)
-        self.send_to_client(conn, ReadyMessage())
+        self._sender.reply_to_client(conn, ReadyMessage())
 
     def poll_clients(self) -> None:
         """Read + dispatch from readable clients, plus any ``recv()``-wants-write fd."""
@@ -259,7 +218,9 @@ class SocketListener:
         if sock not in self._clients:
             return  # already removed -- make idempotent
         self._clients.remove(sock)
-        fd = self._live_fd(sock)
+        fd = self._registry.fd_of(sock)
+        if fd is None or fd < 0:  # never registered, or under the closed-socket -1
+            fd = self._live_fd(sock)  # only a live fd names it
         if fd is not None:
             self._registry.forget_connection(fd)
             self._reader.forget(fd)
@@ -279,32 +240,6 @@ class SocketListener:
         except OSError:
             fd = -1
         return fd if fd >= 0 else None
-
-    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
-        """Send ``msg`` to ``sock``; return whether it landed before its deadline.
-
-        A caller-less send uses the armed frame deadline or its own one-off
-        budget. A slow-but-alive peer (``BlockingIOError``) keeps the client and
-        defers; only a dead peer (``OSError``) removes it.
-        """
-        deadline = (
-            self._frame_deadline
-            if self._frame_deadline is not None
-            else time.monotonic() + _ONE_OFF_SEND_BUDGET
-        )
-        try:
-            BoundedSend().send(sock, encode_message(msg), deadline)
-        except BlockingIOError:
-            return False  # alive but slow past the deadline -- defer, do not remove
-        except (ConnectionError, OSError) as exc:
-            logger.warning(
-                "send failed (%s); dropped %s, removing client",
-                type(exc).__name__,
-                type(msg).__name__,
-            )
-            self.remove_client(sock)
-            return False
-        return True
 
     def register_client_identity(
         self,

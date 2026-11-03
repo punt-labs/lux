@@ -1,0 +1,38 @@
+mission_id: m-2026-10-25-003
+status: closed
+type: implement
+created_at: "2026-10-25T14:47:51Z"
+updated_at: "2026-10-25T20:07:38Z"
+closed_at: "2026-10-25T20:07:38Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-25T14:47:51Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - docs/listener_lifecycle.tex
+        - docs/listener_locks.tex
+        - .tmp/missions/review-r4-silent.md
+        - .tmp/missions/review-r4-invariants.md
+        - DESIGN.md
+write_set:
+    - docs/listener_lifecycle.tex
+    - docs/listener_lifecycle_coverage.md
+    - docs/listener_lifecycle_registry_drop_buggy.tex
+    - docs/listener_lifecycle_retire_split_buggy.tex
+    - .tmp/missions/results-model-r4/
+success_criteria:
+    - 'On branch fix/lux-ghhf-details-frame-id in [REDACTED:home-path]Coding/punt-labs/lux (main checkout; commit there). The recurrence rule fired: the defect class ''a stale party closes or feeds its successor'', which docs/listener_lifecycle.tex closed at the link, surfaced again one layer up in the final review. Two findings: (1) review-r4-silent.md finding 2: callers that saw ITS dial fail call ClientRegistry.drop(), which closes whatever link is current, including a successor another thread just dialed (operations/display_connection.py, liveness.py, recovery.py into clients.py drop). (2) review-r4-invariants.md F5: retirement is two steps under two locks (mark_closed under the state lock, then shut/discard), and the reader keeps routing the rest of an already-read chunk, so a retired generation can still deliver between the steps.'
+    - 'Extend docs/listener_lifecycle.tex: (a) model the registry layer: callers that observe a failure on generation g, and the leader''s ruling R1, drop(g) closes only if g is still current; (b) refine retirement into its real steps and model the ruling R7: retirement and delivery are ordered under the sink lock and the reader stops routing once its generation is retired. State the invariants (no successor is closed by a predecessor''s failure; a retired generation never delivers) as NEGATED GOALS, never as state-schema conjuncts. Model-check at the existing bounds; deadlock check stays meaningful only where the locks model says so.'
+    - 'Two fidelity controls: docs/listener_lifecycle_registry_drop_buggy.tex (unconditional drop) must reproduce the successor closure; docs/listener_lifecycle_retire_split_buggy.tex (deliver not ordered against retirement) must reproduce a delivery from a retired generation. Record each trace. Update docs/listener_lifecycle_coverage.md with the new rows and the tests that must cover them. fuzz clean on every changed file (run fuzz on each file separately). If the rulings R1 or R7 are unsound in the model, stop and report the counterexample to the leader before writing more.'
+    - 'Commit only your write set with explicit git add, trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Do not push, do not touch PRs, src/, tests/ or other docs. Never restore from git, rm, stash or reset. Do not spawn agents. probcli is at [REDACTED:home-path]Applications/ProB/probcli. RESULT: .tmp/missions/results-model-r4/<mission-id>.md, submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    Model extension for the final-review round-4 recurrence. Runs in parallel
+    with the implementation mission m-2026-10-25-002 (rmh/gvr), which applies
+    rulings R1 and R7 in the r3-fixes worktree.

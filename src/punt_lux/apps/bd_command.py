@@ -17,6 +17,7 @@ import time
 from enum import Enum
 from typing import Self, final
 
+from punt_lux.apps.bd_child import BdChild, BdLeash
 from punt_lux.apps.beads_result import BeadsFailure
 
 __all__ = ["BdOutput", "BdRun", "BoardScope"]
@@ -103,42 +104,30 @@ class BdRun:
     def completed(self, scope: BoardScope) -> BdOutput | BeadsFailure:
         """Return what ``bd`` wrote for ``scope``, or the reason it wrote nothing.
 
-        A failure — the command missing, a timeout, a non-zero exit, no output at
-        all — comes back as the reason to show rather than as an empty board, so
-        the caller can tell "nothing open" from "bd did not run".
+        A failure -- the command missing, a timeout, a non-zero exit, no output at
+        all -- comes back as the reason to show rather than as an empty board, so
+        the caller can tell "nothing open" from "bd did not run". The child belongs
+        to the call that asked for it; its cancellation raises ``BdCancelledError``.
         """
         cmd = scope.argv()
         cmd_str = " ".join(cmd)
         spawning = time.perf_counter()
         try:
-            process = subprocess.Popen(  # noqa: S603
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            child = BdChild(cmd, BdLeash.current())
         except OSError as exc:
             return BeadsFailure(f"{cmd_str}: {exc}")
         spawn_ms = self._since(spawning)
         waiting = time.perf_counter()
         try:
-            stdout, stderr = process.communicate(timeout=_BD_TIMEOUT_SECONDS)
+            done = child.output(_BD_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            self._abandon(process)
             return BeadsFailure(f"{cmd_str}: timed out after {_BD_TIMEOUT_SECONDS}s")
         bd_ms = self._since(waiting)
-        if process.returncode != 0:
-            err = stderr.strip()[:_STDERR_LIMIT] or f"exit {process.returncode}"
-            return BeadsFailure(f"{cmd_str}: {err}")
-        if not stdout.strip():
+        if not done.succeeded:
+            return BeadsFailure(f"{cmd_str}: {done.failure(_STDERR_LIMIT)}")
+        if not done.stdout.strip():
             return BeadsFailure(f"{cmd_str}: no output")
-        return BdOutput(stdout, spawn_ms, bd_ms)
-
-    @staticmethod
-    def _abandon(process: subprocess.Popen[str]) -> None:
-        """End a ``bd`` that overran its time and reap it, leaving no zombie."""
-        process.kill()
-        process.communicate()
+        return BdOutput(done.stdout, spawn_ms, bd_ms)
 
     @staticmethod
     def _since(began: float) -> float:

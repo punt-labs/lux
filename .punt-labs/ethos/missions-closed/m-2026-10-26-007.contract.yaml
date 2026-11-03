@@ -1,0 +1,42 @@
+mission_id: m-2026-10-26-007
+status: closed
+type: implement
+created_at: "2026-10-26T07:07:13Z"
+updated_at: "2026-10-26T13:46:22Z"
+closed_at: "2026-10-26T13:46:22Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-26T07:07:13Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/m-r10-rulings.md
+        - .tmp/missions/review-r10-code.md
+        - .tmp/missions/review-r10-silent.md
+        - .tmp/missions/review-r10-invariants.md
+        - .tmp/missions/review-r10-types.md
+        - .tmp/missions/results-r9fix/eval-gvr-r1.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - docs/crash_attribution_coverage.md
+    - docs/crash_attribution.tex
+    - .tmp/missions/results-r10fix/
+success_criteria:
+    - WORK IN THE WORKTREE [REDACTED:home]/Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes. First run git -C <worktree> merge --ff-only fix/lux-ghhf-details-frame-id. Use make -C, git -C and absolute paths throughout. Do Phase A (A1-A9) of .tmp/missions/m-r10-rulings.md now. Phase B (the writer path) waits for the leader's go.
+    - 'Tests lead, red-first; the probes .tmp/r10/test_r10_probes.py and .tmp/gvr/tests/domain/test_gvr_drain_wedge.py become regression tests. Mutation-check each new rule and guard. Keep the lock order rq < sl < st < lk < qu and K2 intact. EVERY commit passes make check; the only exception is ratchet rows awaiting the leader''s bless, which you report. Make edits with the Edit tool. Use no prohibited command, even if harmless: pytest -m "", git reset, git restore, checkout --, stash, rm, clean. Ask first. Score against the IN-TREE baselines (avg_lcom cap 0.5, max_lcom 0.8, efferent 7, module_size 300, classes_per_module 3). After both phases, report ONE consolidated list of regressed rows and stop for the bless. Over a cap means redesign. Ratchet files go in the last commit. Never run gui/e2e tests. Do not touch DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except the worktree), .github/, .punt-labs/, or docs/dial_settlement* (jms owns those). Do not spawn agents.'
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results-r10fix/<mission-id>.md (lux repo root). Submit it with ethos mission result after Phase B.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+context: |
+    Final local review round 10. Phase A now; Phase B (the writer path) after
+    jra accepts jms's model extension.

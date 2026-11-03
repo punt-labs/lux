@@ -27,6 +27,7 @@ from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 
@@ -50,8 +51,9 @@ _FRESH = ISSUE | {"id": "lux-fresh"}
 
 
 def _service(source: Source | ThenFails | Gated) -> BeadsService:
-    load = BoardLoad(BeadsBoard.for_project("lux"), source)
-    return BeadsService(AppletBoard(load, BoardSlot()))
+    board = BeadsBoard.for_project("lux")
+    load = BoardLoad(board, source)
+    return BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
 
 
 def _click(service: BeadsService, client: object) -> ClickLatency:
@@ -115,9 +117,7 @@ def test_the_entry_is_named_for_what_it_shows(
 
     service = BeadsService.for_repo()
 
-    assert service.callback_id == "beads"
-    assert service.label == "Beads"
-    assert service.frame_id == "beads-lux"
+    assert service.entry == MenuEntry("beads", "Beads", "beads-lux")
 
 
 def test_issues_are_pushed_through_the_table_route() -> None:
@@ -488,3 +488,11 @@ def test_a_board_that_could_not_be_prefetched_leaves_the_click_cold(
     assert journal.steps == ("load", "render", "load", "render")
     assert "Loading issues" in str(client.scenes[0].elements)  # the cold answer
     assert "bd: command not found" in str(client.scenes[1].elements)
+
+
+def test_the_entry_raises_the_frame_of_the_board_it_belongs_to() -> None:
+    board = BeadsBoard.for_repo()
+    load = BoardLoad(board, Source(BeadsRows.of([ISSUE])))
+    service = BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
+
+    assert service.entry.frame_id == board.frame_id

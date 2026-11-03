@@ -312,7 +312,7 @@ class TestTheFrameIdRoundTrip:
         (raised_id,) = raised
 
         # The exact key a real scene push establishes for this connection's
-        # frame (DES-086) -- and the exact reopen-a-closed-board scenario.
+        # frame -- and the exact reopen-a-closed-board scenario.
         real_key = ConnectionScopedId.compose(conn, "beads-lux")
         book = FrameBook()
         book.ensure(_scene(frame_id=real_key), owner_fd=1)
@@ -320,6 +320,75 @@ class TestTheFrameIdRoundTrip:
 
         assert raised_id == real_key
         assert book.restore(raised_id) is True
+
+    def test_a_details_only_session_raises_the_frame_details_installs_into(
+        self,
+    ) -> None:
+        """Details is the Hub's own command and registers no callback, so its
+        frame must reach the Display on the menu itself: with no frame the
+        click is answered Hub-side into a closed frame that nothing reopens.
+        """
+        conn = ConnectionId("lux")
+        named = NamedSessions.over({conn: _bare_session()}, ClientRoster())
+
+        raised = _click(named, "claude")
+
+        # The key the installed Details scene is recorded under.
+        real_key = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
+        book = FrameBook()
+        book.ensure(_scene(frame_id=real_key), owner_fd=1)
+        book.close(real_key)
+        assert raised == [real_key]
+        assert book.restore(raised[0]) is True
+
+    def test_each_entry_raises_its_own_frame(self) -> None:
+        agent, applet = ConnectionId("agent"), ConnectionId("lux")
+        callback = SessionCallback(id="beads", label="Beads", frame_id="beads-lux")
+        named = NamedSessions.over(
+            {agent: _bare_session(), applet: _bare_session(callback)}, ClientRoster()
+        )
+
+        beads = _click(named, "Beads")
+        own = _click(named, "claude")
+
+        assert beads == [ConnectionScopedId.compose(applet, "beads-lux")]
+        assert own == [ConnectionScopedId.compose(agent, f"lux.client-details.{agent}")]
+
+    def test_raising_a_frame_the_display_never_saw_is_a_silent_no_op(self) -> None:
+        """The Hub may have dropped the client; the Display raises regardless."""
+        conn = ConnectionId("gone")
+        named = NamedSessions.over({conn: _bare_session()}, ClientRoster())
+
+        (raised_id,) = _click(named, "claude")
+
+        assert FrameBook().restore(raised_id) is False
+
+
+def _bare_session(*callbacks: SessionCallback) -> ClientSession:
+    """A named session holding a leg and the callbacks it registered."""
+    session = (
+        ClientSession(0.0)
+        .with_identity(ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux"))
+        .attached(_NullLeg())
+    )
+    for callback in callbacks:
+        session = session.with_callback(callback)
+    return session
+
+
+def _click(named: NamedSessions, label: str) -> list[str]:
+    """Wire every submenu to the Display, click ``label``, return what it raised."""
+    (clients_menu,) = CallbackMenu.from_named(named)
+    raised: list[str] = []
+    for submenu in clients_menu.items:
+        assert isinstance(submenu, Menu)
+        Submenu.from_wire(
+            _checked(submenu.to_wire()),
+            MenuHandlers(
+                ignore, lambda frame_id, _hub: raised.append(frame_id), HubId.stub()
+            ),
+        ).render(FakeImGui((label,)))
+    return raised
 
 
 class _NullLeg:
@@ -334,3 +403,12 @@ def _scene(*, frame_id: str) -> SceneMessage:
     return SceneMessage(
         id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id=frame_id
     )
+
+
+class TestAnIdlessLineIsASeparator:
+    def test_the_separator_label_is_a_separator(self) -> None:
+        assert WireSeparator.of_payload({"label": "---"}, field=WireField("m.0")).label
+
+    def test_any_other_idless_label_is_rejected_by_name(self) -> None:
+        with pytest.raises(ValueError, match=r"m\.0\.label: expected '---', got 'x'"):
+            WireSeparator.of_payload({"label": "x"}, field=WireField("m.0"))

@@ -1,0 +1,44 @@
+mission: m-2026-10-26-010
+round: 1
+created_at: "2026-10-26T13:28:37Z"
+author: jms
+verdict: pass
+confidence: 0.92
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 53
+      removed: 24
+    - path: docs/dial_settlement_coverage.md
+      added: 16
+      removed: 12
+    - path: docs/dial_settlement_drain_gives_up_buggy.tex
+      added: 37
+      removed: 56
+    - path: docs/dial_settlement_drain_no_late_buggy.tex
+      added: 48
+      removed: 67
+    - path: docs/dial_settlement_writer_owe_refused_buggy.tex
+      added: 37
+      removed: 56
+    - path: docs/dial_settlement_writer_records_display_buggy.tex
+      added: 37
+      removed: 56
+evidence:
+    - name: 'design safety goal on the final file, default mode, alone: not found, 2068661 states, all visited (matches .tmp/ds2-goal-safety.txt)'
+      status: pass
+    - name: 'no-rescuer deadlock check, drain_no_late: deadlock in 2328 states (Die, WLock, WStall, Block, DStartDisp, RecEnd, SUGrant)'
+      status: pass
+    - name: 'no-rescuer deadlock check, design: no deadlock, 68157 states, all visited'
+      status: pass
+    - name: Z paragraphs of every control identical to round 2, design identical to HEAD before the commit (zdiff.sh)
+      status: pass
+    - name: fuzz clean on each of the six .tex files separately
+      status: pass
+    - name: 'markdownlint-cli2 on docs/dial_settlement_coverage.md: 0 issues'
+      status: pass
+open_questions:
+    - Controls were rebuilt from the current design plus their one mutation; their earlier probcli results stand because their Z text is unchanged.
+prose: |
+    Full report: .tmp/missions/results-model-settle-writer-r3/m-2026-10-26-010.md. Commit d8585c28.
+    R2-F1: the no-rescuer check replaces the S1b-goal witness in the header, the design table and the
+    coverage doc. R2-F2: 3 s ceiling, 5 s bound, once-only obligation. Advisories folded in.

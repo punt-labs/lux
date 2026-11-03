@@ -16,16 +16,20 @@ from typing import Self, final
 import pytest
 from pydantic import ValidationError
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.menu_arming import MenuArming
+from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -73,14 +77,21 @@ class _Ops:
     marker: _MenuMarkerSpy
     registry: HubMenuRegistry
     clients: HubClientRegistry
-    __slots__ = ("clients", "marker", "ops", "registry")
+    lifecycle: ClientLifecycle
+    __slots__ = ("clients", "lifecycle", "marker", "ops", "registry")
 
     def __new__(cls, callback_menus: Sequence[Menu] = ()) -> Self:
         self = super().__new__(cls)
-        self.clients = HubClientRegistry()
+        factory = HubStoreFactory()
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        self.clients = clients
+        self.lifecycle = lifecycle
         self.marker = _MenuMarkerSpy()
         self.registry = HubMenuRegistry(self.clients)
-        arming = MenuArming(self.clients, lambda _cid: None, lambda _cid: None)
+        arming = MenuArming(
+            MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None)
+        )
         self.ops = MenuOperations(
             MenuOperationsDeps(
                 registry=self.registry,
@@ -95,8 +106,10 @@ class _Ops:
     def identified(self, name: str = "sess") -> Scope:
         """Register an identified, live session and return its scope."""
         conn = ConnectionId(name)
-        self.clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
-        return Scope(conn)
+        self.lifecycle.identify(
+            conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+        )
+        return Scope.in_process(conn)
 
 
 def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
@@ -118,7 +131,7 @@ def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
 def test_set_menu_refuses_an_anonymous_session() -> None:
     # Nothing anonymous owns a menu item — the same gate the callback path enforces.
     ctx = _Ops()
-    anon = Scope(ConnectionId("anon"))  # never identified
+    anon = Scope.in_process(ConnectionId("anon"))  # never identified
 
     result = ctx.ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=anon
@@ -352,16 +365,18 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
     the ``with`` (``enter, admit, exit, set_menus``) or the push moves inside it.
     """
     events: list[str] = []
-    clients = HubClientRegistry()
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None))
 
     original_admit = MenuArming.admit
     original_set_menus = HubMenuRegistry.set_menus
 
-    def _rec_admit(self: MenuArming, connection_id: ConnectionId) -> bool:
+    def _rec_admit(self: MenuArming, scope: Scope) -> bool:
         events.append("admit")
-        return original_admit(self, connection_id)
+        return original_admit(self, scope)
 
     def _rec_set_menus(
         self: HubMenuRegistry,
@@ -384,10 +399,13 @@ def test_set_menu_holds_the_write_lock_across_admit_and_store(
         )
     )
     conn = ConnectionId("sess")
-    clients.record(conn, ClientIdentity(kind="mcp-session", name="agent"))
+    lifecycle.identify(
+        conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+    )
 
     result = ops.set_menu(
-        SetMenuRequest.parse([{"label": "File", "items": []}]), scope=Scope(conn)
+        SetMenuRequest.parse([{"label": "File", "items": []}]),
+        scope=Scope.in_process(conn),
     )
 
     assert isinstance(result, Ok)
@@ -403,9 +421,11 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
     entered and exited with no ``set_menus`` and no push between.
     """
     events: list[str] = []
-    clients = HubClientRegistry()
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     registry = HubMenuRegistry(clients)
-    arming = MenuArming(clients, lambda _cid: None, lambda _cid: None)
+    arming = MenuArming(MenuArmingDeps(lifecycle, clients, lambda _cid, _host: None))
 
     original_set_menus = HubMenuRegistry.set_menus
 
@@ -428,7 +448,7 @@ def test_set_menu_does_not_store_when_admit_refuses_under_the_lock(
             write_lock=_WriteLockSpy(events),
         )
     )
-    anon = Scope(ConnectionId("anon"))  # never identified
+    anon = Scope.in_process(ConnectionId("anon"))  # never identified
 
     result = ops.set_menu(
         SetMenuRequest.parse([{"label": "File", "items": []}]), scope=anon

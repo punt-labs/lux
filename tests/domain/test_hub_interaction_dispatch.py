@@ -6,13 +6,14 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, final
 from unittest.mock import MagicMock
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
@@ -26,11 +27,13 @@ if TYPE_CHECKING:
 def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("confirm")
     owner = ConnectionId("agent-1")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id=str(element_id), label="Confirm")
     seen: list[tuple[str, str]] = []
@@ -44,7 +47,7 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
     button.add_handler(ButtonClicked, _first)
     button.add_handler(ButtonClicked, _second)
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -86,12 +89,14 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
     otherwise a session literally named "unowned" would be indistinguishable
     from "no owner at all".
     """
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     mischievous_owner = ConnectionId("unowned")  # a real, live owner named that
     departed_owner = ConnectionId("departed")
-    isolated_display.register_client(mischievous_owner)
-    isolated_display.register_client(departed_owner)
+    lifecycle.arrive(mischievous_owner, UNOBSERVED)
+    lifecycle.arrive(departed_owner, UNOBSERVED)
 
     live_owned = ButtonElement(id="live-owned", label="Owned")
     genuinely_unowned = ButtonElement(id="unowned-elem", label="Unowned")
@@ -103,14 +108,14 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
         ButtonClicked, lambda e: seen.__setitem__("genuine", str(e.owner_id))
     )
     isolated_display.apply(
-        mischievous_owner,
+        Scope.in_process(mischievous_owner),
         AddElement(scene_id=scene_id, element=live_owned, parent_id=None),
     )
     isolated_display.apply(
-        departed_owner,
+        Scope.in_process(departed_owner),
         AddElement(scene_id=scene_id, element=genuinely_unowned, parent_id=None),
     )
-    isolated_display.drop_connection(departed_owner)  # releases it; content stays
+    lifecycle.depart(departed_owner)  # releases it; content stays
 
     import punt_lux.domain.hub as hub_module
 
@@ -138,10 +143,10 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
 
 def _isolated_router(
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[HubClientRegistry, CallbackRouter, MagicMock]:
+) -> tuple[HubStoreFactory, CallbackRouter, MagicMock]:
     """Swap the process router/replicator for fresh ones; return the three."""
-    registry = HubClientRegistry()
-    router = CallbackRouter(registry)
+    factory = HubStoreFactory()
+    router = CallbackRouter(factory.clients)
     replicator = MagicMock()
     monkeypatch.setattr(
         "punt_lux.domain.hub.replicator_instance.hub_callback_router", router
@@ -149,7 +154,7 @@ def _isolated_router(
     monkeypatch.setattr(
         "punt_lux.domain.hub.replicator_instance.hub_replicator", replicator
     )
-    return registry, router, replicator
+    return factory, router, replicator
 
 
 @final
@@ -167,11 +172,15 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 
-    registry, router, replicator = _isolated_router(monkeypatch)
+    factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
     leg = _SilentLeg()
-    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
+    factory.lifecycle.attach(
+        conn, ClientIdentity(kind="app", name="voxd"), leg, UNOBSERVED
+    )
+    factory.lifecycle.register_callback(
+        conn, SessionCallback(id="music", label="Music"), UNOBSERVED
+    )
 
     menu_id = CallbackInvocation(conn, "music").menu_id
     HubInteractionDispatch.dispatch(
@@ -210,11 +219,15 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     from punt_lux.domain.hub.details_outcome import DetailsShown
     from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 
-    registry, router, replicator = _isolated_router(monkeypatch)
+    factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
     leg = _SilentLeg()
-    registry.attach_listener(conn, ClientIdentity(kind="app", name="voxd"), leg)
-    registry.register_callback(conn, SessionCallback(id="music", label="Music"), leg)
+    factory.lifecycle.attach(
+        conn, ClientIdentity(kind="app", name="voxd"), leg, UNOBSERVED
+    )
+    factory.lifecycle.register_callback(
+        conn, SessionCallback(id="music", label="Music"), UNOBSERVED
+    )
     renderer = MagicMock()
     renderer.render_details.return_value = DetailsShown()
     binding = DetailsBinding()
@@ -302,12 +315,14 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
     ``topic_subscribe``. On ``main`` the click was dropped in the non-callback
     branch; this is the regression that fails there and passes here.
     """
-    from punt_lux.domain.hub.hub_display import hub_display
+    from punt_lux.domain.hub import hub_lifecycle
     from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
     from punt_lux.domain.hub.session_callback import MenuLeaf
 
     conn = ConnectionId("agent-menu-inbox-1")
-    ensure_writer(conn)  # arms the inbox + registers the client as a live session
+    ensure_writer(
+        conn, UNOBSERVED
+    )  # arms the inbox + registers the client as a live session
     try:
         leaf_id = MenuLeaf("menu", conn, "run_btn").wire_id
         HubInteractionDispatch.dispatch(
@@ -324,7 +339,7 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
             ("lux.menu", {"menu": "Tools", "item": "run_btn"}),
         ]
     finally:
-        hub_display.drop_connection(conn)
+        hub_lifecycle.depart(conn)
 
 
 def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
@@ -363,8 +378,8 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
     the same ``owner<US>run`` id, so the menu click is misrouted to the callback
     and never reaches the inbox — the regression this proves.
     """
+    from punt_lux.domain.hub import hub_lifecycle
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.hub_display import hub_display
     from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
     from punt_lux.domain.hub.replicator_instance import hub_callback_router
     from punt_lux.domain.hub.session_callback import (
@@ -375,10 +390,13 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
 
     conn = ConnectionId("dual-owner")
     leg = _SilentLeg()
-    clients = hub_display.clients
-    clients.attach_listener(conn, ClientIdentity(kind="app", name="dual"), leg)
-    clients.register_callback(conn, SessionCallback(id="run", label="Run"), leg)
-    ensure_writer(conn)  # arm the inbox; the same session owns a menu item too
+    hub_lifecycle.attach(conn, ClientIdentity(kind="app", name="dual"), leg, UNOBSERVED)
+    hub_lifecycle.register_callback(
+        conn, SessionCallback(id="run", label="Run"), UNOBSERVED
+    )
+    ensure_writer(
+        conn, UNOBSERVED
+    )  # arm the inbox; the same session owns a menu item too
     try:
         HubInteractionDispatch.dispatch(
             RemoteEventHandlerInvocation(
@@ -403,7 +421,7 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
         assert held == ["run"]  # only the callback leaf reached the hold
         assert delivered == [("lux.menu", {"menu": "Tools", "item": "run"})]
     finally:
-        hub_display.drop_connection(conn)
+        hub_lifecycle.depart(conn)
 
 
 def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
@@ -413,15 +431,17 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
     that stamped id is delivered to the session's inbox; ``receive`` returns the
     reserved ``lux.menu`` event carrying the agent's own item id.
     """
+    from punt_lux.domain.hub import hub_lifecycle
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.hub_display import hub_display
     from punt_lux.domain.hub.replicator_instance import hub_menu_registry
     from punt_lux.operations import Scope, SetMenuRequest
     from punt_lux.tools.tools import OPERATIONS
 
     conn = ConnectionId("surface-loop-1")
-    scope = Scope(conn)
-    hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="agent"))
+    scope = Scope.in_process(conn)
+    hub_lifecycle.identify(
+        conn, ClientIdentity(kind="mcp-session", name="agent"), UNOBSERVED
+    )
     try:
         OPERATIONS.set_menu(
             SetMenuRequest.parse(
@@ -449,7 +469,7 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
         assert received.event.topic == "lux.menu"
         assert received.event.payload == {"menu": "Tools", "item": "run_btn"}
     finally:
-        hub_display.drop_connection(conn)
+        hub_lifecycle.depart(conn)
         hub_menu_registry.drop_session(conn)
 
 
@@ -459,7 +479,8 @@ def test_hub_interaction_dispatch_missing_scene_id_returns_silently(
     """When ``scene_id`` is None the dispatch logs a warning and returns."""
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
     HubInteractionDispatch.dispatch(
@@ -479,7 +500,8 @@ def test_hub_interaction_dispatch_unknown_element_returns_silently(
     """When the element is not in the Hub index the dispatch returns."""
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
 
     HubInteractionDispatch.dispatch(
@@ -516,17 +538,19 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
         def from_dict(cls, d: Mapping[str, object]) -> Self:
             return cls(id=str(d["id"]))
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     owner = ConnectionId("agent")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
     wire_leaf = _WireLeaf(id="leaf")
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=wire_leaf, parent_id=None),
     )
 
-    fake_registry = SimpleNamespace(get=MagicMock())
+    fake_registry = SimpleNamespace(asks=MagicMock())
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(hub_module, "client_registry", fake_registry)
 
@@ -540,7 +564,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
         )
     )
 
-    fake_registry.get.assert_not_called()
+    fake_registry.asks.assert_not_called()
 
 
 def test_hub_interaction_dispatch_marks_dirty_without_display_io(
@@ -553,17 +577,19 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("confirm")
     owner = ConnectionId("agent-1")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id=str(element_id), label="Confirm")
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("ok"))
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -591,11 +617,13 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
 def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("toggle")
     owner = ConnectionId("agent-1")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     checkbox = CheckboxElement(id=str(element_id), label="Toggle")
     seen: list[tuple[str, bool | int | float | str]] = []
@@ -605,7 +633,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
 
     checkbox.add_handler(ValueChanged, _handler)
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=checkbox, parent_id=None),
     )
 
@@ -639,17 +667,19 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     """Unknown event_kind logs warning and returns without firing."""
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("btn")
     owner = ConnectionId("agent")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id=str(element_id), label="OK")
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -690,13 +720,15 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("framed")
     owner = ConnectionId("agent")
     frame_id = "f1"
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(
             scene_id=scene_id,
             element=ButtonElement(id="b", label="x"),
@@ -744,17 +776,19 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("cb")
     owner = ConnectionId("agent")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     cb = CheckboxElement(id=str(element_id), label="Toggle")
     fired: list[str] = []
     cb.add_handler(ValueChanged, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=cb, parent_id=None),
     )
 
@@ -785,17 +819,19 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     element_id = ElementId("btn")
     owner = ConnectionId("agent")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id=str(element_id), label="OK")
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
@@ -833,10 +869,12 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     owner = ConnectionId("agent-1")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id="confirm", label="Confirm")
     fired: list[str] = []
@@ -844,7 +882,7 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     dialog = GroupElement(id="dialog", children=[button])
     root = GroupElement(id="root", children=[dialog])
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=root, parent_id=None),
     )
 
@@ -892,17 +930,19 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     """
     import punt_lux.domain.hub as hub_module
 
-    isolated_display = HubDisplay()
+    factory = HubStoreFactory()
+    isolated_display = factory.display
+    lifecycle = factory.lifecycle
     scene_id = SceneId("scene")
     owner = ConnectionId("agent-1")
-    isolated_display.register_client(owner)
+    lifecycle.arrive(owner, UNOBSERVED)
 
     button = ButtonElement(id="confirm", label="Confirm")
     fired: list[str] = []
     button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
     root = GroupElement(id="root", children=[button])
     isolated_display.apply(
-        owner,
+        Scope.in_process(owner),
         AddElement(scene_id=scene_id, element=root, parent_id=None),
     )
 

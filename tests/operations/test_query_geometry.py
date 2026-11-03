@@ -18,8 +18,10 @@ from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.inspect_scope import InspectScope
@@ -30,12 +32,11 @@ from punt_lux.operations.models.query_geometry import (
 )
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 
-_C1 = Scope(ConnectionId("c1"))
+_C1 = Scope.in_process(ConnectionId("c1"))
 
 
 class _StubPort:
@@ -74,7 +75,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        ConnectionId("c1"),
+        Scope.in_process(ConnectionId("c1")),
         _scoped("s1"),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),
@@ -106,12 +107,14 @@ _GEOMETRY_BLOCK = {
 
 
 def test_geometry_not_requested_by_default() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
     _seed(store)
     ops = QueryOperations(
         store,
         _StubPort(DisplayReplied({})),
-        ClientListing(store, Hub(), _zero_inbox_depth),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1)
     assert isinstance(result, SceneInspection)
@@ -119,12 +122,14 @@ def test_geometry_not_requested_by_default() -> None:
 
 
 def test_geometry_present_carries_element_and_frame_rects() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
     _seed(store)
     ops = QueryOperations(
         store,
         _StubPort(DisplayReplied(_GEOMETRY_BLOCK)),
-        ClientListing(store, Hub(), _zero_inbox_depth),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
@@ -150,12 +155,14 @@ def test_geometry_present_carries_element_and_frame_rects() -> None:
 
 
 def test_geometry_unavailable_when_display_faults() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
     _seed(store)
     ops = QueryOperations(
         store,
         _StubPort(DisplayFault(code="display_unavailable")),
-        ClientListing(store, Hub(), _zero_inbox_depth),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
@@ -163,12 +170,14 @@ def test_geometry_unavailable_when_display_faults() -> None:
 
 
 def test_geometry_unavailable_when_reply_omits_block() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
     _seed(store)
     ops = QueryOperations(
         store,
         _StubPort(DisplayReplied({"scene_id": "s1"})),
-        ClientListing(store, Hub(), _zero_inbox_depth),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
@@ -178,13 +187,15 @@ def test_geometry_unavailable_when_reply_omits_block() -> None:
 
 
 def test_geometry_unavailable_when_a_rect_is_malformed() -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    clients = factory.clients
     _seed(store)
     bad = {"geometry": {"elements": {"t1": {"x": "wide"}}, "frame": None}}
     ops = QueryOperations(
         store,
         _StubPort(DisplayReplied(bad)),
-        ClientListing(store, Hub(), _zero_inbox_depth),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)

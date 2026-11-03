@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.board_channel import BoardChannel
+
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
@@ -47,7 +49,7 @@ class BoardWork:
 
     def issues(self) -> BoardRead:
         """Read the issues, noting where the run's time went, or raise."""
-        self.note((read := self._load.issues()).summary())
+        self._latency.note((read := self._load.issues()).summary())
         return read
 
     def board(self, read: BoardRead) -> BuiltBoard:
@@ -64,4 +66,4 @@ class BoardWork:
 
     def push(self, request: BoardRequest) -> None:
         """Install a board through this click's client."""
-        self._load.push(self._client, request)
+        BoardChannel(self._client).send(request)

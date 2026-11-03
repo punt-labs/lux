@@ -1,0 +1,227 @@
+mission: m-2026-10-26-004
+round: 1
+created_at: "2026-10-26T06:52:05Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 4
+      removed: 0
+    - path: .oo-baseline.json
+      added: 126
+      removed: 74
+    - path: .oo-coupling-audit.jsonl
+      added: 3
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 67
+      removed: 39
+    - path: docs/crash_attribution.tex
+      added: 6
+      removed: 2
+    - path: docs/crash_attribution_coverage.md
+      added: 2
+      removed: 1
+    - path: src/punt_lux/display/frame_turn.py
+      added: 20
+      removed: 3
+    - path: src/punt_lux/display/render_loop.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/handler_writes.py
+      added: 46
+      removed: 18
+    - path: src/punt_lux/domain/hub/batch_judge.py
+      added: 40
+      removed: 0
+    - path: src/punt_lux/domain/hub/bounded_ask.py
+      added: 64
+      removed: 0
+    - path: src/punt_lux/domain/hub/crash_attribution.py
+      added: 20
+      removed: 60
+    - path: src/punt_lux/domain/hub/dial_drain.py
+      added: 58
+      removed: 32
+    - path: src/punt_lux/domain/hub/dial_end.py
+      added: 74
+      removed: 0
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 59
+      removed: 25
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 46
+      removed: 49
+    - path: src/punt_lux/domain/hub/dial_socket.py
+      added: 38
+      removed: 12
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 93
+      removed: 107
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 6
+      removed: 3
+    - path: src/punt_lux/domain/hub/display_listener.py
+      added: 32
+      removed: 43
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 58
+      removed: 51
+    - path: src/punt_lux/domain/hub/element_index.py
+      added: 19
+      removed: 0
+    - path: src/punt_lux/domain/hub/element_invocation_resolver.py
+      added: 13
+      removed: 0
+    - path: src/punt_lux/domain/hub/handler_firing.py
+      added: 0
+      removed: 57
+    - path: src/punt_lux/domain/hub/hub_interaction_dispatch.py
+      added: 1
+      removed: 4
+    - path: src/punt_lux/domain/hub/listener_thread.py
+      added: 43
+      removed: 26
+    - path: src/punt_lux/domain/hub/pending.py
+      added: 39
+      removed: 0
+    - path: src/punt_lux/domain/hub/reader_slot.py
+      added: 137
+      removed: 27
+    - path: src/punt_lux/domain/hub/reply_sink.py
+      added: 86
+      removed: 72
+    - path: src/punt_lux/domain/hub/request_exchange.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/scene_writer.py
+      added: 1
+      removed: 17
+    - path: src/punt_lux/domain/hub/settler.py
+      added: 81
+      removed: 0
+    - path: src/punt_lux/domain/hub/suspect_book.py
+      added: 14
+      removed: 1
+    - path: src/punt_lux/domain/hub/write_seam.py
+      added: 61
+      removed: 12
+    - path: tests/display/test_frame_turn.py
+      added: 18
+      removed: 2
+    - path: tests/domain/display_double.py
+      added: 7
+      removed: 1
+    - path: tests/domain/test_ack_attribution.py
+      added: 21
+      removed: 19
+    - path: tests/domain/test_await_acks.py
+      added: 10
+      removed: 4
+    - path: tests/domain/test_client_lifecycle_callbacks.py
+      added: 4
+      removed: 2
+    - path: tests/domain/test_crash_attribution.py
+      added: 56
+      removed: 26
+    - path: tests/domain/test_death_charger.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_dial_drain.py
+      added: 11
+      removed: 2
+    - path: tests/domain/test_dial_end.py
+      added: 112
+      removed: 0
+    - path: tests/domain/test_dial_model_lock_discipline.py
+      added: 29
+      removed: 4
+    - path: tests/domain/test_dial_settlement.py
+      added: 624
+      removed: 0
+    - path: tests/domain/test_display_connection.py
+      added: 52
+      removed: 43
+    - path: tests/domain/test_element_writes_judged_in_their_own_scene.py
+      added: 211
+      removed: 0
+    - path: tests/domain/test_handler_writes_are_judged.py
+      added: 14
+      removed: 5
+    - path: tests/domain/test_handler_writes_cannot_deepen.py
+      added: 46
+      removed: 7
+    - path: tests/domain/test_hub_end_atomic.py
+      added: 26
+      removed: 58
+    - path: tests/domain/test_hub_replicator.py
+      added: 3
+      removed: 3
+    - path: tests/domain/test_leg_writes.py
+      added: 10
+      removed: 6
+    - path: tests/domain/test_link_generations.py
+      added: 17
+      removed: 10
+    - path: tests/domain/test_listener_thread.py
+      added: 12
+      removed: 10
+    - path: tests/domain/test_presence_writes_only_through_lifecycle.py
+      added: 6
+      removed: 4
+    - path: tests/domain/test_reply_sink.py
+      added: 21
+      removed: 10
+    - path: tests/domain/test_retire_cause.py
+      added: 33
+      removed: 29
+    - path: tests/domain/test_scope_provenance.py
+      added: 9
+      removed: 3
+    - path: tests/domain/test_settlement_door.py
+      added: 192
+      removed: 0
+    - path: tests/domain/test_single_writer.py
+      added: 3
+      removed: 0
+    - path: tests/domain/test_tls_generation.py
+      added: 4
+      removed: 4
+    - path: tests/link_access.py
+      added: 30
+      removed: 3
+    - path: tests/test_bd_child.py
+      added: 9
+      removed: 2
+    - path: tests/test_observed_peer.py
+      added: 10
+      removed: 5
+evidence:
+    - name: 'make check on d329c0aa exits 0: 7388 passed, 193 deselected (.tmp/r2-check.txt in the worktree)'
+      status: pass
+    - name: 'make test-integration on d329c0aa: 92 passed, 7489 deselected (.tmp/r2-integ.txt)'
+      status: pass
+    - name: 'mutation record: each Phase B rule fails its test when the rule is broken (P1 to P15, same-thread asker, O-eof reset, F5, drain lock wait, door guard)'
+      status: pass
+open_questions:
+    - docs/dial_settlement_coverage.md still says no test exists; the mapping is in the result file for the leader to copy
+prose: |
+    Phase A (A1 to A6) and Phase B (dial settlement) are committed; FrameTurn.standard
+    removes the render_loop efferent rise; ratchet files are the last commit d329c0aa.
+    Red-first was impossible for Phase B because the old API was replaced wholesale:
+    existing tests were converted first, then the new tests were written and each rule
+    was mutation-checked. That mutation record is the evidence.
+    Partition to test (tests/domain/test_dial_settlement.py unless stated):
+    P1 TestAStartThatFails::test_p1_*; P2 TestAStartThatFails::test_p2_*;
+    P3 and P7 TestARecordThatLandsInTheSettle::test_p3_*, test_p7_*;
+    P4 TestAnInlineHolderPastItsLastCheck::test_p4_*;
+    P5 and P6 TestTheCriticalSections::test_p5_*, test_p6_*;
+    P8 and P9 TestADisplayThatDiesBeforeTheHubEndIsDecided::test_p8_*, test_p9_*;
+    P10 to P12 TestAStalledHolder::test_p10_*, test_p11_* (display, unresponsive), test_p12_*;
+    P13 to P15 TestASettleIsOneAndAnEndIsTheFirstRecorded::test_p13_*, test_p14_*, test_p15_*;
+    same-thread asker TestAnAskerOnTheHoldersOwnThread (listener and inline);
+    O-eof TestTheEndOfAStreamTheDrainSees (reset after queued acks; plain end of file);
+    F5 TestASendThatTimesOut; drain wedge tests/domain/test_tls_generation.py::test_retiring_a_dial_releases_a_sender_wedged_on_a_tls_socket;
+    O-crosshost tests/domain/test_dial_drain.py::TestTheDrainClaimsCompletenessForSameHostSocketsOnly;
+    P16 tests/domain/test_settlement_door.py; DialEnd tests/domain/test_dial_end.py.

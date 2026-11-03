@@ -93,5 +93,5 @@ def test_property_type_error_records_expected_and_got() -> None:
 
 
 def test_unknown_element_error_payload() -> None:
-    err = UnknownElementError(scene_id=SceneId("s1"), element_id=ElementId("ghost"))
+    err = UnknownElementError(SceneId("s1"), ElementId("ghost"))
     assert err.to_dict()["element_id"] == "ghost"

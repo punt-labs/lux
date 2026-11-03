@@ -40,7 +40,7 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
         ops=_core.OPERATIONS, identity=_core._identity()
     )
     result = asyncio.run(
-        menu_set_command(ctx, SetMenuRequest.parse(menus), scope=_core._scope())
+        menu_set_command(ctx, SetMenuRequest.parse(menus), scope=_core.scope())
     )
     return signal(result)
 
@@ -54,7 +54,7 @@ def frame_remove(frame_id: str) -> Ok | OpError:
     ctx: CommandCtx[FrameOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    request = FrameRemoveRequest(ctx, frame_id, _core._scope())
+    request = FrameRemoveRequest(ctx, frame_id, _core.scope())
     return asyncio.run(frame_remove_command.execute(request))
 
 

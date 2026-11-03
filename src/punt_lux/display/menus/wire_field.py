@@ -8,7 +8,7 @@ points at ``callback_menus.0.items.2.id`` instead of a bare ``TypeError``.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Self, cast, final
+from typing import Self, TypeGuard, cast, final
 
 __all__ = ["WireField"]
 
@@ -37,19 +37,19 @@ class WireField:
     def mapping(self, value: object) -> Mapping[str, object]:
         """Return *value* as a mapping, or reject it by name."""
         if not isinstance(value, Mapping):
-            raise self.rejected("a mapping", value)
+            raise self._rejected("a mapping", value)
         return cast("Mapping[str, object]", value)
 
     def sequence(self, value: object) -> tuple[object, ...]:
         """Return *value* as a tuple, or reject it (a string here is scalar)."""
         if isinstance(value, str) or not isinstance(value, Sequence):
-            raise self.rejected("a list", value)
+            raise self._rejected("a list", value)
         return tuple(cast("Sequence[object]", value))
 
     def text(self, value: object) -> str:
         """Return *value* as a non-empty string, or reject it by name."""
         if not isinstance(value, str) or not value:
-            raise self.rejected("a non-empty string", value)
+            raise self._rejected("a non-empty string", value)
         return value
 
     def optional_text(self, value: object, default: str) -> str:
@@ -57,27 +57,36 @@ class WireField:
         if value is None:
             return default
         if not isinstance(value, str):
-            raise self.rejected("a string", value)
+            raise self._rejected("a string", value)
         return value
 
     def optional_text_or_none(self, value: object) -> str | None:
         """Present non-blank string, or None if absent (mirrors the Hub blank rule)."""
-        return None if value is None else self._nonblank_text(value)
+        if value is None:
+            return None
+        if not self._is_nonblank(value):
+            raise self._rejected("a non-blank string", value)
+        return value
 
-    def _nonblank_text(self, value: object) -> str:
-        """Return *value* as a non-blank string, or reject it by name."""
-        if isinstance(value, str) and value.strip():
-            return value
-        raise self.rejected("a non-blank string", value)
+    @staticmethod
+    def _is_nonblank(value: object) -> TypeGuard[str]:
+        """Say whether *value* is a string with something in it besides space."""
+        return isinstance(value, str) and bool(value.strip())
 
     def flag(self, value: object, *, default: bool) -> bool:
         """Return a present boolean, or *default* when the field is absent."""
         if value is None:
             return default
         if not isinstance(value, bool):
-            raise self.rejected("true or false", value)
+            raise self._rejected("true or false", value)
         return value
 
-    def rejected(self, expected: str, value: object) -> ValueError:
+    def literal(self, value: object, expected: str) -> str:
+        """Return *value* if it is exactly the string *expected*, or reject it."""
+        if value != expected:
+            raise self._rejected(repr(expected), value)
+        return expected
+
+    def _rejected(self, expected: str, value: object) -> ValueError:
         """Return the error that names this place, what it wanted, and what came."""
         return ValueError(f"{self._loc}: expected {expected}, got {value!r}")

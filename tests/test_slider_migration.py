@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
     from punt_lux.protocol import QueryResponse
 
-_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.get"
+_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
 
 
 def _decode(wire: Mapping[str, object]) -> object:

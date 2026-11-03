@@ -16,11 +16,8 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.domain.identity import HubId
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
+    from punt_lux.display.display_log import ErrorRecorder
     from punt_lux.display.socket_server import SocketListener
-
-    _RecordError = Callable[[str, str, str], None]
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +37,10 @@ class IdentityGuard:
     """
 
     _socket_listener: SocketListener
-    _record_error: _RecordError
+    _record_error: ErrorRecorder
 
     def __new__(
-        cls, socket_listener: SocketListener, record_error: _RecordError
+        cls, socket_listener: SocketListener, record_error: ErrorRecorder
     ) -> Self:
         self = super().__new__(cls)
         self._socket_listener = socket_listener

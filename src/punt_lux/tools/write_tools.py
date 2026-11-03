@@ -62,7 +62,7 @@ def identify(
         session_identify_command(
             ctx,
             {"kind": kind, "name": name, "repo": repo, "agent": agent},
-            scope=_core._scope(),
+            scope=_core.scope(),
         )
     )
     return signal(result)
@@ -170,7 +170,7 @@ def show(
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(scene_show_command(ctx, request, scope=_core._scope()))
+    result = asyncio.run(scene_show_command(ctx, request, scope=_core.scope()))
     return signal(result)
 
 
@@ -192,7 +192,7 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     )
     result = asyncio.run(
         scene_update_command(
-            ctx, scene_id, UpdateRequest.parse(patches), scope=_core._scope()
+            ctx, scene_id, UpdateRequest.parse(patches), scope=_core.scope()
         )
     )
     return signal(result)
@@ -204,7 +204,7 @@ def clear() -> str:
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(scene_clear_all_command(ctx, scope=_core._scope()))
+    result = asyncio.run(scene_clear_all_command(ctx, scope=_core.scope()))
     return signal(result)
 
 
@@ -218,5 +218,5 @@ def clear_scene(scene_id: str) -> str:
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(scene_clear_command(ctx, scene_id, scope=_core._scope()))
+    result = asyncio.run(scene_clear_command(ctx, scene_id, scope=_core.scope()))
     return signal(result)

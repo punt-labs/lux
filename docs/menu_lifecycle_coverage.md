@@ -29,11 +29,11 @@ departure, and the store paths — the recurrence signal:
   false — the caller is *told delivered*.
 - **D2** (departure cascade wiring) — `inbox.drop_session` is bound into the
   shared `DepartureCascade` (via `inbox.ensure_writer` →
-  `HubDisplay.bind_departure_sink`) and fires on every departure trigger;
+  `ClientLifecycle.bind_sink`) and fires on every departure trigger;
   the menu prune (`OPERATIONS.drop_session` → `MenuOperations.drop_session`
   → `HubMenuRegistry.drop_session`) is wired **only** to
   `session_cleanup.py:48`, the graceful/SDK-idle teardown leg. On the
-  lease-lapse path (`reap_lapsed_leases` → `_depart_lapsed` → `cascade`)
+  lease-lapse path (`LeaseReapSweep` → `ClientLifecycle.depart_lapsed` → `cascade`)
   nothing prunes the menu registry, so a timer-reaped owner's bar entry
   never leaves `_by_owner`.
 - **D3** (`operations/menus.py:67-72`, `set_menu`) — admit/store TOCTOU.
@@ -73,7 +73,7 @@ fidelity control means the control reproduces the defect.
   abstracts it away (no token for the enqueued event, atomic departure), so it
   is proved in the companion refinement `menu_lifecycle_delivery.tex`, which
   adds a `pending` token, a `Drain`, and a two-phase departure (registry
-  discard then inbox teardown — the code's `HubDisplay._depart` order).
+  discard then inbox teardown — the code's `ClientLifecycle.depart` order).
   **`NOT found`** against `menu_lifecycle_delivery.tex` at `DEFAULT_SETSIZE 3`
   (1,220 states, 8 operations covered, no deadlock). **`FOUND`** against
   `menu_lifecycle_delivery_reorder_buggy.tex` (cascade legs reversed). The
@@ -117,7 +117,7 @@ own control for the M1b window:
 
 Against the fixed `menu_lifecycle_delivery.tex` the same goal is `NOT found`.
 The control demonstrates that the code's discard-before-cascade order
-(`HubDisplay._depart` runs `_clients.discard` before `_cascade.run` →
+(`ClientLifecycle.depart` runs `_clients.discard` before `_cascade.run` →
 `inbox.drop_session`, under one `StoreLock` hold) is load-bearing: reverse it
 and a delivered-but-undrained click is lost to a still-live recipient.
 
@@ -163,8 +163,8 @@ corresponding invariant hold, and the model proves it does.
 | Defect | File | Fix the model proves |
 |---|---|---|
 | **D1** | `src/punt_lux/domain/hub/inbox.py` (`offer`) | Hold `_inboxes_lock` across **both** the `get` and the `put` — move `inbox.put(message)` inside the `with _inboxes_lock:` block. Then a `drop_session` cannot interleave: a present inbox receives the put atomically (`return True`), an absent one returns `False` (→ `provider_gone`). Correct the docstring: the orphan case does *not* occur under the fix; the pre-fix code reported delivered into it. (Equivalent-but-inferior: re-check membership after the put and `return False` on an orphan — the model proves the one-hold form; prefer it.) |
-| **D2** | departure cascade wiring — `src/punt_lux/domain/hub/inbox.py`/`menu_registry.py`/`operations/menu_arming.py` + `hub_display.py` cascade | Bind `HubMenuRegistry.drop_session` (or `MenuOperations.drop_session`) as a `DepartureSink` via `HubDisplay.bind_departure_sink`, the same way `inbox.drop_session` is bound in `inbox.ensure_writer`. Arm it when the owner is admitted (the `MenuArming.admit` → `ensure_writer` moment is the natural site). It then fires from `_depart` **and** `_depart_lapsed` (every trigger), under `StoreLock`, not only from `session_cleanup.py`'s graceful leg. |
-| **D3** | `src/punt_lux/operations/menus.py` (`set_menu`) | Hold `StoreLock` across the admit-liveness check and the `set_menus` store — run the `set_menu` body inside `hub_display.write_lock()` (reentrant, so `admit`→`ensure_writer`'s own acquisition nests), with `set_menus` called within that hold. No departure can interleave between the liveness gate and the store. Introduces the `StoreLock → HubMenuRegistry._lock` nesting named above (deadlock-free). |
+| **D2** | departure cascade wiring — `src/punt_lux/domain/hub/inbox.py`/`menu_registry.py`/`operations/menu_arming.py` + `client_lifecycle.py` cascade | Bind `HubMenuRegistry.drop_session` (or `MenuOperations.drop_session`) as a `DepartureSink` via `ClientLifecycle.bind_sink`, the same way `inbox.drop_session` is bound in `inbox.ensure_writer`. Arm it when the owner is admitted (the `MenuArming.admit` → `ensure_writer` moment is the natural site). It then fires from `depart` **and** `depart_lapsed` (every trigger), under `StoreLock`, not only from `session_cleanup.py`'s graceful leg. |
+| **D3** | `src/punt_lux/operations/menus.py` (`set_menu`) | Hold `StoreLock` across the admit-liveness check and the `set_menus` store — run the `set_menu` body inside the Hub store's write lock, which `MenuOperations` holds as `write_lock` (reentrant, so `admit`→`ensure_writer`'s own acquisition nests), with `set_menus` called within that hold. No departure can interleave between the liveness gate and the store. Introduces the `StoreLock → HubMenuRegistry._lock` nesting named above (deadlock-free). |
 
 ## Operation partitions and their tests
 
@@ -180,7 +180,7 @@ Replace each placeholder with the real test name when the fix lands.
 | MD4 (provider-gone, no inbox) | a click for a live session with no inbox (never armed / already dropped) is `provider_gone`, not delivered | `tests/domain/hub/test_inbox.py::test_offer_to_a_session_without_an_inbox_returns_false` |
 | MD5 (offer-then-drop-discards, benign) | a click delivered onto a live inbox that a departure then tears down is lost only when its recipient has already departed — never for a still-registered session — and the departed owner's bar is re-pushed by the departure cascade, not the click path | `tests/domain/hub/test_menu_event.py::test_a_click_delivered_then_departed_is_lost_only_for_a_gone_recipient` (proved by `menu_lifecycle_delivery.tex` M1b; the test asserts the departure re-push, not click-path re-push) |
 | **MW1 (all-paths-withdraw, the D2 regression)** | a session's bar leaves the menu registry on **every** departure trigger — graceful disconnect, SDK idle-reap, **and** the lease-lapse timed sweep | `tests/domain/hub/test_menu_registry.py::test_a_timer_reaped_owners_bar_leaves_the_registry` — the direct regression test for D2 |
-| MW2 (graceful withdraw) | `drop_connection` prunes the departing session's bar in the same step it removes it from the registry | `tests/domain/hub/test_hub_display.py::test_graceful_disconnect_prunes_the_menu_bar` |
+| MW2 (graceful withdraw) | `ClientLifecycle.depart` prunes the departing session's bar in the same step it removes it from the registry | `tests/domain/hub/test_hub_display.py::test_graceful_disconnect_prunes_the_menu_bar` |
 | MW3 (departed bar never renders) | `wire_snapshot`/`menu_bar` filter to the live set, so a stale bar never renders even in the pre-prune window | `tests/domain/hub/test_menu_registry.py::test_wire_snapshot_excludes_a_departed_owner` (existing behaviour the fix must not weaken) |
 | **MS1 (no-store-for-departed, the D3 regression)** | a `set_menu` whose owner departs between admit and store never leaves a bar for a session no longer live — the store is refused, or runs under the same lock the departure takes so no window exists | `tests/operations/test_menus.py::test_set_menu_racing_a_disconnect_never_stores_for_a_departed_owner` — the direct regression test for D3 |
 | MS2 (admitted store) | a live, identified session's `set_menu` records its bar under it and arms its inbox | `tests/operations/test_menus.py::test_set_menu_records_the_bar_for_an_identified_owner` |
@@ -202,6 +202,6 @@ Re-run `fuzz` and the `probcli` goal checks for **both**
 `inbox.py`'s `offer`/`drop_session`/
 `ensure_writer`, `menu_registry.py`'s `set_menus`/`drop_session`,
 `menu_event.py`'s `MenuEventRouter.deliver`, `operations/menus.py`'s
-`set_menu`, `operations/menu_arming.py`'s `admit`, `hub_display.py`'s
-`_depart`/`_depart_lapsed`/`drop_connection`, `departure_cascade.py`, or
+`set_menu`, `operations/menu_arming.py`'s `admit`, `client_lifecycle.py`'s
+`depart`/`depart_lapsed`, `departure_cascade.py`, or
 `session_cleanup.py` change.

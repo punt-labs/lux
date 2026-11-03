@@ -43,6 +43,10 @@ class SceneMessage:
     # Absent = no change / owner unknown -- the display keeps its last cached
     # snapshot rather than blanking it (the departure guarantee, PY-TS-14).
     frame_owner_facts: tuple[tuple[str, str], ...] | None = None
+    # The Hub's roster name of the frame's canonical owner ("lux", "lux (2)"),
+    # shown as the title's connection rung. Absent = the Hub has no name for
+    # the owner right now; the display keeps the last one (PY-TS-14).
+    frame_scope_label: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to the wire dict (delegates to :class:`SceneCodec`)."""

@@ -1,0 +1,51 @@
+mission: m-2026-10-26-005
+round: 2
+created_at: "2026-10-26T04:59:42Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 20
+      removed: 11
+    - path: docs/dial_settlement_atomic_refuse_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_atomic_release_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_coverage.md
+      added: 16
+      removed: 9
+    - path: docs/dial_settlement_defer_only_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_hub_peek_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_hub_record_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_s3_unguarded_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_s4_overwrite_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_split_settle_buggy.tex
+      added: 10
+      removed: 4
+    - path: docs/dial_settlement_timer_hub_only_buggy.tex
+      added: 10
+      removed: 4
+evidence:
+    - name: commit f8219cdf32474d23708573aea2204b143bf0b917, not pushed
+      status: pass
+    - name: fuzz clean on dial_settlement.tex, the twelve controls and crash_attribution.tex, each separately
+      status: pass
+    - name: 'markdownlint-cli2 on docs/dial_settlement_coverage.md: 0 issues'
+      status: pass
+open_questions:
+    - 4 out-of-set files (docs/crash_attribution.tex and the start_fail, stop_skip_drain and inline_strand controls) were changed in the same commit, f8219cdf, as a leader-directed T4 pass carrying the same refinement and carve-out text.
+prose: |
+    F1: the inclusion gives A2; A1 holds because the extra acks the re-drain reads are, by T11, of scenes that survived a frame (dial_settlement.tex and the twelve controls, crash_attribution.tex, coverage doc). F2: the reset condition is a peer closing with data it has not read, the test row has the Hub send an unread frame, the display ack and close, the drain read the ack then report an end on ECONNRESET over AF_UNIX and TLS; obligation 3 is restated as the same-host restriction being the contract. No model change, no re-run.

@@ -11,16 +11,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import (
     Operations,
     OpError,
@@ -446,13 +450,15 @@ class TestSetMenuTool:
         # It also requires an identified session — nothing anonymous owns a menu
         # item — so the caller identifies first. list_menus reads that same
         # registry, so it confirms the write.
+        from punt_lux.domain.hub import hub_lifecycle
         from punt_lux.domain.hub.client_identity import ClientIdentity
-        from punt_lux.domain.hub.hub_display import hub_display
         from punt_lux.domain.hub.replicator_instance import hub_menu_registry
         from punt_lux.tools import list_menus
 
         conn = ConnectionId("local")  # the default MCP session key
-        hub_display.identify_client(conn, ClientIdentity(kind="mcp-session", name="a"))
+        hub_lifecycle.identify(
+            conn, ClientIdentity(kind="mcp-session", name="a"), UNOBSERVED
+        )
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
         try:
             result = set_menu(menus)
@@ -462,13 +468,13 @@ class TestSetMenuTool:
             assert any(m.label == "Tools" for m in listed.menus)
         finally:
             hub_menu_registry.drop_session(conn)
-            hub_display.drop_connection(conn)
+            hub_lifecycle.depart(conn)
 
 
 class TestShowTool:
     def test_show_marks_the_scene_dirty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        client = _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        client = _bind_store(monkeypatch, factory)
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
@@ -478,8 +484,8 @@ class TestShowTool:
     def test_show_returns_shown_without_waiting_on_the_display(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
-        client = _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        client = _bind_store(monkeypatch, factory)
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
@@ -490,8 +496,9 @@ class TestShowTool:
     def test_show_installs_scene_in_the_hub_store(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
@@ -501,8 +508,9 @@ class TestShowTool:
     def test_show_records_the_frame_for_the_scene(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         show(
             "s1",
@@ -519,8 +527,9 @@ class TestShowTool:
     ) -> None:
         # THE RULE inherited at the MCP show surface: a call that names no frame
         # still records a frame named by the scene id — no scene goes unframed.
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
@@ -528,7 +537,7 @@ class TestShowTool:
         assert presentation.frame_id == str(_scoped("s1"))
         assert presentation.frame_title == "s1"  # never composed — a human label
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:
         # An out-of-set layout is rejected at the wire boundary before anything is
         # installed — the error names the allowed values and the client is never
@@ -549,8 +558,8 @@ class TestShowTool:
 
     def test_show_valid_table_renders(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Demonstration (a): a well-formed table validates clean and is accepted.
-        store = HubDisplay()
-        client = _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        client = _bind_store(monkeypatch, factory)
 
         result = show(
             "s1",
@@ -566,7 +575,7 @@ class TestShowTool:
         assert result == "shown:s1"
         assert client.replicator.dirtied == [_scoped("s1")]
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_table_with_mismatched_row(self, mock_get: MagicMock) -> None:
         # Demonstration (b): a short row collects an actionable error and the
         # tree is NOT rendered — the client is never called.
@@ -592,7 +601,7 @@ class TestShowTool:
         assert "3 column(s)" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_collects_error_from_table_nested_in_group(
         self, mock_get: MagicMock
     ) -> None:
@@ -626,7 +635,7 @@ class TestShowTool:
         assert "1 validation error(s):" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_bad_table_nested_in_window(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -647,7 +656,7 @@ class TestShowTool:
         assert "[table 'in_window']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_bad_table_nested_in_tab_bar(
         self, mock_get: MagicMock
     ) -> None:
@@ -670,7 +679,7 @@ class TestShowTool:
         assert "[table 'in_tab']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_bad_table_nested_in_collapsing_header(
         self, mock_get: MagicMock
     ) -> None:
@@ -694,7 +703,7 @@ class TestShowTool:
         assert "[table 'in_header']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_bad_table_nested_in_modal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -716,7 +725,7 @@ class TestShowTool:
         assert "[table 'in_modal']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_rejects_tree_with_malformed_node(self, mock_get: MagicMock) -> None:
         # A tree's nodes are a typed value family, not elements — a non-mapping
         # node is rejected at the wire boundary (like a malformed draw command),
@@ -734,7 +743,7 @@ class TestShowTool:
         assert "nodes[0] must be a mapping" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_recurses_three_levels_deep(self, mock_get: MagicMock) -> None:
         # container -> container -> bad leaf: the walk reaches a table two
         # containers down and still collects its error.
@@ -764,7 +773,7 @@ class TestShowTool:
         assert "[table 'deep']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_show_aggregates_two_bad_tables(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -781,8 +790,9 @@ class TestShowTool:
 
 class TestShowTableTool:
     def test_show_table_minimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         result = show_table(
             "t1",
@@ -802,8 +812,9 @@ class TestShowTableTool:
     def test_show_table_with_filters_and_detail(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         result = show_table(
             "t2",
@@ -842,8 +853,9 @@ class TestShowTableTool:
         assert table.selection_mode == "single"
 
     def test_show_table_custom_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         show_table("t3", columns=["A"], rows=[["x"]], flags=["borders", "resizable"])
 
@@ -854,8 +866,9 @@ class TestShowTableTool:
 
 class TestShowDashboardTool:
     def test_dashboard_metrics_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         result = show_dashboard(
             "d1",
@@ -873,8 +886,9 @@ class TestShowDashboardTool:
         assert len(group.children) == 2
 
     def test_dashboard_all_sections(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         show_dashboard(
             "d2",
@@ -897,8 +911,9 @@ class TestShowDashboardTool:
         assert kinds.count("separator") == 2
 
     def test_dashboard_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        store = HubDisplay()
-        _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        store = factory.display
+        _bind_store(monkeypatch, factory)
 
         result = show_dashboard("d3")
 
@@ -924,7 +939,9 @@ def _seed_store(
     # Seeded at the composed key a real show() would produce, so update()/
     # clear()'s own composition (against the default "local" session) finds
     # it (DES-086).
-    store.replace_scene(ConnectionId("local"), _scoped(scene), [header])
+    store.replace_scene(
+        Scope.in_process(ConnectionId("local")), _scoped(scene), [header]
+    )
     return header
 
 
@@ -950,7 +967,7 @@ class _ReplicatorSpy:
         return 0.0
 
 
-def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
+def _bind_store(monkeypatch: pytest.MonkeyPatch, factory: HubStoreFactory) -> MagicMock:
     """Route the operations at one isolated store and a recording replicator.
 
     ``show`` / ``update`` / ``clear`` reach the store through the ``OPERATIONS``
@@ -959,12 +976,16 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
     attached to the returned client as ``client.replicator``.
     """
     spy = _ReplicatorSpy()
+    clients = factory.clients
     ops = Operations.for_store(
-        store,
+        factory.display,
         spy,
+        lifecycle=factory.lifecycle,
+        clients=clients,
         hub=hub,
-        menu_registry=HubMenuRegistry(store.clients),
-        callback_router=CallbackRouter(store.clients),
+        menu_registry=HubMenuRegistry(clients),
+        callback_router=CallbackRouter(clients),
+        callback_menus=CallbackMenuReplica(clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -979,7 +1000,7 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
     client = _mock_client()
     monkeypatch.setattr(
-        "punt_lux.domain.hub.clients.client_registry.get", lambda: client
+        "punt_lux.domain.hub.clients.client_registry.asks", lambda: client
     )
     client.replicator = spy
     return client
@@ -991,16 +1012,22 @@ def _bind_pubsub(
 ) -> None:
     """Route the pub-sub adapters at a facade whose inbox is ``next_fn``."""
 
-    def _no_writer(_connection_id: ConnectionId) -> None:
+    def _no_writer(_connection_id: ConnectionId, _host: ClientHost) -> None:
         return None
 
-    display = HubDisplay()
+    factory = HubStoreFactory()
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     ops = Operations.for_store(
         display,
         _ReplicatorSpy(),
+        lifecycle=lifecycle,
+        clients=clients,
         hub=hub,
-        menu_registry=HubMenuRegistry(display.clients),
-        callback_router=CallbackRouter(display.clients),
+        menu_registry=HubMenuRegistry(clients),
+        callback_router=CallbackRouter(clients),
+        callback_menus=CallbackMenuReplica(clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
@@ -1041,7 +1068,7 @@ def _seed_group_with_child(
     # Seeded at the composed key a real show() would produce, so update()'s
     # own composition (against ``connection``) finds it (DES-086).
     store.replace_scene(
-        ConnectionId(connection),
+        Scope.in_process(ConnectionId(connection)),
         SceneId(ConnectionScopedId.compose(ConnectionId(connection), scene)),
         [cast("DomainElement", group)],
     )
@@ -1052,9 +1079,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An agent ``update`` mutates the authoritative store and marks it dirty."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, is_open=False)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update("s1", [{"id": "hdr", "set": {"open": True}}])
 
@@ -1070,9 +1098,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A ``remove`` patch evicts the element from the authoritative store."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update("s1", [{"id": "hdr", "remove": True}])
 
@@ -1086,9 +1115,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A patch that fails the element's self-validation is rejected in full."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, label="Details")
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "set": {"label": ""}}])
@@ -1105,9 +1135,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Patching an id the Hub never installed fails loud, not silently."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "ghost", "set": {"open": True}}])
@@ -1126,9 +1157,10 @@ class TestUpdateTool:
         The old ``from_wire`` silently dropped such a patch and still acked; now
         the whole batch is refused and the offending id is named.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr"}])
@@ -1142,9 +1174,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A ``set`` whose value is not a mapping is rejected, not dropped."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "set": "not-a-map"}])
@@ -1158,9 +1191,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A falsy ``remove`` with no ``set`` is malformed, not a silent no-op."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "remove": False}])
@@ -1179,9 +1213,10 @@ class TestUpdateTool:
         the ``set``; now the mutually-exclusive shape is rejected and the store
         is untouched.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "remove": True, "set": {"open": True}}])
@@ -1203,9 +1238,10 @@ class TestUpdateTool:
         The old ``from_wire`` treated any truthy value as a removal, so
         ``{"remove": "yes"}`` silently dropped the element; now it is rejected.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "remove": "yes"}])
@@ -1221,9 +1257,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A patch with no ``id`` is a clean rejection, not a raw ``KeyError``."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"set": {"open": True}}])
@@ -1237,9 +1274,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Two patches on one id merge and commit as a single unit."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, is_open=False, label="Details")
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update(
             "s1",
@@ -1265,9 +1303,10 @@ class TestUpdateTool:
         label) fails self-validation. The merged patch validates once as a unit,
         so neither half lands and the store keeps its original value.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, is_open=False, label="Details")
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update(
@@ -1290,15 +1329,16 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A multi-element batch with one invalid patch commits nothing."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         first = CollapsingHeaderElement(id="a", label="First", open=False)
         second = CollapsingHeaderElement(id="b", label="Second", open=False)
         store.replace_scene(
-            ConnectionId("local"),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", first), cast("DomainElement", second)],
         )
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update(
@@ -1320,15 +1360,16 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An invalid set in the batch prevents an otherwise-valid removal."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         keep = CollapsingHeaderElement(id="keep", label="Keep", open=False)
         drop = CollapsingHeaderElement(id="drop", label="Drop", open=False)
         store.replace_scene(
-            ConnectionId("local"),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", keep), cast("DomainElement", drop)],
         )
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update(
@@ -1354,9 +1395,10 @@ class TestUpdateTool:
         the mutation against an already-deleted id: update mutates the store and
         signals the replicator exactly once, then returns.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update("s1", [{"id": "hdr", "remove": True}])
 
@@ -1370,9 +1412,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A set against an element owned by another connection is refused."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, is_open=False)  # owned by "local"
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         token = _session_key.set("intruder")
         try:
@@ -1402,9 +1445,10 @@ class TestUpdateTool:
         rejection, and leaking nothing about whether "local"'s scene exists.
         Local's real header is what proves nothing crossed the boundary.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)  # owned by "local"
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         token = _session_key.set("intruder")
         try:
@@ -1418,9 +1462,10 @@ class TestUpdateTool:
 
     def test_update_patches_nested_child(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A non-root child inside a container is patchable through ``update``."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_group_with_child(store, child_id="t1", content="hi")
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update("s1", [{"id": "t1", "set": {"content": "updated"}}])
 
@@ -1434,9 +1479,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A ``set`` targeting ``id`` on an ABC element is refused, untouched."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "set": {"id": "renamed"}}])
@@ -1451,9 +1497,10 @@ class TestUpdateTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An unknown field on an ABC element is a clean rejection."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             update("s1", [{"id": "hdr", "set": {"nonexistent": 1}}])
@@ -1472,17 +1519,18 @@ class TestUpdateTool:
         branch-free, so a mixed batch commits through one uniform loop and the Hub
         re-pushes the affected scene exactly once.
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         header = CollapsingHeaderElement(id="hdr", label="Details", open=False)
         selectable = agent_element_factory().element_from_dict(
             {"kind": "selectable", "id": "sl1", "label": "opt", "selected": False}
         )
         store.replace_scene(
-            ConnectionId("local"),
+            Scope.in_process(ConnectionId("local")),
             _scoped("s1"),
             [cast("DomainElement", header), cast("DomainElement", selectable)],
         )
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = update(
             "s1",
@@ -1511,9 +1559,10 @@ class TestUpdateTool:
         is a real internal fault, so it surfaces rather than becoming an
         agent-facing "reason".
         """
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         def _boom(self: object, value: object) -> None:
             raise AttributeError("internal setter fault")
@@ -1529,9 +1578,10 @@ class TestClearTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Clear empties the caller's authoritative scenes, blanking each one by one."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = clear()
 
@@ -1546,10 +1596,11 @@ class TestClearTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """clear_scene(scene_id) removes just that scene; the others stay up."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, scene="s1", header_id="a")
         _seed_store(store, scene="s2", header_id="b", label="B")
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = clear_scene("s1")
 
@@ -1562,8 +1613,8 @@ class TestClearTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A mistyped id must read as an error, never a false "cleared"."""
-        store = HubDisplay()
-        client = _bind_store(monkeypatch, store)
+        factory = HubStoreFactory()
+        client = _bind_store(monkeypatch, factory)
 
         with pytest.raises(ToolError) as _exc:
             clear_scene("ghost")
@@ -1578,15 +1629,16 @@ class TestClearTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Clear empties only the caller's Hub scenes; another agent's survives."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, scene="s1", header_id="hdr")  # owned by "local"
         other = CollapsingHeaderElement(id="other", label="Other", open=False)
         store.replace_scene(
-            ConnectionId("agent-b"),
+            Scope.in_process(ConnectionId("agent-b")),
             SceneId("s-other"),
             [cast("DomainElement", other)],
         )
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         result = clear()
 
@@ -1599,10 +1651,11 @@ class TestClearTool:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A caller owning several scenes gets every one emptied."""
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store, scene="s1", header_id="a")
         _seed_store(store, scene="s2", header_id="b", label="B")
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         result = clear()
 
@@ -1614,7 +1667,7 @@ class TestClearTool:
 
 class TestPingTool:
     @patch("punt_lux.operations.display_connection.time")
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
         self,
@@ -1626,18 +1679,18 @@ class TestPingTool:
         # The connection reads monotonic before the send and after the pong; the
         # difference is the rtt. A pong ts is still required as a validity signal.
         mock_time.monotonic.side_effect = [1000.0, 1000.042]
-        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
-        mock_get.return_value = client
+        client.asks().ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
+        mock_get.return_value = client.asks()
 
         result = asyncio.run(ping())
         assert result == "pong rtt=0.042s"
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_timeout(self, mock_running: MagicMock, mock_get: MagicMock) -> None:
         client = _mock_client()
-        client.ping.return_value = None
-        mock_get.return_value = client
+        client.asks().ping.return_value = None
+        mock_get.return_value = client.asks()
 
         with pytest.raises(ToolError, match="timeout"):
             asyncio.run(ping())
@@ -1737,13 +1790,14 @@ class TestClearIsDisplayIndependent:
     the replicator alone deals with the display in the background.
     """
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_clear_never_probes_or_reaches_the_display(
         self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         result = clear()
 
@@ -1754,9 +1808,10 @@ class TestClearIsDisplayIndependent:
     def test_clear_empties_the_store_and_signals_a_scene_blank(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_store(store)
-        client = _bind_store(monkeypatch, store)
+        client = _bind_store(monkeypatch, factory)
 
         result = clear()
 
@@ -1765,13 +1820,13 @@ class TestClearIsDisplayIndependent:
         assert store.elements_owned_by(ConnectionId("local")) == ()
         assert client.replicator.dirtied == [_scoped("s1")]
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     def test_clear_returns_cleared_even_with_an_empty_store(
         self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # An empty store has nothing to clear, but the tool still returns cleared
         # and never contacts the display.
-        _bind_store(monkeypatch, HubDisplay())
+        _bind_store(monkeypatch, HubStoreFactory())
 
         result = clear()
 
@@ -1780,7 +1835,7 @@ class TestClearIsDisplayIndependent:
 
 
 class TestPingNoAutoSpawn:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_ping_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -1790,7 +1845,7 @@ class TestPingNoAutoSpawn:
         mock_get.assert_not_called()
 
     @patch("punt_lux.operations.display_connection.time")
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
         self,
@@ -1800,8 +1855,8 @@ class TestPingNoAutoSpawn:
     ) -> None:
         client = _mock_client()
         mock_time.monotonic.side_effect = [1000.0, 1000.042]
-        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
-        mock_get.return_value = client
+        client.asks().ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
+        mock_get.return_value = client.asks()
 
         result = asyncio.run(ping())
         assert result == "pong rtt=0.042s"
@@ -1813,9 +1868,10 @@ class TestInspectSceneTool:
     def test_inspect_scene_returns_the_hub_tree(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         result = inspect_scene("s1")
         assert isinstance(result, SceneInspection)
@@ -1826,7 +1882,7 @@ class TestInspectSceneTool:
     def test_inspect_scene_unknown_scene_is_not_found(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _bind_store(monkeypatch, HubDisplay())
+        _bind_store(monkeypatch, HubStoreFactory())
         result = inspect_scene("missing")
         assert isinstance(result, OpError)
         assert result.code == "not_found"
@@ -1838,16 +1894,17 @@ class TestListScenesTool:
     def test_list_scenes_returns_the_hub_scenes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        store = HubDisplay()
+        factory = HubStoreFactory()
+        store = factory.display
         _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
-        _bind_store(monkeypatch, store)
+        _bind_store(monkeypatch, factory)
 
         result = list_scenes()
         assert isinstance(result, SceneList)
         assert any(s.local_id == "s1" for s in result.scenes)
 
     def test_list_scenes_empty_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _bind_store(monkeypatch, HubDisplay())
+        _bind_store(monkeypatch, HubStoreFactory())
         result = list_scenes()
         assert isinstance(result, SceneList)
         assert result.scenes == []
@@ -1855,7 +1912,7 @@ class TestListScenesTool:
 
 
 class TestScreenshotTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch("punt_lux.domain.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_reports_unsupported(
         self, mock_running: MagicMock, mock_get: MagicMock

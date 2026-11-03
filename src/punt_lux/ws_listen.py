@@ -12,7 +12,7 @@ the WebSocket lives on the server's event loop. So the pub-sub writer and the
 the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
 Taking the listener slot and binding the writer run under the Hub store's write
 lock, nesting the client registry's own lock inside it exactly as
-``HubDisplay.register_client`` does — so a same-identity reconnect can never
+``ClientLifecycle.arrive`` does — so a same-identity reconnect can never
 land inside a departure cascade's registry-removal-to-cascade-tail span and
 have its fresh listener and writer wiped out by the stale cascade's tail.
 
@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.ids import Topic
 from punt_lux.protocol.messages.listen import (
@@ -49,12 +50,9 @@ from punt_lux.protocol.messages.listen import (
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.registry_outcomes import ListenerAttachment
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.ports import DirtyMarker
     from punt_lux.protocol.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
@@ -76,23 +74,22 @@ class HubListenSession:
     """
 
     _ws: WebSocket
+    # Where the socket came from, read once at accept: the connection never moves.
+    _client_host: ClientHost
     _conn: ConnectionId
     _identity: ClientIdentity
     _hub: Hub
-    _clients: HubClientRegistry
-    _display: HubDisplay
+    _lifecycle: ClientLifecycle
     _router: CallbackRouter
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
-    _menus: DirtyMarker
     __slots__ = (
-        "_clients",
+        "_client_host",
         "_conn",
-        "_display",
         "_hub",
         "_identity",
+        "_lifecycle",
         "_loop",
-        "_menus",
         "_outbound",
         "_router",
         "_ws",
@@ -104,20 +101,17 @@ class HubListenSession:
         conn: ConnectionId,
         identity: ClientIdentity,
         hub: Hub,
-        clients: HubClientRegistry,
-        display: HubDisplay,
+        lifecycle: ClientLifecycle,
         router: CallbackRouter,
-        menus: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
         self._ws = ws
+        self._client_host = ClientHost.of_connection(ws)
         self._conn = conn
         self._identity = identity
         self._hub = hub
-        self._clients = clients
-        self._display = display
+        self._lifecycle = lifecycle
         self._router = router
-        self._menus = menus
         self._outbound = asyncio.Queue()
         self._loop = asyncio.get_running_loop()
         return self
@@ -127,29 +121,25 @@ class HubListenSession:
 
         Everything from the first piece of registered state onward is inside the
         teardown's guard. A client that goes away between the accept and the
-        handshake write is the case that needs it: the listener is registered by
-        then, and if the failing write escaped un-torn-down the Hub would hold a
-        listener for a connection nothing can reach — and would then admit a
-        menu callback from that identity, because holding a listener is exactly
-        what the registration gate checks for.
+        handshake write needs it: otherwise the Hub would hold a listener for a
+        connection nothing can reach, and admit a menu callback from it, because
+        holding a listener is exactly what the registration gate checks for.
 
         The prologue runs as one uninterrupted stretch between the accept and the
         handshake write, so no other loop-side step can land inside it. Recording
-        the identity and taking the connection's listener slot are one registry
-        call for the same reason at thread scope: nothing may observe this session
-        identified but unreachable, or holding the slot but anonymous.
+        the identity and taking the listener slot are one registry call for the
+        same reason at thread scope: nothing may observe this session identified
+        but unreachable, or holding the slot but anonymous.
 
-        Taking the slot clears the entries its previous occupant owned, and the bar
-        is re-pushed when it does. Nothing else would: this session may register
-        nothing of its own, and a user clicking a cleared entry discovers the fault
-        rather than repairing it.
+        The bar is re-pushed by the attach itself when taking the slot clears the
+        previous occupant's entries (a user clicking a cleared entry would
+        discover the fault, not repair it), and when an agent attaches: it is
+        listed with no entries.
         """
         await self._ws.accept()
         self._loop = asyncio.get_running_loop()
         try:
-            attachment = self._attach_and_register_writer()
-            if attachment == "attached_over_callbacks":
-                self._menus.mark_menus()
+            self._attach_and_register_writer()
             await self._ws.send_text(
                 ReadyFrame(connection_id=str(self._conn)).model_dump_json()
             )
@@ -158,12 +148,15 @@ class HubListenSession:
         finally:
             self._teardown()
 
-    def _attach_and_register_writer(self) -> ListenerAttachment:
-        """Take the listener slot and bind the writer -- see module docstring."""
-        with self._display.write_lock():
-            attachment = self._clients.attach_listener(self._conn, self._identity, self)
+    def _attach_and_register_writer(self) -> None:
+        """Take the slot and bind the writer, together (module docstring).
+
+        The attach itself marks the menus and binds the Hub's one shared menu sink
+        for an agent that newly appears, so nothing here is bound per attach.
+        """
+        with self._lifecycle.exclusive():
+            self._lifecycle.attach(self._conn, self._identity, self, self._client_host)
             self._hub.register_writer(self._conn, self.deliver_event)
-            return attachment
 
     async def _pump(self) -> None:
         """Read until the peer goes away, with the writer draining alongside."""
@@ -183,10 +176,9 @@ class HubListenSession:
         """Hub pub-sub writer: enqueue a subscribed topic's event onto the loop.
 
         Runs on the publisher's thread, so it hops to the loop rather than touching
-        the WebSocket or the asyncio queue directly. Always reports delivery: this
-        session, unlike the MCP inbox writer, has no stale-generation case -- the
-        listener slot's own ownership compare (module docstring) is what keeps a
-        superseded session's binding out of the writer registry in the first place.
+        the WebSocket or the asyncio queue directly. Always reports delivery: unlike
+        the MCP inbox writer there is no stale-generation case, because the listener
+        slot's ownership compare keeps a superseded session out of the registry.
         """
         frame = EventFrame(topic=message.topic, payload=dict(message.payload))
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
@@ -196,16 +188,15 @@ class HubListenSession:
         """Apply inbound frames until the client disconnects; any frame renews.
 
         A frame the wire does not define is a protocol violation, not a server
-        fault: the connection is closed cleanly (1002) rather than letting the
-        parse error bubble into a 1011 internal error, which would also mislog a
-        misbehaving client as a server bug.
+        fault: the connection is closed cleanly (1002), not with a 1011 error that
+        would mislog a misbehaving client as a server bug.
         """
         while True:
             try:
                 raw = await self._ws.receive_text()
             except WebSocketDisconnect:
                 return
-            self._clients.record(self._conn, self._identity)
+            self._lifecycle.identify(self._conn, self._identity, self._client_host)
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
@@ -275,19 +266,18 @@ class HubListenSession:
         filling an outbound queue no write task drains, pinning the session and its
         socket for the life of the process.
 
-        The bar is re-pushed whenever entries stopped being deliverable, and left
-        alone only in the stale case, where a successor's entries are live. The
+        The lifecycle step marks the bar whenever entries stopped being
+        deliverable, and leaves it alone in the stale case, where a successor's
+        entries are live. The
         session, its identity, its lease, and its hold survive: a reconnect within
         the lease drains the clicks buffered across the gap and re-registers from
         ``on_connect``, so a transient drop heals itself while a process that is
         gone stays gone.
 
-        This method must contain no ``await``. With no suspension point the detach,
-        the mark, and the release are one uninterrupted loop run, so no reconnect
+        This method must contain no ``await``. With no suspension point the detach
+        (which marks) and the release are one uninterrupted loop run, so no reconnect
         can interleave among them. Adding an ``await`` here reopens that window and
         invalidates the model this design was checked against.
         """
-        detachment = self._clients.detach_listener(self._conn, self)
-        if detachment in {"released_with_callbacks", "released_with_session"}:
-            self._menus.mark_menus()
+        self._lifecycle.detach(self._conn, self)
         self._hub.release_writer(self._conn, self.deliver_event)

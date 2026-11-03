@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegistry
 from punt_lux.domain.hub.writer_registry import WriterRegistry
+from punt_lux.domain.hub_id import HubId
 from punt_lux.domain.ids import ConnectionId, Topic
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
@@ -49,12 +51,27 @@ class Hub:
 
     _subscriptions: SubscriptionRegistry
     _writers: WriterRegistry
+    # None until first read: HubId.current() resolves the machine's FQDN, which
+    # can touch DNS, so it must run once and never at construction or per push.
+    _hostname: str | None
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._subscriptions = SubscriptionRegistry()
         self._writers = WriterRegistry()
+        self._hostname = None
         return self
+
+    @property
+    def hostname(self) -> str:
+        """This Hub's own canonical hostname, resolved on first use and kept.
+
+        The same value the Hub declares to a Display as its ``HubId``, so the
+        host a popup reports for the Hub is the one the Display verified.
+        """
+        if self._hostname is None:
+            self._hostname = HubId.current().hostname
+        return self._hostname
 
     def register_writer(
         self,
@@ -133,6 +150,8 @@ class Hub:
         for handler in subscribers:
             try:
                 received = handler(message)
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception(
                     "subscriber raised handling publish "

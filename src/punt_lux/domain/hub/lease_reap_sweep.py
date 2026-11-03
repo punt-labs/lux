@@ -18,6 +18,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
@@ -34,10 +36,12 @@ _POLL_SECONDS = 15.0
 
 @runtime_checkable
 class LeaseReaper(Protocol):
-    """The one question the sweep asks — satisfied by ``HubDisplay``."""
+    """The one question the sweep asks — satisfied by ``ClientLifecycle``."""
 
-    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
-        """Depart every lapsed connection now; return the ids that left."""
+    def depart_lapsed(
+        self, exclude: frozenset[ConnectionId]
+    ) -> frozenset[ConnectionId]:
+        """Depart every lapsed connection except ``exclude``; return who left."""
         ...
 
 
@@ -59,7 +63,7 @@ class LeaseReapSweep:
 
     def sweep(self) -> frozenset[ConnectionId]:
         """Run one reap pass; return the ids departed. The deterministic test hook."""
-        return self._reaper.reap_lapsed_leases()
+        return self._reaper.depart_lapsed(frozenset())
 
     async def run(self) -> None:
         """Sweep-wait-repeat until the task is cancelled at shutdown.
@@ -72,6 +76,8 @@ class LeaseReapSweep:
             try:
                 self.sweep()
                 await asyncio.sleep(self._interval)
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception("lease-reap cycle failed; backing off the poll")
                 await asyncio.sleep(self._interval)

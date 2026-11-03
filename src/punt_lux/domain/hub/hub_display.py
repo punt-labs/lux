@@ -1,4 +1,4 @@
-"""HubDisplay — facade over the Hub-side Element/owner/client store.
+"""HubDisplay — facade over the Hub-side Element and owner store.
 
 ``HubDisplay`` is the single public surface the rest of the system talks to for
 Hub-side scene state. Internally it composes typed collaborators, each with one
@@ -8,7 +8,6 @@ responsibility:
 - ``OwnerTracker`` — every Element's owning ``ConnectionId``.
 - ``RootRegistry`` — scene-root ABC Elements in the property-Observer cascade.
 - ``ChildIndex`` — parent → children edges for one-walk descendant removal.
-- ``HubClientRegistry`` — connections registered as Hub clients.
 - ``ScenePresentationRegistry`` — how each live scene is framed for a resend.
 - ``FrameExpiry`` — per-frame TTL deadlines, swept under the store lock so a
   re-show and an expiry never race.
@@ -16,8 +15,8 @@ responsibility:
 
 A scene's presentation is kept until blanked away or re-shown, so an emptied
 scene can still be blanked into its frame; the replicator reclaims it after.
-Departure (``drop_connection``, a lapsed lease, or ``apply``'s own sweep of
-others) releases a connection's ownership but never tears its content down.
+Departure (``ClientLifecycle.depart``, a lapsed lease, or ``apply``'s own sweep
+of others) releases a connection's ownership but never tears its content down.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Every read takes the lock in read mode too — the replicator's crossing
@@ -29,11 +28,11 @@ own behavior and never escapes to the caller.
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
-from punt_lux.domain.hub.departure_cascade import DepartureCascade
 from punt_lux.domain.hub.dismissal_walk import DismissalWalk
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
@@ -42,11 +41,8 @@ from punt_lux.domain.hub.element_index import (
 )
 from punt_lux.domain.hub.frame_expiry import FrameExpiry
 from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
-from punt_lux.domain.hub.hub import Hub, hub as default_hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.quarantine_registry import QuarantineRegistry
 from punt_lux.domain.hub.root_registry import RootRegistry
@@ -57,7 +53,6 @@ from punt_lux.domain.hub.scene_presentation import (
     ScenePresentationRegistry,
 )
 from punt_lux.domain.hub.scene_snapshot import SceneReader
-from punt_lux.domain.hub.store_lock import StoreLock
 from punt_lux.domain.hub.subtree_installer import SubtreeInstaller
 from punt_lux.domain.hub.subtree_remover import SubtreeRemover
 from punt_lux.domain.hub.write_seam import WriteSeam
@@ -66,13 +61,14 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
-    from contextlib import AbstractContextManager
+    from collections.abc import Callable, Generator, Sequence
 
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.hub.departure_sinks import DepartureSink
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.domain.hub.store_lock import StoreGuard, StoreLock
+    from punt_lux.domain.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]
 
@@ -81,18 +77,19 @@ __all__ = [
     "HubOwnershipError",
     "UnknownElementError",
     "UnknownSceneError",
-    "hub_display",
 ]
 
 
 class HubDisplay:
-    """Hub-side authoritative store of Elements, owners, and clients.
+    """Hub-side authoritative store of Elements and their owners.
 
     Facade over typed collaborators: invariants are established at ``apply``
     time and trusted thereafter (every installed Element has a known owner;
     a scene-root ABC Element's observer routes ``_removed`` back through
-    ``apply``). Tests construct their own ``HubDisplay()``; the module also
-    exposes ``hub_display`` as the production singleton.
+    ``apply``). The client door -- arrival, contact, departure -- is not a store
+    member: callers hold the ``ClientLifecycle`` they use. ``HubStoreFactory``
+    builds the lock and ownership map the store shares with the door, and
+    ``hub_store_factory`` also exports the production singletons.
     """
 
     _index: ElementIndex
@@ -112,16 +109,20 @@ class HubDisplay:
     _quarantine: QuarantineRegistry
     _quarantine_cleared_observers: list[QuarantineClearedObserver]
     _eviction: SceneEviction
-    _cascade: DepartureCascade
+    _lifecycle: ClientLifecycle
 
     def __new__(
-        cls, clock: Callable[[], float] = time.monotonic, hub: Hub = default_hub
+        cls,
+        lock: StoreLock,
+        owners: OwnerTracker,
+        lifecycle: ClientLifecycle,
+        clients: HubClientRegistry,
+        clock: Callable[[], float] = time.monotonic,
     ) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
-        self._clients = HubClientRegistry(clock)
-        self._owners = OwnerTracker()
-        self._cascade = DepartureCascade(hub)
+        self._clients = clients
+        self._owners = owners
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._dismissal = DismissalWalk(self._index, self._children)
@@ -146,12 +147,13 @@ class HubDisplay:
             self._children,
             root_removal.route,
         )
-        self._lock = StoreLock()
+        self._lock = lock
+        self._lifecycle = lifecycle
         self._frame_lifecycle = FrameLifecycle(
             self._frames, self._eviction, FrameExpiry(clock), self._lock
         )
         self._reader = SceneReader(self._index, self._frame_lifecycle, self._lock)
-        self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
+        self._reads = HubReads(self._index, self._owners, self._lock)
         return self
 
     @property
@@ -159,43 +161,32 @@ class HubDisplay:
         """Return the field-mutation seam the authoritative write path uses."""
         return self._seam
 
-    def write_lock(self) -> AbstractContextManager[bool]:
+    def write_lock(self) -> StoreGuard:
         """Hold the store lock across an external mutation batch; reentrant."""
         return self._lock.write()
 
-    # -- clients registry --------------------------------------------------
+    @contextmanager
+    def writing_as(self, scope: Scope) -> Generator[None]:
+        """Hold the store lock as the scope's connection, its contact recorded first.
 
-    def register_client(self, connection_id: ConnectionId) -> None:
-        """Record a connection's own arrival as a client, renewing its lease."""
+        The contact half of ``apply``'s prologue for a write that does not go
+        through ``apply`` (a field patch): the write is the caller's contact.
+        """
         with self._lock.write():
-            self._clients.record(connection_id)
+            self._lifecycle.contact(scope)
+            yield
 
-    def identify_client(
-        self, connection_id: ConnectionId, identity: ClientIdentity
-    ) -> None:
-        """Record the identity a connection declared, registering it if new."""
+    @contextmanager
+    def arriving_as(self, scope: Scope) -> Generator[None]:
+        """Hold the store lock as the scope's connection, its arrival recorded first.
+
+        The show path's counterpart of :meth:`writing_as`: showing a scene is the
+        caller reaching the Hub, so the caller registers (a write registers nobody
+        -- a session comes only from its own arrival) and then writes, one hold.
+        """
         with self._lock.write():
-            self._clients.record(connection_id, identity)
-
-    def is_client(self, connection_id: ConnectionId) -> bool:
-        """Return True if the connection is currently registered."""
-        return self._clients.session_of(connection_id) is not None
-
-    def renew_contact(self, connection_id: ConnectionId) -> None:
-        """Renew the lease iff registered -- the write-contact choke point."""
-        self._clients.renew_if_registered(connection_id)
-
-    def bind_departure_sink(
-        self, connection_id: ConnectionId, sink: DepartureSink
-    ) -> None:
-        """Register ``sink`` as the connection's transport-owned cleanup."""
-        with self._lock.write():
-            self._cascade.bind_sink(connection_id, sink)
-
-    @property
-    def clients(self) -> HubClientRegistry:
-        """Return the session registry — identity, lease, and callback authority."""
-        return self._clients
+            self._lifecycle.arrive(scope.connection_id, scope.client_host)
+            yield
 
     # -- index access ------------------------------------------------------
 
@@ -225,7 +216,7 @@ class HubDisplay:
         """
         with self._lock.read():
             if not self._index.contains(scene_id, element_id):
-                raise UnknownElementError(scene_id=scene_id, element_id=element_id)
+                raise UnknownElementError.of(scene_id, element_id)
             owner = self._owners.get(scene_id, element_id)
             return owner.connection_id if owner is not None else None
 
@@ -268,14 +259,6 @@ class HubDisplay:
     def scene_owners(self, scene_id: SceneId) -> tuple[Owner, ...]:
         """Return each scene's distinct root owners, first-appearance order."""
         return self._reads.scene_owners(scene_id)
-
-    def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return each registered Hub session paired with its session record."""
-        return self._reads.client_sessions()
-
-    def client_repos(self) -> frozenset[str]:
-        """Return the distinct repositories the identified sessions declared."""
-        return self._clients.repos()
 
     # -- quarantine ----------------------------------------------------------
 
@@ -325,38 +308,39 @@ class HubDisplay:
     @trace
     def replace_scene(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         scene_id: SceneId,
         roots: Sequence[WireElement],
     ) -> None:
-        """Replace ``scene_id`` wholesale with ``roots`` owned by ``connection_id``.
+        """Replace ``scene_id`` wholesale with ``roots`` owned by ``scope``.
 
         The scene is the unit of replacement: a re-show tears down every root the
         scene holds — whatever connection owns it — then re-installs through the
         normal ``apply(AddElement(...))`` path, rebuilding ownership, observers, and
         child indexes in one place. The latest show defines the whole scene, so an
         orphan from a departed session is cleared, never stranded beside new roots.
-        A write registers nobody: a session comes only from its own arrival.
+        A write registers nobody: a session comes only from its own arrival. A root
+        nested past the cap raises ``NestingExceededError`` before anything drops.
 
-        A wholesale replace is a *different tree*, presumed fixed, so it lifts
-        any quarantine the scene carried — the normal recovery path an owner
-        takes after reading a quarantine record and fixing the offending
-        element. Routes through the eviction adapter so the observer cascade
-        (in particular, resetting the attribution tally so a re-crash needs
-        the full threshold again) fires here exactly as it does for a frame
-        close or a TTL expiry.
+        A wholesale replace is a *different tree*, presumed fixed, so it lifts any
+        quarantine the scene carried — the owner's recovery after reading a
+        quarantine record and fixing the element. It routes through the eviction
+        adapter so the observer cascade (resetting the attribution tally, so a
+        re-crash needs the full threshold again) fires as it does for a frame close
+        or a TTL expiry.
         """
         with self._lock.write():
+            self._seam.require_within_cap(roots)  # before any root is dropped
             self._eviction.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(
-                    connection_id,
+                    scope,
                     AddElement(scene_id=scene_id, element=root, parent_id=None),
                 )
 
     def show_scene(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         scene_id: SceneId,
         roots: Sequence[WireElement],
         presentation: ScenePresentation,
@@ -370,49 +354,47 @@ class HubDisplay:
         ``ttl_seconds`` of None clears any prior deadline, making a re-show permanent.
         """
         with self._lock.write():
-            self.replace_scene(connection_id, scene_id, roots)
+            self.replace_scene(scope, scene_id, roots)
             self._frame_lifecycle.present(scene_id, presentation, ttl_seconds)
 
     # -- apply -------------------------------------------------------------
 
     def apply(
         self,
-        connection_id: ConnectionId,
+        scope: Scope,
         update: AddElement | SetProperty | RemoveElement,
     ) -> None:
         """Commit a state change to the index. Owner is the caller.
 
-        ``AddElement`` installs the root then recurses into composite children via
-        the Composite Protocol, so a child Button buried in a Dialog lands in the
-        index and later clicks — keyed by ``(scene, element_id)`` — resolve.
-
-        ``SetProperty`` and ``RemoveElement`` mutate an already-installed element and
-        require the caller to own it, mirroring ``Display.apply``'s ownership
-        enforcement so a misbehaving client cannot evict another client's state.
+        ``AddElement`` installs the root then recurses into its children, so a Button
+        buried in a Dialog lands in the index and later clicks resolve. ``SetProperty``
+        and ``RemoveElement`` mutate an installed element and require the caller to
+        own it, so a misbehaving client cannot evict another client's state. A write
+        that nests an element past the cap raises ``NestingExceededError``.
 
         Three things happen in order, one atomic step: the caller's own lease
-        renews first if it already holds one (a write still registers
-        nobody — an unregistered or already-departed caller proceeds
-        unregistered, as always). Every *other* lapsed connection is then
-        departed and released. Only then does the ownership check run — so
-        any live claimant is never blocked by a grip this same step just let
-        go of.
+        renews first if it already holds one (a write still registers nobody — an
+        unregistered or departed caller proceeds unregistered, as always). Every
+        *other* lapsed connection is then departed and released. Only then does the
+        ownership check run, so a live claimant is never blocked by a grip this
+        same step just let go of.
         """
         with self._lock.write():
-            self._clients.renew_if_registered(connection_id)
-            self._depart_lapsed(exclude=frozenset({connection_id}))
+            self._lifecycle.contact(scope)
+            self._lifecycle.depart_lapsed(frozenset({scope.connection_id}))
             match update:
                 case AddElement(scene_id=sid, parent_id=pid, element=elem):
-                    session = self._clients.session_of(connection_id)
-                    owner = Owner.from_session(connection_id, session)
+                    self._seam.require_within_cap([elem])
+                    session = self._clients.session_of(scope.connection_id)
+                    owner = Owner.from_session(scope.connection_id, session)
                     self._installer.install(sid, elem, parent_id=pid, owner=owner)
                 case SetProperty(
                     scene_id=sid, element_id=eid, field=field, value=value
                 ):
-                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._owners.require_ownership(sid, eid, scope.connection_id)
                     self._seam.set_property(sid, eid, field, value)
                 case RemoveElement(scene_id=sid, element_id=eid):
-                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._owners.require_ownership(sid, eid, scope.connection_id)
                     self._remover.remove_subtree(sid, eid)
                     if not self._index.scene_roots(sid):
                         # An explicit clear (or any removal) that empties the
@@ -422,45 +404,3 @@ class HubDisplay:
                         # so the observer cascade (tally reset, etc.) fires
                         # exactly as on any other quarantine-clear path.
                         self._lift_quarantine(sid)
-
-    # -- departure: the single deregister-and-release coordinator -----------
-
-    def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Depart ``connection_id`` unconditionally, releasing what it owned.
-
-        The graceful-disconnect and SDK-idle-reap path — no lease condition
-        gates it, unlike a lapse-triggered departure.
-        """
-        with self._lock.write():
-            self._depart(connection_id)
-
-    def reap_lapsed_leases(self) -> frozenset[ConnectionId]:
-        """Depart every connection whose lease has lapsed; return who left.
-
-        The background timer's hook — independent of any read, any other
-        connection's write, and any disconnect signal.
-        """
-        return self._depart_lapsed(exclude=frozenset())
-
-    def _depart_lapsed(
-        self, *, exclude: frozenset[ConnectionId]
-    ) -> frozenset[ConnectionId]:
-        """Depart every lapsed connection except ``exclude``; return who left."""
-        with self._lock.write():
-            lapsed = self._clients.reap_lapsed_locked(exclude)
-            self._owners.release_departed(lapsed)
-            self._cascade.run_all(lapsed)
-            return lapsed
-
-    def _depart(self, connection_id: ConnectionId) -> None:
-        """Atomically deregister and release everything ``connection_id`` owned.
-
-        The one step every departure trigger funnels through. Caller holds
-        the store write lock.
-        """
-        self._clients.discard(connection_id)
-        self._owners.release_all(connection_id)
-        self._cascade.run(connection_id)
-
-
-hub_display = HubDisplay()

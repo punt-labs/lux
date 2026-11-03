@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
 from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT, DockBar
+from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.domain.identity import HubId
@@ -192,7 +193,7 @@ def _frame(frame_id: str, title: str, *, visibility: FrameVisibility) -> Frame:
 
 
 def _bar(scenes: _FakeScenes, imgui: _FakeImGui) -> DockBar:
-    return DockBar(imgui, cast("SceneReplica", scenes))
+    return DockBar(imgui, cast("SceneReplica", scenes), AddressRendering())
 
 
 def test_nothing_is_painted_when_no_frame_is_docked() -> None:
@@ -251,6 +252,18 @@ def test_the_bar_holds_the_docked_frames_and_leaves_the_closed_ones_out() -> Non
     _bar(scenes, imgui).render(any_frame_hovered=False)
 
     assert [text for _, _, text in imgui.draw.texts] == ["Docked"]
+
+
+def test_a_pill_reads_the_title_the_seam_gives_not_the_raw_frame_title() -> None:
+    """The dock shows the same label the window does (DES-089's one seam)."""
+    imgui = _FakeImGui()
+    scenes = _FakeScenes({"f1": _frame("f1", "Vox", visibility=FrameVisibility.DOCKED)})
+    scenes.frames["f1"].heading.relabel("lux")
+    bar = DockBar(imgui, cast("SceneReplica", scenes), AddressRendering())
+
+    bar.render(any_frame_hovered=False)
+
+    assert [text for _, _, text in imgui.draw.texts] == ["lux :: Vox"]
 
 
 def test_the_bar_spans_the_viewport_along_its_bottom_edge() -> None:

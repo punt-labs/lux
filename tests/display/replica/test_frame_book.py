@@ -24,6 +24,7 @@ def _scene(
     frame_title: str | None = None,
     frame_flags: dict[str, bool] | None = None,
     frame_layout: str | None = None,
+    frame_scope_label: str | None = None,
 ) -> SceneMessage:
     return SceneMessage(
         id=scene_id,
@@ -32,6 +33,7 @@ def _scene(
         frame_title=frame_title,
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
+        frame_scope_label=frame_scope_label,
     )
 
 
@@ -40,14 +42,14 @@ class TestEnsure:
         book = FrameBook()
         frame = book.ensure(_scene(frame_title="Title"), owner_fd=10)
         assert frame.frame_id == "f1"
-        assert frame.title == "Title"
+        assert frame.heading.title == "Title"
         assert 10 in frame.owner_fds
         assert book.frames["f1"] is frame
 
     def test_titles_from_scene_title_then_frame_id_when_unset(self) -> None:
         book = FrameBook()
         frame = book.ensure(_scene(), owner_fd=10)
-        assert frame.title == "f1"  # no frame_title, no scene title -> frame id
+        assert frame.heading.title == "f1"  # no frame_title, no scene title -> frame id
 
     def test_reuses_and_updates_an_existing_frame(self) -> None:
         book = FrameBook()
@@ -58,7 +60,7 @@ class TestEnsure:
         )
         assert second is first  # same frame reused
         assert first.owner_fds == {10, 11}
-        assert first.title == "New"
+        assert first.heading.title == "New"
         assert first.hints.flags == {"no_resize": True}
 
     def test_presentation_reports_the_display_owned_facts(self) -> None:
@@ -83,6 +85,33 @@ class TestEnsure:
         book.pop_frame("f1")
         book.ensure(_scene(scene_id="s3", frame_id="f3"), owner_fd=10)
         assert book.frames["f3"].cascade_index == 0
+
+
+class TestScopeLabel:
+    def test_a_new_frame_takes_the_label_the_scene_carries(self) -> None:
+        frame = FrameBook().ensure(_scene(frame_scope_label="lux"), owner_fd=10)
+        assert frame.heading.scope_label == "lux"
+
+    def test_a_scene_without_a_label_leaves_the_frame_unlabelled(self) -> None:
+        assert FrameBook().ensure(_scene(), owner_fd=10).heading.scope_label is None
+
+    def test_a_later_push_replaces_the_label(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(frame_scope_label="lux (2)"), owner_fd=10)
+        frame = book.ensure(_scene(frame_scope_label="lux"), owner_fd=10)
+        assert frame.heading.scope_label == "lux"
+
+    def test_a_push_without_a_label_never_blanks_the_last_one(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(frame_scope_label="lux"), owner_fd=10)
+        frame = book.ensure(_scene(), owner_fd=11)  # the owner departed: Hub says None
+        assert frame.heading.scope_label == "lux"
+
+    def test_two_hubs_sharing_a_frame_id_and_label_stay_separate(self) -> None:
+        book = FrameBook()
+        one = book.ensure(_scene(frame_scope_label="lux"), owner_fd=10, hub=_HUB_A)
+        two = book.ensure(_scene(frame_scope_label="other"), owner_fd=11, hub=_HUB_B)
+        assert (one.heading.scope_label, two.heading.scope_label) == ("lux", "other")
 
 
 class TestPlacementMaps:

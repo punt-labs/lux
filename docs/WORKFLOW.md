@@ -208,6 +208,10 @@ function pr_loop(unit):
 
     # A. BUILD — missions, one at a time
     branch from main
+    consult the decision log before any design or design proposal:
+        grep '^## DES-' DESIGN.md for the topic; read every match in full
+        cite the ADRs consulted in the contract, the design, and any
+        proposal to the operator — no citation means the step was skipped
     if unit is architectural (new contract, new types, cross-cutting flow):
         design mission first, with no prescribed write-set
         leader reviews the design end-to-end
@@ -581,6 +585,9 @@ EnterPR ≙ [ LoopState; unit : ℙ BEAD |
   ∧ rollbackCoherent(unit)                -- reverts together sensibly
   ∧ inThroughputBand(unit)                -- above transaction cost,
                                           --   below reviewer degradation
+  ∧ adrsConsulted(unit)                   -- the decision log was searched for
+                                          --   the topic and the governing ADRs
+                                          --   are cited
   ∧ (architectural(unit) ⇒ designRatified(unit)) ]  -- operator has ruled
 
 ExitPR ≙ [ Δ LoopState; pr : PR |
@@ -748,7 +755,11 @@ the worker's result inside the mission before the leader accepts it.
 **Remote review findings are the one delegation that is not a mission.**
 When Qodo or Bugbot report on the PR, the leader reads each finding and
 hands the mechanical fix to a bare agent, then pushes and resolves the thread
-itself.
+itself. The exception covers *mechanical* fixes only: a fix that changes a
+design — new classes, moved responsibilities, a ratchet regression to resolve
+— is a mission with an evaluator, whatever review raised it. A bare agent has
+no evaluator, so nothing checks its work before its report reaches the
+leader.
 
 ### The lifecycle
 
@@ -759,7 +770,44 @@ itself.
    write-set; the specialist decides what to create, split, or extract. For
    protocol or data work the contract cites the OO rules with an example,
    because sub-agents revert to procedural habits when the prompt is not
-   explicit.
+   explicit. Every design contract lists the `DESIGN.md` entries that bound
+   the work, and every design result states which ADRs it builds on or
+   supersedes — a design that cites none on a topic the log covers is
+   returned unread.
+
+   Every implementation contract carries the **standing worker contract**
+   below verbatim. The leader does not paraphrase it per round: rules
+   rewritten from memory each time drift, and a worker reads a missing rule as
+   permission.
+
+   > **Goal.** Good SOLID object-oriented design, stated as responsibilities:
+   > which object owns what, who depends on what. The OO and coupling ratchet
+   > numbers are *signals* of that design, never targets. A change that moves
+   > a number without improving responsibilities — a grab-bag class, a bundle
+   > of collaborators handed out for callers to reach through, a second facade
+   > forwarding to the first — is rejected even when the gate goes green.
+   >
+   > **Forbidden.** Writing `.oo-baseline.json`, `.oo-audit.jsonl`,
+   > `.oo-coupling-baseline.json`, or `.oo-coupling-audit.jsonl` by any means
+   > other than `make update-oo` / `make update-coupling`. Running
+   > `--rebaseline-files` (a bless) at all — it is the leader's act alone,
+   > under DES-096/097. Restoring any file from git (`git show REV:path >
+   > path`, `checkout --`, `restore`, `reset`, `stash`), `rm`, `clean`, or
+   > switching branches. Pushing, or touching a PR. Calling MCP tools.
+   > Piping a gate through `head`, `tail`, or `grep`.
+   >
+   > **On any ratchet regression: stop.** Do not extract a class to move the
+   > number, do not bless, do not commit. Report the design and the numbers
+   > to the leader, who decides.
+   >
+   > **Evidence, not claims.** Run `make check` with output saved to a file
+   > under `.tmp/`; cite the file and its final summary line. A commit is
+   > made only after that file shows exit 0. The evaluator and the leader
+   > re-run it; a report that disagrees with their run rejects the work.
+
+   No contract sets a numeric target for a ratchet metric ("LCOM at or below
+   X"). Stating the number as the goal is what produces the number-chasing
+   the contract forbids.
 2. **Dispatch is two operations.** Creating the mission writes the contract;
    a separate background agent spawn starts the worker. Verify the worker is
    actually running — a contract with no agent behind it is orphaned work.
@@ -790,6 +838,40 @@ itself.
    question, it goes to the operator as a concrete decision — with a
    recommendation — before any dependent mission dispatches. Then close the
    mission.
+
+   **Never accept a worker's report on its own word.** For every worker
+   commit, the leader runs `make check` itself and audits the ratchet files
+   against `main`:
+
+   ```bash
+   git diff main...HEAD -- .oo-audit.jsonl .oo-coupling-audit.jsonl
+   git log -p main..HEAD -- .oo-audit.jsonl .oo-coupling-audit.jsonl
+   git diff main...HEAD -- .oo-baseline.json .oo-coupling-baseline.json
+   ```
+
+   The commit is untampered only if all three hold:
+
+   1. **Append-only.** The audit logs gain lines only at the end — no `-`
+      line or changed line in any commit. A deleted or rewritten entry is a
+      rewritten history.
+   2. **Every appended line passed.** Each new audit line reads
+      `"verdict":"pass"`, or `"verdict":"rebaseline-files"` for a leader's
+      bless. A `"fail"` line means the ratchet failed and the commit landed
+      anyway. A refused update writes a `"fail"` line with empty deltas. That
+      line is acceptable in two cases only. First, a refusal of a touched
+      file that a later `"rebaseline-files"` line in the same commit blesses.
+      Second, a refusal of files the commit did not touch, whose regression
+      is already on `main`, provided `make check` passes at that commit. The
+      second case is debt, not a pass: the refused files are fixed in the
+      same PR, so `main` stops writing such lines. Workers find regressions
+      with `make check` and run the update targets only once it is clean or
+      blessed.
+   3. **Baselines match the audit.** Every metric that moved in a baseline
+      file appears as a delta in an appended audit line. A baseline change no
+      audit line accounts for was not written by the tool.
+
+   Any failure rejects the commit: the worker's result is returned, not
+   repaired by the leader, and the report is treated as untrustworthy.
 
 ## Invariants
 

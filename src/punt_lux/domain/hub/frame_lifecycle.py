@@ -24,6 +24,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.hub.frame_expiry import FrameExpiry
     from punt_lux.domain.hub.scene_presentation import (
@@ -171,6 +173,8 @@ class FrameLifecycle:
         """
         try:
             torn = self._tear_down(frame_id)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "frame %s tear-down failed; leaving its TTL armed to retry",

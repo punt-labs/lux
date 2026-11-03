@@ -22,22 +22,25 @@ dataclasses; this ABC is the behavioral contract for the ABC kinds.
 
 from __future__ import annotations
 
-import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
+from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.event_handler_host import EventHandlerHost
+from punt_lux.domain.handler_writes import HandlerWrites
+from punt_lux.domain.notification_buffer import NotificationBuffer
+from punt_lux.domain.property_observers import PropertyObservers
+from punt_lux.domain.setter_priority import SetterPriority
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.domain.observer_state import ObserversCheckpoint, StatefulObserver
     from punt_lux.domain.validation import ValidationError
     from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["Element"]
-
-logger = logging.getLogger(__name__)
 
 
 class Element(EventHandlerHost, ABC):
@@ -48,17 +51,28 @@ class Element(EventHandlerHost, ABC):
     override ``_children()`` to return their children tuple; leaves
     inherit the empty default. Event registration and dispatch come from
     the ``EventHandlerHost`` mixin.
+
+    A kind whose setters depend on one another names the keys that must run first in
+    ``_SETTER_PRIORITY``; every other key follows in the caller's order.
     """
 
+    _SETTER_PRIORITY: ClassVar[SetterPriority] = SetterPriority(())
+    # The attributes holding objects this kind owns whose own state is part of its
+    # state, because they change in place (a dialog's model): a checkpoint of the
+    # element copies their fields too.
+    OWNED_PARTS: ClassVar[tuple[str, ...]] = ()
     _renderer_factory: RendererFactory
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
     _removed: bool
-    _observers: list[Callable[[str], None]]
+    _observers: PropertyObservers
+    _notifications: NotificationBuffer
     _children_tuple: tuple[Element, ...]
-    # PY-TS-14 OK: ``None`` means "not inside apply_patch, notify immediately";
-    # a list is the per-patch buffer that defers notifications until commit.
-    _notify_buffer: list[str] | None
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Refuse a kind whose ``_SETTER_PRIORITY`` names a key it has no setter for."""
+        super().__init_subclass__(**kwargs)
+        cls._SETTER_PRIORITY.require_setters(cls)
 
     def __new__(
         cls,
@@ -71,9 +85,9 @@ class Element(EventHandlerHost, ABC):
         self._emit = emit
         self._handlers = {}
         self._removed = False
-        self._observers = []
+        self._observers = PropertyObservers()
+        self._notifications = NotificationBuffer()
         self._children_tuple = ()
-        self._notify_buffer = None
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -89,14 +103,16 @@ class Element(EventHandlerHost, ABC):
         are preserved so ``wrap_handlers_for_remote`` can wrap them on
         the Display side.
         """
-        state = {k: v for k, v in self.__dict__.items() if k != "_observers"}
+        local = ("_observers", "_notifications")
+        state = {k: v for k, v in self.__dict__.items() if k not in local}
         return (object.__new__, (type(self),), state)
 
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore instance state after native deserialization."""
         for key, value in state.items():
             object.__setattr__(self, key, value)
-        object.__setattr__(self, "_observers", [])
+        object.__setattr__(self, "_observers", PropertyObservers())
+        object.__setattr__(self, "_notifications", NotificationBuffer())
 
     @property
     @abstractmethod
@@ -212,34 +228,79 @@ class Element(EventHandlerHost, ABC):
         property changed (via ``_notify_observers``) into a per-patch buffer, and
         the observers fire only after every key has succeeded. A later key failing
         rolls back the element and fires nothing, so an observer's own state (a
-        bound ``FilteredTableModel``'s selection) can never reflect a patch that
-        reported failure — atomicity extends through the observers. Each distinct
-        property fires once even if several setters flag it (e.g. a patch that
-        sets both ``rows`` and ``selected_row_ids``).
+        bound ``FilteredTableModel``'s selection) never reflects a setter that failed.
+        Each distinct property fires once even if several setters flag it (e.g. a
+        patch that sets both ``rows`` and ``selected_row_ids``).
+
+        That is the whole of this method's atomicity. Once the observers have been
+        told, a write one of them makes that the judge refuses is raised out of here
+        with this element already patched: undoing it, and every other write made
+        under the same transaction, is the enclosing
+        :class:`~punt_lux.domain.hub.batch_transaction.BatchTransaction`'s work, which
+        checkpoints the element and the state its observers keep.
+
+        A kind whose invariants span fields (a slider's value against its bounds)
+        names them in ``_final_state_errors``. They are checked on the final state,
+        after every setter and before the observers are told, so a patch that leaves
+        the element invalid is refused with a ``ValueError`` and no observer hears it.
+
+        A patch a Hub handler writes is first shown to the judge in scope
+        (:class:`~punt_lux.domain.handler_writes.HandlerWrites`), which refuses it by
+        raising: nothing has been touched when it does.
         """
-        snapshot = dict(vars(self))
-        self._notify_buffer = []
+        HandlerWrites.admit(self, patch)
+        before = ElementCheckpoint(self)
+        self._notifications.begin()
         try:
-            for key, value in patch.items():
+            for key, value in self._SETTER_PRIORITY.arrange(patch).items():
                 getattr(self, f"_set_{key}")(value)
+            errors = self._final_state_errors()
+            if errors:
+                raise ValueError(errors[0])
         except Exception:
-            vars(self).clear()
-            vars(self).update(snapshot)
-            self._notify_buffer = None
+            before.restore()
+            self._notifications.discard()
             raise
-        pending = self._notify_buffer or []
-        self._notify_buffer = None
-        for prop in dict.fromkeys(pending):  # de-duplicate, keep first-seen order
-            self._notify_observers(prop)
+        # each property once, in first-seen order
+        self._observers.announce(self._notifications.take(), self.id)
         return self
 
+    def _final_state_errors(self) -> tuple[str, ...]:
+        """Return why the element is invalid now, after every setter ran; else ``()``.
+
+        The element's own ``validate()`` is the whole answer, so a patch made by a
+        handler or an observer meets the same rule an agent's does, for every kind. A
+        kind that needs something narrower overrides it.
+        """
+        return tuple(error.message for error in self.validate())
+
+    def announce_restored(self, props: Iterable[str]) -> None:
+        """Tell the observers that keep no state that each of ``props`` is restored.
+
+        A rollback's undo: an observer that keeps state of its own got it back from
+        its checkpoint (``observer_checkpoint``) and is not told.
+        """
+        self._observers.announce(props, self.id, restored=True)
+
+    def observer_checkpoint(self) -> ObserversCheckpoint:
+        """Return the state of the observers that keep any, to restore on a rollback."""
+        return self._observers.checkpoint()
+
     def add_observer(self, observer: Callable[[str], None]) -> None:
-        """Register a property-change observer.
+        """Register a property-change observer that keeps no state of its own.
 
         Parent composites use this to react to children flipping
         ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
         """
-        self._observers.append(observer)
+        self._observers.add(observer)
+
+    def add_stateful(self, observer: StatefulObserver) -> None:
+        """Register an observer that derives state of its own from this element.
+
+        A rollback restores that state from the observer's checkpoint, with the
+        element, and does not tell the observer the restored values.
+        """
+        self._observers.add_stateful(observer)
 
     @property
     def removed(self) -> bool:
@@ -252,31 +313,21 @@ class Element(EventHandlerHost, ABC):
         The single mechanism for marking any Element removed; all three
         removal paths (agent ``RemoveElement``, component self-dismiss,
         connection disconnect) reach it. The ``removed`` notification fans out
-        through ``_notify_observers``.
+        through ``_notify_observers``. Inside a transaction the removal is handed to
+        it instead and carried out only once everything the transaction wrote stood,
+        so a rollback has no removal to undo.
         """
-        if self._removed:
+        if self._removed or HandlerWrites.defer_removal(self):
             return
         self._removed = True
         self._notify_observers("removed")
 
     def _notify_observers(self, prop: str) -> None:
-        """Notify every observer that ``prop`` changed, isolating failures.
+        """Tell the observers that ``prop`` changed; buffered inside ``apply_patch``.
 
         The single fan-out point for property-change notifications (``removed``
         today; a table's ``selected_row_ids`` write-through, and future
-        ``visible`` / ``enabled``). Inside ``apply_patch`` the notification is
-        *buffered* and flushed only when the patch commits, so a mid-patch failure
-        notifies nothing; outside a patch it fires immediately. Observers run
-        against a snapshot so a callback that mutates the registry mid-dispatch
-        cannot affect the in-flight call, and a raising observer is logged and
-        skipped — one bad subscriber must not strand the others (PY-EH-6
-        system-boundary exemption).
+        ``visible`` / ``enabled``): see :class:`PropertyObservers`.
         """
-        if self._notify_buffer is not None:
-            self._notify_buffer.append(prop)
-            return
-        for observer in tuple(self._observers):
-            try:
-                observer(prop)
-            except Exception:
-                logger.exception("observer raised on %s for element %s", prop, self.id)
+        if not self._notifications.record(prop):
+            self._observers.announce((prop,), self.id)

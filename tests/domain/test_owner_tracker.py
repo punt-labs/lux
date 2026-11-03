@@ -130,3 +130,32 @@ def test_release_all_unblocks_a_write_that_used_to_be_a_different_owner() -> Non
     tracker.release_all(_OWNER)
 
     tracker.require_ownership(_SCENE, _ELEMENT, _STRANGER)  # no longer raises
+
+
+class TestScenesOf:
+    def test_dedupes_a_scene_many_elements_share(self) -> None:
+        tracker = OwnerTracker()
+        owner = Owner(ConnectionId("c1"), None)
+        tracker.record(SceneId("s1"), ElementId("a"), owner)
+        tracker.record(SceneId("s1"), ElementId("b"), owner)
+        tracker.record(SceneId("s2"), ElementId("a"), owner)
+
+        assert tracker.scenes_of((ConnectionId("c1"),)) == frozenset(
+            {SceneId("s1"), SceneId("s2")}
+        )
+
+    def test_unions_the_scenes_of_every_connection_named(self) -> None:
+        tracker = OwnerTracker()
+        tracker.record(SceneId("s1"), ElementId("a"), Owner(ConnectionId("c1"), None))
+        tracker.record(SceneId("s2"), ElementId("a"), Owner(ConnectionId("c2"), None))
+        tracker.record(SceneId("s3"), ElementId("a"), Owner(ConnectionId("c3"), None))
+
+        assert tracker.scenes_of((ConnectionId("c1"), ConnectionId("c2"))) == (
+            frozenset({SceneId("s1"), SceneId("s2")})
+        )
+
+    def test_a_connection_owning_nothing_has_no_scenes(self) -> None:
+        assert OwnerTracker().scenes_of((ConnectionId("ghost"),)) == frozenset()
+
+    def test_no_connections_have_no_scenes(self) -> None:
+        assert OwnerTracker().scenes_of(()) == frozenset()

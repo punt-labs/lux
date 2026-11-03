@@ -50,12 +50,17 @@ def _write_identity(
 def _serve_once(
     server_socket: socket.socket, context: ssl.SSLContext, result: dict[str, str]
 ) -> None:
-    """Accept one connection, complete the handshake, and record the outcome."""
+    """Accept one connection, complete the handshake, and record the outcome.
+
+    ``received`` is recorded only once an application read has returned bytes,
+    so its absence from *result* is the server-side proof that none were read.
+    """
     raw, _addr = server_socket.accept()
     try:
         with context.wrap_socket(raw, server_side=True) as tls:
             tls.settimeout(5.0)
             data = tls.recv(64)
+            result["received"] = data.decode()
             tls.sendall(data)
         result["outcome"] = "ok"
     except ssl.SSLError as exc:
@@ -153,8 +158,16 @@ def test_a_leaf_from_an_unrelated_ca_is_rejected_at_the_handshake(
         # for the wrong reason; driving one round of I/O is what actually
         # exercises the rejection this test exists to prove (system.tex
         # T1: "no application byte is ever read from it").
+        #
+        # How the client *observes* the rejection is a race it does not
+        # control: the server's alert surfaces as ``ssl.SSLError``, or -- when
+        # the server closes before the client's ``sendall`` -- as a reset or
+        # broken pipe on the socket. All of them are ``OSError``s, and any of
+        # them means the client was refused. The client's exception type is not
+        # what proves the rejection; the server's own record, asserted below,
+        # is.
         with (
-            pytest.raises(ssl.SSLError),
+            pytest.raises((ssl.SSLError, ConnectionResetError, BrokenPipeError)),
             socket.create_connection((host, port), timeout=5.0) as raw,
             client_context.wrap_socket(raw, server_hostname=_SERVER_HOSTNAME) as tls,
         ):
@@ -165,3 +178,6 @@ def test_a_leaf_from_an_unrelated_ca_is_rejected_at_the_handshake(
         listener.close()
 
     assert result["outcome"] == "rejected"
+    # The security property: no application byte from the unenrolled client was
+    # ever read by the server.
+    assert "received" not in result

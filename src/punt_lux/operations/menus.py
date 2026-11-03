@@ -12,7 +12,7 @@ Clients menu.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, final
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
@@ -24,13 +24,17 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import Menu
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.callbacks import CallbackMenuSource
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.menu_arming import MenuArming
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.ports import DirtyMarker
-    from punt_lux.operations.scope import Scope
 
-__all__ = ["MenuDepartureSink", "MenuOperations", "MenuOperationsDeps"]
+__all__ = [
+    "CallbackMenuSource",
+    "MenuDepartureSink",
+    "MenuOperations",
+    "MenuOperationsDeps",
+]
 
 # The Hub store's reentrant write lock, entered as a context manager. ``set_menu``
 # holds it across the admit-liveness check AND the registry store so a departure
@@ -38,12 +42,20 @@ __all__ = ["MenuDepartureSink", "MenuOperations", "MenuOperationsDeps"]
 type WriteLock = Callable[[], AbstractContextManager[bool]]
 
 
+class CallbackMenuSource(Protocol):
+    """The read the menu surface composes into its bar — the Clients menu."""
+
+    def callback_menus(self) -> list[Menu]:
+        """Return the uniform ``Clients`` menu built from the live sessions."""
+        ...
+
+
 @final
 class MenuDepartureSink:
     """Withdraw a departed session's agent bar and re-push it, as a departure sink.
 
-    Bound at ``menu_set`` admit and fired by the departure cascade on EVERY
-    trigger — graceful disconnect and the lease timer alike. It prunes the owner's
+    The Hub's one shared sink, fired by the departure cascade on EVERY trigger —
+    graceful disconnect and the lease timer alike. It prunes the owner's
     bar from the registry, then marks the menu bar dirty so the replicator
     re-reads the live set and re-pushes. Without the mark, the lease-lapse path
     prunes Hub memory but leaves the departed owner's entries rendered on the
@@ -67,6 +79,18 @@ class MenuDepartureSink:
         """Prune the departed owner's bar, then mark the menu bar for re-push."""
         self._registry.drop_session(connection_id)
         self._replicator.mark_menus()
+
+    def __eq__(self, other: object) -> bool:
+        """Sinks over the same registry and replicator are one sink."""
+        if not isinstance(other, MenuDepartureSink):
+            return NotImplemented
+        return (self._registry, self._replicator) == (
+            other._registry,
+            other._replicator,
+        )
+
+    def __hash__(self) -> int:
+        return hash((MenuDepartureSink, id(self._registry), id(self._replicator)))
 
 
 @final
@@ -126,7 +150,7 @@ class MenuOperations:
         if isinstance(request, OpError):
             return request
         with self._write_lock():
-            if not self._arming.admit(scope.connection_id):
+            if not self._arming.admit(scope):
                 return OpError.identification_required(
                     "declare an identity to own the menu items this session sets"
                 )

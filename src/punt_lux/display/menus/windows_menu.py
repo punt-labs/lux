@@ -27,6 +27,7 @@ from punt_lux.display.menus.model import Submenu
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
 
@@ -38,11 +39,13 @@ class WindowsMenu:
     """Compose the Windows menu from the frames the display is holding."""
 
     _get_frames: Callable[[], Mapping[str, Frame]]
+    _addressing: AddressRendering
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
     _on_raise_frame: Callable[[str], None]
     _chrome: WindowChromeCommands
     __slots__ = (
+        "_addressing",
         "_chrome",
         "_get_frames",
         "_on_clear_all",
@@ -54,6 +57,7 @@ class WindowsMenu:
         cls,
         *,
         get_frames: Callable[[], Mapping[str, Frame]],
+        addressing: AddressRendering,
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
         on_raise_frame: Callable[[str], None],
@@ -61,6 +65,7 @@ class WindowsMenu:
     ) -> Self:
         self = super().__new__(cls)
         self._get_frames = get_frames
+        self._addressing = addressing
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
         self._on_raise_frame = on_raise_frame
@@ -107,7 +112,9 @@ class WindowsMenu:
     def _reopen_item(self, frame: Frame) -> MenuItem:
         """Build the reopen entry, ImGui-keyed on ``(frame.hub, frame_id)``."""
         frame_id = frame.frame_id
-        label = MenuHiddenId.compose(frame.title, f"{frame.hub.wire_token}:{frame_id}")
+        label = MenuHiddenId.compose(
+            self._addressing.frame_title(frame), f"{frame.hub.wire_token}:{frame_id}"
+        )
         return MenuItem(label, lambda: self._on_raise_frame(frame_id))
 
     def _collapse_all(self) -> None:
