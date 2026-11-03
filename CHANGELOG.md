@@ -381,8 +381,9 @@
 
 ### Security
 
-- Clear 8 open Dependabot alerts (1 critical, 2 high) by bumping authlib
-  1.6.12 → 1.9.3 in `uv.lock`. It is a transitive dependency through fastmcp.
+- Clear 9 open Dependabot alerts (1 critical, 3 high) by bumping two
+  transitive dependencies of fastmcp in `uv.lock`: authlib 1.6.12 → 1.9.3 and
+  dnspython 2.8.0 → 2.9.1.
 
 - Clear 66 open Dependabot alerts (8 critical, 31 high) by bumping `uv.lock`:
   Pillow 12.3.0 → 13.0.0, PyJWT 2.13.0 → 2.15.1, anyio 4.12.1 → 4.14.2,
