@@ -17,6 +17,15 @@
   wrote to `~/.claude/settings.json` are left alone; delete them by hand
   ([punt-kit#396](https://github.com/punt-labs/punt-kit/pull/396)).
 
+### Fixed
+
+- **A patched button publish topic is what a click publishes (`lux-tjud`).**
+  Updating a button's `publish` declaration through a scene patch changed the
+  declaration but not the click handler, which still published the topic the
+  button was created with. The vox music widget's pause button published
+  `music.resume` for this reason. The click handler now reads the button's
+  current declaration at click time, so it cannot go stale.
+
 ## [0.33.0] - 2026-11-03
 
 ### Added
