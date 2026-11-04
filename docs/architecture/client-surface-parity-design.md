@@ -1,14 +1,12 @@
 # Client Surface Parity — One Engine, Four Doors, One Vocabulary
 
-- **Status:** draft for DES-087. Bead `lux-0shg.1`, epic `lux-0shg`.
+- **Status:** ratified and shipped (PRs #360, #361, #366, #367, #368, #371);
+  recorded in `DESIGN.md` as DES-087. Bead `lux-0shg.1`, epic `lux-0shg`.
   The seven positions the epic body ratifies (bead
   `bd show lux-0shg`) are carried here verbatim; this design mission
   turns them into a vocabulary and a DRY pattern the implementation
   missions (`.2` through `.7`) can execute against.
-- **Proposed ADR number:** DES-087 (next after DES-086, connection-scoped
-  store keys, in-flight but not yet pasted into `DESIGN.md`; DES-068
-  through DES-085 are shipped but likewise absent from the numbered
-  headings — closing that gap is not this design's to do).
+- **ADR number:** DES-087 (next after DES-086, connection-scoped store keys).
 - **Author:** gvr, design mission `m-2026-08-18-002`.
 - **Evaluator:** mdm (CLI lens — the CLI is the least-covered surface
   today and the one this vocabulary most reshapes).
