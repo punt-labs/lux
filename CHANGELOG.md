@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-11-03
+
 ### Changed
 
 - **Permission rules are repo-level, granted by `lux enable`.** The
