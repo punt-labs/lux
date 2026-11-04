@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 # The library surface a consumer imports to drive luxd — the public facade and
 # the request/result types it speaks, plus the one exceptional error. The
 # transport-flavoured names (the private REST transport, LuxHubClient) are not
@@ -29,6 +31,32 @@ def test_version_matches_metadata():
 
     assert __version__
     assert __version__ == version("punt-lux")
+
+
+def test_missing_distribution_fails_import_rather_than_reporting_a_version(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # An uninstalled package is a broken environment: importing it must raise
+    # PackageNotFoundError, never yield a made-up "0.0.0".
+    import importlib
+    from importlib.metadata import PackageNotFoundError, version
+
+    import punt_lux
+
+    real_version = version("punt-lux")
+
+    def _not_installed(distribution_name: str) -> str:
+        raise PackageNotFoundError(distribution_name)
+
+    with monkeypatch.context() as patched:
+        patched.setattr("importlib.metadata.version", _not_installed)
+        with pytest.raises(PackageNotFoundError):
+            importlib.reload(punt_lux)
+
+    # The failed reload ran with the patch in place; reload again unpatched so
+    # the module every other test shares is back in its normal state.
+    importlib.reload(punt_lux)
+    assert punt_lux.__version__ == real_version
 
 
 def test_package_imports():
