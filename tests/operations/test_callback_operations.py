@@ -13,17 +13,22 @@ from __future__ import annotations
 
 from typing import Self, final
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu
+from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.scope import Scope
 
 
 @final
@@ -92,50 +97,72 @@ class _Wired:
     """
 
     _clients: HubClientRegistry
+    _menus: CallbackMenuReplica
     _router: CallbackRouter
     _marker: _MarkerSpy
     _ops: CallbackOperations
-    __slots__ = ("_clients", "_marker", "_ops", "_router")
+    _lifecycle: ClientLifecycle
+    __slots__ = ("_clients", "_lifecycle", "_marker", "_menus", "_ops", "_router")
 
     def __new__(cls, *, clock: _Clock | None = None) -> Self:
         self = super().__new__(cls)
-        self._clients = (
-            HubClientRegistry(clock) if clock is not None else HubClientRegistry()
+        factory = (
+            HubStoreFactory(clock=clock) if clock is not None else HubStoreFactory()
         )
+        self._clients = factory.clients
+        self._lifecycle = factory.lifecycle
+        self._menus = CallbackMenuReplica(self._clients)
         self._router = CallbackRouter(self._clients)
         self._marker = _MarkerSpy()
-        self._ops = CallbackOperations(self._clients, self._router, self._marker)
+        factory.lifecycle.present_as(self._marker, MarkMenusSink(self._marker))
+        self._ops = CallbackOperations(
+            factory.lifecycle,
+            self._router,
+            self._marker,
+        )
         return self
 
     @property
     def ops(self) -> CallbackOperations:
         return self._ops
 
+    def callback_menus(self) -> list[Menu]:
+        return self._menus.callback_menus()
+
     @property
     def pushed(self) -> int:
         return self._marker.pushed
+
+    def departure_marks(self, conn: ConnectionId) -> int:
+        """How many menu marks one departure of ``conn`` raises: the sinks it fires."""
+        before = self._marker.pushed
+        self._lifecycle.depart(conn)
+        return self._marker.pushed - before
 
     def identify(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> None:
         """Bind the connection and its declared identity, with no listen leg."""
-        self._clients.record(conn, identity)
+        if identity is None:
+            self._lifecycle.arrive(conn, UNOBSERVED)
+        else:
+            self._lifecycle.identify(conn, identity, UNOBSERVED)
 
     def connect(
         self, conn: ConnectionId, identity: ClientIdentity | None = None
     ) -> _Listener:
         """Bring a session up as a live listen leg does: one call, identity and leg."""
         listener = _Listener()
-        self._clients.attach_listener(conn, identity or _identity(), listener)
+        self._lifecycle.attach(conn, identity or _identity(), listener, UNOBSERVED)
         return listener
 
     def drop_leg(self, conn: ConnectionId, listener: _Listener) -> None:
         """Tear the session's leg down the way its own teardown does."""
-        self._clients.detach_listener(conn, listener)
+        self._lifecycle.detach(conn, listener)
 
     def register(self, conn: ConnectionId, callback_id: str = "beads") -> Ok | OpError:
         request = RegisterCallbackRequest.parse(CallbackFields(callback_id, "Beads"))
-        return self._ops.register_callback(request, scope=Scope(conn))
+        return self._ops.register_callback(request, scope=Scope.in_process(conn))
 
 
 def _identity(name: str = "claude", repo: str = "/w/lux") -> ClientIdentity:
@@ -147,12 +174,13 @@ def test_registration_requires_a_push_reachable_connection() -> None:
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.identify(conn, _identity())  # identified, but no listener
+    pushed_by_identifying = wired.pushed
 
     result = wired.register(conn)
     assert isinstance(result, OpError)
     assert result.code == "push_required"
     assert "listen leg" in result.reason
-    assert wired.pushed == 0  # nothing registered, nothing pushed
+    assert wired.pushed == pushed_by_identifying  # nothing registered, nothing pushed
 
 
 def test_push_reachability_is_answered_before_identity() -> None:
@@ -182,19 +210,21 @@ def test_registering_a_callback_renews_a_lapsed_but_still_reachable_session() ->
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
     clock.advance(1801.0)  # past the 1800s mcp-session lease, no contact since
+    before = wired.pushed
 
     assert isinstance(wired.register(conn), Ok)
-    assert wired.pushed == 1
+    assert wired.pushed > before
 
 
 def test_an_identified_listening_session_registers_and_the_menu_is_pushed() -> None:
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
+    connected = wired.pushed  # an agent attaching is itself listed
 
     assert isinstance(wired.register(conn), Ok)
-    assert wired.pushed == 1
-    menus = wired.ops.callback_menus()
+    assert wired.pushed > connected
+    menus = wired.callback_menus()
     assert [menu.label for menu in menus] == ["Clients"]
     # The client is named for the repository it works in, not for its wire name.
     client = menus[0].items[0]
@@ -206,11 +236,12 @@ def test_a_malformed_request_passes_through_without_pushing() -> None:
     wired = _Wired()
     conn = ConnectionId("mcp")
     wired.connect(conn, _identity())
+    connected = wired.pushed
 
     result = wired.register(conn, "")  # empty id
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
-    assert wired.pushed == 0
+    assert wired.pushed == connected
 
 
 def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
@@ -228,3 +259,33 @@ def test_a_dropped_listener_closes_the_door_to_new_registrations() -> None:
     result = wired.register(conn, "second")
     assert isinstance(result, OpError)
     assert result.code == "push_required"
+
+
+def test_registering_a_callback_binds_exactly_one_menu_sink() -> None:
+    wired = _Wired()
+    conn = ConnectionId("mcp")
+    wired.connect(conn, _identity())
+
+    assert isinstance(wired.register(conn, "one"), Ok)
+    assert isinstance(wired.register(conn, "two"), Ok)
+
+    assert wired.departure_marks(conn) == 1
+
+
+def test_registering_on_a_lapsed_reachable_applet_marks_menus_and_binds_one_sink() -> (
+    None
+):
+    clock = _Clock()
+    wired = _Wired(clock=clock)
+    conn = ConnectionId("applet")
+    wired.connect(
+        conn,
+        ClientIdentity(kind="applet", name="lux · lux · #1 · beads", repo="/w/lux"),
+    )
+    clock.advance(100.0)  # past an applet's 60 s lease
+    before = wired.pushed
+
+    assert isinstance(wired.register(conn), Ok)
+
+    assert wired.pushed > before
+    assert wired.departure_marks(conn) == 1

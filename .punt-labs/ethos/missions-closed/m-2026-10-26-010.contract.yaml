@@ -1,0 +1,38 @@
+mission_id: m-2026-10-26-010
+status: closed
+type: implement
+created_at: "2026-10-26T13:03:58Z"
+updated_at: "2026-10-26T13:30:54Z"
+closed_at: "2026-10-26T13:30:54Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T13:03:58Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/results-model-settle-writer/eval-jra-r2.md
+        - docs/dial_settlement.tex
+        - docs/dial_settlement_coverage.md
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_coverage.md
+    - docs/dial_settlement_writer_records_display_buggy.tex
+    - docs/dial_settlement_drain_gives_up_buggy.tex
+    - docs/dial_settlement_writer_owe_refused_buggy.tex
+    - docs/dial_settlement_drain_no_late_buggy.tex
+    - .tmp/missions/results-model-settle-writer-r3/
+success_criteria:
+    - Successor to m-2026-10-26-006, which closed failed at its round budget. Its design was accepted, but findings remained. Fold in jra's round-2 findings from .tmp/missions/results-model-settle-writer/eval-jra-r2.md. Work on branch fix/lux-ghhf-details-frame-id in the main checkout, [REDACTED:home]/Coding/punt-labs/lux, and commit there.
+    - 'R2-F1: replace drain_no_late''s witness with the no-rescuer deadlock check. In the design and the control alike, give SPStart and IAcq an unsatisfiable guard, so no stopper and no inline reader starts, then run a plain deadlock check. The control must deadlock; the design must not. jra''s scratch copies are in .tmp/jra-r1/r2-norescue-*. Either commit the no-rescuer variant as the control, or state the check and its two results in the control''s header, the design''s verification table, and the coverage doc. Drop the claim that the design does not reach the three-part goal.'
+    - 'R2-F2: the leader has ruled that SEND_TIMEOUT_CEILING_SECONDS becomes 3 s, strictly above the macOS probe''s 2.5 s limit; rmh is changing the code. Rewrite rule 7c: the bound is the ceiling plus 2 s, so 5 s. Add the once-only obligation: after the end is recorded or requested, no new writer passes _require_open, so the drain waits for at most the one writer in flight. Update coverage rows 53 and 98 to match.'
+    - 'Advisories: replace each control''s stale ''Round 4: the writer'' paragraph with one line pointing to the design''s table. Add F2''s two qualifications to the a1late item and to its coverage row: (a) a scene the agent cleared in the meantime is not re-sent and needs no charge; (b) the first death charges only the other scenes in that dial''s ledger and carry.'
+    - 'Re-run the design safety goal on the final file and compare it with .tmp/ds2-goal-safety.txt (2068661 states, not found). Run probcli one at a time, never two at once. Check first with pgrep that no other lux probcli is running. Run it under ulimit -v 8 GB with -p MAX_INITIALISATIONS 100. Run fuzz on each file separately. Lint the coverage doc with markdownlint. Commit only the write set, with an explicit git add and the attribution trailer from your session reminder. Do not push, touch src/ or tests/, restore from git, rm, stash, reset, or spawn agents. probcli: [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-settle-writer-r3/<mission-id>.md; submit it with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    Successor to m-2026-10-26-006: prose and evidence fixes after jra accepted
+    the design in round 2, plus the leader's 3 s ceiling ruling.

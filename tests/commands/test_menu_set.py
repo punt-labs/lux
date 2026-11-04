@@ -10,7 +10,7 @@ from punt_lux.operations import Ok, OpError, Scope, SetMenuRequest
 from tests.commands._family_stubs import StubMenuOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("menu-set-test"))
+_SCOPE = Scope.in_process(ConnectionId("menu-set-test"))
 
 
 def _request() -> SetMenuRequest | OpError:

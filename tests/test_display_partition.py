@@ -30,6 +30,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -599,7 +600,7 @@ class TestDrainMessagesPartitions:
         buf_before = len(reader._buf)
         assert buf_before > 0
 
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 1
         assert len(reader._buf) == 0
 
@@ -609,7 +610,7 @@ class TestDrainMessagesPartitions:
         reader = FrameReader()
         frame = encode_message(PingMessage(ts=9.0))
         reader.feed(frame[:3])  # partial header
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 0
         assert len(reader._buf) == 3  # nothing consumed
 
@@ -618,7 +619,7 @@ class TestDrainMessagesPartitions:
         reader = FrameReader()
         reader.feed(encode_message(PingMessage(ts=9.0)))
         reader.feed(encode_message(PingMessage(ts=1.0)))
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 2
         assert len(reader._buf) == 0
 
@@ -628,14 +629,14 @@ class TestDrainMessagesPartitions:
         full_frame = encode_message(PingMessage(ts=9.0))
         partial = encode_message(PingMessage(ts=1.0))[:3]
         reader.feed(full_frame + partial)
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 1  # only complete one
         assert len(reader._buf) == 3  # partial remains
 
     def test_drain_5_empty_buffer(self):
         """P5: Drain empty buffer -> nothing drained."""
         reader = FrameReader()
-        messages = reader.drain_typed()
+        messages = reader.drain_typed(CLIENT_VOCABULARY)
         assert len(messages) == 0
         assert len(reader._buf) == 0
 
@@ -799,7 +800,7 @@ class TestCreateFramePartitions:
         assert "frame-beads" in server._scenes.frames
         frame = server._scenes.frames["frame-beads"]
         assert frame.owner_fds == {10}
-        assert frame.title == "frame-beads"
+        assert frame.heading.title == "frame-beads"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
@@ -820,7 +821,7 @@ class TestCreateFramePartitions:
         )
         server._handle_message(sock, msg)
 
-        assert server._scenes.frames["frame-beads"].title == "Beads Explorer"
+        assert server._scenes.frames["frame-beads"].heading.title == "Beads Explorer"
 
     def test_add_scene_to_existing_frame(self):
         """Second scene added to same frame creates a tab."""

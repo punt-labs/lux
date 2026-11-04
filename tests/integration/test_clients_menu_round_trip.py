@@ -9,7 +9,8 @@ that registered the command, or to the Hub itself for Details.
 
 What it catches that the unit tests cannot: a leaf id the display cannot parse
 back, a nesting the decoder drops, or a Details command that routes to a client
-instead of being answered.
+instead of being answered. A Details entry exists only for a connection that
+registered no command (DES-099), named by its program token, never "Details".
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.menus import Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.wire import WireMenu
@@ -26,18 +28,20 @@ from punt_lux.display.menus.wire_field import WireField
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.details_binding import DetailsBinding
 from punt_lux.domain.hub.hub import Hub
+from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.session_callback import SessionCallback
 from punt_lux.domain.identity import HubId
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.client_listing import ClientListing
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.protocol.elements.table import TableElement
 from tests.menu_doubles import FakeImGui, ignore
@@ -49,6 +53,8 @@ pytestmark = pytest.mark.integration
 
 _BEADS = ConnectionId("beads-session")
 _VOXD = ConnectionId("voxd")
+_ZSPEC = ConnectionId("zspec-session")
+_ETHOS = ConnectionId("ethos-session")
 
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
@@ -88,61 +94,62 @@ class _Marks:
 
 
 @final
-class _Port:
-    """A display port that fails the test if a Hub read reaches around to it."""
-
-    def query(self, method: str, params: object) -> object:
-        msg = f"the Hub reached around to the display: query({method!r})"
-        raise AssertionError(msg)
-
-    def ping(self, wait: float | None) -> object:
-        msg = f"the Hub reached around to the display: ping({wait!r})"
-        raise AssertionError(msg)
-
-
-@final
 class _Wired:
     """A Hub with two live clients, and the display model of the menu it composes."""
 
     _store: HubDisplay
+    _clients: HubClientRegistry
+    _lifecycle: ClientLifecycle
     _details: ClientDetailsPort
     _router: CallbackRouter
     _legs: dict[ConnectionId, _Leg]
     _sent: list[RemoteEventHandlerInvocation]
-    __slots__ = ("_details", "_legs", "_router", "_sent", "_store")
+    __slots__ = (
+        "_clients",
+        "_details",
+        "_legs",
+        "_lifecycle",
+        "_router",
+        "_sent",
+        "_store",
+    )
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._store = HubDisplay()
+        factory = HubStoreFactory()
+        display = factory.display
+        self._store = display
+        self._clients = factory.clients
+        self._lifecycle = factory.lifecycle
         marks = _Marks()
-        clients = ClientListing(self._store, Hub(), _zero_inbox_depth)
+        listing = ClientListing(display, self._clients, Hub(), _zero_inbox_depth)
         self._details = ClientDetailsPort(
-            ClientDetailsOperations(
-                QueryOperations(
-                    self._store,
-                    _Port(),  # type: ignore[arg-type]  # structural port
-                    clients,
-                ),
-                SceneInstaller(self._store, marks),
-                self._store.clients,
-            )
+            ClientDetailsOperations(listing, SceneInstaller(display, marks))
         )
-        self._router = CallbackRouter(self._store.clients)
+        self._router = CallbackRouter(self._clients)
         self._legs = {}
         self._sent = []
         return self
+
+    def connect_without_commands(
+        self, connection_id: ConnectionId, identity: ClientIdentity
+    ) -> None:
+        """Bring up an agent session that registered no command at all."""
+        leg = _Leg()
+        self._legs[connection_id] = leg
+        self._lifecycle.attach(connection_id, identity, leg, UNOBSERVED)
 
     def connect(self, connection_id: ConnectionId, identity: ClientIdentity) -> None:
         """Bring a client up the way the listen route does, and register a command."""
         leg = _Leg()
         self._legs[connection_id] = leg
-        self._store.clients.attach_listener(connection_id, identity, leg)
+        self._lifecycle.attach(connection_id, identity, leg, UNOBSERVED)
         command = (
             SessionCallback(id="music", label="Music")
             if connection_id == _VOXD
             else SessionCallback(id="beads", label="Beads")
         )
-        self._store.clients.register_callback(connection_id, command, leg)
+        self._lifecycle.register_callback(connection_id, command, UNOBSERVED)
 
     def draw(self, *clicks: str) -> FakeImGui:
         """Decode the wire the Hub would send and draw it, clicking what is named.
@@ -153,7 +160,7 @@ class _Wired:
         """
         imgui = FakeImGui(clicks)
         field = WireField("callback_menus")
-        for wire in CallbackMenuReplica(self._store.clients).callback_menu_wire():
+        for wire in CallbackMenuReplica(self._clients).callback_menu_wire():
             menu = WireMenu.of_payload(wire, field=field)
             handlers = MenuHandlers(self._sent.append, ignore, HubId.stub())
             Submenu.from_wire(menu, handlers).render(imgui)
@@ -174,7 +181,7 @@ class _Wired:
 
     def sweep(self, connection_id: ConnectionId) -> None:
         """Drop a client the way the lease sweep does, after the menu was drawn."""
-        self._store.clients.discard(connection_id)
+        self._lifecycle.depart(connection_id)
 
     def has_details(self, connection_id: ConnectionId) -> bool:
         """Whether the Hub holds a details scene for this client."""
@@ -212,13 +219,41 @@ def _wired_with_two_clients() -> _Wired:
     return wired
 
 
+def _wired_with_two_agents() -> _Wired:
+    """Two agent sessions of different repositories, neither with a command."""
+    wired = _Wired()
+    wired.connect_without_commands(
+        _ZSPEC, ClientIdentity(kind="mcp-session", name="z-spec", repo="/w/lux")
+    )
+    wired.connect_without_commands(
+        _ETHOS, ClientIdentity(kind="mcp-session", name="ethos", repo="/w/ethos")
+    )
+    return wired
+
+
 def test_the_display_draws_what_the_hub_composed() -> None:
     imgui = _wired_with_two_clients().draw()
 
     assert imgui.labels_under() == ("Clients",)
     assert imgui.labels_under("Clients") == ("lux", "voxd")
-    assert imgui.labels_under("Clients", "lux") == ("Beads", "---", "Details")
-    assert imgui.labels_under("Clients", "voxd") == ("Music", "---", "Details")
+    assert imgui.labels_under("Clients", "lux") == ("Beads",)
+    assert imgui.labels_under("Clients", "voxd") == ("Music",)
+
+
+def test_a_client_with_commands_gets_no_details_entry() -> None:
+    imgui = _wired_with_two_clients().draw()
+
+    assert "Details" not in imgui.labels_under("Clients", "lux")
+    assert "Details" not in imgui.labels_under("Clients", "voxd")
+
+
+def test_a_client_without_commands_is_one_entry_named_by_its_program() -> None:
+    imgui = _wired_with_two_agents().draw()
+
+    assert imgui.labels_under("Clients") == ("ethos", "lux")
+    assert imgui.labels_under("Clients", "lux") == ("z-spec",)
+    assert imgui.labels_under("Clients", "ethos") == ("ethos",)
+    assert "Details" not in imgui.labels_under("Clients", "lux")
 
 
 def test_a_command_click_reaches_the_client_that_registered_it(
@@ -233,26 +268,23 @@ def test_a_command_click_reaches_the_client_that_registered_it(
     assert wired.woken(_BEADS) == 0
 
 
-def test_a_details_click_is_answered_by_the_hub_with_that_clients_state(
+def test_a_program_entry_click_is_answered_by_the_hub_with_that_clients_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The whole point of Details: what the label stopped saying, said here."""
-    wired = _wired_with_two_clients()
+    wired = _wired_with_two_agents()
 
-    wired.draw("Details")  # both clients' Details lines read the same
+    wired.draw("z-spec")
     wired.dispatch_sent(monkeypatch)
 
-    assert wired.woken(_VOXD) == 0  # the Hub answered; no client was woken
-    assert wired.woken(_BEADS) == 0
-    beads = wired.scene_rows(_BEADS)
-    assert beads["Client"] == "lux"
-    assert beads["Declared name"] == "lux · lux · #4b97 · lux-beads"
-    assert beads["Kind"] == "applet"
-    assert beads["Repository"] == "/w/lux"
-    voxd = wired.scene_rows(_VOXD)
-    assert voxd["Client"] == "voxd"
-    assert voxd["Kind"] == "app"
-    assert voxd["Lease"] == "permanent"
+    assert wired.woken(_ZSPEC) == 0  # the Hub answered; no client was woken
+    assert wired.woken(_ETHOS) == 0
+    zspec = wired.scene_rows(_ZSPEC)
+    assert zspec["Client"] == "lux"
+    assert zspec["Declared name"] == "z-spec"
+    assert zspec["Kind"] == "mcp-session"
+    assert zspec["Repository"] == "/w/lux"
+    assert not wired.has_details(_ETHOS)  # only the clicked entry opened a frame
 
 
 def test_two_clients_on_one_repository_are_numbered_all_the_way_to_the_screen(
@@ -260,16 +292,16 @@ def test_two_clients_on_one_repository_are_numbered_all_the_way_to_the_screen(
 ) -> None:
     wired = _Wired()
     for connection in ("first", "second"):
-        wired.connect(
+        wired.connect_without_commands(
             ConnectionId(connection),
             ClientIdentity(kind="mcp-session", name=connection, repo="/w/lux"),
         )
 
-    imgui = wired.draw("Details")
+    imgui = wired.draw("first", "second")
     wired.dispatch_sent(monkeypatch)
 
     assert imgui.labels_under("Clients") == ("lux", "lux (2)")
-    # The frame each Details click opened is titled for the client the menu named.
+    # The frame each click opened is titled for the client the menu named.
     assert wired.scene_rows(ConnectionId("first"))["Client"] == "lux"
     assert wired.scene_rows(ConnectionId("second"))["Client"] == "lux (2)"
 
@@ -284,14 +316,14 @@ def test_a_details_scene_installs_no_scene_for_a_client_that_left(
     names the connection, because that is what tells a reader which entry the
     user clicked when the frame they expected never opened.
     """
-    wired = _wired_with_two_clients()
-    wired.draw("Details")
-    wired.sweep(_VOXD)  # its lease lapsed between the paint and the pointer
+    wired = _wired_with_two_agents()
+    wired.draw("z-spec", "ethos")
+    wired.sweep(_ETHOS)  # its lease lapsed between the paint and the pointer
 
     with caplog.at_level(logging.INFO):
         wired.dispatch_sent(monkeypatch)
 
-    assert not wired.has_details(_VOXD)
-    assert wired.scene_rows(_BEADS)["Client"] == "lux"
-    assert f"Details clicked for {_VOXD}" in caplog.text
+    assert not wired.has_details(_ETHOS)
+    assert wired.scene_rows(_ZSPEC)["Client"] == "lux"
+    assert f"Details clicked for {_ETHOS}" in caplog.text
     assert "no longer holds a session for" in caplog.text

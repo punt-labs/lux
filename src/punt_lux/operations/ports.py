@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from punt_lux.client_host import ClientHost
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.messages.observer import ObserverMessage
@@ -20,7 +21,7 @@ __all__ = ["DirtyMarker", "ElementFactoryFor", "EnsureWriter", "HubPorts", "Next
 # A connection-scoped element decoder — one factory per calling session.
 type ElementFactoryFor = Callable[[ConnectionId], JsonElementFactory]
 # Bind the session's inbox writer; idempotent.
-type EnsureWriter = Callable[[ConnectionId], None]
+type EnsureWriter = Callable[[ConnectionId, ClientHost], None]
 # Take the next queued business event, or ``None`` when the inbox is empty.
 type NextEvent = Callable[[ConnectionId, float], ObserverMessage | None]
 

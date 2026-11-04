@@ -161,22 +161,6 @@ class SliderElement(Element):
     def _set_tooltip(self, value: object) -> None:
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
-    def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        """Apply a field patch atomically, re-checking the invariants at the boundary.
-
-        The base setter loop rolls back on a coercion ``TypeError``; a
-        whole-element re-check then rolls the whole patch back if the final state
-        is invalid — so a combined ``{"value": 150, "max": 200}`` is accepted.
-        """
-        snapshot = dict(vars(self))
-        super().apply_patch(patch)
-        messages = self._range_error_messages()
-        if messages:
-            vars(self).clear()
-            vars(self).update(snapshot)
-            raise ValueError(messages[0])
-        return self
-
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the value-changed bucket's spec under the fixed 'changed' action."""
         return (RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)

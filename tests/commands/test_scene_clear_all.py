@@ -9,7 +9,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Cleared, OpError, Scope
 from tests.commands._scene_stub import StubSceneOps, identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def test_clear_all_always_renders_cleared() -> None:

@@ -23,7 +23,12 @@ import select
 import socket
 import ssl
 import time
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_lux.write_progress import ProgressSource
 
 __all__ = ["BoundedSend", "TornStreamError"]
 
@@ -64,32 +69,62 @@ class BoundedSend:
         an untouched frame raises ``BlockingIOError`` to defer; a partial one
         raises ``TornStreamError``. A zero-byte ``send`` also propagates.
         """
+        self._push(sock, data, lambda: deadline, lambda: None)
+
+    def send_while_progressing(
+        self, sock: socket.socket, data: bytes, clock: ProgressSource, window: float
+    ) -> None:
+        """Send all of ``data`` on ``sock``, unless no byte moves for ``window``.
+
+        The deadline is not a time but a silence: it is ``window`` after the last byte
+        that moved on the socket (``clock``), and every byte this send moves restarts
+        it. A peer that drains slowly but steadily is never cut short; one that has
+        stopped ends the send ``window`` after its last byte, as ``send`` does at its
+        deadline.
+        """
+        self._push(sock, data, lambda: clock.expires_at(window), clock.moved)
+
+    def _push(
+        self,
+        sock: socket.socket,
+        data: bytes,
+        due: Callable[[], float],
+        moved: Callable[[], None],
+    ) -> None:
+        """Send ``data``; ``due`` is the deadline now, ``moved`` notes a byte going."""
         view = memoryview(data)
         offset = 0
         while offset < len(view):
             try:
                 sent = sock.send(view[offset:])
             except _RETRY_ERRORS as exc:
-                readable, writable = self._wait_ready(sock, deadline)
-                ready = readable if isinstance(exc, ssl.SSLWantReadError) else writable
-                if ready:
+                wants_read = isinstance(exc, ssl.SSLWantReadError)
+                if self._wait_ready(sock, due(), for_read=wants_read):
                     continue
                 if offset > 0:
                     msg = "send deadline hit after a partial write; stream torn"
                     raise TornStreamError(msg) from None
-                raise BlockingIOError from None
+                msg = "the send deadline passed before the first byte went out"
+                raise BlockingIOError(msg) from None
             if sent == 0:
                 msg = "socket accepted zero bytes; stream is dead"
                 raise OSError(msg)
             offset += sent
+            moved()
 
     @staticmethod
-    def _wait_ready(sock: socket.socket, deadline: float) -> tuple[bool, bool]:
-        """Return ``(readable, writable)`` before ``deadline``, in one ``select``
-        call -- the caller checks only the direction its exception needs.
+    def _wait_ready(sock: socket.socket, deadline: float, *, for_read: bool) -> bool:
+        """Wait before ``deadline`` for the direction the send needs; whether it came.
+
+        Only that direction is watched: data the peer has sent and nobody has read (a
+        TLS socket's post-handshake records) keeps the descriptor readable, and a wait
+        for writability that woke on it would call the deadline early.
         """
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return False, False
-        readable, writable, _ = select.select([sock], [sock], [], remaining)
-        return bool(readable), bool(writable)
+            return False
+        watched = [sock]
+        readable, writable, _ = select.select(
+            watched if for_read else [], [] if for_read else watched, [], remaining
+        )
+        return bool(readable if for_read else writable)

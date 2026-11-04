@@ -1,11 +1,4 @@
-"""``ClientRegistry`` — reconnect listener restart and the DES-068 connect hook.
-
-The original ``with_reconnect`` reconnected the socket but never
-restarted the background listener. Push-mode callers (callbacks
-registered via ``on_event``, ``poll_event`` blocked on
-``_event_queue``) silently stopped receiving frames after the first
-``OSError`` recovered by the registry — the socket was healthy, the
-listener thread was dead.
+"""``ClientRegistry`` — the one connect, and the DES-068 connect hook.
 
 ``_connect_and_reconcile`` is the one choke point every fresh low-level
 connect passes through (DES-068): it sends the manifest and marks the
@@ -16,15 +9,23 @@ gets repainted, not just told.
 
 from __future__ import annotations
 
+import inspect
 import threading
 import time
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 import pytest
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
 from punt_lux.domain.ids import SceneId
+from punt_lux.domain.scope import Scope
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
 
 class _FakeClient:
@@ -33,7 +34,7 @@ class _FakeClient:
     ``is_connected`` tracks real connect/close state, not just a cumulative
     call count: ``close()`` must flip it back to ``False`` the way the real
     ``DisplayLink`` does, so a test can prove a forced close after a partial
-    connect makes the *next* ``get()`` reconnect rather than treat a
+    connect makes the *next* ``asks()`` reconnect rather than treat a
     half-connected link (handshake done, manifest never landed) as healthy.
     ``connect_calls``/``close_calls`` stay separate cumulative counters for
     assertions on how many attempts actually happened.
@@ -43,6 +44,7 @@ class _FakeClient:
     close_calls: int
     start_listener_calls: int
     manifests_sent: list[tuple[str, ...]]
+    fallbacks: list[object]
     _connected: bool
     _fail_send_manifest_once: bool
 
@@ -52,30 +54,50 @@ class _FakeClient:
         self.close_calls = 0
         self.start_listener_calls = 0
         self.manifests_sent = []
+        self.fallbacks = []
         self._connected = False
         self._fail_send_manifest_once = fail_send_manifest_once
         return self
 
-    def connect(self) -> None:
+    @property
+    def events(self) -> _FakeClient:
+        """The push port: this fake is its own."""
+        return self
+
+    def connect(self, *, listen: bool = False) -> None:
         self.connect_calls += 1
         self._connected = True
+        if listen:
+            self.start_listener_calls += 1
+
+    def open_as_hub(self, manifest: Callable[[], Sequence[str]]) -> tuple[str, ...]:
+        """Connect with a reader, then write the manifest: it fails once if told to."""
+        self.connect(listen=True)
+        scene_ids = tuple(manifest())
+        if self._fail_send_manifest_once:
+            self._fail_send_manifest_once = False
+            self.close()
+            err = "simulated manifest send failure"
+            raise BrokenPipeError(err)
+        self.manifests_sent.append(scene_ids)
+        return scene_ids
 
     def close(self) -> None:
         self.close_calls += 1
         self._connected = False
 
-    def start_listener(self) -> None:
-        self.start_listener_calls += 1
+    @property
+    def desk(self) -> _FakeClient:
+        """The request desk: this fake is its own."""
+        return self
 
-    def send_manifest(self, scene_ids: tuple[str, ...]) -> None:
-        if self._fail_send_manifest_once:
-            self._fail_send_manifest_once = False
-            err = "simulated manifest send failure"
-            raise BrokenPipeError(err)
-        self.manifests_sent.append(tuple(scene_ids))
+    def asks(self) -> _FakeClient:
+        """The ask port: this fake is its own."""
+        return self
 
     def set_fallback_handler(self, handler: object) -> None:
-        """No-op — ``_setup_apps`` wires this; nothing here asserts on it."""
+        """Record the handler the registry wires when it makes the client."""
+        self.fallbacks.append(handler)
 
     @property
     def is_connected(self) -> bool:
@@ -107,95 +129,39 @@ class _FakeMarker:
 
 
 def _install_client(registry: ClientRegistry, fake: _FakeClient) -> None:
-    """Plant ``fake`` into ``registry`` so ``with_reconnect`` finds it."""
+    """Plant ``fake`` into ``registry`` as the link its ``asks`` connects."""
     registry._client = fake  # type: ignore[assignment]  # test-only duck type
 
 
-def test_with_reconnect_restarts_listener_after_oserror() -> None:
-    """A successful reconnect must restart the background listener."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
+class TestTheClientIsMadeOnce:
+    """The registry makes its link on first use, and wires the fallback then."""
 
-    calls = 0
+    def test_the_hub_dispatch_is_the_fallback_exactly_once_however_often_asked(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = _FakeClient()
 
-    def fn() -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise BrokenPipeError("simulated socket loss")
-        return "ok"
+        def to_socket(_cls: type[DisplayLink], /, **_options: object) -> _FakeClient:
+            return fake
 
-    result = registry.with_reconnect(fn)
+        monkeypatch.setattr(DisplayLink, "to_socket", classmethod(to_socket))
+        registry = ClientRegistry()
 
-    assert result == "ok"
-    assert fake.close_calls == 1
-    assert fake.connect_calls == 1
-    assert fake.start_listener_calls == 1
+        registry.asks()
+        registry.asks()
 
-
-def test_with_reconnect_no_listener_restart_on_happy_path() -> None:
-    """If ``fn`` succeeds, no reconnect cycle runs."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
-
-    result = registry.with_reconnect(lambda: "ok")
-
-    assert result == "ok"
-    assert fake.close_calls == 0
-    assert fake.connect_calls == 0
-    assert fake.start_listener_calls == 0
-
-
-def test_with_reconnect_wraps_reconnect_failure() -> None:
-    """A failed reconnect raises ``RuntimeError`` chained from the original."""
-    registry = ClientRegistry()
-
-    class _UnreconnectableClient(_FakeClient):
-        def connect(self) -> None:
-            raise OSError("reconnect refused")
-
-    fake = _UnreconnectableClient()
-    _install_client(registry, fake)
-
-    def fn() -> str:
-        raise ConnectionResetError("simulated socket loss")
-
-    with pytest.raises(RuntimeError, match="Reconnect failed"):
-        registry.with_reconnect(fn)
-    assert fake.start_listener_calls == 0
-
-
-def test_with_reconnect_sends_the_manifest_on_the_fresh_connect() -> None:
-    """The one choke point fires on ``with_reconnect``'s retry connect too."""
-    registry = ClientRegistry()
-    fake = _FakeClient()
-    _install_client(registry, fake)
-
-    calls = 0
-
-    def fn() -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise BrokenPipeError("simulated socket loss")
-        return "ok"
-
-    registry.with_reconnect(fn)
-
-    assert fake.manifests_sent == [()]  # the singleton HubDisplay starts empty
+        assert fake.fallbacks == [HubInteractionDispatch.dispatch]
 
 
 class TestConnectAndReconcile:
-    """``get()``'s lazy connect runs through the same choke point as reconnect."""
+    """``asks()``'s lazy connect runs through the same choke point as reconnect."""
 
     def test_get_sends_the_manifest_on_a_fresh_connect(self) -> None:
         registry = ClientRegistry()
         fake = _FakeClient()
         _install_client(registry, fake)
 
-        registry.get()
+        registry.asks()
 
         assert fake.connect_calls == 1
         assert fake.manifests_sent == [()]
@@ -207,7 +173,7 @@ class TestConnectAndReconcile:
         fake = _FakeClient()
         _install_client(registry, fake)
 
-        registry.get()
+        registry.asks()
 
         assert marker.menu_marks == 1
         assert marker.scenes_marked == []  # nothing live in a fresh HubDisplay
@@ -218,7 +184,7 @@ class TestConnectAndReconcile:
         _install_client(registry, fake)
         fake.connect()  # already connected, and cleanly so
 
-        registry.get()
+        registry.asks()
 
         assert fake.connect_calls == 1  # unchanged — no fresh connect ran
         assert fake.manifests_sent == []
@@ -229,7 +195,7 @@ class TestConnectAndReconcile:
         fake = _FakeClient()
         _install_client(registry, fake)
 
-        registry.get()  # must not raise despite no attach_replicator call
+        registry.asks()  # must not raise despite no attach_replicator call
 
         assert fake.manifests_sent == [()]
 
@@ -238,7 +204,7 @@ class TestConnectAndReconcile:
 
         ``connect()`` can succeed while ``send_manifest()`` then fails -- without
         forcing a close, ``is_connected`` would stay ``True`` and every later
-        ``get()`` would skip reconciliation entirely, silently dropping every
+        ``asks()`` would skip reconciliation entirely, silently dropping every
         live scene's re-mark along with the manifest itself.
         """
         registry = ClientRegistry()
@@ -246,21 +212,21 @@ class TestConnectAndReconcile:
         _install_client(registry, fake)
 
         with pytest.raises(BrokenPipeError):
-            registry.get()
+            registry.asks()
 
         assert fake.is_connected is False  # forced closed, not half-connected
         assert fake.close_calls == 1
 
     def test_a_manifest_send_failure_is_retried_by_the_next_get(self) -> None:
-        """The next ``get()`` must see a disconnected link and reconcile again."""
+        """The next ``asks()`` must see a disconnected link and reconcile again."""
         registry = ClientRegistry()
         fake = _FakeClient(fail_send_manifest_once=True)
         _install_client(registry, fake)
 
         with pytest.raises(BrokenPipeError):
-            registry.get()  # connect succeeds, send_manifest fails, link closed
+            registry.asks()  # connect succeeds, send_manifest fails, link closed
 
-        registry.get()  # must reconnect from scratch, not skip reconciliation
+        registry.asks()  # must reconnect from scratch, not skip reconciliation
 
         assert fake.connect_calls == 2  # the failed attempt, then the retry
         assert fake.manifests_sent == [()]  # the retry's manifest actually landed
@@ -292,8 +258,8 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
     reconcile never touches the introspection-only read — and checks that the
     quarantined scene does not appear in the marks the reconcile fired.
     """
+    from punt_lux.domain.hub import hub_display, hub_lifecycle
     from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.hub_display import hub_display
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.protocol.elements.text import TextElement
@@ -308,9 +274,13 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
         raise AssertionError(msg)
 
     monkeypatch.setattr(hub_display, "all_scene_ids", raise_if_called)
-    hub_display.register_client(conn)
-    hub_display.replace_scene(conn, kept, [TextElement(id="k", content="ok")])
-    hub_display.replace_scene(conn, poison, [TextElement(id="p", content="ok")])
+    hub_lifecycle.arrive(conn, UNOBSERVED)
+    hub_display.replace_scene(
+        Scope.in_process(conn), kept, [TextElement(id="k", content="ok")]
+    )
+    hub_display.replace_scene(
+        Scope.in_process(conn), poison, [TextElement(id="p", content="ok")]
+    )
     hub_display.quarantine(poison, QuarantineRecord(death_count=2, last_death_at=1.0))
 
     registry = ClientRegistry()
@@ -320,15 +290,15 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
     _install_client(registry, fake)
 
     try:
-        registry.get()  # runs _connect_and_reconcile
+        registry.asks()  # runs _connect_and_reconcile
         assert kept in marker.scenes_marked
         assert poison not in marker.scenes_marked
         assert poison not in fake.manifests_sent[0]
     finally:
         monkeypatch.setattr(hub_display, "all_scene_ids", original_all)
-        hub_display.replace_scene(conn, kept, ())  # cleanup
-        hub_display.replace_scene(conn, poison, ())
-        hub_display.drop_connection(conn)
+        hub_display.replace_scene(Scope.in_process(conn), kept, ())  # cleanup
+        hub_display.replace_scene(Scope.in_process(conn), poison, ())
+        hub_lifecycle.depart(conn)
 
 
 # -- DisplayLinkage: is_connected / wait_for_reconnect (design §6.3, §9) -----
@@ -366,30 +336,35 @@ def test_is_connected_is_false_again_once_closed() -> None:
 def test_get_advances_the_generation_only_on_a_not_connected_to_connected_edge() -> (
     None
 ):
-    """Fires once per genuine reconnect, never on an already-connected get()."""
+    """Fires once per genuine reconnect, never on an already-connected asks()."""
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
-    since_gen = registry.reconnect_generation
+    since_gen = registry.reconnects.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 2.0)))
+        woke.append(
+            registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 2.0))
+        )
 
     waiter = threading.Thread(target=wait)
     waiter.start()
     assert entered.wait(2.0)
-    registry.get()  # the fresh connect: not-connected -> connected, wakes the waiter
+    registry.asks()  # the fresh connect: not-connected -> connected, wakes the waiter
     waiter.join(timeout=2.0)
     assert woke == [True]
-    connected_gen = registry.reconnect_generation
+    connected_gen = registry.reconnects.reconnect_generation
     assert connected_gen > since_gen
 
-    registry.get()  # already connected: no edge, generation unchanged
-    assert registry.reconnect_generation == connected_gen
-    assert registry.wait_for_reconnect(ReconnectWait(connected_gen, 0.05)) is False
+    registry.asks()  # already connected: no edge, generation unchanged
+    assert registry.reconnects.reconnect_generation == connected_gen
+    assert (
+        registry.reconnects.wait_for_reconnect(ReconnectWait(connected_gen, 0.05))
+        is False
+    )
 
 
 def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
@@ -406,18 +381,20 @@ def test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost() -> None:
     fake = _FakeClient()
     _install_client(registry, fake)
 
-    since_gen = registry.reconnect_generation  # snapshot BEFORE the "dial attempt"
+    since_gen = (
+        registry.reconnects.reconnect_generation
+    )  # snapshot BEFORE the "dial attempt"
     racing_connect_done = threading.Event()
 
     def racing_reconnect() -> None:
-        registry.get()  # e.g. a liveness probe reconnecting concurrently
+        registry.asks()  # e.g. a liveness probe reconnecting concurrently
         racing_connect_done.set()
 
     threading.Thread(target=racing_reconnect).start()
     assert racing_connect_done.wait(2.0)  # the race resolves before we wait
 
     started = time.monotonic()
-    woke = registry.wait_for_reconnect(ReconnectWait(since_gen, 5.0))
+    woke = registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 5.0))
     elapsed = time.monotonic() - started
 
     assert woke is True
@@ -433,11 +410,15 @@ def test_a_wait_snapshotted_after_its_own_connect_waits_out_its_own_timeout() ->
     fake = _FakeClient()
     _install_client(registry, fake)
 
-    registry.get()  # not-connected -> connected
-    since_gen = registry.reconnect_generation  # snapshotted AFTER that connect
+    registry.asks()  # not-connected -> connected
+    since_gen = (
+        registry.reconnects.reconnect_generation
+    )  # snapshotted AFTER that connect
 
     started = time.monotonic()
-    assert registry.wait_for_reconnect(ReconnectWait(since_gen, 0.2)) is False
+    assert (
+        registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 0.2)) is False
+    )
     assert time.monotonic() - started >= 0.2  # genuinely waited for a NEW edge
 
 
@@ -446,18 +427,20 @@ def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
-    since_gen = registry.reconnect_generation
+    since_gen = registry.reconnects.reconnect_generation
     woke: list[bool] = []
     entered = threading.Event()
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(since_gen, 60.0)))
+        woke.append(
+            registry.reconnects.wait_for_reconnect(ReconnectWait(since_gen, 60.0))
+        )
 
     waiter = threading.Thread(target=wait)
     waiter.start()
     assert entered.wait(2.0)
-    registry.get()  # the connect that should wake the waiter
+    registry.asks()  # the connect that should wake the waiter
     waiter.join(timeout=2.0)
 
     assert not waiter.is_alive()
@@ -465,26 +448,26 @@ def test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect() -> None:
 
 
 def test_wait_for_reconnect_does_not_hold_the_registry_lock() -> None:
-    """A concurrent get() must complete while a wait is in flight (I8)."""
+    """A concurrent asks() must complete while a wait is in flight (I8)."""
     registry = ClientRegistry()
     fake = _FakeClient()
     _install_client(registry, fake)
     done = threading.Event()
 
     waiter = threading.Thread(
-        target=registry.wait_for_reconnect, args=(ReconnectWait(0, 0.5),)
+        target=registry.reconnects.wait_for_reconnect, args=(ReconnectWait(0, 0.5),)
     )
     waiter.start()
 
     def call_get() -> None:
-        registry.get()
+        registry.asks()
         done.set()
 
     getter = threading.Thread(target=call_get)
     getter.start()
     getter.join(timeout=2.0)
 
-    assert done.is_set(), "get() blocked behind a lock the wait should not hold"
+    assert done.is_set(), "asks() blocked behind a lock the wait should not hold"
     waiter.join(timeout=2.0)
 
 
@@ -498,14 +481,14 @@ def test_request_stop_wakes_a_parked_wait_for_reconnect_promptly() -> None:
 
     def wait() -> None:
         entered.set()
-        woke.append(registry.wait_for_reconnect(ReconnectWait(0, 120.0)))
+        woke.append(registry.reconnects.wait_for_reconnect(ReconnectWait(0, 120.0)))
 
     waiter = threading.Thread(target=wait)
     waiter.start()
     assert entered.wait(2.0)
 
     started = time.monotonic()
-    registry.request_stop()
+    registry.reconnects.request_stop()
     waiter.join(timeout=2.0)
     elapsed = time.monotonic() - started
 
@@ -517,5 +500,21 @@ def test_request_stop_wakes_a_parked_wait_for_reconnect_promptly() -> None:
 def test_request_stop_is_a_no_op_for_a_registry_with_no_parked_waiter() -> None:
     """Calling it early (before any wait) must not raise -- latches quietly."""
     registry = ClientRegistry()
-    registry.request_stop()
-    assert registry.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
+    registry.reconnects.request_stop()
+    assert registry.reconnects.wait_for_reconnect(ReconnectWait(0, 5.0)) is True
+
+
+class TestDropHasNoFormWithoutADial:
+    """A drop names the dial that failed; none drops "whatever is current"."""
+
+    def test_the_dial_is_a_required_parameter(self) -> None:
+        params = inspect.signature(ClientRegistry.drop).parameters
+
+        assert list(params) == ["self", "dial"]
+        assert params["dial"].default is inspect.Parameter.empty
+
+    def test_a_drop_naming_nothing_is_refused(self) -> None:
+        registry = ClientRegistry()
+
+        with pytest.raises(TypeError):
+            registry.drop()  # type: ignore[call-arg]  # the refusal under test

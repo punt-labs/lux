@@ -7,7 +7,7 @@ Two invariants verified here:
   and returns zero. The independence of the per-Element handler
   registry and the per-connection subscription registry is what makes
   this trivial.
-- ``HubDisplay.drop_connection`` forgets the departing session without
+- ``ClientLifecycle.depart`` forgets the departing session without
   disturbing the UI it installed: the elements stay indexed and owned, and
   a display click on them still reaches its handler, because a
   ``RemoteEventHandlerInvocation`` names no caller for the Hub to gate on.
@@ -75,11 +75,11 @@ def test_dropped_connection_keeps_its_elements_but_releases_ownership(
     fired: list[ButtonClicked] = []
     button.add_handler(ButtonClicked, fired.append)
     hub.install(connection_id, scene_id, button)
-    assert hub.display.is_client(connection_id)
+    assert hub.clients.session_of(connection_id) is not None
 
-    hub.display.drop_connection(connection_id)
+    hub.lifecycle.depart(connection_id)
 
-    assert not hub.display.is_client(connection_id)
+    assert not (hub.clients.session_of(connection_id) is not None)
     assert hub.display.elements_owned_by(connection_id) == ()
     assert hub.display.resolve(scene_id, element_id) is button
 

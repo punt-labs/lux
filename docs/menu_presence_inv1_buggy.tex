@@ -1,0 +1,321 @@
+%
+% menu_presence_inv1_buggy.tex
+%
+% FIDELITY CONTROL for docs/menu_presence.tex, defect INV-1.
+%
+% Differs from menu_presence.tex in exactly one place: RegisterCallback binds
+% no departure sink. This is ListenerLegs.register_callback (now PresenceWrites.register_callback) as it stood: the
+% callback is written under the registry lock alone, the caller marks the menus
+% afterwards by hand (so dirty is raised), and nobody binds the one shared sink.
+% The applet is then an earning session with no sink: P2's first conjunct fails
+% at once, and when its lease lapses the sweep departs it with no sink to fire,
+% so nothing marks the entry away and it lingers on the Display (P1 (ii)).
+%
+% Expected: the P2 negation AND the P1 negation are REACHABLE.
+%   probcli docs/menu_presence_inv1_buggy.tex -model_check -nodead \
+%     -goal "#c.(c : CONN & ((c : earns & sinks(c) /= 1) or sinks(c) > 1 \
+%       or (c /: registered & sinks(c) /= 0)))" -p DEFAULT_SETSIZE 2
+%   probcli docs/menu_presence_inv1_buggy.tex -model_check -nodead \
+%     -goal "dirty = fclear & (not((earns \ lapsed) <: shown) or not(shown <: earns))" \
+%     -p DEFAULT_SETSIZE 2
+% Trace (P2): AppletAttach(c); RegisterCallback(c).
+% Trace (P1): AppletAttach(c); RegisterCallback(c); Push; DropGraceful(c, {})
+%             -- c is shown, no longer registered, and nothing marked it away.
+%
+% The remaining operations are those of menu_presence.tex, whose prose
+% describes them.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Menu Presence, INV-1 control: registering a callback under the registry lock only}
+\maketitle
+
+\begin{zed}
+  [CONN]
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{schema}{MenuPres}
+  registered : \power CONN \\
+  agents : \power CONN \\
+  cbs : \power CONN \\
+  earns : \power CONN \\
+  lapsed : \power CONN \\
+  open : \power CONN \\
+  sinks : CONN \fun 0 \upto 2 \\
+  dirty : FSTATE \\
+  shown : \power CONN \\
+  sdirty : \power CONN \\
+  stale : \power CONN
+\where
+  agents \subseteq registered \\
+  cbs \subseteq registered \\
+  earns = agents \cup cbs \\
+  lapsed \subseteq registered \\
+  sdirty \subseteq registered \\
+  stale \subseteq registered
+\end{schema}
+
+\begin{schema}{Init}
+  MenuPres'
+\where
+  registered' = \emptyset \\
+  agents' = \emptyset \\
+  cbs' = \emptyset \\
+  lapsed' = \emptyset \\
+  open' = \emptyset \\
+  sinks' = CONN \cross \{ 0 \} \\
+  dirty' = fclear \\
+  shown' = \emptyset \\
+  sdirty' = \emptyset \\
+  stale' = \emptyset
+\end{schema}
+
+\begin{schema}{AgentRecord}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \cup \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  sinks' = sinks \oplus \{ c? \mapsto 1 \} \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{zed}
+  Identify \defs AgentRecord \land [\Delta MenuPres | open' = open]
+\end{zed}
+
+\begin{zed}
+  Attach \defs AgentRecord \land [\Delta MenuPres; c? : CONN | open' = open \cup \{ c? \}]
+\end{zed}
+
+\begin{zed}
+  ReadLoopRecord \defs AgentRecord \land
+    [\Delta MenuPres; c? : CONN | open' = open \land c? \in open]
+\end{zed}
+
+\begin{schema}{Connect}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Renew}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  (c? \in earns \land sinks' = sinks \oplus \{ c? \mapsto 1 \}) \lor
+    (c? \notin earns \land sinks' = sinks) \\
+  (c? \in earns \land c? \in lapsed \land dirty' = fset) \lor
+    (\lnot (c? \in earns \land c? \in lapsed) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{LeaseLapse}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \notin lapsed \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \cup \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{AppletAttach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \notin agents \\
+  registered' = registered \cup \{ c? \} \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \cup \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \land dirty' = fset) \lor (c? \notin cbs \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{RegisterCallback}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \cup \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  (c? \in earns \land c? \notin lapsed \land dirty' = dirty) \lor
+    ((c? \notin earns \lor c? \in lapsed) \land dirty' = fset) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Detach}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in open \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \\
+  open' = open \setminus \{ c? \} \\
+  sinks' = sinks \\
+  (c? \in cbs \setminus agents \land dirty' = fset) \lor
+    (c? \notin cbs \setminus agents \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Redeclare}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in agents \\
+  registered' = registered \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \\
+  ((c? \in lapsed \lor c? \notin cbs) \land dirty' = fset) \lor
+    (\lnot (c? \in lapsed \lor c? \notin cbs) \land dirty' = dirty) \\
+  shown' = shown \\
+  (c? \in lapsed \land sdirty' = sdirty \cup \{ c? \}) \lor
+    (c? \notin lapsed \land sdirty' = sdirty) \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{Departure}
+  \Delta MenuPres \\
+  c? : CONN \\
+  r? : \power CONN
+\where
+  c? \in registered \\
+  r? \subseteq registered \setminus \{ c? \} \\
+  registered' = registered \setminus \{ c? \} \\
+  agents' = agents \setminus \{ c? \} \\
+  cbs' = cbs \setminus \{ c? \} \\
+  lapsed' = lapsed \setminus \{ c? \} \\
+  open' = open \\
+  sinks' = sinks \oplus \{ c? \mapsto 0 \} \\
+  (sinks~c? \geq 1 \land dirty' = fset) \lor
+    (sinks~c? < 1 \land dirty' = dirty) \\
+  shown' = shown \\
+  sdirty' = (sdirty \setminus \{ c? \}) \cup r? \\
+  stale' = (stale \setminus \{ c? \}) \cup r?
+\end{schema}
+
+\begin{zed}
+  DropGraceful \defs Departure
+\end{zed}
+
+\begin{zed}
+  Sweep \defs Departure \land [MenuPres; c? : CONN | c? \in lapsed]
+\end{zed}
+
+\begin{schema}{Push}
+  \Delta MenuPres
+\where
+  dirty = fset \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = fclear \\
+  shown' = earns \setminus lapsed \\
+  sdirty' = sdirty \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{ScenesTouched}
+  \Delta MenuPres \\
+  c? : CONN
+\where
+  c? \in registered \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = sdirty \cup \{ c? \} \\
+  stale' = stale
+\end{schema}
+
+\begin{schema}{PushScenes}
+  \Delta MenuPres
+\where
+  sdirty \neq \emptyset \\
+  registered' = registered \\
+  agents' = agents \\
+  cbs' = cbs \\
+  lapsed' = lapsed \\
+  open' = open \\
+  sinks' = sinks \\
+  dirty' = dirty \\
+  shown' = shown \\
+  sdirty' = \emptyset \\
+  stale' = (stale \setminus (sdirty \setminus lapsed)) \cup (sdirty \cap lapsed)
+\end{schema}
+
+\end{document}

@@ -1,12 +1,13 @@
-"""CallbackOperations — register menu callbacks and read the callback menu.
+"""CallbackOperations — register menu callbacks.
 
-A menu item is a session's callback. This concern owns two Hub-side moves of the
-callback model: a push-reachable, identified session *registers* a callback (a
-menu write the replicator pushes), and the *menu build* reads the live sessions
-into the uniform ``Clients`` tree. Routing a click to the owning session's live
-listener is the ``CallbackRouter``'s own move, driven from the interaction
-dispatch, not from this facade; this concern only *peeks* at what a router has
-buffered, through :meth:`pending_callbacks`.
+A menu item is a session's callback. This concern owns the Hub-side move of the
+callback model that is a write: a push-reachable, identified session *registers*
+a callback (a menu write the replicator pushes). The *menu build*, which reads the
+live sessions into the uniform ``Clients`` tree, is the read of
+:class:`~punt_lux.domain.hub.callback_menu.CallbackMenuReplica`. Routing a click
+to the owning session's live listener is the ``CallbackRouter``'s own move,
+driven from the interaction dispatch, not from this facade; this concern only
+*peeks* at what a router has buffered, through :meth:`pending_callbacks`.
 
 Registration has two preconditions and refuses rather than half-granting either.
 The connection must hold a listen leg, because a menu item that cannot be
@@ -20,23 +21,21 @@ under.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.menu_models import Menu
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
-    from punt_lux.operations.scope import Scope
 
-__all__ = ["CallbackMenuSource", "CallbackOperations"]
+__all__ = ["CallbackOperations"]
 
 # What a caller that cannot be pushed to is told, naming both the requirement and
 # the way to meet it. A session reaching the Hub over MCP or a one-shot REST call
@@ -51,32 +50,23 @@ _PUSH_REQUIRED = OpError(
 )
 
 
-@runtime_checkable
-class CallbackMenuSource(Protocol):
-    """The read the menu surface composes into its bar — the Clients menu."""
-
-    def callback_menus(self) -> list[Menu]:
-        """Return the uniform ``Clients`` menu built from the live sessions."""
-        ...
-
-
 @final
 class CallbackOperations:
-    """Register callbacks, route their clicks, and read the callback menu."""
+    """Register callbacks, route their clicks, and re-push the menu."""
 
-    _clients: HubClientRegistry
+    _lifecycle: ClientLifecycle
     _router: CallbackRouter
     _replicator: DirtyMarker
-    __slots__ = ("_clients", "_replicator", "_router")
+    __slots__ = ("_lifecycle", "_replicator", "_router")
 
     def __new__(
         cls,
-        clients: HubClientRegistry,
+        lifecycle: ClientLifecycle,
         router: CallbackRouter,
         replicator: DirtyMarker,
     ) -> Self:
         self = super().__new__(cls)
-        self._clients = clients
+        self._lifecycle = lifecycle
         self._router = router
         self._replicator = replicator
         return self
@@ -84,7 +74,7 @@ class CallbackOperations:
     def register_callback(
         self, request: RegisterCallbackRequest | OpError, *, scope: Scope
     ) -> Ok | OpError:
-        """Register the caller's callback and push the menu, or return why not.
+        """Register the caller's callback and mark the menu, or return why not.
 
         Two preconditions, in the order that tells the caller the most. First the
         connection must be push-reachable — a menu item must launch in the time a
@@ -92,40 +82,30 @@ class CallbackOperations:
         because no identity fixes a caller that could never be told its item was
         clicked. Then the session must have identified, refused with the same
         challenge a scene write returns, so nothing anonymous owns a menu item.
-        A registration that took changes the menu, so the replicator re-pushes it.
-
-        The leg read here is carried into the write, which commits only if that
-        same leg still holds the connection. Reading and writing are separate
-        moments — this runs on an MCP or REST thread, and the leg lives on the
-        loop — so between them it may tear down or be replaced by a reconnect.
-        Committing anyway would leave a menu item with no listener to withdraw it.
+        A registration that took changes the menu; the lifecycle step marks it in
+        the same hold. That step also reads the leg and writes the callback under
+        one store hold, since this runs on an MCP or REST thread and the leg lives
+        on the loop: a teardown or reconnect must not land between the two. It binds
+        the shared sink too, so nothing here compares or remembers.
         """
         if isinstance(request, OpError):
             return request
-        self._clients.renew_if_registered(scope.connection_id)
-        expected = self._clients.listener_of(scope.connection_id)
-        if expected is None:
-            return _PUSH_REQUIRED
         return self._registered(
-            self._clients.register_callback(
-                scope.connection_id, request.callback, expected
+            self._lifecycle.register_callback(
+                scope.connection_id, request.callback, scope.client_host
             )
         )
 
-    def _registered(self, outcome: CallbackRegistration) -> Ok | OpError:
-        """Turn a registration outcome into its result, pushing the menu if it took."""
+    @staticmethod
+    def _registered(outcome: CallbackRegistration) -> Ok | OpError:
+        """Turn a registration outcome into its result; the lifecycle marked it."""
         if outcome == "superseded":
             return _PUSH_REQUIRED
         if outcome == "declined":
             return OpError.identification_required(
                 "declare an identity to own the menu callbacks this session registers"
             )
-        self._replicator.mark_menus()
         return Ok()
-
-    def callback_menus(self) -> list[Menu]:
-        """Build the uniform ``Clients`` menu from one read of the named clients."""
-        return CallbackMenu.from_named(self._clients.named_sessions())
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them.

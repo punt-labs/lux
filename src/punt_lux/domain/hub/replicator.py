@@ -30,13 +30,13 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub.backoff_config import BackoffConfig
+from punt_lux.domain.hub.batch_sender import BatchSender, BatchSendError
 from punt_lux.domain.hub.crash_attribution import CrashAttribution
 from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.domain.hub.recovery import SendRecovery
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
+from punt_lux.domain.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.crash_attribution import QuarantinePort
@@ -67,10 +67,6 @@ _MAX_BACKOFF_SECONDS = 2.0
 # last indefinitely, so this paces slower than the wedged backoff above.
 _DISCONNECTED_BASE_DELAY_SECONDS = 2.0
 _DISCONNECTED_MAX_DELAY_SECONDS = 120.0
-# The isolation-mode roundtrip budget: after each singleton send, wait this
-# long for the display to ack a ping — long enough under load, short enough
-# that a wedged display trips recovery quickly and blames the real crasher.
-_PROBE_TIMEOUT_SECONDS = 1.0
 # The idle-tick period between wakeups with no write, so stability checks
 # still fire in a quiet system that would otherwise never wake the worker.
 _STABILITY_TICK_SECONDS = 1.0
@@ -100,29 +96,21 @@ class HubReplicator:
     send. ``mark_dirty``/``mark_menus`` are what surface tools call; this
     worker thread owns every send."""
 
-    _reader: SceneReader
-    _menu_reader: MenuReader
-    _callback_reader: CallbackMenuReader
     _clients: ClientProvider
     _signal: DirtySignal
     _recovery: SendRecovery
     _attribution: CrashAttribution
+    _sender: BatchSender
     _thread: threading.Thread | None
     _backoff: float
-    _current_suspect: frozenset[SceneId]
     _disconnected_retry: DisconnectedRetry
-    _owner_facts: FrameOwnerFactsReader
     __slots__ = (
         "_attribution",
         "_backoff",
-        "_callback_reader",
         "_clients",
-        "_current_suspect",
         "_disconnected_retry",
-        "_menu_reader",
-        "_owner_facts",
-        "_reader",
         "_recovery",
+        "_sender",
         "_signal",
         "_thread",
     )
@@ -138,29 +126,29 @@ class HubReplicator:
         owner_facts: FrameOwnerFactsReader,
     ) -> Self:
         self = super().__new__(cls)
-        self._reader = reader
-        self._menu_reader = menu_reader
-        self._callback_reader = callback_reader
         self._clients = clients
-        self._owner_facts = owner_facts
         self._signal = DirtySignal()
         self._attribution = CrashAttribution(quarantine)
+        self._sender = BatchSender(
+            reader,
+            menu_reader,
+            callback_reader,
+            clients,
+            clients.take_writer(),  # the one writer: nothing else is given the seat
+            self._attribution,
+            owner_facts,
+        )
         # Wire the tally reset to the quarantine-clear cascade so a fixed
         # scene needs the full ATTRIBUTION_THRESHOLD again, not one fresh
         # death against a lingering in-window tally.
         quarantine.add_quarantine_cleared_observer(self._attribution.clear_tally)
-        self._recovery = SendRecovery(
-            clients, lifecycle, self._signal, self._attribution, RespawnBackoff()
-        )
+        self._recovery = SendRecovery.pacing_respawns(clients, lifecycle, self._signal)
         self._thread = None
         self._backoff = _BASE_BACKOFF_SECONDS
-        self._current_suspect = frozenset()
         # A second, independently-tuned pacer for the never-connected case.
-        self._disconnected_retry = DisconnectedRetry(
-            BackoffConfig(
-                base_delay=_DISCONNECTED_BASE_DELAY_SECONDS,
-                max_delay=_DISCONNECTED_MAX_DELAY_SECONDS,
-            )
+        self._disconnected_retry = DisconnectedRetry.paced(
+            base_delay=_DISCONNECTED_BASE_DELAY_SECONDS,
+            max_delay=_DISCONNECTED_MAX_DELAY_SECONDS,
         )
         return self
 
@@ -208,7 +196,7 @@ class HubReplicator:
         behind it, and is a no-op (nothing to join) before any ``start``.
         """
         self._signal.request_stop()
-        self._clients.request_stop()
+        self._clients.reconnects.request_stop()
         thread = self._thread
         if thread is not None:
             thread.join(timeout=_STOP_JOIN_TIMEOUT)
@@ -238,9 +226,21 @@ class HubReplicator:
                 return
 
     def _tick_stability(self) -> None:
-        """Run the two death-free-interval checks that decay per-episode state."""
-        self._attribution.exit_isolation_if_stable()
-        self._recovery.reset_backoff_if_stable()
+        """Charge any death found while idle, then decay per-episode state.
+
+        A display that died while nothing was queued leaves its record on the dial;
+        charging it here, every tick, means no redial can hide it. The tick reaches
+        the registry and the store, so it can raise: that is logged and the worker,
+        the only replicator there is, lives on.
+        """
+        try:
+            self._sender.charge_deaths()
+            self._attribution.exit_isolation_if_stable()
+            self._recovery.reset_backoff_if_stable()
+        except ProgrammerError:
+            raise
+        except Exception:
+            logger.exception("replicator idle tick failed; continuing")
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
         """Push the batch; reclaim only on a genuinely clean cycle, else back off.
@@ -254,6 +254,8 @@ class HubReplicator:
         """
         try:
             result = self._push_cycle(batch)
+        except ProgrammerError:
+            raise
         except Exception:
             if batch.shutting:
                 logger.exception("replicator shutdown flush failed; dropping the batch")
@@ -269,7 +271,7 @@ class HubReplicator:
             return
         self._backoff = _BASE_BACKOFF_SECONDS
         self._disconnected_retry.reset()
-        self._reclaim_emptied(result.emptied)
+        self._sender.reclaim_emptied(result.emptied)
 
     def _recover_from_exception(self, batch: DrainedBatch) -> None:
         """Restore the batch and back off after a non-socket cycle failure."""
@@ -283,35 +285,43 @@ class HubReplicator:
         it paces the disconnected backoff, not the wedged one -- every OTHER
         ``RuntimeError`` (a mid-send teardown, a listener-thread guard) is NOT
         this condition and propagates to the caller's outer guard instead.
-        ``BlockingIOError`` (send timeout) is a wedged display, reaped and
-        respawned; ``OSError`` (dead peer) only reconnects -- either way the
-        death is attributed to ``_current_suspect``, set by ``_attempt``
-        immediately before each send that can raise."""
-        since_gen = self._clients.reconnect_generation  # BEFORE the attempt: race-safe
+        ``OSError`` is healed by ``SendRecovery`` (a wedged display reaped, a
+        dead peer reconnected, a Hub-retired dial redialed without blame); a
+        death is charged from its own dial's ledger, however it was found."""
+        # Snapshotted BEFORE the attempt: race-safe.
+        since_gen = self._clients.reconnects.reconnect_generation
         try:
-            emptied = self._attempt(batch)
+            emptied = self._sender.push(batch)
         except DisplayNotConnectedError:
             self._recovery.restore(batch)
             if not batch.shutting:
-                self._disconnected_retry.wait(self._clients, since_gen=since_gen)
+                self._disconnected_retry.wait(
+                    self._clients.reconnects, since_gen=since_gen
+                )
             return _CycleOutcome(outcome="disconnected")
-        except BlockingIOError as exc:
-            self._recovery.recover(
-                batch,
-                wedged=True,
-                suspect=self._current_suspect,
-                render_error=str(exc),
-            )
-            return _CycleOutcome(outcome="recovered")
-        except OSError as exc:
-            self._recovery.recover(
-                batch,
-                wedged=False,
-                suspect=self._current_suspect,
-                render_error=str(exc),
-            )
-            return _CycleOutcome(outcome="recovered")
+        except BatchSendError as exc:
+            return self._recovered(batch, exc, since_gen)
         return _CycleOutcome(outcome="clean", emptied=emptied)
+
+    def _recovered(
+        self, batch: DrainedBatch, failure: BatchSendError, since_gen: int
+    ) -> _CycleOutcome:
+        """Heal after a failed send; a display that is down is the disconnected path.
+
+        The heal may find nobody to redial: the display died and stayed down. That
+        is paced as the display being down and the batch held for its return, not
+        logged as a replicator cycle that crashed.
+        """
+        try:
+            self._recovery.recover(batch, failure)
+        except DisplayNotConnectedError:
+            self._recovery.restore(batch)
+            if not batch.shutting:
+                self._disconnected_retry.wait(
+                    self._clients.reconnects, since_gen=since_gen
+                )
+            return _CycleOutcome(outcome="disconnected")
+        return _CycleOutcome(outcome="recovered")
 
     def _back_off(self) -> None:
         """Sleep the current retry delay, then grow it toward the cap."""
@@ -322,84 +332,3 @@ class HubReplicator:
     def disconnected_delay(self) -> float:
         """Return the current not-connected retry delay, in seconds (design §9)."""
         return self._disconnected_retry.current_delay
-
-    def _attempt(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
-        """Send the cycle and return the scenes it found empty, for later reclaim.
-
-        Quarantined scenes are filtered before either send path runs (Invariant
-        1: a quarantined scene is never replicated), enforced here regardless
-        of what queued it. A menu send is attributed to the *empty* suspect
-        set: a menu-caused crash is not a scene-caused one, so blaming the
-        whole batch would reintroduce isolation's false-positive class — the
-        empty suspect still trips isolation, so later scene sends are singles.
-        """
-        scenes = frozenset(
-            s for s in batch.scenes if not self._attribution.is_quarantined(s)
-        )
-        if batch.menus_dirty:
-            self._current_suspect = frozenset()
-            # Read the agent bar and the live sessions fresh, so the newest menu
-            # state wins even if a change landed after this batch was drained.
-            bar = self._menu_reader.wire_snapshot()
-            callback_menus = self._callback_reader.callback_menu_wire()
-            sender = self._clients.get()
-            sender.set_menu([dict(menu) for menu in bar])
-            sender.set_callback_menus(callback_menus)
-        if self._attribution.mode == "isolating":
-            return self._attempt_isolating(scenes)
-        return self._attempt_batching(scenes)
-
-    def _attempt_batching(self, scenes: frozenset[SceneId]) -> tuple[SceneId, ...]:
-        """Send every scene as one coalesced batch — the suspect set on a death.
-
-        A send failure anywhere aborts the whole method, so ``_current_suspect``
-        is set once, to the whole batch: a socket-level failure can't tell which
-        of several already-accepted sends actually crashed the Display.
-        """
-        self._current_suspect = scenes
-        # Each ``_send_scene`` sends and reports whether the scene was empty; the
-        # comprehension keeps the empties as reclaim candidates.
-        return tuple(scene for scene in scenes if self._send_scene(scene))
-
-    def _attempt_isolating(self, scenes: frozenset[SceneId]) -> tuple[SceneId, ...]:
-        """Send every scene alone, with a liveness probe between sends.
-
-        ``_current_suspect`` narrows to the singleton before each send, and a
-        synchronous ``probe_alive`` runs *after* each send, *before* the next —
-        without it, scene N's crash surfaces only as a broken pipe on the
-        *next* write, attributing to innocent N+1. The probe forces the crash
-        to surface while the suspect is still {N}. A failed probe raises
-        OSError, caught by ``_push_cycle`` and handed to recovery.
-        """
-        emptied: list[SceneId] = []
-        for scene_id in scenes:
-            self._current_suspect = frozenset({scene_id})
-            if self._send_scene(scene_id):
-                emptied.append(scene_id)
-            if not self._clients.get().probe_alive(_PROBE_TIMEOUT_SECONDS):
-                msg = f"display did not ack probe after sending {scene_id!r}"
-                raise OSError(msg)
-        return tuple(emptied)
-
-    def _send_scene(self, scene_id: SceneId) -> bool:
-        """Send a copy of the scene; return whether it was empty (a reclaim candidate).
-
-        The store returns a snapshot whose roots are already copied out, so the
-        send runs with no store lock held. An empty scene blanks its own frame;
-        owner facts resolve fresh here (like the menu bar) and ``None`` leaves
-        the display's cached snapshot alone rather than blanking it.
-        """
-        snapshot = self._reader.snapshot(scene_id)
-        snapshot.push(self._clients.get(), self._owner_facts)
-        return snapshot.is_empty
-
-    def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:
-        """Forget each blanked scene's frame, re-checked rootless under the lock.
-
-        Deferred to a clean cycle so a failed send never reclaims a scene the
-        recovery must retry. The rootless re-check keeps a re-show that landed
-        during the send window: it installed roots and a new frame, so the
-        scene is no longer rootless and that new frame is kept.
-        """
-        for scene_id in scenes:
-            self._reader.reclaim_if_rootless(scene_id)

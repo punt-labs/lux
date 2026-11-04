@@ -1,9 +1,7 @@
 """HubReads — the authoritative introspection reads over the Hub store.
 
 The read half of ``HubDisplay``: a scene's roots, element count, and distinct root
-owners (each taking the store's read lock, so that discipline stays here), plus the
-live client sessions and the repositories they declared. The client registry keeps
-its own consistency, so the two client reads take no store lock.
+owners, each taking the store's read lock so that discipline stays here.
 """
 
 from __future__ import annotations
@@ -11,16 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.element_index import ElementIndex
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.owner import Owner
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import ConnectionId, SceneId
+    from punt_lux.domain.ids import SceneId
 
 __all__ = ["HubReads"]
 
@@ -31,21 +25,18 @@ class HubReads:
 
     _index: ElementIndex
     _owners: OwnerTracker
-    _clients: HubClientRegistry
     _lock: StoreLock
-    __slots__ = ("_clients", "_index", "_lock", "_owners")
+    __slots__ = ("_index", "_lock", "_owners")
 
     def __new__(
         cls,
         index: ElementIndex,
         owners: OwnerTracker,
-        clients: HubClientRegistry,
         lock: StoreLock,
     ) -> Self:
         self = super().__new__(cls)
         self._index = index
         self._owners = owners
-        self._clients = clients
         self._lock = lock
         return self
 
@@ -67,7 +58,3 @@ class HubReads:
             roots = self._index.scene_root_items(scene_id)
             owned = (self._owners.get(scene_id, key) for key, _ in roots)
             return tuple(dict.fromkeys(filter(None, owned)))
-
-    def client_sessions(self) -> Mapping[ConnectionId, ClientSession]:
-        """Return each live Hub session -- a pure filter, sweeping nobody."""
-        return self._clients.live_sessions()

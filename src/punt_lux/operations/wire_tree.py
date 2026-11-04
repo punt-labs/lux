@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.operations.models.common import OpError
 
 if TYPE_CHECKING:
@@ -45,14 +46,17 @@ class WireTreeDecoder:
 
         A ``ValueError`` or ``TypeError`` out of a codec is the element saying it
         was given something it cannot be — the caller's input, so it comes back as
-        a rejection. Nothing else is caught: only the decode runs inside the try,
-        so a fault raised anywhere else stays the engine bug it is.
+        a rejection, and so does a tree nested past what a decoder can walk.
+        Nothing else is caught: only the decode runs inside the try, so a fault
+        raised anywhere else stays the engine bug it is.
         """
         factory = self._element_factory(owner)
         try:
             decoded = [factory.element_from_dict(element) for element in wire]
         except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
+        except RecursionError:  # a tree too deep to decode is past the nesting cap
+            return OpError(code="rejected", reason=NestingCap.reason())
         # The wire Element is structurally the domain Element; the cast bridges
         # list invariance across that crossing (PY-TS-12).
         return cast("Sequence[DomainElement]", decoded)

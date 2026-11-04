@@ -15,10 +15,15 @@ from typing import TYPE_CHECKING, Any, Self, cast
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+from punt_lux.protocol.standalone_modal_handler import (
+    build_standalone_modal_handler_decoder,
+)
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.domain.element_abc import Element
+    from punt_lux.domain.handlers.publish_sink import PublishSink
     from punt_lux.protocol.elements.modal import ModalElement
     from punt_lux.protocol.handler_decoder import HandlerDecoder
 
@@ -81,6 +86,22 @@ class JsonModalDecoder:
         self._cls = element_cls
         self._handler_decoder = handler_decoder
         return self
+
+    @classmethod
+    def standalone(cls, element_cls: type[ModalElement]) -> Self:
+        """Return the decoder of a modal read with no tier around it.
+
+        Children recurse through the shared container dispatcher, which rejects an
+        unknown child kind. A wire ``publish`` handler resolves against a
+        ``RaisingPublishSink``, so a stray publish on this no-tier path fails loud.
+        """
+        return cls(
+            decode_element=dispatch.from_dict,
+            element_cls=element_cls,
+            handler_decoder=build_standalone_modal_handler_decoder(
+                cast("PublishSink", RaisingPublishSink("ModalElement.from_dict")),
+            ),
+        )
 
     @trace
     def decode(self, raw: Mapping[str, object]) -> ModalElement:

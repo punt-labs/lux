@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.facade import Operations
 from punt_lux.operations.models import (
     Cleared,
@@ -35,7 +36,6 @@ from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.models.theme import ThemeName, ThemeState
 from punt_lux.operations.models.window import WindowSettings
 from punt_lux.operations.ports import HubPorts
-from punt_lux.operations.scope import Scope
 
 __all__ = [
     "Cleared",

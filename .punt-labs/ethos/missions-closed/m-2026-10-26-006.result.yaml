@@ -1,0 +1,54 @@
+mission: m-2026-10-26-006
+round: 2
+created_at: "2026-10-26T11:42:15Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 277
+      removed: 68
+    - path: docs/dial_settlement_coverage.md
+      added: 49
+      removed: 32
+    - path: docs/dial_settlement_drain_gives_up_buggy.tex
+      added: 276
+      removed: 44
+    - path: docs/dial_settlement_writer_records_display_buggy.tex
+      added: 278
+      removed: 46
+evidence:
+    - name: 'fuzz on each of the six .tex files separately: clean'
+      status: pass
+    - name: 'design deadlock check (default mode): 2068662 states, 11468719 transitions, deadlocked:0, 50/50 operations covered, peak 5.8 GB'
+      status: pass
+    - name: 'design safety goal (s2bad/s3bad/s4bad/s5bad/S6), default mode: not found over 2068661 states'
+      status: pass
+    - name: 'design S1a and S1b (wstuck counted stuck) goals, default mode: not found over 2068661 states'
+      status: pass
+    - name: 'design reachability, -bf: s2lat found (WLock,DStartUnresp,RecEnd,SUGrant,SDrainLate,LateCapture; 5115 states); a1late found (WLock,IAcq,IBad,WSendDone,WOweLate; 1868 states)'
+      status: pass
+    - name: 'writer_owe_refused: S6 found depth 5 (1773 states); s5bad not found, exhaustive default mode (2619753 states)'
+      status: pass
+    - name: 'writer_records_display: s5bad found depth 6 (4332 states)'
+      status: pass
+    - name: 'drain_gives_up: s2bad found depth 6 (5146 states)'
+      status: pass
+    - name: 'drain_no_late: S1b goal with a settler behind a held lock counted stuck found depth 5 (2215 states); plain deadlock check passes (idle-actor over-report)'
+      status: pass
+    - name: 'markdownlint-cli2 on docs/dial_settlement_coverage.md: 0 issues'
+      status: pass
+open_questions:
+    - Two new control files, docs/dial_settlement_writer_owe_refused_buggy.tex and docs/dial_settlement_drain_no_late_buggy.tex, were leader-authorized outside the write set and are in the same commit 70f9f81c (amended from bc2db242, unpushed).
+    - 'Design goal runs used the default search mode: the breadth-first queue of the 2068662-state space exceeded the 8 GB cap (one -bf safety run was killed at 1.14M states).'
+    - Prose-only edits were made after the long design runs; fuzz is clean; the long runs were not repeated, per the leader.
+    - P21 and P20 tests on fix/lux-ghhf-r3-fixes do not assert the re-mark for the next dial or the shutdown-wakes-writer obligation; P22 (lock-free look at an unreadable socket) has no test. All marked in the coverage doc.
+prose: |
+    Round 2 models the code as built at 44871d68: the drain waits for the socket lock to
+    SEND_TIMEOUT_CEILING_SECONDS (2 s), returns Drained(complete=False), and the Settler hands the
+    capture to the bound (ReaderSlot._late), which needs no refused asker. The code is sound in the
+    model: no counterexample. Bound: ceiling plus bound, 4 s. F2: a1late is an under-charge, an
+    exception to A1, one scene per dial; checked against SendRecovery.recover/_repaint, which
+    re-mark the batch for every failure but a shutdown flush. F3: rule 7b is policy; writer_owe_refused
+    is the one-point control for fix (a)/S6. F4: SDrain guard is lk = fclear or an unreadable socket.
+    F5: S2w structural. F6: sentence added.

@@ -15,6 +15,7 @@ import pytest
 from punt_lux.display.menus import MenuItem, MenuModel, Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.windows_menu import WindowsMenu
+from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.domain.identity import HubId
@@ -287,6 +288,7 @@ class TestWindowsMenuReopenIdentity:
     def _windows(self, frames: dict[str, Frame]) -> WindowsMenu:
         return WindowsMenu(
             get_frames=lambda: frames,
+            addressing=AddressRendering(),
             on_clear_all=ignore,
             on_fit_all=ignore,
             on_raise_frame=ignore,
@@ -307,6 +309,23 @@ class TestWindowsMenuReopenIdentity:
         ]
         assert len(reopen) == 2
         assert len(set(reopen)) == 2
+
+    def test_the_reopen_entry_reads_the_title_the_seam_gives(self) -> None:
+        frame = make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A)
+        frame.heading.relabel("lux (2)")
+        windows = WindowsMenu(
+            get_frames=lambda: {"f1": frame},
+            addressing=AddressRendering(),
+            on_clear_all=ignore,
+            on_fit_all=ignore,
+            on_raise_frame=ignore,
+            chrome=FakeChrome(),
+        )
+        imgui = FakeImGui()
+
+        windows.section().render(imgui)
+
+        assert imgui.line("lux (2) :: Vox").label == "lux (2) :: Vox"
 
     def test_the_reopen_entry_reads_the_frame_title(self) -> None:
         frame = make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A)

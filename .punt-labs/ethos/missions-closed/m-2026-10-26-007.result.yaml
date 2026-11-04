@@ -1,0 +1,272 @@
+mission: m-2026-10-26-007
+round: 1
+created_at: "2026-10-26T13:25:02Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 12
+      removed: 0
+    - path: .oo-baseline.json
+      added: 159
+      removed: 81
+    - path: .oo-coupling-audit.jsonl
+      added: 6
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 91
+      removed: 49
+    - path: docs/crash_attribution.tex
+      added: 11
+      removed: 3
+    - path: docs/crash_attribution_coverage.md
+      added: 28
+      removed: 15
+    - path: src/punt_lux/apps/bd_child.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/display/frame_turn.py
+      added: 20
+      removed: 3
+    - path: src/punt_lux/display/render_loop.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/display/window_settings.py
+      added: 1
+      removed: 0
+    - path: src/punt_lux/domain/element_abc.py
+      added: 10
+      removed: 1
+    - path: src/punt_lux/domain/handler_writes.py
+      added: 47
+      removed: 18
+    - path: src/punt_lux/domain/hub/batch_judge.py
+      added: 46
+      removed: 0
+    - path: src/punt_lux/domain/hub/bounded_ask.py
+      added: 64
+      removed: 0
+    - path: src/punt_lux/domain/hub/crash_attribution.py
+      added: 20
+      removed: 60
+    - path: src/punt_lux/domain/hub/dial_drain.py
+      added: 66
+      removed: 33
+    - path: src/punt_lux/domain/hub/dial_end.py
+      added: 74
+      removed: 0
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 63
+      removed: 28
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 46
+      removed: 49
+    - path: src/punt_lux/domain/hub/dial_socket.py
+      added: 47
+      removed: 12
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 96
+      removed: 107
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 6
+      removed: 3
+    - path: src/punt_lux/domain/hub/display_listener.py
+      added: 32
+      removed: 43
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 60
+      removed: 52
+    - path: src/punt_lux/domain/hub/element_index.py
+      added: 19
+      removed: 0
+    - path: src/punt_lux/domain/hub/element_invocation_resolver.py
+      added: 13
+      removed: 0
+    - path: src/punt_lux/domain/hub/field_realization.py
+      added: 8
+      removed: 0
+    - path: src/punt_lux/domain/hub/handler_firing.py
+      added: 0
+      removed: 57
+    - path: src/punt_lux/domain/hub/hub_interaction_dispatch.py
+      added: 2
+      removed: 4
+    - path: src/punt_lux/domain/hub/listener_thread.py
+      added: 37
+      removed: 26
+    - path: src/punt_lux/domain/hub/pending.py
+      added: 39
+      removed: 0
+    - path: src/punt_lux/domain/hub/reader_slot.py
+      added: 189
+      removed: 27
+    - path: src/punt_lux/domain/hub/reply_sink.py
+      added: 105
+      removed: 166
+    - path: src/punt_lux/domain/hub/reply_waiters.py
+      added: 168
+      removed: 0
+    - path: src/punt_lux/domain/hub/request_exchange.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/scene_writer.py
+      added: 1
+      removed: 17
+    - path: src/punt_lux/domain/hub/settler.py
+      added: 95
+      removed: 0
+    - path: src/punt_lux/domain/hub/suspect_book.py
+      added: 12
+      removed: 4
+    - path: src/punt_lux/domain/hub/write_seam.py
+      added: 61
+      removed: 12
+    - path: src/punt_lux/protocol/elements/tree.py
+      added: 33
+      removed: 37
+    - path: src/punt_lux/protocol/elements/tree_model.py
+      added: 65
+      removed: 0
+    - path: src/punt_lux/send_timeout.py
+      added: 17
+      removed: 5
+    - path: tests/conftest.py
+      added: 14
+      removed: 0
+    - path: tests/display/test_frame_turn.py
+      added: 18
+      removed: 2
+    - path: tests/domain/display_double.py
+      added: 7
+      removed: 1
+    - path: tests/domain/test_ack_attribution.py
+      added: 21
+      removed: 19
+    - path: tests/domain/test_await_acks.py
+      added: 10
+      removed: 4
+    - path: tests/domain/test_client_lifecycle_callbacks.py
+      added: 4
+      removed: 2
+    - path: tests/domain/test_crash_attribution.py
+      added: 56
+      removed: 26
+    - path: tests/domain/test_death_charger.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_dial_drain.py
+      added: 13
+      removed: 3
+    - path: tests/domain/test_dial_end.py
+      added: 112
+      removed: 0
+    - path: tests/domain/test_dial_model_lock_discipline.py
+      added: 30
+      removed: 4
+    - path: tests/domain/test_dial_settlement.py
+      added: 900
+      removed: 0
+    - path: tests/domain/test_dial_shut.py
+      added: 35
+      removed: 0
+    - path: tests/domain/test_dispatch_holds_the_store_lock.py
+      added: 75
+      removed: 0
+    - path: tests/domain/test_display_connection.py
+      added: 52
+      removed: 43
+    - path: tests/domain/test_element_writes_judged_in_their_own_scene.py
+      added: 283
+      removed: 0
+    - path: tests/domain/test_handler_writes_are_judged.py
+      added: 14
+      removed: 5
+    - path: tests/domain/test_handler_writes_cannot_deepen.py
+      added: 46
+      removed: 7
+    - path: tests/domain/test_hub_end_atomic.py
+      added: 26
+      removed: 58
+    - path: tests/domain/test_hub_replicator.py
+      added: 3
+      removed: 3
+    - path: tests/domain/test_leg_writes.py
+      added: 10
+      removed: 6
+    - path: tests/domain/test_link_generations.py
+      added: 17
+      removed: 10
+    - path: tests/domain/test_listener_hold.py
+      added: 101
+      removed: 0
+    - path: tests/domain/test_listener_thread.py
+      added: 20
+      removed: 13
+    - path: tests/domain/test_presence_writes_only_through_lifecycle.py
+      added: 6
+      removed: 4
+    - path: tests/domain/test_reply_sink.py
+      added: 37
+      removed: 14
+    - path: tests/domain/test_reply_waiters.py
+      added: 186
+      removed: 0
+    - path: tests/domain/test_retire_cause.py
+      added: 33
+      removed: 29
+    - path: tests/domain/test_scope_provenance.py
+      added: 9
+      removed: 3
+    - path: tests/domain/test_settlement_door.py
+      added: 275
+      removed: 0
+    - path: tests/domain/test_settler_redrain.py
+      added: 115
+      removed: 0
+    - path: tests/domain/test_single_writer.py
+      added: 3
+      removed: 0
+    - path: tests/domain/test_suspect_book.py
+      added: 37
+      removed: 15
+    - path: tests/domain/test_tls_generation.py
+      added: 82
+      removed: 7
+    - path: tests/domain/test_write_seam_nesting.py
+      added: 5
+      removed: 0
+    - path: tests/link_access.py
+      added: 65
+      removed: 7
+    - path: tests/test_bd_child.py
+      added: 9
+      removed: 2
+    - path: tests/test_observed_peer.py
+      added: 10
+      removed: 5
+    - path: tests/test_send_timeout.py
+      added: 15
+      removed: 4
+    - path: tests/test_tree_model.py
+      added: 59
+      removed: 0
+evidence:
+    - name: 'make check (.tmp/make-check-final.txt): exit 0, 7471 passed'
+      status: pass
+    - name: 'make test-integration (.tmp/integration-final.txt): exit 0, 92 passed'
+      status: pass
+    - name: 'make lint type test test-integration check-suppressions (.tmp/gates-G.txt): exit 0'
+      status: pass
+    - name: 'make update-oo and update-coupling: accepted after the leader blesses; ratchet commit 6635ce06'
+      status: pass
+    - name: 'mutation checks: each new rule and guard killed (A1 batch-judge identity, B1-B3, P17-P22, ReplyWaiters lock and fail_all)'
+      status: pass
+open_questions:
+    - 'The P21 decode-error variant settles from a second thread at the bound: the writer holds the socket lock, so a listener-driven decode error cannot end the dial inside owe_ack.'
+    - A Hub-requested retire of a wedged writer now takes ceiling + bound (about 5 s); the wedged-TLS test follows the constants.
+prose: |
+    Phase A (A1-A10), Phase B (B1-B3, P17-P22), the ReplySink/ReplyWaiters split,
+    the batch-judge fix (_setter_order hook), the TreeModel split (tree avg_lcom
+    0.674 to 0.298) and the send-timeout ceiling above the probe limit (3 s).
+    Ratchet files are in the last commit, with the leader's blesses.

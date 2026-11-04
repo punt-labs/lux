@@ -15,7 +15,8 @@ import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub.applet_name_format import session_pid_from_name
+from punt_lux.domain.hub.applet_name_format import format_name, session_pid_from_name
+from punt_lux.domain.hub.client_identity import ClientIdentity
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
 # repo, so the headless cases patch ``cwd`` rather than using a temp directory.
@@ -173,3 +174,19 @@ class TestSessionPidRoundTrip:
         identity = AppletIdentity.for_session("lux-beads", 0xDEADBEEF)
 
         assert session_pid_from_name(identity.client.name) == 0xDEADBEEF
+
+
+class TestTheProgramToken:
+    def test_an_applet_is_called_by_the_program_it_runs(self) -> None:
+        identity = ClientIdentity(
+            kind="applet",
+            name=format_name("ethos", 0x1F349F, "z-spec"),
+            repo="/w/ethos",
+        )
+
+        assert identity.program == "z-spec"
+
+    def test_any_other_client_is_called_what_it_calls_itself(self) -> None:
+        identity = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+
+        assert identity.program == "claude"

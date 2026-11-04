@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
+from typing import TYPE_CHECKING
 
+from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.domain.hub import field_realization
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
+from punt_lux.domain.nesting_cap import NestingCap
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import (
     Cleared,
@@ -23,12 +30,20 @@ from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
+from punt_lux.protocol.elements import GroupElement, TreeElement
+from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.protocol.messages.observer import ObserverMessage
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import pytest
+
+    from punt_lux.domain.element import Element as WireElement
+
 _CONNECTION = ConnectionId("local")
-_LOCAL = Scope(_CONNECTION)
+_LOCAL = Scope.in_process(_CONNECTION)
 
 
 def _scoped(local_id: str) -> SceneId:
@@ -70,14 +85,16 @@ def _seed_header(store: HubDisplay, *, is_open: bool = False) -> None:
     # Seeded at the composed key a real show() would produce, so update()/
     # clear()'s own composition (against _LOCAL's connection) finds it.
     store.replace_scene(
-        ConnectionId("local"),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s1"),
         [CollapsingHeaderElement(id="hdr", label="Details", open=is_open)],
     )
 
 
 def test_render_installs_scene_and_marks_dirty() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
     )
@@ -92,7 +109,9 @@ def test_render_without_a_frame_synthesizes_one_at_the_scene_id() -> None:
     # THE RULE at the operations path: a frameless request installs a scene whose
     # recorded presentation frames it by its own id — no scene reaches the store
     # unframed. All three surfaces (MCP show, REST PUT, CLI) inherit this here.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
     )
@@ -109,7 +128,9 @@ def test_synthesized_frame_is_a_lifecycle_citizen_the_sweep_retires_it() -> None
     # Asserted against the sweep because that is the only Hub-side teardown left
     # -- a user closing a frame on the Display no longer reaches the Hub (DES-088).
     now = [1000.0]
-    store, recorder = HubDisplay(clock=lambda: now[0]), _Recorder()
+    factory = HubStoreFactory(clock=lambda: now[0])
+    store = factory.display
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
     )
@@ -137,13 +158,14 @@ def test_a_frameless_request_arms_no_ttl_the_synthesized_frame_is_permanent() ->
 def test_render_passes_an_op_error_straight_through() -> None:
     recorder = _Recorder()
     error = OpError(code="invalid_request", reason="bad layout")
-    result = _ops(HubDisplay(), recorder).render(error, scope=_LOCAL)
+    result = _ops(HubStoreFactory().display, recorder).render(error, scope=_LOCAL)
     assert result is error
     assert recorder.dirtied == []
 
 
 def test_render_rejects_a_duplicate_id_and_installs_nothing() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {
             "scene_id": "s1",
@@ -153,7 +175,7 @@ def test_render_rejects_a_duplicate_id_and_installs_nothing() -> None:
             ],
         }
     )
-    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    result = _ops(factory.display, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     # The reason is bare — no "scene not rendered — " prefix; that is the adapter's.
@@ -162,11 +184,12 @@ def test_render_rejects_a_duplicate_id_and_installs_nothing() -> None:
 
 
 def test_render_rejects_an_undecodable_element_without_raising() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1"}]}
     )
-    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    result = _ops(factory.display, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert recorder.dirtied == []
@@ -176,7 +199,8 @@ def test_render_rejects_a_type_error_wire_shape_without_raising() -> None:
     # A wrong-typed wire shape raises TypeError (not ValueError) in the codec —
     # here a table's ``handlers`` that is not a list. The decode boundary must
     # catch it too, so show() returns a rejection, not a traceback/500.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {
             "scene_id": "s1",
@@ -191,7 +215,7 @@ def test_render_rejects_a_type_error_wire_shape_without_raising() -> None:
             ],
         }
     )
-    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    result = _ops(factory.display, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert "handlers" in result.reason
@@ -199,7 +223,9 @@ def test_render_rejects_a_type_error_wire_shape_without_raising() -> None:
 
 
 def test_render_with_a_blank_scene_id_is_rejected_before_composition() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "", "elements": [{"kind": "text", "id": "t1", "content": "hi"}]}
     )
@@ -211,7 +237,9 @@ def test_render_with_a_blank_scene_id_is_rejected_before_composition() -> None:
 
 
 def test_render_with_a_separator_in_the_scene_id_is_rejected() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {
             "scene_id": "foo\x1fbar",
@@ -229,18 +257,21 @@ def test_render_rejects_a_legacy_missing_id_without_raising() -> None:
     # A legacy dataclass decoder indexes required fields directly (d["id"]), so a
     # legacy-only wire (a paged group) missing id raises KeyError, not ValueError.
     # The decode boundary must catch it too, or malformed input becomes a 500.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    recorder = _Recorder()
     request = RenderRequest.parse(
         {"scene_id": "s1", "elements": [{"kind": "group", "layout": "paged"}]}
     )
-    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    result = _ops(factory.display, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
     assert recorder.dirtied == []
 
 
 def test_update_sets_a_field_and_marks_dirty() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store, is_open=False)
     request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
     result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
@@ -252,7 +283,9 @@ def test_update_sets_a_field_and_marks_dirty() -> None:
 
 
 def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store)
     request = UpdateRequest.parse([{"id": "ghost", "set": {"open": True}}])
     result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
@@ -275,11 +308,13 @@ def test_update_rejection_from_another_owners_element_names_the_raw_scene_id() -
     # against an element it does not own raises HubOwnershipError, whose
     # __str__ also names the composed store key via repr() — the same
     # translation as UnknownElementError must apply here too.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store, is_open=False)
     stranger = ConnectionId("stranger")
     store.apply(
-        stranger,
+        Scope.in_process(stranger),
         AddElement(
             scene_id=_scoped("s1"),
             element=CollapsingHeaderElement(id="theirs", label="Theirs", open=False),
@@ -296,7 +331,9 @@ def test_update_rejection_from_another_owners_element_names_the_raw_scene_id() -
 
 
 def test_update_with_a_blank_scene_id_is_rejected_before_composition() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store, is_open=False)
     request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
     result = _ops(store, recorder).update("", request, scope=_LOCAL)
@@ -309,7 +346,9 @@ def test_update_with_a_blank_scene_id_is_rejected_before_composition() -> None:
 
 
 def test_update_with_a_separator_in_the_scene_id_is_rejected() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store, is_open=False)
     request = UpdateRequest.parse([{"id": "hdr", "set": {"open": True}}])
     result = _ops(store, recorder).update("foo\x1fbar", request, scope=_LOCAL)
@@ -325,10 +364,12 @@ def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
     # No-arg clear empties all the caller's scenes and marks each one dirty so the
     # replicator blanks each into its own frame — never a whole-display blank, which
     # would empty the Display while the Hub still held other owners' scenes.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store)
     store.replace_scene(
-        ConnectionId("local"),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s2"),
         [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
     )
@@ -341,10 +382,12 @@ def test_clear_empties_every_owned_scene_and_marks_each_dirty() -> None:
 def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
     # clear(scene_id="s1") removes only that scene's roots and dirties only it; the
     # caller's other scene stays installed and is never marked for a blank.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store)
     store.replace_scene(
-        ConnectionId("local"),
+        Scope.in_process(ConnectionId("local")),
         _scoped("s2"),
         [CollapsingHeaderElement(id="hdr2", label="More", open=False)],
     )
@@ -358,7 +401,9 @@ def test_scene_scoped_clear_empties_only_the_named_scene() -> None:
 def test_scene_scoped_clear_of_an_unknown_scene_is_not_found() -> None:
     # A scene-scoped clear that removes nothing must not lie "cleared": an id no
     # scene holds is not_found — the same verdict inspect_scene returns for it.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="ghost")
     assert isinstance(result, OpError)
     assert result.code == "not_found"
@@ -370,12 +415,14 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
     # success, and the other owner's roots are left untouched. Composition
     # guarantees a caller's own "theirs" can never collide with another
     # connection's "theirs" — so this constructs, at the store level, the one
-    # scenario SceneClearer's ownership filter still has to answer: the exact
+    # scenario ClearScene's ownership filter still has to answer: the exact
     # composed key _LOCAL's own clear("theirs") would resolve to already
     # holds roots owned by a different connection.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     store.replace_scene(
-        ConnectionId("agent-b"),
+        Scope.in_process(ConnectionId("agent-b")),
         _scoped("theirs"),
         [CollapsingHeaderElement(id="x", label="X", open=False)],
     )
@@ -389,7 +436,9 @@ def test_scene_scoped_clear_of_an_unowned_scene_is_rejected() -> None:
 def test_scene_scoped_clear_with_a_blank_scene_id_is_rejected_before_composition() -> (
     None
 ):
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store)
     result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="")
     assert isinstance(result, OpError)
@@ -399,7 +448,9 @@ def test_scene_scoped_clear_with_a_blank_scene_id_is_rejected_before_composition
 
 
 def test_scene_scoped_clear_with_a_separator_in_the_scene_id_is_rejected() -> None:
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     _seed_header(store)
     result = _ops(store, recorder).clear(scope=_LOCAL, scene_id="foo\x1fbar")
     assert isinstance(result, OpError)
@@ -414,50 +465,62 @@ class TestWhoAnInstallRegisters:
     def test_the_callers_own_install_registers_it(self) -> None:
         # A client that only ever shows still appears among the Hub's clients:
         # its show is its contact, and there may never be another kind.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        clients = factory.clients
+        recorder = _Recorder()
         request = RenderRequest.parse(
             {
                 "scene_id": "s1",
                 "elements": [{"kind": "text", "id": "t1", "content": "Hi"}],
             }
         )
-        result = _ops(store, recorder).render(request, scope=_LOCAL)
+        result = _ops(factory.display, recorder).render(request, scope=_LOCAL)
         assert isinstance(result, SceneShown)
-        assert [str(c) for c in store.client_sessions()] == ["local"]
+        assert [str(c) for c in clients.live_sessions()] == ["local"]
 
     def test_a_scene_written_for_a_departed_client_does_not_recreate_it(self) -> None:
         # The ghost: the Hub writes a per-client scene for a connection that has
         # gone since the read that named it. Attribution is not contact — the
         # install must leave the registry as the departure left it.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
+        recorder = _Recorder()
         departed = ConnectionId("gone")
-        store.register_client(departed)
-        store.drop_connection(departed)
+        lifecycle.arrive(departed, UNOBSERVED)
+        lifecycle.depart(departed)
 
         result = SceneInstaller(store, recorder).install(
-            _submitted("lux.client-details.gone"), owner=departed
+            _submitted("lux.client-details.gone"), owner=Scope.in_process(departed)
         )
 
         assert isinstance(result, SceneShown)
-        assert dict(store.client_sessions()) == {}
+        assert dict(clients.live_sessions()) == {}
 
     def test_a_scene_written_for_an_unknown_client_registers_nobody(self) -> None:
         # The same rule where no session ever existed: nothing the Hub writes on a
         # connection's behalf may invent one.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        clients = factory.clients
+        recorder = _Recorder()
         SceneInstaller(store, recorder).install(
-            _submitted("lux.client-details.never"), owner=ConnectionId("never")
+            _submitted("lux.client-details.never"),
+            owner=Scope.in_process(ConnectionId("never")),
         )
-        assert dict(store.client_sessions()) == {}
+        assert dict(clients.live_sessions()) == {}
 
 
 def test_scene_scoped_clear_preserves_a_custom_frame_binding() -> None:
     # A scene shown in a custom frame keeps its presentation through clear: the
     # writer no longer forgets the frame, so the replicator's empty-push blanks the
     # frame the scene was actually shown in, not one guessed from the scene id.
-    store, recorder = HubDisplay(), _Recorder()
+    factory = HubStoreFactory()
+    store = factory.display
+    recorder = _Recorder()
     store.show_scene(
-        ConnectionId("local"),
+        Scope.in_process(ConnectionId("local")),
         _scoped("board"),
         [CollapsingHeaderElement(id="hdr", label="Board", open=False)],
         ScenePresentation(frame_id="beads-lux"),
@@ -472,7 +535,9 @@ class TestQuarantinedScenes:
     """A patch-style update against a quarantined scene is refused, not applied."""
 
     def test_update_against_a_quarantined_scene_is_rejected(self) -> None:
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        recorder = _Recorder()
         _seed_header(store)
         store.quarantine(
             _scoped("s1"),
@@ -488,7 +553,9 @@ class TestQuarantinedScenes:
     def test_update_against_a_quarantined_scene_leaves_the_store_untouched(
         self,
     ) -> None:
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        recorder = _Recorder()
         _seed_header(store, is_open=False)
         store.quarantine(
             _scoped("s1"),
@@ -509,7 +576,9 @@ class TestQuarantinedScenes:
         # by the caller's own raw local name — the only spelling it ever chose
         # to subscribe under — never the composed store key, which it never
         # sees and could not construct.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        recorder = _Recorder()
         _seed_header(store)
         store.quarantine(
             _scoped("s1"),
@@ -540,9 +609,11 @@ class TestQuarantinedScenes:
         # fixed, and it is not gated the way a patch is. Quarantine is
         # recorded against the composed store key — render composes the
         # identical way, so the two agree on which key is quarantined.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        recorder = _Recorder()
         store.replace_scene(
-            _CONNECTION,
+            Scope.in_process(_CONNECTION),
             _scoped("s1"),
             [CollapsingHeaderElement(id="hdr", label="Details", open=False)],
         )
@@ -568,7 +639,9 @@ class TestQuarantinedScenes:
         # neither roots nor a quarantine record — a scene with nothing to render
         # is not "quarantined-and-empty," it is just gone. Otherwise the caller
         # could not re-show later without first hitting a spurious rejection.
-        store, recorder = HubDisplay(), _Recorder()
+        factory = HubStoreFactory()
+        store = factory.display
+        recorder = _Recorder()
         _seed_header(store)
         store.quarantine(
             _scoped("s1"), QuarantineRecord(death_count=2, last_death_at=1.0)
@@ -588,3 +661,249 @@ class TestQuarantinedScenes:
         assert isinstance(
             _ops(store, recorder).render(request, scope=_LOCAL), SceneShown
         )
+
+
+def test_an_unidentified_session_that_only_shows_lists_the_host_it_showed_from() -> (
+    None
+):
+    factory = HubStoreFactory()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+    scope = Scope.observed(_CONNECTION, ClientHost("10.0.0.5"))
+
+    _ops(factory.display, _Recorder()).render(request, scope=scope)
+
+    session = factory.clients.session_of(_CONNECTION)
+    assert session is not None
+    assert session.client_hosts.names == ("10.0.0.5",)
+
+
+def test_a_show_from_an_in_process_caller_records_no_host() -> None:
+    factory = HubStoreFactory()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+
+    _ops(factory.display, _Recorder()).render(request, scope=_LOCAL)
+
+    session = factory.clients.session_of(_CONNECTION)
+    assert session is not None
+    assert session.client_hosts.names == ()
+
+
+def _nodes(depth: int) -> dict[str, object]:
+    """A tree node with ``depth`` levels of children under it."""
+    node: dict[str, object] = {"label": "leaf"}
+    for i in range(depth):
+        node = {"label": f"n{i}", "children": [node]}
+    return node
+
+
+class TestAnUpdateCannotNestPastTheCap:
+    """The cap on how deep an element nests holds for a patch as it does for show."""
+
+    def test_a_patch_that_nests_an_element_past_the_cap_is_rejected_whole(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse(
+            [{"id": "t", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}}]
+        )
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert result.code == "rejected"
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert recorder.dirtied == []
+        tree = store.resolve(_scoped("s1"), ElementId("t"))
+        assert isinstance(tree, TreeElement)
+        assert tree.to_dict().get("nodes") in (None, [], ())
+
+    def test_a_refused_deep_patch_fires_no_observer(self) -> None:
+        # A state the Hub refused must never be published, even briefly: nothing
+        # is committed (so nothing is notified) before the projected depth is judged.
+        store = HubStoreFactory().display
+        tree = TreeElement(id="t")
+        heard: list[str] = []
+        tree.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [tree])
+        request = UpdateRequest.parse(
+            [{"id": "t", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}}]
+        )
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert heard == []
+
+    def test_an_accepted_patch_notifies_its_observer_once(self) -> None:
+        store = HubStoreFactory().display
+        tree = TreeElement(id="t")
+        heard: list[str] = []
+        tree.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [tree])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert heard.count("nodes") == 1
+
+    def test_a_patch_that_deepens_a_nested_element_past_the_cap_is_rejected(
+        self,
+    ) -> None:
+        # The tree alone stays shallow; it is the ancestors above it that carry
+        # the whole scene past the cap, so the root is what is measured.
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        root: GroupElement | None = None
+        levels = 1
+        while True:
+            candidate: GroupElement | TreeElement = TreeElement(id="t")
+            for i in range(levels):
+                candidate = GroupElement(id=f"g{i}", children=(candidate,))
+            if NestingCap().refusal([candidate]) is not None:
+                break
+            assert isinstance(candidate, GroupElement)
+            root, levels = candidate, levels + 1
+        assert root is not None
+        store.replace_scene(_LOCAL, _scoped("s1"), [root])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(8)]}}])
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert recorder.dirtied == []
+
+    def test_two_independent_patches_each_within_the_cap_are_accepted(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(
+            _LOCAL, _scoped("s1"), [TreeElement(id="a"), TreeElement(id="b")]
+        )
+        request = UpdateRequest.parse(
+            [
+                {"id": "a", "set": {"nodes": [_nodes(10)]}},
+                {"id": "b", "set": {"nodes": [_nodes(10)]}},
+            ]
+        )
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert recorder.dirtied == [_scoped("s1")]
+
+    def test_a_batch_with_one_patch_past_the_cap_changes_and_notifies_nothing(
+        self,
+    ) -> None:
+        store = HubStoreFactory().display
+        fine, deep = TreeElement(id="a"), TreeElement(id="b")
+        heard: list[str] = []
+        fine.add_observer(heard.append)
+        deep.add_observer(heard.append)
+        store.replace_scene(_LOCAL, _scoped("s1"), [fine, deep])
+        request = UpdateRequest.parse(
+            [
+                {"id": "a", "set": {"nodes": [_nodes(2)]}},
+                {"id": "b", "set": {"nodes": [_nodes(MAX_ELEMENT_NESTING * 2)]}},
+            ]
+        )
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert heard == [], "the batch was refused whole: nothing committed or heard"
+        assert fine.to_dict().get("nodes") in (None, [], ())
+
+    def test_a_patch_within_the_cap_is_still_accepted(self) -> None:
+        store = HubStoreFactory().display
+        recorder = _Recorder()
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert recorder.dirtied == [_scoped("s1")]
+
+
+class TestAnUpdateProjectsTheSceneOnlyWhenAnElementGotDeeper:
+    """A patch that leaves every element's own wire depth alone costs no projection."""
+
+    @staticmethod
+    def _count_projections(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        calls: list[str] = []
+        real = NestingCap.refusal_if_patched
+
+        def spy(
+            self: NestingCap,
+            roots: Sequence[WireElement],
+            patched: Mapping[str, WireElement],
+        ) -> str | None:
+            calls.append("projected")
+            return real(self, roots, patched)
+
+        monkeypatch.setattr(NestingCap, "refusal_if_patched", spy)
+        return calls
+
+    def test_a_scalar_patch_is_not_projected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"label": "renamed"}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert calls == []
+
+    def test_a_structural_patch_is_projected_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, SceneShown)
+        assert calls == ["projected"]
+
+    def test_a_structural_patch_is_still_refused_past_the_cap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = self._count_projections(monkeypatch)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(100)]}}])
+
+        result = _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert isinstance(result, OpError)
+        assert str(MAX_ELEMENT_NESTING) in result.reason
+        assert calls == ["projected"]
+
+    def test_the_element_is_copied_once_for_judging_and_validating_together(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        copies: list[object] = []
+        real = deepcopy
+
+        def counting(value: object) -> object:
+            copies.append(value)
+            return real(value)
+
+        monkeypatch.setattr(field_realization, "deepcopy", counting)
+        store = HubStoreFactory().display
+        store.replace_scene(_LOCAL, _scoped("s1"), [TreeElement(id="t")])
+        request = UpdateRequest.parse([{"id": "t", "set": {"nodes": [_nodes(2)]}}])
+
+        _ops(store, _Recorder()).update("s1", request, scope=_LOCAL)
+
+        assert len(copies) == 1

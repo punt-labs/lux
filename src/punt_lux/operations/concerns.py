@@ -1,8 +1,4 @@
-"""OperationsConcerns — the concern objects one ``Operations`` facade composes.
-
-Bundled into one value object so ``Operations.__new__`` takes one parameter
-instead of one per concern (PY-OO-3), constructed once by :meth:`Operations.for_store`.
-"""
+"""OperationsConcerns — the concern objects one ``Operations`` facade composes."""
 
 from __future__ import annotations
 
@@ -27,7 +23,7 @@ __all__ = ["OperationsConcerns"]
 @final
 @dataclass(frozen=True, slots=True)
 class OperationsConcerns:
-    """The ten concern objects one ``Operations`` facade composes."""
+    """The ten concerns, bundled so ``Operations.__new__`` takes one (PY-OO-3)."""
 
     scenes: SceneOperations
     pubsub: PubSubOperations

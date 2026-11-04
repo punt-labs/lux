@@ -4,27 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
-from punt_lux.display.query_dispatcher import DisplayQueryHandlers, QueryRouter
+from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.replica import SceneReplica
 from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
 
 
 def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:
-    """Build a QueryRouter with stub callables for testing."""
+    """Build a QueryRouter over a scene replica."""
     sm = (
         scenes
         if scenes is not None
         else SceneReplica(on_scene_replaced=lambda _i: None)
     )
-    return QueryRouter(
-        scenes=sm,
-        get_client_names=dict,
-        get_client_connect_times=dict,
-        get_agent_menus=list,
-        get_callback_menus=list,
-    )
+    return QueryRouter(sm)
 
 
 def _scene(scene_id: str, frame_id: str) -> SceneMessage:
@@ -51,6 +43,25 @@ class TestDispatchKnownMethod:
         assert resp.method == "echo"
         assert resp.result == {"echo": {"key": "value"}}
         assert resp.error is None
+
+
+class TestAHandlerThatRaises:
+    def test_the_caller_is_told_and_the_failure_is_logged_with_its_method(
+        self,
+    ) -> None:
+        qd = _make_dispatcher()
+
+        def boom(**_kwargs: Any) -> dict[str, Any]:
+            msg = "no such thing"
+            raise ValueError(msg)
+
+        qd.register_handler("boom", boom)
+
+        resp = qd.handle_query("boom", None)
+
+        assert resp.error == "no such thing"
+        (entry,) = qd.handle_query("list_errors", None).result["errors"]
+        assert (entry["message"], entry["context"]) == ("no such thing", "query:boom")
 
 
 class TestDispatchUnknownMethod:
@@ -153,6 +164,7 @@ class TestListScenesReportsVisibility:
             {
                 "frame_id": "f1",
                 "title": "f1",
+                "scope_label": None,
                 "scene_count": 1,
                 "scene_ids": ["s1"],
                 "layout": "tab",
@@ -188,45 +200,24 @@ class TestDisplayStateQuery:
         assert result == {"scenes": {}, "frames": []}
 
 
-def _handlers(**overrides: Any) -> DisplayQueryHandlers:
-    """Build a DisplayQueryHandlers with stub getters, any overridden."""
-    defaults: dict[str, Any] = {
-        "get_start_time": lambda: 0.0,
-        "get_opacity": lambda: 1.0,
-        "get_font_scale": lambda: 1.1,
-        "get_decorated": lambda: True,
-        "get_current_theme": lambda: "imgui_colors_dark",
-        "get_themes": list,
-    }
-    defaults.update(overrides)
-    return DisplayQueryHandlers(**defaults)
+class TestACountThroughTheQueryPath:
+    def test_a_negative_count_is_an_error_response_not_a_slice(self) -> None:
+        qd = _make_dispatcher()
+        qd.record_event({"index": 0})
+
+        response = qd.handle_query("list_recent_events", {"count": -1})
+
+        assert response.error is not None
+        assert "negative" in response.error
+
+    def test_a_count_of_zero_is_an_empty_report(self) -> None:
+        qd = _make_dispatcher()
+        qd.record_error("warning", "boom")
+
+        response = qd.handle_query("list_errors", {"count": 0})
+
+        assert response.result["errors"] == []
 
 
-class TestScreenshotHandler:
-    def test_refuses_the_generic_query_path(self) -> None:
-        """Screenshots need GL context; the dedicated request message is required."""
-        with pytest.raises(RuntimeError, match="screenshot_request"):
-            _handlers().screenshot()
-
-
-class TestGetThemeHandler:
-    def test_reports_the_current_theme_and_available_names(self) -> None:
-        theme = type("Theme", (), {"name": "imgui_colors_light"})()
-        count = type("Theme", (), {"name": "count"})()  # the sentinel, excluded
-
-        result = _handlers(
-            get_current_theme=lambda: "imgui_colors_light",
-            get_themes=lambda: [theme, count],
-        ).get_theme()
-
-        assert result == {
-            "current": "imgui_colors_light",
-            "available": ["imgui_colors_light"],
-        }
-
-
-# get_window_settings and get_display_info both read the live ImGui runner
-# via hello_imgui, which requires a real GL context (HelloImGui::Run()) --
-# the same reason the original _query_get_display_info was never unit
-# tested headless. Their pure inputs (opacity/font_scale/decorated/theme
-# getters) are exercised through the other handlers above.
+def test_the_router_is_final() -> None:
+    assert getattr(QueryRouter, "__final__", False) is True

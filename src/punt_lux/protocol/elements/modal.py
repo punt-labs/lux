@@ -18,22 +18,18 @@ Protocol stays satisfied (PY-OO-2).
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
 
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.element_abc import Element
-from punt_lux.domain.handlers.publish_sink import PublishSink
+from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
-from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.modal_codec import JsonModalDecoder, JsonModalEncoder
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.window import WindowElement
-from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.standalone_modal_handler import (
-    build_standalone_modal_handler_decoder,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -55,11 +51,21 @@ class ModalModel:
 
     _visible: bool
     _on_dismiss: Callable[[], None]
+    _before_change: Callable[[], None]
 
-    def __new__(cls, *, visible: bool, on_dismiss: Callable[[], None]) -> Self:
+    def __new__(
+        cls,
+        *,
+        visible: bool,
+        on_dismiss: Callable[[], None],
+        before_change: Callable[[], None],
+    ) -> Self:
         self = super().__new__(cls)
         self._visible = visible
         self._on_dismiss = on_dismiss
+        # Told before the model's own state moves, so a transaction in force can
+        # checkpoint it: the model changes in place, with no patch to name it.
+        self._before_change = before_change
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -78,6 +84,7 @@ class ModalModel:
 
     def close(self) -> None:
         """Drop visibility and notify the owning Element through the callback."""
+        self._before_change()
         self._visible = False
         self._on_dismiss()
 
@@ -94,6 +101,8 @@ class ModalElement(Element):
     contract for an optional tooltip.
     """
 
+    # The model changes in place, so a checkpoint of the modal copies it too.
+    OWNED_PARTS: ClassVar[tuple[str, ...]] = ("_model",)
     _id: str
     _title: str
     _model: ModalModel
@@ -127,7 +136,11 @@ class ModalElement(Element):
         self._kind = "modal"
         # ``open`` seeds the initial visibility; the user's only visibility
         # transition is the dismiss, which removes the modal via ``mark_removed``.
-        self._model = ModalModel(visible=open, on_dismiss=self.mark_removed)
+        self._model = ModalModel(
+            visible=open,
+            on_dismiss=self.mark_removed,
+            before_change=partial(HandlerWrites.will_derive, self),
+        )
         return self
 
     # -- read-only accessors -----------------------------------------------
@@ -235,14 +248,7 @@ class ModalElement(Element):
         against a ``RaisingPublishSink`` so a stray publish on this no-tier path
         fails loud rather than silently.
         """
-        decoder = JsonModalDecoder(
-            decode_element=dispatch.from_dict,
-            element_cls=cls,
-            handler_decoder=build_standalone_modal_handler_decoder(
-                cast("PublishSink", RaisingPublishSink("ModalElement.from_dict")),
-            ),
-        )
-        modal = cast("Self", decoder.decode(d))
+        modal = cast("Self", JsonModalDecoder.standalone(cls).decode(d))
         # The invariant rides with the decode boundary too (PY-EH-1): a modal
         # whose subtree nests a window is rejected here, not only at validate().
         if modal._first_window_descendant() is not None:

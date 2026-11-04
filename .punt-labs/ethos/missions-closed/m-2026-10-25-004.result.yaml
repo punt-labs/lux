@@ -1,0 +1,253 @@
+mission: m-2026-10-25-004
+round: 1
+created_at: "2026-10-25T18:45:15Z"
+author: rmh
+verdict: pass
+confidence: 0.8
+files_changed:
+    - path: src/punt_lux/display/client_reader.py
+      added: 2
+      removed: 3
+    - path: src/punt_lux/display/socket_server.py
+      added: 27
+      removed: 53
+    - path: src/punt_lux/display/want_write_state.py
+      added: 45
+      removed: 0
+    - path: src/punt_lux/domain/element_abc.py
+      added: 1
+      removed: 9
+    - path: src/punt_lux/domain/hub/batch_sender.py
+      added: 69
+      removed: 36
+    - path: src/punt_lux/domain/hub/client_roster.py
+      added: 70
+      removed: 20
+    - path: src/punt_lux/domain/hub/clients.py
+      added: 10
+      removed: 32
+    - path: src/punt_lux/domain/hub/connection_closed.py
+      added: 9
+      removed: 4
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 7
+      removed: 1
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 28
+      removed: 16
+    - path: src/punt_lux/domain/hub/dial_ref.py
+      added: 39
+      removed: 0
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 37
+      removed: 7
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 50
+      removed: 12
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 21
+      removed: 8
+    - path: src/punt_lux/domain/hub/display_requests.py
+      added: 54
+      removed: 179
+    - path: src/punt_lux/domain/hub/display_writer.py
+      added: 127
+      removed: 0
+    - path: src/punt_lux/domain/hub/field_realization.py
+      added: 31
+      removed: 11
+    - path: src/punt_lux/domain/hub/hub_clients.py
+      added: 3
+      removed: 1
+    - path: src/punt_lux/domain/hub/hub_display.py
+      added: 21
+      removed: 22
+    - path: src/punt_lux/domain/hub/inbound_router.py
+      added: 7
+      removed: 1
+    - path: src/punt_lux/domain/hub/keepalive_ports.py
+      added: 11
+      removed: 12
+    - path: src/punt_lux/domain/hub/liveness.py
+      added: 2
+      removed: 2
+    - path: src/punt_lux/domain/hub/liveness_probe.py
+      added: 8
+      removed: 12
+    - path: src/punt_lux/domain/hub/named_sessions.py
+      added: 2
+      removed: 2
+    - path: src/punt_lux/domain/hub/presence_writes.py
+      added: 3
+      removed: 3
+    - path: src/punt_lux/domain/hub/recovery.py
+      added: 16
+      removed: 26
+    - path: src/punt_lux/domain/hub/replicator.py
+      added: 20
+      removed: 4
+    - path: src/punt_lux/domain/hub/replicator_ports.py
+      added: 51
+      removed: 24
+    - path: src/punt_lux/domain/hub/request_desk.py
+      added: 58
+      removed: 0
+    - path: src/punt_lux/domain/hub/request_exchange.py
+      added: 136
+      removed: 0
+    - path: src/punt_lux/domain/hub/write_errors.py
+      added: 16
+      removed: 1
+    - path: src/punt_lux/domain/hub/write_seam.py
+      added: 45
+      removed: 13
+    - path: src/punt_lux/domain/nesting_cap.py
+      added: 44
+      removed: 52
+    - path: src/punt_lux/domain/submission_gate.py
+      added: 7
+      removed: 7
+    - path: src/punt_lux/operations/display_connection.py
+      added: 3
+      removed: 4
+    - path: src/punt_lux/operations/scene_installer.py
+      added: 13
+      removed: 7
+    - path: src/punt_lux/operations/wire_tree.py
+      added: 6
+      removed: 2
+    - path: src/punt_lux/protocol/elements/tree.py
+      added: 1
+      removed: 3
+    - path: src/punt_lux/protocol/json_payload.py
+      added: 1
+      removed: 1
+    - path: tests/applets/test_board_ordering.py
+      added: 192
+      removed: 6
+    - path: tests/characterization/exerciser.py
+      added: 2
+      removed: 2
+    - path: tests/dial_double.py
+      added: 4
+      removed: 4
+    - path: tests/display/test_reply_sites_guard.py
+      added: 270
+      removed: 37
+    - path: tests/display/test_socket_server.py
+      added: 63
+      removed: 19
+    - path: tests/domain/test_callback_menu.py
+      added: 3
+      removed: 2
+    - path: tests/domain/test_client_roster.py
+      added: 62
+      removed: 24
+    - path: tests/domain/test_cross_host_connector.py
+      added: 2
+      removed: 1
+    - path: tests/domain/test_dial_model_lock_discipline.py
+      added: 228
+      removed: 43
+    - path: tests/domain/test_display_connection.py
+      added: 36
+      removed: 2
+    - path: tests/domain/test_display_link.py
+      added: 14
+      removed: 12
+    - path: tests/domain/test_element_nesting_fields_guard.py
+      added: 0
+      removed: 198
+    - path: tests/domain/test_hub_replicator.py
+      added: 115
+      removed: 11
+    - path: tests/domain/test_link_generations.py
+      added: 178
+      removed: 34
+    - path: tests/domain/test_listener_thread.py
+      added: 2
+      removed: 1
+    - path: tests/domain/test_nesting_cap.py
+      added: 39
+      removed: 25
+    - path: tests/domain/test_nesting_cap_at_the_seam.py
+      added: 316
+      removed: 0
+    - path: tests/domain/test_presence_writes_only_through_lifecycle.py
+      added: 127
+      removed: 71
+    - path: tests/domain/test_recovery.py
+      added: 21
+      removed: 31
+    - path: tests/domain/test_retire_cause.py
+      added: 399
+      removed: 0
+    - path: tests/domain/test_single_writer.py
+      added: 222
+      removed: 175
+    - path: tests/domain/test_write_seam_nesting.py
+      added: 55
+      removed: 32
+    - path: tests/domain/wire_doubles.py
+      added: 52
+      removed: 0
+    - path: tests/integration/test_crash_quarantine.py
+      added: 13
+      removed: 5
+    - path: tests/integration/test_hub_display_reconciliation.py
+      added: 4
+      removed: 3
+    - path: tests/integration/test_subprocess_lifecycle.py
+      added: 2
+      removed: 1
+    - path: tests/link_access.py
+      added: 28
+      removed: 0
+    - path: tests/operations/test_display_connection.py
+      added: 6
+      removed: 6
+    - path: tests/operations/test_scene_operations.py
+      added: 13
+      removed: 8
+    - path: tests/regression/test_dialog_interaction_trace.py
+      added: 25
+      removed: 0
+    - path: tests/roster_access.py
+      added: 12
+      removed: 0
+    - path: tests/test_client_registry.py
+      added: 5
+      removed: 90
+    - path: tests/test_e2e.py
+      added: 4
+      removed: 3
+    - path: tests/test_hostile_display.py
+      added: 2
+      removed: 1
+    - path: tests/test_integration.py
+      added: 5
+      removed: 4
+    - path: tests/test_liveness.py
+      added: 30
+      removed: 35
+    - path: tests/test_query.py
+      added: 2
+      removed: 1
+    - path: tests/tools/test_inspect_scene_geometry.py
+      added: 2
+      removed: 2
+evidence:
+    - name: 'make test: 7009 passed, 193 deselected (.tmp/test3.txt), exit 0'
+      status: pass
+    - name: 'make test-integration: 92 passed (.tmp/integ3.txt), exit 0'
+      status: pass
+    - name: make lint exit 0 (.tmp/lint3.txt); make type exit 0, 0 errors (.tmp/type4.txt); check-suppressions unchanged at 123 (.tmp/supp3.txt)
+      status: pass
+    - name: 'make check: stops at check-oo with 23 gate regressions and check-coupling 18 (.tmp/check_final.txt, .tmp/oo4.txt, .tmp/coup4.txt); nothing committed, awaiting the leader bless'
+      status: fail
+    - name: every new guard and rule mutation-checked in a scratch copy; one surviving mutant found and killed (details in the report)
+      status: pass
+open_questions:
+    - Bless or redesign the ratchet rows listed in the report (none over cap; none new-file over cap).
+    - 'R5-10: a board frame spelled by obfuscation (joined parts) cannot be found statically; confirm the mint-once plus holders plus binders guard is the intended capability.'
+prose: See .tmp/missions/results-r5fix/m-2026-10-25-004.md in the lux repo root.

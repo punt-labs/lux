@@ -25,7 +25,9 @@ from punt_lux.domain.hub.cross_host_link import CrossHostEndpoint
 from punt_lux.domain.hub.handshake_outcome import DisplayNotConnectedError
 from punt_lux.domain.hub_id import HubId
 from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 from punt_lux.trust import CertificateAuthority
+from tests.link_access import generation_of
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -81,7 +83,7 @@ class _DisplayServer:
             return
         self._conns.append(tls)
         send_message(tls, ReadyMessage())
-        msg = recv_message(tls, timeout=5.0)
+        msg = recv_message(tls, CLIENT_VOCABULARY, timeout=5.0)
         if msg is not None:
             self.received.append(msg)
 
@@ -188,7 +190,7 @@ class TestCrossHostConnect:
             link.connect()
             assert link.is_connected
             server.close()
-            assert isinstance(link.ready_message, ReadyMessage)
+            assert isinstance(generation_of(link).ready, ReadyMessage)
             assert [type(m).__name__ for m in server.received] == ["ConnectMessage"]
         finally:
             link.close()

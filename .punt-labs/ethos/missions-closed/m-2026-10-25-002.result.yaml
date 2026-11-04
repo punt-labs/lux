@@ -1,0 +1,16 @@
+mission: m-2026-10-25-002
+round: 2
+created_at: "2026-10-25T17:12:58Z"
+author: rmh
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: src/punt_lux/domain/nesting_cap.py
+      added: 1
+      removed: 1
+evidence:
+    - name: 'make check at 655656c4 (.tmp/check-r2.txt): exit 0, 6887 passed'
+      status: pass
+    - name: 'make test-integration at 655656c4 (.tmp/integration-r2f.txt): exit 0, 92 passed'
+      status: pass
+prose: Round 2 fixes M1 and A1-A8 per gvr's evaluation; see the result markdown.

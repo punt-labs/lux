@@ -154,7 +154,7 @@ Here is the fact that reshapes the rest of this design. Today every scene is
 durable. When an MCP session disconnects, the cascade forgets the connection as a
 Hub client, tears down its subscription scope and its writer binding, and
 releases its inbox — and it deliberately leaves the scenes standing
-(`domain/hub/lifecycle.py`, `HubDisplay.drop_connection` in `hub_display.py`).
+(`domain/hub/lifecycle.py`, `ClientLifecycle.depart` in `client_lifecycle.py`).
 The roots stay installed and stay owned by the departed connection id until a
 later explicit removal: the user closing the frame, an agent clearing, or a frame
 TTL expiring.

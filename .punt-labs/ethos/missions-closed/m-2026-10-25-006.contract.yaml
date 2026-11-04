@@ -1,0 +1,42 @@
+mission_id: m-2026-10-25-006
+status: closed
+type: implement
+created_at: "2026-10-25T20:33:18Z"
+updated_at: "2026-10-26T01:43:57Z"
+closed_at: "2026-10-26T01:43:57Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-25T20:33:18Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/review-r6-code.md
+        - .tmp/missions/review-r6-invariants.md
+        - .tmp/missions/review-r6-types.md
+        - .tmp/missions/review-r6-silent.md
+        - DESIGN.md
+        - docs/listener_lifecycle_coverage.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results-r6fix/
+success_criteria:
+    - 'WORK IN THE WORKTREE [REDACTED:home]/Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes at 105f9f8b (make -C, git -C, absolute paths; first fast-forward it: git -C <worktree> merge --ff-only fix/lux-ghhf-details-frame-id, which is a fast-forward of the leader''s merge). FIX every finding in the four review-r6-*.md files under .tmp/missions/ (lux repo root) EXCEPT those the rulings below dismiss; duplicates across files are one fix. If review-r6-silent.md is absent when you start, read it when it lands.'
+    - 'LEADER RULINGS (binding). T1 GUARD THREAT MODEL: capability and single-site guards exist to catch an honest contributor''s accidental regression in any ordinary spelling, aliases included (import aliases, module aliases, plain reassignment). Deliberately obfuscated evasion (functools.partial, C.__new__(C), type(w)(...), walrus/tuple-unpacking tricks, ids assembled by join/format/% or read back from list_scenes) is code review''s job, not a test''s. So invariants F5 and the obfuscation half of F4 are DISMISSED; F6 (an aliased reply class built and dropped, an ordinary spelling) is FIXED by resolving reply classes through ClassReferences. T2 THE LINK HANDS OUT NO WRITE OR LIFECYCLE ACT: callers of the registry get the ask port only (ClientRegistry.asks(), connecting and pinning under the registry lock, types 7), never the DisplayLink; the manifest is declared inside the link''s own connect step (types 1, code F2, invariants F1); close is the registry''s alone. Guard: no module outside the registry and the link reaches declare or close, with a planted case. T3 A WRITE WOKEN BY A HUB-SIDE RETIRE IS THE HUB''S: in _write_locked, an OSError on a dial whose cause is already set raises that cause''s closed error (HubRetiredError for hub), and only an unset cause retires as display (code F1, invariants F2); two-thread test. T4 EVERY ELEMENT WRITE GOES THROUGH THE SEAM: Hub-side handler writes (FilteredTableModel reprojection, table selection, ApplyPatchOnChange) pass the write seam and its cap, or the code shows structurally that the value cannot deepen the wire form; the guard checks the converse it currently lacks (invariants F3). T5 THE ISOLATION PROBE WAITS ON BUSY: busy is not proof and not death; it waits for the in-flight ping''s outcome or retries within its budget (invariants F7). T6 X7 AS STATED: the closed mark and the sink discard are one hold under the sink lock, so no reply is parked after is_closed is true; a test at the dial level, not the sink alone (invariants F9). T7 A DEATH IS CHARGED ONLY TO A SCENE IN FLIGHT WHEN THE DISPLAY DIED: a deliberate display stop while the replicator is idle charges no later scene (code reviewer''s borderline note). T10 ATTRIBUTION FROM THE DEAD DIAL''S OWN RECORD (silent F1, the attribution recurrence): when the display ends a dial, the suspects are the scenes written to that dial and not yet acked at that moment (the dial''s ack ledger is the record); recovery receives that suspect set from the dial''s retirement, whoever discovers the death (the reader, the keepalive, an MCP tool''s redial, or the replicator), and the redial-failure charging path is replaced by it; a death with an empty suspect set (nothing in flight: a deliberate stop) charges nothing (T7); a dial is charged once. A parallel model mission formalizes this; if the model finds T10 unsound the leader amends before you commit it. Test: silent F1''s probe (a non-replicator party wins the redial across ATTRIBUTION_THRESHOLD+2 deaths) ends quarantined. T8 F8 (set_frame_state via query) is ANSWERED, not fixed: frame visibility is Display-owned state (DES-088), not Hub scene content, so the single-writer rule does not cover it; add one sentence at the query method saying so. T9 the docstring and prose corrections (types 11, invariants F10) and types 2-6, 8-10, 12 are fixed as the type reviewer proposes unless a ratchet cap forbids, in which case report.'
+    - Tests lead (red on the base first). Mutation-check each new rule and guard; record red runs. Lock order rq < sl < st < lk < qu and K2 inviolate. Score each touched file against the IN-TREE baselines (avg_lcom cap 0.5, max_lcom 0.8, efferent 7, module_size 300), report every regressed row in one message, stop for the leader's bless; over-cap means redesign. Commit per finding group with explicit git add <file>; ratchet files last; the last commit leaves make check green; make test-integration green. Never run gui/e2e tests or pytest -m "". Do not touch docs/, DESIGN.md, CHANGELOG.md, .envrc, .claude/ (except the worktree), .github/, .punt-labs/. Do not spawn agents.
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results-r6fix/<mission-id>.md (lux repo root), submit with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 2
+context: |
+    Final local review round 6. Rulings T1 (guard threat model) bound the
+    guard-evasion recurrence; T2-T7 close real defects in the capability
+    confinement, retire-cause attribution, seam coverage and X7.

@@ -13,6 +13,7 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.evictions import Evictions
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
@@ -37,16 +38,19 @@ class InteractionDelivery:
     """
 
     _socket_listener: SocketListener
+    _sender: ClientSender
     _scenes: SceneReplica
 
     def __new__(
         cls,
         *,
         socket_listener: SocketListener,
+        sender: ClientSender,
         scenes: SceneReplica,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_listener = socket_listener
+        self._sender = sender
         self._scenes = scenes
         return self
 
@@ -81,7 +85,7 @@ class InteractionDelivery:
         target = self._socket_listener.fd_to_client.get(owner_fd)
         if target is None:
             return "blocked"
-        sent = self._socket_listener.send_to_client(target, event)
+        sent = self._sender.send_to_client(target, event)
         return "sent" if sent else "blocked"
 
     @staticmethod

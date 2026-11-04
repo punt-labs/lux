@@ -3,10 +3,12 @@
 The replicator is the sole writer to the display, but it does not own the
 socket or the process. It reaches them through structural ports so the
 concurrency logic is tested against fakes, not a live socket: ``DisplaySender``
-(the fire-and-forget send surface), ``ClientProvider`` (hands out the sender,
-drops a dead one, waits), ``DisplayLifecycle`` (kills a wedged display; its
-service unit respawns it), and ``DirtyMarker`` (the queue-only side a
-fresh-connect hook marks after declaring its manifest, DES-068).
+(the fire-and-forget send surface, pinned to one dial), ``WriteSeatPort`` (where
+senders are made), ``DisplayProbe`` (the isolation loop's ping, pinned to one
+dial), ``ClientProvider`` (connects, hands out the seat and the death queue once,
+drops a dead dial, waits), ``DisplayLifecycle`` (kills a wedged display; its service
+unit respawns it), and ``DirtyMarker`` (the queue-only side a fresh-connect hook marks
+after declaring its manifest, DES-068).
 """
 
 from __future__ import annotations
@@ -19,15 +21,21 @@ from punt_lux.domain.hub.scene_presentation import ScenePusher
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.hub.dial_death import DialDeath
+    from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.ids import SceneId
 
 __all__ = [
     "CallbackMenuReader",
     "ClientProvider",
+    "DeathQueuePort",
     "DirtyMarker",
     "DisplayLifecycle",
+    "DisplayProbe",
     "DisplaySender",
     "MenuReader",
+    "ReconnectPort",
+    "WriteSeatPort",
 ]
 
 
@@ -62,10 +70,16 @@ class MenuReader(Protocol):
 class DisplaySender(ScenePusher, Protocol):
     """A connection the replicator sends whole scenes and menus over.
 
-    Extends ``ScenePusher`` (``show_async``) with the two menu writes so the
+    Extends ``ScenePusher`` (``send_scene``) with the two menu writes so the
     replicator is the sole writer of the menu state: ``set_menu`` for the agent
-    menu bar and ``set_callback_menus`` for the ``Clients`` menu.
+    menu bar and ``set_callback_menus`` for the ``Clients`` menu. It is pinned to
+    one dial, which a failed send names to drop.
     """
+
+    @property
+    def dial(self) -> DialRef:
+        """The dial every send goes out on: what a failed send names to drop."""
+        ...
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
         """Replace the display's agent menu bar with the given wire menus."""
@@ -73,33 +87,86 @@ class DisplaySender(ScenePusher, Protocol):
     def set_callback_menus(self, submenus: list[dict[str, object]]) -> None:
         """Replace the display's Clients menu."""
 
-    def probe_alive(self, timeout: float) -> bool:
-        """Return whether the display responded to a ping within ``timeout``.
 
-        Used by ``HubReplicator``'s isolation-mode loop as a synchronous
-        liveness check between consecutive singleton probes: a scene N whose
-        render crashed the display surfaces as a broken pipe on the *next*
-        write, so without a roundtrip in between, the death would attribute to
-        scene N+1 rather than scene N (the real culprit). Raising
-        OSError/BlockingIOError is also a "no" — the caller propagates either
-        as a failure of the last scene sent.
+@runtime_checkable
+class WriteSeatPort(Protocol):
+    """Where senders are made: the replicator's one way to write to the display."""
+
+    def current(self) -> DisplaySender:
+        """A sender pinned to the dial that is current now."""
+        ...
+
+
+@runtime_checkable
+class DisplayProbe(Protocol):
+    """The isolation loop's ping of the display, pinned to one dial."""
+
+    @property
+    def dial(self) -> DialRef:
+        """The dial the probe goes out on: what a failed probe names to drop."""
+        ...
+
+    def await_acks(self, timeout: float) -> bool:
+        """Wait for the display to ack every scene written to this dial.
+
+        The synchronous check between consecutive singleton sends: it makes the
+        display take scene N (ack it after a swap, or die holding it) before N+1 goes
+        out, so a death leaves a ledger of one scene. A pong would say only that the
+        display is reading. ``False``: no ack came in time. Raising OSError is a
+        failure of the dial, and the caller propagates it.
         """
         ...
 
 
 @runtime_checkable
-class ClientProvider(ReconnectWaiter, Protocol):
-    """Hands out the one display connection, drops a dead one, and waits."""
+class DeathQueuePort(Protocol):
+    """The deaths dials left and nobody has charged: the charger's alone."""
 
-    def get(self) -> DisplaySender:
-        """Return the sender; raises ``DisplayNotConnectedError`` if never connected."""
+    def take(self) -> DialDeath | None:
+        """The oldest death, handed over once."""
         ...
 
-    def drop(self) -> None:
-        """Close the current connection so the next ``get`` binds a fresh one."""
+    def put_back(self, death: DialDeath) -> None:
+        """Return a death whose charge failed: it is the next one taken."""
+
+
+@runtime_checkable
+class ReconnectPort(ReconnectWaiter, Protocol):
+    """The reconnect wait, and the stop that wakes it past the disconnected backoff."""
 
     def request_stop(self) -> None:
-        """Wake a parked ``wait_for_reconnect`` past the disconnected backoff."""
+        """Wake a parked ``wait_for_reconnect``; latches permanently."""
+
+
+@runtime_checkable
+class ClientProvider(Protocol):
+    """Connects the display, hands out its write seat once, drops a dead dial, waits."""
+
+    def asks(self) -> DisplayProbe:
+        """Connect if the dial is gone, and return a probe pinned to the dial in use.
+
+        Raises ``DisplayNotConnectedError`` if no display can be reached.
+        """
+        ...
+
+    def take_writer(self) -> WriteSeatPort:
+        """Hand over the seat senders are made at; asked once, by the one writer."""
+        ...
+
+    def drop(self, dial: DialRef) -> None:
+        """Retire ``dial`` if still current, so the next ``asks`` binds afresh."""
+
+    def drop_unresponsive(self, dial: DialRef) -> None:
+        """Retire ``dial``, open but silent: its ledger is charged and carried on."""
+
+    def take_deaths(self) -> DeathQueuePort:
+        """Hand over the queue of display deaths; asked once, by the one charger."""
+        ...
+
+    @property
+    def reconnects(self) -> ReconnectPort:
+        """The wait that paces a replicator while there is no display."""
+        ...
 
 
 @runtime_checkable

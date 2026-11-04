@@ -16,6 +16,7 @@ from typing import Self, final
 
 from punt_lux.display import RenderLoop
 from punt_lux.protocol import ReadyMessage, recv_message
+from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 
 def _sock_path() -> str:
@@ -52,7 +53,7 @@ class TestCrossHostPump:
     def test_accept_pending_is_called_exactly_once_per_pump(self) -> None:
         fake = _FakeCrossHost([])
         loop = RenderLoop(_sock_path(), cross_host_listener=fake)
-        loop._pump_cross_host()
+        loop._turn.pump_cross_host()
         assert fake.accept_calls == 1
 
     def test_a_verified_socket_is_promoted_and_greeted_but_unidentified(self) -> None:
@@ -60,10 +61,12 @@ class TestCrossHostPump:
         fake = _FakeCrossHost([left])
         loop = RenderLoop(_sock_path(), cross_host_listener=fake)
         try:
-            loop._pump_cross_host()
+            loop._turn.pump_cross_host()
             assert left in loop.socket_listener.clients
             # promoted exactly as an AF_UNIX peer: greeted with ReadyMessage...
-            assert isinstance(recv_message(right, timeout=2.0), ReadyMessage)
+            assert isinstance(
+                recv_message(right, DISPLAY_VOCABULARY, timeout=2.0), ReadyMessage
+            )
             # ...but NOT identified -- the content gate turns away any scene
             # until its own ConnectMessage arrives (Invariant 1).
             assert loop.socket_listener.kind_of(left.fileno()) is None
@@ -73,5 +76,5 @@ class TestCrossHostPump:
 
     def test_fail_closed_when_no_listener_is_configured(self) -> None:
         loop = RenderLoop(_sock_path())  # cross_host_listener defaults to None
-        loop._pump_cross_host()  # must not raise
+        loop._turn.pump_cross_host()  # must not raise
         assert loop.socket_listener.client_count == 0

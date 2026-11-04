@@ -31,6 +31,7 @@ from punt_lux.applets.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.leg import AppletLeg
+from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
@@ -98,16 +99,8 @@ class _SlowService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the click."""
@@ -142,16 +135,8 @@ class _WarmingService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         self._started.set()
@@ -176,16 +161,8 @@ class _ExplodingWarmUp:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         raise RuntimeError("something nobody modelled")
@@ -245,22 +222,21 @@ class _RecordingRegistration:
 
 
 def _patch_rest(monkeypatch: pytest.MonkeyPatch, client: object) -> None:
-    """Point the leg's and runner's per-use Hub connection at a stand-in.
+    """Point the runner's per-use Hub connections at a stand-in.
 
-    ``AppletLeg._rest`` (registration) and ``ServiceRunner._rest`` (click
-    work) each build their own connection per use, so both are patched
-    directly to the same stand-in rather than patching the transport they
-    build it from -- the stand-in serves whichever of the two a given test
-    exercises.
+    ``ServiceRunner`` builds a connection per use for registration
+    (``register``) and another for click work (``_rest``), so both are patched
+    to the same stand-in rather than patching the transport they build it
+    from -- the stand-in serves whichever of the two a given test exercises.
     """
 
-    def _stand_in_leg(self: AppletLeg) -> object:
-        return client
+    def _stand_in_registration(self: ServiceRunner) -> Ok | OpError:
+        return self._service.entry.register_with(client)  # type: ignore[arg-type]  # a stand-in
 
     def _stand_in_runner(self: ServiceRunner) -> object:
         return client
 
-    monkeypatch.setattr(AppletLeg, "_rest", _stand_in_leg)
+    monkeypatch.setattr(ServiceRunner, "register", _stand_in_registration)
     monkeypatch.setattr(ServiceRunner, "_rest", _stand_in_runner)
 
 
@@ -421,16 +397,8 @@ class _PushingService:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise the push."""
@@ -449,16 +417,8 @@ class _ExplodingService:
     __slots__ = ()
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: the failure under test is in the click's work."""
@@ -538,16 +498,8 @@ class _OrderedService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         self._steps.append("prefetch")
@@ -640,16 +592,8 @@ class _ParkedService:
         return self
 
     @property
-    def callback_id(self) -> str:
-        return "beads"
-
-    @property
-    def label(self) -> str:
-        return "Beads"
-
-    @property
-    def frame_id(self) -> str:
-        return "beads-test"
+    def entry(self) -> MenuEntry:
+        return MenuEntry("beads", "Beads", "beads-test")
 
     def prefetch(self) -> None:
         """Nothing to warm: this service exists to exercise two clicks at once."""
@@ -756,8 +700,9 @@ def test_a_click_does_not_hold_the_click_behind_it(
 
 def _beads(source: Gated) -> BeadsService:
     """The real Beads service, over a source a test can hold at the query."""
-    load = BoardLoad(BeadsBoard.for_project("lux"), source)
-    return BeadsService(AppletBoard(load, BoardSlot()))
+    board = BeadsBoard.for_project("lux")
+    load = BoardLoad(board, source)
+    return BeadsService(AppletBoard(load, BoardSlot()), load.entry("beads", "Beads"))
 
 
 def _held_query() -> Gated:
@@ -851,7 +796,7 @@ def test_a_click_that_could_not_be_started_is_reported_rather_than_lost(
     def _no_worker(func: object, /, *args: object, **kwargs: object) -> None:
         raise RuntimeError("no worker thread could be started")
 
-    monkeypatch.setattr("punt_lux.applets.runner.asyncio.to_thread", _no_worker)
+    monkeypatch.setattr("punt_lux.apps.bd_child.asyncio.to_thread", _no_worker)
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(_clicked(leg))  # draining re-raises anything the task let out

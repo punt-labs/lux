@@ -13,7 +13,7 @@ from punt_lux.operations.display_state_proxy import DisplayStateProxy
 from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
-from punt_lux.operations.models.query_clients import ClientList, HubClient
+from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
 from punt_lux.operations.models.query_inspection import (
@@ -25,10 +25,9 @@ from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
-    from punt_lux.operations.scope import Scope
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["QueryOperations"]
@@ -87,10 +86,6 @@ class QueryOperations:
     def list_clients(self) -> ClientList:
         """List Hub sessions with each declared identity and age."""
         return self._clients.read()
-
-    def client_facts(self, named: NamedSession) -> HubClient:
-        """Return one session's facts, the shape ``list_clients`` reports for one."""
-        return self._clients.facts(named)
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:

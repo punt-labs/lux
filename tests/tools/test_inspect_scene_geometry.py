@@ -13,13 +13,16 @@ from typing import TYPE_CHECKING, Self, cast
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.models.query_geometry import GeometryPresent
@@ -29,9 +32,12 @@ from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 from punt_lux.tools import read_tools
+from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     import pytest
+
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 _GEOMETRY_REPLY: dict[str, object] = {
     "scene_id": "s1",
@@ -77,6 +83,11 @@ class _StubClient:
 
     __slots__ = ()
 
+    @property
+    def dial(self) -> DialRef:
+        """The dial a failed request would name; the stub has no real one."""
+        return fake_dial()
+
     def query(self, method: str, params: dict[str, object]) -> _Reply:
         return _Reply(_GEOMETRY_REPLY)
 
@@ -104,7 +115,7 @@ def _seed(store: HubDisplay) -> None:
         {"kind": "text", "id": "t1", "content": "hi"}
     )
     store.show_scene(
-        ConnectionId("local"),
+        Scope.in_process(ConnectionId("local")),
         SceneId(ConnectionScopedId.compose(ConnectionId("local"), "s1")),
         [cast("DomainElement", text)],
         ScenePresentation(frame_id="f1", frame_title="F1", layout="single"),
@@ -114,14 +125,20 @@ def _seed(store: HubDisplay) -> None:
 def test_inspect_scene_tool_carries_z_order_geometry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     _seed(store)
     ops = Operations.for_store(
         store,
         _NullReplicator(),
+        lifecycle=lifecycle,
+        clients=clients,
         hub=hub,
-        menu_registry=HubMenuRegistry(store.clients),
-        callback_router=CallbackRouter(store.clients),
+        menu_registry=HubMenuRegistry(clients),
+        callback_router=CallbackRouter(clients),
+        callback_menus=CallbackMenuReplica(clients),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -133,7 +150,7 @@ def test_inspect_scene_tool_carries_z_order_geometry(
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
-    monkeypatch.setattr("punt_lux.domain.hub.clients.client_registry.get", _StubClient)
+    monkeypatch.setattr("punt_lux.domain.hub.clients.client_registry.asks", _StubClient)
 
     result = read_tools.inspect_scene("s1", want_geometry=True)
 

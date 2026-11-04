@@ -44,31 +44,38 @@ class TestHiddenId:
 
 
 class TestTitle:
-    def test_shows_only_the_leaf_when_nothing_is_ambiguous(self) -> None:
+    def test_shows_only_the_leaf_when_no_higher_rung_is_shown(self) -> None:
         addr = _address(leaf_label="Vox")
-        title = addr.title(hub_ambiguous=False, connection_ambiguous=False)
+        title = addr.title(hub_ambiguous=False, connection_shown=False)
         assert title == "Vox"
 
-    def test_prefixes_the_connection_label_when_connection_is_ambiguous(self) -> None:
+    def test_prefixes_the_connection_label_when_that_rung_is_shown(self) -> None:
         addr = _address(connection_label="lux (2)", leaf_label="Vox")
-        title = addr.title(hub_ambiguous=False, connection_ambiguous=True)
+        title = addr.title(hub_ambiguous=False, connection_shown=True)
         assert title == "lux (2) :: Vox"
 
-    def test_prefixes_both_higher_rungs_when_both_are_ambiguous(self) -> None:
+    def test_prefixes_both_higher_rungs_when_both_are_shown(self) -> None:
         addr = _address(
             hub_label="pembroke", connection_label="lux (2)", leaf_label="Vox"
         )
-        title = addr.title(hub_ambiguous=True, connection_ambiguous=True)
+        title = addr.title(hub_ambiguous=True, connection_shown=True)
         assert title == "pembroke :: lux (2) :: Vox"
 
     def test_can_show_the_hub_alone_without_the_connection(self) -> None:
         addr = _address(hub_label="pembroke", leaf_label="Vox")
-        title = addr.title(hub_ambiguous=True, connection_ambiguous=False)
+        title = addr.title(hub_ambiguous=True, connection_shown=False)
         assert title == "pembroke :: Vox"
+
+    def test_a_hub_that_is_not_ambiguous_stays_elided_when_the_connection_shows(
+        self,
+    ) -> None:
+        addr = _address(hub_label="pembroke", connection_label="lux", leaf_label="Vox")
+        title = addr.title(hub_ambiguous=False, connection_shown=True)
+        assert title == "lux :: Vox"
 
     def test_orders_rungs_outermost_first(self) -> None:
         addr = _address(hub_label="A", connection_label="B", leaf_label="C")
-        title = addr.title(hub_ambiguous=True, connection_ambiguous=True)
+        title = addr.title(hub_ambiguous=True, connection_shown=True)
         assert title == "A :: B :: C"
 
 

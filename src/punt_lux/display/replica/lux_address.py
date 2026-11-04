@@ -27,7 +27,7 @@ class Rung:
     """One level of a :class:`LuxAddress`: a stable uniqueness key and a label.
 
     ``key`` is opaque and never elided from the hidden id. ``label`` is
-    what a human reads, shown only when this rung's ambiguity requires it.
+    what a human reads, shown only when the title rules for this rung say so.
     """
 
     key: str
@@ -59,17 +59,17 @@ class LuxAddress:
         """The ImGui identity: every rung's key, joined, never elided."""
         return ID_SEPARATOR.join((self.hub.key, self.connection.key, self.leaf.key))
 
-    def title(self, *, hub_ambiguous: bool, connection_ambiguous: bool) -> str:
-        """The visible title: only genuinely ambiguous rungs are shown.
+    def title(self, *, hub_ambiguous: bool, connection_shown: bool) -> str:
+        """The visible title: the leaf always, higher rungs when the caller says.
 
-        The leaf is always shown; higher rungs join it, outermost first,
-        only when their ambiguity -- a caller-answered cardinality question,
-        not carried on the address itself -- says to.
+        The Hub rung is shown only while ambiguous; the connection rung
+        whenever the item has a label to show (DES-100). Both are caller
+        answers, not carried on the address; rungs join outermost first.
         """
         shown = list(
             compress(
                 (self.hub.label, self.connection.label),
-                (hub_ambiguous, connection_ambiguous),
+                (hub_ambiguous, connection_shown),
             )
         )
         shown.append(self.leaf.label)

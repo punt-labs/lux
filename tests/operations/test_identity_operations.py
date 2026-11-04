@@ -12,16 +12,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.operations.scope import Scope
 
 
 class _ForbiddenPort:
@@ -41,7 +42,7 @@ class _ForbiddenPort:
 
 
 def _scope(connection: str) -> Scope:
-    return Scope(ConnectionId(connection))
+    return Scope.in_process(ConnectionId(connection))
 
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
@@ -50,8 +51,10 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
 
 
 def test_identify_records_the_identity_and_echoes_it() -> None:
-    store = HubDisplay()
-    ops = IdentityOperations(store)
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    ops = IdentityOperations(lifecycle, clients)
 
     result = ops.identify(
         {"kind": "mcp-session", "name": "claude", "repo": "/w/lux", "agent": "claude"},
@@ -61,13 +64,15 @@ def test_identify_records_the_identity_and_echoes_it() -> None:
     assert isinstance(result, Identified)
     assert result.identity.name == "claude"
     assert result.identity.repo == "/w/lux"
-    session = store.client_sessions()[ConnectionId("c1")]
+    session = clients.live_sessions()[ConnectionId("c1")]
     assert session.identity == result.identity
 
 
 def test_identify_a_headless_cli_without_a_repo() -> None:
-    store = HubDisplay()
-    result = IdentityOperations(store).identify(
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    result = IdentityOperations(lifecycle, clients).identify(
         {"kind": "cli", "name": "lux-cli"}, scope=_scope("c1")
     )
     assert isinstance(result, Identified)
@@ -75,28 +80,36 @@ def test_identify_a_headless_cli_without_a_repo() -> None:
 
 
 def test_bad_kind_is_invalid_request_and_records_nothing() -> None:
-    store = HubDisplay()
-    result = IdentityOperations(store).identify(
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    result = IdentityOperations(lifecycle, clients).identify(
         {"kind": "daemon", "name": "x"}, scope=_scope("c1")
     )
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert "kind" in result.reason
     # A rejected declaration binds nothing — the connection stays unregistered.
-    assert store.client_sessions() == {}
+    assert clients.live_sessions() == {}
 
 
 def test_missing_name_is_invalid_request() -> None:
-    store = HubDisplay()
-    result = IdentityOperations(store).identify({"kind": "cli"}, scope=_scope("c1"))
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    result = IdentityOperations(lifecycle, clients).identify(
+        {"kind": "cli"}, scope=_scope("c1")
+    )
     assert isinstance(result, OpError)
     assert result.code == "invalid_request"
     assert "name" in result.reason
 
 
 def test_relative_repo_is_invalid_request() -> None:
-    store = HubDisplay()
-    result = IdentityOperations(store).identify(
+    factory = HubStoreFactory()
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    result = IdentityOperations(lifecycle, clients).identify(
         {"kind": "cli", "name": "lux", "repo": "relative/path"}, scope=_scope("c1")
     )
     assert isinstance(result, OpError)
@@ -105,13 +118,18 @@ def test_relative_repo_is_invalid_request() -> None:
 
 
 def test_list_clients_shows_the_record_only_for_identified_sessions() -> None:
-    store = HubDisplay()
-    IdentityOperations(store).identify(
+    factory = HubStoreFactory()
+    store = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    IdentityOperations(lifecycle, clients).identify(
         {"kind": "cli", "name": "lux", "repo": "/w/lux"}, scope=_scope("identified")
     )
-    store.register_client(ConnectionId("anonymous"))
+    lifecycle.arrive(ConnectionId("anonymous"), UNOBSERVED)
     reader = QueryOperations(
-        store, _ForbiddenPort(), ClientListing(store, Hub(), _zero_inbox_depth)
+        store,
+        _ForbiddenPort(),
+        ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
 
     by_id = {c.connection_id: c for c in reader.list_clients().clients}

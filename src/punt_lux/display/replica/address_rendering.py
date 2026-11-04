@@ -54,23 +54,31 @@ class AddressRendering:
         """
         return ID_SEPARATOR.join((hub.wire_token, composed_key))
 
-    def title_for(self, hub: HubId, leaf_label: str) -> str:
-        """The visible title: the leaf label, prefixed by the Hub's label only
-        while more than one Hub is aggregated.
+    def frame_title(self, frame: Frame) -> str:
+        """The frame's window title: its owner's scope label when the Hub named
+        one, behind the Hub's label only while more than one Hub is aggregated.
 
-        The connection rung is not shown on this path -- its scope label does
-        not reach the Display today (system.tex Sec:addressing) -- so a lone
-        item reads as its plain ``leaf_label``. The Hub rung's label is taken
-        from the book, so a second Hub sharing a host reads ``pembroke (2)``.
+        The label is a fact the frame carries, so nothing counts frames or
+        sessions: a lone ``Vox`` of a named session reads ``lux :: Vox`` and an
+        unnamed owner's frame reads as its plain title (DES-100). The Hub rung's
+        label is taken from the book, so a second Hub sharing a host reads
+        ``pembroke (2)``.
         """
-        address = self._book.address_for(hub, "", "", "", leaf_label)
+        heading = frame.heading
+        address = self._book.address_for(frame.hub, *heading.rungs())
         return address.title(
-            hub_ambiguous=self._book.hub_ambiguous(), connection_ambiguous=False
+            hub_ambiguous=self._book.hub_ambiguous(),
+            connection_shown=heading.names_owner,
         )
 
-    def frame_title(self, frame: Frame) -> str:
-        """The frame's window title, disambiguated across Hubs when ambiguous."""
-        return self.title_for(frame.hub, frame.title)
+    def frame_window_label(self, frame: Frame) -> str:
+        """The label ImGui opens the frame's window with: title, then its id.
+
+        ImGui keys a window on what follows ``##``, so the visible title may move
+        (a label arrives, a second Hub appears) without the window losing its
+        position, scroll or collapse state.
+        """
+        return f"{self.frame_title(frame)}##{self.frame_window_id(frame)}"
 
     def frame_window_id(self, frame: Frame) -> str:
         """The frame's ImGui window id, unique across every aggregated Hub."""

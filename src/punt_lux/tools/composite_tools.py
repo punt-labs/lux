@@ -137,7 +137,7 @@ def show_table(
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(scene_table_command(ctx, request, scope=_core._scope()))
+    result = asyncio.run(scene_table_command(ctx, request, scope=_core.scope()))
     return signal(result)
 
 
@@ -217,5 +217,5 @@ def show_dashboard(
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    result = asyncio.run(scene_dashboard_command(ctx, request, scope=_core._scope()))
+    result = asyncio.run(scene_dashboard_command(ctx, request, scope=_core.scope()))
     return signal(result)

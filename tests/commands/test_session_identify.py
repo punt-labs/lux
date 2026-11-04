@@ -12,7 +12,7 @@ from punt_lux.operations.models.identity import Identified
 from tests.commands._family_stubs import StubSessionOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 _DECLARATION: dict[str, object] = {"kind": "cli", "name": "someone"}
 
 

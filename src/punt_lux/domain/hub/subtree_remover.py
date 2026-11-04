@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
@@ -86,6 +88,8 @@ class SubtreeRemover:
                 if root is not None and is_owned
                 else self.remove_subtree(scene_id, element_id)
             )
+        except ProgrammerError:
+            raise
         except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
             _log.exception(
                 "drop_root: cleanup failed for root %s in scene %s (conn %s)",

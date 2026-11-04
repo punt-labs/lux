@@ -112,7 +112,7 @@ def inspect_scene(
         scene_inspect_command.execute(
             ctx,
             scene_id,
-            scope=_core._scope(),
+            scope=_core.scope(),
             facts=InspectScope(want_geometry=want_geometry),
         )
     )
@@ -187,7 +187,7 @@ def get_display_state() -> DisplayStateSnapshot | OpError:
     ctx: CommandCtx[DisplayStateOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
-    return asyncio.run(display_state_get_command.execute(ctx, scope=_core._scope()))
+    return asyncio.run(display_state_get_command.execute(ctx, scope=_core.scope()))
 
 
 @mcp.tool(name="display_link_get")

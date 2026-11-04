@@ -11,6 +11,7 @@ import anyio
 from mcp.shared.message import SessionMessage
 
 import punt_lux.tools.server as server_module
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.tools.server import bind_session, unbind_session
@@ -39,7 +40,7 @@ def _run_session_to_completion() -> None:
         scoped = SessionScopedServer(
             McpHttpTransport._fastmcp_server(), SessionRegistry()
         )
-        token = bind_session("test")
+        token = bind_session("test", UNOBSERVED)
         try:
             with anyio.fail_after(5):
                 async with McpHttpTransport._fastmcp_lifespan()():
@@ -70,7 +71,7 @@ class TestSessionStartup:
 
     def test_does_not_eager_connect(self) -> None:
         """Startup never connects, so it cannot auto-spawn the display."""
-        with patch("punt_lux.domain.hub.clients.client_registry.get") as connect:
+        with patch("punt_lux.domain.hub.clients.client_registry.asks") as connect:
             _run_session_to_completion()
 
         connect.assert_not_called()
@@ -81,7 +82,7 @@ class TestSessionStartup:
         with (
             patch("punt_lux.config.ConfigManager.read") as read,
             patch("punt_lux.config.resolve_config_path") as resolve,
-            patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
+            patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
 
@@ -97,7 +98,7 @@ class TestSessionStartup:
         assert not (tmp_path / ".punt-labs" / "lux.md").exists()
         with (
             patch("punt_lux.config.ConfigManager.read") as read,
-            patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
+            patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
 

@@ -1,69 +1,493 @@
-"""The replicator is the only Hub-side writer to the display connection.
+"""The replicator is the only Hub-side writer to the display: by what exists.
 
-After the liveness change, no MCP mutation tool, click dispatch, or Hub-hosted
-app may send to the display — they write ``HubDisplay`` and mark a scene dirty,
-and the one background replicator does every send. This guard reads the source of
-the front-door modules and fails if a display send reappears in any of them, so
-the single-writer invariant cannot regress silently.
+No MCP mutation tool, click dispatch, or Hub-hosted app may send to the display:
+they write ``HubDisplay`` and mark a scene dirty, and the one background replicator
+does every send. That is held by construction, not by spotting calls:
+
+- the write verbs exist on ``DisplayWriter`` and nowhere else (its public methods are
+  the verbs; ``DisplayRequests``, which every part of the Hub may hold, has none and
+  reaches no write of the dial);
+- a writer is made at one site (``WriteSeat.current``), the seat at one site (the
+  link's request desk, which only the link reaches), and the seat is given away once,
+  to the one writer, through the hops (the registry takes it from its link, the
+  replicator from the registry), so a second asker is refused at run time;
+- the link's own writes, the manifest and the close, are the registry's and the link's
+  alone: the manifest is declared inside the link's connect step (asked only by the
+  registry), and only the modules that name a ``DisplayLink`` can reach its ``close``;
+  what the registry hands out is the ask port, never the link;
+- a dial's own write methods are reachable only by what holds a ``DialGeneration``,
+  and the modules that so much as name that type are exactly the dial model's.
+
+Each rule is read from the source and run on planted source, so none can pass by
+matching nothing.
 """
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.display_requests import DisplayRequests
+from punt_lux.domain.hub.display_writer import DisplayWriter
+from tests.class_references import ClassReferences, aliased_constructions
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
+_HUB = "domain/hub/"
 
-# The only modules allowed to reference the display send surface: the client that
-# defines it and the replicator's send path (replicator + the presentation it
-# drives). Every other module — every MCP tool, every click dispatch, every
-# Hub-hosted app, and now the ``lux show`` CLI, which reaches luxd over REST
-# rather than the display socket — must go through the store and the dirty
-# signal, so the guard scans the whole package and a new Hub-side sender cannot
-# slip in through a module an enumerated list would have forgotten.
-_SENDER_MODULES = frozenset(
+# The modules that name a ``DialGeneration``: the dial and what is built on it. A
+# module outside this set cannot hold a dial, so it cannot write or read on one.
+_DIAL_MODEL = frozenset(
     {
-        "domain/hub/display_link.py",
-        "domain/hub/scene_presentation.py",
-        "domain/hub/replicator.py",
+        _HUB + "bounded_ask.py",
+        _HUB + "dial_drain.py",
+        _HUB + "dial_generation.py",
+        _HUB + "dial_reader.py",
+        _HUB + "generation_ref.py",
+        _HUB + "display_connection.py",
+        _HUB + "display_listener.py",
+        _HUB + "display_replies.py",
+        _HUB + "display_requests.py",
+        _HUB + "display_writer.py",
+        _HUB + "inbound_router.py",
+        _HUB + "listener_thread.py",
+        _HUB + "reader_slot.py",
+        _HUB + "request_exchange.py",
+        _HUB + "settler.py",
     }
 )
-
-# The DisplayLink send surface — a call to any of these is "writing to the
-# display", on any receiver name, so a Hub-side module cannot dodge the guard by
-# binding the client to a name other than ``client``. The blocking ``show`` is
-# matched with its ``(`` argument list; there is deliberately no ``.clear(`` term —
-# the blocking clear no longer exists, and leaving it out keeps a no-arg dict
-# ``.clear()`` (e.g. ``_fd_to_client.clear()``) from matching. An emptied scene
-# blanks its frame through the ordinary ``show_async`` (no roots), so there is no
-# separate display-clear send to guard.
-_SEND_CALL_RE = re.compile(r"\.show_async\(|\.show\(")
+# A reply-waiting registration: a send that makes one is a request, not a write.
+_EXPECTATIONS = frozenset({"expect_pong", "expect_query"})
 
 
-def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
-    offenders: list[str] = []
-    scanned = 0
-    for path in _SRC.rglob("*.py"):
-        scanned += 1
-        rel = path.relative_to(_SRC).as_posix()
-        if rel in _SENDER_MODULES:
-            continue
-        source = path.read_text(encoding="utf-8")
-        offenders.extend(f"{rel}: {m.group()}" for m in _SEND_CALL_RE.finditer(source))
-    assert scanned > 0, "guard scanned no files — the source glob is broken"
-    assert offenders == [], (
-        "a module outside the sender set writes to the display directly; only the "
-        f"replicator's send path may write to the display connection: {offenders}"
+def _source(rel: str) -> str:
+    return (_SRC / rel).read_text(encoding="utf-8")
+
+
+def _class(source: str, name: str) -> ast.ClassDef:
+    return next(
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.ClassDef) and n.name == name
     )
 
 
-def test_the_replicator_is_the_writer() -> None:
-    # The positive side: the replicator drives the send through the snapshot's
-    # ``push``, and the shared ScenePresentation.push does the scene send
-    # (show_async). If these move, the guard above must be revisited too.
-    replicator = (_SRC / "domain/hub/replicator.py").read_text(encoding="utf-8")
-    presentation = (_SRC / "domain/hub/scene_presentation.py").read_text(
-        encoding="utf-8"
+def _public_methods(source: str, name: str) -> dict[str, ast.FunctionDef]:
+    return {
+        n.name: n
+        for n in _class(source, name).body
+        if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")
+    }
+
+
+def _called(node: ast.AST) -> set[str]:
+    return {
+        n.func.attr
+        for n in ast.walk(node)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    }
+
+
+def _attrs(node: ast.AST) -> set[str]:
+    return {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)}
+
+
+def _names(source: str) -> set[str]:
+    """Every name the source uses or imports, however it spells the reference."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.ImportFrom | ast.Import):
+            found.update(a.name.split(".")[-1] for a in node.names)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+    return found
+
+
+def _constructions(source: str, name: str) -> int:
+    return ClassReferences(source, name).constructions()
+
+
+def _calls_of(source: str, attribute: str) -> int:
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == attribute
     )
-    assert "snapshot.push(" in replicator
-    assert ".show_async(" in presentation
+
+
+def _references(source: str, attribute: str) -> int:
+    """Every ``<x>.<attribute>`` the source mentions, called or not, however bound."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Attribute) and n.attr == attribute
+    )
+
+
+def _link_closes(source: str) -> int:
+    """How many ``.close()`` calls the source makes on something named for a link."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "close"
+        and re.search(r"link|\._client\b", ast.unparse(n.func.value), re.IGNORECASE)
+    )
+
+
+def _foreign_private_reads(source: str, attribute: str) -> int:
+    """Reads of ``<other>.<attribute>``: a private field reached from outside."""
+    return sum(
+        1
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.Attribute)
+        and n.attr == attribute
+        and not (isinstance(n.value, ast.Name) and n.value.id in {"self", "cls"})
+    )
+
+
+def _declaring_connects(source: str) -> int:
+    """How many ``open_as_hub(...)`` calls the source makes: the declaring connect."""
+    return _calls_of(source, "open_as_hub")
+
+
+def _modules(predicate: Callable[[str], object]) -> set[str]:
+    return {
+        path.relative_to(_SRC).as_posix()
+        for path in _SRC.rglob("*.py")
+        if predicate(path.read_text(encoding="utf-8"))
+    }
+
+
+def _dial_writes() -> set[str]:
+    """The dial's write methods: every ``send*`` that registers no reply to wait for.
+
+    The writes live on the generation, which owns the ledger a write may register in.
+    """
+    return {
+        name
+        for name, fn in _public_methods(
+            _source(_HUB + "dial_generation.py"), "DialGeneration"
+        ).items()
+        if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
+    }
+
+
+class TestTheWriteVerbsLiveOnTheWriterAlone:
+    def test_the_writers_public_methods_are_the_write_verbs(self) -> None:
+        verbs = set(
+            _public_methods(_source(_HUB + "display_writer.py"), "DisplayWriter")
+        )
+
+        assert {"send_scene", "set_menu", "set_callback_menus"} <= verbs
+        assert verbs.isdisjoint(
+            {"send_manifest"}  # the link's own write: no writer has a verb for it
+        )
+        assert verbs.isdisjoint(
+            {"show", "ping", "query", "probe_alive", "confirm_alive"}
+        )
+
+    def test_the_dials_write_methods_are_derived_from_the_dial(self) -> None:
+        assert _dial_writes() == {"send", "send_scene"}
+
+    def test_the_ask_port_has_no_write_verb_and_reaches_no_dial_write(self) -> None:
+        source = _source(_HUB + "display_requests.py")
+        verbs = set(
+            _public_methods(_source(_HUB + "display_writer.py"), "DisplayWriter")
+        )
+
+        asks = set(_public_methods(source, "DisplayRequests"))
+        reached = _called(_class(source, "DisplayRequests"))
+
+        assert asks.isdisjoint(verbs - {"dial"})
+        assert reached.isdisjoint(_dial_writes())
+
+
+class TestWhatEveryPartOfTheHubMayHold:
+    """The ask port, held by anything however it is spelled, cannot write."""
+
+    def test_the_ask_port_has_none_of_the_writers_verbs_at_run_time(self) -> None:
+        verbs = {
+            name
+            for name in vars(DisplayWriter)
+            if not name.startswith("_") and callable(vars(DisplayWriter)[name])
+        }
+
+        assert verbs, "the writer has no verbs to withhold"
+        assert [v for v in verbs if hasattr(DisplayRequests, v)] == []
+
+    def test_the_link_hands_out_no_writer_but_through_its_seat(self) -> None:
+        public = {n for n in vars(DisplayLink) if not n.startswith("_")}
+
+        assert {"writer", "send_scene", "set_menu", "show"}.isdisjoint(public)
+
+
+class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
+    def test_a_writer_is_built_only_by_the_seat(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "DisplayWriter")
+            for rel in _modules(lambda s: _constructions(s, "DisplayWriter"))
+        }
+
+        assert built == {_HUB + "display_writer.py": 1}
+
+    def test_the_seat_is_built_only_by_the_link_s_desk(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "WriteSeat")
+            for rel in _modules(lambda s: _constructions(s, "WriteSeat"))
+        }
+
+        assert built == {_HUB + "request_desk.py": 1}
+
+    def test_a_dial_is_named_only_inside_the_dial_model(self) -> None:
+        built = {
+            rel: _constructions(_source(rel), "GenerationRef")
+            for rel in _modules(lambda s: _constructions(s, "GenerationRef"))
+        }
+
+        assert set(built) <= _DIAL_MODEL | {_HUB + "generation_ref.py"}
+        assert built == {_HUB + "dial_generation.py": 1}
+
+    def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:
+        # The registry takes it from its link's desk; the replicator from the registry.
+        assert _modules(lambda s: _calls_of(s, "take_seat") > 0) == {
+            _HUB + "clients.py"
+        }
+        assert _modules(lambda s: _calls_of(s, "take_writer") > 0) == {
+            _HUB + "replicator.py"
+        }
+
+    def test_each_hop_takes_the_seat_once(self) -> None:
+        assert _calls_of(_source(_HUB + "clients.py"), "take_seat") == 1
+        assert _calls_of(_source(_HUB + "replicator.py"), "take_writer") == 1
+
+
+class TestTheReplicatorIsTheOnlyCharger:
+    """O1: one charger, built inside the sender the replicator alone builds."""
+
+    def test_the_death_charger_is_built_only_inside_the_batch_sender(self) -> None:
+        assert _modules(lambda s: _constructions(s, "DeathCharger") > 0) == {
+            _HUB + "batch_sender.py"
+        }
+        assert _constructions(_source(_HUB + "batch_sender.py"), "DeathCharger") == 1
+
+    def test_the_batch_sender_is_built_only_by_the_replicator(self) -> None:
+        assert _modules(lambda s: _constructions(s, "BatchSender") > 0) == {
+            _HUB + "replicator.py"
+        }
+        assert _constructions(_source(_HUB + "replicator.py"), "BatchSender") == 1
+
+    def test_a_second_charger_is_counted(self) -> None:
+        planted = (
+            "def f(clients, attribution):\n"
+            "    return DeathCharger(clients, attribution)\n"
+        )
+
+        assert _constructions(planted, "DeathCharger") == 1
+
+
+class TestTheDeathQueueIsTheChargersAlone:
+    """O1: the queue is handed out once, so no one else can take a death."""
+
+    def test_the_queue_is_asked_for_only_where_it_is_handed_on(self) -> None:
+        # The charger's sender asks the registry; the registry its link; the link its
+        # connection. Nothing else may so much as mention the hand-out.
+        assert _modules(lambda s: _references(s, "take_deaths") > 0) == {
+            _HUB + "batch_sender.py",
+            _HUB + "clients.py",
+            _HUB + "display_link.py",
+        }
+
+    def test_each_hop_asks_once(self) -> None:
+        for rel in ("batch_sender.py", "clients.py", "display_link.py"):
+            assert _references(_source(_HUB + rel), "take_deaths") == 1, rel
+
+    def test_the_queue_is_built_only_by_the_suspect_book(self) -> None:
+        assert _modules(lambda s: _constructions(s, "DeathQueue") > 0) == {
+            _HUB + "suspect_book.py"
+        }
+
+    def test_a_bound_reference_and_a_second_queue_are_found(self) -> None:
+        assert _references("def f(r):\n    take = r.take_deaths\n", "take_deaths") == 1
+        assert _constructions("def f():\n    return DeathQueue()\n", "DeathQueue") == 1
+
+    def test_the_registry_and_the_link_hand_out_no_single_death(self) -> None:
+        for source, name in (
+            (_source(_HUB + "clients.py"), "ClientRegistry"),
+            (_source(_HUB + "display_link.py"), "DisplayLink"),
+        ):
+            assert "take_death" not in _public_methods(source, name)
+
+
+class TestTheLinkIsTheRegistrysAlone:
+    """The manifest and the close are not the ask port's, nor any caller's."""
+
+    def test_the_manifest_is_declared_only_inside_the_links_connect_step(self) -> None:
+        assert _modules(lambda s: _calls_of(s, "declare") > 0) == {
+            _HUB + "display_link.py"
+        }
+        assert _calls_of(_source(_HUB + "display_link.py"), "declare") == 1
+
+    def test_the_connect_step_that_declares_is_asked_only_by_the_registry(
+        self,
+    ) -> None:
+        assert _modules(lambda s: _declaring_connects(s) > 0) == {_HUB + "clients.py"}
+        assert _declaring_connects(_source(_HUB + "clients.py")) == 1
+
+    def test_only_the_registry_and_the_links_own_modules_name_a_link(self) -> None:
+        naming = _modules(lambda s: "DisplayLink" in _names(s))
+
+        assert naming == {
+            _HUB + "clients.py",
+            _HUB + "cross_host_link.py",
+            _HUB + "display_link.py",
+        }
+
+    def test_only_the_links_own_module_closes_a_link(self) -> None:
+        assert _modules(lambda s: _link_closes(s) > 0) == set()
+
+    def test_no_module_reads_the_registrys_private_link(self) -> None:
+        assert _modules(lambda s: _foreign_private_reads(s, "_client") > 0) == set()
+
+    def test_a_close_and_a_private_read_of_the_link_are_found(self) -> None:
+        assert _link_closes("def f(registry):\n    registry.link.close()\n") == 1
+        assert _link_closes("def f(r):\n    r._client.close()\n") == 1
+        assert _link_closes("def f(sock):\n    sock.close()\n") == 0
+        assert (
+            _foreign_private_reads("def f(r):\n    return r._client\n", "_client") == 1
+        )
+        assert (
+            _foreign_private_reads("def f(self):\n    return self._client\n", "_client")
+            == 0
+        )
+
+    def test_the_registry_hands_out_no_link_and_no_lock_and_has_no_subclass(
+        self,
+    ) -> None:
+        public = _public_methods(_source(_HUB + "clients.py"), "ClientRegistry")
+
+        assert "get" not in public
+        assert "lock" not in public
+        assert "asks" in public
+        assert getattr(ClientRegistry, "__final__", False) is True
+
+    def test_the_link_declares_through_its_connect_step_and_keeps_no_declare(
+        self,
+    ) -> None:
+        public = {n for n in vars(DisplayLink) if not n.startswith("_")}
+
+        assert "declare" not in public
+        assert {"connect", "open_as_hub"} <= public
+
+    def test_a_second_declarer_and_a_second_naming_of_the_link_are_found(self) -> None:
+        planted_declare = "def f(clients):\n    clients.link.desk.declare(())\n"
+        planted_connect = "def f(link):\n    link.open_as_hub(m)\n"
+        planted_naming = (
+            "from punt_lux.domain.hub.display_link import DisplayLink as L\n"
+        )
+
+        assert _calls_of(planted_declare, "declare") == 1
+        assert _declaring_connects(planted_connect) == 1
+        assert _declaring_connects("def f(link):\n    link.connect(listen=True)\n") == 0
+        assert "DisplayLink" in _names(planted_naming)
+
+
+class TestTheManifestWriteIsTheDesksAlone:
+    def test_no_writer_has_a_manifest_verb_and_nothing_mentions_one(self) -> None:
+        assert _modules(lambda s: _references(s, "send_manifest") > 0) == set()
+
+    def test_the_manifest_is_built_only_by_the_request_desk(self) -> None:
+        built = _modules(lambda s: _constructions(s, "HubManifestMessage") > 0)
+
+        assert built == {_HUB + "request_desk.py"}
+        desk = _source(_HUB + "request_desk.py")
+        assert _constructions(desk, "HubManifestMessage") == 1
+
+    def test_a_called_a_bound_and_a_stored_manifest_verb_are_all_found(self) -> None:
+        for planted in (
+            "def f(writer):\n    writer.send_manifest(ids)\n",
+            "def f(writer):\n    send = writer.send_manifest\n    send(ids)\n",
+            "def f(self, writer):\n    self._send = writer.send_manifest\n",
+        ):
+            assert _references(planted, "send_manifest") == 1, planted
+
+    def test_a_second_manifest_builder_is_found(self) -> None:
+        planted = "def f(ids):\n    return HubManifestMessage(scene_ids=ids)\n"
+
+        assert _constructions(planted, "HubManifestMessage") == 1
+
+
+class TestOnlyTheDialModelCanHoldADial:
+    def test_the_modules_that_name_a_dial_are_the_dial_models(self) -> None:
+        naming = _modules(lambda s: "DialGeneration" in _names(s))
+
+        assert naming == _DIAL_MODEL
+
+    def test_a_module_that_names_a_dial_in_any_spelling_is_found(self) -> None:
+        for planted in (
+            "from punt_lux.domain.hub.dial_generation import DialGeneration\n",
+            "import punt_lux.domain.hub.dial_generation as g\nx = g.DialGeneration\n",
+            "def f(dial: DialGeneration) -> None:\n    dial.send(None)\n",
+        ):
+            assert "DialGeneration" in _names(planted), planted
+
+
+class TestTheRulesCanFail:
+    def test_a_second_writer_construction_is_counted(self) -> None:
+        planted = "def f(g):\n    return DisplayWriter(g, None, None)\n"
+
+        assert _constructions(planted, "DisplayWriter") == 1
+
+    @pytest.mark.parametrize("name", ["DisplayWriter", "WriteSeat"])
+    def test_an_aliased_construction_is_counted(self, name: str) -> None:
+        for planted in aliased_constructions("punt_lux.domain.hub.x", name):
+            assert _constructions(planted, name) == 1, planted
+
+    def test_a_second_seat_taker_is_found(self) -> None:
+        planted = "def f(clients):\n    return clients.take_writer()\n"
+
+        assert _calls_of(planted, "take_writer") == 1
+
+    def test_a_write_verb_on_the_ask_port_is_found(self) -> None:
+        planted = (
+            "class DisplayRequests:\n"
+            "    def set_menu(self, menus):\n"
+            "        self._generation.send(menus)\n"
+        )
+        asks = set(_public_methods(planted, "DisplayRequests"))
+
+        assert asks & {"set_menu", "send_scene"} == {"set_menu"}
+        assert "send" in _called(_class(planted, "DisplayRequests"))
+
+    def test_a_new_dial_write_enters_the_derived_set(self) -> None:
+        planted = (
+            "class DialGeneration:\n"
+            "    def send_raw(self, data):\n"
+            "        self._sock.sendall(data)\n"
+            "    def send_probe(self, ts):\n"
+            "        return self._sink.expect_pong(ts)\n"
+        )
+        writes = {
+            name
+            for name, fn in _public_methods(planted, "DialGeneration").items()
+            if name.startswith("send") and not _attrs(fn) & _EXPECTATIONS
+        }
+
+        assert writes == {"send_raw"}
+
+    @pytest.mark.parametrize("name", ["DisplayWriter", "WriteSeat"])
+    def test_the_capability_classes_exist_to_be_counted(self, name: str) -> None:
+        assert _class(_source(_HUB + "display_writer.py"), name)

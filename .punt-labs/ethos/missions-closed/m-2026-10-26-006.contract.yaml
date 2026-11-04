@@ -1,0 +1,38 @@
+mission_id: m-2026-10-26-006
+status: failed
+type: implement
+created_at: "2026-10-26T07:05:25Z"
+updated_at: "2026-10-26T13:02:57Z"
+closed_at: "2026-10-26T13:02:57Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-26T07:05:25Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - .tmp/missions/review-r10-silent.md
+        - .tmp/missions/results-r9fix/eval-gvr-r1.md
+        - docs/dial_settlement.tex
+        - src/punt_lux/domain/hub/dial_socket.py
+        - src/punt_lux/domain/hub/dial_generation.py
+        - src/punt_lux/domain/hub/reply_sink.py
+        - src/punt_lux/domain/hub/settler.py
+write_set:
+    - docs/dial_settlement.tex
+    - docs/dial_settlement_coverage.md
+    - docs/dial_settlement_writer_records_display_buggy.tex
+    - docs/dial_settlement_drain_gives_up_buggy.tex
+    - .tmp/missions/results-model-settle-writer/
+success_criteria:
+    - 'Extend the accepted model docs/dial_settlement.tex with the WRITER, which it abstracted away. Work on branch fix/lux-ghhf-details-frame-id in [REDACTED:home]/Coding/punt-labs/lux, in the main checkout; commit there. Round-10 review found that the writer path breaks S5 and A2. Silent F1 (HIGH, .tmp/missions/review-r10-silent.md): a scene write in sendall completes after a Hub request (closing set, no cause recorded). owe_ack then refuses, and _write_failed records ''display'', so a live display is charged a death and the written scene is in neither the ledger nor the carry. Silent F2 / gvr A1: the drain gives up on the socket lock (held by a writer in sendall for up to the send timeout) and reports nothing more while readable acks wait, so acked scenes are charged.'
+    - 'Model the writer as an actor: SendStart takes the socket lock; SendDone puts the bytes on the wire; then OweAck records the scene in the ledger; a send failure is a cause. Model the drain''s lock wait, which may find the lock held. Add two controls. docs/dial_settlement_writer_records_display_buggy.tex is today''s code: a write failure after a Hub request records display, and it must violate S5, or A2 via the gluing. docs/dial_settlement_drain_gives_up_buggy.tex is a drain that, on a held lock, reports no more with acks readable; it must violate the A2 / S2 drain property. Then model the FIX and prove it keeps S1-S5. The fix: (a) the writer''s failure classification treats a pending Hub request as hub; (b) once SendDone happens, OweAck always records unless the sink is captured; (c) a drain that cannot take the lock does not report ''nothing more''. It either waits for the writer (bounded by the send timeout, so the settle waits at most that long) or reports ''incomplete'' so the settler re-drains. Choose whichever the model proves, state the bound, and keep the lock order rq < sl < st < lk < qu.'
+    - 'Update the coverage doc with the new partitions and the tests each needs, as red-first two-thread tests. Run fuzz clean on each file separately. Run probcli one at a time, under 8 GB, with -p MAX_INITIALISATIONS 100. If the fix is unsound, stop and report the counterexample. Commit only the write set, with an explicit git add and the attribution trailer from your session reminder. Do not push, touch src/ or tests/, restore from git, rm, stash, reset, or spawn agents. probcli: [REDACTED:home]/Applications/ProB/probcli. RESULT: .tmp/missions/results-model-settle-writer/<mission-id>.md; submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Writer-path extension of the accepted dial-settlement model (review round
+    10). The implementation follows in rmh's round-10 mission.

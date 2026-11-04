@@ -11,16 +11,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from operator import attrgetter
-from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    Protocol,
+    Self,
+    cast,
+    final,
+    runtime_checkable,
+)
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.domain.ids import SceneId
+from punt_lux.protocol import SceneMessage
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.protocol import Element as ProtocolElement
 
 __all__ = [
     "SceneLayout",
@@ -37,20 +48,7 @@ type SceneLayout = Literal["single", "rows", "columns", "grid"]
 class ScenePusher(Protocol):
     """The one operation the replicator needs from the display connection."""
 
-    def show_async(
-        self,
-        scene_id: str,
-        elements: list[WireElement],
-        *,
-        title: str | None = ...,
-        layout: SceneLayout = ...,
-        frame_id: str,
-        frame_title: str | None = ...,
-        frame_size: tuple[int, int] | None = ...,
-        frame_flags: dict[str, bool] | None = ...,
-        frame_layout: Literal["tab", "stack"] | None = ...,
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = ...,
-    ) -> None:
+    def send_scene(self, message: SceneMessage) -> None:
         """Send a whole scene to the display without waiting for an ack."""
 
 
@@ -71,21 +69,23 @@ class ScenePresentation:
         """Return this presentation with its frame id namespaced to `owner`."""
         return replace(self, frame_id=ConnectionScopedId.compose(owner, self.frame_id))
 
-    def push(
+    def message(
         self,
-        pusher: ScenePusher,
-        scene_id: SceneId,
+        scene_id: SceneId | str,
         elements: Sequence[WireElement],
-        *,
-        # Resolved fresh at send time (like the menu bar), not part of "how
-        # a scene is shown" -- so it is a push-time parameter, never a field
-        # this frozen presentation carries or the registry persists.
-        frame_owner_facts: tuple[tuple[str, str], ...] | None = None,
-    ) -> None:
-        """Resend ``elements`` as the whole scene, with this presentation."""
-        pusher.show_async(
-            str(scene_id),
-            elements=list(elements),
+        ownership: FrameOwnership = UNOWNED,
+    ) -> SceneMessage:
+        """Build the whole-scene message that shows ``elements`` as this presents.
+
+        ``ownership`` is resolved fresh at send time (like the menu bar), not
+        part of "how a scene is shown" -- so it is a parameter here, never a
+        field this frozen presentation carries or the registry persists.
+        """
+        return SceneMessage(
+            id=str(scene_id),
+            # every WireElement root is a member of the protocol Element union;
+            # the cast bridges list invariance.
+            elements=cast("list[ProtocolElement]", list(elements)),
             title=self.title,
             layout=self.layout,
             frame_id=self.frame_id,
@@ -95,8 +95,20 @@ class ScenePresentation:
                 dict(self.frame_flags) if self.frame_flags is not None else None
             ),
             frame_layout=self.frame_layout,
-            frame_owner_facts=frame_owner_facts,
+            frame_owner_facts=ownership.rows,
+            frame_scope_label=ownership.scope_label,
         )
+
+    def push(
+        self,
+        pusher: ScenePusher,
+        scene_id: SceneId,
+        elements: Sequence[WireElement],
+        *,
+        ownership: FrameOwnership,
+    ) -> None:
+        """Resend ``elements`` as the whole scene, with this presentation."""
+        pusher.send_scene(self.message(scene_id, elements, ownership))
 
 
 @final

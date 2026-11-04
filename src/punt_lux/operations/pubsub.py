@@ -11,11 +11,11 @@ from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubs
 from punt_lux.operations.reserved_topics import RESERVED_TOPICS
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.pubsub import PublishRequest
     from punt_lux.operations.ports import HubPorts
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["PubSubOperations"]
 
@@ -25,13 +25,13 @@ class PubSubOperations:
     """Subscribe, unsubscribe, publish, and receive within a caller's scope."""
 
     _hub: Hub
-    _clients: HubClientRegistry
+    _lifecycle: ClientLifecycle
     _ports: HubPorts
-    __slots__ = ("_clients", "_hub", "_ports")
+    __slots__ = ("_hub", "_lifecycle", "_ports")
 
-    def __new__(cls, hub: Hub, clients: HubClientRegistry, ports: HubPorts) -> Self:
+    def __new__(cls, hub: Hub, lifecycle: ClientLifecycle, ports: HubPorts) -> Self:
         self = super().__new__(cls)
-        self._hub, self._clients, self._ports = hub, clients, ports
+        self._hub, self._lifecycle, self._ports = hub, lifecycle, ports
         return self
 
     def subscribe(self, topic: str, *, scope: Scope) -> Subscribed | OpError:
@@ -54,7 +54,7 @@ class PubSubOperations:
         """
         if RESERVED_TOPICS.covers(topic):
             return RESERVED_TOPICS.rejection(topic)
-        self._clients.renew_if_registered(scope.connection_id)
+        self._lifecycle.contact(scope)
         if self._hub.has_writer(scope.connection_id):
             self._hub.unsubscribe(scope.connection_id, Topic(topic))
         return Unsubscribed(topic=topic)
@@ -84,5 +84,5 @@ class PubSubOperations:
 
     def _contact(self, scope: Scope) -> None:
         """Renew the caller's lease and ensure its writer: authenticated contact."""
-        self._clients.renew_if_registered(scope.connection_id)
-        self._ports.ensure_writer(scope.connection_id)
+        self._lifecycle.contact(scope)
+        self._ports.ensure_writer(scope.connection_id, scope.client_host)

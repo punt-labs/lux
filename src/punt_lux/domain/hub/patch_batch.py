@@ -58,7 +58,7 @@ class PatchBatch:
         # entry order lost — the cross-entry form of the within-a-patch exclusivity.
         conflict = next(iter(merged.keys() & removals.keys()), None)
         if conflict is not None:
-            raise MalformedPatchError(
+            raise MalformedPatchError.of(
                 conflict, "id is both set and removed across patch entries"
             )
         return cls(tuple(starmap(FieldPatch, merged.items())), tuple(removals))
@@ -68,14 +68,16 @@ class PatchBatch:
         """Return the wire entry as a mapping, or raise before any field lookup."""
         if isinstance(patch, Mapping):
             return cast("Mapping[str, object]", patch)
-        raise MalformedPatchError(None, f"patch entry must be a mapping, not {patch!r}")
+        raise MalformedPatchError.of(
+            None, f"patch entry must be a mapping, not {patch!r}"
+        )
 
     @staticmethod
     def _require_id(patch: Mapping[str, object]) -> ElementId:
         """Return the patch's ``id``, or raise if it is not a non-empty string."""
         raw = patch.get("id")
         if not isinstance(raw, str) or not raw:
-            raise MalformedPatchError(
+            raise MalformedPatchError.of(
                 None, f"patch 'id' must be a non-empty string, not {raw!r}"
             )
         return ElementId(raw)
@@ -90,11 +92,11 @@ class PatchBatch:
         if not remove:
             return False
         if remove is not True:
-            raise MalformedPatchError(
+            raise MalformedPatchError.of(
                 element_id, f"'remove' must be the boolean true, not {remove!r}"
             )
         if patch.get("set") is not None:
-            raise MalformedPatchError(
+            raise MalformedPatchError.of(
                 element_id,
                 "patch specifies both a truthy 'remove' and a 'set'; "
                 "they are mutually exclusive",
@@ -108,7 +110,7 @@ class PatchBatch:
         """Return the patch's ``set`` mapping or raise on a non-mapping value."""
         fields = patch.get("set")
         if not isinstance(fields, Mapping):
-            raise MalformedPatchError(
+            raise MalformedPatchError.of(
                 element_id,
                 "patch carries neither a truthy 'remove' nor a 'set' mapping",
             )

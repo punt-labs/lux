@@ -32,13 +32,15 @@ from typing import Self, final
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenu
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ClientId, ElementId, SceneId, Topic
@@ -83,37 +85,18 @@ class _HubSink:
         self._hub.publish(_CONN, Topic(topic), payload)
 
 
-@final
-class _MenuFlag:
-    """A DirtyMarker recording the menu re-pushes a teardown triggers."""
-
-    _menus: int
-    __slots__ = ("_menus",)
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._menus = 0
-        return self
-
-    def mark_dirty(self, scene_id: SceneId) -> None:
-        raise AssertionError("the listen leg must never mark a scene dirty")
-
-    def mark_menus(self) -> None:
-        self._menus += 1
-
-    @property
-    def pushes(self) -> int:
-        return self._menus
-
-
-def _wired() -> tuple[TestClient, Hub, HubClientRegistry, CallbackRouter]:
+def _wired() -> tuple[
+    TestClient, Hub, HubClientRegistry, CallbackRouter, ClientLifecycle
+]:
     """Mount the production listen transport over fresh domain objects."""
-    hub, clients = Hub(), HubClientRegistry()
-    display = HubDisplay(hub=hub)
+    hub = Hub()
+    factory = HubStoreFactory(hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, clients, display, router, _MenuFlag()).mount(app)
-    return TestClient(app), hub, clients, router
+    HubListenTransport(hub, lifecycle, router).mount(app)
+    return TestClient(app), hub, clients, router, lifecycle
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -159,12 +142,12 @@ class _SilentLeg:
 
 
 def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
-    _client, _hub, clients, _router = _wired()
+    _client, _hub, clients, _router, lifecycle = _wired()
     # voxd connects: identity and listen leg in one write, as the /ws route does.
     leg = _SilentLeg()
-    clients.attach_listener(_CONN, _IDENTITY, leg)
-    outcome = clients.register_callback(
-        _CONN, SessionCallback(id="music", label="Music"), leg
+    lifecycle.attach(_CONN, _IDENTITY, leg, UNOBSERVED)
+    outcome = lifecycle.register_callback(
+        _CONN, SessionCallback(id="music", label="Music"), UNOBSERVED
     )
     assert outcome == "registered"
 
@@ -184,7 +167,7 @@ def test_the_music_build_shows_one_voxd_submenu_with_a_music_leaf() -> None:
 
 
 def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
-    client, _hub, clients, router = _wired()
+    client, _hub, _clients, router, lifecycle = _wired()
     leaf_id = CallbackInvocation(_CONN, "music").menu_id
 
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
@@ -192,10 +175,8 @@ def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
         # Registration happens from the live connection, which is what an app's
         # on_connect hook does: a leg taking the slot clears what the last one
         # owned, so entries registered before connecting would not survive it.
-        leg = clients.listener_of(_CONN)
-        assert leg is not None
-        registration = clients.register_callback(
-            _CONN, SessionCallback(id="music", label="Music"), leg
+        registration = lifecycle.register_callback(
+            _CONN, SessionCallback(id="music", label="Music"), UNOBSERVED
         )
         assert registration == "registered"
         # The display-less stand-in for a leaf click: the exact route() call the
@@ -205,13 +186,13 @@ def test_a_music_leaf_click_reaches_voxds_live_websocket() -> None:
 
 
 def test_a_stale_leaf_click_after_the_session_is_gone_fails_gracefully() -> None:
-    _client, _hub, _clients, router = _wired()
+    _client, _hub, _clients, router, _lifecycle = _wired()
     # No session was ever recorded for _CONN, so its leaf id resolves to nobody.
     assert router.route(CallbackInvocation(_CONN, "music")) == "provider_gone"
 
 
 def test_a_play_row_publish_button_reaches_voxds_music_subscriber() -> None:
-    client, hub, _clients, _router = _wired()
+    client, hub, _clients, _router, _lifecycle = _wired()
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready
         ws.send_json({"kind": "subscribe", "topics": ["music.play"]})

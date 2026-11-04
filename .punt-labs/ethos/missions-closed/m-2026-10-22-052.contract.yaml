@@ -1,0 +1,45 @@
+mission_id: m-2026-10-22-052
+status: closed
+type: implement
+created_at: "2026-10-22T22:50:32Z"
+updated_at: "2026-10-23T02:08:54Z"
+closed_at: "2026-10-23T02:08:54Z"
+leader: claude
+worker: gvr
+evaluator:
+    handle: rmh
+    pinned_at: "2026-10-22T22:50:32Z"
+    hash: 136239bc638e8bac4acb8bc9ce38b35b457b525291976893ac067f0d29f71d0b
+inputs:
+    files:
+        - docs/architecture/connection-rung-design.md
+        - .tmp/missions/results/m-2026-10-22-049-eval.md
+        - docs/WORKFLOW.md
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - docs/architecture/connection-rung-design.md
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results/
+success_criteria:
+    - 'IMPLEMENT THE ACCEPTED DESIGN: docs/architecture/connection-rung-design.md at 7e5958b4 (DES-100, always-on connection rung; DES-099 host rows). Design mission m-2026-10-22-049 is closed as pass. If implementation reveals a design gap, STOP and report it.'
+    - 'FOLD IN rmh''s findings 1-12 from .tmp/missions/results/m-2026-10-22-049-eval.md, with these leader rulings. F1: render_loop.py may change by at most two argument-only lines (OwnMenus and DockBar); it gains no logic. F2: a frame''s scope label is replaced only by a non-None value; only of_empty_push takes the Hub''s absence. Add the test that closing the oldest tab of a multi-scene frame keeps the label. F3: commit 1 is the connection_ambiguous removal and the connection_shown rename, which carries the ratchet improvement. F4: FrameOwnership goes in its own module, with PY-TS-14 comments. F5: no peer parameter on HubListenSession; read self._ws.client. F6: a lazily cached hub host on Hub, not a HubPorts field or a new ClientListing argument. F7: extract the uvicorn Config build from serve() and assert proxy_headers is False. F8: specify the MCP peer binding; the default peer is None, rendered as unknown; cover the subscribe_tools Scope builder. F9: specify the release return shape and dedupe to scene ids. F10: SessionWrite.identified is true when identity OR peers changed. F11: new HubClient fields are defaulted, plus a DES-087 parity test line. F12: peers is a property over a private slot; Scope.peer_host gets a PY-TS-14 comment; keep the multi-host tuple as ruled and add nothing further.'
+    - 'LEADER RULINGS ALREADY MADE: the hub host is built on the Hub; Scope.peer_host is a defaulted compare=False field; luxd sets proxy_headers=False; no new ADR.'
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim: Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RATCHET PROCEDURE: when make check fails only on within-cap ratchet regressions caused by the design, stop before committing. Report every metric movement exactly, including any file reported only as out of date. The leader blesses, then you re-run make check and commit. Over-cap means stop and redesign.'
+    - Tests lead. Every behavior gets happy, invalid, boundary and missing-dependency tests. The test count must not drop. Commit incrementally in the design's order (with F3's reorder), one logical step per commit. git add <file> explicitly, never -A or -a. Do not touch .envrc, .claude/, .github/, .punt-labs/, DESIGN.md, CHANGELOG.md or system.tex; the leader writes those.
+    - 'RESULT: write .tmp/missions/results/m-<id>.md and submit with ethos mission result. Include the SHAs, the saved make check file and summary line per commit, every audit line appended (verbatim), and any regression you stopped on.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 2
+context: |
+    IMPLEMENTATION MISSION for bead lux-xrli and the DES-099 host amendment, on
+    branch fix/lux-ghhf-details-frame-id. gvr implements and rmh evaluates.
+    The operator's bar is good SOLID OO with metrics as signals, and they
+    dislike hacks and over-engineering equally. The leader re-runs make check
+    and audits the ratchet diff on every commit.

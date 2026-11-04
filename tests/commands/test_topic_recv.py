@@ -11,7 +11,7 @@ from punt_lux.operations.models.pubsub import BusEvent, Received
 from tests.commands._family_stubs import StubTopicOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def test_empty_inbox_renders_none() -> None:

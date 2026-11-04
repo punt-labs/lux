@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 from punt_lux.trust import CertificateAuthority
 
 
@@ -112,7 +113,7 @@ class TestTlsDrain:
 
             ClientReader._drain_tls_backlog(srv, reader)
 
-            drained = list(reader.drain_typed())
+            drained = reader.drain_typed(CLIENT_VOCABULARY)
             assert [m.id for m in drained if isinstance(m, SceneMessage)] == ["s"]
         finally:
             client.close()
@@ -196,3 +197,28 @@ class TestRemovalPaths:
         sock = _inject(listener, _FakeSock(fd=503, data=bad))
         listener._reader.read(sock)
         assert sock not in listener.clients
+
+
+class TestAHandlerThatRaises:
+    def test_a_message_whose_handling_raises_severs_the_client(self) -> None:
+        errors: list[str] = []
+
+        def explode(_sock: object, _msg: object) -> None:
+            raise RuntimeError("scene handling failed before its ack")
+
+        listener = SocketListener(
+            SocketListenerCallbacks(
+                on_message=explode,
+                on_client_disconnected=lambda _fd: None,
+                on_error=lambda sev, _m, _c: errors.append(sev),
+            )
+        )
+        scene = SceneMessage(
+            id="s", elements=[TextElement(id="t", content="hi")], frame_id="s"
+        )
+        sock = _inject(listener, _FakeSock(fd=504, data=encode_message(scene)))
+
+        listener._reader.read(sock)  # must not raise
+
+        assert sock not in listener.clients
+        assert errors == ["error"]

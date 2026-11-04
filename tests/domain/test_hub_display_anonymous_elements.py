@@ -19,7 +19,9 @@ import pytest
 from punt_lux.domain.element import Element
 from punt_lux.domain.hub.element_index import ElementIndex
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.domain.update import RemoveElement
 from punt_lux.protocol.elements import (
     SeparatorElement,
@@ -78,12 +80,13 @@ def test_anonymous_children_get_distinct_keys() -> None:
 
 def _show(hub: HubDisplay, *roots: SeparatorElement | TextElement) -> None:
     """Replace the scene with ``roots`` through the authoritative Hub path."""
-    hub.replace_scene(_CONN, _SCENE, roots)
+    hub.replace_scene(Scope.in_process(_CONN), _SCENE, roots)
 
 
 def test_multiple_separators_survive_install() -> None:
     """Two separators around a named element all land as ordered roots."""
-    hub = HubDisplay()
+    factory = HubStoreFactory()
+    hub = factory.display
     sep_top = SeparatorElement()
     text = TextElement(id="a", content="one")
     sep_bottom = SeparatorElement()
@@ -100,7 +103,8 @@ def test_both_separators_survive_a_re_push() -> None:
     ``scene_roots`` is what the interaction re-push resends; reading it twice
     must return both separators, not a single merged one.
     """
-    hub = HubDisplay()
+    factory = HubStoreFactory()
+    hub = factory.display
     sep_top = SeparatorElement()
     sep_bottom = SeparatorElement()
 
@@ -120,7 +124,8 @@ def test_re_show_does_not_accumulate_separators() -> None:
     re-show's owned-root cleanup clears the prior separators before installing
     the new ones — the root count stays flat across repeated shows.
     """
-    hub = HubDisplay()
+    factory = HubStoreFactory()
+    hub = factory.display
 
     _show(hub, SeparatorElement(), TextElement(id="a", content="1"), SeparatorElement())
     _show(hub, SeparatorElement(), TextElement(id="a", content="2"), SeparatorElement())
@@ -133,14 +138,18 @@ def test_re_show_does_not_accumulate_separators() -> None:
 
 def test_named_lookup_and_removal_unaffected_by_anonymous_repeats() -> None:
     """Removing the named element leaves both separators intact."""
-    hub = HubDisplay()
+    factory = HubStoreFactory()
+    hub = factory.display
     sep_top = SeparatorElement()
     sep_bottom = SeparatorElement()
     _show(hub, sep_top, TextElement(id="a", content="one"), sep_bottom)
 
     assert hub.resolve(_SCENE, ElementId("a")).id == "a"
 
-    hub.apply(_CONN, RemoveElement(scene_id=_SCENE, element_id=ElementId("a")))
+    hub.apply(
+        Scope.in_process(_CONN),
+        RemoveElement(scene_id=_SCENE, element_id=ElementId("a")),
+    )
 
     with pytest.raises(UnknownElementError):
         hub.resolve(_SCENE, ElementId("a"))

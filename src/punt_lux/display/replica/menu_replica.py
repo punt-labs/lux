@@ -75,6 +75,10 @@ class MenuReplica:
         """Take one Hub's ``Clients`` submenus."""
         self._menus.replace_callback_menus(payloads, hub)
 
+    def inventory_report(self, **_kwargs: object) -> dict[str, Any]:
+        """Every menu line held, as the ``list_menus`` query reports it."""
+        return self._menus.inventory_report()
+
     def forget_hub(self, hub: HubId) -> None:
         """Retire a departed Hub's agent and callback menus -- no stale entry."""
         self._menus.forget_hub(hub)

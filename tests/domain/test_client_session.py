@@ -82,11 +82,6 @@ def test_the_lease_term_reported_is_the_effective_one_not_the_declared() -> None
     assert ClientSession(0.0).with_identity(app).lease_term == PermanentLease()
 
 
-def test_declared_repo_is_the_identity_repo_or_none() -> None:
-    assert ClientSession(0.0).declared_repo is None  # unidentified
-    assert ClientSession(0.0).with_identity(_cli()).declared_repo == "/w/lux"
-
-
 def test_age_never_goes_negative_under_a_backward_clock_step() -> None:
     session = ClientSession(100.0)
     # A monotonic reading behind the stamp (a stepped clock) still reads zero.

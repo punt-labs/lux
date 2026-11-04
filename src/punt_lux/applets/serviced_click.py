@@ -28,6 +28,7 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
@@ -92,6 +93,8 @@ class ServicedClick:
             self._worked(client)
         except HubUnavailableError as exc:
             logger.warning("this click rendered nothing — luxd unreachable: %s", exc)
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("servicing a click failed; the leg stays up")
         finally:

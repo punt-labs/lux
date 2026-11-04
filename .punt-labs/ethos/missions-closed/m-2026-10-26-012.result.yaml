@@ -1,0 +1,51 @@
+mission: m-2026-10-26-012
+round: 2
+created_at: "2026-10-26T16:16:07Z"
+author: jms
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/dial_settlement.tex
+      added: 56
+      removed: 25
+    - path: docs/dial_settlement_coverage.md
+      added: 27
+      removed: 12
+    - path: docs/dial_settlement_drain_gives_up_buggy.tex
+      added: 36
+      removed: 21
+    - path: docs/dial_settlement_drain_no_late_buggy.tex
+      added: 36
+      removed: 21
+    - path: docs/dial_settlement_stop_no_request_buggy.tex
+      added: 36
+      removed: 21
+    - path: docs/dial_settlement_unbounded_write_buggy.tex
+      added: 36
+      removed: 21
+    - path: docs/dial_settlement_writer_owe_refused_buggy.tex
+      added: 36
+      removed: 21
+    - path: docs/dial_settlement_writer_records_display_buggy.tex
+      added: 32
+      removed: 17
+    - path: docs/dial_settlement_writer_split_record_buggy.tex
+      added: 36
+      removed: 18
+evidence:
+    - name: 'F1: rule 7d, the KPing prose and the constants paragraph bound every write under the socket lock (send_scene, send_ping, send_query, send) with one deadline D; a ping or query has one D for lock wait plus write; KPing stated sound only under that obligation; applied to the design and the seven controls'
+      status: pass
+    - name: 'F1: coverage partition P27 (keepalive ping the first write to stall) with red-first test names'
+      status: pass
+    - name: 'F2: design WRec flag drops the false hubreq = fset disjunct; S5 writer clause stated structural; writer_split_record keeps it live (header notes it is observation only); one line why no re-run (a false disjunct changes no transition)'
+      status: pass
+    - name: 'Advisories: drain_no_late called a defence control; direct argument for writer_owe_refused''s round-4 s5bad result'
+      status: pass
+    - name: fuzz clean on each of the nine changed .tex files separately; markdownlint 0 issues on the coverage doc; Z-paragraph diff of every control against the design shows only its stated mutation
+      status: pass
+open_questions:
+    - writer_owe_refused's round-4 result stands by a direct structural argument (only WRec sets s5bad; the refused ack requires a cause or a request, neither clears while current), not by the trace-carrying argument jra cited, which preserves reachability and not unreachability.
+    - 'No probcli re-runs this round: every change is prose, or the removal of a disjunct false wherever it is evaluated.'
+prose: |
+    Commit a98d8d66. F1 and F2 folded in, plus both advisories. The Z content of the design and every
+    control is unchanged in effect.

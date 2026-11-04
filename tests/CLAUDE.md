@@ -205,7 +205,11 @@ confirmation before calling the element done.
 
 **Unix socket paths** — macOS limits socket paths to ~104 characters.
 Use `tempfile.mkdtemp(prefix="lux-")` for temporary socket paths, not
-pytest's `tmp_path` (which produces long paths that exceed the limit).
+pytest's `tmp_path` (which produces long paths that exceed the limit). The
+autouse fixtures in `tests/conftest.py` point `TMPDIR` at a per-test directory
+that is removed when the test ends, so no test removes its own; a `lux-*`
+directory still present when the session ends (made by a module- or
+session-scoped fixture) fails the run.
 
 **No skipping without a reason.** `@pytest.mark.skip` and
 `@pytest.mark.xfail` must include a `reason=` and a bead ID for the fix.

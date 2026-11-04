@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
@@ -92,6 +94,8 @@ class DepartureSinks:
         for sink in self._sinks.pop(connection_id, ()):
             try:
                 sink(connection_id)
+            except ProgrammerError:
+                raise
             except Exception:
                 logger.exception(
                     "Departure sink failed for connection %s", connection_id

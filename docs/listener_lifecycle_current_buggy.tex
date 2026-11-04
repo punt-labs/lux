@@ -1,0 +1,470 @@
+%
+% listener_lifecycle_current_buggy.tex
+%
+% FIDELITY CONTROL for docs/listener_lifecycle.tex: the code as it stands at
+% 40d3373f (listener_thread.py, display_replies.py, display_connection.py,
+% inbound_router.py, display_link.py).  It differs from the fixed model at:
+%
+%  - ONE reply queue shared across reconnects: a reply is queued whatever its
+%    generation (RouteShared) and the caller takes any reply (ConsumeAny);
+%  - a caller waits on that queue after a send, whatever generation it sent on
+%    (AwaitShared: send and wait are two calls, nothing passes the generation);
+%  - a report is `end`: it closes the current connection if it is open,
+%    whatever generation the reporter read (BrokenWrong);
+%  - the stopping flag is tested at the top of the loop only, so a reader
+%    needs no permission to route or report (steps need only a live thread;
+%    an abandoned thread leaves only when its buffer is empty);
+%  - a reader reads through DisplayConnection.require(), that is, the socket
+%    held NOW, whatever socket it started on (FeedCurrent);
+%  - a timed-out request leaves its generation in service (TimeoutPlain);
+%  - start() abandons a live thread without retiring its socket (no fourth
+%    guard on StartListener), and close() need not follow a stop.
+%
+% Expected: L1 to L6 all VIOLATED, L4a and L3 by paths the public API admits.
+% The production path is listener_lifecycle_production_buggy.tex.
+%
+% Goals (negations of the invariants; see listener_lifecycle.tex):
+%   L1 (qrep /= {} & (held = fclear or {r | r:qrep & rgen(r) /= curGen} /= {}))
+%        or (cstate = cwait & (held = fclear or rgen(creq) /= curGen))
+%   L2 held = fclear & curGen > 0 & curGen /: (broken \/ deliberate)
+%   L3 afterStop(ta) > 1 or afterStop(tb) > 1
+%   L4a lst(ta) /= lexit & lst(tb) /= lexit & lgen(ta) = lgen(tb)
+%   L4b {r | r:bufr(ta) & rgen(r) /= lgen(ta)} /= {}
+%        or {r | r:bufr(tb) & rgen(r) /= lgen(tb)} /= {}
+%   L5 crossGen = fset      L6 crossReq = fset
+% Check:  fuzz FILE ; probcli FILE -model_check -nodead -p DEFAULT_SETSIZE 2 \
+%           -p MAX_OPERATIONS 200 -goal "<negation>"
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Listener Lifecycle: the Code as It Stands}
+\author{Fidelity control for listener\_lifecycle.tex}
+\date{October 2026}
+\maketitle
+
+\section{Constants and Free Types}
+
+\begin{axdef}
+  maxGen : \nat \\
+  maxReq : \nat \\
+  maxBuf : \nat
+\where
+  maxGen = 3 \\
+  maxReq = 2 \\
+  maxBuf = 1
+\end{axdef}
+
+\begin{zed}
+  T ::= ta | tb
+\end{zed}
+
+\begin{zed}
+  LST ::= lexit | lrun | lstop
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  CST ::= cidle | csent | cwait
+\end{zed}
+
+\section{State}
+
+\begin{schema}{Conn}
+  curGen : \nat \\
+  held : FSTATE
+\where
+  curGen \leq maxGen \\
+  held = fset \implies curGen > 0
+\end{schema}
+
+\begin{schema}{Req}
+  nreq : \nat \\
+  creq : \nat \\
+  cstate : CST \\
+  rgen : (0 \upto maxReq) \fun (0 \upto maxGen) \\
+  owed : \power \nat \\
+  qrep : \power \nat
+\where
+  nreq \leq maxReq \\
+  creq \leq maxReq \\
+  owed \subseteq 1 \upto maxReq \\
+  qrep \subseteq 1 \upto maxReq
+\end{schema}
+
+\begin{schema}{Thr}
+  lst : T \fun LST \\
+  lgen : T \fun \nat \\
+  armed : T \fun FSTATE \\
+  bufr : T \fun (\power \nat) \\
+  afterStop : T \fun \nat
+\where
+  \forall t : T \spot lgen~t \leq maxGen \land \# (bufr~t) \leq maxBuf
+    \land bufr~t \subseteq 1 \upto maxReq \land afterStop~t \leq maxBuf + 1
+\end{schema}
+
+\begin{schema}{Hist}
+  broken : \power \nat \\
+  deliberate : \power \nat \\
+  crossGen : FSTATE \\
+  crossReq : FSTATE
+\where
+  broken \subseteq 0 \upto maxGen \\
+  deliberate \subseteq 0 \upto maxGen
+\end{schema}
+
+\begin{schema}{LL}
+  Conn \\
+  Req \\
+  Thr \\
+  Hist
+\end{schema}
+
+\begin{schema}{Init}
+  LL'
+\where
+  curGen' = 0 \\
+  held' = fclear \\
+  nreq' = 0 \\
+  creq' = 0 \\
+  cstate' = cidle \\
+  \forall i : 0 \upto maxReq \spot rgen'~i = 0 \\
+  owed' = \emptyset \\
+  qrep' = \emptyset \\
+  lst' = \{ ta \mapsto lexit, tb \mapsto lexit \} \\
+  lgen' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  armed' = \{ ta \mapsto fclear, tb \mapsto fclear \} \\
+  bufr' = \{ ta \mapsto \emptyset, tb \mapsto \emptyset \} \\
+  afterStop' = \{ ta \mapsto 0, tb \mapsto 0 \} \\
+  broken' = \emptyset \\
+  deliberate' = \emptyset \\
+  crossGen' = fclear \\
+  crossReq' = fclear
+\end{schema}
+
+\section{Operations}
+
+\begin{schema}{Dial}
+  \Delta LL \\
+  \Xi Req \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  held = fclear \\
+  curGen < maxGen \\
+  curGen' = curGen + 1 \\
+  held' = fset
+\end{schema}
+
+\begin{schema}{Close}
+  \Delta LL \\
+  \Xi Thr
+\where
+  held = fset \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  (cstate = cwait \implies cstate' = cidle) \\
+  (cstate \neq cwait \implies cstate' = cstate) \\
+  deliberate' = deliberate \cup \{ curGen \} \\
+  broken' = broken \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq
+\end{schema}
+
+\begin{schema}{Send}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = cidle \\
+  held = fset \\
+  nreq < maxReq \\
+  nreq' = nreq + 1 \\
+  creq' = nreq + 1 \\
+  rgen' = rgen \oplus \{ nreq + 1 \mapsto curGen \} \\
+  owed' = owed \cup \{ nreq + 1 \} \\
+  qrep' = qrep \\
+  cstate' = csent
+\end{schema}
+
+\begin{schema}{AwaitShared}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = csent \\
+  held = fset \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  qrep' = qrep \\
+  cstate' = cwait
+\end{schema}
+
+\begin{schema}{AwaitFailClosed}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = csent \\
+  held = fclear \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  qrep' = qrep \\
+  cstate' = cidle
+\end{schema}
+
+\begin{schema}{ConsumeAny}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  r? : 1 \upto maxReq
+\where
+  cstate = cwait \\
+  r? \in qrep \\
+  qrep' = qrep \setminus \{ r? \} \\
+  cstate' = cidle \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  (rgen~r? \neq rgen~creq \implies crossGen' = fset) \\
+  (rgen~r? = rgen~creq \implies crossGen' = crossGen) \\
+  (r? \neq creq \implies crossReq' = fset) \\
+  (r? = creq \implies crossReq' = crossReq)
+\end{schema}
+
+\begin{schema}{TimeoutPlain}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Thr \\
+  \Xi Hist
+\where
+  cstate = cwait \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  qrep' = qrep \\
+  cstate' = cidle
+\end{schema}
+
+\begin{schema}{StartListener}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lexit \\
+  held = fset \\
+  \forall u : T \spot lst~u \neq lrun \\
+  lst' = lst \oplus \{ t? \mapsto lrun \} \\
+  lgen' = lgen \oplus \{ t? \mapsto curGen \} \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \oplus \{ t? \mapsto \emptyset \} \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\begin{schema}{FeedCurrent}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  lst~t? \neq lexit \\
+  held = fset \\
+  r? \in owed \\
+  rgen~r? = curGen \\
+  \# (bufr~t?) < maxBuf \\
+  owed' = owed \setminus \{ r? \} \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \cup \{ r? \} \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  qrep' = qrep \\
+  cstate' = cstate \\
+  lst' = lst \\
+  lgen' = lgen \\
+  armed' = armed \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{StopJoined}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{StopTimeout}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lrun \\
+  lst' = lst \oplus \{ t? \mapsto lstop \} \\
+  lgen' = lgen \\
+  armed' = armed \\
+  bufr' = bufr \\
+  afterStop' = afterStop \oplus \{ t? \mapsto 0 \}
+\end{schema}
+
+\begin{schema}{ExitStopped}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? = lstop \\
+  bufr~t? = \emptyset \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  lgen' = lgen \\
+  armed' = armed \oplus \{ t? \mapsto fclear \} \\
+  bufr' = bufr \\
+  afterStop' = afterStop
+\end{schema}
+
+\begin{schema}{RouteShared}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Hist \\
+  t? : T \\
+  r? : 1 \upto maxReq
+\where
+  lst~t? \neq lexit \\
+  r? \in bufr~t? \\
+  qrep' = qrep \cup \{ r? \} \\
+  armed' = armed \\
+  bufr' = bufr \oplus \{ t? \mapsto bufr~t? \setminus \{ r? \} \} \\
+  lst' = lst \\
+  lgen' = lgen \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  owed' = owed \\
+  cstate' = cstate \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{BrokenOwn}
+  \Delta LL \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fset \\
+  lgen~t? = curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  (cstate = cwait \implies cstate' = cidle) \\
+  (cstate \neq cwait \implies cstate' = cstate) \\
+  broken' = broken \cup \{ curGen \} \\
+  deliberate' = deliberate \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{BrokenWrong}
+  \Delta LL \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fset \\
+  lgen~t? \neq curGen \\
+  held' = fclear \\
+  curGen' = curGen \\
+  qrep' = \emptyset \\
+  owed' = \{ r : owed | rgen~r \neq curGen \} \\
+  nreq' = nreq \\
+  creq' = creq \\
+  rgen' = rgen \\
+  (cstate = cwait \implies cstate' = cidle) \\
+  (cstate \neq cwait \implies cstate' = cstate) \\
+  broken' = broken \\
+  deliberate' = deliberate \\
+  crossGen' = crossGen \\
+  crossReq' = crossReq \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{BrokenQuiet}
+  \Delta LL \\
+  \Xi Conn \\
+  \Xi Req \\
+  \Xi Hist \\
+  t? : T
+\where
+  lst~t? \neq lexit \\
+  held = fclear \\
+  lst' = lst \oplus \{ t? \mapsto lexit \} \\
+  armed' = armed \\
+  lgen' = lgen \\
+  bufr' = bufr \\
+  (lst~t? = lstop \implies
+    afterStop' = afterStop \oplus \{ t? \mapsto afterStop~t? + 1 \}) \\
+  (lst~t? \neq lstop \implies afterStop' = afterStop)
+\end{schema}
+
+\begin{schema}{Halt}
+  \Xi LL
+\where
+  curGen = maxGen \\
+  held = fclear \\
+  cstate = cidle \\
+  \forall u : T \spot lst~u = lexit
+\end{schema}
+
+\end{document}

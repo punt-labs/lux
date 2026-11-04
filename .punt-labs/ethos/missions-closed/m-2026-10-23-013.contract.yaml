@@ -1,0 +1,42 @@
+mission_id: m-2026-10-23-013
+status: closed
+type: implement
+created_at: "2026-10-23T05:37:43Z"
+updated_at: "2026-10-23T19:50:06Z"
+closed_at: "2026-10-23T19:50:06Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T05:37:43Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/review-r2-findings.md
+        - docs/menu_presence.tex
+        - docs/WORKFLOW.md
+        - DESIGN.md
+write_set:
+    - src/punt_lux/
+    - tests/
+    - docs/menu_presence.tex
+    - docs/menu_presence_coverage.md
+    - .oo-baseline.json
+    - .oo-audit.jsonl
+    - .oo-coupling-baseline.json
+    - .oo-coupling-audit.jsonl
+    - .tmp/missions/results-r2fix/
+success_criteria:
+    - 'FIX EVERY FINDING in .tmp/missions/review-r2-findings.md on branch fix/lux-ghhf-details-frame-id, in [REDACTED:local-path]. Order: S-1 (security) first, then the presence group (P-1a..P-1d, P-2), the host group (H-1, H-2), the bd group (B-1..B-3), the listener group (L-1..L-6), types (T-1..T-7), guards (G-1..G-3), docstrings (C-1, C-2), model prose (M-1..M-4). Each finding is fixed by giving the responsibility to the right object. If a finding is wrong on reading the code, do not fix it: report the exact finding, the specific reason and file:line evidence. S-1 changes nothing about the wire format; the Display-side pickle is bead lux-i3uo.'
+    - Presence changes must keep docs/menu_presence.tex true. P-1c strengthens the code beyond the model's abstraction (entries compared); if any presence change is not covered by the accepted model, stop and report before implementing it.
+    - Tests lead; every bug fix starts from a failing test (S-1, P-1a, P-1d, P-2, H-1, B-1, B-2, L-1, L-2, L-4, G-2 at least). The test count never drops. One finding group per commit, explicit git add (git add -N new files before make check).
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RATCHET PROCEDURE: find regressions with make check and `python tools/oo_coupling.py src/punt_lux/ --check`; stop and report the exact rows; the leader blesses; run update-* only once clean or blessed. Over-cap means redesign. make test-integration on every commit. Never run gui/e2e tests that open windows. Do not touch DESIGN.md, CHANGELOG.md, docs/ outside the two model docs, .envrc, .claude/, .github/ or .punt-labs/. RESULT: .tmp/missions/results-r2fix/m-<id>.md, submit with ethos mission result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 2
+context: |
+    REVIEW-FIX MISSION for local review round 2 on the lux-ghhf / lux-xrli branch.
+    rmh fixes, gvr evaluates; djb reviews the S-1 security fix separately. The
+    leader audits the ratchet diff and runs the gates on every commit.

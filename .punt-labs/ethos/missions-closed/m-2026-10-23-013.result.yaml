@@ -1,0 +1,77 @@
+mission: m-2026-10-23-013
+round: 2
+created_at: "2026-10-23T19:43:37Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 2
+      removed: 0
+    - path: .oo-baseline.json
+      added: 11
+      removed: 24
+    - path: .oo-coupling-audit.jsonl
+      added: 2
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 7
+      removed: 14
+    - path: docs/menu_presence.tex
+      added: 3
+      removed: 3
+    - path: src/punt_lux/domain/hub/callback_key.py
+      added: 0
+      removed: 24
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 9
+      removed: 14
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 27
+      removed: 14
+    - path: src/punt_lux/domain/hub/interaction_handlers.py
+      added: 23
+      removed: 50
+    - path: src/punt_lux/domain/scope.py
+      added: 8
+      removed: 0
+    - path: tests/domain/test_hub_clients.py
+      added: 6
+      removed: 6
+    - path: tests/domain/test_hub_replicator.py
+      added: 33
+      removed: 0
+    - path: tests/domain/test_inbound_router.py
+      added: 1
+      removed: 2
+    - path: tests/domain/test_interaction_handlers.py
+      added: 13
+      removed: 84
+    - path: tests/domain/test_presence_writes_only_through_lifecycle.py
+      added: 1
+      removed: 1
+    - path: tests/domain/test_scope_provenance.py
+      added: 12
+      removed: 1
+    - path: tests/operations/test_canonical_frame_owner.py
+      added: 1
+      removed: 1
+    - path: tests/test_client_registry.py
+      added: 4
+      removed: 5
+evidence:
+    - name: 'make check, final run (.tmp/check.txt): exit 0, 6617 passed, ruff/mypy/pyright/markdownlint/OO/coupling/suppression ratchets green'
+      status: pass
+    - name: 'make test-integration after the last source commit: 92 passed'
+      status: pass
+    - name: 'fuzz docs/menu_presence.tex (run in docs/): exit 0, no output'
+      status: pass
+    - name: 'flake test_a_junior_scene_moving_out_leaves_the_frames_owner: cause is an unlocked read of the fake sender''s parallel lists (torn read in the test double); fixed with a locked sent_count(); 100+ runs under load green, failure itself never reproduced'
+      status: pass
+    - name: round-2 ratchet rows blessed by the leader before update-oo/update-coupling; no bless run by the worker
+      status: pass
+open_questions:
+    - The flake was not reproduced before the fix (40 runs with 6 spinners, 60 with 16 spinners plus a concurrent make test, all green); the diagnosis is from reading send_scene and collect, backed by a lock-blocking test.
+    - docs/listen_lifecycle_coverage.md:105 and docs/menu_presence_locks*.tex comment lines still carry stale names; outside the write set.
+prose: |
+    Result file: .tmp/missions/results-r2fix/m-2026-10-23-013.md, section "Round 2".

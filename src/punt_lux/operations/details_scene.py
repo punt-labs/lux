@@ -4,9 +4,8 @@ Everything about how a client's connection state is shown, held together: the
 scene id it is always shown in, the frame that scene is placed in, and the
 element tree that reports the facts. The operation reads the Hub and installs
 what this builds; deciding what the reader sees is this class's job. Defaulting
-an undeclared identity's fields is a separate job, owned by
-:class:`~punt_lux.operations.client_identity_facts.ClientIdentityFacts` (DES-065
-OO paydown) -- this class only frames and titles what that class reports.
+an undeclared identity's fields belongs to ``ClientIdentityFacts``; this class
+only frames and titles what that reports.
 
 The scene id is per client and stable: two clients' details read side by side,
 and asking twice repaints the frame instead of stacking. It never expires.
@@ -16,51 +15,45 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.details_frame import DetailsFrame
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.protocol.compositions.client_details import ClientDetailsComposition
 
 if TYPE_CHECKING:
-    from punt_lux.operations.models.query_clients import HubClient
+    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.operations.client_facts import ClientFacts
 
 __all__ = ["DetailsScene"]
-
-# The scene and frame one client's details are shown in, and the table inside.
-_SCENE_PREFIX = "lux.client-details"
 
 
 @final
 class DetailsScene:
     """The Details scene for one client: how it is named, framed, and filled."""
 
-    _client: HubClient
-    _label: str
-    __slots__ = ("_client", "_label")
+    _facts: ClientFacts
+    _named: NamedSession
+    _frame: DetailsFrame
+    __slots__ = ("_facts", "_frame", "_named")
 
-    def __new__(cls, client: HubClient, label: str) -> Self:
+    def __new__(cls, facts: ClientFacts, named: NamedSession) -> Self:
         self = super().__new__(cls)
-        self._client = client
-        self._label = label
+        self._facts = facts
+        self._named = named
+        self._frame = DetailsFrame(named.connection_id)
         return self
 
     @property
     def scene_id(self) -> str:
         """The scene this client's details are always shown in."""
-        return f"{_SCENE_PREFIX}.{self._client.connection_id}"
+        return self._frame.raw_id
 
     def submission(self) -> SceneSubmission:
-        """Offer the table in its own frame, titled for the client it describes."""
-        title = f"{self._label} — client details"
-        facts = ClientIdentityFacts(self._client, self._label).build()
+        """Offer the table in its own frame, titled with the program."""
+        facts = ClientIdentityFacts(self._facts, self._named.name).build()
         return SceneSubmission.of(
-            ClientDetailsComposition.build(facts, element_id=f"{_SCENE_PREFIX}.table"),
+            ClientDetailsComposition.build(facts, element_id=DetailsFrame.TABLE_ID),
             self.scene_id,
-            ScenePresentation(
-                frame_id=self.scene_id,
-                title=title,
-                frame_title=title,
-                frame_size=(560, 340),
-            ),
+            self._frame.presentation(self._named.program),
             None,
         )

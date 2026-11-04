@@ -45,16 +45,18 @@ import asyncio
 import contextlib
 import unittest.mock as mock
 from collections.abc import Callable, Coroutine, Generator, Mapping
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastmcp.exceptions import ToolError
 
 from punt_lux import tools as tools_pkg
+from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
@@ -69,6 +71,10 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.tools.server import _session_key
+from tests.dial_double import fake_dial
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.dial_ref import DialRef
 
 __all__ = ["ToolCallError", "ToolExerciser"]
 
@@ -123,6 +129,11 @@ class _StubClient:
     # at the test boundary.
     _spec: Mapping[str, Mapping[str, Any]]
 
+    @property
+    def dial(self) -> DialRef:
+        """The dial a failed request would name; the stub has no real one."""
+        return fake_dial()
+
     def __new__(cls, spec: Mapping[str, Mapping[str, Any]]) -> _StubClient:
         self = super().__new__(cls)
         self._spec = spec
@@ -156,7 +167,7 @@ class _StubClient:
     def on_event(self, *_args: object, **_kwargs: object) -> None:
         self._require_spec("on_event")
 
-    def show_async(self, *_args: object, **_kwargs: object) -> None:
+    def send_scene(self, *_args: object, **_kwargs: object) -> None:
         # Fire-and-forget re-push. A successful ``update`` (including an
         # idempotent remove of an absent id) re-pushes the scene; the corpus
         # models that side effect as a genuine no-op — nothing to configure.
@@ -267,7 +278,7 @@ class ToolExerciser:
             )
         message = cls._inbox_message(inbox_event) if inbox_event is not None else None
 
-        def _no_writer(_connection_id: ConnectionId) -> None:
+        def _no_writer(_connection_id: ConnectionId, _host: ClientHost) -> None:
             return None
 
         def _stub_next(
@@ -319,31 +330,39 @@ class ToolExerciser:
         # ``OPERATIONS`` facade they import; substituting a facade bound to a
         # fresh store keeps every replay independent while running the real
         # operations against real collaborators (decode, submission gate, writer).
-        display = HubDisplay()
+        factory = HubStoreFactory()
+        display = factory.display
+        lifecycle = factory.lifecycle
+        clients = factory.clients
         if setup.get("identified"):
             # A write that owns a menu item (set_menu) needs an identified session;
             # the scenario declares this so the exercised session can own the bar.
             key = str(setup.get("session_key", "local"))
-            display.identify_client(
-                ConnectionId(key), ClientIdentity(kind="mcp-session", name="corpus")
+            lifecycle.identify(
+                ConnectionId(key),
+                ClientIdentity(kind="mcp-session", name="corpus"),
+                UNOBSERVED,
             )
         test_ops = Operations.for_store(
             display,
             _StubReplicator(),
+            lifecycle=lifecycle,
+            clients=clients,
             hub=hub,
-            menu_registry=HubMenuRegistry(display.clients),
-            callback_router=CallbackRouter(display.clients),
+            menu_registry=HubMenuRegistry(clients),
+            callback_router=CallbackRouter(clients),
+            callback_menus=CallbackMenuReplica(clients),
             ports=cls._hub_ports(setup),
         )
         # All tools resolve the DisplayLink through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
-        # ``client_registry.get`` substitutes the stub for every tool —
+        # ``client_registry.asks`` substitutes the stub for every tool —
         # both hand-written @mcp.tool ones and the @_query_tool decorator
         # family — without two separate patches.
         stubs: list[contextlib.AbstractContextManager[Any]] = [
             mock.patch.object(DisplayPaths, "is_running", return_value=running),
             mock.patch(
-                "punt_lux.domain.hub.clients.client_registry.get",
+                "punt_lux.domain.hub.clients.client_registry.asks",
                 return_value=stub_client,
             ),
             mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),

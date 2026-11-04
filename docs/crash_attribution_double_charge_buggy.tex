@@ -1,0 +1,747 @@
+%
+% crash_attribution_double_charge_buggy.tex
+%
+% A Z specification of display-crash attribution: which scenes the Hub blames
+% when the display ends a dial.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.
+%
+% The rulings it models: T10 (a death is charged from the dead dial's own ack
+% ledger, whoever discovers it; a Hub-ended dial charges nothing; an empty
+% ledger charges nothing), T11 (the display installs a scene on receipt but
+% holds its ack until the next completed buffer swap: an ack means a frame
+% survived the scene), and T12 (a Hub-ended dial's non-empty ledger joins a
+% carried suspect set, which a display-ended death charges and any ack read on
+% a later dial clears).  Deaths are queued at discovery and charged first at the
+% replicator's next push or idle tick.  T13 adds a third retire cause,
+% unresponsive (a dial the probe gave up on while the display may live): queued
+% as a display death and carried as a Hub end.  T14 splits the read into Recv and
+% Deliver and guards a display-ended capture on both being empty.
+%
+% The code it governs: src/punt_lux/domain/hub/{batch_sender,recovery,
+% display_connection,dial_generation,reply_sink,liveness_probe,replicator,
+% death_charger}.py, and src/punt_lux/display/render_loop.py (the ack).  ADRs:
+% DES-102 (attribution, isolation and quarantine), DES-093 (the Hub never
+% controls the display's process), and the companion model
+% listener_lifecycle.tex (a dial's generation, its ledger and its single end).
+%
+% This is the CONTROL: DiscoverCharge without its guard that the dial is unsettled,
+% so two discoverers of one death charge it twice.
+%
+% Violates A4, in 9 operations (1018 states): PushStart; Redial; Send(1); PushEnd;
+% DisplayEnd; DiscoverCharge(drepl); Charge(1); DiscoverCharge(dother); Charge(1).
+% A1, A2 and A3 hold (47575 states).  Not deadlock-free, and the deadlock is
+% the mutation's own: a third Charge of one dial would take times beyond its
+% range 0..2, so a death queued a third time can never be charged (check with
+% -nodead, as below).
+%
+% Type-check:  fuzz docs/crash_attribution_double_charge_buggy.tex
+% Model-check (one negated goal at a time; the goals are those of
+% docs/crash_attribution.tex, Section Verification):
+%   probcli docs/crash_attribution_double_charge_buggy.tex -model_check -nodead -bf \
+%     -p MAX_OPERATIONS 200 -goal "<negated goal>"
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Crash Attribution, a dial charged twice: a Control}
+\author{A fidelity control for docs/crash\_attribution.tex}
+\date{October 2026}
+\maketitle
+
+This is a control, not the design.  The design's rulings T10 to T14 are stated in docs/crash_attribution.tex.  It is the design's
+specification with the one change named in the header comment, and nothing
+else; its purpose is to show that the invariants of the design fail when
+that change is made, which is what makes their passing meaningful.
+
+\begin{axdef}
+  maxDial : \nat \\
+  maxScene : \nat \\
+  thr : \nat \\
+  poison : \nat
+\where
+  maxDial = 2 \\
+  maxScene = 2 \\
+  thr = 2 \\
+  poison = 1
+\end{axdef}
+
+\begin{zed}
+  Sc == 1 \upto maxScene
+\end{zed}
+
+\begin{zed}
+  Dl == 0 \upto maxDial
+\end{zed}
+
+\begin{zed}
+  LV ::= lup | ldown
+\end{zed}
+
+\begin{zed}
+  ENDT ::= enone | edisp | ehub | eunr
+\end{zed}
+
+\begin{zed}
+  DISC ::= drepl | dother
+\end{zed}
+
+\begin{zed}
+  PH ::= pidle | ppush
+\end{zed}
+
+\begin{axdef}
+  bump : 0 \upto thr \fun 0 \upto thr
+\where
+  bump = \{ 0 \mapsto 1, 1 \mapsto 2, 2 \mapsto 2 \}
+\end{axdef}
+
+\begin{schema}{CA}
+  cur : \nat \\
+  up : LV \\
+  phase : PH \\
+  ended : Dl \fun ENDT \\
+  written : Dl \fun (\power Sc) \\
+  rcvd : Dl \fun (\power Sc) \\
+  hold : Sc \pfun Dl \\
+  flight : \power Sc \\
+  rbuf : \power Sc \\
+  sent : Dl \fun (\power Sc) \\
+  acked : Dl \fun (\power Sc) \\
+  carry : \power Sc \\
+  dqown : Dl \pfun (\power Sc) \\
+  dqcar : Dl \pfun (\power Sc) \\
+  settled : \power Dl \\
+  dirty : \power Sc \\
+  strikes : Sc \fun (0 \upto thr) \\
+  chargedOn : Sc \rel Dl \\
+  carriedOn : Sc \rel Dl \\
+  times : Dl \fun (0 \upto 2) \\
+  pcrash : \power Dl
+\where
+  cur \leq maxDial
+\end{schema}
+
+\begin{schema}{Init}
+  CA'
+\where
+  cur' = 0 \\
+  up' = ldown \\
+  phase' = pidle \\
+  \forall d : Dl \spot ended'~d = enone \\
+  \forall d : Dl \spot written'~d = \emptyset \\
+  \forall d : Dl \spot rcvd'~d = \emptyset \\
+  hold' = \emptyset \\
+  flight' = \emptyset \\
+  rbuf' = \emptyset \\
+  \forall d : Dl \spot sent'~d = \emptyset \\
+  \forall d : Dl \spot acked'~d = \emptyset \\
+  carry' = \emptyset \\
+  dqown' = \emptyset \\
+  dqcar' = \emptyset \\
+  settled' = \{ 0 \} \\
+  dirty' = \emptyset \\
+  \forall s : Sc \spot strikes'~s = 0 \\
+  chargedOn' = \emptyset \\
+  carriedOn' = \emptyset \\
+  \forall d : Dl \spot times'~d = 0 \\
+  pcrash' = \emptyset
+\end{schema}
+
+\begin{schema}{PushStart}
+  \Delta CA
+\where
+  phase = pidle \\
+  dqown = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = ppush \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Send}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \\
+  phase = ppush \\
+  s? \in dirty \\
+  strikes~s? < thr \\
+  (\exists t : Sc \spot strikes~t > 0) \implies (written~cur \setminus acked~cur) = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \oplus \{ cur \mapsto written~cur \cup \{ s? \} \} \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \setminus \{ s? \} \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Install}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \\
+  s? \in written~cur \setminus rcvd~cur \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \oplus \{ cur \mapsto rcvd~cur \cup \{ s? \} \} \\
+  hold' = hold \oplus \{ s? \mapsto cur \} \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Swap}
+  \Delta CA
+\where
+  hold \neq \emptyset \\
+  poison \notin \dom hold \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \cup \{ s : \dom hold | hold~s = cur \land up = lup \spot s \} \\
+  rbuf' = rbuf \\
+  sent' = sent \oplus \{ cur \mapsto sent~cur \cup \{ s : \dom hold | hold~s = cur \land up = lup \spot s \} \} \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Recv}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
+  s? \in flight \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \setminus \{ s? \} \\
+  rbuf' = rbuf \cup \{ s? \} \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Deliver}
+  \Delta CA \\
+  s? : Sc
+\where
+  up = lup \lor (ended~cur \in \{ edisp, eunr \} \land cur \notin settled) \\
+  s? \in rbuf \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \setminus \{ s? \} \\
+  sent' = sent \\
+  acked' = acked \oplus \{ cur \mapsto acked~cur \cup \{ s? \} \} \\
+  carry' = \emptyset \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DisplayEnd}
+  \Delta CA
+\where
+  up = lup \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{HubEnd}
+  \Delta CA
+\where
+  up = lup \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto ehub \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Unresponsive}
+  \Delta CA
+\where
+  up = lup \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto eunr \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{CrashInstall}
+  \Delta CA
+\where
+  up = lup \\
+  poison \in written~cur \setminus rcvd~cur \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash \cup \{ cur \}
+\end{schema}
+
+\begin{schema}{CrashFrame}
+  \Delta CA
+\where
+  up = lup \\
+  poison \in \dom hold \\
+  cur' = cur \\
+  up' = ldown \\
+  phase' = phase \\
+  ended' = ended \oplus \{ cur \mapsto edisp \} \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash \cup \{ cur \}
+\end{schema}
+
+\begin{schema}{DisplayEndDown}
+  \Delta CA
+\where
+  up = ldown \\
+  hold \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = \emptyset \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverCharge}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  ended~cur = edisp \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = \emptyset \\
+  dqown' = dqown \cup \{ cur \mapsto (written~cur \setminus acked~cur) \} \\
+  dqcar' = dqcar \cup \{ cur \mapsto carry \} \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverQuiet}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  ended~cur = edisp \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverUnrCharge}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry \neq \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = (written~cur \setminus acked~cur) \cup carry \\
+  dqown' = dqown \cup \{ cur \mapsto (written~cur \setminus acked~cur) \} \\
+  dqcar' = dqcar \cup \{ cur \mapsto carry \} \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverUnrQuiet}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = eunr \\
+  flight = \emptyset \\
+  rbuf = \emptyset \\
+  (written~cur \setminus acked~cur) \cup carry = \emptyset \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{DiscoverHub}
+  \Delta CA \\
+  d? : DISC
+\where
+  up = ldown \\
+  cur \notin settled \\
+  ended~cur = ehub \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \cup (written~cur \setminus acked~cur) \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \cup \{ cur \} \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Redial}
+  \Delta CA
+\where
+  up = ldown \\
+  cur < maxDial \\
+  cur \in settled \\
+  cur' = cur + 1 \\
+  up' = lup \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = \emptyset \\
+  rbuf' = \emptyset \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = \{ s : Sc | strikes~s < thr \} \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Charge}
+  \Delta CA \\
+  g? : Dl
+\where
+  phase = pidle \\
+  g? \in \dom dqown \\
+  cur' = cur \\
+  up' = up \\
+  phase' = phase \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = \{ g? \} \ndres dqown \\
+  dqcar' = \{ g? \} \ndres dqcar \\
+  settled' = settled \\
+  dirty' = dirty \cap \{ s : Sc | strikes'~s < thr \} \\
+  strikes' = strikes \oplus \{ s : dqown~g? \cup dqcar~g? \spot s \mapsto bump~(strikes~s) \} \\
+  chargedOn' = chargedOn \cup \{ s : dqown~g? \spot s \mapsto g? \} \\
+  carriedOn' = carriedOn \cup \{ s : dqcar~g? \spot s \mapsto g? \} \\
+  times' = times \oplus \{ g? \mapsto times~g? + 1 \} \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{PushEnd}
+  \Delta CA
+\where
+  phase = ppush \\
+  cur' = cur \\
+  up' = up \\
+  phase' = pidle \\
+  ended' = ended \\
+  written' = written \\
+  rcvd' = rcvd \\
+  hold' = hold \\
+  flight' = flight \\
+  rbuf' = rbuf \\
+  sent' = sent \\
+  acked' = acked \\
+  carry' = carry \\
+  dqown' = dqown \\
+  dqcar' = dqcar \\
+  settled' = settled \\
+  dirty' = dirty \\
+  strikes' = strikes \\
+  chargedOn' = chargedOn \\
+  carriedOn' = carriedOn \\
+  times' = times \\
+  pcrash' = pcrash
+\end{schema}
+
+\begin{schema}{Halt}
+  \Xi CA
+\where
+  cur = maxDial \\
+  up = ldown \\
+  cur \in settled \\
+  phase = pidle \\
+  dqown = \emptyset
+\end{schema}
+
+\end{document}

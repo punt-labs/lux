@@ -5,11 +5,11 @@ from two Claude Code sessions at once, and the second silently evicted the
 first because the Hub stored every scene under the literal string a client
 submitted, with no ownership check on the first write to a given id.
 
-These tests drive the real ``SceneOperations``/``QueryOperations`` — the
-production write and read paths, nothing stubbed but the process boundary —
-against one shared ``HubDisplay``, the way two independent connections would
-share one Hub. Each proves one property DES-086 promises: coexistence,
-idempotent re-show, connection-scoped update, and connection-scoped clear.
+These tests drive the real ``SceneOperations``/``QueryOperations`` -- the
+production write and read paths, nothing stubbed but the process boundary --
+against one shared ``HubDisplay``, the way two independent connections would share
+one Hub. Each proves one property DES-086 promises: coexistence, idempotent
+re-show, connection-scoped update, and connection-scoped clear.
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ import pytest
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.scope import Scope
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -33,7 +35,6 @@ from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.operations.scope import Scope
 from punt_lux.protocol import TextElement
 
 if TYPE_CHECKING:
@@ -45,8 +46,8 @@ pytestmark = pytest.mark.integration
 
 _A = ConnectionId("session-a")
 _B = ConnectionId("session-b")
-_SCOPE_A = Scope(_A)
-_SCOPE_B = Scope(_B)
+_SCOPE_A = Scope.in_process(_A)
+_SCOPE_B = Scope.in_process(_B)
 _MUSIC_PLAYER = "music-player"
 
 
@@ -83,12 +84,13 @@ def _zero_inbox_depth(_connection_id: ConnectionId) -> int:
 
 def _stack() -> tuple[HubDisplay, SceneOperations, QueryOperations]:
     """One shared store, two independent connections' worth of operations."""
-    store = HubDisplay()
+    factory = HubStoreFactory()
+    store = factory.display
     hub = Hub()
     deps = SceneOperationsDeps(store, _Recorder(), hub_element_factory, hub)
     scenes = SceneOperations(deps)
-    clients = ClientListing(store, hub, _zero_inbox_depth)
-    queries = QueryOperations(store, _ForbiddenPort(), clients)
+    listing = ClientListing(store, factory.clients, hub, _zero_inbox_depth)
+    queries = QueryOperations(store, _ForbiddenPort(), listing)
     return store, scenes, queries
 
 

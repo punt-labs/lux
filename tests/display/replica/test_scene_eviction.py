@@ -95,7 +95,7 @@ def test_eviction_from_the_holder_finds_the_frame_by_the_scene() -> None:
     eviction, book, facts, _ = _eviction(emptied=False)
     _hold(book, "s1")
 
-    eviction.from_holder(HubScopedKey(_HUB, "s1"), _NEW)
+    eviction.from_holder(HubScopedKey(_HUB, "s1"), _NEW, None)
 
     assert facts.rows_for(_FRAME) == _NEW
 
@@ -103,7 +103,7 @@ def test_eviction_from_the_holder_finds_the_frame_by_the_scene() -> None:
 def test_eviction_from_the_holder_of_an_unheld_scene_touches_nothing() -> None:
     eviction, _, facts, disposer = _eviction(emptied=True)
 
-    eviction.from_holder(HubScopedKey(_HUB, "ghost"), _NEW)
+    eviction.from_holder(HubScopedKey(_HUB, "ghost"), _NEW, None)
 
     assert (facts.rows_for(_FRAME), disposer.disposed) == (_OLD, [])
 
@@ -155,3 +155,65 @@ def test_a_scene_the_frame_does_not_hold_is_not_senior() -> None:
     eviction.from_frame(frame, "ghost", None)
 
     assert facts.rows_for(_FRAME) == _OLD
+
+
+class TestTheScopeLabel:
+    """A frame's scope label is replaced only when the Hub speaks (an empty push)."""
+
+    def test_closing_the_oldest_tab_keeps_the_label(self) -> None:
+        eviction, book, _, _ = _eviction(emptied=False)
+        senior = _hold(book, "senior")
+        _hold(book, "junior")
+        senior.heading.relabel("lux")
+
+        eviction.from_frame(senior, "senior", None)
+
+        assert senior.heading.scope_label == "lux"
+
+    def test_re_framing_the_oldest_scene_elsewhere_keeps_the_label(self) -> None:
+        eviction, book, _, _ = _eviction(emptied=False)
+        frame = _hold(book, "senior")
+        _hold(book, "junior")
+        frame.heading.relabel("lux (2)")
+
+        eviction.from_frame(frame, "senior", _NEW)
+
+        assert frame.heading.scope_label == "lux (2)"
+
+    def test_an_empty_push_for_the_oldest_scene_takes_the_hubs_label(self) -> None:
+        eviction, book, _, _ = _eviction(emptied=False)
+        frame = _hold(book, "senior")
+        _hold(book, "junior")
+        frame.heading.relabel("lux")
+
+        eviction.from_holder(HubScopedKey(_HUB, "senior"), _NEW, "lux (2)")
+
+        assert frame.heading.scope_label == "lux (2)"
+
+    def test_an_empty_push_for_the_oldest_scene_takes_the_hubs_absence(self) -> None:
+        eviction, book, _, _ = _eviction(emptied=False)
+        frame = _hold(book, "senior")
+        _hold(book, "junior")
+        frame.heading.relabel("lux")
+
+        eviction.from_holder(HubScopedKey(_HUB, "senior"), None, None)
+
+        assert frame.heading.scope_label is None
+
+    def test_an_empty_push_for_a_junior_scene_leaves_the_label(self) -> None:
+        eviction, book, _, _ = _eviction(emptied=False)
+        _hold(book, "senior")
+        frame = _hold(book, "junior")
+        frame.heading.relabel("lux")
+
+        eviction.from_holder(HubScopedKey(_HUB, "junior"), None, "other")
+
+        assert frame.heading.scope_label == "lux"
+
+    def test_an_emptied_frame_is_disposed_whatever_label_arrives(self) -> None:
+        eviction, book, _, disposer = _eviction(emptied=True)
+        _hold(book, "s1")
+
+        eviction.from_holder(HubScopedKey(_HUB, "s1"), None, "lux")
+
+        assert disposer.disposed == ["f"]

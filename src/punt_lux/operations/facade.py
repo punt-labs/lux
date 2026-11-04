@@ -1,7 +1,7 @@
 """The Operations facade — one object exposing every capability.
 
 Composes the concern classes so a single caller — MCP, REST, or a test — has
-one object to call. Every collaborator is injected into ``for_store``.
+one object to call, every collaborator injected into ``for_store``.
 """
 
 from __future__ import annotations
@@ -17,8 +17,9 @@ from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_link import DisplayLinkOperations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.menu_arming import MenuArming
+from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import (
+    CallbackMenuSource,
     MenuDepartureSink,
     MenuOperations,
     MenuOperationsDeps,
@@ -33,11 +34,14 @@ from punt_lux.operations.timing import Timed
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.domain.hub.session_callback import CallbackInvocation
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.domain.scope import Scope
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.models import (
         Cleared,
@@ -70,7 +74,6 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.theme import ThemeState
     from punt_lux.operations.models.window import WindowSettings
     from punt_lux.operations.ports import HubPorts
-    from punt_lux.operations.scope import Scope
 
 __all__ = ["Operations"]
 
@@ -125,27 +128,26 @@ class Operations:
         display: HubDisplay,
         replicator: ReplicatorLink,
         *,
+        lifecycle: ClientLifecycle,
+        clients: HubClientRegistry,
         hub: Hub,
         menu_registry: HubMenuRegistry,
         callback_router: CallbackRouter,
+        callback_menus: CallbackMenuSource,
         ports: HubPorts,
     ) -> Self:
         """Wire every concern class from injected collaborators — no singletons."""
+        lifecycle.present_as(replicator, MenuDepartureSink(menu_registry, replicator))
         deps = SceneOperationsDeps(display, replicator, ports.element_factory, hub)
         scenes = SceneOperations(deps)
-        callbacks = CallbackOperations(display.clients, callback_router, replicator)
-        menu_departure = MenuDepartureSink(menu_registry, replicator)
-        arming = MenuArming(
-            display.clients,
-            ports.ensure_writer,
-            lambda c: display.bind_departure_sink(c, menu_departure),
-        )
-        clients = ClientListing(display, hub, ports.inbox_depth)
-        queries = QueryOperations(display, ports.display_port, clients)
+        callbacks = CallbackOperations(lifecycle, callback_router, replicator)
+        arming = MenuArmingDeps(lifecycle, clients, ports.ensure_writer).arming()
+        listing = ClientListing(display, clients, hub, ports.inbox_depth)
+        queries = QueryOperations(display, ports.display_port, listing)
         return cls(
             OperationsConcerns(
                 scenes=scenes,
-                pubsub=PubSubOperations(hub, display.clients, ports),
+                pubsub=PubSubOperations(hub, lifecycle, ports),
                 config=DisplayModeOperations(),
                 display=DisplayControlOperations(ports.display_port),
                 queries=queries,
@@ -153,12 +155,12 @@ class Operations:
                     MenuOperationsDeps(
                         registry=menu_registry,
                         replicator=replicator,
-                        callback_menus=callbacks,
+                        callback_menus=callback_menus,
                         arming=arming,
                         write_lock=display.write_lock,
                     )
                 ),
-                identity=IdentityOperations(display),
+                identity=IdentityOperations(lifecycle, clients),
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),
                 link=DisplayLinkOperations(ports.display_port, display, replicator),
@@ -316,8 +318,7 @@ class Operations:
     def drop_session(self, connection_id: ConnectionId) -> None:
         """Drop the departed session's agent menu bar and re-push both families.
 
-        Prunes the session's own agent bar from the registry, then one
-        ``mark_menus`` re-reads the live set at send time — dropping both this
+        One ``mark_menus`` re-reads the live set at send time, dropping both this
         session's agent bar and its Clients submenu.
         """
         self._menus.drop_session(connection_id)

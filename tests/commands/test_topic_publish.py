@@ -12,7 +12,7 @@ from punt_lux.operations.models.pubsub_acks import Published
 from tests.commands._family_stubs import StubTopicOps
 from tests.commands._scene_stub import identity
 
-_SCOPE = Scope(ConnectionId("test-conn"))
+_SCOPE = Scope.in_process(ConnectionId("test-conn"))
 
 
 def test_reserved_topic_refusal_renders_an_error_envelope() -> None:

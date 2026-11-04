@@ -17,10 +17,10 @@ from typing import Literal
 
 __all__ = ["CallbackRegistration", "ListenerAttachment", "ListenerDetachment"]
 
-# What taking the slot did to the entries already in it. A connection that had
-# none is ``attached``; one whose previous occupant still owned entries is
-# ``attached_over_callbacks``, and those entries have just stopped being
-# deliverable — the caller's cue to re-push the bar.
+# What taking the slot did to the menu. ``attached`` changed nothing; in
+# ``attached_over_callbacks`` the previous occupant's entries have stopped being
+# deliverable -- the caller's cue to re-push the bar. A newly listed agent is not
+# an outcome of the slot: it shows in the write's presence change.
 ListenerAttachment = Literal["attached", "attached_over_callbacks"]
 
 # What a registration did. ``superseded`` is the compare-and-set losing: the leg

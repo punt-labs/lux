@@ -14,12 +14,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, final
 
-from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub import (
+    client_registry,
+    hub,
+    hub_clients,
+    hub_display,
+    hub_lifecycle,
+)
 from punt_lux.domain.hub.details_instance import hub_client_details
 from punt_lux.domain.hub.frame_owner_facts_instance import hub_frame_owner_facts
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.replicator_instance import (
+    hub_callback_menus,
     hub_callback_router,
     hub_menu_registry,
     hub_replicator,
@@ -50,9 +57,12 @@ class HubComposition:
         return Operations.for_store(
             hub_display,
             hub_replicator,
+            lifecycle=hub_lifecycle,
+            clients=hub_clients,
             hub=hub,
             menu_registry=hub_menu_registry,
             callback_router=hub_callback_router,
+            callback_menus=hub_callback_menus,
             ports=ports,
         )
 
@@ -66,7 +76,9 @@ class HubComposition:
         either composition root -- MCP or REST -- may run it; last wins.
         """
         hub_frame_owner_facts.bind(
-            CanonicalFrameOwner.for_store(hub_display, hub=hub, ports=ports)
+            CanonicalFrameOwner.for_store(
+                hub_display, hub_clients, hub=hub, ports=ports
+            )
         )
 
     @classmethod
@@ -78,7 +90,11 @@ class HubComposition:
         """
         hub_client_details.bind(
             ClientDetailsPort.for_store(
-                hub_display, hub_replicator, hub=hub, ports=cls.ports()
+                hub_display,
+                hub_clients,
+                hub_replicator,
+                hub=hub,
+                ports=cls.ports(),
             )
         )
 

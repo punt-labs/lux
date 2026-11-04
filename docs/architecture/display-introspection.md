@@ -471,8 +471,8 @@ shape.
   publish silently vanish?). After: `list_clients()` before and after a
   reap directly shows `writer_bound` flip to absent-from-roster (the
   connection itself should stop appearing — `has_writer` and the roster
-  entry are dropped together, see `LeaseReapSweep`/`HubDisplay
-  .reap_lapsed_leases`) and, for a connection observed mid-reap-window, a
+  entry are dropped together, see `LeaseReapSweep`/`ClientLifecycle
+  .depart_lapsed`) and, for a connection observed mid-reap-window, a
   non-decreasing `inbox_depth` would be exactly the "queue nobody's
   draining" signature a convergence test needs to assert against.
 - **Twin-subscription-loss (`lux-95zt`).** Two sessions on one connection

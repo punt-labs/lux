@@ -21,12 +21,12 @@ from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_installer import SceneInstaller
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.details_outcome import DetailsOutcome
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId
     from punt_lux.operations.ports import DirtyMarker, HubPorts
@@ -48,7 +48,13 @@ class ClientDetailsPort:
 
     @classmethod
     def for_store(
-        cls, display: HubDisplay, replicator: DirtyMarker, *, hub: Hub, ports: HubPorts
+        cls,
+        display: HubDisplay,
+        clients: HubClientRegistry,
+        replicator: DirtyMarker,
+        *,
+        hub: Hub,
+        ports: HubPorts,
     ) -> Self:
         """Wire the command from the collaborators the facade is wired from.
 
@@ -56,12 +62,11 @@ class ClientDetailsPort:
         no state of their own, so two roots building two of these is two doors
         onto one Hub, not two Hubs.
         """
-        clients = ClientListing(display, hub, ports.inbox_depth)
+        listing = ClientListing(display, clients, hub, ports.inbox_depth)
         return cls(
             ClientDetailsOperations(
-                QueryOperations(display, ports.display_port, clients),
+                listing,
                 SceneInstaller(display, replicator),
-                display.clients,
             )
         )
 

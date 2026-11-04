@@ -2,8 +2,7 @@
 
 Who is live and what each is called are two halves of one answer, and this is the
 value that keeps them together. The registry builds it inside its own critical
-section, from its own store, so both were true at one instant. Reading them
-separately — a menu composed from one read and labelled from another — can show a
+section, so both were true at one instant. Reading them separately can show a
 client the other read has already retired, which is how a menu entry and a
 details frame come to disagree about which client is ``lux (2)``.
 
@@ -11,8 +10,7 @@ Only identified sessions are named: an anonymous session contributes nothing to
 the bar and takes no place in the numbering.
 
 Two sessions the roster gave the same name belong to one submenu (the DES-067
-grouping); :meth:`~NamedSessions.commanding_groups` yields them together so
-the composer builds one submenu with everybody's entries.
+grouping); :meth:`~NamedSessions.commanding_groups` yields them together.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from punt_lux.domain.hub.client_roster import ClientRoster
+    from punt_lux.domain.hub.client_roster import RosterNames
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.ids import ConnectionId
@@ -59,6 +57,22 @@ class NamedSession:
         return self._name
 
     @property
+    def scope_label(self) -> str | None:
+        """The name a window of this client's carries, or ``None`` if anonymous.
+
+        An anonymous session is listed under a fallback name but declared none, so
+        it has no scope to show: its windows keep their plain titles (DES-100).
+        """
+        # None = the session declared no identity, hence no scope to label.
+        return None if self._session.identity is None else self._name
+
+    @property
+    def program(self) -> str:
+        """What this one connection is called beneath its submenu, not its group."""
+        identity = self._session.identity
+        return self._name if identity is None else identity.program
+
+    @property
     def callbacks(self) -> tuple[SessionCallback, ...]:
         """The commands this client registered, in registration order."""
         return self._session.callbacks
@@ -89,7 +103,7 @@ class NamedSessions:
 
     @classmethod
     def over(
-        cls, sessions: Mapping[ConnectionId, ClientSession], roster: ClientRoster
+        cls, sessions: Mapping[ConnectionId, ClientSession], roster: RosterNames
     ) -> Self:
         """Name every identified session in *sessions* and hold the two together.
 
@@ -110,11 +124,19 @@ class NamedSessions:
         """What the menu calls *connection_id*, or *fallback* if it holds no name."""
         return self._names.get(connection_id, fallback)
 
+    def named(self, connection_id: ConnectionId, fallback: str) -> NamedSession | None:
+        """Return the live session for *connection_id* with its name, or ``None``."""
+        session = self._sessions.get(connection_id)
+        if session is None:
+            return None
+        return NamedSession(
+            connection_id, self.name_of(connection_id, fallback), session
+        )
+
     def commanding(self) -> Iterator[NamedSession]:
         """Yield each named client that earns a submenu, in connection order.
 
-        A client earns one per :meth:`ClientSession.earns_menu_presence`: a
-        registered command, or being the agent that drives the display. A
+        A client earns one per :meth:`ClientSession.earns_menu_presence`. A
         non-agent with no command is named but contributes no submenu, keeping
         its number so a later registration does not renumber the bar.
         """
@@ -128,9 +150,7 @@ class NamedSessions:
 
         Sibling sessions the roster gave one name land in one group (DES-067):
         two applets under one Claude Code session render as one submenu with
-        the callbacks of both. A non-applet appears as a one-member group. The
-        first-registered member of a group is its senior — the connection the
-        Hub's own commands (Details) point at.
+        the callbacks of both. A non-applet is a one-member group.
         """
         groups: dict[str, list[NamedSession]] = {}
         for named in self.commanding():

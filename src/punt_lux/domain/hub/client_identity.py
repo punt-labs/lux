@@ -112,11 +112,8 @@ class ClientIdentity(BaseModel):
         """Reject a NUL in any field, wherever the declaration came from.
 
         :func:`~punt_lux.connection_identity.connection_for` joins these fields
-        on a NUL to derive a connection id; a field that carries one breaks that
-        join's distinctness guarantee. ``name`` is the field most exposed to
-        this, since it can carry caller-supplied content such as an applet's
-        program, but the guarantee holds only if every source is caught here,
-        not just the ones an author remembered to check upstream.
+        on a NUL to derive a connection id; a field carrying one breaks that
+        join's distinctness guarantee, so every source is caught here.
         """
         if value is not None and "\x00" in value:
             msg = (
@@ -133,11 +130,8 @@ class ClientIdentity(BaseModel):
         The menu-grouping composer reads the session pid off an applet's
         ``name`` to fold sibling applets into one submenu (DES-067). A name
         that cannot yield a pid is rejected at construction rather than
-        silently degrading to per-connection grouping — including the case
-        where a repo directory contains the format separator and the
-        composed name comes out malformed. Applets are legitimately headless
-        (``repo=None``) — see :meth:`AppletIdentity.for_session` — so the
-        repo alone is not enough to reject on.
+        silently degrading to per-connection grouping. Applets are
+        legitimately headless (``repo=None``), so the repo alone is not enough.
         """
         if self.kind == "applet" and APPLET_NAME_RE.match(self.name) is None:
             msg = (
@@ -157,6 +151,12 @@ class ClientIdentity(BaseModel):
     def is_agent(self) -> bool:
         """True for the Claude Code MCP session that drives the display (DES-098)."""
         return self.kind == "mcp-session"
+
+    @property
+    def program(self) -> str:
+        """What this connection is called beneath its submenu: its program."""
+        match = APPLET_NAME_RE.match(self.name) if self.kind == "applet" else None
+        return match["program"] if match else self.name
 
     @property
     def menu_label(self) -> str:

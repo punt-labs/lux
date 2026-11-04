@@ -1,0 +1,75 @@
+"""DisplayLog -- the display's bounded record of recent events and errors."""
+
+from __future__ import annotations
+
+import time
+from collections import deque
+from typing import TYPE_CHECKING, Any, Literal, Self, final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+__all__ = ["DisplayLog", "ErrorRecorder", "ErrorSeverity", "LogChannel"]
+
+type LogChannel = Literal["events", "errors"]
+type ErrorSeverity = Literal["error", "warning"]
+# What every part of the display that reports a fault is handed: the log's recorder.
+type ErrorRecorder = Callable[[ErrorSeverity, str, str], None]
+
+# Per channel: how many entries are kept, and how many a report returns by default.
+_KEPT: dict[LogChannel, int] = {"events": 200, "errors": 100}
+_DEFAULT_REPORT: dict[LogChannel, int] = {"events": 50, "errors": 20}
+
+
+@final
+class DisplayLog:
+    """Keep the last interaction events and display-side errors, and report them.
+
+    A report never returns more than the channel keeps, however many it is asked for;
+    a count of zero returns none, and a negative count is refused.
+    """
+
+    _rings: dict[LogChannel, deque[dict[str, Any]]]
+    __slots__ = ("_rings",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._rings = {name: deque(maxlen=kept) for name, kept in _KEPT.items()}
+        return self
+
+    def record_event(self, event: dict[str, Any]) -> None:
+        """Append an interaction event."""
+        self._rings["events"].append(event)
+
+    def record_error(
+        self, severity: ErrorSeverity, message: str, context: str = ""
+    ) -> None:
+        """Append a display-side error, stamped with the time it was recorded."""
+        self._rings["errors"].append(
+            {
+                "timestamp": time.time(),
+                "severity": severity,
+                "message": message,
+                "context": context,
+            }
+        )
+
+    def report(
+        self, channel: LogChannel, count: int | None = None, **_kwargs: Any
+    ) -> dict[str, Any]:
+        """The last ``count`` entries of ``channel`` and how many are buffered.
+
+        Raises ``ValueError`` for a negative ``count``; zero returns no entries.
+        """
+        if count is not None and count < 0:
+            msg = f"count must not be negative: {count}"
+            raise ValueError(msg)
+        ring = self._rings[channel]
+        wanted = min(
+            _DEFAULT_REPORT[channel] if count is None else count, ring.maxlen or 0
+        )
+        # Sliced from the front: ``[-0:]`` would be the whole ring.
+        return {
+            channel: list(ring)[max(len(ring) - wanted, 0) :],
+            "total_buffered": len(ring),
+        }

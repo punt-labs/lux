@@ -25,6 +25,8 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import shown
 
 # ---------------------------------------------------------------------------
 # Protocol round-trip tests
@@ -195,7 +197,7 @@ def _serve_queries(
     for _ in range(count):
         if stop.is_set():
             break
-        msg = recv_message(conn, timeout=5)
+        msg = recv_message(conn, CLIENT_VOCABULARY, timeout=5)
         if msg is None:
             break
         if isinstance(msg, QueryRequest):
@@ -243,10 +245,10 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                resp = client.query("echo", {"key": "value"})
+                resp = client.desk.asks().query("echo", {"key": "value"})
                 assert resp is not None
                 assert isinstance(resp, QueryResponse)
                 assert resp.method == "echo"
@@ -275,10 +277,10 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                resp = client.query("error_test")
+                resp = client.desk.asks().query("error_test")
                 assert resp is not None
                 assert resp.error == "deliberate test error"
         finally:
@@ -334,10 +336,10 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0, recv_timeout=0.3
             ) as client:
-                resp = client.query("anything", timeout=0.3)
+                resp = client.desk.asks().query("anything", timeout=0.3)
                 assert resp is None
         finally:
             done_event.set()
@@ -362,11 +364,11 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.start_listener()
-                resp = client.query("echo", {"data": 42})
+                client.connect(listen=True)
+                resp = client.desk.asks().query("echo", {"data": 42})
                 assert resp is not None
                 assert resp.method == "echo"
                 assert resp.result == {"echo": {"data": 42}}
@@ -393,19 +395,19 @@ class TestClientQuery:
             t.start()
             assert ready_event.wait(timeout=5)
 
-            with DisplayLink(
+            with DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
                 # First: send a scene
-                ack = client.show(
+                acked = shown(
+                    client,
                     "s1",
                     elements=[TextElement(id="t1", content="hi")],
                 )
-                assert ack is not None
-                assert ack.scene_id == "s1"
+                assert acked
 
                 # Second: send a query
-                resp = client.query("echo", {"after_scene": True})
+                resp = client.desk.asks().query("echo", {"after_scene": True})
                 assert resp is not None
                 assert resp.method == "echo"
         finally:

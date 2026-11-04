@@ -22,6 +22,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.programmer_error import ProgrammerError
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
 
@@ -142,8 +144,12 @@ def spawn_reader(
             for payload in line_socket.iter_lines():
                 try:
                     handler(payload)
+                except ProgrammerError:
+                    raise
                 except Exception:
                     logger.exception("line-socket reader: handler raised")
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("line-socket reader: iter_lines terminated unexpectedly")
         finally:

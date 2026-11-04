@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
+    from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import SceneId
     from punt_lux.operations.ports import HubPorts
@@ -39,14 +41,22 @@ class CanonicalFrameOwner:
         return self
 
     @classmethod
-    def for_store(cls, display: HubDisplay, *, hub: Hub, ports: HubPorts) -> Self:
+    def for_store(
+        cls,
+        display: HubDisplay,
+        clients: HubClientRegistry,
+        *,
+        hub: Hub,
+        ports: HubPorts,
+    ) -> Self:
         """Wrap a store-wired :class:`FrameOwnerFacts` with frame-level lifting."""
-        return cls(display, FrameOwnerFacts.for_store(display, hub=hub, ports=ports))
+        facts = FrameOwnerFacts.for_store(display, clients, hub=hub, ports=ports)
+        return cls(display, facts)
 
-    def facts_for_frame(self, frame_id: str) -> tuple[tuple[str, str], ...] | None:
-        """Return the frame's canonical owner rows, or ``None`` if none is owned."""
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        """Return the frame's canonical owner's rows and label, empty if none."""
         canonical = self._canonical_scene(frame_id)
-        return None if canonical is None else self._facts.facts_for(canonical)
+        return UNOWNED if canonical is None else self._facts.facts_for(canonical)
 
     def _canonical_scene(self, frame_id: str) -> SceneId | None:
         """Return the oldest live scene of ``frame_id``; ``None`` if it holds none.

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.protocol.compositions.client_details import ClientDetails
 
 if TYPE_CHECKING:
+    from punt_lux.operations.client_facts import ClientFacts
     from punt_lux.operations.models.query_clients import HubClient
 
 __all__ = ["ClientIdentityFacts"]
@@ -28,12 +29,14 @@ class ClientIdentityFacts:
     """Normalize one client's connection state into the Details table's facts."""
 
     _client: HubClient
+    _hub_host: str
     _label: str
-    __slots__ = ("_client", "_label")
+    __slots__ = ("_client", "_hub_host", "_label")
 
-    def __new__(cls, client: HubClient, label: str) -> Self:
+    def __new__(cls, facts: ClientFacts, label: str) -> Self:
         self = super().__new__(cls)
-        self._client = client
+        self._client = facts.client
+        self._hub_host = facts.hub_host
         self._label = label
         return self
 
@@ -58,4 +61,6 @@ class ClientIdentityFacts:
             lease=self._client.lease,
             subscribed_topics=tuple(self._client.subscribed_topics),
             owned_scenes=tuple(self._client.owned_scenes),
+            client_hosts=self._client.client_hosts,
+            hub_host=self._hub_host,
         )

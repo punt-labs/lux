@@ -7,8 +7,8 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 
 
@@ -23,11 +23,13 @@ class _Recorder:
 
 
 def _deps() -> SceneOperationsDeps:
-    return SceneOperationsDeps(HubDisplay(), _Recorder(), hub_element_factory, Hub())
+    return SceneOperationsDeps(
+        HubStoreFactory().display, _Recorder(), hub_element_factory, Hub()
+    )
 
 
 def test_every_field_round_trips() -> None:
-    display, replicator, hub = HubDisplay(), _Recorder(), Hub()
+    display, replicator, hub = HubStoreFactory().display, _Recorder(), Hub()
     deps = SceneOperationsDeps(display, replicator, hub_element_factory, hub)
     assert deps.display is display
     assert deps.replicator is replicator

@@ -11,12 +11,14 @@ from __future__ import annotations
 import ast
 import asyncio
 import contextlib
+import gc
 import inspect
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from types import CellType
 from typing import Self, final
 
 import pytest
@@ -24,15 +26,25 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenu
+from punt_lux.domain.hub.callback_ports import CallbackListener
 from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.departure_cascade import DepartureCascade
+from punt_lux.domain.hub.departure_sinks import DepartureSink
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
+from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.scope import Scope
+from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.listen import CallbackFrame
 from punt_lux.ws_listen import HubListenSession
 from punt_lux.ws_transport import HubListenTransport
@@ -101,16 +113,21 @@ class _Wiring:
     display: HubDisplay
     router: CallbackRouter
     menus: _MenuFlag
+    lifecycle: ClientLifecycle
 
 
 def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
-    hub, clients = Hub(), HubClientRegistry(clock)
-    display = HubDisplay(clock, hub=hub)
+    hub = Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     router = CallbackRouter(clients)
     menus = _MenuFlag()
+    lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    HubListenTransport(hub, clients, display, router, menus).mount(app)
-    return _Wiring(TestClient(app), hub, clients, display, router, menus)
+    HubListenTransport(hub, lifecycle, router).mount(app)
+    return _Wiring(TestClient(app), hub, clients, display, router, menus, lifecycle)
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -134,12 +151,16 @@ class _SilentLeg:
         """Deliberately silent: the click stays in the hold for the next connect."""
 
 
-def _register(clients: HubClientRegistry, callback_id: str) -> None:
+def _leg_of(clients: HubClientRegistry) -> CallbackListener | None:
+    """The listen leg the connection's session holds, or none."""
+    session = clients.session_of(_CONN)
+    return None if session is None else session.listener
+
+
+def _register(lifecycle: ClientLifecycle, callback_id: str) -> None:
     """Register a callback the way a connected app does — against its own leg."""
-    leg = clients.listener_of(_CONN)
-    assert leg is not None, "the session must hold a listen leg to own a callback"
-    outcome = clients.register_callback(
-        _CONN, SessionCallback(id=callback_id, label="Beads"), leg
+    outcome = lifecycle.register_callback(
+        _CONN, SessionCallback(id=callback_id, label="Beads"), UNOBSERVED
     )
     assert outcome == "registered"
 
@@ -158,10 +179,10 @@ def test_an_unidentified_handshake_is_refused() -> None:
 
 def test_a_routed_click_is_pushed_to_the_live_connection() -> None:
     wired = _wired()
-    client, clients, router = wired.client, wired.clients, wired.router
+    client, router = wired.client, wired.router
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg holds the connection's slot by now
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
         assert ws.receive_json() == {"kind": "callback", "callback_id": "beads"}
 
@@ -176,11 +197,11 @@ def test_a_click_buffered_before_connect_is_drained_on_connect() -> None:
     what a socket in mid-teardown amounts to.
     """
     wired = _wired()
-    client, clients, router = wired.client, wired.clients, wired.router
+    client, router = wired.client, wired.router
     quiet = _SilentLeg()
-    clients.attach_listener(_CONN, _IDENTITY, quiet)
-    outcome = clients.register_callback(
-        _CONN, SessionCallback(id="beads", label="Beads"), quiet
+    wired.lifecycle.attach(_CONN, _IDENTITY, quiet, UNOBSERVED)
+    outcome = wired.lifecycle.register_callback(
+        _CONN, SessionCallback(id="beads", label="Beads"), UNOBSERVED
     )
     assert outcome == "registered"
     assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
@@ -203,7 +224,7 @@ def test_a_departed_connections_menu_items_leave_with_it() -> None:
     client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready — the leg is up and holds the connection's slot
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         session = clients.session_of(_CONN)
         assert session is not None
         assert session.owns_callback("beads")
@@ -258,6 +279,9 @@ def test_an_unknown_frame_kind_closes_the_connection_as_a_protocol_error() -> No
 class _GoneWebSocket:
     """A WebSocket whose send raises, standing in for a peer that has gone away."""
 
+    # A socket that has gone reports no peer, as Starlette's ``client`` may.
+    client = None
+
     def __init__(self, send_error: Exception) -> None:
         self._send_error = send_error
 
@@ -269,16 +293,17 @@ class _GoneWebSocket:
 
 
 def _session_over(send_error: Exception) -> HubListenSession:
-    hub, clients = Hub(), HubClientRegistry()
+    hub = Hub()
+    factory = HubStoreFactory(hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     return HubListenSession(
         _GoneWebSocket(send_error),  # type: ignore[arg-type]  # structural fake for the write path
         _CONN,
         ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
         hub,
-        clients,
-        HubDisplay(hub=hub),
+        lifecycle,
         CallbackRouter(clients),
-        _MenuFlag(),
     )
 
 
@@ -313,8 +338,10 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
     admit a menu callback from that identity, since holding a listener is exactly
     what the registration gate checks for.
     """
-    hub, clients = Hub(), HubClientRegistry()
-    display = HubDisplay(hub=hub)
+    hub = Hub()
+    factory = HubStoreFactory(hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
     router = CallbackRouter(clients)
 
     async def _drive() -> None:
@@ -324,10 +351,8 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
             _CONN,
             ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
             hub,
-            clients,
-            display,
+            lifecycle,
             router,
-            _MenuFlag(),
         )
         await session.run()
 
@@ -350,10 +375,10 @@ def test_a_second_live_session_of_one_identity_takes_the_connection() -> None:
     client, clients = wired.client, wired.clients
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
-        first_leg = clients.listener_of(_CONN)
+        first_leg = _leg_of(clients)
         with client.websocket_connect("/ws", headers=_HEADERS) as second:
             second.receive_json()  # ready
-            second_leg = clients.listener_of(_CONN)
+            second_leg = _leg_of(clients)
 
             assert second_leg is not None
             assert second_leg is not first_leg
@@ -370,7 +395,7 @@ def test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries() -> None:
     client, clients, menus = wired.client, wired.clients, wired.menus
     with client.websocket_connect("/ws", headers=_HEADERS) as first:
         first.receive_json()  # ready
-        _register(clients, "beads")
+        _register(wired.lifecycle, "beads")
         assert _owns(clients, "beads")
         pushes = menus.pushes
 
@@ -409,15 +434,15 @@ def test_a_superseded_sessions_teardown_leaves_its_successor_whole() -> None:
 
     with client.websocket_connect("/ws", headers=_HEADERS) as second:
         second.receive_json()  # ready
-        successor = clients.listener_of(_CONN)
-        _register(clients, "beads")
+        successor = _leg_of(clients)
+        _register(wired.lifecycle, "beads")
 
         # It departs while the successor is live and pumping. Closing the client
         # side joins the server task, so its teardown has run by the time this
         # returns — removing the ownership guard makes the asserts below fail.
         predecessor.close()
 
-        assert clients.listener_of(_CONN) is successor  # the slot was not taken
+        assert _leg_of(clients) is successor  # the slot was not taken
         assert _owns(clients, "beads")  # nor were its entries
         # And it is still reachable: a click routes and lands on its socket.
         assert router.route(CallbackInvocation(_CONN, "beads")) == "routed"
@@ -514,15 +539,21 @@ def test_a_departed_session_still_has_its_writer_and_subscriptions_released() ->
         ws.receive_json()  # ready
         ws.send_json({"kind": "subscribe", "topics": ["music.play"]})
         _eventually(lambda: Topic("music.play") in hub.topics_for(_CONN))
+        wired.lifecycle.register_callback(
+            _CONN, SessionCallback(id="m", label="M"), UNOBSERVED
+        )
+        marked = menus.pushes
 
         clock.advance(6.0)  # past the declared 5s lease
         assert clients.live_sessions() == {}  # a read: still just a filter
         assert _CONN in clients.sessions()  # unchanged — reads never depart
-        clients.discard(_CONN)  # the coordinator's atomic removal, run directly
+        wired.lifecycle.depart_lapsed(frozenset())  # the coordinator's atomic sweep
 
     _eventually(lambda: not hub.has_writer(_CONN))
     assert hub.topics_for(_CONN) == frozenset()
-    assert menus.pushes == 1  # the bar loses the departed session's entries
+    # The sweep marks the bar once, through the sink the registration bound; the
+    # teardown that finds no session adds nothing and binds nothing.
+    assert menus.pushes == marked + 1
 
 
 def test_the_teardown_contains_no_await() -> None:
@@ -554,7 +585,7 @@ _VOX_IDENTITY = ClientIdentity(kind="app", name="voxd", repo="/w/vox", lease_ttl
 
 
 def _listen_session(
-    hub: Hub, clients: HubClientRegistry, display: HubDisplay
+    hub: Hub, lifecycle: ClientLifecycle, clients: HubClientRegistry
 ) -> HubListenSession:
     """Build a session bound to a fresh loop, for calling its sync methods directly."""
 
@@ -564,10 +595,26 @@ def _listen_session(
             _CONN,
             _VOX_IDENTITY,
             hub,
-            clients,
-            display,
+            lifecycle,
             CallbackRouter(clients),
-            _MenuFlag(),
+        )
+
+    return asyncio.run(_build())
+
+
+def _agent_listen_session(
+    hub: Hub, lifecycle: ClientLifecycle, clients: HubClientRegistry
+) -> HubListenSession:
+    """Build an agent's session on a fresh loop, for calling its sync methods."""
+
+    async def _build() -> HubListenSession:
+        return HubListenSession(
+            _GoneWebSocket(WebSocketDisconnect(code=1006)),  # type: ignore[arg-type]  # never driven
+            _AGENT_CONN,
+            _AGENT_IDENTITY,
+            hub,
+            lifecycle,
+            CallbackRouter(clients),
         )
 
     return asyncio.run(_build())
@@ -592,10 +639,11 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
     """
     clock = _Clock()
     hub = Hub()
-    display = HubDisplay(clock, hub=hub)
-    clients = display.clients  # the same registry HubListenTransport wires in
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    lifecycle = factory.lifecycle
 
-    original = _listen_session(hub, clients, display)
+    clients = factory.clients
+    original = _listen_session(hub, lifecycle, clients)
     original._attach_and_register_writer()
     clock.advance(6.0)  # past the declared 5s lease; nothing else ever renews it
 
@@ -613,7 +661,7 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
 
     def _reconnect() -> None:
         tail_reached.wait(timeout=2.0)
-        reconnect = _listen_session(hub, clients, display)
+        reconnect = _listen_session(hub, lifecycle, clients)
         reconnect._attach_and_register_writer()  # blocks on StoreLock when fixed
         new_writer_installed.set()
 
@@ -622,8 +670,253 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(DepartureCascade, "run_all", _paused_run_all)
         reconnect_thread.start()
-        display.reap_lapsed_leases()
+        lifecycle.depart_lapsed(frozenset())
         reconnect_thread.join(timeout=2.0)
 
     assert new_writer_installed.is_set()
     assert hub.has_writer(_CONN)
+
+
+_AGENT_IDENTITY = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+
+
+def _agent_labels(clients: HubClientRegistry) -> list[str]:
+    """Every entry label under the Clients menu, as the next send would carry."""
+    return [
+        entry.label
+        for menu in CallbackMenu.from_named(clients.named_sessions())
+        for submenu in menu.items
+        if isinstance(submenu, Menu)
+        for entry in submenu.items
+        if isinstance(entry, MenuAction)
+    ]
+
+
+def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() -> None:
+    """The second identify path: the handshake identity must reach the Display too."""
+    clock, menus, hub = _Clock(), _MenuFlag(), Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.present_as(menus, MarkMenusSink(menus))
+    app = FastAPI()
+    # Production hands the transport the display's own registry, so the reaper
+    # and the listen leg see one set of sessions.
+    HubListenTransport(
+        hub,
+        lifecycle,
+        CallbackRouter(clients),
+    ).mount(app)
+    headers = {
+        "X-Lux-Client-Kind": "mcp-session",
+        "X-Lux-Client-Name": "claude",
+        "X-Lux-Client-Repo": "/w/lux",
+        "X-Lux-Client-Lease-Ttl": "5",
+    }
+
+    with TestClient(app).websocket_connect("/ws", headers=headers) as ws:
+        ws.receive_json()  # ready
+        assert menus.pushes >= 1
+        assert _agent_labels(clients) == ["claude"]
+        before = menus.pushes
+
+        clock.advance(6.0)  # past the declared lease; nothing renews it
+        lifecycle.depart_lapsed(frozenset())
+
+        assert menus.pushes > before
+        assert _agent_labels(clients) == []
+
+
+_AGENT_HEADERS = {
+    "X-Lux-Client-Kind": "mcp-session",
+    "X-Lux-Client-Name": "claude",
+    "X-Lux-Client-Repo": "/w/lux",
+}
+_AGENT_CONN = connection_for(
+    {"kind": "mcp-session", "name": "claude", "repo": "/w/lux"}
+)
+_RENEW = {"kind": "renew"}
+_FAR_FUTURE = 1_000_000.0  # past any kind's lease; nothing renews
+
+
+@dataclass(frozen=True, slots=True)
+class _AgentRig:
+    """A listen transport over a display whose clock and menu marks the test owns."""
+
+    client: TestClient
+    lifecycle: ClientLifecycle
+    clients: HubClientRegistry
+    clock: _Clock
+    menus: _MenuFlag
+
+    def departure_marks(self) -> int:
+        """How many menu marks one departure of the agent raises: its sinks."""
+        before = self.menus.pushes
+        self.lifecycle.depart(_AGENT_CONN)
+        return self.menus.pushes - before
+
+
+def _agent_rig() -> _AgentRig:
+    clock, menus, hub = _Clock(), _MenuFlag(), Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    lifecycle.present_as(menus, MarkMenusSink(menus))
+    app = FastAPI()
+    HubListenTransport(
+        hub,
+        lifecycle,
+        CallbackRouter(clients),
+    ).mount(app)
+    return _AgentRig(TestClient(app), lifecycle, clients, clock, menus)
+
+
+def test_a_read_loop_frame_on_a_live_session_only_renews() -> None:
+    rig = _agent_rig()
+    with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        before = rig.menus.pushes
+
+        ws.send_json(_RENEW)
+        ws.send_json(_RENEW)
+        _eventually(lambda: rig.clients.session_of(_AGENT_CONN) is not None)
+
+        assert rig.menus.pushes == before
+
+
+def test_a_read_loop_frame_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry() -> (  # noqa: E501
+    None
+):
+    rig = _agent_rig()
+    with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        rig.clock.advance(_FAR_FUTURE)  # lapsed, unswept: the roster omits it
+        assert _agent_labels(rig.clients) == []
+        before = rig.menus.pushes
+
+        ws.send_json(_RENEW)
+
+        _eventually(lambda: _agent_labels(rig.clients) == ["claude"])
+        assert rig.menus.pushes > before
+
+
+def test_a_swept_session_with_an_open_socket_is_revived_by_the_next_frame_marking_menus_and_binding_one_sink() -> (  # noqa: E501
+    None
+):
+    """D3: a swept session whose socket lingers is revived by its next frame."""
+    rig = _agent_rig()
+    with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        rig.clock.advance(_FAR_FUTURE)
+        rig.lifecycle.depart_lapsed(frozenset())
+        assert not (rig.clients.session_of(_AGENT_CONN) is not None)
+        before = rig.menus.pushes
+
+        ws.send_json(_RENEW)
+
+        _eventually(lambda: rig.clients.session_of(_AGENT_CONN) is not None)
+        assert rig.menus.pushes > before
+        assert _agent_labels(rig.clients) == ["claude"]
+        assert rig.departure_marks() == 1
+
+
+def test_a_revived_session_departs_with_a_mark_not_a_ghost() -> None:
+    rig = _agent_rig()
+    with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        rig.clock.advance(_FAR_FUTURE)
+        rig.lifecycle.depart_lapsed(frozenset())
+        ws.send_json(_RENEW)
+        _eventually(lambda: rig.clients.session_of(_AGENT_CONN) is not None)
+        before = rig.menus.pushes
+
+        rig.lifecycle.depart(_AGENT_CONN)
+
+        assert rig.menus.pushes > before
+        assert _agent_labels(rig.clients) == []
+
+
+def test_reconnecting_the_same_identity_n_times_leaves_one_menu_sink() -> None:
+    rig = _agent_rig()
+    for _ in range(3):
+        with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+            ws.receive_json()  # ready
+
+    assert rig.departure_marks() == 1
+
+
+def test_the_menu_sink_ws_listen_binds_is_the_same_object_on_every_attach() -> None:
+    rig = _agent_rig()
+    bound: list[DepartureSink] = []
+    real_bind = DepartureCascade.bind_sink
+
+    def _recording(
+        self: DepartureCascade, connection_id: ConnectionId, sink: DepartureSink
+    ) -> None:
+        bound.append(sink)
+        real_bind(self, connection_id, sink)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(DepartureCascade, "bind_sink", _recording)
+        for _ in range(3):
+            with rig.client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+                ws.receive_json()  # ready
+
+    assert bound
+    assert all(sink == bound[0] for sink in bound)
+
+
+def test_no_bound_sink_references_a_departed_listen_session() -> None:
+    clock, hub = _Clock(), Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    session = _agent_listen_session(hub, lifecycle, clients)
+    session._attach_and_register_writer()
+    session._teardown()
+
+    closures = [r for r in gc.get_referrers(session) if isinstance(r, CellType)]
+
+    assert closures == []  # a sink closing over the session would pin it
+
+
+@final
+class _SceneMarker:
+    """A DirtyMarker recording which scenes a revival retitles."""
+
+    scenes: list[SceneId]
+    __slots__ = ("scenes",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.scenes = []
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        self.scenes.append(scene_id)
+
+    def mark_menus(self) -> None:
+        """Menus are not what this test observes."""
+
+
+def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
+    clock, marker, hub = _Clock(), _SceneMarker(), Hub()
+    factory = HubStoreFactory(clock=clock, hub=hub)
+    factory.lifecycle.present_as(marker, MarkMenusSink(marker))
+    app = FastAPI()
+    HubListenTransport(hub, factory.lifecycle, CallbackRouter(factory.clients)).mount(
+        app
+    )
+    client = TestClient(app)
+    with client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
+        ws.receive_json()  # ready
+        scene = SceneId("claude-scene")
+        factory.display.replace_scene(
+            Scope.in_process(_AGENT_CONN), scene, [TextElement(id="t", content="x")]
+        )
+        clock.advance(_FAR_FUTURE)  # lapsed, unswept
+        marker.scenes.clear()
+
+        ws.send_json(_RENEW)
+
+        _eventually(lambda: scene in marker.scenes)

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+    from punt_lux.domain.scope import Scope
 
 __all__ = ["HubSceneWriter", "SceneScope"]
 
@@ -43,8 +44,13 @@ _log = logging.getLogger(__name__)
 class SceneScope:
     """The ``(connection, scene)`` pair an ``update`` mutation is scoped to."""
 
-    connection_id: ConnectionId
+    caller: Scope
     scene_id: SceneId
+
+    @property
+    def connection_id(self) -> ConnectionId:
+        """The connection the mutation acts for."""
+        return self.caller.connection_id
 
     def removal(self, element_id: ElementId) -> RemoveElement:
         """Return the ``RemoveElement`` for ``element_id`` scoped to this scene."""
@@ -55,8 +61,8 @@ class SceneScope:
 class HubSceneWriter:
     """Apply ``update`` / ``clear`` mutations to the authoritative ``HubDisplay``.
 
-    Stateless beyond its store reference; the caller re-pushes after a successful
-    write, and the writer never talks to the Display.
+    Stateless beyond its store reference; the caller re-pushes after a
+    successful write, and the writer never talks to the Display.
     """
 
     _display: HubDisplay
@@ -77,12 +83,12 @@ class HubSceneWriter:
         Stage a realization per field patch, guard every removal, check every
         rejection, and — only if all pass — commit the fields atomically (a
         mid-commit raise rolls all back), then apply removals post-commit
-        (idempotent). Any rejection leaves the store untouched.
+        (idempotent). Any rejection, a batch that would leave its scene nested
+        past the cap included, leaves the store untouched.
         """
         # One store-lock hold spans the whole batch so the replicator never
         # snapshots it half-applied; reentrant, so nested writes re-enter freely.
-        with self._display.write_lock():
-            self._display.renew_contact(scope.connection_id)
+        with self._display.writing_as(scope.caller):
             try:
                 batch = PatchBatch.from_wire(patches)
                 realizations = self._field_realizations(scope, batch)
@@ -96,16 +102,18 @@ class HubSceneWriter:
                 UnknownSceneError,
             ) as exc:
                 return WriteRejected(str(exc))
-            for realization in realizations:
-                rejection = realization.rejection()
-                if rejection is not None:
-                    return rejection
-            self._commit(realizations)
+            rejection = self._rejection_of(scope, realizations)
+            if rejection is not None:
+                return rejection
+            # A refused observer write rolls the whole batch back: say why.
+            rolled_back = self._display.write_seam.commit(realizations)
+            if rolled_back is not None:
+                return rolled_back
             self._apply_removals(scope, batch.removals)
             return WriteAccepted()
 
     def clear(
-        self, connection_id: ConnectionId, scene_id: SceneId | None = None
+        self, caller: Scope, scene_id: SceneId | None = None
     ) -> frozenset[SceneId]:
         """Remove the connection's roots and return the scenes they were removed from.
 
@@ -114,16 +122,15 @@ class HubSceneWriter:
         its real frame and reclaims it after (deferred so the blank keeps its frame).
         """
         touched: set[SceneId] = set()
-        with self._display.write_lock():
-            self._display.renew_contact(connection_id)
+        with self._display.writing_as(caller):
             for owned_scene, element_id in self._display.elements_owned_by(
-                connection_id
+                caller.connection_id
             ):
                 if scene_id is not None and owned_scene != scene_id:
                     continue
                 touched.add(owned_scene)
                 removal = RemoveElement(scene_id=owned_scene, element_id=element_id)
-                self._display.apply(connection_id, removal)
+                self._display.apply(caller, removal)
         return frozenset(touched)
 
     def _field_realizations(
@@ -156,21 +163,22 @@ class HubSceneWriter:
                 continue
             self._require_owner(scope, element_id)
 
-    @staticmethod
-    def _commit(realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization atomically.
+    def _rejection_of(
+        self, scope: SceneScope, realizations: Sequence[FieldRealization]
+    ) -> WriteRejected | None:
+        """Why the batch may not be committed, judged before any of it is.
 
-        Each snapshots its own undo state, so a mid-batch raise rolls all back.
+        Each realization answers for itself; then the scene as the whole batch would
+        leave it must still fit the nesting cap.
         """
-        committed: list[FieldRealization] = []
-        try:
-            for realization in realizations:
-                realization.commit()
-                committed.append(realization)
-        except Exception:
-            for realization in reversed(committed):
-                realization.restore()
-            raise
+        for realization in realizations:
+            rejection = realization.rejection()
+            if rejection is not None:
+                return rejection
+        too_deep = self._display.write_seam.nesting_refusal(
+            scope.scene_id, realizations
+        )
+        return None if too_deep is None else WriteRejected(too_deep)
 
     def _apply_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Evict each removed element from the store after all sets have committed.
@@ -184,7 +192,7 @@ class HubSceneWriter:
         scene; its presentation is kept so a later resend blanks it into its frame.
         """
         for element_id in removals:
-            self._display.apply(scope.connection_id, scope.removal(element_id))
+            self._display.apply(scope.caller, scope.removal(element_id))
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection may write an installed ``element_id``.
@@ -194,9 +202,9 @@ class HubSceneWriter:
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
         if owner not in (None, scope.connection_id):
-            raise HubOwnershipError(
-                scene_id=scope.scene_id,
-                element_id=element_id,
-                attempting=scope.connection_id,
-                owning=owner,
+            raise HubOwnershipError.of(
+                scope.scene_id,
+                element_id,
+                scope.connection_id,
+                owner,
             )

@@ -16,6 +16,7 @@ from punt_lux.display.dock_pill import DockPill
 
 if TYPE_CHECKING:
     from punt_lux.display.replica import Frame, SceneReplica
+    from punt_lux.display.replica.address_rendering import AddressRendering
 
 __all__ = ["DOCK_BAR_HEIGHT", "DockBar"]
 
@@ -43,12 +44,16 @@ class DockBar:
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs
     _scenes: SceneReplica
-    __slots__ = ("_imgui", "_scenes")
+    _addressing: AddressRendering
+    __slots__ = ("_addressing", "_imgui", "_scenes")
 
-    def __new__(cls, imgui: Any, scenes: SceneReplica) -> Self:
+    def __new__(
+        cls, imgui: Any, scenes: SceneReplica, addressing: AddressRendering
+    ) -> Self:
         self = super().__new__(cls)
         self._imgui = imgui
         self._scenes = scenes
+        self._addressing = addressing
         return self
 
     def render(self, *, any_frame_hovered: bool) -> None:
@@ -112,7 +117,13 @@ class DockBar:
         pill_x = anchor.x
 
         for frame in docked:
-            pill = DockPill.at(imgui, frame, ImVec2(pill_x, anchor.y), height)
+            pill = DockPill.at(
+                imgui,
+                frame,
+                self._addressing.frame_title(frame),
+                ImVec2(pill_x, anchor.y),
+                height,
+            )
             if pill.right > max_x:
                 self._paint_ellipsis(draw, ImVec2(pill_x, anchor.y), height)
                 return

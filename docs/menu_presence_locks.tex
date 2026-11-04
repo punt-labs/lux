@@ -1,0 +1,230 @@
+%
+% menu_presence_locks.tex
+%
+% Companion to docs/menu_presence.tex: the LOCK ORDER the fixed design
+% requires, checked for deadlock-freedom.
+%
+% menu_presence.tex makes every presence-changing registry transition one
+% atomic step. That atomicity is only real if the code can actually hold the
+% locks it needs without a cycle. The locks in play:
+%
+%   StoreLock   the StoreLock every ClientLifecycle method takes (arrive,
+%               identify, attach, renew, register_callback, detach, depart,
+%               depart_lapsed), a re-entrant write lock; also held by the
+%               Hub's scene writes and by ClientLifecycle.bind_sink. The
+%               departure sinks run inside it.
+%   RegLock     HubClientRegistry._lock, a plain (non-re-entrant) lock, which
+%               PresenceWrites shares by reference. Taken INSIDE StoreLock by
+%               every writer (PresenceWrites.record, renew_if_registered,
+%               discard, reap_lapsed, attach,
+%               register_callback, detach), and ALONE by the readers
+%               (named_sessions, live_sessions, sessions, session_of, identity_of).
+%   (marker)    The DirtyMarker's own lock, taken by mark_menus. It is a leaf:
+%               nothing is acquired while it is held, so it contributes no
+%               edge to the acquisition graph and is not modelled.
+%
+% Re-entrancy of StoreLock contributes no edge either: a thread already
+% holding it never waits on it, so a nested acquire is a self-loop. It is
+% modelled by omission.
+%
+% THE FIXED DESIGN: every presence-changing writer enters through
+% ClientLifecycle (StoreLock first, then RegLock); the registry returns
+% "presence changed" and the caller, still inside StoreLock, marks and binds.
+% The callback route is no exception: ClientLifecycle.register_callback and
+% ClientLifecycle.detach take the store lock, and only then reach
+% PresenceWrites, which takes RegLock. (Before the fix CallbackOperations and
+% ws_listen were handed the listener-leg write (then ListenerLegs, now PresenceWrites) and
+% wrote under RegLock alone; that is
+% deadlock-free, a registry-only writer being a reader as far as the lock
+% graph goes, and it is wrong for the reason menu_presence.tex gives: no sink
+% is bound.) Readers take RegLock alone and never wait for the store. The
+% acquisition graph has the single edge StoreLock -> RegLock: acyclic, so
+% deadlock-free.
+%
+% THE REJECTED DESIGN (menu_presence_locks_inverted_buggy.tex): the registry
+% itself fires the mark/bind hook from inside record() (or, equally,
+% PresenceWrites.register_callback), i.e. while holding RegLock, and binding a
+% sink takes StoreLock. Writers that enter through the
+% registry then hold RegLock and want StoreLock, against ClientLifecycle's writers
+% that hold StoreLock and want RegLock: a cycle. ProB finds the deadlock.
+%
+% Type-check:  fuzz docs/menu_presence_locks.tex
+% Model-check: probcli docs/menu_presence_locks.tex -model_check \
+%                -p DEFAULT_SETSIZE 2
+% Expected: no deadlock, no invariant violation (the fixed order).
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Menu Presence: the Lock Order}
+\maketitle
+
+\begin{zed}
+  [T]
+\end{zed}
+
+A thread: an MCP tool thread, the listen leg's event-loop thread, the lease
+sweep, the replicator tick. Two suffice for a cycle.
+
+\begin{zed}
+  PC ::= pidle | pstore | pboth | preg | pcstore | pcboth
+\end{zed}
+
+A thread's program counter: holding nothing; holding the store lock and
+wanting the registry's; holding both; holding the registry lock alone (a
+read); and the same two writing states for a thread on the callback route
+(\texttt{pcstore}, \texttt{pcboth}), kept apart from the others so that the
+model says in so many words that \texttt{register\_callback} and
+\texttt{detach} follow the same order.
+
+\begin{schema}{Locks}
+  pc : T \fun PC \\
+  storeHeld : \power T \\
+  regHeld : \power T
+\where
+  \# storeHeld \leq 1 \\
+  \# regHeld \leq 1 \\
+  storeHeld = \{ t : T | pc~t = pstore \lor pc~t = pboth \lor
+    pc~t = pcstore \lor pc~t = pcboth \} \\
+  regHeld = \{ t : T | pc~t = pboth \lor pc~t = preg \lor
+    pc~t = pcboth \}
+\end{schema}
+
+The lock tables are derived from the program counters, so they can never
+disagree with them. The cardinality bounds are mutual exclusion, assumed as a
+guard, as a lock is modelled: a thread cannot take a held lock. They are not
+checked: what the model puts to the test is the order, by the deadlock check.
+
+\begin{schema}{Init}
+  Locks'
+\where
+  pc' = T \cross \{ pidle \} \\
+  storeHeld' = \emptyset \\
+  regHeld' = \emptyset
+\end{schema}
+
+\begin{schema}{BeginWrite}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pidle \\
+  storeHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pstore \} \\
+  storeHeld' = \{ t? \} \\
+  regHeld' = regHeld
+\end{schema}
+
+A presence-changing writer takes the store lock first
+(\texttt{ClientLifecycle.arrive}, \texttt{identify}, \texttt{attach},
+\texttt{renew}, \texttt{depart}, \texttt{depart\_lapsed}, and the read loop,
+which reaches the registry only through them).
+
+\begin{schema}{TakeRegistry}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pstore \\
+  regHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pboth \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \{ t? \}
+\end{schema}
+
+\begin{schema}{Finish}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pboth \\
+  pc' = pc \oplus \{ t? \mapsto pidle \} \\
+  storeHeld' = \emptyset \\
+  regHeld' = \emptyset
+\end{schema}
+
+The upsert or removal happens under both locks; the registry returns, and the
+caller marks and binds under the store lock it still holds, then releases
+both. (The marker's leaf lock, taken in between, is not modelled.)
+
+\begin{schema}{BeginCallbackWrite}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pidle \\
+  storeHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pcstore \} \\
+  storeHeld' = \{ t? \} \\
+  regHeld' = regHeld
+\end{schema}
+
+\begin{schema}{TakeRegistryForCallback}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pcstore \\
+  regHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto pcboth \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \{ t? \}
+\end{schema}
+
+\begin{schema}{FinishCallbackWrite}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pcboth \\
+  pc' = pc \oplus \{ t? \mapsto pidle \} \\
+  storeHeld' = \emptyset \\
+  regHeld' = \emptyset
+\end{schema}
+
+The callback route: \texttt{ClientLifecycle.register\_callback} and
+\texttt{ClientLifecycle.detach} take the store lock, then
+\texttt{PresenceWrites} takes the registry lock for its compare-and-write, then
+the lifecycle marks and binds the one shared sink and releases both
+(\texttt{RegisterCallback} and \texttt{Detach} in \texttt{menu\_presence.tex}).
+The three steps have the shape of the three above, and the acquisition graph
+gains no edge: StoreLock $\to$ RegLock, as before.
+
+\begin{schema}{BeginRead}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = pidle \\
+  regHeld = \emptyset \\
+  pc' = pc \oplus \{ t? \mapsto preg \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \{ t? \}
+\end{schema}
+
+\begin{schema}{EndRead}
+  \Delta Locks \\
+  t? : T
+\where
+  pc~t? = preg \\
+  pc' = pc \oplus \{ t? \mapsto pidle \} \\
+  storeHeld' = storeHeld \\
+  regHeld' = \emptyset
+\end{schema}
+
+A reader (\texttt{named\_sessions}, the replicator's roster read) takes the
+registry lock alone and releases it without ever asking for the store.
+
+Deadlock-freedom is the claim that some operation is enabled in every
+reachable state: with the order above, a thread holding \texttt{regHeld}
+either finishes (\texttt{pboth}) or is a reader that releases
+(\texttt{preg}); neither waits on anything, so the thread blocked on
+\texttt{regHeld} is always eventually enabled. A thread on the callback
+route is in the same position (\texttt{pcboth} finishes). A thread at
+\texttt{pstore} or \texttt{pcstore} waits only for the registry lock, whose
+holder is at \texttt{pboth}, \texttt{pcboth} or \texttt{preg}, all of which
+release without waiting for anything.
+
+\begin{verbatim}
+  fuzz docs/menu_presence_locks.tex
+  probcli docs/menu_presence_locks.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+\end{document}

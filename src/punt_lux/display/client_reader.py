@@ -6,7 +6,7 @@ decrypted records OpenSSL buffered, reframing them, and dispatching each
 complete message is one cohesive concern -- distinct from the accept,
 identity, and send concerns the listener keeps. It reaches back into its
 host only to remove a departed client and to test whether one is still
-connected mid-dispatch, both narrowed to the :class:`ReaderHost` protocol.
+connected mid-dispatch, both narrowed to the :class:`ClientHost` protocol.
 """
 
 from __future__ import annotations
@@ -14,36 +14,26 @@ from __future__ import annotations
 import logging
 import socket
 import ssl
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.display.want_write_state import WantWriteState
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.protocol import HEADER_SIZE, MAX_MESSAGE_SIZE
+from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 if TYPE_CHECKING:
+    from punt_lux.display.client_host_port import ClientHost
     from punt_lux.display.client_registry import ClientRegistry
     from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
-    from punt_lux.display.socket_server import WantWriteState
     from punt_lux.protocol import FrameReader
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ClientReader", "ReaderHost"]
+__all__ = ["ClientReader"]
 
 # One kernel read per pass; a promoted TLS socket's leftover records drain via
 # pending() in the same pass rather than waiting on the next select wake-up.
 _RECV_CHUNK = 65536
-
-
-@runtime_checkable
-class ReaderHost(Protocol):
-    """What :class:`ClientReader` needs from the listener that owns it."""
-
-    def remove_client(self, sock: socket.socket) -> None:
-        """Drop a departed or malformed client and clean up its per-fd state."""
-        ...
-
-    def is_client(self, sock: socket.socket) -> bool:
-        """Return whether ``sock`` is still a live registered client."""
-        ...
 
 
 @final
@@ -53,20 +43,19 @@ class ClientReader:
     _registry: ClientRegistry
     _want_write: WantWriteState
     _callbacks: SocketListenerCallbacks
-    _host: ReaderHost
+    _host: ClientHost
     __slots__ = ("_callbacks", "_host", "_registry", "_want_write")
 
     def __new__(
         cls,
         *,
         registry: ClientRegistry,
-        want_write: WantWriteState,
         callbacks: SocketListenerCallbacks,
-        host: ReaderHost,
+        host: ClientHost,
     ) -> Self:
         self = super().__new__(cls)
         self._registry = registry
-        self._want_write = want_write
+        self._want_write = WantWriteState()
         self._callbacks = callbacks
         self._host = host
         return self
@@ -142,14 +131,28 @@ class ClientReader:
             self._host.remove_client(sock)
             return
         try:
-            messages = reader.drain_typed()
-        except (ValueError, KeyError, TypeError) as exc:  # malformed wire data
-            logger.warning("Malformed message from fd %d", fd)
+            messages = reader.drain_typed(CLIENT_VOCABULARY)
+        except ProgrammerError:
+            raise
+        except Exception as exc:  # wire boundary: any decoder failure drops the peer
+            logger.exception("Malformed message from fd %d", fd)
             self._callbacks.on_error("error", str(exc), "message_parse")
             self._host.remove_client(sock)
             return
         for msg in messages:
             logger.debug("Received %s from fd=%s", type(msg).__name__, fd)
-            self._callbacks.on_message(sock, msg)
+            try:
+                self._callbacks.on_message(sock, msg)
+            except ProgrammerError:
+                raise
+            except Exception as exc:  # handler boundary: no reply may be skipped
+                # A request whose handling raised leaves no reply, and the Hub
+                # matches replies to requests by order, so the connection ends.
+                logger.exception(
+                    "Handling %s from fd %d failed", type(msg).__name__, fd
+                )
+                self._callbacks.on_error("error", str(exc), "message_handler")
+                self._host.remove_client(sock)
+                return
             if not self._host.is_client(sock):
                 return  # removed during handle (e.g. send failed)

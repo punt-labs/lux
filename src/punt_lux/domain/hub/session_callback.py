@@ -70,11 +70,8 @@ class MenuLeaf:
         remaining separators (the Hub's own Details id opens with one). An unknown
         tag, or a missing segment, never named a real stamped leaf.
         """
-        parts = wire_id.split(ID_SEPARATOR, 2)
-        if len(parts) != 3:
-            msg = f"not a menu leaf id: {wire_id!r}"
-            raise ValueError(msg)
-        tag, connection, local_id = parts
+        tag, _, rest = wire_id.partition(ID_SEPARATOR)
+        connection, _, local_id = rest.partition(ID_SEPARATOR)
         kind = _TAG_KIND.get(tag)
         if kind is None or not connection or not local_id:
             msg = f"not a menu leaf id: {wire_id!r}"
@@ -89,8 +86,8 @@ class SessionCallback(BaseModel):
 
     id: str = Field(min_length=1)  # an id-less callback is not a real state
     label: str = Field(min_length=1)  # a label-less callback is not a real state
-    # absent = no owned frame (e.g. the Hub's own Details); present must be
-    # non-blank and separator-free, same as ConnectionScopedId.compose.
+    # absent = no owned frame; present must be non-blank and separator-free,
+    # same as ConnectionScopedId.compose.
     frame_id: str | None = Field(default=None, pattern=NONBLANK_FRAME_ID)
 
     @field_validator("id")
@@ -122,8 +119,9 @@ class CallbackInvocation:
     def details(cls, connection_id: ConnectionId) -> Self:
         """The invocation the Hub's own Details command on *connection_id* fires.
 
-        Every submenu carries this command; the Hub answers it itself,
-        reporting that connection's own state rather than routing to a session.
+        The entry a connection with no registered command contributes. The Hub
+        answers it itself, reporting that connection's own state rather than
+        routing the click to a session.
         """
         return cls(connection_id, _DETAILS_CALLBACK_ID)
 

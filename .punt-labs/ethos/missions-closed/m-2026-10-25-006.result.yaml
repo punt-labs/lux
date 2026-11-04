@@ -1,0 +1,260 @@
+mission: m-2026-10-25-006
+round: 2
+created_at: "2026-10-26T01:38:00Z"
+author: rmh
+verdict: pass
+confidence: 0.85
+files_changed:
+    - path: .oo-audit.jsonl
+      added: 5
+      removed: 0
+    - path: .oo-baseline.json
+      added: 171
+      removed: 80
+    - path: .oo-coupling-audit.jsonl
+      added: 5
+      removed: 0
+    - path: .oo-coupling-baseline.json
+      added: 100
+      removed: 51
+    - path: src/punt_lux/display/client_queries.py
+      added: 38
+      removed: 14
+    - path: src/punt_lux/display/client_registry.py
+      added: 27
+      removed: 0
+    - path: src/punt_lux/display/client_sender.py
+      added: 27
+      removed: 2
+    - path: src/punt_lux/display/display_log.py
+      added: 56
+      removed: 0
+    - path: src/punt_lux/display/menus/own_menus.py
+      added: 15
+      removed: 46
+    - path: src/punt_lux/display/menus/window_preferences.py
+      added: 48
+      removed: 0
+    - path: src/punt_lux/display/query_dispatcher.py
+      added: 23
+      removed: 235
+    - path: src/punt_lux/display/render_loop.py
+      added: 11
+      removed: 33
+    - path: src/punt_lux/display/replica/menu_replica.py
+      added: 4
+      removed: 0
+    - path: src/punt_lux/display/replica/replicated_menus.py
+      added: 8
+      removed: 1
+    - path: src/punt_lux/display/scene_reports.py
+      added: 62
+      removed: 0
+    - path: src/punt_lux/display/socket_server.py
+      added: 7
+      removed: 1
+    - path: src/punt_lux/display/want_write_state.py
+      added: 14
+      removed: 3
+    - path: src/punt_lux/display/window_settings.py
+      added: 17
+      removed: 1
+    - path: src/punt_lux/domain/hub/batch_sender.py
+      added: 23
+      removed: 12
+    - path: src/punt_lux/domain/hub/clients.py
+      added: 26
+      removed: 39
+    - path: src/punt_lux/domain/hub/connection_closed.py
+      added: 20
+      removed: 5
+    - path: src/punt_lux/domain/hub/crash_attribution.py
+      added: 4
+      removed: 3
+    - path: src/punt_lux/domain/hub/death_charger.py
+      added: 6
+      removed: 2
+    - path: src/punt_lux/domain/hub/dial_death.py
+      added: 16
+      removed: 10
+    - path: src/punt_lux/domain/hub/dial_drain.py
+      added: 68
+      removed: 0
+    - path: src/punt_lux/domain/hub/dial_generation.py
+      added: 120
+      removed: 200
+    - path: src/punt_lux/domain/hub/dial_reader.py
+      added: 26
+      removed: 6
+    - path: src/punt_lux/domain/hub/dial_ref.py
+      added: 5
+      removed: 4
+    - path: src/punt_lux/domain/hub/dial_socket.py
+      added: 246
+      removed: 0
+    - path: src/punt_lux/domain/hub/display_connection.py
+      added: 70
+      removed: 37
+    - path: src/punt_lux/domain/hub/display_link.py
+      added: 30
+      removed: 23
+    - path: src/punt_lux/domain/hub/display_listener.py
+      added: 34
+      removed: 5
+    - path: src/punt_lux/domain/hub/display_replies.py
+      added: 31
+      removed: 9
+    - path: src/punt_lux/domain/hub/display_requests.py
+      added: 13
+      removed: 20
+    - path: src/punt_lux/domain/hub/display_writer.py
+      added: 2
+      removed: 2
+    - path: src/punt_lux/domain/hub/keepalive_ports.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/replicator.py
+      added: 10
+      removed: 20
+    - path: src/punt_lux/domain/hub/replicator_ports.py
+      added: 10
+      removed: 12
+    - path: src/punt_lux/domain/hub/reply_sink.py
+      added: 91
+      removed: 23
+    - path: src/punt_lux/domain/hub/request_desk.py
+      added: 1
+      removed: 1
+    - path: src/punt_lux/domain/hub/request_exchange.py
+      added: 1
+      removed: 7
+    - path: src/punt_lux/domain/hub/settlement.py
+      added: 27
+      removed: 0
+    - path: src/punt_lux/domain/hub/suspect_book.py
+      added: 90
+      removed: 0
+    - path: src/punt_lux/protocol/messages/introspect.py
+      added: 10
+      removed: 2
+    - path: tests/display/replica/test_menu_replica.py
+      added: 28
+      removed: 0
+    - path: tests/display/test_client_queries.py
+      added: 40
+      removed: 20
+    - path: tests/display/test_client_registry.py
+      added: 16
+      removed: 0
+    - path: tests/display/test_display_log.py
+      added: 83
+      removed: 0
+    - path: tests/display/test_frame_title_seam.py
+      added: 1
+      removed: 1
+    - path: tests/display/test_held_acks.py
+      added: 163
+      removed: 0
+    - path: tests/display/test_install_order.py
+      added: 99
+      removed: 0
+    - path: tests/display/test_query_dispatcher.py
+      added: 23
+      removed: 65
+    - path: tests/display/test_render_loop.py
+      added: 20
+      removed: 0
+    - path: tests/display/test_reply_discipline.py
+      added: 4
+      removed: 0
+    - path: tests/display/test_reply_sites_guard.py
+      added: 35
+      removed: 5
+    - path: tests/display/test_socket_server.py
+      added: 34
+      removed: 2
+    - path: tests/display/test_window_settings.py
+      added: 32
+      removed: 1
+    - path: tests/domain/display_double.py
+      added: 60
+      removed: 8
+    - path: tests/domain/test_ack_attribution.py
+      added: 523
+      removed: 0
+    - path: tests/domain/test_death_charger.py
+      added: 47
+      removed: 5
+    - path: tests/domain/test_dial_death.py
+      added: 25
+      removed: 0
+    - path: tests/domain/test_dial_drain.py
+      added: 111
+      removed: 0
+    - path: tests/domain/test_dial_model_lock_discipline.py
+      added: 5
+      removed: 2
+    - path: tests/domain/test_display_connection.py
+      added: 76
+      removed: 13
+    - path: tests/domain/test_display_link.py
+      added: 2
+      removed: 4
+    - path: tests/domain/test_handler_writes_cannot_deepen.py
+      added: 47
+      removed: 6
+    - path: tests/domain/test_hub_replicator.py
+      added: 70
+      removed: 23
+    - path: tests/domain/test_link_generations.py
+      added: 65
+      removed: 41
+    - path: tests/domain/test_listener_thread.py
+      added: 2
+      removed: 1
+    - path: tests/domain/test_reply_sink.py
+      added: 120
+      removed: 2
+    - path: tests/domain/test_retire_cause.py
+      added: 95
+      removed: 19
+    - path: tests/domain/test_single_writer.py
+      added: 91
+      removed: 11
+    - path: tests/domain/test_suspect_book.py
+      added: 157
+      removed: 0
+    - path: tests/integration/test_crash_quarantine.py
+      added: 25
+      removed: 14
+    - path: tests/integration/test_hub_display_reconciliation.py
+      added: 2
+      removed: 4
+    - path: tests/link_access.py
+      added: 27
+      removed: 2
+    - path: tests/menu_doubles.py
+      added: 60
+      removed: 9
+    - path: tests/test_client_registry.py
+      added: 31
+      removed: 10
+    - path: tests/test_protocol.py
+      added: 16
+      removed: 0
+evidence:
+    - name: 'make check exits 0 on 0a334f6d: 7228 passed, 193 deselected (.tmp/check-b-final.txt)'
+      status: pass
+    - name: 'make test-integration on 0a334f6d: 92 passed, 7329 deselected (.tmp/integ-b-final.txt)'
+      status: pass
+    - name: 58 mutation checks, all RED on the final tree (.tmp/remut-all.txt); red-first run .tmp/red-phaseb-1.txt
+      status: pass
+    - name: 'Full write-up: .tmp/missions/results-r6fix/m-2026-10-25-006.md'
+      status: pass
+open_questions:
+    - Invariant 2 runtime seam routing not done (guard half shipped, per the ruling).
+prose: |
+    Round 2: Phase A (review-r7 findings) and Phase B (T11 held acks, T12 carry, T13 unresponsive,
+    T14 two-phase end with drain, O6 probe on the ack, O7 ordering). See the results file. Also edited,
+    outside the contract write set but per the leader's messages: docs/listener_lifecycle_coverage.md and
+    docs/crash_attribution_coverage.md (the design docs jms and the leader committed are not mine).

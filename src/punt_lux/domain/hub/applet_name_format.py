@@ -4,11 +4,9 @@ An applet identifies itself with ``lux · <repo> · #<pid> · <program>``: the t
 the repository, the session that declared it, and the program that runs there.
 The Hub needs to read the pid back to know when two applet connections belong
 to one session (:class:`~punt_lux.domain.hub.menu_group_key.MenuGroupKey`), so
-the parse lives in the domain layer where the reader is. The writer —
-:meth:`~punt_lux.applets.identity.AppletIdentity.for_session` — delegates to
-:func:`format_name` here so both halves change together, and the round-trip
-test in ``tests/applets/test_identity.py`` fails loud if either half moves
-alone.
+the parse lives in the domain layer where the reader is. The writer delegates
+to :func:`format_name` here so both halves change together, and the round-trip
+test in ``tests/applets/test_identity.py`` fails if either half moves alone.
 
 The module exposes :data:`APPLET_NAME_RE` so
 :class:`~punt_lux.domain.hub.client_identity.ClientIdentity` can reject a
@@ -27,7 +25,9 @@ __all__ = ["APPLET_NAME_RE", "format_name", "session_pid_from_name"]
 # changes without updating each constant here.
 _SEPARATOR = " · "
 _PID_PREFIX = "#"
-APPLET_NAME_RE = re.compile(r"^lux · [^·]+ · #(?P<pid>[0-9a-fA-F]+) · [^·]+$")
+APPLET_NAME_RE = re.compile(
+    r"^lux · [^·]+ · #(?P<pid>[0-9a-fA-F]+) · (?P<program>[^·]+)$"
+)
 
 
 def format_name(repo_name: str, session_pid: int, program: str) -> str:

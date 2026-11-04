@@ -19,11 +19,13 @@ from unittest import mock
 import pytest
 from fastmcp.exceptions import ToolError
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
+from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -115,13 +117,14 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
     registration requires. ``listening=False`` withholds that leg, which is what a
     bare MCP session — no applet behind it — actually has.
     """
-    display = HubDisplay()
-    router = CallbackRouter(display.clients)
+    factory = HubStoreFactory()
+    display = factory.display
+    lifecycle = factory.lifecycle
+    clients = factory.clients
+    router = CallbackRouter(clients)
     listener = _Listener()
     if listening:
-        display.clients.attach_listener(
-            ConnectionId(_SESSION), _tool_identity(), listener
-        )
+        lifecycle.attach(ConnectionId(_SESSION), _tool_identity(), listener, UNOBSERVED)
     ports = HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
@@ -131,14 +134,17 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
             is_running=lambda: False, clients=client_registry
         ),
     )
-    # ``display.clients`` is the fresh registry the identity and callback concerns
+    # ``clients`` is the fresh registry the identity and callback concerns
     # read and write, keeping this store isolated from the process singletons.
     ops = Operations.for_store(
         display,
         _StubReplicator(),
+        lifecycle=lifecycle,
+        clients=clients,
         hub=hub,
-        menu_registry=HubMenuRegistry(display.clients),
+        menu_registry=HubMenuRegistry(clients),
         callback_router=router,
+        callback_menus=CallbackMenuReplica(clients),
         ports=ports,
     )
     token = _session_key.set(_SESSION)

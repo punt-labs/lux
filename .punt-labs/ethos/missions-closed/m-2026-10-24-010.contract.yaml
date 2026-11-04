@@ -1,0 +1,41 @@
+mission_id: m-2026-10-24-010
+status: closed
+type: implement
+created_at: "2026-10-24T05:42:03Z"
+updated_at: "2026-10-25T12:42:12Z"
+closed_at: "2026-10-25T12:42:12Z"
+leader: claude
+worker: jms
+evaluator:
+    handle: jra
+    pinned_at: "2026-10-24T05:42:03Z"
+    hash: f645be1a2f7cfb361d3822a090b08c0e454d7148eb0a8b52814c38638b3cd9be
+inputs:
+    files:
+        - docs/listener_lifecycle.tex
+        - .tmp/missions/results-listener-model-r3/jra-eval.md
+        - .tmp/jra-eval-r3/w/ll_locks.tex
+        - .tmp/jra-eval-r3/w/ll_locks_inverted.tex
+        - docs/menu_presence_locks.tex
+        - src/punt_lux/domain/hub/display_connection.py
+        - src/punt_lux/domain/hub/display_replies.py
+        - src/punt_lux/domain/hub/listener_thread.py
+write_set:
+    - docs/listener_locks.tex
+    - docs/listener_locks_inverted_buggy.tex
+    - docs/listener_lifecycle.tex
+    - docs/menu_presence.tex
+    - docs/menu_presence_locks.tex
+    - docs/menu_presence_locks_inverted_buggy.tex
+    - .tmp/missions/results-listener-locks/
+success_criteria:
+    - 'LOCK-ORDER MODEL for the listener-lifecycle fixed design (finding F3 of .tmp/missions/results-listener-model-r3/jra-eval.md): lux CLAUDE.md requires a ProB deadlock check for any lock change, and the main model''s deadlocked:0 proves nothing (Want and LockExpire are always enabled). On branch fix/lux-ghhf-details-frame-id in [REDACTED:home-path]Coding/punt-labs/lux, write docs/listener_locks.tex modelling every lock the fixed design takes: the per-reply-kind request locks, the generation state lock, the connection _lock (socket write/read), the reply-queue/ledger lock, with the acquisition order the 20 implementation rules state (request lock, then state lock, then queue lock; _lock a leaf), over 2 and 3 threads. Start from jra''s probe .tmp/jra-eval-r3/w/ll_locks.tex. Prove deadlock-freedom with probcli; mutual exclusion is assumed as a guard (say so explicitly, as a lock is modelled), and any ordering property is checked as a negated goal, never as a state-schema conjunct (ProB disables, not reports, a schema-conjunct violation).'
+    - 'Fidelity control docs/listener_locks_inverted_buggy.tex: the ledger/queue lock taken before _lock (the order jra''s ll_locks_inverted.tex uses) must deadlock, with the trace recorded. Mirror the structure of docs/menu_presence_locks.tex and its inverted control. fuzz clean on both. Record commands and outputs. Do NOT touch src/ or tests/ or any other docs file. Commit only your write set with explicit git add; do not push, do not touch PRs. Never restore files from git, rm, stash or reset. Never run GUI/e2e tests. RESULT: .tmp/missions/results-listener-locks/<mission-id>.md, submit with ethos mission result.'
+    - 'ALSO, prose-only edits (zed/schema/axdef untouched; fuzz clean after each): (a) C4 from .tmp/missions/results-listener-model-r3/jra-eval-r2.md: docs/listener_lifecycle.tex:1541-1542 duplicated clause and lost ''Every probcli call below also takes''; lines 1370-1374 drop the second ''L7 and L8 are by construction'' sentence; also state in rule 23''s prose that the inline read waits with select outside _lock and holds _lock only for the recv (jra C2). (b) menu_presence wording (jra round-1 audit, .tmp/missions/results-listener-model-r3/jra-eval.md section 3): menu_presence.tex Verification (about 877-881) must not claim a plain model-check verifies the structural invariant (a schema conjunct is a guard) and must name the structural goal; say the deadlock check on menu_presence.tex proves nothing (Connect always enabled) and deadlock-freedom is claimed by menu_presence_locks.tex alone; in menu_presence_locks.tex say mutual exclusion is assumed as a guard, as a lock is modelled. (c) D3-3: menu_presence_locks.tex:35-36 and menu_presence_locks_inverted_buggy.tex:43-44,209 say callers were handed PresenceWrites before the fix; it was ListenerLegs (''then ListenerLegs, now PresenceWrites''); add sessions() to the reader list.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+context: |
+    Companion lock-order model to the listener-lifecycle model (m-2026-10-23-024),
+    run in parallel with its round 2. jms models, jra evaluates.

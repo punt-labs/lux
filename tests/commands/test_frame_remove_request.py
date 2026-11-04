@@ -15,7 +15,7 @@ from punt_lux.operations import Scope
 from ._family_stubs import StubFrameOps
 
 _WHO = ClientIdentity(kind="cli", name="frame-remove-request-test")
-_SCOPE = Scope(ConnectionId("c1"))
+_SCOPE = Scope.in_process(ConnectionId("c1"))
 
 
 def test_fields_round_trip() -> None:

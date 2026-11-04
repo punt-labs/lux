@@ -1,0 +1,39 @@
+# Qodo v2 review config, from punt-kit's pr_agent.toml template. One review on open,
+# no per-push re-review, only High findings inline (they become blocking threads).
+# Only bot-authored PRs are skipped; no title or label lets an author opt out.
+[github_app]
+ignore_bot_pr = true
+pr_commands = ["/agentic_describe", "/agentic_review"]
+handle_push_trigger = false
+
+[review_agent]
+enable_incremental_review = true
+# comments_routing below is authoritative; the threshold restates it (High only inline).
+inline_comments_severity_threshold = 3
+issues_user_guidelines = """
+lux is a Python 3.13 package (luxd Hub daemon, ImGui Display renderer, MCP and REST surfaces, CLI) plus bash plugin hooks.
+Targets: macOS (launchd) and Ubuntu 24.04 (systemd). Nothing else.
+Report every finding in this one pass; do not hold findings back for a later pass.
+Flag only defects reachable by a real caller of the changed code: logic errors, None paths, security, API contract breaks, concurrency, resource leaks.
+Do not flag hypothetical environments (exotic env vars such as CDPATH or GIT_TRACE, control bytes in paths, tests run as root).
+Do not flag what CI enforces: ruff format/lint, mypy and pyright strict, markdownlint, scripts/check-plugin-surface.sh and scripts/check-skill-permissions.sh, the OO ratchet (tools/oo_ratchet), coupling and suppression ratchets.
+Do not flag lines the PR did not change.
+Never suggest suppressions (# noqa, # type: ignore, xfail) or replacing __new__ with __init__; __new__ is the constructor by design.
+"""
+compliance_user_guidelines = """
+Apply code rules only: correctness, typing, error handling, security, and the coding standards for the changed files.
+Do not grade PR titles, PR descriptions, commit messages, or CHANGELOG wording.
+Do not grade agent process rules from CLAUDE.md, AGENTS.md, or WORKFLOW.md (missions, beads, review cycles, delegation).
+"""
+smart_router_extra_instructions = """
+High risk: src/punt_lux/trust/ (certificate authority, enrollment, key material), src/punt_lux/identity_headers.py, src/punt_lux/connection_identity.py,
+src/punt_lux/rest/identity.py, src/punt_lux/domain/hub/ (client identity, session leases, ownership, handshake), src/punt_lux/display/identity_guard.py,
+src/punt_lux/display/cross_host_listener.py, src/punt_lux/display/cross_host_verification.py, src/punt_lux/_backend_launchd.py, src/punt_lux/_backend_systemd.py,
+plugin/hooks/*.sh, and install.sh.
+Low risk: docs-only diffs (*.md, docs/, prfaq.tex) and test-only diffs (tests/).
+"""
+
+[review_agent.comments_routing]
+action_required = "both"
+remediation_recommended = "summary"
+informational = "drop"

@@ -25,6 +25,9 @@ class HubClient(BaseModel):
     owned_scenes: list[str]
     writer_bound: bool  # a Hub.register_writer leg is bound to this connection
     inbox_depth: NonNegativeInt  # queued-but-undelivered events (BoundedInbox.depth())
+    # Hosts the Hub observed this client connecting from, first seen first. Empty
+    # while none was observed. Defaulted so an older producer still validates.
+    client_hosts: tuple[str, ...] = ()
 
 
 class ClientList(BaseModel):
@@ -34,3 +37,6 @@ class ClientList(BaseModel):
 
     kind: Literal["ok"] = "ok"
     clients: list[HubClient]
+    # The Hub's own hostname -- one fact about the Hub, not about each client; None
+    # from an older producer that did not report it.
+    hub_host: str | None = None

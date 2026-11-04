@@ -245,7 +245,7 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 **Do not negotiate with the ratchet.** Do not edit `.oo-baseline.json` by hand. Do not suppress `check-oo`. Do not argue a regression is "acceptable." If the ratchet fails, improve the code until it passes. The ratchet is the quality standard's enforcement — working around it defeats the purpose.
 
-**Org standards override review tools.** Copilot, Bugbot, and Cursor are advisory. When a review suggestion conflicts with rules in `punt-labs/.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
+**Org standards override review tools.** Qodo, Bugbot, and Copilot are advisory. When a review suggestion conflicts with rules in `punt-labs/.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
 
 **Verify outputs, not just metrics.** After writing a file, open it and read the content. `make check` passing does not mean the feature works — it means the code compiles and tests pass. Those are necessary but not sufficient.
 
@@ -365,7 +365,7 @@ Lux spans two domains that require distinct expertise: (1) **visual/UX** — ele
 
 ### Pipeline selection
 
-Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Copilot/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
+Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Qodo/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
 
 ## Session Queue
 
@@ -387,6 +387,8 @@ The loops are specified once, in [`docs/WORKFLOW.md`](docs/WORKFLOW.md) —
 imported above, so always in context. It is the single source of truth for the
 three levels (backlog, PR, mission), the review-agent selection, the demo
 gate, and the merge gate. Do not restate loop rules here.
+
+PR review follows punt-kit/standards/pr-review.md: local review (qodo review + silent-failure-hunter + code-reviewer) before the PR, then Qodo and Bugbot once at open, at most two rounds, Copilot only on request.
 
 Two lux-specific operational facts the loops rely on:
 
@@ -432,7 +434,7 @@ All 25 element kinds are on the Element-ABC / Hub-Display path; the legacy path 
 
 **Decisions, specs, product:**
 
-- [`DESIGN.md`](DESIGN.md) — ADR log (67 entries; DES-066 menubar app, DES-067 menu grouping by (repo, session) are the most recent). **Do not read start to finish** — grep for a specific `DES-NNN` when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize existing ones.
+- [`DESIGN.md`](DESIGN.md) — ADR log (80+ entries, appended in order). **Consult it before proposing any design** — a design mission, a design review, or a naming/UX/architecture suggestion made directly to the operator. The ADR headings are the index: `grep '^## DES-' DESIGN.md`, pick every heading that touches the topic, read those entries in full, and cite the ones you built on (or supersede) in the proposal. A proposal that cites no ADR on a topic the log covers has skipped this step. Do not read the file start to finish; do not re-litigate a settled decision without new evidence. Append new ADRs at the end; do not reorganize existing ones.
 - [`docs/display_lifecycle.tex`](docs/display_lifecycle.tex) → [`docs/display_lifecycle.pdf`](docs/display_lifecycle.pdf) — the ProB-verified display-singleton lifecycle spec (DES-037/038); partition [coverage](docs/display_lifecycle_coverage.md). Keep the PDF in sync with the `.tex` (rebuild + commit together).
 - [`prfaq.tex`](prfaq.tex) → [`prfaq.pdf`](prfaq.pdf) — the Working Backwards PR/FAQ (product direction, hypothesis stage). Update when the change shifts product direction.
 - [`CHANGELOG.md`](CHANGELOG.md) — release history; add entries under `## [Unreleased]`.
@@ -468,3 +470,4 @@ documents by meaning, ingest new content, and recall knowledge across sessions.
   outperforms "Q3 margins").
 <!-- quarry:end -->
 @.punt-labs/vox/CLAUDE.md
+@.punt-labs/ethos/CLAUDE.md

@@ -1,0 +1,32 @@
+mission_id: m-2026-10-25-001
+status: closed
+type: implement
+created_at: "2026-10-25T14:03:17Z"
+updated_at: "2026-10-25T14:21:32Z"
+closed_at: "2026-10-25T14:21:32Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-25T14:03:17Z"
+    hash: 818c8ae9dc925762c25e56cf942c558177246821d30508790af22629e6206541
+inputs:
+    files:
+        - .tmp/missions/results-generations/gvr-eval-r3.md
+        - docs/listener_locks.tex
+write_set:
+    - tests/
+    - .tmp/missions/results-generations/
+success_criteria:
+    - 'Successor to m-2026-10-24-009 (closed failed at its round cap on one material finding, M-3). WORK IN THE WORKTREE [REDACTED:home-path]Coding/punt-labs/lux/.claude/worktrees/r3-fixes on branch fix/lux-ghhf-r3-fixes at 0d918451 (make -C, git -C, absolute paths). M-3: tests/domain/test_display_connection.py TestTheStateLockNeverWaitsOnTheReaderSlot cannot fail. It asserts not worker.is_alive() only after release.set() and holder.join(), so a worker that blocked on the slot under the state lock has finished by the time it is checked. Make it assert what it claims: capture whether each state-lock operation (has_reader, is_open, close_if_current) completed while the slot was still held, before releasing the slot, and assert on that.'
+    - 'Prove it: apply gvr''s scratch mutation (DialGeneration.has_reader waits on the slot) in a scratch COPY or a hand edit restored from a backup copy, never from git, and show the test goes red; then show it green on the unmutated code. Audit every other concurrency guard test added in m-2026-10-24-009 for the same shape (an is_alive/blocked assertion taken after the blocker is released) and fix any you find the same way, each with its own mutation shown red. Test-only: no src/ change. If a src/ change seems needed, stop and report.'
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'make check and make test-integration green, outputs under the worktree .tmp/. One commit, explicit git add, trailer Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. Never run gui/e2e tests or pytest -m "". RESULT: .tmp/missions/results-generations/<mission-id>.md, submit with ethos mission result.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+context: |
+    Re-scoped successor to m-2026-10-24-009 (LL-1 implementation), which closed
+    failed at its 3-round cap with one material finding: a guard test that
+    cannot fail. Everything else in that mission gvr verified by mutation.

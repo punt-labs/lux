@@ -17,12 +17,13 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
-from typing import Protocol
+from typing import Protocol, Self, final
 
 import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.log_level import level_from_env
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.proctitle import set_process_title
@@ -82,6 +83,46 @@ def build_app(
     return app
 
 
+@final
+class _ServerConfig:
+    """What luxd serves with: the app, where it binds, and how uvicorn is set.
+
+    ``proxy_headers`` is off: uvicorn would otherwise rewrite the connection's
+    client address from an ``X-Forwarded-For`` header sent by any loopback caller
+    (its default trusted proxy), turning a declaration into the "observed" host
+    the Hub records. luxd has no reverse proxy in front of it, so the socket peer
+    is the only address there is to trust.
+    """
+
+    _app: FastAPI
+    _host: str
+    _port: int
+    __slots__ = ("_app", "_host", "_port")
+
+    def __new__(cls, app: FastAPI, host: str, port: int) -> Self:
+        self = super().__new__(cls)
+        self._app = app
+        self._host = host
+        self._port = port
+        return self
+
+    def config(self) -> uvicorn.Config:
+        """Build the uvicorn config for this app and bind."""
+        return uvicorn.Config(
+            self._app,
+            host=self._host,
+            port=self._port,
+            log_config=None,
+            log_level="warning",
+            access_log=False,
+            proxy_headers=False,
+            # Unset, uvicorn waits forever for every open connection to close on
+            # SIGTERM -- an MCP streamable-HTTP session is long-lived by design,
+            # so a healthy luxd would never exit. Bounded so a restart completes.
+            timeout_graceful_shutdown=10,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Port file helpers
 # ---------------------------------------------------------------------------
@@ -127,6 +168,8 @@ async def _periodic_sweep_running(
             await task
         except asyncio.CancelledError:
             pass
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception("%s sweep task failed before shutdown", name)
 
@@ -163,14 +206,14 @@ def serve(
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # Workers and sweeps start/stop with luxd; imported lazily to keep the
         # Hub singletons out of module import.
-        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub import hub_display, hub_lifecycle
         from punt_lux.domain.hub.display_workers import display_workers
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
         from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
 
         display_workers.start()
         expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
-        lease_reap = LeaseReapSweep(hub_display)
+        lease_reap = LeaseReapSweep(hub_lifecycle)
         try:
             # Both sweeps are cancelled and awaited on exit, before the
             # replicator stops; the lease reap has no dependency on it, so
@@ -187,18 +230,7 @@ def serve(
 
     app = build_app(lifespan=lifespan)
 
-    config = uvicorn.Config(
-        app,
-        host=host,
-        port=port,
-        log_config=None,
-        log_level="warning",
-        access_log=False,
-        # Unset, uvicorn waits forever for every open connection to close on
-        # SIGTERM -- an MCP streamable-HTTP session is long-lived by design,
-        # so a healthy luxd would never exit. Bounded so a restart completes.
-        timeout_graceful_shutdown=10,
-    )
+    config = _ServerConfig(app, host, port).config()
     server = uvicorn.Server(config)
 
     original_startup = server.startup  # write the port file after the real bind

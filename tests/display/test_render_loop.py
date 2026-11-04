@@ -439,7 +439,7 @@ class TestContentRejectionFromUnidentifiedFd:
             server._handle_message(sock, ThemeMessage(theme="imgui_colors_light"))
 
         assert not any("Unknown theme" in r.message for r in caplog.records)
-        assert server._current_theme == "imgui_colors_dark"
+        assert server._settings.current_theme == "imgui_colors_dark"
 
     def test_theme_from_a_hub_kind_fd_still_applies(
         self, caplog: pytest.LogCaptureFixture
@@ -499,3 +499,23 @@ class TestClientDisconnectRetiresHubMenus:
 
         assert len(server._menus.agent_menus) == 0
         assert len(server._menus.callback_menus) == 0
+
+
+class TestTheQueriesTheLoopRegisters:
+    """The reports owned by the listener and the menus answer through the router."""
+
+    def test_list_clients_is_answered_from_the_listener(self) -> None:
+        server = _make_server()
+
+        response = server.query_router.handle_query("list_clients", None)
+
+        assert response.error is None
+        assert response.result == {"clients": []}
+
+    def test_list_menus_is_answered_from_the_menus_the_display_holds(self) -> None:
+        server = _make_server()
+
+        response = server.query_router.handle_query("list_menus", None)
+
+        assert response.error is None
+        assert response.result == server._menus.inventory_report()

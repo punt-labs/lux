@@ -10,9 +10,10 @@ exit.
 
 from __future__ import annotations
 
+from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import inbox
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.lifecycle import disconnect_connection
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
@@ -34,16 +35,17 @@ def test_drop_session_releases_inbox_queue() -> None:
 def test_disconnect_cascade_fires_a_registered_sink() -> None:
     """The cascade's transport-sink leg fires whatever sink was bound."""
     connection_id = ConnectionId("cascade-sink-1")
-    store = HubDisplay(hub=Hub())
-    store.register_client(connection_id)
+    factory = HubStoreFactory(hub=Hub())
+    lifecycle = factory.lifecycle
+    lifecycle.arrive(connection_id, UNOBSERVED)
     invocations: list[ConnectionId] = []
 
     def _sink(conn: ConnectionId) -> None:
         invocations.append(conn)
 
-    store.bind_departure_sink(connection_id, _sink)
+    lifecycle.bind_sink(connection_id, _sink)
 
-    disconnect_connection(connection_id, hub_display=store)
+    disconnect_connection(connection_id, lifecycle=lifecycle)
 
     assert invocations == [connection_id]
 
@@ -53,10 +55,11 @@ def test_disconnect_cascade_drops_real_inbox() -> None:
     connection_id = ConnectionId("cascade-inbox-1")
     original = inbox.inbox_for(connection_id)
     original.put(ObserverMessage(topic="t", payload={}))
-    store = HubDisplay(hub=Hub())
-    store.bind_departure_sink(connection_id, inbox.drop_session)
+    factory = HubStoreFactory(hub=Hub())
+    lifecycle = factory.lifecycle
+    lifecycle.bind_sink(connection_id, inbox.drop_session)
 
-    disconnect_connection(connection_id, hub_display=store)
+    disconnect_connection(connection_id, lifecycle=lifecycle)
 
     fresh = inbox.inbox_for(connection_id)
     assert fresh is not original
