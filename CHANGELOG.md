@@ -10,6 +10,14 @@
   resolve a fastmcp below the GHSA fix and, through fastmcp-slim, authlib
   1.9.0, which the critical advisory affects.
 
+### Fixed
+
+- **`punt_lux.__version__` fails fast when the package is not installed
+  (`lux-h2pj`).** It read the version from package metadata but fell back to
+  `"0.0.0"` when the metadata was missing, reporting a version that does not
+  exist and breaking `punt release`'s version bump. The fallback is gone; an
+  uninstalled package now raises `PackageNotFoundError`.
+
 ## [0.33.1] - 2026-11-03
 
 ### Changed
