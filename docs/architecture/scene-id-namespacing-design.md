@@ -1,6 +1,7 @@
 # Connection-Scoped Store Keys — Scenes and Frames Cannot Alias Across Connections
 
-- **Status:** ratified for DES-086. The operator ruled on all five decisions
+- **Status:** ratified and shipped (PR #356, 2026-08-16, released in v0.25.0).
+  The operator ruled on all five decisions
   below on 2026-08-16: Decision 1 EXTRACT, Decision 2 UNCONDITIONALLY (NOW),
   Decision 3 ACCEPT AS DOCUMENTED (no follow-on bead), Decision 4 Z-SPEC
   REQUIRED (operator override of both gvr's and djb's "not required"
@@ -8,7 +9,7 @@
   `owner=` override — narrower than gvr's recommendation (a) below;
   `inspect_scene` has no admin path). Implementation mission
   `m-2026-08-16-007`, worker `rmh`.
-- **ADR number:** DES-086, recorded in `DESIGN.md` as DES-086.
+- **ADR number:** Recorded in `DESIGN.md` as DES-086.
 - **Author:** gvr, design mission `m-2026-08-16-006`.
 - **Evaluator:** djb (security lens).
 

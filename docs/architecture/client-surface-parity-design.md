@@ -1,7 +1,10 @@
 # Client Surface Parity — One Engine, Four Doors, One Vocabulary
 
-- **Status:** ratified and shipped (PRs #360, #361, #366, #367, #368, #371);
-  recorded in `DESIGN.md` as DES-087. Bead `lux-0shg.1`, epic `lux-0shg`.
+- **Status:** ratified and shipped (PRs #360, #361, #366, #367, #368, #369, #371;
+  #369 is the library reorg, `lux-0shg.7`); recorded in `DESIGN.md` as DES-087.
+  Of the F3 frame verbs only `raise` and `close` shipped (PR #368); `lower`
+  and `expire` are deferred, and `close` was later renamed `frame remove`
+  (PR #473). Bead `lux-0shg.1`, epic `lux-0shg`.
   The seven positions the epic body ratifies (bead
   `bd show lux-0shg`) are carried here verbatim; this design mission
   turns them into a vocabulary and a DRY pattern the implementation
