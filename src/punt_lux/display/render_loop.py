@@ -260,14 +260,6 @@ class RenderLoop:
         if not self._socket_listener.setup(self._socket_path):
             return
         self._announce_listening()
-        # Set process name (visible in ps, top, Activity Monitor)
-        try:
-            import setproctitle  # pyright: ignore[reportMissingImports]
-
-            setproctitle.setproctitle("luxd-display")
-        except ImportError:
-            pass
-
         from imgui_bundle import hello_imgui, immapp
 
         from punt_lux.display.fonts import FontLoader

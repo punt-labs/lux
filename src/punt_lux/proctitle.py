@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
+from setproctitle import setproctitle
+
 
 def set_process_title(name: str) -> None:
-    """Set this process's title. No-op if ``setproctitle`` is not installed."""
-    try:
-        import setproctitle
-    except ImportError:
-        return
-    setproctitle.setproctitle(name)
+    """Set this process's title."""
+    setproctitle(name)
