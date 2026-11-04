@@ -8015,8 +8015,11 @@ error text), and the owning agent learns it by pull (its next write returns
 the record) and by push (a subscribed agent receives an event). Un-quarantine
 happens only on an explicit owner action, never automatically. A respawn
 backoff distinct from the send-retry backoff bounds the rate (1 s doubling to
-a cap); quarantine bounds the count. A re-shown display window sets
-`GLFW_FOCUS_ON_SHOW` off, so a respawn does not take keyboard focus. The model
+a cap); quarantine bounds the count. The display window sets
+`GLFW_FOCUS_ON_SHOW` off, so re-showing an existing window does not take
+focus. The focus grab when a respawned window is first created is not
+suppressible on macOS; quarantine and backoff limit it to once per real
+crash. The model
 proves a quarantined scene is
 never replicated, the per-episode crash count is bounded, and an innocent
 scene is never quarantined.
