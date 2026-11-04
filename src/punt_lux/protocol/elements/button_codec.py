@@ -22,9 +22,8 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements._util import strip_none
-from punt_lux.protocol.elements.button_publish import ButtonPublish
+from punt_lux.protocol.elements.button_publish import ButtonPublish, PublishOnClick
 from punt_lux.protocol.elements.element_wire import ElementWireContext
-from punt_lux.protocol.elements.publish_on_click import PublishOnClick
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

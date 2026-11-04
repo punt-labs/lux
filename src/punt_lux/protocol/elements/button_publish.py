@@ -7,21 +7,24 @@ the element self-validates it (an empty topic is a component-appropriate error)
 and it round-trips on the wire as its own field.
 
 The declaration is inert data until a :class:`PublishOnClick` binds its button
-to a :class:`PublishSink` on the tier that owns publishing — the Hub. The
-handler reads the button's current declaration at click time, so a patch changes
-what the next click publishes. The Hub installs it with the real sink, the agent
-tier with a no-op sink, and the Display never runs it locally (its handlers are
-wrapped for remote dispatch back to the Hub). It composes with the button's
-other on-click handlers: one more handler in the click bucket, not a replacement.
+to a :class:`PublishSink`: the Hub installs it with the real sink, the agent tier
+with a no-op sink, and the Display never runs it locally (its handlers are
+wrapped for remote dispatch back to the Hub). It is one more handler in the
+button's click bucket, not a replacement for the others.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Self, cast, final
+from typing import TYPE_CHECKING, Self, cast, final
 
-__all__ = ["ButtonPublish"]
+if TYPE_CHECKING:
+    from punt_lux.domain.event_protocol import Event
+    from punt_lux.domain.handlers.publish_sink import PublishSink
+    from punt_lux.protocol.elements.button import ButtonElement
+
+__all__ = ["ButtonPublish", "PublishOnClick"]
 
 # The immutable default payload — a topic published with no arguments.
 _EMPTY: Mapping[str, object] = MappingProxyType({})
@@ -36,11 +39,9 @@ class ButtonPublish:
     __slots__ = ("_payload", "_topic")
 
     def __new__(cls, topic: str, payload: Mapping[str, object] = _EMPTY) -> Self:
-        # An empty payload is the common, valid case (a topic with no arguments,
-        # e.g. music.stop), so it is the default rather than an absence. The value
-        # is copied so no caller can mutate shared state through it, and its keys
-        # are enforced to be strings here — both construction doors, direct and
-        # from_wire, pass through this one check.
+        # An empty payload is the common, valid case (e.g. music.stop), so it is
+        # the default rather than an absence. The value is copied, and its keys
+        # enforced to be strings, for both doors: direct and from_wire.
         self = super().__new__(cls)
         self._topic = topic
         self._payload = cls._require_string_keys(payload)
@@ -52,9 +53,7 @@ class ButtonPublish:
 
         A JSON object and ``__hash__``'s sorted-key tuple both require string
         keys, so a non-string key would make ``to_wire`` non-serializable or a
-        mixed-key sort raise. The check lives on the constructor so a directly
-        built instance is held to the same invariant ``from_wire`` enforces at
-        the wire boundary — one validation, both doors.
+        mixed-key sort raise.
         """
         entry = cast("Mapping[object, object]", payload)
         for key in entry:
@@ -83,47 +82,34 @@ class ButtonPublish:
     def from_wire(cls, raw: object) -> Self:
         """Build from the wire ``publish`` field, rejecting a malformed shape.
 
-        Enforces structure at the boundary: ``publish`` must be a mapping with a
-        string ``topic`` and, when present, a string-keyed ``payload`` mapping. An
-        empty topic passes here — it is a *semantic* fault the element's
-        ``validate`` reports so every problem in a tree surfaces at once, not a
-        structural one that aborts the decode.
+        ``publish`` must be a mapping with a string ``topic`` and, when present,
+        a string-keyed ``payload`` mapping. An empty topic passes here: the
+        element's ``validate`` reports it, so every problem in a tree surfaces
+        at once instead of aborting the decode.
         """
-        entry = cls._mapping_from_wire(raw, "publish")
-        return cls(
-            cls._topic_from_wire(entry.get("topic")),
-            cls._payload_from_wire(entry.get("payload")),
-        )
-
-    @staticmethod
-    def _topic_from_wire(raw: object) -> str:
-        """Return the wire ``topic``, rejecting a non-string."""
-        if not isinstance(raw, str):
-            raise ButtonPublish._malformed(
-                f"'publish.topic' must be a string, got {raw!r}"
-            )
-        return raw
-
-    @staticmethod
-    def _mapping_from_wire(raw: object, field: str) -> Mapping[str, object]:
-        """Return ``raw`` as a mapping, rejecting any other shape of ``field``."""
         if not isinstance(raw, Mapping):
-            raise ButtonPublish._malformed(
-                f"'{field}' must be a mapping, got {type(raw).__name__}"
+            raise cls._malformed(
+                f"'publish' must be a mapping, got {type(raw).__name__}"
             )
-        return cast("Mapping[str, object]", raw)
+        entry = cast("Mapping[str, object]", raw)
+        topic = entry.get("topic")
+        if not isinstance(topic, str):
+            raise cls._malformed(f"'publish.topic' must be a string, got {topic!r}")
+        return cls(topic, cls._payload_from_wire(entry.get("payload")))
 
     @staticmethod
     def _payload_from_wire(raw: object) -> Mapping[str, object]:
         """Return the payload mapping, defaulting to empty, rejecting a non-mapping.
 
-        Only the wire shape (present and a mapping) is checked here; the
-        key-is-string invariant is enforced in the constructor, so both the wire
-        door and direct construction share it.
+        Key types are checked by the constructor, shared with direct construction.
         """
         if raw is None:
             return {}
-        return ButtonPublish._mapping_from_wire(raw, "publish.payload")
+        if not isinstance(raw, Mapping):
+            raise ButtonPublish._malformed(
+                f"'publish.payload' must be a mapping, got {type(raw).__name__}"
+            )
+        return cast("Mapping[str, object]", raw)
 
     def to_wire(self) -> dict[str, object]:
         """Render as the wire ``publish`` field; an empty payload is omitted."""
@@ -136,12 +122,12 @@ class ButtonPublish:
         """Return a mutable copy of the payload for a serializer to own."""
         return dict(self._payload)
 
-    def topic_error(self) -> str | None:
-        """Return a message when the topic is empty, else ``None``.
+    def publish_to(self, sink: PublishSink) -> None:
+        """Publish the topic and payload through ``sink``."""
+        sink(self._topic, self._payload)
 
-        ``None`` is the documented "no error" contract the element's ``validate``
-        folds into its error tuple — the one place the empty-topic rule lives.
-        """
+    def topic_error(self) -> str | None:
+        """Return a message when the topic is empty, else ``None`` (no error)."""
         if self._topic:
             return None
         return "publish topic must be a non-empty string"
@@ -160,3 +146,34 @@ class ButtonPublish:
 
     def __repr__(self) -> str:
         return f"ButtonPublish(topic={self._topic!r}, payload={self._payload_copy()!r})"
+
+
+@final
+class PublishOnClick:
+    """A click handler that publishes its button's current declaration via a sink.
+
+    It holds the button, never a copy of the declaration, so a patch changes what
+    the next click publishes. Serializable for the Hub-to-Display wire; on the
+    Display the click bucket is wrapped for remote dispatch, so this runs only on
+    the Hub. A no-op sink (the agent tier) makes it inert.
+    """
+
+    _sink: PublishSink
+    _button: ButtonElement
+    __slots__ = ("_button", "_sink")
+
+    def __new__(cls, sink: PublishSink, button: ButtonElement) -> Self:
+        self = super().__new__(cls)
+        self._sink = sink
+        self._button = button
+        return self
+
+    def __call__(self, _event: Event) -> None:
+        """Publish the button's current declaration; a cleared one publishes nothing."""
+        declaration = self._button.publish
+        if declaration is not None:
+            declaration.publish_to(self._sink)
+
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (PublishOnClick, (self._sink, self._button))
