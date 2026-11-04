@@ -7933,14 +7933,16 @@ status brought up to date.
 
 **Numbering notes.** DES-072 through DES-084 were never assigned in lux; the
 numbering jumped from the perf epic (DES-069, DES-070, and the TextureCache
-entry renumbered DES-071 above) to DES-085. DES-076 and DES-079 seen in the vendored `.punt-labs/ethos/` guide are
-ethos's ADRs, not lux's. DES-092 sits above DES-091 in this file because
+entry renumbered DES-071 above) to DES-085. DES-076 in the vendored
+`.punt-labs/ethos/` guide is an ethos ADR, not lux's. Dates below are merge
+dates, local time. DES-092 sits above DES-091 in this file because
 PR #462 inserted it above the existing heading; both entries are correct as
 written.
 
 ## DES-068: Hub/Display Scene Reconciliation — Manifest-on-Identify With Single-Owner Preemption
 
-**Status:** SHIPPED. Design mission `m-2026-08-15-004`, bead `lux-e9vy`; the
+**Status:** SHIPPED (PR #353, 2026-08-15). Design mission
+`m-2026-08-15-004`, bead `lux-e9vy`; the
 three ratification decisions were ruled on 2026-08-15 (z-spec required;
 consolidate `SendRecovery._remark` onto the connect-success hook; sequence
 against `lux-mxvy` with a merge-time check). Design record:
@@ -7965,7 +7967,10 @@ scenes the manifest names or the identifying fd owns are left untouched,
 pending the Hub's own repaint. At most one connection may hold a given Hub
 identity live at a time — a new identify forcibly disconnects any
 predecessor, closing the interleaving where a straggling message from the old
-connection could re-materialize a scene the manifest just purged.
+connection could re-materialize a scene the manifest just purged. Only a
+`kind="hub"` connection may install content: a `kind="test"` connection is a
+read-only observer, and a `SceneMessage` from one is rejected, its connection
+closed, a WARNING logged and the rejection recorded in `list_errors`.
 
 **Alternatives rejected.** Literal sync-on-identify / full resend (the fresh
 Hub has nothing to resend, so this is a no-op exactly when it matters most); a
@@ -7998,7 +8003,10 @@ knows only which scenes it was sending.
 **Decision.** Every death is attributed to its suspect set — no death is free.
 The replicator batches normally; on the first send failure it switches to
 isolation mode, sending each live scene in its own send, and returns to
-batching only after a stable interval with no death. A scene that reaches
+batching only after `STABLE_INTERVAL` (60 s) with no death. `STABLE_INTERVAL`
+must be at least `ATTRIBUTION_WINDOW`: the proof that an innocent scene is
+never quarantined depends on it, and the `display_crash_loop_earlyexit_buggy`
+control reproduces the failure when it is violated. A scene that reaches
 `ATTRIBUTION_THRESHOLD` (2) attributed deaths within `ATTRIBUTION_WINDOW`
 (60 s) is quarantined: it stays in `HubDisplay` (quarantine is a replication
 decision, not a deletion), is never re-marked or replicated, reports
@@ -8007,7 +8015,9 @@ error text), and the owning agent learns it by pull (its next write returns
 the record) and by push (a subscribed agent receives an event). Un-quarantine
 happens only on an explicit owner action, never automatically. A respawn
 backoff distinct from the send-retry backoff bounds the rate (1 s doubling to
-a cap); quarantine bounds the count. The model proves a quarantined scene is
+a cap); quarantine bounds the count. A re-shown display window sets
+`GLFW_FOCUS_ON_SHOW` off, so a respawn does not take keyboard focus. The model
+proves a quarantined scene is
 never replicated, the per-episode crash count is bounded, and an innocent
 scene is never quarantined.
 
@@ -8022,7 +8032,8 @@ scene is unchanged, so a timed retry re-enters the loop).
 
 ## DES-086: Connection-Scoped Store Keys — Scenes and Frames Cannot Alias Across Connections
 
-**Status:** SHIPPED (PR #356, v0.25.0, 2026-08-17, bead `lux-ledm`). Design
+**Status:** SHIPPED (PR #356, 2026-08-16; released in v0.25.0, bead
+`lux-ledm`). Design
 mission `m-2026-08-16-006` (gvr; djb evaluated for security); all five
 decisions operator-ruled 2026-08-16: extract `ID_SEPARATOR`; namespace
 `frame_id` now; accept the `connection_for` CLI-identity residual as
@@ -8067,8 +8078,11 @@ already maintain, and is no stronger); a permissive dual lookup for
 
 ## DES-087: Client Surface Parity — One Vocabulary Across CLI, MCP, REST, and Library
 
-**Status:** SHIPPED (design PR #360, 2026-08-18; implemented by `lux-0shg.2`
-to `.6`, PRs #361, #366, #367, #368, #371). Design mission
+**Status:** SHIPPED (design PR #360, 2026-08-17; implemented by `lux-0shg.2`
+to `.7`, PRs #361, #366, #367, #368, #369, #371). Of round-2 amendment F3's
+four frame verbs, PR #368 built `frame raise` and `frame close` and deferred
+`lower` and `expire` (no domain support); PR #473 later renamed `frame close`
+to `frame remove`. Design mission
 `m-2026-08-18-002` (gvr; mdm evaluated). The epic's seven positions, the
 three grey-area rulings, Local Decisions A and B, and round-2 amendments F1 to
 F4 are ratified; no decision was left open. Design record:
@@ -8097,12 +8111,13 @@ holding one `@final` callable class per operation returning `CommandResult`,
 with `Ctx` for collaborators; the `Operations` facade becomes an internal
 collaborator composed into `Ctx`, and no adapter reaches past `commands/`. The
 MCP rename train (26 renames, 3 fuse-renames, 2 net-new tools; no aliases, no
-deprecation window) landed atomically with agent-prompt and cross-repo
+deprecation window) lands atomically with agent-prompt and cross-repo
 consumer updates. The CLI's `--as/--kind/--name/--repo/--agent` flags declare
 per-invocation identity — the caller being that identity for the call, not
 becoming an admin. Round-2 amendments: `lux scene clear-all` is its own verb;
 `ping` is top-level; frame state splits into `frame raise`, `lower`, `close`,
-`expire`; `session show` became `session inspect`.
+`expire` (see Status for what shipped); `session show` became
+`session inspect`.
 
 **Alternatives rejected.** Per-surface epics (splitting one vocabulary across
 three epics guarantees drift); the commands layer as conditional (with four
