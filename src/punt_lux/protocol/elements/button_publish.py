@@ -6,27 +6,22 @@ declaration is a typed element attribute, not a handler-decorator shorthand, so
 the element self-validates it (an empty topic is a component-appropriate error)
 and it round-trips on the wire as its own field.
 
-The declaration is inert data until it is bound to a :class:`PublishSink` on the
-tier that owns publishing — the Hub. :meth:`ButtonPublish.handler_for` returns
-the serializable click handler that fires the publish; the Hub tier installs it
-with the real sink, the agent tier with a no-op sink, and the Display never runs
-it locally (its handlers are wrapped for remote dispatch back to the Hub). This
-composes with the button's existing on-click handlers: publish is one more
-handler in the click bucket, added beside the others, not a replacement.
+The declaration is inert data until a :class:`PublishOnClick` binds its button
+to a :class:`PublishSink` on the tier that owns publishing — the Hub. The
+handler reads the button's current declaration at click time, so a patch changes
+what the next click publishes. The Hub installs it with the real sink, the agent
+tier with a no-op sink, and the Display never runs it locally (its handlers are
+wrapped for remote dispatch back to the Hub). It composes with the button's
+other on-click handlers: one more handler in the click bucket, not a replacement.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import Self, cast, final
 
-if TYPE_CHECKING:
-    from punt_lux.domain.event_protocol import Event, Handler
-    from punt_lux.domain.handlers.publish_sink import PublishSink
-    from punt_lux.domain.interaction import ButtonClicked
-
-__all__ = ["ButtonPublish", "PublishOnClick"]
+__all__ = ["ButtonPublish"]
 
 # The immutable default payload — a topic published with no arguments.
 _EMPTY: Mapping[str, object] = MappingProxyType({})
@@ -64,9 +59,15 @@ class ButtonPublish:
         entry = cast("Mapping[object, object]", payload)
         for key in entry:
             if not isinstance(key, str):
-                msg = f"button 'publish.payload' keys must be strings, got {key!r}"
-                raise TypeError(msg)
+                raise ButtonPublish._malformed(
+                    f"'publish.payload' keys must be strings, got {key!r}"
+                )
         return dict(payload)
+
+    @staticmethod
+    def _malformed(detail: str) -> TypeError:
+        """Return the error for a ``publish`` field that breaks its wire shape."""
+        return TypeError(f"button {detail}")
 
     @property
     def topic(self) -> str:
@@ -88,15 +89,29 @@ class ButtonPublish:
         ``validate`` reports so every problem in a tree surfaces at once, not a
         structural one that aborts the decode.
         """
+        entry = cls._mapping_from_wire(raw, "publish")
+        return cls(
+            cls._topic_from_wire(entry.get("topic")),
+            cls._payload_from_wire(entry.get("payload")),
+        )
+
+    @staticmethod
+    def _topic_from_wire(raw: object) -> str:
+        """Return the wire ``topic``, rejecting a non-string."""
+        if not isinstance(raw, str):
+            raise ButtonPublish._malformed(
+                f"'publish.topic' must be a string, got {raw!r}"
+            )
+        return raw
+
+    @staticmethod
+    def _mapping_from_wire(raw: object, field: str) -> Mapping[str, object]:
+        """Return ``raw`` as a mapping, rejecting any other shape of ``field``."""
         if not isinstance(raw, Mapping):
-            msg = f"button 'publish' must be a mapping, got {type(raw).__name__}"
-            raise TypeError(msg)
-        entry = cast("Mapping[str, object]", raw)
-        topic = entry.get("topic")
-        if not isinstance(topic, str):
-            msg = f"button 'publish.topic' must be a string, got {topic!r}"
-            raise TypeError(msg)
-        return cls(topic, cls._payload_from_wire(entry.get("payload")))
+            raise ButtonPublish._malformed(
+                f"'{field}' must be a mapping, got {type(raw).__name__}"
+            )
+        return cast("Mapping[str, object]", raw)
 
     @staticmethod
     def _payload_from_wire(raw: object) -> Mapping[str, object]:
@@ -108,19 +123,18 @@ class ButtonPublish:
         """
         if raw is None:
             return {}
-        if not isinstance(raw, Mapping):
-            msg = (
-                f"button 'publish.payload' must be a mapping, got {type(raw).__name__}"
-            )
-            raise TypeError(msg)
-        return cast("Mapping[str, object]", raw)
+        return ButtonPublish._mapping_from_wire(raw, "publish.payload")
 
     def to_wire(self) -> dict[str, object]:
         """Render as the wire ``publish`` field; an empty payload is omitted."""
         wire: dict[str, object] = {"topic": self._topic}
         if self._payload:
-            wire["payload"] = dict(self._payload)
+            wire["payload"] = self._payload_copy()
         return wire
+
+    def _payload_copy(self) -> dict[str, object]:
+        """Return a mutable copy of the payload for a serializer to own."""
+        return dict(self._payload)
 
     def topic_error(self) -> str | None:
         """Return a message when the topic is empty, else ``None``.
@@ -132,13 +146,9 @@ class ButtonPublish:
             return None
         return "publish topic must be a non-empty string"
 
-    def handler_for(self, sink: PublishSink) -> Handler[ButtonClicked]:
-        """Return the serializable click handler that publishes through ``sink``."""
-        return cast("Handler[ButtonClicked]", PublishOnClick(sink, self))
-
     def __reduce__(self) -> tuple[object, ...]:
         """Support native serialization for Hub-to-Display transport."""
-        return (ButtonPublish, (self._topic, dict(self._payload)))
+        return (ButtonPublish, (self._topic, self._payload_copy()))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ButtonPublish):
@@ -149,33 +159,4 @@ class ButtonPublish:
         return hash((ButtonPublish, self._topic, tuple(sorted(self._payload))))
 
     def __repr__(self) -> str:
-        return f"ButtonPublish(topic={self._topic!r}, payload={dict(self._payload)!r})"
-
-
-@final
-class PublishOnClick:
-    """A click handler that publishes a button's declared topic through a sink.
-
-    Serializable so it survives the Hub-to-Display native-pickle wire: on the
-    Display its whole click bucket is wrapped for remote dispatch, so this never
-    runs there; on the Hub it fires the real publish. A no-op sink (the agent
-    tier) makes it inert without a separate branch.
-    """
-
-    _sink: PublishSink
-    _declaration: ButtonPublish
-    __slots__ = ("_declaration", "_sink")
-
-    def __new__(cls, sink: PublishSink, declaration: ButtonPublish) -> Self:
-        self = super().__new__(cls)
-        self._sink = sink
-        self._declaration = declaration
-        return self
-
-    def __call__(self, _event: Event) -> None:
-        """Publish the declared topic and payload; the click event carries nothing."""
-        self._sink(self._declaration.topic, self._declaration.payload)
-
-    def __reduce__(self) -> tuple[object, ...]:
-        """Support native serialization for Hub-to-Display transport."""
-        return (PublishOnClick, (self._sink, self._declaration))
+        return f"ButtonPublish(topic={self._topic!r}, payload={self._payload_copy()!r})"

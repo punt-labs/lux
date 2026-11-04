@@ -214,6 +214,55 @@ def test_publish_composes_with_the_existing_click_handler() -> None:
     assert ran == ["extra"]
 
 
+def test_patching_the_publish_topic_changes_what_a_click_publishes() -> None:
+    sink = _RecordingSink()
+    button = _hub_decode(
+        sink,
+        {"kind": "button", "id": "pause", "publish": {"topic": "music.resume"}},
+    )
+    button.apply_patch({"publish": {"topic": "music.pause", "payload": {"k": 1}}})
+    button.fire(_click("pause"))
+    assert sink.calls == [("music.pause", {"k": 1})]
+
+
+def test_a_rolled_back_publish_patch_keeps_publishing_the_original_topic() -> None:
+    sink = _RecordingSink()
+    button = _hub_decode(
+        sink,
+        {"kind": "button", "id": "pause", "publish": {"topic": "music.resume"}},
+    )
+    with pytest.raises(TypeError):
+        button.apply_patch({"publish": {"topic": "music.pause"}, "label": 7})
+    button.fire(_click("pause"))
+    assert sink.calls == [("music.resume", {})]
+
+
+def test_clearing_the_publish_declaration_stops_the_click_publishing() -> None:
+    sink = _RecordingSink()
+    button = _hub_decode(
+        sink,
+        {"kind": "button", "id": "pause", "publish": {"topic": "music.resume"}},
+    )
+    button.apply_patch({"publish": None})
+    button.fire(_click("pause"))
+    assert sink.calls == []
+
+
+def test_a_patched_publish_topic_survives_the_scene_pickle_wire() -> None:
+    _ClassRecordingSink.calls.clear()
+    button = _hub_decode(
+        cast("_RecordingSink", _ClassRecordingSink()),
+        {"kind": "button", "id": "pause", "publish": {"topic": "music.resume"}},
+    )
+    button.apply_patch({"publish": {"topic": "music.pause"}})
+    wire = message_to_dict(SceneMessage(id="s1", elements=[button], frame_id="s1"))
+    restored = message_from_dict(wire)
+    assert isinstance(restored, SceneMessage)
+    element = restored.elements[0]
+    element.fire(_click("pause"))
+    assert _ClassRecordingSink.calls == [("music.pause", {})]
+
+
 def test_list_publish_sugar_fans_the_click_event_to_every_topic() -> None:
     sink = _RecordingSink()
     button = _hub_decode(
