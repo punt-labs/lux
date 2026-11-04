@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
 from setproctitle import getproctitle, setproctitle
 
 from punt_lux.proctitle import set_process_title
@@ -19,14 +20,25 @@ def test_set_process_title_changes_the_process_title():
         setproctitle(original)
 
 
-def test_import_fails_when_setproctitle_is_missing():
+@pytest.mark.parametrize(
+    "module",
+    ["punt_lux.proctitle", "punt_lux.luxd", "punt_lux.display.render_loop"],
+)
+def test_import_fails_when_setproctitle_is_missing(module: str):
     # setproctitle is a required base dependency, so its absence is a broken
-    # install. Blocking the import in a fresh interpreter must make
-    # `import punt_lux.proctitle` raise, not leave a silent no-op behind.
-    code = "import sys; sys.modules['setproctitle'] = None; import punt_lux.proctitle"
+    # install. Blocking the import in a fresh interpreter must make every module
+    # that names the process raise at import, not leave a silent no-op behind
+    # (`lux hub restart` and `lux display restart` poll pgrep for those names).
+    code = f"import sys; sys.modules['setproctitle'] = None; import {module}"
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
     )
     assert result.returncode != 0
-    assert "ModuleNotFoundError" in result.stderr
-    assert "setproctitle" in result.stderr
+    last_line = result.stderr.strip().splitlines()[-1]
+    assert last_line.startswith("ModuleNotFoundError: import of setproctitle halted"), (
+        result.stderr
+    )
