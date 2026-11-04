@@ -48,14 +48,16 @@ def test_missing_distribution_fails_import_rather_than_reporting_a_version(
     def _not_installed(distribution_name: str) -> str:
         raise PackageNotFoundError(distribution_name)
 
-    with monkeypatch.context() as patched:
-        patched.setattr("importlib.metadata.version", _not_installed)
-        with pytest.raises(PackageNotFoundError):
-            importlib.reload(punt_lux)
-
-    # The failed reload ran with the patch in place; reload again unpatched so
-    # the module every other test shares is back in its normal state.
-    importlib.reload(punt_lux)
+    try:
+        with monkeypatch.context() as patched:
+            patched.setattr("importlib.metadata.version", _not_installed)
+            with pytest.raises(PackageNotFoundError):
+                importlib.reload(punt_lux)
+    finally:
+        # The failed reload ran with the patch in place; reload again unpatched
+        # so the module every other test shares is back in its normal state,
+        # even if the assertion above failed.
+        importlib.reload(punt_lux)
     assert punt_lux.__version__ == real_version
 
 
