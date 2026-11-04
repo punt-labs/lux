@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Dependency floors for the fastmcp and authlib advisories (`lux-7n0a`).**
+  `punt-lux` now requires `fastmcp>=3.4.10` (was `>=3.0.0`) and
+  `authlib>=1.9.1`. A PyPI install, and vox through it, could previously
+  resolve a fastmcp below the GHSA fix and, through fastmcp-slim, authlib
+  1.9.0, which the critical advisory affects.
+
 ## [0.33.1] - 2026-11-03
 
 ### Changed
