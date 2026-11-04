@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements._util import strip_none
-from punt_lux.protocol.elements.button_publish import ButtonPublish
+from punt_lux.protocol.elements.button_publish import ButtonPublish, PublishOnClick
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 if TYPE_CHECKING:
@@ -112,12 +112,11 @@ class JsonButtonDecoder:
 
         Added to the same click bucket as the button's other handlers, so the
         Display collapses them together for remote dispatch and the Hub fires them
-        together on the authoritative copy — publish composes with the existing
-        on-click path rather than replacing it. A button that declares no publish
-        installs nothing.
+        together on the authoritative copy. The handler reads the button's current
+        declaration at click time. A button that declares no publish installs none.
         """
         if publish is not None:
-            elem.add_handler(ButtonClicked, publish.handler_for(self._publish_sink))
+            elem.add_handler(ButtonClicked, PublishOnClick(self._publish_sink, elem))
 
     def _install_handlers(self, elem: ButtonElement, raw: Mapping[str, object]) -> None:
         """Install click handlers declared by the wire ``handlers`` list."""

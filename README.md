@@ -31,7 +31,7 @@ The design draws on X11's client/server split and Smalltalk-style live introspec
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/0e40539a/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/175b81bc/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -71,7 +71,7 @@ This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, num
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/0e40539a/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/175b81bc/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
@@ -274,7 +274,7 @@ command accepts `--json/--verbose/--quiet`.
 | `lux ping` | Ping the display through luxd; print round-trip time |
 | `lux doctor` | Check installation health (Python, fonts, plugin) |
 | `lux version` | Print version |
-| `lux enable` | Enable visual output for this project |
+| `lux enable` | Enable visual output for this project and allow the `lux` CLI, lux's MCP tools and commands in the repo's `.claude/settings.json` (`lux disable` removes them) |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
 | `lux install` | Install the Claude Code plugin via the marketplace |

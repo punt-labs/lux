@@ -35,8 +35,7 @@ from punt_lux.commands import (
     display_window_get,
 )
 from punt_lux.commands.display_state_get import display_state_get
-from punt_lux.operations import DisplayModeRequest
-from punt_lux.operations.display_mode_store import DisplayModeStore
+from punt_lux.display_enablement import DisplayEnablement
 
 if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
@@ -127,17 +126,10 @@ def mode(
 
 
 def _set_mode(value: str, repo: str, flags: OutputFlags) -> None:
-    """Write the per-repo mode marker directly, or exit 1 naming the fault."""
+    """Grant or revoke the repo's permissions, write its mode marker, or exit 1."""
     if value not in ("on", "off"):
         raise typer.BadParameter("mode must be 'on' or 'off'")
-    repo_error = DisplayModeRequest.check_repo(repo)
-    if repo_error is not None:
-        typer.echo(f"error: {repo_error.reason}", err=True)
-        raise typer.Exit(code=1)
-    fault = DisplayModeStore(repo).write("y" if value == "on" else "n")
-    if fault is not None:
-        typer.echo(f"error: {fault.reason}", err=True)
-        raise typer.Exit(code=1)
+    DisplayEnablement(flags).apply_to(repo, on=value == "on")
     run(_local_mode_result(value), flags)
 
 

@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-11-03
+
+### Changed
+
+- **Permission rules are repo-level, granted by `lux enable`.** The
+  SessionStart hook used to add `mcp__plugin_lux_lux__*` (or the `-dev` glob)
+  and a `Skill(...)` rule per command to `~/.claude/settings.json` in every
+  session. Now `lux enable` and `lux display mode on --repo` (which `/lux y`
+  runs) add lux's rules (`Bash(lux:*)`, the MCP wildcard and the `Skill(...)`
+  rules) to the repo's `.claude/settings.json` and print each
+  one, and `lux disable` / `display mode off` remove exactly those. The rules
+  change first: a malformed, non-UTF-8 or symlinked settings file, a symlinked
+  lock, or the home directory is refused with exit 1 and the display mode left
+  unchanged, even under `--quiet`. It never grants the `lux-dev` rules. Rules earlier versions
+  wrote to `~/.claude/settings.json` are left alone; delete them by hand
+  ([punt-kit#396](https://github.com/punt-labs/punt-kit/pull/396)).
+
+### Fixed
+
+- **A patched button publish topic is what a click publishes (`lux-tjud`).**
+  Updating a button's `publish` declaration through a scene patch changed the
+  declaration but not the click handler, which still published the topic the
+  button was created with. The vox music widget's pause button published
+  `music.resume` for this reason. The click handler now reads the button's
+  current declaration at click time, so it cannot go stale.
+
+## [0.33.0] - 2026-11-03
+
 ### Added
 
 - **Every owned frame names its session (`lux-xrli`, DES-100).** A frame whose
