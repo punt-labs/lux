@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-03
+
 ### Added
 
 - **Every owned frame names its session (`lux-xrli`, DES-100).** A frame whose
