@@ -10,9 +10,11 @@
   exist and breaking `punt release`'s version bump. The fallback is gone; an
   uninstalled package now raises `PackageNotFoundError`.
 - **A missing `setproctitle` fails at import instead of being ignored.** It is
-  a required dependency, but `set_process_title` silently did nothing when it
-  could not be imported, so luxd ran as `python3`, `pgrep` never found it, and
-  `lux hub restart` hung with no hint of the cause.
+  a required dependency, but both luxd and the display silently skipped
+  setting their process titles when it could not be imported, so they ran as
+  `python3`, `pgrep` never found them, and `lux hub restart` and
+  `lux display restart` hung with no hint of the cause. Both now set their
+  titles through one helper that imports `setproctitle` unconditionally.
 
 ### Security
 
