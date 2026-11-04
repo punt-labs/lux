@@ -42,7 +42,6 @@ from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
 from punt_lux.paths import DisplayPaths
-from punt_lux.proctitle import set_process_title
 from punt_lux.protocol import (
     CallbackMenuMessage,
     ConnectMessage,
@@ -261,9 +260,6 @@ class RenderLoop:
         if not self._socket_listener.setup(self._socket_path):
             return
         self._announce_listening()
-        # Set process name (visible in ps, top, Activity Monitor)
-        set_process_title("luxd-display")
-
         from imgui_bundle import hello_imgui, immapp
 
         from punt_lux.display.fonts import FontLoader

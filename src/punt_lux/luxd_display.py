@@ -22,6 +22,7 @@ from typing import final
 from punt_lux.display import RenderLoop
 from punt_lux.log_level import level_from_env
 from punt_lux.paths import DisplayPaths
+from punt_lux.proctitle import set_process_title
 
 __all__ = ["DisplayEntryPoint"]
 
@@ -39,8 +40,7 @@ class DisplayEntryPoint:
         ``socket`` is the display's own listen path; ``None`` resolves the
         session default via :class:`DisplayPaths`.
         """
-        dp = DisplayPaths(Path(socket) if socket else None)
-        log_path = dp.log_path
+        log_path = DisplayPaths(Path(socket) if socket else None).log_path
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         logging.basicConfig(
@@ -50,8 +50,8 @@ class DisplayEntryPoint:
             datefmt="%H:%M:%S",
         )
 
-        server = RenderLoop(socket, test_auto_click=test_auto_click)
-        server.run()
+        set_process_title("luxd-display")
+        RenderLoop(socket, test_auto_click=test_auto_click).run()
 
     @staticmethod
     def main() -> None:

@@ -22,7 +22,7 @@ def test_set_process_title_changes_the_process_title():
 
 @pytest.mark.parametrize(
     "module",
-    ["punt_lux.proctitle", "punt_lux.luxd", "punt_lux.display.render_loop"],
+    ["punt_lux.proctitle", "punt_lux.luxd", "punt_lux.luxd_display"],
 )
 def test_import_fails_when_setproctitle_is_missing(module: str):
     # setproctitle is a required base dependency, so its absence is a broken
