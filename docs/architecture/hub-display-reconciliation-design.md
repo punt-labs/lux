@@ -1,7 +1,7 @@
 # Hub/Display Scene Reconciliation on Identify
 
-- **Status:** proposed for DES-068; the three ratification-required decisions listed at the end received operator ruling on 2026-08-15 (all three recommendations accepted). Implementation is a separate, later mission tracked under `lux-e9vy`.
-- **Proposed ADR number:** DES-068 (next after DES-067).
+- **Status:** ratified 2026-08-15 (the three ratification-required decisions listed at the end received operator ruling, all three recommendations accepted), shipped under `lux-e9vy`, and recorded in `DESIGN.md` as DES-068.
+- **ADR number:** DES-068.
 - **Author:** gvr, design mission `m-2026-08-15-004`.
 - **Evaluator:** rmh.
 

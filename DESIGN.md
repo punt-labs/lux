@@ -5962,9 +5962,14 @@ design's planned `lux frame close` client operation is a **dispose**
 putting a window away); that work should pick a different name for one
 of them.
 
-## DES-068: TextureCache Bounds — LRU + Coupled DataKeyMemo Eviction Under One Cap
+## DES-071: TextureCache Bounds — LRU + Coupled DataKeyMemo Eviction Under One Cap
 
 **Status:** SETTLED (shipped v0.30.0, bead `lux-qfzu.2`, PR #411)
+
+**Numbering.** Pasted in PR #417 under the heading DES-068, a number the
+Hub/Display reconciliation ADR (bead `lux-e9vy`, ratified 2026-08-15) already
+held and that the code, tests and specs cite. Renumbered DES-071 on
+2026-11-04; the reconciliation ADR keeps DES-068 (appended below).
 
 **Problem.** `TextureCache` was documented as unbounded (system.tex §7
 Known Limitation #2) for months. Two distinct memory leaks lived in one
@@ -6163,7 +6168,7 @@ under load. The receipts are read by humans in commit messages and
 CHANGELOG entries; the tests fail only on order-of-magnitude
 regressions.
 
-**How the epic used it.** DES-068 (texture eviction) had no meaningful
+**How the epic used it.** DES-071 (texture eviction) had no meaningful
 receipts against this suite because its cost lives in memory over
 time, not per-frame wall-clock — but DES-069 (table hot path) received
 concrete receipts and a specific structural proof (the 0-vs-100
@@ -6195,7 +6200,7 @@ the guardrail exists to produce.
   imately close the gap by making both cases equally fast. Report the
   numbers; let the reader interpret.
 
-**Related.** DES-068 and DES-069 both cite this ADR as the receipt-
+**Related.** DES-071 and DES-069 both cite this ADR as the receipt-
 producer. Future perf work in the epic (or any successor) is expected
 to update the docstring numbers in `test_scale_budget.py` as its
 before/after evidence.
@@ -7917,3 +7922,214 @@ are added to `docs/listener_lifecycle.tex`.
   is the registry's alone. The guards catch an accidental regression in any
   ordinary spelling, aliases included; deliberate obfuscation is code
   review's job.
+
+## Backfilled ADRs (2026-11-04)
+
+The four entries below were ratified and shipped but never pasted into this
+log; their text lived only in their design documents. They are appended here,
+out of numeric order, because entries are appended rather than reorganized.
+Each is reproduced from its design document's proposed ADR text, with the
+status brought up to date.
+
+**Numbering notes.** DES-072 through DES-084 were never assigned in lux; the
+numbering jumped from the perf epic (DES-069, DES-070, and the TextureCache
+entry renumbered DES-071 above) to DES-085. DES-076 in the vendored
+`.punt-labs/ethos/` guide is an ethos ADR, not lux's. Dates below are merge
+dates, local time. DES-092 sits above DES-091 in this file because
+PR #462 inserted it above the existing heading; both entries are correct as
+written.
+
+## DES-068: Hub/Display Scene Reconciliation — Manifest-on-Identify With Single-Owner Preemption
+
+**Status:** SHIPPED (PR #353, 2026-08-15). Design mission
+`m-2026-08-15-004`, bead `lux-e9vy`; the
+three ratification decisions were ruled on 2026-08-15 (z-spec required;
+consolidate `SendRecovery._remark` onto the connect-success hook; sequence
+against `lux-mxvy` with a merge-time check). Design record:
+[`docs/architecture/hub-display-reconciliation-design.md`](docs/architecture/hub-display-reconciliation-design.md);
+model: `docs/hub_display_reconciliation.tex`. Its single-owner preemption was
+re-keyed onto `HubId` by DES-090 (W11, `docs/crosshost_hubid_preemption.tex`).
+
+**Problem.** `HubDisplay` is memory-only; killing `luxd` loses it entirely.
+The Display never learns anything died, so it keeps rendering the dead
+process's scenes — selection still moves (Display-local), but Hub-composed
+behavior (a click needing a handler) dispatches into an owner fd that maps to
+nothing and silently does nothing. Nothing self-heals, because the fresh
+`luxd` has no memory of the old scenes to ever resend.
+
+**Decision.** Every connection identifying as the Hub (`ConnectMessage
+.kind="hub"`) sends a `HubManifestMessage` naming every scene id its
+`HubDisplay` currently holds, immediately after identifying and before any
+scene content. On receipt, the Display purges every scene not named in the
+manifest AND not owned by the identifying fd — orphaned scenes (owner
+reassigned to `_ORPHAN_FD` after a prior Hub died) are swept by the same rule;
+scenes the manifest names or the identifying fd owns are left untouched,
+pending the Hub's own repaint. At most one connection may hold a given Hub
+identity live at a time — a new identify forcibly disconnects any
+predecessor, closing the interleaving where a straggling message from the old
+connection could re-materialize a scene the manifest just purged. Only a
+`kind="hub"` connection may install content: a `kind="test"` connection is a
+read-only observer, and a `SceneMessage` from one is rejected, its connection
+closed, a WARNING logged and the rejection recorded in `list_errors`.
+
+**Alternatives rejected.** Literal sync-on-identify / full resend (the fresh
+Hub has nothing to resend, so this is a no-op exactly when it matters most); a
+generation-token with a timed expiry (trades a message the design needs
+anyway for a timer, which is strictly worse — a window where stale content is
+still live, and a window on the other side where a legitimate reclaim can be
+evicted); persisting `HubDisplay` across restarts (reopens the deliberate
+post-B7 memory-only decision for a narrower win); routing the signal through
+app pub-sub (a system fact about connection identity, not an app-defined
+business event).
+
+## DES-085: Display Crash-Loop Quarantine — Attribute Every Death, Quarantine the Repeat Suspect
+
+**Status:** SHIPPED (PR #354, merged 2026-08-16, bead `lux-88ka`). Designed
+and ProB-verified in mission `m-2026-07-27-012` (gvr ACCEPT, PR #285),
+deferred by operator ruling 2026-07-27, then built. Design record:
+[`docs/architecture/display-crash-quarantine.md`](docs/architecture/display-crash-quarantine.md);
+model: `docs/display_crash_loop.tex` with two fidelity controls. The
+attribution rules were later refined by DES-102's rulings T10 to T14
+(`docs/crash_attribution.tex`).
+
+**Problem.** A scene valid at the Hub can still crash the Display's renderer.
+The scene stays live in `HubDisplay`, so every respawned Display receives it
+again and crashes again: an infinite loop that, before window raising was
+retired, stole keyboard focus about every ten seconds. Nothing in the Hub
+attributed a Display death to the scene that caused it. The Hub has no exit
+code for the Display; it learns of a death only through a failed send, and
+knows only which scenes it was sending.
+
+**Decision.** Every death is attributed to its suspect set — no death is free.
+The replicator batches normally; on the first send failure it switches to
+isolation mode, sending each live scene in its own send, and returns to
+batching only after `STABLE_INTERVAL` (60 s) with no death. `STABLE_INTERVAL`
+must be at least `ATTRIBUTION_WINDOW`: the proof that an innocent scene is
+never quarantined depends on it, and the `display_crash_loop_earlyexit_buggy`
+control reproduces the failure when it is violated. A scene that reaches
+`ATTRIBUTION_THRESHOLD` (2) attributed deaths within `ATTRIBUTION_WINDOW`
+(60 s) is quarantined: it stays in `HubDisplay` (quarantine is a replication
+decision, not a deletion), is never re-marked or replicated, reports
+`status: quarantined` with a `QuarantineRecord` (death count, last death,
+error text), and the owning agent learns it by pull (its next write returns
+the record) and by push (a subscribed agent receives an event). Un-quarantine
+happens only on an explicit owner action, never automatically. A respawn
+backoff distinct from the send-retry backoff bounds the rate (1 s doubling to
+a cap); quarantine bounds the count. The display window sets
+`GLFW_FOCUS_ON_SHOW` off, so re-showing an existing window does not take
+focus. The focus grab when a respawned window is first created is not
+suppressible on macOS; quarantine and backoff limit it to once per real
+crash. The model
+proves a quarantined scene is
+never replicated, the per-episode crash count is bounded, and an innocent
+scene is never quarantined.
+
+**Alternatives rejected.** Exit codes or a Display supervisor (the Display is
+detached; a supervisor is a larger change than the loop warrants); a "scene S
+crashed me" message from the dying Display; time-window-only attribution (one
+death in a window is the transient case that must not quarantine an innocent
+scene); a per-batch tally without isolation; resetting the tally on a clean
+send; deleting the poison scene (destroys the agent's work and the evidence);
+a separate quarantine channel; automatic un-quarantine after a cool-down (the
+scene is unchanged, so a timed retry re-enters the loop).
+
+## DES-086: Connection-Scoped Store Keys — Scenes and Frames Cannot Alias Across Connections
+
+**Status:** SHIPPED (PR #356, 2026-08-16; released in v0.25.0, bead
+`lux-ledm`). Design
+mission `m-2026-08-16-006` (gvr; djb evaluated for security); all five
+decisions operator-ruled 2026-08-16: extract `ID_SEPARATOR`; namespace
+`frame_id` now; accept the `connection_for` CLI-identity residual as
+documented; z-spec required (`docs/scene_id_namespacing.tex`); `inspect_scene`
+composes on the caller's connection only, with no `owner=` override. Design
+record:
+[`docs/architecture/scene-id-namespacing-design.md`](docs/architecture/scene-id-namespacing-design.md).
+
+**Problem.** `HubDisplay` stored every scene and frame under the literal
+string a client submitted, with no ownership check on the first write to a
+given id. Two different connections choosing the identical `scene_id` did not
+error; the second silently evicted the first's roots and took over as owner.
+`frame_id` had the identical shape, with no ownership tracking at any point.
+Vox running in two Claude Code sessions at once hit this directly: both
+sessions' music-player widgets pushed `scene_id="music-player"`, and the
+second overwrote the first on the shared display.
+
+**Decision.** No client-submitted `scene_id` or `frame_id` is ever used as a
+store key directly. The Hub composes a `ConnectionScopedId` —
+`f"{connection_id}\x1f{local_id}"` — from the writing connection's own
+`ConnectionId` and the caller's raw string, at the single choke point every
+scene install already passes through (`SceneInstaller.install`) and at the
+equivalent point for `update`/`clear`. Collision becomes unrepresentable
+rather than merely checked: two connections cannot construct the identical
+composed key, because neither controls the other's `ConnectionId` half. This
+generalizes the composite-id pattern `CallbackInvocation` already shipped for
+menu-callback ids (DES-058/DES-067) to scene and frame ids. The agent↔Hub and
+Hub↔Display wire protocols are unchanged; callers keep passing the same short,
+local `scene_id` they always have. A client can inspect only what it put into
+the Hub.
+
+**Alternatives rejected.** A wire-level composite id the client constructs
+itself (duplicates identity-formatting logic across every client repo, and
+contradicts the operator's requirement that namespacing happen
+automatically); caller-prefix enforcement, where the Hub checks rather than
+composes (still requires every caller to format a prefix, and leaves a
+checkable — hence bug-prone — gate where composition leaves none);
+re-deriving a fresh `(kind, name, repo, session_pid)` tuple instead of
+reusing `ConnectionId` (duplicates the identity encoding DES-057/DES-068
+already maintain, and is no stronger); a permissive dual lookup for
+`inspect_scene` (rejected by ruling 5).
+
+## DES-087: Client Surface Parity — One Vocabulary Across CLI, MCP, REST, and Library
+
+**Status:** SHIPPED (design PR #360, 2026-08-17; implemented by `lux-0shg.2`
+to `.7`, PRs #361, #366, #367, #368, #369, #371). Of round-2 amendment F3's
+four frame verbs, PR #368 built `frame raise` and `frame close` and deferred
+`lower` and `expire` (no domain support); PR #473 later renamed `frame close`
+to `frame remove`. Design mission
+`m-2026-08-18-002` (gvr; mdm evaluated). The epic's seven positions, the
+three grey-area rulings, Local Decisions A and B, and round-2 amendments F1 to
+F4 are ratified; no decision was left open. Design record:
+[`docs/architecture/client-surface-parity-design.md`](docs/architecture/client-surface-parity-design.md).
+The org rule it set is in punt-kit `standards/architecture.md` ("Vocabulary
+and Renames Across the Four Surfaces").
+
+**Problem.** Lux had four client surfaces of one engine and four different
+vocabularies for the same operations. The MCP surface carried 23 tools with
+verb-first, single-word names (`show`, `identify`, `list_clients`). The CLI
+had admin verbs only — no client-tier presence. The library surface handed
+consumers transport objects rather than engine nouns. Every operation was
+written four times — as an `Operations` request shape, a REST handler, an MCP
+tool, and a CLI command (if it had one).
+
+**Decision.** One vocabulary applied to all four client surfaces, under
+noun-first grouping. Ten nouns (`scene`, `frame`, `menu`, `session`, `topic`,
+`callback`, `display`, `event`, `error`, `hub`) plus a small set of top-level
+singletons split into a diagnostics tier (`ping`, `doctor`, `version`) and an
+admin tier (`install`, `uninstall`, `mcp`). `enable`/`disable` are a separate,
+third tier — per-repo tool integration defined by punt-kit
+`standards/tool-enable-disable.md`. Every engine operation appears on every
+client surface under the same name; each omission is a considered exception
+with a stated reason. The DRY pivot is a `src/punt_lux/commands/` package
+holding one `@final` callable class per operation returning `CommandResult`,
+with `Ctx` for collaborators; the `Operations` facade becomes an internal
+collaborator composed into `Ctx`, and no adapter reaches past `commands/`. The
+MCP rename train (26 renames, 3 fuse-renames, 2 net-new tools; no aliases, no
+deprecation window) lands atomically with agent-prompt and cross-repo
+consumer updates. The CLI's `--as/--kind/--name/--repo/--agent` flags declare
+per-invocation identity — the caller being that identity for the call, not
+becoming an admin. Round-2 amendments: `lux scene clear-all` is its own verb;
+`ping` is top-level; frame state splits into `frame raise`, `lower`, `close`,
+`expire` (see Status for what shipped); `session show` became
+`session inspect`.
+
+**Alternatives rejected.** Per-surface epics (splitting one vocabulary across
+three epics guarantees drift); the commands layer as conditional (with four
+adapters over 30 operations the conditional case is every case); verb-first
+grouping (the noun is the stable axis); aliases during the rename train (two
+names for one operation is exactly the drift the epic ends); a superuser MCP
+surface for `hub *` admin operations (rejected per DES-086 ruling 5 — MCP is a
+client surface, not an admin one).
+
+**Impacts on other ADRs.** DES-055 (one code path) is extended: `commands/`
+sits between `Operations` and the four adapters. DES-057, DES-058, DES-063,
+DES-067 and DES-086 are preserved verbatim.

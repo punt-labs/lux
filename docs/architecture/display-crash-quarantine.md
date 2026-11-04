@@ -1,9 +1,10 @@
 # Display Crash-Loop Quarantine
 
-**Status:** designed and ProB-verified; **implementation deferred** (operator
-ruling 2026-07-27 — keep the design, build it if the need re-appears). The
-companion model is [`display_crash_loop.tex`](../display_crash_loop.tex) with
-two fidelity controls; bead lux-88ka tracks the deferred implementation.
+**Status:** ratified, shipped in PR #354 (2026-08-16, bead lux-88ka), and
+recorded in `DESIGN.md` as DES-085. The attribution rules were later refined by
+DES-102 ([`crash_attribution.tex`](../crash_attribution.tex)). The companion
+model is [`display_crash_loop.tex`](../display_crash_loop.tex) with two fidelity
+controls.
 
 ## The defect
 
