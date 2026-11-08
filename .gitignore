@@ -90,8 +90,5 @@ demos/
 /prfaq.xdv
 /prfaq.fls
 
-# ethos runtime (never track) — DES-058 live zone + mission locks
-.punt-labs/**/local/**
-.punt-labs/**/*.ethos-tmp*
-# ethos: machine-local files (.local.*) — may hold secrets, never track
-.punt-labs/**/*.local.*
+# Biff private configuration (not Ethos-owned)
+.punt-labs/biff/config.local.yaml
