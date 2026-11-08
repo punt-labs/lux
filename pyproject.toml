@@ -21,7 +21,7 @@ dependencies = [
     "typer>=0.15.0,<1",
     "rich>=15,<16",
     # Floor past the fastmcp GHSA fixed in 3.4.10 (vox Dependabot alert #60).
-    "fastmcp>=3.4.10,<4",
+    "fastmcp>=3.4.10,<5",
     # fastmcp-slim 3.4.10 still admits authlib 1.9.0; floor past the critical
     # advisory fixed in 1.9.1 (vox Dependabot alert #61).
     "authlib>=1.9.1",
