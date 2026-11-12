@@ -237,7 +237,7 @@ function pr_loop(unit):
         interaction feel — the part no introspection API can attest
 
     # D. SHIP
-    bd close the bead
+    mark the issue Done in Linear; refresh its bead with a by-id pull
     push; create the PR (description carries the verification playbook)
     if the PR changes a file that is not demo_exempt:
         comment "demo confirmed: <head sha>"   # once step C passed on that
