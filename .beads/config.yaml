@@ -6,12 +6,25 @@
 # the same .beads/ works on every machine and across credential
 # rotations.
 #
-# Issue prefix lives in .beads/metadata.json (alongside dolt_mode and
-# dolt_database) so it travels with the repo.
+# The issue prefix is set here and in .beads/metadata.json (alongside
+# dolt_mode and dolt_database). bd reads one `issue-prefix` key: the
+# BD_ISSUE_PREFIX environment variable when set, else this value, else the
+# metadata.json value copied in at startup. So this key wins for every reader
+# (`bd create` and `bd linear sync --pull` alike) unless the variable
+# overrides it, and nothing checks that the two files agree; keep them equal.
+# `linear.pull_label` keeps that pull inside this repo's Linear issues; Linear
+# is the tracker of record (see .punt-labs/punt/CLAUDE.md). The label scopes an
+# unscoped or incremental pull only: a by-id pull (`bd linear sync --pull
+# --issues <PL ids>`) fetches exactly the named Linear issues regardless of the
+# label, which is why it is the one pull that is safe to run before this file
+# reaches main — name the issues by their PL identifiers, not their bead ids.
 #
 # This file is intentionally minimal. Most legacy keys (no-db, no-daemon,
 # no-auto-flush, no-auto-import, sync-branch) were removed in bd 1.0+
 # and reading them would be misleading.
+
+issue-prefix: lux
+linear.pull_label: repo:lux
 
 directory:
   labels:

@@ -367,19 +367,50 @@ Lux spans two domains that require distinct expertise: (1) **visual/UX** — ele
 
 Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Qodo/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
 
+## Issue Tracking
+
+Linear is the tracker of record for lux: the Punt Labs team, issues labelled
+`repo:lux`, listed in the shared `lux` view. Beads (`bd`) is a read-mostly
+local mirror. `.punt-labs/punt/CLAUDE.md` (imported below) is the authority on
+which tracker to write to and carries the full rules; `.beads/README.md` has
+the mirror commands and the required `bd` build. Read the local mirror with the
+repo scope, and before any pull confirm `bd config get linear.pull_label`
+prints `repo:lux` on the checkout `bd` runs in:
+
+```bash
+bd config get linear.pull_label                           # must print repo:lux
+bd ready --label-any repo:lux --exclude-label deferred    # ready work in this repo
+bd list --label-any repo:lux --status=open                # open issues in this repo
+bd show <id>                                              # details with dependencies
+```
+
+Create, claim (In Progress), finish (Done) and cancel issues in Linear, with
+the `repo:lux` label plus a type label (`Bug`, `Feature`, `Improvement`,
+`Epic`); a local `bd update`, `bd close` or `bd create` is undone by the next
+pull. Epics are Linear projects. To refresh one bead after a Linear change, run
+a by-id pull (`bd linear sync --pull --issues <PL id> --team
+c1dfbb2c-985e-40cf-b004-5127646efc9d`; the PL id must carry `repo:lux`).
+
 ## Session Queue
 
-When claiming a batch of beads to work through in a session, create corresponding `Task` entries via `TaskCreate` for the session subset. Beads are the durable cross-session source of truth; the task list is the session-visible workqueue you can monitor in real-time in the Claude Code UI.
+When working a batch of issues in a session, create corresponding `Task`
+entries via `TaskCreate` for the session subset. Linear is the durable
+cross-session tracker of record; the task list is the session-visible workqueue
+you can monitor in real-time in the Claude Code UI.
 
 Workflow:
 
-1. Pick a realistic batch from `bd ready`.
-2. `bd update <id> --claim` for each bead in the batch.
-3. `TaskCreate` one entry per claimed bead with the bead ID in the title.
-4. Work through them in order. `bd close <id>` when done; mark the Task complete immediately after.
-5. Uncompleted tasks at session end carry over as open beads — no extra cleanup needed.
+1. Pick a realistic batch from `bd ready --label-any repo:lux --exclude-label deferred`.
+2. Set each issue in the batch to In Progress in Linear, then refresh its bead
+   with a by-id pull (`bd linear sync --pull --issues <PL id> --team <id>`).
+3. `TaskCreate` one entry per claimed issue with the issue ID in the title.
+4. Work through them in order. Mark the issue Done in Linear when done, refresh
+   its bead with a by-id pull, and mark the Task complete immediately after.
+5. Uncompleted tasks at session end carry over as open Linear issues — no extra
+   cleanup needed.
 
-Do not use `TaskCreate` for work that spans multiple sessions. Beads are the record; tasks are the display.
+Do not use `TaskCreate` for work that spans multiple sessions. Linear is the
+record; tasks are the display.
 
 ## Development Loop
 

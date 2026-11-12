@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Linear is the tracker of record (Punt Labs team, label `repo:lux`); beads
+  is a scoped local mirror.** The active backlog (147 issues, the six open
+  epics now Linear projects) was pushed to Linear and enriched there.
+  `.beads/config.yaml` carries `issue-prefix` and `linear.pull_label`, and the
+  agent instructions no longer tell a session to run `bd sync` or edit beads
+  locally; claim, finish and create issues in Linear and refresh the mirror
+  with a by-id pull.
+
 ### Fixed
 
 - **`punt_lux.__version__` fails fast when the package is not installed
