@@ -374,8 +374,9 @@ Linear is the tracker of record for lux: the Punt Labs team, issues labelled
 local mirror. `.punt-labs/punt/CLAUDE.md` (imported below) is the authority on
 which tracker to write to and carries the full rules; `.beads/README.md` has
 the mirror commands and the required `bd` build. Read the local mirror with the
-repo scope, and before any pull confirm `bd config get linear.pull_label`
-prints `repo:lux` on the checkout `bd` runs in:
+repo scope, and before any unscoped or incremental pull confirm `bd config get
+linear.pull_label` prints `repo:lux` on the checkout `bd` runs in (a by-id pull
+is exempt):
 
 ```bash
 bd config get linear.pull_label                           # must print repo:lux
@@ -386,8 +387,9 @@ bd show <id>                                              # details with depende
 
 Create, claim (In Progress), finish (Done) and cancel issues in Linear, with
 the `repo:lux` label plus a type label (`Bug`, `Feature`, `Improvement`,
-`Epic`); a local `bd update`, `bd close` or `bd create` is undone by the next
-pull. Epics are Linear projects. To refresh one bead after a Linear change, run
+`Epic`); a local `bd update` or `bd close` is undone by the next pull of that
+issue, and a `bd create` leaves an orphan bead no pull removes. Epics are
+Linear projects. To refresh one bead after a Linear change, run
 a by-id pull (`bd linear sync --pull --issues <PL id> --team
 c1dfbb2c-985e-40cf-b004-5127646efc9d`; the PL id must carry `repo:lux`).
 
