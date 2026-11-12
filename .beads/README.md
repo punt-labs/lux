@@ -85,5 +85,3 @@ the current directory's, not the fork's) and confirm it is at or after
 the fork clone; if it is not, rebuild.
 
 Upstream bd: <https://github.com/gastownhall/beads>
-</content>
-</invoke>
