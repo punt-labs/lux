@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Room home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16171f}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; background: #16171f; color: #c8d0e8; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 20px; display: flex; flex-direction: column; padding: 6px; gap: 6px">
+
+  <div style="display: flex; align-items: center; gap: 4px; height: 22px">
+    <span style="background: {{accent}}; color: #16171f; font-weight: 700; padding: 0 8px">1 terminal-epic</span>
+    <span style="color: #7f88a8; padding: 0 8px">2 vox-music</span>
+    <span style="color: #7f88a8; padding: 0 8px">3 dead-code</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #7f88a8">3 repos · 2 hosts · 4 agents</span>
+    <span style="color: #7f88a8; padding: 0 6px">│</span>
+    <span style="color: #9ece6a">◉ listen</span>
+  </div>
+
+  <section aria-label="Voice" style="border: 1px solid #ff9e64; background: #1f1a16; padding: 8px 12px; display: flex; align-items: center; gap: 14px">
+    <svg width="54" height="20" viewBox="0 0 54 20" aria-hidden="true"><g fill="#ff9e64"><rect x="0" y="7" width="4" height="6"></rect><rect x="7" y="3" width="4" height="14"></rect><rect x="14" y="0" width="4" height="20"></rect><rect x="21" y="5" width="4" height="10"></rect><rect x="28" y="2" width="4" height="16"></rect><rect x="35" y="7" width="4" height="6"></rect><rect x="42" y="4" width="4" height="12"></rect></g></svg>
+    <span style="color: #bb9af7; font-weight: 700">codex@vox</span>
+    <span style="color: #e6e9f4">"Pyte, or libghostty?"</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #9ece6a">◉ listening 4s</span>
+    <span style="color: #7f88a8">say it · or press 1 / 2</span>
+  </section>
+
+  <div style="flex: 1 1 auto; display: grid; grid-template-columns: 380px minmax(0, 1fr) 330px; gap: 6px; min-height: 0">
+
+    <section aria-label="Needs you" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex"><span style="color: #e6e9f4; font-weight: 700">needs you</span><span style="flex: 1 1 0"></span><span style="color: #7f88a8">⌘B</span></div>
+      <div style="padding: 8px 10px; display: flex; flex-direction: column; gap: 12px">
+        <div style="border-left: 2px solid #ff9e64; padding-left: 10px">
+          <div><span style="color: #ff9e64">■ asking now</span> <span style="color: #7f88a8">codex@vox · w731</span></div>
+          <div style="color: #e6e9f4">Which VT parser?</div>
+          <div><span style="background: #c8d0e8; color: #16171f; padding: 0 5px">1</span> pyte  <span style="background: #ff9e64; color: #16171f; padding: 0 5px">2</span> libghostty-vt <span style="color: #7f88a8">rec.</span></div>
+        </div>
+        <div style="border-left: 2px solid #2c2f40; padding-left: 10px">
+          <div><span style="color: #ff9e64">⚑ disagreement</span> <span style="color: #7f88a8">#terminal-design</span></div>
+          <div style="color: #e6e9f4">Who drives resume of a replicated log?</div>
+          <div style="color: #7f88a8">queued · claude@lux vs codex@vox</div>
+        </div>
+        <div style="border-left: 2px solid #2c2f40; padding-left: 10px">
+          <div><span style="color: {{accent}}">✓? approval</span> <span style="color: #7f88a8">w731</span></div>
+          <div style="color: #e6e9f4">Merge order lux → vox → biff</div>
+          <div style="color: #7f88a8">queued · all three branches green</div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="Board" style="border: 1px solid #2c2f40; display: flex; flex-direction: column; min-width: 0">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex"><span style="color: #e6e9f4; font-weight: 700">board</span><span style="flex: 1 1 0"></span><span style="color: #7f88a8">facts as of #1053 · ⌘␣</span></div>
+      <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 4px">
+        <div style="color: #7f88a8">plan</div>
+        <div style="display: grid; grid-template-columns: 54px minmax(0, 1fr) 150px 120px; gap: 0 10px">
+          <span style="color: #7f88a8">w731</span><span>Terminal log protocol</span><span style="color: #7f88a8">lux · vox · biff</span><span style="color: {{accent}}">● in progress</span>
+          <span style="color: #7f88a8">w722</span><span>Remove dead locate path</span><span style="color: #7f88a8">lux</span><span style="color: {{accent}}">● in review</span>
+          <span style="color: #7f88a8">w733</span><span>luxd-pty session host</span><span style="color: #7f88a8">lux</span><span style="color: #7f88a8">○ ready</span>
+          <span style="color: #7f88a8">w734</span><span>Voice answers in biff</span><span style="color: #7f88a8">vox · biff</span><span style="color: #ff9e64">■ blocked</span>
+        </div>
+        <div style="color: #7f88a8; margin-top: 10px">decided</div>
+        <div><span style="color: #9ece6a">✓</span> schema TerminalLog <span style="color: #7f88a8">claude@lux, codex@vox · #1047</span></div>
+        <div><span style="color: #9ece6a">✓</span> invariant replicas ≤ seq holds <span style="color: #7f88a8">claude@zspec · #1049</span></div>
+        <div style="color: #7f88a8; margin-top: 10px">open</div>
+        <div><span style="color: #ff9e64">⚑</span> who drives resume <span style="color: #7f88a8">2 proposals</span></div>
+        <div style="color: #7f88a8; margin-top: 10px">artifacts</div>
+        <div>terminal_log.tex <span style="color: #7f88a8">·</span> parser bench table <span style="color: #7f88a8">·</span> protocol diff (3 repos)</div>
+      </div>
+    </section>
+
+    <section aria-label="Team" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex"><span style="color: #e6e9f4; font-weight: 700">team</span><span style="flex: 1 1 0"></span><span style="color: #7f88a8">⌘T</span></div>
+      <div style="padding: 8px 10px; display: flex; flex-direction: column; gap: 10px">
+        <div><div><span style="color: {{accent}}">●</span> <span style="color: #bb9af7">claude@lux</span></div><div style="padding-left: 18px">w731 · lux protocol</div><div style="padding-left: 18px; color: #7f88a8; font-size: 12px">laptop</div></div>
+        <div><div><span style="color: #ff9e64">■</span> <span style="color: #bb9af7">codex@vox</span></div><div style="padding-left: 18px">w731 · asking you</div><div style="padding-left: 18px; color: #7f88a8; font-size: 12px">laptop</div></div>
+        <div><div><span style="color: {{accent}}">●</span> <span style="color: #bb9af7">claude@zspec</span></div><div style="padding-left: 18px">w731 · model-checking</div><div style="padding-left: 18px; color: #7f88a8; font-size: 12px">build-01</div></div>
+        <div><div><span style="color: #7f88a8">○</span> <span style="color: #bb9af7">claude@biff</span></div><div style="padding-left: 18px; color: #7f88a8">idle · done w729</div><div style="padding-left: 18px; color: #7f88a8; font-size: 12px">build-01</div></div>
+      </div>
+    </section>
+  </div>
+
+  <nav aria-label="Tools" style="border: 1px solid #2c2f40; display: flex; align-items: center; gap: 6px; padding: 4px 8px; flex-wrap: wrap">
+    <span style="color: #7f88a8; padding-right: 6px">tools</span>
+    <span style="background: #232637; color: #e6e9f4; padding: 0 8px">decisions</span>
+    <span style="background: #232637; color: #e6e9f4; padding: 0 8px">board</span>
+    <span style="background: #232637; color: #e6e9f4; padding: 0 8px">work</span>
+    <span style="background: #232637; color: #e6e9f4; padding: 0 8px">team</span>
+    <span style="color: #7f88a8">│</span>
+    <span style="padding: 0 8px">voice</span>
+    <span style="padding: 0 8px">channels</span>
+    <span style="padding: 0 8px">search</span>
+    <span style="padding: 0 8px">issues</span>
+    <span style="padding: 0 8px">specs</span>
+    <span style="padding: 0 8px">missions</span>
+    <span style="color: #7f88a8">│</span>
+    <span style="padding: 0 8px; color: #e0af68">protocol-ci <span style="color: #7f88a8">draft</span></span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #7f88a8">⌘K tools</span>
+  </nav>
+
+  <div style="display: flex; gap: 18px; height: 20px; align-items: center; color: #7f88a8">
+    <span><span style="color: #c8d0e8">⌘B</span> needs you</span>
+    <span><span style="color: #c8d0e8">⌘V</span> listen on/off</span>
+    <span><span style="color: #c8d0e8">↵</span> open work item</span>
+    <span><span style="color: #c8d0e8">⌘1–9</span> rooms</span>
+    <span><span style="color: #c8d0e8">⌘K</span> tools</span>
+    <span style="flex: 1 1 0"></span>
+    <span>home hub studio · in sync</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7","options":["#7aa2f7","#7dcfff","#bb9af7"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#7aa2f7' };
+  }
+}
+</script>
+</body>
+</html>

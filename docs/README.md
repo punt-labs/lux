@@ -206,6 +206,11 @@ the archive can be recovered from git history.
 - [concepts/extension-architecture.tex](./concepts/extension-architecture.tex) →
   [pdf](./concepts/extension-architecture.pdf)
 - [concepts/pharo-inspiration.md](./concepts/pharo-inspiration.md)
+- [concepts/vox-rooms/](./concepts/vox-rooms/README.md) — Vox Rooms, a
+  November 2026 product concept: a keyboard-first, voice-forward workspace for
+  leading several coding agents across repos and machines. Holds a draft
+  PR/FAQ, a clickable prototype, thirteen mockups and the design notes behind
+  them. Brainstorm stage; likely to move to its own repository.
 
 These are not approved plans, are not the canonical Lux architecture, and are
 not under active development.

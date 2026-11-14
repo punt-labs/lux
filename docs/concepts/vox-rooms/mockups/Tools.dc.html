@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Room tools</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16171f}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; background: #16171f; color: #c8d0e8; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 20px; display: flex; flex-direction: column; padding: 6px; gap: 6px">
+
+  <div style="display: flex; align-items: center; gap: 4px; height: 22px">
+    <span style="background: {{accent}}; color: #16171f; font-weight: 700; padding: 0 8px">1 terminal-epic</span>
+    <span style="color: #7f88a8; padding: 0 8px">›</span>
+    <span style="color: #e6e9f4">tools</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #9ece6a">◉ listen</span>
+  </div>
+
+  <section aria-label="Voice" style="border: 1px solid #2c2f40; padding: 6px 12px; display: flex; flex-direction: column; gap: 2px">
+    <div style="display: flex; gap: 14px"><span style="color: #9ece6a">◉ you</span><span style="color: #e6e9f4">"Make me a view of everything touching the protocol, with CI status."</span></div>
+    <div style="display: flex; gap: 14px"><span style="color: #bb9af7">claude@lux</span><span style="color: #e6e9f4">"Built it as a draft: protocol-ci. Read-only. Keep it?"</span><span style="flex: 1 1 0"></span><span style="color: #9ece6a">◉ listening 4s</span></div>
+  </section>
+
+  <div style="flex: 1 1 auto; display: grid; grid-template-columns: 360px minmax(0, 1fr) 420px; gap: 6px; min-height: 0">
+
+    <nav aria-label="Tools in this room" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex"><span style="color: #e6e9f4; font-weight: 700">tools</span><span style="flex: 1 1 0"></span><span style="color: #7f88a8">⌘K</span></div>
+      <div style="padding: 8px 10px; display: flex; flex-direction: column; gap: 3px">
+        <div style="color: #7f88a8">core · shipped, built like any other tool</div>
+        <div><span style="display: inline-block; width: 110px">decisions</span><span style="color: #7f88a8">⌘B</span></div>
+        <div><span style="display: inline-block; width: 110px">board</span><span style="color: #7f88a8">⌘␣</span></div>
+        <div><span style="display: inline-block; width: 110px">work</span><span style="color: #7f88a8">⌘W</span></div>
+        <div><span style="display: inline-block; width: 110px">team</span><span style="color: #7f88a8">⌘T</span></div>
+        <div style="color: #7f88a8; margin-top: 10px">installed</div>
+        <div><span style="display: inline-block; width: 110px">voice</span><span style="color: #7f88a8">vox · speak, listen</span></div>
+        <div><span style="display: inline-block; width: 110px">channels</span><span style="color: #7f88a8">biff · agent co-design</span></div>
+        <div><span style="display: inline-block; width: 110px">search</span><span style="color: #7f88a8">quarry · room knowledge</span></div>
+        <div><span style="display: inline-block; width: 110px">issues</span><span style="color: #7f88a8">linear · work source</span></div>
+        <div><span style="display: inline-block; width: 110px">specs</span><span style="color: #7f88a8">z-spec · models, checks</span></div>
+        <div><span style="display: inline-block; width: 110px">missions</span><span style="color: #7f88a8">ethos · worker/evaluator</span></div>
+        <div style="color: #7f88a8; margin-top: 10px">drafts · made by agents</div>
+        <div style="background: #232637; margin: 0 -10px; padding: 0 10px"><span style="display: inline-block; width: 110px; color: #e0af68">protocol-ci</span><span style="color: #7f88a8">claude@lux · just now</span></div>
+      </div>
+    </nav>
+
+    <section aria-label="Preview of protocol-ci" style="border: 1px solid #e0af68; display: flex; flex-direction: column; min-width: 0">
+      <div style="padding: 0 10px; background: #221f17; border-bottom: 1px solid #e0af68; display: flex; gap: 10px"><span style="color: #e0af68; font-weight: 700">protocol-ci</span><span style="color: #7f88a8">draft preview · live data</span></div>
+      <div style="padding: 12px 14px">
+        <table style="border-collapse: collapse; width: 100%">
+          <thead><tr style="color: #7f88a8; text-align: left"><th scope="col" style="padding: 2px 12px 2px 0; font-weight: 400">work item</th><th scope="col" style="padding: 2px 12px; font-weight: 400">lux</th><th scope="col" style="padding: 2px 12px; font-weight: 400">vox</th><th scope="col" style="padding: 2px 12px; font-weight: 400">biff</th><th scope="col" style="padding: 2px 12px; font-weight: 400">state</th></tr></thead>
+          <tbody>
+            <tr><td style="padding: 4px 12px 4px 0">w731 Terminal log protocol</td><td style="padding: 4px 12px; color: #9ece6a">✓</td><td style="padding: 4px 12px; color: #9ece6a">✓</td><td style="padding: 4px 12px; color: #e0af68">◐</td><td style="padding: 4px 12px; color: {{accent}}">● in progress</td></tr>
+            <tr><td style="padding: 4px 12px 4px 0">w734 Voice answers in biff</td><td style="padding: 4px 12px; color: #7f88a8">–</td><td style="padding: 4px 12px; color: #9ece6a">✓</td><td style="padding: 4px 12px; color: #f7768e">✗</td><td style="padding: 4px 12px; color: #ff9e64">■ blocked</td></tr>
+            <tr><td style="padding: 4px 12px 4px 0">w729 Presence over the log</td><td style="padding: 4px 12px; color: #9ece6a">✓</td><td style="padding: 4px 12px; color: #7f88a8">–</td><td style="padding: 4px 12px; color: #9ece6a">✓</td><td style="padding: 4px 12px; color: #7f88a8">○ done</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 14px; color: #7f88a8">✓ green · ◐ running · ✗ failing · – not in this repo</div>
+        <div style="margin-top: 20px; color: #7f88a8">Built only from existing elements and room facts. No new code, so nothing runs that you haven't already trusted.</div>
+      </div>
+    </section>
+
+    <section aria-label="Definition of protocol-ci" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 10px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex"><span style="color: #e6e9f4; font-weight: 700">definition</span><span style="flex: 1 1 0"></span><span style="color: #7f88a8">tier 1 · composition</span></div>
+      <div style="padding: 10px 12px; white-space: pre; line-height: 21px"><span style="color: #7f88a8">tool</span>     protocol-ci
+<span style="color: #7f88a8">by</span>       claude@lux
+<span style="color: #7f88a8">reads</span>    work items where
+           work/repo ∈ {lux vox biff}
+           and work/tag = protocol
+         ci/status of their branches
+<span style="color: #7f88a8">writes</span>   nothing
+<span style="color: #7f88a8">view</span>     table · row per work item
+           column per repo
+<span style="color: #7f88a8">actions</span>  ↵ open the work item
+<span style="color: #7f88a8">key</span>      ⌘6
+<span style="color: #7f88a8">voice</span>    "protocol status"
+<span style="color: #7f88a8">scope</span>    <span style="color: #9ece6a">read-only · no approval beyond keep</span></div>
+    </section>
+  </div>
+
+  <section aria-label="Decide on the draft" style="border: 1px solid #e0af68; background: #1f1c15; padding: 8px 12px; display: flex; gap: 28px; align-items: center">
+    <span style="color: #e0af68; font-weight: 700">draft tool</span>
+    <span><span style="background: #9ece6a; color: #16171f; padding: 0 6px; font-weight: 700">k</span> keep in this room</span>
+    <span><span style="background: #c8d0e8; color: #16171f; padding: 0 6px; font-weight: 700">e</span> change it by voice</span>
+    <span><span style="background: #c8d0e8; color: #16171f; padding: 0 6px; font-weight: 700">d</span> discard</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #7f88a8">or say "keep it"</span>
+  </section>
+
+  <div style="display: flex; gap: 18px; height: 20px; align-items: center; color: #7f88a8">
+    <span><span style="color: #c8d0e8">⌘K</span> tools</span>
+    <span><span style="color: #c8d0e8">↵</span> open tool</span>
+    <span><span style="color: #c8d0e8">⌘V</span> listen on/off</span>
+    <span style="flex: 1 1 0"></span>
+    <span>tier 2 tools (new code) install only with your approval of their scope</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7","options":["#7aa2f7","#7dcfff","#bb9af7"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#7aa2f7' };
+  }
+}
+</script>
+</body>
+</html>

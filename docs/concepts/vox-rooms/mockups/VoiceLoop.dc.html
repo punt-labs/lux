@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Listen after speaking</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16171f}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; background: #16171f; color: #c8d0e8; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 20px; display: flex; flex-direction: column; padding: 28px 32px; gap: 22px">
+
+  <div style="display: flex; align-items: baseline; gap: 16px">
+    <span style="font-size: 20px; font-weight: 700; color: #e6e9f4">Listen after speaking</span>
+    <span style="color: #7f88a8">An agent asks a question. You answer by voice. You never look at its pane.</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #9ece6a">◉ listen on</span><span style="color: #7f88a8">⌘V toggles</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px">
+
+    <section aria-label="Step 1, the agent asks" style="border: 1px solid #ff9e64; background: #1f1a16; display: flex; flex-direction: column">
+      <div style="padding: 4px 10px; border-bottom: 1px solid #ff9e64; color: #ff9e64; font-weight: 700">1 · the agent asks</div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 250px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><g fill="#ff9e64"><rect x="0" y="8" width="4" height="6"></rect><rect x="7" y="4" width="4" height="14"></rect><rect x="14" y="1" width="4" height="20"></rect><rect x="21" y="6" width="4" height="10"></rect><rect x="28" y="3" width="4" height="16"></rect><rect x="35" y="8" width="4" height="6"></rect><rect x="42" y="5" width="4" height="12"></rect><rect x="49" y="9" width="4" height="4"></rect></g></svg>
+          <span style="color: #ff9e64">speaking</span>
+        </div>
+        <div style="color: #e6e9f4; font-size: 15px; line-height: 23px">"codex needs a parser. Pyte, or libghostty?"</div>
+        <div style="color: #7f88a8">One sentence, under 15 words. The full question and options are in the ask bar.</div>
+        <div style="color: #7f88a8">mic: <span style="color: #c8d0e8">muted while speaking</span></div>
+      </div>
+    </section>
+
+    <section aria-label="Step 2, the mic opens" style="border: 1px solid #9ece6a; background: #18201a; display: flex; flex-direction: column">
+      <div style="padding: 4px 10px; border-bottom: 1px solid #9ece6a; color: #9ece6a; font-weight: 700">2 · the mic opens</div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 12px; min-height: 250px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="color: #9ece6a">◉ listening</span>
+          <div style="flex: 1 1 auto; height: 6px; background: #2c2f40"><div style="width: 55%; height: 6px; background: #9ece6a"></div></div>
+          <span style="color: #7f88a8">3s</span>
+        </div>
+        <div style="color: #7f88a8">Opens the moment playback ends. Closes when you stop talking.</div>
+        <div style="border: 1px solid #2c2f40; padding: 8px 10px">
+          <div style="color: #7f88a8">heard</div>
+          <div style="color: #e6e9f4; font-size: 15px">"libghostty"</div>
+        </div>
+        <div style="color: #7f88a8">Also understood: repeat · later · skip · stop</div>
+      </div>
+    </section>
+
+    <section aria-label="Step 3, matched to an option" style="border: 1px solid {{accent}}; background: #171c28; display: flex; flex-direction: column">
+      <div style="padding: 4px 10px; border-bottom: 1px solid {{accent}}; color: {{accent}}; font-weight: 700">3 · matched to an option</div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 250px">
+        <div style="color: #7f88a8">Only two answers were possible.</div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="padding: 4px 8px; border: 1px solid #2c2f40; color: #7f88a8"><span style="padding: 0 6px; background: #2c2f40; color: #c8d0e8">1</span> pyte</div>
+          <div style="padding: 4px 8px; border: 1px solid {{accent}}; color: #e6e9f4"><span style="padding: 0 6px; background: {{accent}}; color: #16171f; font-weight: 700">2</span> libghostty-vt <span style="color: {{accent}}">← match</span></div>
+        </div>
+        <div style="color: #e6e9f4; font-size: 15px; line-height: 23px">"Option two, libghostty."</div>
+        <div style="color: #7f88a8">Short read-back. Reversible, so no confirm. A destructive answer would ask "confirm?".</div>
+      </div>
+    </section>
+
+    <section aria-label="Step 4, the answer lands" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 4px 10px; border-bottom: 1px solid #2c2f40; color: #c8d0e8; font-weight: 700">4 · the answer lands</div>
+      <div style="padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 250px">
+        <div style="white-space: pre; line-height: 21px"><span style="color: #bb9af7">codex@vox</span> <span style="color: {{accent}}">● working</span>
+› Using libghostty-vt.
+› Linking the C ABI into luxd-pty.</div>
+        <div style="border-top: 1px solid #2c2f40; padding-top: 8px; color: #7f88a8">board history</div>
+        <div style="white-space: pre-wrap; line-height: 21px"><span style="color: #7f88a8">#1050</span> you → codex@vox
+parser = libghostty-vt
+<span style="color: #7f88a8">via voice, option 2</span></div>
+      </div>
+    </section>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px">
+    <div style="border-left: 2px solid #2c2f40; padding: 4px 12px">
+      <div style="color: #e6e9f4; font-weight: 700">It never hears itself</div>
+      <div style="color: #7f88a8">The mic stays closed while Vox speaks. Start talking mid-sentence and playback stops.</div>
+    </div>
+    <div style="border-left: 2px solid #2c2f40; padding: 4px 12px">
+      <div style="color: #e6e9f4; font-weight: 700">One question at a time</div>
+      <div style="color: #7f88a8">A second agent's question waits in line. "One more pending" is all you hear.</div>
+    </div>
+    <div style="border-left: 2px solid #2c2f40; padding: 4px 12px">
+      <div style="color: #e6e9f4; font-weight: 700">Silence costs nothing</div>
+      <div style="color: #7f88a8">No reply? The question stays in the ask bar and on the board. Press 1 or 2 later.</div>
+    </div>
+    <div style="border-left: 2px solid #2c2f40; padding: 4px 12px">
+      <div style="color: #e6e9f4; font-weight: 700">Off when you need it off</div>
+      <div style="color: #7f88a8">⌘V and the mic never opens. Questions still arrive on screen.</div>
+    </div>
+  </div>
+
+  <div style="margin-top: auto; border: 1px solid #2c2f40; padding: 10px 14px; display: flex; gap: 24px; align-items: center">
+    <span style="color: #7f88a8">the whole exchange</span>
+    <span style="color: #ff9e64">ask</span><span style="color: #7f88a8">→</span>
+    <span style="color: #9ece6a">listen</span><span style="color: #7f88a8">→</span>
+    <span style="color: {{accent}}">match</span><span style="color: #7f88a8">→</span>
+    <span style="color: #c8d0e8">deliver</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #7f88a8">0 keystrokes · 0 pane switches · 1 spoken word</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7","options":["#7aa2f7","#7dcfff","#bb9af7"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#7aa2f7' };
+  }
+}
+</script>
+</body>
+</html>

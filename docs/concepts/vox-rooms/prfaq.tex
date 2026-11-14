@@ -1,0 +1,621 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Geometry ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+
+% ── Pagination ────────────────────────────────────────────────────────────────
+\usepackage[all]{nowidow}
+\brokenpenalty=10000
+\raggedbottom
+
+% ── Fonts ─────────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{newpxtext}
+\usepackage{newpxmath}
+
+% ── Colors ────────────────────────────────────────────────────────────────────
+\usepackage[dvipsnames]{xcolor}
+\definecolor{SectionBlue}{HTML}{1B3A5C}
+\definecolor{AccentGray}{HTML}{4A4A4A}
+\definecolor{QuoteBorder}{HTML}{8B9DAF}
+\definecolor{RiskRed}{HTML}{C0392B}
+\definecolor{RiskAmber}{HTML}{E67E22}
+\definecolor{RiskGreen}{HTML}{27AE60}
+\definecolor{BoxBg}{HTML}{F7F8FA}
+
+% ── Tables ────────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% ── Boxes ─────────────────────────────────────────────────────────────────────
+\usepackage[framemethod=tikz]{mdframed}
+
+% ── Lists ─────────────────────────────────────────────────────────────────────
+\usepackage{enumitem}
+\usepackage{needspace}
+
+% ── Product name (working title: change it here) ─────────────────────────────
+\newcommand{\product}{Rooms}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SectionBlue,
+  urlcolor=SectionBlue,
+  citecolor=SectionBlue,
+  pdfauthor={Punt Labs},
+  pdftitle={Rooms PR/FAQ: Lead a Team of Coding Agents Instead of Relaying Between Them},
+  pdfsubject={Working Backwards: Hypothesis Stage},
+}
+
+% ── Section styling ───────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}
+  {\needspace{6\baselineskip}\Large\bfseries\color{SectionBlue}}{}{0pt}{}
+\titleformat{\subsection}
+  {\needspace{5\baselineskip}\large\bfseries\color{AccentGray}}{}{0pt}{}
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{AccentGray}}{}{0pt}{}
+\titlespacing*{\subsubsection}{0pt}{1em}{0.5em}[0pt]
+
+% ── Document stage and version ───────────────────────────────────────────────
+\newcommand{\prfaqstage}[1]{\def\theprfaqstage{#1}}
+\prfaqstage{hypothesis}
+\newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
+\prfaqversion{0}{1}
+
+% ── Header/footer ────────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{AccentGray}{Stage: \theprfaqstage{} \enspace\textbar\enspace v\theprfaqmajor.\theprfaqminor{} \enspace\textbar\enspace first draft}}
+\fancyhead[R]{\footnotesize\textcolor{AccentGray}{\thepage}}
+\renewcommand{\headrulewidth}{0pt}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Custom environments
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newcommand{\prsection}[1]{%
+  \vspace{1em}%
+  {\large\bfseries\color{SectionBlue}#1}%
+  \vspace{0.3em}\par%
+}
+
+\newmdenv[
+  topline=false, bottomline=false, rightline=false,
+  linewidth=3pt, linecolor=QuoteBorder, backgroundcolor=BoxBg,
+  innerleftmargin=12pt, innerrightmargin=12pt,
+  innertopmargin=8pt, innerbottommargin=8pt,
+  skipabove=\baselineskip, skipbelow=\baselineskip,
+]{customerquote}
+
+\newmdenv[
+  topline=false, bottomline=false, rightline=false,
+  linewidth=3pt, linecolor=SectionBlue, backgroundcolor=BoxBg,
+  innerleftmargin=12pt, innerrightmargin=12pt,
+  innertopmargin=8pt, innerbottommargin=8pt,
+  skipabove=\baselineskip, skipbelow=\baselineskip,
+]{spokespersonquote}
+
+\usepackage{changepage}
+
+\newcounter{faqnum}
+\newenvironment{faqpair}[1]{%
+  \needspace{4\baselineskip}%
+  \vspace{0.5em}%
+  \refstepcounter{faqnum}%
+  \noindent\textbf{\color{SectionBlue}Q\thefaqnum: #1}\par\nopagebreak[4]%
+  \vspace{0.2em}%
+  \begin{adjustwidth}{1em}{0pt}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{adjustwidth}%
+  \vspace{0.5em}%
+}
+\newcommand{\faqref}[1]{\hyperref[#1]{FAQ~\ref*{#1}}}
+
+\newcounter{featurenum}
+\newcommand{\featureitem}[2]{%
+  \refstepcounter{featurenum}%
+  \item[\textbf{\color{SectionBlue}F\thefeaturenum.}]%
+  \textbf{#1}: #2%
+}
+\newcommand{\featureref}[1]{\hyperref[#1]{Feature~\ref*{#1}}}
+
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Document
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{document}
+
+% ── Headline block ───────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries\color{SectionBlue}
+    \product{} Lets Developers Lead a Team of Coding Agents\\
+    Instead of Relaying Messages Between Them} \\[0.8em]
+  {\large\color{AccentGray}
+    For the developer: one room per piece of work, spanning repos and machines.
+    Agents bring you decisions, you answer by voice or a single key, and the
+    state of the work is always one glance away.} \\[0.3em]
+  {\large\color{AccentGray}
+    For the agent: shared, typed state instead of chat scrollback, precise
+    formats instead of paragraphs, and self-describing tools it can discover,
+    use, and build on the spot.}
+\end{center}
+
+\vspace{0.5em}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% PRESS RELEASE
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Press Release}
+
+AUSTIN, TX, [LAUNCH DATE]. Punt Labs today released \product{}, a
+keyboard-first, voice-forward workspace for developers who run several AI
+coding agents at once. Terminal multiplexers built for agents, such as
+herdr\cite{herdr}, put every agent's terminal on one screen. That is
+convenient, but the developer is still the hub: reading each terminal to find
+out what an agent needs, carrying answers back, and copying one agent's
+findings into another's prompt. \product{} removes the developer from the
+middle. Work lives in a \emph{room} that spans every repository and machine it
+touches. Agents publish what they know to the room's shared state, co-design
+with each other in precise formats, and bring the developer only the decisions
+that need a human. The developer answers by voice or with one key, and goes
+back to thinking.
+
+\prsection{Problem}
+
+A developer running three or four coding agents across several repositories
+spends a surprising share of the day as a message router. Agent A needs to
+know what agent B decided. Agent C is blocked on a question nobody has seen.
+A change to a shared protocol touches three repos on two machines, and the
+only view of it is three terminals. Free-form chat between agents makes this
+worse, not better: prose is imprecise for agents and expensive for people to
+read. Today's tools aggregate the terminals but leave the work of
+coordination, the reading, relaying, and reconstructing of state, with the
+human.
+
+\prsection{Solution}
+
+\product{} organizes work the way a lead runs a team, not the way a terminal
+manager arranges windows. The developer thinks about four things, in order:
+what needs me, where the work stands, who is doing what, and, only when
+checking, the evidence. Hosts, terminals, branches, and processes still exist,
+but they sit one keystroke below the work instead of being the work.
+
+\begin{itemize}[leftmargin=1.5em, itemsep=0.3em]
+  \item \textbf{Rooms.} A room groups the repositories, machines, agents, and
+    state for one body of work. A protocol change touching three repos on two
+    machines is one work item with one state, one CI picture, and one merge
+    order.
+  \item \textbf{Decisions, not interruptions.} A blocked agent posts a
+    structured question with options and a recommendation. \product{} speaks
+    it in one short sentence and, unless the developer has toggled it off,
+    listens for the answer. ``Option two'' resumes the agent.
+  \item \textbf{A shared board.} Agents publish plans, results, specifications,
+    and decisions to the room's typed, signed, replayable state. New and
+    restarted agents read the board instead of asking the developer to catch
+    them up.
+  \item \textbf{Agent channels.} Agents co-design with each other in schemas,
+    tables, diffs, and formal notation, and escalate only real disagreements.
+  \item \textbf{Self-describing tools.} The defaults are tools, and agents can
+    make new ones on request. Every tool describes itself in typed terms, so
+    every other agent in the room can discover and use it immediately.
+  \item \textbf{Opinionated and fast.} One command to install, nothing to
+    configure, every action one key, terminal first, with an optional GPU
+    display for rich views.
+\end{itemize}
+
+\begin{spokespersonquote}
+``I already get real leverage when my agents co-design with each other instead
+of me shuttling between them. \product{} makes that the default. The question
+I want the tool to answer is not `what are my terminals doing?' but `what does
+this work need from me, and where does it stand?'''
+\par\vspace{0.3em}\hfill--- Jim Freeman, Punt Labs
+\end{spokespersonquote}
+
+\begin{customerquote}
+``I run four agents across a backend, a client, and a shared schema repo. Before,
+I spent my mornings reading terminals to find out who was stuck. Now the room
+tells me. Yesterday I answered three blocked agents by voice while reviewing a
+design doc, and never opened a terminal.''
+\par\vspace{0.3em}\hfill--- [ILLUSTRATIVE CUSTOMER], staff engineer
+\end{customerquote}
+
+\prsection{Getting Started}
+
+One command installs \product{}. Running it in a workspace creates a room
+from the repositories it finds, attaches to the agents already running,
+reattaches any detached sessions, and enables voice if a microphone and Vox are
+available. There is no wizard, no settings screen, and no account. Overrides
+live in one plain-text file that nobody needs to open.
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FAQ
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Frequently Asked Questions}
+
+\subsection*{External FAQs}
+
+\begin{faqpair}{What is \product{}?}\label{faq:what}
+A workspace for leading several AI coding agents across repositories and
+machines. It keeps agent sessions alive, shows the state of the work, routes
+agents' questions to you, and lets agents share state and tools with each
+other. It works in any terminal, and adds a GPU window for rich views when one
+is available.
+\end{faqpair}
+
+\begin{faqpair}{How is this different from herdr or tmux?}\label{faq:herdr}
+tmux and herdr manage terminals, and herdr adds per-pane agent state on top
+\cite{herdr,tmuxcontrol}. That is aggregation: you see everything, and you
+still do the coordinating. \product{} matches the basics (persistent sessions,
+detach and reattach, agent state, jump to the blocked agent, remote machines)
+and then changes the unit of work from the terminal to the room:
+
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{@{} l X X @{}}
+\toprule
+ & \textbf{Terminal multiplexer} & \textbf{\product{}} \\
+\midrule
+Home screen & Terminals & Decisions, board, team \\
+Blocked agent & A flag; you read its pane & A structured question; you answer by voice or one key \\
+Agent to agent & Send a prompt to another pane & Co-design in typed formats; escalate only disagreements \\
+Shared context & Each agent's scrollback & One typed, replayable board per room \\
+Multi-repo work & One terminal per repo & One work item across repos and hosts \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\end{faqpair}
+
+\begin{faqpair}{Do I need a GUI?}\label{faq:gui}
+No. \product{} is terminal first and works over SSH. A GPU display adds rich
+views (diffs, plots, node graphs, specifications) beside or inside the work,
+but nothing requires it.
+\end{faqpair}
+
+\begin{faqpair}{How does voice work? Is the microphone always on?}\label{faq:voice}
+When an agent asks a question, \product{} speaks it in one short sentence, then
+opens the microphone for a few seconds and closes it when you stop talking.
+Your answer is matched against the question's options, so recognition only
+has to tell two or three choices apart. The microphone is closed while
+\product{} speaks and at all other times. One key toggles listening off for a
+call or a shared room; questions keep arriving on screen. Anything
+irreversible is read back for confirmation. Every spoken answer is recorded as
+text.
+\end{faqpair}
+
+\begin{faqpair}{What is a room?}\label{faq:room}
+The container for one body of work: its repositories (on any of your
+machines), its agents, its people, and its state. A repository can belong to
+several rooms; each branch and session belongs to exactly one work item in one
+room. Launching \product{} in a workspace creates a room from what it finds;
+naming repositories by host and path creates one explicitly.
+\end{faqpair}
+
+\begin{faqpair}{Which agents does it work with?}\label{faq:agents}
+Claude Code and Codex first, through hooks that declare an agent's state
+(working, blocked, idle) rather than guessing it from terminal output. Any
+agent that speaks MCP can read the board, raise decisions, and use the room's
+tools; other terminal agents still get persistent sessions and
+output-based state as a fallback.
+\end{faqpair}
+
+\begin{faqpair}{Agents can build tools. Can they break things?}\label{faq:tools-safety}
+Tools come in two tiers. A tier-one tool is a composition: a query over the
+room's state, a view built from a fixed set of elements, and actions that map
+to existing operations. It contains no new code, so an agent can build one on
+request and you keep or discard it with one key. A tier-two tool adds new code
+and runs as a separate program, never inside the display, and installs only
+after you approve its declared scope. Every tool, and every use of one, is a
+signed, recorded fact.
+\end{faqpair}
+
+\begin{faqpair}{Does my code or data leave my machines?}\label{faq:local}
+No. \product{} runs on machines you control. Rooms that span machines connect
+them directly with mutual TLS; there is no hosted service and no account.
+Agents send whatever they already send to their own model providers;
+\product{} adds nothing to that.
+\end{faqpair}
+
+\begin{faqpair}{What does it cost?}\label{faq:cost}
+\product{} is free and open source. [LICENSE TO BE DECIDED.]
+\end{faqpair}
+
+\subsection*{Internal FAQs}
+
+\begin{faqpair}{Why now?}\label{faq:why-now}
+Three things changed in 2025--2026. Developers routinely run several agents at
+once, and agent multiplexers such as herdr gathered large followings quickly
+\cite{herdr}, which shows the demand. Agents became good enough to co-design
+with each other, which Punt Labs already sees with Biff. And the blackboard
+architecture, shelved in the 1990s because its specialists were expensive
+hand-built rule systems, became practical again now that capable general
+specialists are cheap \cite{han2025bmas,salemi2025blackboard}.
+\end{faqpair}
+
+\begin{faqpair}{What is the user's mental model?}\label{faq:model}
+A lead running a team. The explicit hierarchy is what the developer navigates;
+the implicit hierarchy is the machinery, always one keystroke down and never
+the starting point.
+
+\renewcommand{\arraystretch}{1.3}
+\begin{tabularx}{\linewidth}{@{} l X @{}}
+\toprule
+\textbf{Explicit} & Room $\rightarrow$ decisions, board, work items, team, tools \\
+\textbf{Implicit} & Host $\rightarrow$ hub $\rightarrow$ repository $\rightarrow$ branch or worktree $\rightarrow$ session $\rightarrow$ PTY $\rightarrow$ terminal; plus commits, pull requests, CI runs \\
+\textbf{The join} & The work item: an issue, its branches in one or more repos, their sessions, PRs, and CI \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+Agents are identities, not processes: a restarted session is the same team
+member. Implicit failures surface in work terms (``two work items paused:
+their agent's machine is offline''), never as raw infrastructure.
+\end{faqpair}
+
+\begin{faqpair}{Why shared state rather than chat?}\label{faq:shared-state}
+Because coordination through shared, structured state scales where messaging
+does not. The idea is old and well tested: Newell's 1962 blackboard metaphor
+\cite{newell1962}, Hearsay-II's specialists posting hypotheses to a shared
+structure \cite{erman1980hearsay}, Nii's surveys \cite{nii1986}, and Linda's
+tuple spaces, which decouple writers and readers in space and time
+\cite{gelernter1985linda}. Shared state lets a late-joining agent read where
+things stand instead of replaying history; it tolerates missed updates, since
+the next read corrects them; and its contents are machine-readable. Chat
+remains, as a view of the same log.
+\end{faqpair}
+
+\begin{faqpair}{What data structure sits at the core?}\label{faq:facts}
+One append-only log of typed facts, each a tuple of entity, attribute, value,
+and transaction, with indexes for the current state. This is the model Datomic
+popularized \cite{datomic}. Every transaction carries a sequence number and
+the author's signed identity. The operations are Linda's plus time: assert
+facts, query by pattern, take atomically (so two agents cannot claim the same
+work), subscribe to a query's changes, and query the state as of any earlier
+point. The board is the current state of the facts; the transcript is the log
+read in order. Attributes are namespaced and typed, and each declares who may
+write it. Terminal output, images, and large diffs are stored beside the log
+and referenced from it, keeping the log small. The whole hub state is a
+relation, which suits the Z specifications Punt Labs already uses to verify
+concurrency.
+\end{faqpair}
+
+\begin{faqpair}{How does a room span repositories and machines?}\label{faq:mesh}
+Each room has a home hub that sequences its transactions; other machines that
+hold a member repository or run a member agent replicate the log and join
+implicitly. Write rate is human and agent scale, hundreds of facts per second
+at most, so one sequencer per room is not a bottleneck. A machine cut off from
+the home hub keeps working and submits queued writes on reconnection, where
+the write rules are applied. That reconnection path is the part to
+model-check before it is built. Machines connect with mutual TLS against a
+pluggable trust anchor.
+\end{faqpair}
+
+\begin{faqpair}{How are tools defined and discovered?}\label{faq:tools}
+A tool is itself a set of facts: its name, purpose, what it reads, what it
+writes, its typed operations, its view, its key binding, its voice phrase, and
+its scope. Discovery is a query; an agent can also subscribe to new tools. The
+room's MCP endpoint publishes tools as MCP tools and notifies clients when the
+list changes \cite{mcplistchanged}, so agents can use a new tool without
+restarting. The defaults (decisions, board, work items, team) are built on the
+same interface as any other tool. This is the Smalltalk principle: if the
+built-ins cannot be written with the public interface, the interface is
+incomplete.
+\end{faqpair}
+
+\begin{faqpair}{Why merge Lux, Vox, and Biff?}\label{faq:merge}
+They are three projections of one goal: communication between people and
+agents that is more precise and less tiring than free-form text. Lux renders
+state visually, Vox speaks and listens, and Biff carries messages, presence,
+and identity across machines. \product{} defines one artifact protocol and one
+state model; Lux becomes the visual client, Vox the voice client, and Biff the
+transport. The three products keep working while the shared protocol takes
+shape; the code merges later, if at all.
+\end{faqpair}
+
+\begin{faqpair}{Why a Rust or Go core, and why terminal first?}\label{faq:stack}
+The hub is a long-running concurrent daemon, the kind of program where a
+compiled language with strong concurrency guarantees pays off most; much of
+Lux's recent design work fixed races and render-loop cost in Python. A single
+static binary is also simpler to install. Terminal first because the
+strongest competitor runs anywhere a terminal does, including SSH, and a
+GPU-only product would lose on that alone. Lux's first external integration
+was lost partly to protocol drift (client at 0.1, Lux at 0.33), which is why
+\product{} treats a small, versioned protocol with a published schema and a
+conformance suite as the product.
+\end{faqpair}
+
+\begin{faqpair}{What do we reuse?}\label{faq:reuse}
+Lux's element vocabulary, self-validation, introspection, applet model, and
+mutual-TLS transport design; its formal models and their method; Vox's
+synthesis, notification levels, and voice-input spike; Biff's messaging,
+presence, and identity; ethos identities and missions; Linear as the source of
+work items. The conformance suite is built from Lux's end-to-end scenarios.
+\end{faqpair}
+
+\begin{faqpair}{How do we measure success?}\label{faq:metrics}
+By what the developer no longer does, compared with a terminal multiplexer on
+the same workload:
+
+\begin{itemize}[leftmargin=1.5em, itemsep=0.2em]
+  \item relay hops per hour (the developer carrying information between agents);
+  \item interruptions per hour, and the share that needed a human;
+  \item time from an agent blocking to its question being answered;
+  \item share of questions answered without opening a terminal;
+  \item time from install to the first answered question (target: one command, no decisions).
+\end{itemize}
+
+Targets are set before the first external trial, not after.
+\end{faqpair}
+
+\begin{faqpair}{What happens to generative UI?}\label{faq:genui}
+It stays constrained, which is what makes it fast and trustworthy. Agents
+compose views from a fixed element vocabulary inside a stable frame; they do
+not generate code for the renderer. Research shows people prefer generated
+interfaces to text but flags latency and inconsistency
+\cite{leviathan2026generativeui}; a fixed frame with typed slots answers
+consistency, and preparing the next screens from an enumerable set of
+responses (a decision's options) answers latency.
+\end{faqpair}
+
+\begin{faqpair}{What is the plan?}\label{faq:plan}
+\begin{enumerate}[leftmargin=1.5em, itemsep=0.2em]
+  \item Protocol schema and conformance suite; the fact log and room sequencer, model-checked.
+  \item Session host and terminal client at parity with the basics: persistent sessions, agent state through hooks, jump to blocked.
+  \item Decision requests with voice output and listen-after-questions. This is the first thing users should feel.
+  \item Agent channels through Biff, and the board.
+  \item Rooms across machines.
+  \item Tools: tier one by agents on request, then tier two.
+  \item The GPU client for rich views.
+\end{enumerate}
+\end{faqpair}
+
+\begin{faqpair}{What are the open questions?}\label{faq:open}
+\begin{itemize}[leftmargin=1.5em, itemsep=0.2em]
+  \item The product name, and whether it ships under the Lux name.
+  \item Rust or Go for the core.
+  \item Whether a room's manifest lives on its home hub only, or also as a file in a repository.
+  \item Whether the board lives with Biff (transport and identity) or with the hub.
+  \item How competing proposals with confidence, Hearsay-II's strongest idea, appear on the board.
+  \item The license.
+\end{itemize}
+\end{faqpair}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% RISK ASSESSMENT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Risk Assessment}
+
+\renewcommand{\arraystretch}{1.6}
+\begin{tabularx}{\textwidth}{@{} l l X @{}}
+\toprule
+\textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
+\midrule
+Value & \textcolor{RiskAmber}{Medium} &
+  The core claim, that structured asks, a shared board, and agent channels
+  reduce the developer's routing and interruptions, rests on one developer's
+  experience with Biff. No external user has tried it. The metrics in
+  \faqref{faq:metrics} are the test. \\
+Usability & \textcolor{RiskAmber}{Medium} &
+  Voice must be reliable enough to trust: false triggers, missed answers,
+  and noisy rooms all erode it. Constrained answers and the one-key toggle
+  mitigate this, but only an external trial measures it. A keyboard-first
+  terminal interface has a learning curve some users will not climb. \\
+Feasibility & \textcolor{RiskRed}{High} &
+  The scope is large: a new core in a new language, a terminal emulator good
+  enough to compete, a replicated fact log with offline reconnection, voice
+  input, and three products' integration. The stable protocol and conformance
+  suite reduce the risk of moving off Python but not the size of the work. \\
+Viability & \textcolor{RiskAmber}{Medium} &
+  Free and open source, with value as the centre of the Punt Labs tool suite.
+  herdr's head start and momentum mean \product{} wins only by leading with
+  what herdr structurally cannot do, not by parity. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FEATURE APPENDIX
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Feature Appendix}
+
+\subsection*{Must Do}
+
+\begin{enumerate}[leftmargin=2.5em, itemsep=0.3em]
+  \featureitem{Rooms}{a container for repositories on any machine, agents, people, state, and tools, created from the launch workspace by default}\label{feat:rooms}
+  \featureitem{Persistent sessions}{agent sessions held by a session host, surviving client exit, detach, and reattach}
+  \featureitem{Declared agent state}{working, blocked, and idle reported through hooks, with output matching as a fallback}
+  \featureitem{Decision requests}{structured questions with options and a recommendation, answered with one key}\label{feat:decisions}
+  \featureitem{Voice}{one-sentence spoken questions, listen-after-questions, constrained answers, read-back for irreversible actions, and a one-key toggle}\label{feat:voice}
+  \featureitem{The board}{the room's typed, signed, replayable shared state}
+  \featureitem{Cross-repo work items}{one work item spanning branches in several repositories, with one state, combined CI, and a merge order}
+  \featureitem{Keyboard layer}{every action one key, with automatic tiling and no required mouse}
+  \featureitem{Zero configuration}{one command from install to the first answered question}
+  \featureitem{Terminal client}{the full product in any terminal, including over SSH}
+\end{enumerate}
+
+\subsection*{Should Do}
+
+\begin{enumerate}[leftmargin=2.5em, itemsep=0.3em, resume*]
+  \featureitem{Agent channels}{agent-to-agent co-design in typed formats through Biff, escalating only disagreements}
+  \featureitem{Agent-built tools}{tier-one tools composed on request, self-describing and discoverable by every agent}\label{feat:tools}
+  \featureitem{Rooms across machines}{replication, implicit host membership, and offline reconnection}
+  \featureitem{GPU client}{rich views beside and inside the work: diffs, plots, node graphs, specifications}
+  \featureitem{Facts inspector and replay}{the room's state at any earlier point, and every write's author}
+\end{enumerate}
+
+\subsection*{Won't Do}
+
+\begin{enumerate}[leftmargin=2.5em, itemsep=0.3em, resume*]
+  \featureitem{Hosted service or accounts}{\product{} runs on machines the user controls}
+  \featureitem{Arbitrary code execution in the core}{new code runs only as scoped, approved tier-two tools outside the display}
+  \featureitem{A setup wizard or settings screen}{defaults are the product}
+  \featureitem{Hosts as the primary navigation}{machines appear only when something fails}
+  \featureitem{Chat-first coordination}{chat is a view of the log, not the coordination mechanism}
+  \featureitem{An extension marketplace}{tools are built per room, by its people and agents}
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{thebibliography}{99}
+
+\bibitem{herdr}
+herdr: a terminal multiplexer for AI coding agents.
+\url{https://github.com/herdrdev/herdr}. Accessed November 2026.
+
+\bibitem{tmuxcontrol}
+tmux wiki, ``Control Mode.''
+\url{https://github.com/tmux/tmux/wiki/Control-Mode}.
+
+\bibitem{newell1962}
+A.~Newell, ``Some Problems of Basic Organization in Problem-Solving Programs,''
+in \emph{Self-Organizing Systems}, 1962.
+
+\bibitem{erman1980hearsay}
+L.~D. Erman, F.~Hayes-Roth, V.~R. Lesser, and D.~R. Reddy, ``The Hearsay-II
+Speech-Understanding System: Integrating Knowledge to Resolve Uncertainty,''
+\emph{ACM Computing Surveys} 12(2), 1980.
+
+\bibitem{nii1986}
+H.~P. Nii, ``Blackboard Systems,'' parts 1 and 2, \emph{AI Magazine} 7(2--3),
+1986.
+
+\bibitem{gelernter1985linda}
+D.~Gelernter, ``Generative Communication in Linda,'' \emph{ACM Transactions on
+Programming Languages and Systems} 7(1), 1985.
+
+\bibitem{datomic}
+Datomic, ``Datomic Information Model.'' \url{https://docs.datomic.com}.
+
+\bibitem{han2025bmas}
+B.~Han and S.~Zhang, ``Exploring Advanced LLM Multi-Agent Systems Based on
+Blackboard Architecture,'' arXiv:2507.01701, 2025.
+
+\bibitem{salemi2025blackboard}
+A.~Salemi et al., ``LLM-Based Multi-Agent Blackboard System for Information
+Discovery in Data Science,'' arXiv:2510.01285, 2025.
+
+\bibitem{mcplistchanged}
+Model Context Protocol specification, ``Tools: list changed notification.''
+\url{https://modelcontextprotocol.io}.
+
+\bibitem{leviathan2026generativeui}
+Y.~Leviathan et al., ``Generative UI: LLMs are Effective UI Generators,''
+arXiv:2604.09577, 2026.
+
+\end{thebibliography}
+
+\end{document}

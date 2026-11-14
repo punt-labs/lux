@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lux live environment</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;600&amp;family=Cousine&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#2C313C}
+a{color:#8FB0E0}a:hover{color:#B5CCEE}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #2C313C; color: #E0E0E0; font-family: 'Noto Sans', 'Droid Sans', sans-serif; font-size: 13px; line-height: 19px; display: flex; flex-direction: column">
+
+  <div style="height: 28px; display: flex; align-items: center; padding: 0 10px; background: #E4E4E6; color: #3A3A3C; border-bottom: 1px solid #BDBDC2">
+    <div style="display: flex; gap: 7px" aria-hidden="true">
+      <span style="width: 11px; height: 11px; border-radius: 50%; background: #B9B9BE"></span>
+      <span style="width: 11px; height: 11px; border-radius: 50%; background: #B9B9BE"></span>
+      <span style="width: 11px; height: 11px; border-radius: 50%; background: #B9B9BE"></span>
+    </div>
+    <span style="flex: 1 1 0; text-align: center; font-weight: 600">Lux Display</span>
+    <span style="width: 47px"></span>
+  </div>
+
+  <nav aria-label="Main menu" style="display: flex; flex-wrap: wrap; background: #1B1D23; padding: 0 4px">
+    <button type="button" style="background: transparent; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">Lux</button>
+    <button type="button" style="background: transparent; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">Theme</button>
+    <button type="button" style="background: transparent; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">Window</button>
+    <button type="button" style="background: transparent; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">Clients</button>
+    <button type="button" style="background: transparent; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">World</button>
+    <button type="button" style="background: #3B4251; color: #E0E0E0; border: 0; padding: 3px 8px; font: inherit">Tools</button>
+  </nav>
+
+  <div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; background: #1B1D23">
+
+    <div style="flex: 999 1 780px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+
+      <section aria-label="World" style="background: #262A33; display: flex; flex-direction: column; flex: 1 1 auto">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 8px; background: #16181D">
+          <span style="font-size: 10px" aria-hidden="true">▼</span>
+          <span>World · scene blackboard · home hub studio</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="color: #9DA1AA">Alt-click any element for its halo</span>
+        </div>
+        <div style="position: relative; flex: 1 1 auto; min-height: 380px; padding: 34px 40px 24px; display: flex; flex-wrap: wrap; gap: 48px; align-items: flex-start">
+
+          <div style="position: relative; flex: 1 1 360px; max-width: 460px; outline: 1px dashed #C9CDD5; outline-offset: 6px">
+            <div style="position: absolute; top: -32px; left: -16px; display: flex; gap: 6px">
+              <button type="button" aria-label="Delete element" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #C44E52; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3 L9 9 M9 3 L3 9" stroke="#FFFFFF" stroke-width="1.8"></path></svg></button>
+              <button type="button" aria-label="Element menu" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #E0E0E0; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 3 H10 M2 6 H10 M2 9 H10" stroke="#1B1D23" stroke-width="1.6"></path></svg></button>
+              <button type="button" aria-label="Move element" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #8C8C8C; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1 V11 M1 6 H11" stroke="#FFFFFF" stroke-width="1.6"></path></svg></button>
+              <button type="button" aria-label="Duplicate element" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #55A868; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="6" height="6" fill="none" stroke="#FFFFFF" stroke-width="1.4"></rect><rect x="4.5" y="4.5" width="6" height="6" fill="none" stroke="#FFFFFF" stroke-width="1.4"></rect></svg></button>
+            </div>
+            <div style="position: absolute; top: -32px; right: -16px; display: flex; gap: 6px">
+              <button type="button" aria-label="Inspect element" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: {{accent}}; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="5" cy="5" r="3.3" fill="none" stroke="#FFFFFF" stroke-width="1.5"></circle><path d="M7.5 7.5 L10.5 10.5" stroke="#FFFFFF" stroke-width="1.6"></path></svg></button>
+              <button type="button" aria-label="Browse element source" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #8172B3; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2 L1.5 6 L4 10 M8 2 L10.5 6 L8 10" fill="none" stroke="#FFFFFF" stroke-width="1.5"></path></svg></button>
+            </div>
+            <div style="position: absolute; bottom: -32px; left: -16px; display: flex; gap: 6px">
+              <button type="button" aria-label="Debug element handlers" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #DD8452; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6.5" r="3" fill="#FFFFFF"></circle><path d="M6 1.5 V3.5 M1.5 6.5 H3 M9 6.5 H10.5" stroke="#FFFFFF" stroke-width="1.4"></path></svg></button>
+            </div>
+            <div style="position: absolute; bottom: -32px; right: -16px">
+              <button type="button" aria-label="Resize element" style="width: 22px; height: 22px; border-radius: 50%; border: 0; background: #CCB974; padding: 0; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 9 L9 3 M5.5 9 H9 V5.5" fill="none" stroke="#1B1D23" stroke-width="1.5"></path></svg></button>
+            </div>
+
+            <div style="background: #2C313C; border: 1px solid #3A404C; border-radius: 3px">
+              <div style="display: flex; align-items: center; gap: 6px; padding: 4px 8px"><span style="width: 14px; height: 2px; background: #4D4F5E"></span><span>Plan</span><span style="flex: 1 1 auto; height: 2px; background: #4D4F5E"></span></div>
+              <table style="width: 100%; border-collapse: collapse">
+                <thead><tr style="background: #1B1D23; text-align: left"><th scope="col" style="padding: 0 6px; font-weight: 400">Work</th><th scope="col" style="padding: 0 6px; font-weight: 400">State</th><th scope="col" style="padding: 0 6px; font-weight: 400">Owner</th></tr></thead>
+                <tbody>
+                  <tr><td style="padding: 0 6px">Log replication primitive</td><td style="padding: 0 6px; color: #8FB0E0">in progress</td><td style="padding: 0 6px">claude@lux</td></tr>
+                  <tr style="background: #3B4251"><td style="padding: 0 6px">Native terminal element</td><td style="padding: 0 6px; color: #DD8452">blocked by 2</td><td style="padding: 0 6px">codex@vox</td></tr>
+                  <tr><td style="padding: 0 6px">luxd-pty session host</td><td style="padding: 0 6px">ready</td><td style="padding: 0 6px; color: #9DA1AA">unassigned</td></tr>
+                  <tr style="background: #343944"><td style="padding: 0 6px">Guard ## in labels</td><td style="padding: 0 6px; color: #8FB0E0">in review</td><td style="padding: 0 6px">claude@lux</td></tr>
+                  <tr><td style="padding: 0 6px">Remove id() fallback</td><td style="padding: 0 6px">ready</td><td style="padding: 0 6px; color: #9DA1AA">unassigned</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div style="position: absolute; top: -54px; left: 120px; padding: 0 6px; background: #E0E0E0; color: #1B1D23; border-radius: 3px; font-size: 12px">a TableElement 'plan'</div>
+          </div>
+
+          <div style="position: relative; flex: 1 1 260px; max-width: 320px; outline: 2px solid #55A868; outline-offset: 4px">
+            <div style="position: absolute; top: -26px; left: -4px; padding: 0 6px; background: #55A868; color: #0E1014; border-radius: 3px; font-size: 12px; font-weight: 600">claude@lux is inspecting</div>
+            <div style="background: #2C313C; border: 1px solid #3A404C; border-radius: 3px; padding-bottom: 6px">
+              <div style="display: flex; align-items: center; gap: 6px; padding: 4px 8px"><span style="width: 14px; height: 2px; background: #4D4F5E"></span><span>Render cost</span><span style="flex: 1 1 auto; height: 2px; background: #4D4F5E"></span></div>
+              <svg viewBox="0 0 300 120" width="100%" role="img" aria-label="Bar chart of frame time per scene size, rising steeply for the largest size." style="display: block">
+                <rect x="8" y="4" width="284" height="104" fill="#23272F" stroke="#3C5686"></rect>
+                <g fill="{{accent}}">
+                  <rect x="24" y="88" width="34" height="16"></rect>
+                  <rect x="76" y="80" width="34" height="24"></rect>
+                  <rect x="128" y="66" width="34" height="38"></rect>
+                  <rect x="180" y="44" width="34" height="60"></rect>
+                </g>
+                <rect x="232" y="14" width="34" height="90" fill="#DD8452"></rect>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="System Browser" style="background: #2C313C; display: flex; flex-direction: column">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 8px; background: #16181D">
+          <span style="font-size: 10px" aria-hidden="true">▼</span>
+          <span>System Browser</span>
+          <span style="flex: 1 1 0"></span>
+          <button type="button" aria-label="Close System Browser" style="background: transparent; color: #E0E0E0; border: 0; padding: 0 4px; font: inherit">×</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; background: #1B1D23">
+          <div style="background: #23272F; min-height: 120px">
+            <div style="padding: 0 6px; background: #1B1D23; color: #9DA1AA">Hubs</div>
+            <div style="padding: 0 6px; background: #3B4251">studio</div>
+            <div style="padding: 0 6px">laptop</div>
+            <div style="padding: 0 6px">build-01</div>
+          </div>
+          <div style="background: #23272F">
+            <div style="padding: 0 6px; background: #1B1D23; color: #9DA1AA">Clients</div>
+            <div style="padding: 0 6px">claude@lux</div>
+            <div style="padding: 0 6px; background: #3B4251">lux-beads applet</div>
+            <div style="padding: 0 6px">codex@vox</div>
+            <div style="padding: 0 6px">you</div>
+          </div>
+          <div style="background: #23272F">
+            <div style="padding: 0 6px; background: #1B1D23; color: #9DA1AA">Scenes</div>
+            <div style="padding: 0 6px; background: #3B4251">blackboard</div>
+            <div style="padding: 0 6px">beads-board</div>
+          </div>
+          <div style="background: #23272F">
+            <div style="padding: 0 6px; background: #1B1D23; color: #9DA1AA">Elements · handlers</div>
+            <div style="padding: 0 6px"><span style="font-size: 10px" aria-hidden="true">▼</span> group 'root'</div>
+            <div style="padding: 0 6px 0 22px; background: #3B4251">table 'plan'</div>
+            <div style="padding: 0 6px 0 38px; color: #C9CDD5">on: row_selected</div>
+            <div style="padding: 0 6px 0 22px">plot 'cost'</div>
+            <div style="padding: 0 6px 0 22px">markdown 'spec'</div>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 8px">
+          <pre style="flex: 1 1 420px; min-width: 0; margin: 0; background: #16181D; border: 1px solid #3A404C; border-radius: 3px; padding: 6px 8px; font-family: Cousine, monospace; font-size: 12px; line-height: 17px; color: #C9CDD5; overflow-x: auto">{ "kind": "table", "id": "plan",
+  "columns": ["Work", "State", "Owner"],
+  "on": { "row_selected": { "publish": "plan.select" } } }</pre>
+          <div style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 4px">
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit; text-align: left">Accept · re-validate and push</button>
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit; text-align: left">Senders of plan.select</button>
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit; text-align: left">Versions of this element</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+
+      <section aria-label="Inspector" style="background: #2C313C; display: flex; flex-direction: column">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 8px; background: #16181D">
+          <span style="font-size: 10px" aria-hidden="true">▼</span>
+          <span>Inspector on a TableElement 'plan'</span>
+          <span style="flex: 1 1 0"></span>
+          <button type="button" aria-label="Close Inspector" style="background: transparent; color: #E0E0E0; border: 0; padding: 0 4px; font: inherit">×</button>
+        </div>
+        <div role="tablist" style="display: flex; gap: 1px; background: #1B1D23; padding: 3px 2px 0; border-bottom: 1px solid #2F5F9E">
+          <button type="button" role="tab" aria-selected="true" style="background: #2F5F9E; color: #F0F3F8; border: 0; border-radius: 3px 3px 0 0; padding: 2px 10px; font: inherit">Raw</button>
+          <button type="button" role="tab" aria-selected="false" style="background: #253F63; color: #C8D2E0; border: 0; border-radius: 3px 3px 0 0; padding: 2px 10px; font: inherit">Rows</button>
+          <button type="button" role="tab" aria-selected="false" style="background: #253F63; color: #C8D2E0; border: 0; border-radius: 3px 3px 0 0; padding: 2px 10px; font: inherit">Handlers</button>
+          <button type="button" role="tab" aria-selected="false" style="background: #253F63; color: #C8D2E0; border: 0; border-radius: 3px 3px 0 0; padding: 2px 10px; font: inherit">Validation</button>
+          <button type="button" role="tab" aria-selected="false" style="background: #253F63; color: #C8D2E0; border: 0; border-radius: 3px 3px 0 0; padding: 2px 10px; font: inherit">On display</button>
+        </div>
+        <table style="width: 100%; border-collapse: collapse">
+          <thead><tr style="background: #1B1D23; text-align: left"><th scope="col" style="padding: 0 6px; font-weight: 400; width: 34%">Variable</th><th scope="col" style="padding: 0 6px; font-weight: 400">Value</th></tr></thead>
+          <tbody style="font-family: Cousine, monospace; font-size: 12px">
+            <tr><td style="padding: 0 6px; color: #9DA1AA">self</td><td style="padding: 0 6px">a TableElement 'plan'</td></tr>
+            <tr style="background: #343944"><td style="padding: 0 6px">id</td><td style="padding: 0 6px">'plan'</td></tr>
+            <tr><td style="padding: 0 6px">columns</td><td style="padding: 0 6px">('Work' 'State' 'Owner')</td></tr>
+            <tr style="background: #343944"><td style="padding: 0 6px"><span style="font-size: 10px" aria-hidden="true">▶</span> rows</td><td style="padding: 0 6px">a Tuple (5 rows)</td></tr>
+            <tr style="background: #3B4251"><td style="padding: 0 6px">selected</td><td style="padding: 0 6px">'Native terminal element'</td></tr>
+            <tr style="background: #343944"><td style="padding: 0 6px">owner</td><td style="padding: 0 6px">claude@lux · studio</td></tr>
+            <tr><td style="padding: 0 6px">validate()</td><td style="padding: 0 6px; color: #8FB0E0">() no errors</td></tr>
+          </tbody>
+        </table>
+        <div style="padding: 6px 8px; display: flex; flex-direction: column; gap: 4px">
+          <div style="color: #9DA1AA">Evaluate with self bound to this element</div>
+          <div style="background: #16181D; border: 1px solid #3A404C; border-radius: 3px; padding: 4px 8px; font-family: Cousine, monospace; font-size: 12px; line-height: 18px">
+            <div>len(self.rows_where(state="blocked"))</div>
+            <div style="color: #8FB0E0">→ 1</div>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Playground" style="background: #2C313C; display: flex; flex-direction: column; flex: 1 1 auto">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 2px 8px; background: #16181D">
+          <span style="font-size: 10px" aria-hidden="true">▼</span>
+          <span>Playground</span>
+          <span style="color: #9DA1AA">runs in a client process, never in the display</span>
+          <span style="flex: 1 1 0"></span>
+          <button type="button" aria-label="Close Playground" style="background: transparent; color: #E0E0E0; border: 0; padding: 0 4px; font: inherit">×</button>
+        </div>
+        <div style="padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto">
+          <div style="background: #16181D; border: 1px solid #3A404C; border-radius: 3px; padding: 6px 8px; font-family: Cousine, monospace; font-size: 12px; line-height: 18px; color: #C9CDD5">
+            <div><span style="color: #C792EA">board</span> = lux.hub(<span style="color: #C3E88D">"studio"</span>).scene(<span style="color: #C3E88D">"blackboard"</span>)</div>
+            <div>board[<span style="color: #C3E88D">"plan"</span>].row(<span style="color: #F78C6C">1</span>).owner = <span style="color: #C3E88D">"you"</span></div>
+            <div>board.subscribe(<span style="color: #C3E88D">"plan.select"</span>, transcript.show)</div>
+            <div style="background: #253F63; margin: 2px -8px 0; padding: 0 8px">board[<span style="color: #C3E88D">"cost"</span>].halo()</div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px">
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit">Do it</button>
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit">Print it</button>
+            <button type="button" style="background: #434D57; color: #E0E0E0; border: 1px solid #555D6B; border-radius: 3px; padding: 1px 7px; font: inherit">Inspect it</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #4D4F5E"></span><span>Transcript · pub-sub topics</span><span style="flex: 1 1 auto; height: 2px; background: #4D4F5E"></span></div>
+          <div style="flex: 1 1 auto; background: #252933; padding: 4px 8px; font-family: Cousine, monospace; font-size: 12px; line-height: 18px; color: #C9CDD5">
+            <div><span style="color: #9DA1AA">10:52:04</span> plan.select ← you · row 1</div>
+            <div><span style="color: #9DA1AA">10:52:04</span> board.write #1048 · plan · owner → you</div>
+            <div><span style="color: #9DA1AA">10:52:05</span> claude@lux opened an inspector on cost</div>
+            <div><span style="color: #9DA1AA">10:52:09</span> board.write #1049 · cost · new bench run</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer style="display: flex; flex-wrap: wrap; gap: 16px; padding: 1px 8px; background: #1B1D23; color: #9DA1AA; font-size: 12px">
+    <span>FPS 60.0</span>
+    <span>hubs: studio · laptop · build-01</span>
+    <span>live: every element is an object you can inspect, browse and change</span>
+    <span style="flex: 1 1 0"></span>
+    <span>board seq #1049</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#4C72B0","options":["#4C72B0","#55A868","#8172B3"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#4C72B0' };
+  }
+}
+</script>
+</body>
+</html>

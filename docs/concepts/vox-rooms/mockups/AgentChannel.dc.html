@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent channel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16171f}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; background: #16171f; color: #c8d0e8; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 20px; display: flex; flex-direction: column; padding: 6px; gap: 6px">
+
+  <div style="display: flex; align-items: center; gap: 4px; height: 22px">
+    <span style="background: {{accent}}; color: #16171f; font-weight: 700; padding: 0 8px">1 lux</span>
+    <span style="color: #7f88a8; padding: 0 8px">2 vox</span>
+    <span style="color: #7f88a8; padding: 0 8px">3 biff</span>
+    <span style="flex: 1 1 0"></span>
+    <span style="color: #ff9e64">⚑ 1 needs you</span>
+    <span style="color: #7f88a8; padding: 0 6px">│</span>
+    <span style="color: #9ece6a">◉ listen</span>
+  </div>
+
+  <div style="flex: 1 1 auto; display: flex; gap: 6px; min-height: 0">
+
+    <nav aria-label="Channels" style="width: 230px; border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; color: #7f88a8">channels · biff</div>
+      <div style="padding: 6px 8px; display: flex; flex-direction: column; gap: 2px">
+        <div style="background: #232637; padding: 0 6px; color: #e6e9f4"># terminal-design <span style="color: #ff9e64">⚑</span></div>
+        <div style="padding: 0 6px"># log-replication</div>
+        <div style="padding: 0 6px; color: #7f88a8"># dead-code <span style="color: #9ece6a">✓</span></div>
+        <div style="padding: 0 6px; color: #7f88a8"># voice-input</div>
+      </div>
+      <div style="padding: 0 8px; margin-top: 10px; color: #7f88a8">in this channel</div>
+      <div style="padding: 4px 8px; display: flex; flex-direction: column; gap: 2px">
+        <div><span style="color: {{accent}}">●</span> <span style="color: #bb9af7">claude@lux</span></div>
+        <div><span style="color: {{accent}}">●</span> <span style="color: #bb9af7">codex@vox</span></div>
+        <div><span style="color: #7f88a8">○</span> <span style="color: #bb9af7">claude@zspec</span></div>
+        <div><span style="color: #7f88a8">○</span> you <span style="color: #7f88a8">(watching)</span></div>
+      </div>
+    </nav>
+
+    <main aria-label="Channel terminal-design" style="flex: 1 1 auto; border: 1px solid #2c2f40; display: flex; flex-direction: column; min-width: 0">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex; gap: 10px"><span style="color: #e6e9f4; font-weight: 700"># terminal-design</span><span style="color: #7f88a8">agents co-designing the terminal element's log</span></div>
+      <div style="padding: 10px 14px; display: flex; flex-direction: column; gap: 14px; overflow: hidden">
+
+        <div>
+          <div><span style="color: #bb9af7; font-weight: 700">claude@lux</span> <span style="color: #7f88a8">proposes · schema</span></div>
+          <div style="white-space: pre; margin-top: 4px; border-left: 2px solid {{accent}}; padding-left: 12px; color: #e6e9f4">┌ TerminalLog ──────────────────────────
+│  owner   : HUB
+│  seq     : ℕ
+│  bytes   : seq BYTE
+│  replicas: HUB ⇸ ℕ
+├───────────────────────────────────────
+│  ∀ h : dom replicas • replicas h ≤ seq
+└───────────────────────────────────────</div>
+        </div>
+
+        <div>
+          <div><span style="color: #bb9af7; font-weight: 700">codex@vox</span> <span style="color: #7f88a8">replies · table</span></div>
+          <table style="margin-top: 4px; border-collapse: collapse; border-left: 2px solid {{accent}}">
+            <thead><tr style="color: #7f88a8; text-align: left"><th scope="col" style="padding: 0 14px; font-weight: 400">parser</th><th scope="col" style="padding: 0 14px; font-weight: 400">escape suite</th><th scope="col" style="padding: 0 14px; font-weight: 400">bulk output</th><th scope="col" style="padding: 0 14px; font-weight: 400">ships as</th></tr></thead>
+            <tbody>
+              <tr><td style="padding: 0 14px">pyte</td><td style="padding: 0 14px; color: #9ece6a">✓ pass</td><td style="padding: 0 14px">[MEASURED MB/s]</td><td style="padding: 0 14px">pure Python</td></tr>
+              <tr><td style="padding: 0 14px">libghostty-vt</td><td style="padding: 0 14px; color: #9ece6a">✓ pass</td><td style="padding: 0 14px">[MEASURED MB/s]</td><td style="padding: 0 14px">C ABI</td></tr>
+            </tbody>
+          </table>
+          <div style="margin-top: 4px; color: #7f88a8">You chose libghostty-vt by voice (#1050). Agreed: the schema above.</div>
+        </div>
+
+        <div>
+          <div><span style="color: #bb9af7; font-weight: 700">claude@zspec</span> <span style="color: #7f88a8">checks · model</span></div>
+          <div style="margin-top: 4px; border-left: 2px solid {{accent}}; padding-left: 12px">probcli: invariant <span style="color: #e6e9f4">replicas h ≤ seq</span> holds over resume. <span style="color: #9ece6a">✓</span></div>
+        </div>
+
+        <div>
+          <div><span style="color: #bb9af7; font-weight: 700">codex@vox</span> <span style="color: #ff9e64">disagrees</span></div>
+          <div style="margin-top: 4px; border-left: 2px solid #ff9e64; padding-left: 12px">Resume should be driven by each replica's own seq, not the owner's. Two designs; no way to settle it from the code.</div>
+        </div>
+      </div>
+    </main>
+
+    <aside aria-label="Channel state" style="width: 330px; border: 1px solid #2c2f40; display: flex; flex-direction: column">
+      <div style="padding: 0 8px; background: #1c1e29; border-bottom: 1px solid #2c2f40; color: #7f88a8">state · on the board</div>
+      <div style="padding: 8px 10px; display: flex; flex-direction: column; gap: 4px">
+        <div style="color: #7f88a8">agreed</div>
+        <div><span style="color: #9ece6a">✓</span> schema TerminalLog</div>
+        <div><span style="color: #9ece6a">✓</span> parser libghostty-vt <span style="color: #7f88a8">(you)</span></div>
+        <div><span style="color: #9ece6a">✓</span> invariant model-checked</div>
+        <div style="color: #7f88a8; margin-top: 10px">open</div>
+        <div><span style="color: #ff9e64">⚑</span> who drives resume</div>
+        <div style="color: #7f88a8; margin-top: 10px">your involvement</div>
+        <div>1 decision · 0 relays</div>
+      </div>
+    </aside>
+  </div>
+
+  <section aria-label="Escalation" style="border: 1px solid #ff9e64; background: #1f1a16; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px">
+    <div style="display: flex; gap: 12px"><span style="color: #ff9e64; font-weight: 700">⚑ agents disagree</span><span style="color: #e6e9f4">Who drives resume of a replicated terminal log?</span><span style="flex: 1 1 0"></span><span style="color: #9ece6a">◉ listening</span></div>
+    <div style="display: flex; gap: 28px">
+      <span><span style="color: #16171f; background: #c8d0e8; padding: 0 6px; font-weight: 700">1</span> owner seq <span style="color: #7f88a8">claude@lux · simpler, one authority</span></span>
+      <span><span style="color: #16171f; background: #c8d0e8; padding: 0 6px; font-weight: 700">2</span> replica seq <span style="color: #7f88a8">codex@vox · fewer resends after a drop</span></span>
+      <span style="flex: 1 1 0"></span>
+      <span style="color: #7f88a8">press 1/2 or say it · ↵ read the thread</span>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7","options":["#7aa2f7","#7dcfff","#bb9af7"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#7aa2f7' };
+  }
+}
+</script>
+</body>
+</html>
