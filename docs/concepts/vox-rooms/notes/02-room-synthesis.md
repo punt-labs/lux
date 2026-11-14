@@ -11,7 +11,7 @@ Date: 2026-11-12. Status: exploratory synthesis, not a design. Nothing here is r
 
 These conflicts are called out in §8.
 
-**Inputs:** the earlier review notes (`lux-review-notes.md`, §5 graphics engines), plus reading on herdr, tmux control mode and Block's Buzz.
+**Inputs:** the earlier review notes ([01-lux-review-notes.md](01-lux-review-notes.md), §5 graphics engines), plus reading on herdr, tmux control mode and Block's Buzz.
 
 **Not seen:** Biff's own code and docs are not in this container. I rely on the PR/FAQ's description of Biff ("presence") and on your description (messaging between agents and humans across networks).
 
@@ -204,7 +204,7 @@ tmux, herdr and Buzz each have one or two of these, not all four.
 ## 9. Risks
 
 1. **Scope.** Terminal emulation, messaging and a mesh are each a product. Phase as in §10 and stop at whichever phase earns adoption.
-2. **Display debt.** `render_loop.py` is about 1,100 lines against a 300-line target, and render paths are largely untested. A terminal painter added on top makes this worse unless the decomposition and `imgui_test_engine` come first.
+2. **Display debt.** `render_loop.py` is about 780 lines against a 300-line target, and render paths are largely untested. A terminal painter added on top makes this worse unless the decomposition and `imgui_test_engine` come first.
 3. **Frame budget.** A busy terminal pushing megabytes per second through Python-side VT parsing may miss 60 fps. This needs measuring (`kpz`), and may push the parser into native code.
 4. **Cross-host input latency and security.** A remote terminal is remote code execution by design. It needs mTLS, per-identity permissions and an audit trail before it ships.
 5. **Formal-methods load.** The log protocol, mesh routing, and blackboard ownership on reconnect are all in the mandatory z-spec class.
@@ -240,4 +240,4 @@ Phase 0 is cheap and tests demand: does anyone want herdr's or tmux's state in L
 - [Buzz on GitHub](https://github.com/block/buzz)
 - [ForkLog: Block launches Buzz](https://forklog.com/en/block-launches-buzz-an-open-source-platform-for-teams-and-ai-agents/)
 - [Shopifreaks: Buzz agent identities](https://www.shopifreaks.com/block-releases-buzz-an-open-source-workspace-where-ai-agents-hold-their-own-cryptographic-identities-and-work-with-humans/)
-- Repo: `DESIGN.md` (the ADRs cited above), `prfaq.tex` (lines 600–615 and 775–815), `docs/architecture/target/*.md`, `CLAUDE.md`.
+- Repo: `DESIGN.md` (the ADRs cited above), the repo-root `prfaq.tex` (lines 600–615 and 775–815), `docs/architecture/target/*.md`, `CLAUDE.md`.

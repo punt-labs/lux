@@ -44,15 +44,6 @@ ImGui hides everything from the first `##` onward. If the label contains `###`, 
 
 **Correction.** The wire path can't reach this fallback, so it is not a state-loss bug. `plot_codec.py:63` and `tree_codec.py:55` decode the id with `ctx.require_id(raw)`. `require_id` (`protocol/elements/element_wire.py:69`) rejects an empty id for every kind except `separator`. The fallback can run only for an element constructed directly in Python. Fix: delete it, or raise on an empty id.
 
-### 1.9 The texture cache is described as unbounded, but it has an LRU cap (Verified) → PL-563 item 2
-
-`CLAUDE.md:161` and `prfaq.tex` (lines 581–584 and 779) describe the texture cache as unbounded with no eviction policy. `texture_cache.py` already caps it with `TextureLru` (DES-071).
-
-### 1.10 Checks that came back clean (Verified)
-
-- **The 1.92 `SetCursorPos()` change:** the only cursor move in `display/` is `menus/corner_close_button.py:44`, and a `dummy()` follows it.
-- **ImGui off the render thread:** the only thread in `display/` is the quit watchdog (`window_chrome.py:88`), which never calls ImGui.
-
 ### 1.3 Org standards are missing from this checkout (Verified)
 
 `CLAUDE.md` `@`-imports `../punt-kit/standards/{architecture,oo,python}.md`. It also relies on the `punt-labs/` workspace meta-repo for `.claude/rules/python-*.md` (19 OO rules) and `.envrc`. Neither sibling exists in this container (`ls ..` shows only `lux`). Work done here sees only `docs/standards/python-oo.md`, not the org-level rules.
@@ -75,9 +66,9 @@ There are 89 `## DES-` headings, and they are not in numeric order:
 
 `CLAUDE.md` says ADRs are appended in order. Grepping for `^## DES-` still works, but reading the file in sequence misleads.
 
-### 1.6 Display code-size debt (Verified from docs)
+### 1.6 Display code-size debt (Verified)
 
-`display/render_loop.py` (`RenderLoop`) is about 1,100 lines, against a 300-line target. `CLAUDE.md` calls it the main obstacle to automated render tests. Concern 1.1 lives partly in this file.
+`display/render_loop.py` (`RenderLoop`) is about 780 lines (`CLAUDE.md` still says about 1,100), against a 300-line target. `CLAUDE.md` calls it the main obstacle to automated render tests. Concern 1.1 lives partly in this file.
 
 ### 1.7 Two renderer directories (Verified, observation)
 
@@ -95,6 +86,15 @@ Per-kind adapters live in `display/renderers/imgui/`. Several of them (`selectab
 Section 3 below could be added to it.
 
 ---
+
+### 1.9 The texture cache is described as unbounded, but it has an LRU cap (Verified) → PL-563 item 2
+
+`CLAUDE.md:161` and the repo-root `prfaq.tex` (lines 581–584 and 779) describe the texture cache as unbounded with no eviction policy. `texture_cache.py` already caps it with `TextureLru` (DES-071).
+
+### 1.10 Checks that came back clean (Verified)
+
+- **The 1.92 `SetCursorPos()` change:** the only cursor move in `display/` is `menus/corner_close_button.py:44`, and a `dummy()` follows it.
+- **ImGui off the render thread:** the only thread in `display/` is the quit watchdog (`window_chrome.py:88`), which never calls ImGui.
 
 ## 2. Architecture summary (from the target docs)
 

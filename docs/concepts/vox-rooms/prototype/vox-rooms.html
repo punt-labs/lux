@@ -310,7 +310,7 @@ function heard(phrase) {
   const p = phrase.toLowerCase();
   if (S.voice.mode === "confirm") {
     if (["confirm", "yes"].includes(p)) commit(id, S.voice.option, "voice");
-    else { S.voice = { mode: "listening", id }; S.listenLeft = 6; renderVoice(); toast("Cancelled. The question is still open."); }
+    else { clearListen(); startListening(id); toast("Cancelled. The question is still open."); }
     return;
   }
   clearListen();
@@ -775,9 +775,16 @@ function askTool() {
   setTimeout(() => {
     S.draft = "ready"; fact("t9", "tool/name", "protocol-ci", "claude@lux"); fact("t9", "tool/reads", "ci/status", "claude@lux");
     render();
+    clearListen();
     S.voice = { mode: "speaking", id: null, text: "Built a draft" };
+    renderVoice();
     toast("claude@lux built a draft tool: protocol-ci. Keep it?");
-    speak("Built a draft: protocol ci. Keep it?", () => {});
+    speak("Built a draft: protocol ci. Keep it?", () => {
+      if (S.voice.mode !== "speaking" || S.voice.id !== null) return;
+      const next = activeDecision();
+      S.voice = next ? { mode: "pending", id: next } : { mode: "idle" };
+      renderVoice();
+    });
   }, 1400);
 }
 function keepTool() {

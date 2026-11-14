@@ -124,7 +124,7 @@ any language.
   - nothing on the per-frame render path may log;
   - DES-069 memoizes the table's hot path;
   - DES-070 makes a performance test a permanent guardrail;
-  - `render_loop.py` is about 1,100 lines.
+  - `render_loop.py` is about 780 lines.
 - **Races in the Hub:** most recent decision records (DES-085, DES-101,
   DES-102) and about 20 formal models fix Hub races. Rust prevents data races
   at compile time, not deadlocks or protocol-logic races, so the Z specs would
@@ -208,5 +208,5 @@ off either way.
 - [Buzz on GitHub](https://github.com/block/buzz)
 - [Dear ImGui](https://github.com/ocornut/imgui)
 - [hello_imgui](https://github.com/pthom/hello_imgui)
-- Repo: `DESIGN.md`, `prfaq.tex`, `docs/assets/*.png`,
+- Repo: `DESIGN.md`, the repo-root `prfaq.tex`, `docs/assets/*.png`,
   `src/punt_lux/display/fonts.py`.
