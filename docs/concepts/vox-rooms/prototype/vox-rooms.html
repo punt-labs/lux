@@ -234,13 +234,18 @@ const INSTALLED = [
   { id: "specs", by: "z-spec", what: "models, checks" }, { id: "missions", by: "ethos", what: "worker/evaluator" }
 ];
 
+/* Tools belong to the room they were made in. */
+Object.values(ROOMS).forEach(r => { r.tools = { draft: null, kept: [] }; });
+function T() { return ROOMS[S.room].tools; }
+
 /* ───────────────────────── state ───────────────────────── */
 const S = {
   room: "terminal-epic", view: "home", focusWork: "w731",
   listen: true, mute: false, started: false,
   voice: { mode: "idle" }, seq: 1053, facts: [], decided: [],
-  draft: null, kept: [], ciTimer: null, termLines: [], termDone: false,
-  listenTimer: null, listenLeft: 0
+  ciTimer: null, termLines: [], termDone: false,
+  listenTimer: null, listenLeft: 0,
+  epoch: 0   /* bumped on every room switch; delayed voice work checks it */
 };
 
 function seedFacts() {
@@ -369,8 +374,12 @@ function commit(id, idx, via) {
   const q = activeQueue(); const i = q.indexOf(id); if (i >= 0) q.splice(i, 1);
   S.voice = { mode: "readback", id, text: d.readback(idx) };
   render();
+  const ep = S.epoch;
   speak(d.readback(idx), () => {
-    setTimeout(() => { if (activeDecision()) ask(); else { S.voice = { mode: "idle" }; renderVoice(); } }, 700);
+    setTimeout(() => {
+      if (S.epoch !== ep || S.voice.mode !== "readback" || S.voice.id !== id) return;
+      if (activeDecision()) ask(); else { S.voice = { mode: "idle" }; renderVoice(); }
+    }, 700);
   });
 }
 function answerByKey(n) {
@@ -378,7 +387,8 @@ function answerByKey(n) {
   if (!id) return;
   const d = DECISIONS[id];
   if (n < 1 || n > d.options.length) { toast("No option " + n + " for this question."); return; }
-  if (d.irreversible && S.voice.mode !== "confirm") {
+  const confirming = S.voice.mode === "confirm" && S.voice.id === id;
+  if (d.irreversible && !(confirming && S.voice.option === n - 1)) {
     clearListen();
     S.voice = { mode: "confirm", id, option: n - 1, heardText: "key " + n };
     renderVoice(); speak(d.readback(n - 1) + " Confirm?", () => {});
@@ -506,7 +516,7 @@ function renderVoice() {
   else if (v.mode === "speaking") status = '<span class="wave state-blocked" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="state-blocked">speaking · mic closed</span>';
   else if (v.mode === "listening") status = ringSvg(S.listenLeft) + '<span class="state-done">listening <span id="ringLbl">' + S.listenLeft + "s</span></span>";
   else if (v.mode === "matched") status = '<span class="dim">heard</span> <span class="strong">"' + esc(v.heardText) + '"</span> <span class="dim">→ option ' + (v.option + 1) + "</span>";
-  else if (v.mode === "confirm") status = '<span style="color:var(--amber)">irreversible · confirm?</span> <button class="btn primary" data-say="confirm">Confirm</button> <button class="btn" data-say="cancel">Cancel</button>';
+  else if (v.mode === "confirm") status = '<span style="color:var(--amber)">irreversible · ' + esc(d.options[v.option].label) + ' · press ' + (v.option + 1) + ' again or</span> <button class="btn primary" data-say="confirm">Confirm</button> <button class="btn" data-say="cancel">Cancel</button>';
   else if (v.mode === "readback") status = '<span class="state-done">✓</span> <span class="strong">"' + esc(v.text) + '"</span>';
   else if (v.mode === "pending") status = '<span class="dim">' + (v.timedOut ? "No reply. It stays in needs-you." : !S.listen ? "Listening is off. Answer with a key." : "Waiting.") + '</span> <button class="btn" id="replayBtn">↻ ask again</button>';
   else status = '<button class="btn" id="replayBtn">▶ ask</button>';
@@ -721,30 +731,30 @@ function viewTeam() {
 
 /* tools view */
 function viewTools() {
-  const kept = S.kept.map(t => '<div><span style="display:inline-block;width:120px;color:var(--amber)">' + t + '</span><span class="dim">claude@lux · kept</span></div>').join("");
+  const kept = T().kept.map(t => '<div><span style="display:inline-block;width:120px;color:var(--amber)">' + t + '</span><span class="dim">claude@lux · kept</span></div>').join("");
   const list = '<section class="panel" aria-label="Tools in this room"><header><h2>tools</h2><span class="grow"></span><span class="dim">k</span></header><div class="body">' +
     '<div class="section-label">core · shipped, built like any other tool</div>' + CORE_TOOLS.map(t => '<div><span style="display:inline-block;width:120px">' + t.id + '</span><span class="dim">' + t.key + "</span></div>").join("") +
     '<div class="section-label">installed</div>' + INSTALLED.map(t => '<div><span style="display:inline-block;width:120px">' + t.id + '</span><span class="dim">' + t.by + " · " + t.what + "</span></div>").join("") +
     '<div class="section-label">made in this room</div>' + (kept || '<div class="dim">none yet</div>') +
-    (S.draft ? '<div style="background:var(--panel2)"><span style="display:inline-block;width:120px;color:var(--amber)">protocol-ci</span><span class="dim">draft · claude@lux</span></div>' : "") +
+    (T().draft ? '<div style="background:var(--panel2)"><span style="display:inline-block;width:120px;color:var(--amber)">protocol-ci</span><span class="dim">draft · claude@lux</span></div>' : "") +
     "</div></section>";
   let right;
-  if (!S.draft && !S.kept.includes("protocol-ci")) {
+  if (!T().draft && !T().kept.includes("protocol-ci")) {
     right = '<section class="panel" aria-label="Ask for a tool"><header><h2>ask an agent for a tool</h2></header><div class="body">' +
       '<div class="strong">"Make me a view of everything touching the protocol, with CI status."</div>' +
       '<div class="dim">An agent composes it from existing elements and room facts. No new code, so it is safe to build on the spot.</div>' +
       '<div class="row"><button class="btn primary" id="askTool">Say it to claude@lux</button></div></div></section>';
   } else {
-    const rows = Object.keys(WORK).filter(w => WORK[w].tags.includes("protocol") && ROOMS["terminal-epic"].work.includes(w)).map(w => {
+    const rows = Object.keys(WORK).filter(w => WORK[w].tags.includes("protocol") && ROOMS[S.room].work.includes(w)).map(w => {
       const W = WORK[w]; const ci = (n) => { const r = W.repos.find(x => x.name === n); return r ? ciMark(r.ci) : '<span class="dim">–</span>'; };
       return "<tr><td>" + w + " " + esc(W.title) + "</td><td>" + ci("lux") + "</td><td>" + ci("vox") + "</td><td>" + ci("biff") + "</td><td>" + stateText(W.state) + "</td></tr>";
-    }).join("");
-    const building = S.draft === "building";
-    right = '<section class="panel" aria-label="protocol-ci" style="border-color:var(--amber)"><header style="background:var(--amber-bg)"><h2 style="color:var(--amber)">protocol-ci</h2><span class="dim">' + (S.kept.includes("protocol-ci") ? "kept · key 6 · voice \"protocol status\"" : building ? "building…" : "draft preview · live data") + "</span></header><div class=\"body\">" +
+    }).join("") || '<tr><td colspan="5" class="dim">No protocol work items in this room.</td></tr>';
+    const building = T().draft === "building";
+    right = '<section class="panel" aria-label="protocol-ci" style="border-color:var(--amber)"><header style="background:var(--amber-bg)"><h2 style="color:var(--amber)">protocol-ci</h2><span class="dim">' + (T().kept.includes("protocol-ci") ? "kept · key 6 · voice \"protocol status\"" : building ? "building…" : "draft preview · live data") + "</span></header><div class=\"body\">" +
       (building ? '<div class="dim">claude@lux is composing the view…</div>' :
       '<div style="overflow-x:auto"><table><thead><tr><th>work item</th><th>lux</th><th>vox</th><th>biff</th><th>state</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
       '<div class="facts">' + esc("tool    protocol-ci\nby      claude@lux\nreads   work items where work/tag = protocol\n        ci/status of their branches\nwrites  nothing\nop      status(work_item) → {repo: ci}\nview    table · row per work item\nkey     6     voice  \"protocol status\"\nscope   read-only") + "</div>" +
-      (S.kept.includes("protocol-ci") ? '<div class="state-done">Kept. Every agent in the room can now discover it by querying tool facts.</div>' :
+      (T().kept.includes("protocol-ci") ? '<div class="state-done">Kept. Every agent in the room can now discover it by querying tool facts.</div>' :
         '<div class="row"><button class="btn primary" id="keepTool"><span class="key" style="background:var(--bg);color:var(--accent)">k</span> keep</button><button class="btn" id="discardTool">discard</button><span class="dim">or say "keep it"</span></div>')) +
       "</div></section>";
   }
@@ -756,8 +766,8 @@ function renderDock() {
   const cur = { home: "decisions", board: "board", work: "work", team: "team", tools: "tools" }[S.view];
   let s = '<span class="dim">tools</span>' + CORE_TOOLS.map(t => '<button class="tool core" data-tool="' + t.id + '" aria-pressed="' + (cur === t.id) + '">' + t.id + "</button>").join("") + '<span class="dim">│</span>' +
     INSTALLED.map(t => '<button class="tool" data-tool="' + t.id + '">' + t.id + "</button>").join("");
-  if (S.kept.length) s += '<span class="dim">│</span>' + S.kept.map(t => '<button class="tool new" data-tool="' + t + '">' + t + "</button>").join("");
-  else if (S.draft === "ready") s += '<span class="dim">│</span><button class="tool new" data-tool="tools">protocol-ci <span class="dim">draft</span></button>';
+  if (T().kept.length) s += '<span class="dim">│</span>' + T().kept.map(t => '<button class="tool new" data-tool="' + t + '">' + t + "</button>").join("");
+  else if (T().draft === "ready") s += '<span class="dim">│</span><button class="tool new" data-tool="tools">protocol-ci <span class="dim">draft</span></button>';
   s += '<span class="grow"></span><button class="tool" data-tool="tools" aria-pressed="' + (S.view === "tools") + '">all tools (k)</button><button class="tool" id="factsBtn">facts (f)</button><button class="tool" id="helpBtn">keys (?)</button>';
   $("dock").innerHTML = s;
 }
@@ -791,14 +801,20 @@ function setView(v) { S.view = v; renderView(); renderDock(); $("main").focus({ 
 function setRoom(r) {
   if (!ROOMS[r] || r === S.room) return;
   clearListen(); stopSpeech();
+  S.epoch++;
   S.room = r; S.view = "home"; S.voice = { mode: "idle" };
   render();
-  if (S.started && activeDecision()) setTimeout(ask, 400);
+  const ep = S.epoch;
+  if (S.started && activeDecision()) setTimeout(() => { if (S.epoch === ep && S.voice.mode === "idle") ask(); }, 400);
 }
 function askTool() {
-  S.draft = "building"; S.view = "tools"; render();
+  const roomId = S.room;
+  const tools = T();
+  tools.draft = "building"; S.view = "tools"; render();
   setTimeout(() => {
-    S.draft = "ready"; fact("t9", "tool/name", "protocol-ci", "claude@lux"); fact("t9", "tool/reads", "ci/status", "claude@lux");
+    if (tools.draft !== "building") return;
+    tools.draft = "ready"; fact("t9", "tool/name", "protocol-ci", "claude@lux"); fact("t9", "tool/reads", "ci/status", "claude@lux");
+    if (S.room !== roomId) { toast("claude@lux finished a draft tool, protocol-ci, in " + roomId + "."); return; }
     render();
     clearListen();
     S.voice = { mode: "speaking", id: null, text: "Built a draft" };
@@ -813,8 +829,8 @@ function askTool() {
   }, 1400);
 }
 function keepTool() {
-  if (S.kept.includes("protocol-ci")) return;
-  S.kept.push("protocol-ci"); S.draft = null;
+  if (T().kept.includes("protocol-ci")) return;
+  T().kept.push("protocol-ci"); T().draft = null;
   fact("t9", "tool/kept", "true", "you"); fact("t9", "tool/key", "6", "you");
   render();
   setTimeout(() => {
@@ -822,7 +838,7 @@ function keepTool() {
     toast("codex@vox found protocol-ci by querying tools that read ci/status, and called status(w731).");
   }, 2200);
 }
-function discardTool() { S.draft = null; fact("t9", "tool/discarded", "true", "you"); render(); toast("Draft discarded."); }
+function discardTool() { T().draft = null; fact("t9", "tool/discarded", "true", "you"); render(); toast("Draft discarded."); }
 function toggleListen() {
   S.listen = !S.listen; fact("you", "voice/listen", S.listen ? "on" : "off", "you");
   if (!S.listen && S.voice.mode === "listening") { clearListen(); S.voice = { mode: "pending", id: S.voice.id }; }
@@ -889,11 +905,11 @@ document.addEventListener("keydown", (e) => {
   if (k === "b") return setView("home");
   if (k === "w") return setView("work");
   if (k === "t") return setView("team");
-  if (k === "k") { if (S.view === "tools" && S.draft === "ready") return keepTool(); return setView("tools"); }
+  if (k === "k") { if (S.view === "tools" && T().draft === "ready") return keepTool(); return setView("tools"); }
   if (k === "f") return toggleDrawer();
   if (k === "v") return toggleListen();
   if (k === "m") return toggleMute();
-  if (k === "6" && S.kept.includes("protocol-ci")) return setView("tools");
+  if (k === "6" && T().kept.includes("protocol-ci")) return setView("tools");
   if (k === "Enter" && S.view === "home") { S.focusWork = ROOMS[S.room].work[0]; return setView("work"); }
 });
 
