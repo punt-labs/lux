@@ -1,4 +1,4 @@
-"""Tests for ``ProjectPermissions``: lux's allow rules, repo-level only."""
+"""Tests for ``ProjectPermissions``: lux's permission rules, repo-level only."""
 
 from __future__ import annotations
 
@@ -9,6 +9,10 @@ import pytest
 
 from punt_lux.claude_permissions import PermissionChange, ProjectPermissions
 from punt_lux.permission_rules import LUX_RULES
+
+_ALLOW = LUX_RULES["allow"]
+_ASK = LUX_RULES["ask"]
+_ALL = (*_ALLOW, *_ASK)
 
 
 def _settings(root: Path) -> Path:
@@ -30,20 +34,20 @@ def _allow(root: Path) -> list[str]:
 class TestGrant:
     def test_creates_settings_with_every_rule(self, tmp_path: Path) -> None:
         change = ProjectPermissions(tmp_path).grant()
-        assert change == PermissionChange(changed=LUX_RULES)
-        assert _allow(tmp_path) == list(LUX_RULES)
+        assert change == PermissionChange(changed=_ALL)
+        assert _allow(tmp_path) == list(_ALLOW)
 
     def test_keeps_other_settings_and_rules(self, tmp_path: Path) -> None:
         _write(tmp_path, {"env": {"A": "1"}, "permissions": {"allow": ["Read"]}})
         ProjectPermissions(tmp_path).grant()
         data = json.loads(_settings(tmp_path).read_text())
         assert data["env"] == {"A": "1"}
-        assert data["permissions"]["allow"] == ["Read", *LUX_RULES]
+        assert data["permissions"]["allow"] == ["Read", *_ALLOW]
 
     def test_adds_only_missing_rules(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"permissions": {"allow": [LUX_RULES[0]]}})
+        _write(tmp_path, {"permissions": {"allow": [_ALL[0]]}})
         change = ProjectPermissions(tmp_path).grant()
-        assert change.changed == LUX_RULES[1:]
+        assert change.changed == _ALL[1:]
 
     def test_noop_does_not_rewrite(self, tmp_path: Path) -> None:
         ProjectPermissions(tmp_path).grant()
@@ -103,14 +107,17 @@ class TestGrant:
     def test_lines_report_each_rule(self, tmp_path: Path) -> None:
         lines = ProjectPermissions(tmp_path).grant().lines("added to")
         assert len(lines) == 1
-        assert all(rule in lines[0] for rule in LUX_RULES)
+        assert all(rule in lines[0] for rule in _ALL)
 
 
 class TestRevoke:
     def test_removes_exactly_lux_rules(self, tmp_path: Path) -> None:
-        _write(tmp_path, {"permissions": {"allow": ["Read", *LUX_RULES, "Bash(x)"]}})
+        _write(
+            tmp_path,
+            {"permissions": {"allow": ["Read", *_ALLOW, "Bash(x)"], "ask": list(_ASK)}},
+        )
         change = ProjectPermissions(tmp_path).revoke()
-        assert change.changed == LUX_RULES
+        assert change.changed == _ALL
         assert _allow(tmp_path) == ["Read", "Bash(x)"]
 
     def test_absent_settings_creates_nothing(self, tmp_path: Path) -> None:
@@ -138,7 +145,7 @@ class TestHardening:
         assert victim.read_text() == "keep me"
 
     def test_accepts_a_string_root(self, tmp_path: Path) -> None:
-        assert ProjectPermissions(str(tmp_path)).grant().changed == LUX_RULES
+        assert ProjectPermissions(str(tmp_path)).grant().changed == _ALL
 
 
 class TestReport:
@@ -157,7 +164,7 @@ class TestReport:
     ) -> None:
         ProjectPermissions(tmp_path).report(add=True, quiet=True)
         assert capsys.readouterr().err == ""
-        assert _allow(tmp_path) == list(LUX_RULES)
+        assert _allow(tmp_path) == list(_ALLOW)
 
 
 class TestDisplayModeCommand:
@@ -171,7 +178,7 @@ class TestDisplayModeCommand:
         )
         assert result.exit_code == 0, result.output
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert set(LUX_RULES) <= set(settings["permissions"]["allow"])
+        assert set(_ALLOW) <= set(settings["permissions"]["allow"])
         assert 'display: "y"' in (tmp_path / ".punt-labs" / "lux.md").read_text()
 
         result = CliRunner().invoke(
@@ -179,16 +186,34 @@ class TestDisplayModeCommand:
         )
         assert result.exit_code == 0, result.output
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert not set(LUX_RULES) & set(settings["permissions"]["allow"])
+        assert not set(_ALLOW) & set(settings["permissions"]["allow"])
 
 
-def test_rules_are_least_privilege_and_scoped() -> None:
-    commands = Path(__file__).parent.parent / "plugin" / "commands"
-    shipped = sorted(
-        path.stem for path in commands.glob("*.md") if not path.stem.endswith("-dev")
-    )
-    skills = [rule for rule in LUX_RULES if rule.startswith("Skill(")]
-    assert skills == [f"Skill(lux:{name})" for name in shipped]
-    assert "Bash(lux:*)" not in LUX_RULES
-    for verb in ("enable", "disable", "hook"):
-        assert not [rule for rule in LUX_RULES if rule.startswith(f"Bash(lux {verb}:")]
+def test_each_surface_is_allowed_broadly() -> None:
+    assert _ALLOW == ("Bash(lux:*)", "mcp__plugin_lux_lux__*", "Skill(lux:*)")
+
+
+def test_unsafe_verbs_and_global_options_ask() -> None:
+    assert "Bash(lux -*)" in _ASK
+    for verb in ("install", "uninstall", "enable", "disable", "hook"):
+        assert f"Bash(lux {verb}:*)" in _ASK
+    for group in ("hub", "display"):
+        for verb in ("install", "uninstall", "start", "stop", "restart"):
+            assert f"Bash(lux {group} {verb}:*)" in _ASK
+    assert "Bash(lux display mode:*)" in _ASK
+    assert "Bash(lux scene:*)" not in _ASK
+
+
+def test_revoke_never_creates_an_absent_tier(tmp_path: Path) -> None:
+    _write(tmp_path, {"permissions": {"allow": ["Read", *_ALLOW]}})
+    ProjectPermissions(tmp_path).revoke()
+    assert json.loads(_settings(tmp_path).read_text()) == {
+        "permissions": {"allow": ["Read"]}
+    }
+
+
+def test_refuses_an_ask_tier_that_is_not_a_list(tmp_path: Path) -> None:
+    _write(tmp_path, {"permissions": {"ask": "x"}})
+    change = ProjectPermissions(tmp_path).grant()
+    assert "permissions.ask" in change.error
+    assert json.loads(_settings(tmp_path).read_text()) == {"permissions": {"ask": "x"}}

@@ -1,4 +1,4 @@
-"""The allow rules ``lux enable`` grants in a repo's ``.claude/settings.json``.
+"""The permission rules ``lux enable`` grants in a repo's ``.claude/settings.json``.
 
 Pure data, kept apart from the settings-file mechanics in
 :mod:`punt_lux.claude_permissions`.
@@ -6,60 +6,33 @@ Pure data, kept apart from the settings-file mechanics in
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Final
 
 __all__ = ["LUX_RULES"]
 
-# Least privilege (permissions.md §§ 3, 6): the CLI data plane by name -- the
-# hub-client groups that mirror the granted MCP tools, plus the read-only
-# checks -- so install/uninstall/enable/disable/hook and the hub and display
-# service controls keep prompting; skills by scoped name
-# (scripts/check-skill-permissions.sh checks _COMMANDS against plugin/commands).
-_CLI_SUBCOMMANDS: Final = (
-    "beads",
-    "callback",
-    "display info",
-    "display screenshot",
-    "display status",
-    "doctor",
-    "error",
-    "event",
-    "frame",
-    "hub status",
-    "menu",
-    "ping",
-    "scene",
-    "session",
-    "status",
-    "version",
-)
-_COMMANDS: Final = (
-    "callback.pending",
-    "display.info",
-    "display.screenshot",
-    "error.ls",
-    "event.ls",
-    "frame.raise",
-    "frame.remove",
-    "lux",
-    "menu.ls",
-    "menu.set",
-    "ping",
-    "scene.clear",
-    "scene.clear-all",
-    "scene.inspect",
-    "scene.ls",
-    "scene.show",
-    "scene.table",
-    "scene.update",
-    "session.ls",
-    "topic.publish",
-    "topic.subscribe",
-    "topic.unsubscribe",
-)
+# Broad allow per surface with exact ask carve-outs (permissions.md § 6): ask
+# beats allow, so install/uninstall/enable/disable/hook, the hub and display
+# service controls, and ``display mode`` (which grants or revokes these rules)
+# keep prompting while new safe commands, MCP tools and skills work without a
+# rule update. ``Bash(lux -*)`` asks for a global option before the verb, which
+# the verb rules would not match.
+_SERVICE_VERBS: Final = ("install", "uninstall", "start", "stop", "restart")
 
-LUX_RULES: Final = (
-    "mcp__plugin_lux_lux__*",
-    *(f"Bash(lux {name}:*)" for name in _CLI_SUBCOMMANDS),
-    *(f"Skill(lux:{name})" for name in _COMMANDS),
+LUX_RULES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
+    {
+        "allow": ("Bash(lux:*)", "mcp__plugin_lux_lux__*", "Skill(lux:*)"),
+        "ask": (
+            "Bash(lux -*)",
+            *(
+                f"Bash(lux {verb}:*)"
+                for verb in ("install", "uninstall", "enable", "disable", "hook")
+            ),
+            *(f"Bash(lux hub {verb}:*)" for verb in _SERVICE_VERBS),
+            *(
+                f"Bash(lux display {verb}:*)"
+                for verb in (*_SERVICE_VERBS, "serve", "mode")
+            ),
+        ),
+    }
 )

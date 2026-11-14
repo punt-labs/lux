@@ -4,18 +4,18 @@
 
 ### Changed
 
-- **`lux enable` grants named data-plane CLI rules and scoped skill rules
-  only (PL-1031).** `Bash(lux:*)` is replaced by one `Bash(lux <cmd>:*)`
-  rule per data-plane command: the hub-client groups that mirror the MCP
-  tools (`beads`, `callback`, `error`, `event`, `frame`, `menu`, `scene`,
-  `session`), `display info|screenshot|status`, `hub status`, `doctor`,
-  `ping`, `status` and `version`. `install`, `uninstall`, `enable`,
-  `disable`, `hook` and the `hub`/`display` service controls keep
-  prompting. Every
-  `Skill()` rule now uses its plugin-scoped `Skill(lux:<cmd>)` name.
-  `lux disable` removes the new set; the old `Bash(lux:*)` and bare
-  `Skill(<cmd>)` rules an earlier `lux enable` wrote stay until you delete
-  them (no cleanup code, punt-kit#396).
+- **`lux enable` allows each surface broadly with exact `ask` carve-outs
+  (PL-1031, punt-kit#471).** It adds `Bash(lux:*)`,
+  `mcp__plugin_lux_lux__*` and `Skill(lux:*)` to `permissions.allow`, and
+  `ask` rules for `install`, `uninstall`, `enable`, `disable`, `hook`, the
+  `hub`/`display` `install|uninstall|start|stop|restart` service controls,
+  `display serve`, `display mode` (it grants or revokes these rules) and any
+  global option before the verb (`Bash(lux -*)`). Those prompt even though
+  the broad allow matches; new safe commands, MCP tools and skills work with
+  no rule update. `lux disable` removes both sets; the bare `Skill(<cmd>)`
+  rules an earlier `lux enable` wrote stay until you delete them (no cleanup
+  code, punt-kit#396). `scripts/check-skill-permissions.sh` is removed: with
+  `Skill(lux:*)` there is no per-command list to keep in sync.
 
 - **Linear is the tracker of record (Punt Labs team, label `repo:lux`); beads
   is a scoped local mirror.** The active backlog (147 issues, the six open
