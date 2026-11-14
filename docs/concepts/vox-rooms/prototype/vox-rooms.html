@@ -263,20 +263,36 @@ function fact(e, a, v, by) {
 
 /* ───────────────────────── voice ───────────────────────── */
 const synth = ("speechSynthesis" in window) ? window.speechSynthesis : null;
+let speechGen = 0;
+let ttsWarned = false;
+function ttsUnavailable(why) {
+  console.warn("Vox Rooms TTS:", why);
+  if (!ttsWarned) { ttsWarned = true; toast("Speech output unavailable (" + why + "). Questions are shown on screen only."); }
+}
+/* Supersede any utterance in flight: its done callback will never run. */
+function stopSpeech() { speechGen++; if (synth) synth.cancel(); }
 function speak(text, done) {
+  const gen = ++speechGen;
   let finished = false;
-  const finish = () => { if (!finished) { finished = true; done && done(); } };
+  const finish = () => { if (finished || gen !== speechGen) return; finished = true; done && done(); };
+  const simulated = () => setTimeout(finish, 700 + text.length * 45);
   if (synth && !S.mute && S.started) {
     try {
       synth.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.05; u.onend = finish; u.onerror = finish;
+      u.rate = 1.05;
+      u.onend = finish;
+      u.onerror = (ev) => {
+        if (ev.error === "interrupted" || ev.error === "canceled") { finish(); return; }
+        ttsUnavailable(ev.error || "unknown error");
+        simulated();
+      };
       synth.speak(u);
-      setTimeout(finish, 900 + text.length * 75);
+      setTimeout(finish, 1500 + text.length * 90);   /* safety net for a dropped onend */
       return;
-    } catch (e) { /* fall through to timed simulation */ }
+    } catch (e) { ttsUnavailable(e.message); }
   }
-  setTimeout(finish, 700 + text.length * 45);
+  simulated();
 }
 function activeQueue() { return ROOMS[S.room].queue; }
 function activeDecision() { const q = activeQueue(); return q.length ? q[0] : null; }
@@ -291,6 +307,7 @@ function ask() {
   speak(d.spoken, () => { if (S.voice.id === id && S.voice.mode === "speaking") startListening(id); });
 }
 function startListening(id) {
+  clearListen();
   if (!S.listen) { S.voice = { mode: "pending", id }; renderVoice(); return; }
   S.voice = { mode: "listening", id };
   S.listenLeft = 6;
@@ -310,7 +327,7 @@ function heard(phrase) {
   const p = phrase.toLowerCase();
   if (S.voice.mode === "confirm") {
     if (["confirm", "yes"].includes(p)) commit(id, S.voice.option, "voice");
-    else { clearListen(); startListening(id); toast("Cancelled. The question is still open."); }
+    else { startListening(id); toast("Cancelled. The question is still open."); }
     return;
   }
   clearListen();
@@ -321,6 +338,7 @@ function heard(phrase) {
   S.voice = { mode: "matched", id, heardText: phrase, option: idx };
   renderVoice();
   setTimeout(() => {
+    if (S.voice.mode !== "matched" || S.voice.id !== id) return;
     if (d.irreversible) {
       S.voice = { mode: "confirm", id, option: idx, heardText: phrase };
       renderVoice();
@@ -331,12 +349,14 @@ function heard(phrase) {
 function later(id) {
   const q = activeQueue();
   const i = q.indexOf(id);
-  if (i >= 0 && q.length > 1) { q.splice(i, 1); q.push(id); }
+  const moved = i >= 0 && q.length > 1;
+  if (moved) { q.splice(i, 1); q.push(id); }
   S.voice = { mode: "pending", id: activeDecision(), deferred: true };
-  toast("Moved to the end of needs-you.");
+  toast(moved ? "Moved to the end of needs-you." : "Nothing else needs you; it stays first.");
   render();
 }
 function commit(id, idx, via) {
+  if (!activeQueue().includes(id)) { console.warn("commit on a closed decision", id); return; }
   clearListen();
   const d = DECISIONS[id];
   const opt = d.options[idx];
@@ -356,7 +376,7 @@ function answerByKey(n) {
   const id = activeDecision();
   if (!id) return;
   const d = DECISIONS[id];
-  if (n < 1 || n > d.options.length) return;
+  if (n < 1 || n > d.options.length) { toast("No option " + n + " for this question."); return; }
   if (d.irreversible && S.voice.mode !== "confirm") {
     clearListen();
     S.voice = { mode: "confirm", id, option: n - 1, heardText: "key " + n };
@@ -515,6 +535,9 @@ function roomMapSvg() {
     s += '<rect x="' + x + '" y="8" width="' + hw.toFixed(0) + '" height="134" fill="var(--panel2)" stroke="var(--line)"></rect>';
     s += '<text x="' + (x + 8) + '" y="24" fill="var(--dim)" font-size="11">' + h + "</text>";
     const repos = room.repos.filter(r => r.host === h);
+    const placed = a => (WORK[AGENTS[a].on] || { repos: [] }).repos.some(p => p.agent === a && repos.some(r => r.name === p.name));
+    const unplaced = room.agents.filter(a => AGENTS[a].host === h && !placed(a));
+    if (unplaced.length) s += '<text x="' + (x + hw - 8).toFixed(0) + '" y="24" text-anchor="end" fill="var(--violet)" font-size="11">' + unplaced.join(", ") + " (no repo)</text>";
     const rw = (hw - 16 - (repos.length - 1) * 10) / repos.length;
     repos.forEach((r, ri) => {
       const rx = x + 8 + ri * (rw + 10);
@@ -620,7 +643,7 @@ function viewWork() {
     '<section class="panel" aria-label="Work item ' + S.focusWork + '"><header><h2>' + S.focusWork.replace("b", "") + " " + esc(W.title) + "</h2>" + stateText(W.state) + '<span class="grow"></span><span class="dim">' + (W.owner ? "worker " + W.owner : "unassigned") + (W.reviewer ? " · reviewer " + W.reviewer : "") + "</span></header>" +
       '<div class="body"><div id="pipe" style="overflow-x:auto">' + pipelineSvg(W) + "</div>" +
       (W.order ? '<div class="row"><span class="dim">merge order</span><span class="strong">lux → vox → biff</span><span class="dim">vox and biff consume lux\'s protocol</span></div>' : "") +
-      (isMain ? '<div class="row"><span class="dim">implicit ·</span><span>build-01 › biff › w731-terminal-log › session s19 › terminal</span><span class="grow"></span><span class="dim">' + (S.termDone ? "finished" : "live") + '</span></div><div class="term" id="term" aria-live="off"></div>' : '<div class="dim">Press ↵ on a repo to open its session.</div>') +
+      (isMain ? '<div class="row"><span class="dim">implicit ·</span><span>build-01 › biff › w731-terminal-log › session s19 › terminal</span><span class="grow"></span><span class="dim">' + (S.termDone ? "finished" : "live") + '</span></div><div class="term" id="term" aria-live="off"></div>' : '<div class="dim">This prototype opens repo sessions only for w731.</div>') +
       "</div></section>" +
     '<section class="panel" aria-label="Facts"><header><h2>facts</h2><span class="grow"></span><span class="dim">f</span></header><div class="body"><div class="facts tabular">' + esc((pad("entity", 6) + pad("attribute", 18) + pad("value", 20) + "tx") + "\n" + (isMain ? facts : "(no facts shown for this item)")) + '</div><div class="dim">The board, this view and the terminal link are all queries over one log.</div></div></section>' +
     "</div>";
@@ -759,13 +782,14 @@ function render() { renderTop(); renderVoice(); renderView(); renderDock(); rend
 function start() {
   if (S.started) return;
   S.started = true;
+  if (!synth) ttsUnavailable("not supported by this browser");
   startCI();
   ask();
 }
 function setView(v) { S.view = v; renderView(); renderDock(); $("main").focus({ preventScroll: true }); }
 function setRoom(r) {
   if (!ROOMS[r] || r === S.room) return;
-  clearListen(); if (synth) try { synth.cancel(); } catch (e) {}
+  clearListen(); stopSpeech();
   S.room = r; S.view = "home"; S.voice = { mode: "idle" };
   render();
   if (S.started && activeDecision()) setTimeout(ask, 400);
@@ -803,7 +827,7 @@ function toggleListen() {
   if (!S.listen && S.voice.mode === "listening") { clearListen(); S.voice = { mode: "pending", id: S.voice.id }; }
   renderTop(); renderVoice(); toast(S.listen ? "Listening after questions is on." : "Listening is off. Questions still arrive on screen.");
 }
-function toggleMute() { S.mute = !S.mute; if (S.mute && synth) try { synth.cancel(); } catch (e) {} renderTop(); toast(S.mute ? "Voice muted." : "Voice on."); }
+function toggleMute() { S.mute = !S.mute; if (S.mute && synth) synth.cancel(); renderTop(); toast(S.mute ? "Voice muted." : "Voice on."); }
 function toggleDrawer(force) { const d = $("drawer"); const open = force !== undefined ? force : d.hidden; d.hidden = !open; if (open) renderDrawer(); }
 function toggleHelp(force) {
   const h = $("help"); const open = force !== undefined ? force : h.hidden; h.hidden = !open;
@@ -816,8 +840,9 @@ function toggleHelp(force) {
 document.addEventListener("click", (e) => {
   const t = e.target.closest("button, g[data-repo]");
   if (!t) return;
+  const wasStarted = S.started;
   if (!S.started && t.id !== "muteBtn") start();
-  if (t.id === "playBtn" || t.id === "replayBtn") { ask(); return; }
+  if (t.id === "playBtn" || t.id === "replayBtn") { if (wasStarted) ask(); return; }
   if (t.id === "listenBtn") { toggleListen(); return; }
   if (t.id === "muteBtn") { toggleMute(); return; }
   if (t.id === "askTool") { askTool(); return; }
@@ -832,7 +857,11 @@ document.addEventListener("click", (e) => {
   if (t.dataset.say) { heard(t.dataset.say); return; }
   if (t.dataset.openWork) { S.focusWork = t.dataset.openWork; setView("work"); return; }
   if (t.dataset.focusDecision) { const q = activeQueue(); const i = q.indexOf(t.dataset.focusDecision); if (i > 0) { q.splice(i, 1); q.unshift(t.dataset.focusDecision); } ask(); render(); return; }
-  if (t.dataset.repo) { S.focusWork = "w731"; setView("work"); return; }
+  if (t.dataset.repo) {
+    if (ROOMS[S.room].work.includes("w731")) { S.focusWork = "w731"; setView("work"); }
+    else toast("Repo sessions open only for w731 in this prototype.");
+    return;
+  }
   if (t.dataset.tool) {
     const m = { decisions: "home", board: "board", work: "work", team: "team", tools: "tools", "protocol-ci": "tools" };
     if (m[t.dataset.tool]) setView(m[t.dataset.tool]);
@@ -842,7 +871,8 @@ document.addEventListener("click", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
-  if ((e.altKey || e.shiftKey) && !e.metaKey && !e.ctrlKey && /^Digit[1-9]$/.test(e.code)) {
+  if ((e.key === " " || e.key === "Enter") && e.target.closest && e.target.closest("button, a, g[data-repo]")) return;
+  if (e.altKey && !e.metaKey && !e.ctrlKey && /^Digit[1-9]$/.test(e.code)) {
     e.preventDefault();
     const r = Object.keys(ROOMS)[Number(e.code.slice(5)) - 1];
     if (r) setRoom(r); else toast("No room " + e.code.slice(5) + " yet.");
@@ -853,7 +883,7 @@ document.addEventListener("keydown", (e) => {
   if (k === "Escape") { if (!$("help").hidden) return toggleHelp(false); if (!$("drawer").hidden) return toggleDrawer(false); if (S.view !== "home") return setView("home"); return; }
   if (k === "?") { toggleHelp(); return; }
   if (!S.started && ["1", "2", "b", "v"].includes(k)) start();
-  if (k === "1" || k === "2" || k === "3") { answerByKey(Number(k)); return; }
+  if (k === "1" || k === "2") { answerByKey(Number(k)); return; }
   if (k === " ") { e.preventDefault(); setView("board"); return; }
   if (k === "b") return setView("home");
   if (k === "w") return setView("work");
