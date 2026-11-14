@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
-from punt_lux.claude_permissions import LUX_RULES, PermissionChange, ProjectPermissions
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from punt_lux.claude_permissions import PermissionChange, ProjectPermissions
+from punt_lux.permission_rules import LUX_RULES
 
 
 def _settings(root: Path) -> Path:
@@ -182,3 +180,15 @@ class TestDisplayModeCommand:
         assert result.exit_code == 0, result.output
         settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert not set(LUX_RULES) & set(settings["permissions"]["allow"])
+
+
+def test_rules_are_least_privilege_and_scoped() -> None:
+    commands = Path(__file__).parent.parent / "plugin" / "commands"
+    shipped = sorted(
+        path.stem for path in commands.glob("*.md") if not path.stem.endswith("-dev")
+    )
+    skills = [rule for rule in LUX_RULES if rule.startswith("Skill(")]
+    assert skills == [f"Skill(lux:{name})" for name in shipped]
+    assert "Bash(lux:*)" not in LUX_RULES
+    for verb in ("enable", "disable", "hook"):
+        assert not [rule for rule in LUX_RULES if rule.startswith(f"Bash(lux {verb}:")]

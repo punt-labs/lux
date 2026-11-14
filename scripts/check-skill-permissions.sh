@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Verify `lux enable` (src/punt_lux/claude_permissions.py) allows a Skill(<name>) rule for
+# Verify `lux enable` (src/punt_lux/permission_rules.py) allows a scoped Skill(lux:<name>) rule for
 # every command in plugin/commands/*.md. Drift here causes unexplained
 # permission prompts on first use. Fast (no network; standard shell utilities).
 set -euo pipefail
 shopt -s nullglob
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK="$ROOT/src/punt_lux/claude_permissions.py"
+HOOK="$ROOT/src/punt_lux/permission_rules.py"
 COMMANDS_DIR="$ROOT/plugin/commands"
 
 if [[ ! -f "$HOOK" ]]; then
@@ -37,11 +37,14 @@ if [[ ${#COMMANDS[@]} -eq 0 ]]; then
   exit 2
 fi
 
-# Skill() rules declared in LUX_RULES.
+# Skill(lux:<name>) rules: one per name in the _COMMANDS tuple.
 ALLOWED=()
 while IFS= read -r allow; do
   ALLOWED+=("$allow")
-done < <(grep -oE 'Skill\([a-z_.-]+\)' "$HOOK" | sed -E 's/Skill\(|\)//g' | sort -u)
+done < <(
+  sed -n '/^_COMMANDS: Final = ($/,/^)$/p' "$HOOK" \
+    | grep -oE '"[^"]+"' | tr -d '"' | sort -u
+)
 
 missing=()
 for cmd in "${COMMANDS[@]}"; do
@@ -63,12 +66,12 @@ done
 
 status=0
 if [[ ${#missing[@]} -gt 0 ]]; then
-  echo "error: plugin/commands/*.md has no matching Skill() permission in src/punt_lux/claude_permissions.py:" >&2
+  echo "error: plugin/commands/*.md has no matching Skill() permission in src/punt_lux/permission_rules.py:" >&2
   for m in "${missing[@]}"; do echo "  - $m" >&2; done
   status=1
 fi
 if [[ ${#extra[@]} -gt 0 ]]; then
-  echo "error: src/punt_lux/claude_permissions.py grants Skill() for commands that do not exist:" >&2
+  echo "error: src/punt_lux/permission_rules.py grants Skill() for commands that do not exist:" >&2
   for e in "${extra[@]}"; do echo "  - $e" >&2; done
   status=1
 fi

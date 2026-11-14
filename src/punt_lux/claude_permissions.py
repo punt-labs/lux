@@ -22,36 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Self, cast, final
 
-__all__ = ["LUX_RULES", "PermissionChange", "ProjectPermissions"]
+from punt_lux.permission_rules import LUX_RULES
 
-# Every Skill() rule is spelled out so scripts/check-skill-permissions.sh can
-# verify by static grep that each deployed command is allowed.
-LUX_RULES: Final = (
-    "mcp__plugin_lux_lux__*",
-    "Bash(lux:*)",
-    "Skill(callback.pending)",
-    "Skill(display.info)",
-    "Skill(display.screenshot)",
-    "Skill(error.ls)",
-    "Skill(event.ls)",
-    "Skill(frame.raise)",
-    "Skill(frame.remove)",
-    "Skill(lux)",
-    "Skill(menu.ls)",
-    "Skill(menu.set)",
-    "Skill(ping)",
-    "Skill(scene.clear)",
-    "Skill(scene.clear-all)",
-    "Skill(scene.inspect)",
-    "Skill(scene.ls)",
-    "Skill(scene.show)",
-    "Skill(scene.table)",
-    "Skill(scene.update)",
-    "Skill(session.ls)",
-    "Skill(topic.publish)",
-    "Skill(topic.subscribe)",
-    "Skill(topic.unsubscribe)",
-)
+__all__ = ["PermissionChange", "ProjectPermissions"]
 
 _NEW_FILE_MODE: Final = 0o644
 

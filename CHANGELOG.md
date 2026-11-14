@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **`lux enable` grants named read-only CLI rules and scoped skill rules
+  only (PL-1031).** `Bash(lux:*)` is replaced by `Bash(lux doctor:*)`,
+  `Bash(lux ping:*)`, `Bash(lux status:*)` and `Bash(lux version:*)`, so
+  `lux enable`, `lux disable` and `lux hook` keep prompting. Every
+  `Skill()` rule now uses its plugin-scoped `Skill(lux:<cmd>)` name.
+  `lux disable` removes the new set; the old `Bash(lux:*)` and bare
+  `Skill(<cmd>)` rules an earlier `lux enable` wrote stay until you delete
+  them (no cleanup code, punt-kit#396).
+
 - **Linear is the tracker of record (Punt Labs team, label `repo:lux`); beads
   is a scoped local mirror.** The active backlog (147 issues, the six open
   epics now Linear projects) was pushed to Linear and enriched there.
