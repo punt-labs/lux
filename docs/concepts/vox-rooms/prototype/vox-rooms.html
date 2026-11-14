@@ -283,6 +283,7 @@ function speak(text, done) {
       u.rate = 1.05;
       u.onend = finish;
       u.onerror = (ev) => {
+        if (gen !== speechGen) return;
         if (ev.error === "interrupted" || ev.error === "canceled") { finish(); return; }
         ttsUnavailable(ev.error || "unknown error");
         simulated();
