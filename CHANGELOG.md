@@ -8,7 +8,8 @@
   (PL-1031, punt-kit#471).** It adds `Bash(lux:*)`,
   `mcp__plugin_lux_lux__*` and `Skill(lux:*)` to `permissions.allow`, and
   `ask` rules for `install`, `uninstall`, `enable`, `disable`, `hook`, the
-  `hub`/`display` `install|uninstall|start|stop|restart` service controls,
+  `hub`/`display` `install|uninstall|start|stop|restart|doctor` service
+  controls (`doctor --fix` removes legacy registrations and shims),
   `display serve`, `display mode` (it grants or revokes these rules) and any
   global option before the verb (`Bash(lux -*)`). Those prompt even though
   the broad allow matches; new safe commands, MCP tools and skills work with

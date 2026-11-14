@@ -17,7 +17,7 @@ __all__ = ["LUX_RULES"]
 # keep prompting while new safe commands, MCP tools and skills work without a
 # rule update. ``Bash(lux -*)`` asks for a global option before the verb, which
 # the verb rules would not match.
-_SERVICE_VERBS: Final = ("install", "uninstall", "start", "stop", "restart")
+_SERVICE_VERBS: Final = ("install", "uninstall", "start", "stop", "restart", "doctor")
 
 LUX_RULES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
     {

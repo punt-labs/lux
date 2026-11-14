@@ -201,6 +201,8 @@ def test_unsafe_verbs_and_global_options_ask() -> None:
         for verb in ("install", "uninstall", "start", "stop", "restart"):
             assert f"Bash(lux {group} {verb}:*)" in _ASK
     assert "Bash(lux display mode:*)" in _ASK
+    assert "Bash(lux hub doctor:*)" in _ASK
+    assert "Bash(lux display doctor:*)" in _ASK
     assert "Bash(lux scene:*)" not in _ASK
 
 
