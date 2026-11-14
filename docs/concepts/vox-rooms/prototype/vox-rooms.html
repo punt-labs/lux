@@ -1,0 +1,918 @@
+<title>Vox Rooms</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=STIX+Two+Text:ital@0;1&display=swap">
+<style>
+/* Layout: a single-screen tiling workspace. Header, voice strip, view, tools dock, key bar.
+   Deliberately dark-only, like a terminal. */
+:root {
+  --bg: #13141b;
+  --panel: #191b24;
+  --panel2: #1f222d;
+  --line: #2c3041;
+  --fg: #c9d1e6;
+  --strong: #eef1f8;
+  --dim: #8a93ad;
+  --accent: #7aa2f7;
+  --warn: #ff9e64;
+  --ok: #9ece6a;
+  --amber: #e0af68;
+  --violet: #bb9af7;
+  --bad: #f7768e;
+  --warn-bg: #241b15;
+  --ok-bg: #172116;
+  --accent-bg: #172036;
+  --amber-bg: #221f16;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --serif: "STIX Two Text", "Cambria Math", Georgia, serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 13px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px; box-sizing: border-box;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.app { height: 100%; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.grow { flex: 1 1 0; }
+.dim { color: var(--dim); }
+.strong { color: var(--strong); }
+.agent { color: var(--violet); font-weight: 600; }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* header */
+.rooms { display: flex; gap: 4px; flex-wrap: wrap; }
+.room-tab { background: transparent; border: 0; padding: 2px 10px; color: var(--dim); }
+.room-tab[aria-pressed="true"] { background: var(--accent); color: var(--bg); font-weight: 700; }
+.pill { padding: 0 8px; border: 1px solid var(--line); }
+.brand { font-weight: 700; color: var(--strong); letter-spacing: 0.04em; }
+
+/* voice strip */
+.voice { border: 1px solid var(--line); background: var(--panel); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.voice.speaking { border-color: var(--warn); background: var(--warn-bg); }
+.voice.listening { border-color: var(--ok); background: var(--ok-bg); }
+.voice.confirm { border-color: var(--amber); background: var(--amber-bg); }
+.wave { display: inline-flex; gap: 3px; align-items: center; height: 18px; }
+.wave i { display: block; width: 3px; background: currentColor; height: 6px; }
+.voice.speaking .wave i { animation: wv 0.9s ease-in-out infinite; }
+.wave i:nth-child(2){animation-delay:.1s}.wave i:nth-child(3){animation-delay:.2s}.wave i:nth-child(4){animation-delay:.3s}.wave i:nth-child(5){animation-delay:.4s}.wave i:nth-child(6){animation-delay:.5s}
+@keyframes wv { 0%,100% { height: 4px } 50% { height: 18px } }
+.ring { width: 18px; height: 18px; }
+.chip { background: var(--panel2); border: 1px solid var(--line); padding: 1px 10px; }
+.chip:hover { border-color: var(--ok); }
+.key { display: inline-block; min-width: 1.6em; text-align: center; background: var(--fg); color: var(--bg); font-weight: 700; padding: 0 5px; }
+.key.rec { background: var(--warn); }
+.opt { background: transparent; border: 1px solid var(--line); padding: 3px 10px; text-align: left; }
+.opt:hover { border-color: var(--accent); }
+
+/* main view */
+.main { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.main:focus, .main:focus-visible { outline: none; }
+.grid3 { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.6fr) minmax(240px, 1fr); gap: 8px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.panel { border: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-width: 0; }
+.panel > header { display: flex; align-items: center; gap: 8px; padding: 2px 10px; background: var(--panel2); border-bottom: 1px solid var(--line); }
+.panel > header h2 { font-size: 13px; margin: 0; color: var(--strong); }
+.panel .body { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.dec { border-left: 2px solid var(--line); padding-left: 10px; display: flex; flex-direction: column; gap: 2px; background: transparent; border-top: 0; border-right: 0; border-bottom: 0; text-align: left; }
+.dec.active { border-left-color: var(--warn); }
+.state-working { color: var(--accent); }
+.state-blocked { color: var(--warn); }
+.state-idle { color: var(--dim); }
+.state-done { color: var(--ok); }
+.wi { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 0 10px; background: transparent; border: 0; text-align: left; padding: 2px 4px; }
+.wi:hover { background: var(--panel2); }
+.section-label { color: var(--dim); }
+.empty { color: var(--dim); padding: 18px 4px; }
+svg text { font-family: var(--mono); }
+.term { background: #0f1016; border: 1px solid var(--line); padding: 8px 10px; white-space: pre-wrap; min-height: 160px; font-size: 12.5px; }
+.facts { font-size: 12px; white-space: pre; overflow-x: auto; }
+.math { font-family: var(--serif); font-size: 19px; color: var(--strong); }
+.schema { white-space: pre; color: var(--strong); border-left: 2px solid var(--accent); padding-left: 10px; overflow-x: auto; }
+table { border-collapse: collapse; }
+td, th { padding: 2px 10px 2px 0; text-align: left; font-weight: 400; }
+th { color: var(--dim); }
+.btn { background: var(--panel2); border: 1px solid var(--line); padding: 3px 12px; }
+.btn.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
+.btn:hover { border-color: var(--accent); }
+
+/* dock + keys */
+.dock { border: 1px solid var(--line); padding: 3px 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.tool { background: transparent; border: 0; padding: 0 8px; }
+.tool.core { background: var(--panel2); color: var(--strong); }
+.tool[aria-pressed="true"] { outline: 1px solid var(--accent); }
+.tool.new { color: var(--amber); }
+.keys { color: var(--dim); display: flex; gap: 16px; flex-wrap: wrap; }
+.keys b { color: var(--fg); font-weight: 400; }
+
+/* facts drawer + toast */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--panel); border-left: 1px solid var(--line); padding: 12px max(14px, env(safe-area-inset-right, 0px)) 12px 14px; display: flex; flex-direction: column; gap: 8px; z-index: 20; overflow: auto; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); max-width: min(720px, calc(100% - 32px)); background: var(--accent-bg); border: 1px solid var(--accent); padding: 8px 14px; z-index: 30; }
+.help { position: fixed; inset: 0; background: rgba(10,11,16,.82); display: grid; place-items: center; z-index: 40; padding: 16px; }
+.help .card { background: var(--panel); border: 1px solid var(--line); padding: 16px 20px; max-width: 760px; width: 100%; }
+.help .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 24px; }
+
+@media (max-width: 900px) {
+  .grid3, .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .help .cols { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice.speaking .wave i { animation: none; height: 12px; }
+}
+</style>
+
+<div class="app" id="app">
+  <div class="row" id="topbar"></div>
+  <section class="voice" id="voice" aria-live="polite" aria-label="Voice"></section>
+  <main class="main" id="main" tabindex="-1"></main>
+  <nav class="dock" id="dock" aria-label="Tools"></nav>
+  <div class="keys" id="keys"></div>
+</div>
+<aside class="drawer" id="drawer" hidden aria-label="Facts"></aside>
+<div class="toast" id="toast" hidden role="status"></div>
+<div class="help" id="help" hidden></div>
+
+<script>
+"use strict";
+/* ───────────────────────── data ───────────────────────── */
+const HOSTS = { laptop: "laptop", build: "build-01" };
+
+const ROOMS = {
+  "terminal-epic": {
+    label: "terminal-epic",
+    repos: [ { name: "lux", host: "laptop" }, { name: "vox", host: "laptop" }, { name: "biff", host: "build-01" } ],
+    agents: ["claude@lux", "codex@vox", "claude@zspec", "claude@biff"],
+    work: ["w731", "w722", "w733", "w734"],
+    queue: ["d42", "d43"]
+  },
+  "vox-music": {
+    label: "vox-music",
+    repos: [ { name: "vox", host: "laptop" } ],
+    agents: ["claude@vox"],
+    work: ["w801", "w802"],
+    queue: ["d90"]
+  },
+  "dead-code": {
+    label: "dead-code",
+    repos: [ { name: "lux", host: "laptop" } ],
+    agents: ["claude@cleanup"],
+    work: ["w719", "w720", "w722b"],
+    queue: []
+  }
+};
+
+const AGENTS = {
+  "claude@lux":     { state: "working", host: "laptop",   on: "w731", doing: "lux protocol",      spark: [3,4,6,5,7,8,6,7,9,8,7,8] },
+  "codex@vox":      { state: "blocked", host: "laptop",   on: "w731", doing: "asking you",        spark: [5,6,7,6,5,4,3,2,1,0,0,0] },
+  "claude@zspec":   { state: "working", host: "build-01", on: "w731", doing: "model-checking",    spark: [1,2,2,3,5,7,8,8,7,6,7,8] },
+  "claude@biff":    { state: "working", host: "build-01", on: "w731", doing: "running tests",     spark: [0,0,1,2,4,5,6,6,7,7,8,8] },
+  "claude@vox":     { state: "blocked", host: "laptop",   on: "w801", doing: "asking you",        spark: [4,5,6,6,5,4,3,2,1,0,0,0] },
+  "claude@cleanup": { state: "working", host: "laptop",   on: "w722b", doing: "make check",       spark: [6,6,7,7,8,8,7,8,8,9,8,9] }
+};
+
+const WORK = {
+  w731: { title: "Terminal log protocol", state: "working", owner: "claude@lux", reviewer: "codex@vox",
+    repos: [ { name: "lux", host: "laptop", agent: "claude@lux", ci: "green", commits: 6, pr: "open" },
+             { name: "vox", host: "laptop", agent: "codex@vox", ci: "green", commits: 3, pr: "draft" },
+             { name: "biff", host: "build-01", agent: "claude@biff", ci: "running", commits: 2, pr: "not yet" } ],
+    order: true, tags: ["protocol"] },
+  w722: { title: "Remove dead locate path", state: "review", owner: "claude@lux",
+    repos: [ { name: "lux", host: "laptop", agent: "claude@lux", ci: "green", commits: 2, pr: "open" } ], tags: [] },
+  w733: { title: "luxd-pty session host", state: "ready", owner: "",
+    repos: [ { name: "lux", host: "laptop", agent: "", ci: "none", commits: 0, pr: "none" } ], tags: [] },
+  w734: { title: "Voice answers in biff", state: "blocked", owner: "codex@vox",
+    repos: [ { name: "vox", host: "laptop", agent: "codex@vox", ci: "green", commits: 4, pr: "draft" },
+             { name: "biff", host: "build-01", agent: "claude@biff", ci: "failing", commits: 1, pr: "not yet" } ], tags: ["protocol"] },
+  w801: { title: "Music program re-pool", state: "blocked", owner: "claude@vox",
+    repos: [ { name: "vox", host: "laptop", agent: "claude@vox", ci: "green", commits: 5, pr: "open" } ], tags: [] },
+  w802: { title: "Album catalog export", state: "ready", owner: "",
+    repos: [ { name: "vox", host: "laptop", agent: "", ci: "none", commits: 0, pr: "none" } ], tags: [] },
+  w719: { title: "Delete render_function runtime", state: "done", owner: "claude@cleanup",
+    repos: [ { name: "lux", host: "laptop", agent: "claude@cleanup", ci: "green", commits: 1, pr: "merged" } ], tags: [] },
+  w720: { title: "Remove legacy Display-model modules", state: "review", owner: "claude@cleanup",
+    repos: [ { name: "lux", host: "laptop", agent: "claude@cleanup", ci: "green", commits: 3, pr: "open" } ], tags: [] },
+  w722b: { title: "Dead locate-and-patch path", state: "working", owner: "claude@cleanup",
+    repos: [ { name: "lux", host: "laptop", agent: "claude@cleanup", ci: "running", commits: 1, pr: "not yet" } ], tags: [] }
+};
+
+const DECISIONS = {
+  d42: { kind: "asks", agent: "codex@vox", work: "w731", question: "Which VT parser should the terminal element use?",
+    spoken: "codex needs a parser. Pyte, or libghostty?",
+    options: [ { label: "pyte", note: "pure Python, simple to ship", say: ["pyte", "option one", "one"] },
+               { label: "libghostty-vt", note: "native, faster on bulk output", rec: true, say: ["libghostty", "option two", "two"] } ],
+    readback: (o) => "Option " + (o === 0 ? "one, pyte." : "two, libghostty."),
+    effect: (o) => { AGENTS["codex@vox"].state = "working"; AGENTS["codex@vox"].doing = "linking " + DECISIONS.d42.options[o].label; } },
+  d43: { kind: "disagreement", agent: "claude@lux", against: "codex@vox", work: "w731", question: "Who drives resume of a replicated terminal log?",
+    spoken: "claude and codex disagree on resume. Owner, or replica?",
+    options: [ { label: "owner seq", note: "claude@lux: simpler, one authority", say: ["owner", "option one", "one"] },
+               { label: "replica seq", note: "codex@vox: fewer resends after a drop", say: ["replica", "option two", "two"] } ],
+    readback: (o) => o === 0 ? "Owner drives resume." : "Replica drives resume.",
+    effect: () => {} },
+  d44: { kind: "approval", agent: "claude@lux", work: "w731", question: "Merge w731 in order lux, vox, biff?", irreversible: true,
+    spoken: "w731 is green in all three repos. Merge in order?",
+    options: [ { label: "merge", note: "lux first; vox and biff consume its protocol", say: ["merge", "yes", "approve", "option one", "one"] },
+               { label: "hold", note: "leave the three PRs open", say: ["hold", "no", "wait", "option two", "two"] } ],
+    readback: (o) => o === 0 ? "Merging lux, then vox, then biff." : "Holding the merge.",
+    effect: (o) => { if (o === 0) { WORK.w731.state = "done"; WORK.w731.repos.forEach(r => r.pr = "merged"); } } },
+  d90: { kind: "asks", agent: "claude@vox", work: "w801", question: "Album title for the new program?",
+    spoken: "Album title. Night Shift, or Low Tide?",
+    options: [ { label: "Night Shift", note: "matches the late-session vibe", say: ["night shift", "option one", "one"] },
+               { label: "Low Tide", note: "matches the ambient stems", say: ["low tide", "option two", "two"] } ],
+    readback: (o) => o === 0 ? "Night Shift." : "Low Tide.",
+    effect: () => { AGENTS["claude@vox"].state = "working"; AGENTS["claude@vox"].doing = "generating stems"; } }
+};
+
+const CORE_TOOLS = [ { id: "decisions", key: "b" }, { id: "board", key: "space" }, { id: "work", key: "w" }, { id: "team", key: "t" } ];
+const INSTALLED = [
+  { id: "voice", by: "vox", what: "speak, listen" }, { id: "channels", by: "biff", what: "agent co-design" },
+  { id: "search", by: "quarry", what: "room knowledge" }, { id: "issues", by: "linear", what: "work source" },
+  { id: "specs", by: "z-spec", what: "models, checks" }, { id: "missions", by: "ethos", what: "worker/evaluator" }
+];
+
+/* Tools belong to the room they were made in. */
+Object.values(ROOMS).forEach(r => { r.tools = { draft: null, kept: [] }; });
+function T() { return ROOMS[S.room].tools; }
+
+/* ───────────────────────── state ───────────────────────── */
+const S = {
+  room: "terminal-epic", view: "home", focusWork: "w731",
+  listen: true, mute: false, started: false,
+  voice: { mode: "idle" }, seq: 1053, facts: [], decided: [],
+  ciTimer: null, termLines: [], termDone: false,
+  listenTimer: null, listenLeft: 0,
+  epoch: 0   /* bumped on every room switch; delayed voice work checks it */
+};
+
+function seedFacts() {
+  const seed = [
+    ["w731", "work/title", "\"Terminal log protocol\"", "claude@lux"],
+    ["w731", "work/repo", "lux", "claude@lux"], ["w731", "work/repo", "vox", "claude@lux"], ["w731", "work/repo", "biff", "claude@lux"],
+    ["w731", "work/owner", "claude@lux", "claude@lux"], ["w731", "work/reviewer", "codex@vox", "claude@lux"],
+    ["b3", "branch/host", "build-01", "hub build-01"], ["b3", "ci/status", "running", "ci"],
+    ["d42", "decision/question", "\"Which VT parser?\"", "codex@vox"], ["d42", "decision/item", "w731", "codex@vox"],
+    ["d43", "decision/question", "\"Who drives resume?\"", "claude@lux"], ["s19", "session/agent", "claude@biff", "hub build-01"]
+  ];
+  let n = 1031;
+  seed.forEach(f => S.facts.unshift({ seq: n++, e: f[0], a: f[1], v: f[2], by: f[3] }));
+  S.seq = n;
+}
+function fact(e, a, v, by) {
+  S.facts.unshift({ seq: S.seq++, e, a, v, by });
+  if (!document.getElementById("drawer").hidden) renderDrawer();
+}
+
+/* ───────────────────────── voice ───────────────────────── */
+const synth = ("speechSynthesis" in window) ? window.speechSynthesis : null;
+let speechGen = 0;
+let ttsWarned = false;
+function ttsUnavailable(why) {
+  console.warn("Vox Rooms TTS:", why);
+  if (!ttsWarned) { ttsWarned = true; toast("Speech output unavailable (" + why + "). Questions are shown on screen only."); }
+}
+/* Supersede any utterance in flight: its done callback will never run. */
+function stopSpeech() { speechGen++; if (synth) synth.cancel(); }
+function speak(text, done) {
+  const gen = ++speechGen;
+  let finished = false;
+  const finish = () => { if (finished || gen !== speechGen) return; finished = true; done && done(); };
+  const simulated = () => setTimeout(finish, 700 + text.length * 45);
+  if (synth && !S.mute && S.started) {
+    try {
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      u.onend = finish;
+      u.onerror = (ev) => {
+        if (gen !== speechGen) return;
+        if (ev.error === "interrupted" || ev.error === "canceled") { finish(); return; }
+        ttsUnavailable(ev.error || "unknown error");
+        simulated();
+      };
+      synth.speak(u);
+      setTimeout(finish, 1500 + text.length * 90);   /* safety net for a dropped onend */
+      return;
+    } catch (e) { ttsUnavailable(e.message); }
+  }
+  simulated();
+}
+function activeQueue() { return ROOMS[S.room].queue; }
+function activeDecision() { const q = activeQueue(); return q.length ? q[0] : null; }
+
+function ask() {
+  clearListen();
+  const id = activeDecision();
+  if (!id) { S.voice = { mode: "idle" }; renderVoice(); return; }
+  const d = DECISIONS[id];
+  S.voice = { mode: "speaking", id, text: d.spoken };
+  renderVoice();
+  speak(d.spoken, () => { if (S.voice.id === id && S.voice.mode === "speaking") startListening(id); });
+}
+function startListening(id) {
+  clearListen();
+  if (!S.listen) { S.voice = { mode: "pending", id }; renderVoice(); return; }
+  S.voice = { mode: "listening", id };
+  S.listenLeft = 6;
+  renderVoice();
+  S.listenTimer = setInterval(() => {
+    S.listenLeft -= 1;
+    if (S.listenLeft <= 0) { clearListen(); S.voice = { mode: "pending", id, timedOut: true }; renderVoice(); }
+    else updateRing();
+  }, 1000);
+}
+function clearListen() { if (S.listenTimer) { clearInterval(S.listenTimer); S.listenTimer = null; } }
+
+function heard(phrase) {
+  const id = S.voice.id || activeDecision();
+  if (!id) return;
+  const d = DECISIONS[id];
+  const p = phrase.toLowerCase();
+  if (S.voice.mode === "confirm") {
+    if (["confirm", "yes"].includes(p)) commit(id, S.voice.option, "voice");
+    else { startListening(id); toast("Cancelled. The question is still open."); }
+    return;
+  }
+  clearListen();
+  if (p === "repeat") { ask(); return; }
+  if (p === "later") { later(id); return; }
+  const idx = d.options.findIndex(o => o.say.includes(p));
+  if (idx < 0) { toast("Heard \"" + phrase + "\" but it matches no option. Still listening."); startListening(id); return; }
+  S.voice = { mode: "matched", id, heardText: phrase, option: idx };
+  renderVoice();
+  setTimeout(() => {
+    if (S.voice.mode !== "matched" || S.voice.id !== id) return;
+    if (d.irreversible) {
+      S.voice = { mode: "confirm", id, option: idx, heardText: phrase };
+      renderVoice();
+      speak(d.readback(idx) + " Confirm?", () => {});
+    } else commit(id, idx, "voice");
+  }, 700);
+}
+function later(id) {
+  const q = activeQueue();
+  const i = q.indexOf(id);
+  const moved = i >= 0 && q.length > 1;
+  if (moved) { q.splice(i, 1); q.push(id); }
+  S.voice = { mode: "pending", id: activeDecision(), deferred: true };
+  toast(moved ? "Moved to the end of needs-you." : "Nothing else needs you; it stays first.");
+  render();
+}
+function commit(id, idx, via) {
+  if (!activeQueue().includes(id)) { console.warn("commit on a closed decision", id); return; }
+  clearListen();
+  const d = DECISIONS[id];
+  const opt = d.options[idx];
+  fact(id, "decision/answer", opt.label, "you (" + via + ")");
+  if (d.agent) fact(d.agent, "agent/state", "working", "hub");
+  d.effect(idx);
+  if (id === "d44" && idx === 0) { fact("w731", "work/state", "merged", "you"); }
+  S.decided.unshift({ id, text: d.question, answer: opt.label, via });
+  const q = activeQueue(); const i = q.indexOf(id); if (i >= 0) q.splice(i, 1);
+  S.voice = { mode: "readback", id, text: d.readback(idx) };
+  render();
+  const ep = S.epoch;
+  speak(d.readback(idx), () => {
+    setTimeout(() => {
+      if (S.epoch !== ep || S.voice.mode !== "readback" || S.voice.id !== id) return;
+      if (activeDecision()) ask(); else { S.voice = { mode: "idle" }; renderVoice(); }
+    }, 700);
+  });
+}
+function answerByKey(n) {
+  const id = activeDecision();
+  if (!id) return;
+  const d = DECISIONS[id];
+  if (n < 1 || n > d.options.length) { toast("No option " + n + " for this question."); return; }
+  const confirming = S.voice.mode === "confirm" && S.voice.id === id;
+  if (d.irreversible && !(confirming && S.voice.option === n - 1)) {
+    clearListen();
+    S.voice = { mode: "confirm", id, option: n - 1, heardText: "key " + n };
+    renderVoice(); speak(d.readback(n - 1) + " Confirm?", () => {});
+    return;
+  }
+  commit(id, n - 1, "key");
+}
+
+/* ───────────────────────── simulation: biff CI ───────────────────────── */
+const TERM_SCRIPT = [
+  "build-01:~/biff $ go test ./...",
+  "ok    biff/internal/channel      0.41s",
+  "ok    biff/internal/presence     0.88s",
+  "ok    biff/internal/wire         1.12s",
+  "      biff/internal/termlog      running…",
+  "      TestReplicaNeverAheadOfOwner      PASS",
+  "      TestResumeAfterDrop               PASS",
+  "ok    biff/internal/termlog      3.07s",
+  "PASS",
+  "claude@biff › CI green. w731 is green in all three repos."
+];
+function startCI() {
+  if (S.ciTimer || S.termDone) return;
+  let i = S.termLines.length;
+  S.ciTimer = setInterval(() => {
+    if (i >= TERM_SCRIPT.length) {
+      clearInterval(S.ciTimer); S.ciTimer = null; S.termDone = true;
+      WORK.w731.repos[2].ci = "green";
+      AGENTS["claude@biff"].state = "idle"; AGENTS["claude@biff"].doing = "tests passed";
+      fact("b3", "ci/status", "green", "ci");
+      const q = ROOMS["terminal-epic"].queue;
+      if (!q.includes("d44")) q.push("d44");
+      toast("biff is green. A merge approval joined needs-you.");
+      render();
+      if (S.room === "terminal-epic" && (S.voice.mode === "idle" || S.voice.mode === "pending") && q[0] === "d44") ask();
+      return;
+    }
+    S.termLines.push(TERM_SCRIPT[i++]);
+    if (S.view === "work") renderTerm();
+  }, 1300);
+}
+
+/* ───────────────────────── rendering helpers ───────────────────────── */
+const $ = (id) => document.getElementById(id);
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c])); }
+function stateGlyph(st) {
+  if (st === "blocked") return '<span class="state-blocked" aria-label="blocked">■</span>';
+  if (st === "idle" || st === "ready") return '<span class="state-idle" aria-label="idle">○</span>';
+  if (st === "done") return '<span class="state-done" aria-label="done">✓</span>';
+  return '<span class="state-working" aria-label="working">●</span>';
+}
+function stateText(st) {
+  const m = { working: "in progress", review: "in review", ready: "ready", blocked: "blocked", done: "done" };
+  const cls = st === "blocked" ? "state-blocked" : st === "done" ? "state-done" : st === "ready" ? "state-idle" : "state-working";
+  return '<span class="' + cls + '">' + stateGlyph(st === "review" ? "working" : st) + " " + (m[st] || st) + "</span>";
+}
+function ciMark(ci) {
+  if (ci === "green") return '<span class="state-done">✓</span>';
+  if (ci === "running") return '<span style="color:var(--amber)">◐</span>';
+  if (ci === "failing") return '<span style="color:var(--bad)">✗</span>';
+  return '<span class="dim">–</span>';
+}
+function spark(arr, color) {
+  const w = 84, h = 20, max = Math.max(...arr, 1);
+  const pts = arr.map((v, i) => (i * (w / (arr.length - 1))).toFixed(1) + "," + (h - 2 - (v / max) * (h - 4)).toFixed(1)).join(" ");
+  const last = pts.split(" ").pop().split(",");
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true"><polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.5"></polyline><circle cx="' + last[0] + '" cy="' + last[1] + '" r="2.2" fill="' + color + '"></circle></svg>';
+}
+function colorForState(st) { return st === "blocked" ? "var(--warn)" : st === "idle" ? "var(--dim)" : st === "done" ? "var(--ok)" : "var(--accent)"; }
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 4200);
+}
+
+/* ───────────────────────── top bar ───────────────────────── */
+function renderTop() {
+  const counts = { need: 0, work: 0, idle: 0 };
+  ROOMS[S.room].agents.forEach(a => { const st = AGENTS[a].state; if (st === "blocked") counts.need++; else if (st === "idle") counts.idle++; else counts.work++; });
+  const tabs = Object.keys(ROOMS).map((r, i) =>
+    '<button class="room-tab" data-room="' + r + '" aria-pressed="' + (r === S.room) + '">' + (i + 1) + " " + ROOMS[r].label + "</button>").join("");
+  const room = ROOMS[S.room];
+  const hosts = new Set(room.repos.map(r => r.host));
+  $("topbar").innerHTML =
+    '<span class="brand">vox rooms</span><div class="rooms" role="group" aria-label="Rooms">' + tabs + '</div><span class="grow"></span>' +
+    '<span class="dim">' + room.repos.length + " repos · " + hosts.size + " hosts · " + room.agents.length + ' agents</span>' +
+    '<span class="dim">│</span><span class="state-blocked">■ ' + activeQueue().length + ' needs you</span>' +
+    '<span class="dim">│</span><button class="pill" id="listenBtn" aria-pressed="' + S.listen + '" style="background:transparent;color:' + (S.listen ? "var(--ok)" : "var(--dim)") + '">' + (S.listen ? "◉ listen" : "○ listen off") + '</button>' +
+    '<button class="pill" id="muteBtn" aria-pressed="' + S.mute + '" style="background:transparent;color:' + (S.mute ? "var(--dim)" : "var(--fg)") + '">' + (S.mute ? "voice muted" : "♪ voice") + '</button>';
+}
+
+/* ───────────────────────── voice strip ───────────────────────── */
+function ringSvg(left) {
+  const r = 7, c = 2 * Math.PI * r, frac = Math.max(0, left) / 6;
+  return '<svg class="ring" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="' + r + '" fill="none" stroke="var(--line)" stroke-width="2.5"></circle><circle id="ringArc" cx="9" cy="9" r="' + r + '" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + (c * (1 - frac)).toFixed(1) + '" transform="rotate(-90 9 9)"></circle></svg>';
+}
+function updateRing() {
+  const arc = document.getElementById("ringArc"); const lbl = document.getElementById("ringLbl");
+  if (!arc) return;
+  const c = 2 * Math.PI * 7; arc.setAttribute("stroke-dashoffset", (c * (1 - S.listenLeft / 6)).toFixed(1));
+  if (lbl) lbl.textContent = S.listenLeft + "s";
+}
+function optionsRow(d, id) {
+  return '<div class="row">' + d.options.map((o, i) =>
+    '<button class="opt" data-answer="' + (i + 1) + '"><span class="key' + (o.rec ? " rec" : "") + '">' + (i + 1) + "</span> " + esc(o.label) + ' <span class="dim">' + esc(o.note) + "</span>" + (o.rec ? ' <span class="state-blocked">recommended</span>' : "") + "</button>").join("") + "</div>";
+}
+function sayRow(d) {
+  const phrases = d.options.map(o => o.say[0]).concat(["option two", "repeat", "later"]);
+  const uniq = [...new Set(phrases)];
+  return '<div class="row"><span class="dim">say:</span>' + uniq.map(p => '<button class="chip" data-say="' + esc(p) + '">"' + esc(p) + '"</button>').join("") +
+    '<span class="dim" style="font-size:11.5px">Microphone isn\'t available in this preview: tap a phrase to say it.</span></div>';
+}
+function renderVoice() {
+  const v = S.voice, el = $("voice");
+  el.className = "voice" + (v.mode === "speaking" ? " speaking" : v.mode === "listening" ? " listening" : v.mode === "confirm" ? " confirm" : "");
+  const id = v.id || activeDecision();
+  const d = id ? DECISIONS[id] : null;
+  if (!d) {
+    el.innerHTML = '<div class="row"><span class="state-done">✓</span><span class="strong">Nothing needs you in ' + esc(ROOMS[S.room].label) + '.</span><span class="dim">Agents will ask here, out loud, when they need a decision.</span></div>';
+    return;
+  }
+  const who = d.kind === "disagreement" ? '<span class="agent">' + d.agent + '</span> <span class="dim">vs</span> <span class="agent">' + d.against + "</span>" : '<span class="agent">' + d.agent + "</span>";
+  const kindLbl = d.kind === "disagreement" ? '<span class="state-blocked">⚑ agents disagree</span>' : d.kind === "approval" ? '<span style="color:var(--amber)">✓? approval</span>' : '<span class="state-blocked">■ asks</span>';
+  let status = "";
+  if (!S.started) status = '<button class="btn primary" id="playBtn">▶ Play the question</button>';
+  else if (v.mode === "speaking") status = '<span class="wave state-blocked" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="state-blocked">speaking · mic closed</span>';
+  else if (v.mode === "listening") status = ringSvg(S.listenLeft) + '<span class="state-done">listening <span id="ringLbl">' + S.listenLeft + "s</span></span>";
+  else if (v.mode === "matched") status = '<span class="dim">heard</span> <span class="strong">"' + esc(v.heardText) + '"</span> <span class="dim">→ option ' + (v.option + 1) + "</span>";
+  else if (v.mode === "confirm") status = '<span style="color:var(--amber)">irreversible · ' + esc(d.options[v.option].label) + ' · press ' + (v.option + 1) + ' again or</span> <button class="btn primary" data-say="confirm">Confirm</button> <button class="btn" data-say="cancel">Cancel</button>';
+  else if (v.mode === "readback") status = '<span class="state-done">✓</span> <span class="strong">"' + esc(v.text) + '"</span>';
+  else if (v.mode === "pending") status = '<span class="dim">' + (v.timedOut ? "No reply. It stays in needs-you." : !S.listen ? "Listening is off. Answer with a key." : "Waiting.") + '</span> <button class="btn" id="replayBtn">↻ ask again</button>';
+  else status = '<button class="btn" id="replayBtn">▶ ask</button>';
+  el.innerHTML =
+    '<div class="row">' + kindLbl + " " + who + ' <span class="dim">· ' + d.work + '</span><span class="strong">' + esc(d.question) + '</span><span class="grow"></span>' + status + "</div>" +
+    (v.mode === "readback" ? "" : optionsRow(d, id)) +
+    (S.started && (v.mode === "listening") ? sayRow(d) : "");
+}
+
+/* ───────────────────────── views ───────────────────────── */
+function needsYouPanel() {
+  const q = activeQueue();
+  const items = q.length ? q.map((id, i) => {
+    const d = DECISIONS[id];
+    const lbl = d.kind === "disagreement" ? '<span class="state-blocked">⚑ disagreement</span>' : d.kind === "approval" ? '<span style="color:var(--amber)">✓? approval</span>' : '<span class="state-blocked">■ ' + (i === 0 ? "asking now" : "asks") + "</span>";
+    return '<button class="dec' + (i === 0 ? " active" : "") + '" data-focus-decision="' + id + '"><span>' + lbl + ' <span class="dim">' + (d.kind === "disagreement" ? d.agent + " vs " + d.against : d.agent) + " · " + d.work + '</span></span><span class="strong">' + esc(d.question) + '</span><span class="dim">' + d.options.map((o, j) => (j + 1) + " " + esc(o.label)).join("  ·  ") + "</span></button>";
+  }).join("") : '<div class="empty">Nothing needs you. ✓</div>';
+  return '<section class="panel" aria-label="Needs you"><header><h2>needs you</h2><span class="grow"></span><span class="dim">b</span></header><div class="body">' + items + "</div></section>";
+}
+function roomMapSvg() {
+  const room = ROOMS[S.room];
+  const hosts = [...new Set(room.repos.map(r => r.host))];
+  const W = 520, H = 150, hw = (W - 20 - (hosts.length - 1) * 16) / hosts.length;
+  let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Room map: repositories grouped by machine, with each agent on its repository" style="display:block;max-width:100%">';
+  hosts.forEach((h, hi) => {
+    const x = 10 + hi * (hw + 16);
+    s += '<rect x="' + x + '" y="8" width="' + hw.toFixed(0) + '" height="134" fill="var(--panel2)" stroke="var(--line)"></rect>';
+    s += '<text x="' + (x + 8) + '" y="24" fill="var(--dim)" font-size="11">' + h + "</text>";
+    const repos = room.repos.filter(r => r.host === h);
+    const placed = a => (WORK[AGENTS[a].on] || { repos: [] }).repos.some(p => p.agent === a && repos.some(r => r.name === p.name));
+    const unplaced = room.agents.filter(a => AGENTS[a].host === h && !placed(a));
+    if (unplaced.length) s += '<text x="' + (x + hw - 8).toFixed(0) + '" y="24" text-anchor="end" fill="var(--violet)" font-size="11">' + unplaced.join(", ") + " (no repo)</text>";
+    const rw = (hw - 16 - (repos.length - 1) * 10) / repos.length;
+    repos.forEach((r, ri) => {
+      const rx = x + 8 + ri * (rw + 10);
+      s += '<rect x="' + rx.toFixed(0) + '" y="34" width="' + rw.toFixed(0) + '" height="98" fill="var(--panel)" stroke="var(--line)"></rect>';
+      s += '<text x="' + (rx + 8).toFixed(0) + '" y="52" fill="var(--strong)" font-size="12" font-weight="700">' + r.name + "</text>";
+      const ags = room.agents.filter(a => (WORK[AGENTS[a].on] || { repos: [] }).repos.some(p => p.name === r.name && p.agent === a) && AGENTS[a].host === h);
+      ags.forEach((a, ai) => {
+        const cy = 72 + ai * 22;
+        s += '<circle cx="' + (rx + 14).toFixed(0) + '" cy="' + cy + '" r="5" fill="' + colorForState(AGENTS[a].state) + '"></circle>';
+        s += '<text x="' + (rx + 24).toFixed(0) + '" y="' + (cy + 4) + '" fill="var(--violet)" font-size="11">' + a + "</text>";
+      });
+    });
+  });
+  if (hosts.length > 1) {
+    const x1 = 10 + hw, x2 = 10 + hw + 16;
+    s += '<line x1="' + x1.toFixed(0) + '" y1="75" x2="' + x2.toFixed(0) + '" y2="75" stroke="var(--accent)" stroke-width="2"></line>';
+  }
+  return s + "</svg>";
+}
+function boardPanel(compact) {
+  const room = ROOMS[S.room];
+  const rows = room.work.map(w => {
+    const W = WORK[w];
+    return '<button class="wi" data-open-work="' + w + '"><span class="dim">' + w.replace("b", "") + '</span><span>' + esc(W.title) + ' <span class="dim">' + W.repos.map(r => r.name).join(" · ") + '</span></span><span>' + stateText(W.state) + "</span></button>";
+  }).join("");
+  const decided = S.decided.filter(x => room.work.includes(DECISIONS[x.id].work)).slice(0, 4).map(x =>
+    '<div><span class="state-done">✓</span> ' + esc(DECISIONS[x.id].question.replace(/\?$/, "")) + ': <span class="strong">' + esc(x.answer) + '</span> <span class="dim">you, by ' + x.via + "</span></div>").join("");
+  const base = S.room === "terminal-epic"
+    ? '<div><span class="state-done">✓</span> schema TerminalLog <span class="dim">claude@lux, codex@vox</span></div><div><span class="state-done">✓</span> invariant replicas ≤ seq holds <span class="dim">claude@zspec</span></div>'
+    : "";
+  return '<section class="panel" aria-label="Board"><header><h2>board</h2><span class="grow"></span><span class="dim tabular">facts as of #' + (S.seq - 1) + ' · space</span></header><div class="body">' +
+    '<div class="section-label">plan</div>' + rows +
+    '<div class="section-label">decided</div>' + (decided + base || '<div class="dim">nothing yet</div>') +
+    (compact ? "" : '<div class="section-label">room map</div>' + roomMapSvg()) +
+    "</div></section>";
+}
+function teamPanel() {
+  const rows = ROOMS[S.room].agents.map(a => {
+    const A = AGENTS[a];
+    return '<div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div style="min-width:0">' + stateGlyph(A.state) + ' <span class="agent">' + a + '</span><div class="dim" style="padding-left:18px">' + A.on + " · " + esc(A.doing) + '</div><div class="dim" style="padding-left:18px;font-size:11.5px">' + A.host + "</div></div>" + spark(A.spark, colorForState(A.state)) + "</div>";
+  }).join("");
+  return '<section class="panel" aria-label="Team"><header><h2>team</h2><span class="grow"></span><span class="dim">t · last hour</span></header><div class="body">' + rows + "</div></section>";
+}
+function viewHome() {
+  return '<div class="grid3">' + needsYouPanel() + boardPanel(false) + teamPanel() + "</div>";
+}
+
+/* work item */
+function pipelineSvg(W) {
+  const n = W.repos.length, colW = 200, gap = 60, padX = 20;
+  const width = padX * 2 + n * colW + (n - 1) * gap, H = 210;
+  let s = '<svg viewBox="0 0 ' + width + " " + H + '" width="100%" style="display:block;max-width:' + width + 'px" role="img" aria-label="Work item across ' + n + ' repositories, grouped by machine, with merge order arrows">';
+  const hostOrder = [];
+  W.repos.forEach((r, i) => { if (!hostOrder.length || hostOrder[hostOrder.length - 1].host !== r.host) hostOrder.push({ host: r.host, from: i, to: i }); else hostOrder[hostOrder.length - 1].to = i; });
+  hostOrder.forEach(h => {
+    const x = padX + h.from * (colW + gap) - 10, w = (h.to - h.from + 1) * colW + (h.to - h.from) * gap + 20;
+    s += '<rect x="' + x + '" y="6" width="' + w + '" height="196" fill="var(--panel2)" stroke="var(--line)" stroke-dasharray="4 3"></rect>';
+    s += '<text x="' + (x + 8) + '" y="22" fill="var(--dim)" font-size="11">' + h.host + "</text>";
+  });
+  W.repos.forEach((r, i) => {
+    const x = padX + i * (colW + gap);
+    const ciCol = r.ci === "green" ? "var(--ok)" : r.ci === "running" ? "var(--amber)" : r.ci === "failing" ? "var(--bad)" : "var(--dim)";
+    s += '<g data-repo="' + r.name + '" style="cursor:pointer"><rect x="' + x + '" y="32" width="' + colW + '" height="160" fill="var(--panel)" stroke="' + (r.ci === "running" ? "var(--amber)" : "var(--line)") + '"></rect>';
+    s += '<text x="' + (x + 12) + '" y="54" fill="var(--strong)" font-size="14" font-weight="700">' + r.name + "</text>";
+    s += '<text x="' + (x + 12) + '" y="72" fill="var(--dim)" font-size="11">branch ' + (W === WORK.w731 ? "w731-terminal-log" : "work") + "</text>";
+    if (r.agent) {
+      const st = AGENTS[r.agent] ? AGENTS[r.agent].state : "idle";
+      s += '<circle cx="' + (x + 18) + '" cy="92" r="6" fill="' + colorForState(st) + '"></circle><text x="' + (x + 30) + '" y="96" fill="var(--violet)" font-size="11.5">' + r.agent + "</text>";
+    }
+    // CI ring
+    const cx = x + 34, cy = 140, rr = 18, c = 2 * Math.PI * rr;
+    const frac = r.ci === "green" ? 1 : r.ci === "running" ? Math.min(0.95, 0.25 + S.termLines.length / TERM_SCRIPT.length * 0.7) : r.ci === "failing" ? 1 : 0;
+    s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rr + '" fill="none" stroke="var(--line)" stroke-width="5"></circle>';
+    s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + rr + '" fill="none" stroke="' + ciCol + '" stroke-width="5" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + (c * (1 - frac)).toFixed(1) + '" transform="rotate(-90 ' + cx + " " + cy + ')"></circle>';
+    s += '<text x="' + cx + '" y="' + (cy + 4) + '" fill="' + ciCol + '" font-size="11" text-anchor="middle">CI</text>';
+    s += '<text x="' + (x + 64) + '" y="134" fill="var(--fg)" font-size="11.5">' + r.commits + " commits</text>";
+    s += '<text x="' + (x + 64) + '" y="152" fill="var(--fg)" font-size="11.5">PR ' + r.pr + "</text>";
+    s += '<text x="' + (x + 64) + '" y="170" fill="' + ciCol + '" font-size="11.5">' + (r.ci === "none" ? "no CI yet" : r.ci) + "</text></g>";
+    if (W.order && i < n - 1) {
+      const ax = x + colW + 6, bx = x + colW + gap - 6;
+      s += '<line x1="' + ax + '" y1="112" x2="' + (bx - 6) + '" y2="112" stroke="var(--accent)" stroke-width="2"></line><polygon points="' + (bx - 8) + ',106 ' + bx + ',112 ' + (bx - 8) + ',118" fill="var(--accent)"></polygon>';
+      s += '<text x="' + ((ax + bx) / 2) + '" y="102" fill="var(--accent)" font-size="10" text-anchor="middle">' + (i + 1) + (i === 0 ? "st" : "nd") + "</text>";
+    }
+  });
+  return s + "</svg>";
+}
+function renderTerm() {
+  const el = $("term"); if (!el) return;
+  el.textContent = S.termLines.join("\n") + (S.termDone ? "" : "\n▍");
+  const svgWrap = $("pipe");
+  if (svgWrap) svgWrap.innerHTML = pipelineSvg(WORK[S.focusWork]);
+}
+function viewWork() {
+  const room = ROOMS[S.room];
+  if (!room.work.includes(S.focusWork)) S.focusWork = room.work[0];
+  const W = WORK[S.focusWork];
+  const list = room.work.map(w => '<button class="wi" data-open-work="' + w + '" aria-pressed="' + (w === S.focusWork) + '" style="' + (w === S.focusWork ? "background:var(--panel2)" : "") + '"><span class="dim">' + w.replace("b", "") + '</span><span>' + esc(WORK[w].title) + "</span><span>" + stateText(WORK[w].state) + "</span></button>").join("");
+  const isMain = S.focusWork === "w731";
+  const facts = S.facts.filter(f => ["w731", "b3", "s19", "d42", "d43", "d44"].includes(f.e)).slice(0, 14)
+    .map(f => pad(f.e, 6) + pad(f.a, 18) + pad(f.v, 20) + "#" + f.seq).join("\n");
+  return '<div class="grid3" style="grid-template-columns:minmax(220px,0.8fr) minmax(0,2fr) minmax(240px,1fr)">' +
+    '<section class="panel" aria-label="Work items"><header><h2>work</h2><span class="grow"></span><span class="dim">w</span></header><div class="body">' + list + "</div></section>" +
+    '<section class="panel" aria-label="Work item ' + S.focusWork + '"><header><h2>' + S.focusWork.replace("b", "") + " " + esc(W.title) + "</h2>" + stateText(W.state) + '<span class="grow"></span><span class="dim">' + (W.owner ? "worker " + W.owner : "unassigned") + (W.reviewer ? " · reviewer " + W.reviewer : "") + "</span></header>" +
+      '<div class="body"><div id="pipe" style="overflow-x:auto">' + pipelineSvg(W) + "</div>" +
+      (W.order ? '<div class="row"><span class="dim">merge order</span><span class="strong">lux → vox → biff</span><span class="dim">vox and biff consume lux\'s protocol</span></div>' : "") +
+      (isMain ? '<div class="row"><span class="dim">implicit ·</span><span>build-01 › biff › w731-terminal-log › session s19 › terminal</span><span class="grow"></span><span class="dim">' + (S.termDone ? "finished" : "live") + '</span></div><div class="term" id="term" aria-live="off"></div>' : '<div class="dim">This prototype opens repo sessions only for w731.</div>') +
+      "</div></section>" +
+    '<section class="panel" aria-label="Facts"><header><h2>facts</h2><span class="grow"></span><span class="dim">f</span></header><div class="body"><div class="facts tabular">' + esc((pad("entity", 6) + pad("attribute", 18) + pad("value", 20) + "tx") + "\n" + (isMain ? facts : "(no facts shown for this item)")) + '</div><div class="dim">The board, this view and the terminal link are all queries over one log.</div></div></section>' +
+    "</div>";
+}
+function pad(s, n) { s = String(s); return s.length >= n ? s.slice(0, n - 1) + " " : s + " ".repeat(n - s.length); }
+
+/* board view */
+function histSvg() {
+  const vals = [2,5,11,24,41,52,47,33,21,12,7,4,3,2,1,1,0,1,0,0], W = 420, H = 150, x0 = 34, y0 = 122, bw = (W - x0 - 8) / vals.length, max = 52;
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;max-width:' + W + 'px" role="img" aria-label="Histogram of frame times, most between 5 and 12 milliseconds, a tail past the 16.7 millisecond budget">';
+  [0, 20, 40].forEach(t => { const y = y0 - t / max * 104; s += '<line x1="' + x0 + '" y1="' + y.toFixed(1) + '" x2="' + (W - 8) + '" y2="' + y.toFixed(1) + '" stroke="var(--line)"></line><text x="' + (x0 - 6) + '" y="' + (y + 4).toFixed(1) + '" fill="var(--dim)" font-size="10" text-anchor="end">' + t + "</text>"; });
+  vals.forEach((v, i) => { const h = v / max * 104; s += '<rect x="' + (x0 + i * bw + 1).toFixed(1) + '" y="' + (y0 - h).toFixed(1) + '" width="' + (bw - 2).toFixed(1) + '" height="' + h.toFixed(1) + '" fill="' + (i >= 13 ? "var(--warn)" : "var(--accent)") + '"></rect>'; });
+  const bx = x0 + 16.7 / 26 * (vals.length * bw);
+  s += '<line x1="' + bx.toFixed(1) + '" y1="10" x2="' + bx.toFixed(1) + '" y2="' + y0 + '" stroke="var(--warn)" stroke-dasharray="4 3"></line><text x="' + (bx + 4).toFixed(1) + '" y="20" fill="var(--warn)" font-size="10">16.7 ms budget</text>';
+  [0, 5, 10, 15, 20, 25].forEach(t => { const x = x0 + t / 26 * (vals.length * bw); s += '<text x="' + x.toFixed(1) + '" y="' + (y0 + 16) + '" fill="var(--dim)" font-size="10" text-anchor="middle">' + t + "</text>"; });
+  return s + '<text x="' + (W - 8) + '" y="' + (y0 + 26) + '" fill="var(--dim)" font-size="10" text-anchor="end">ms</text></svg>';
+}
+function viewBoard() {
+  return '<div class="grid2">' + boardPanel(true) +
+    '<section class="panel" aria-label="Render cost"><header><h2>render cost</h2><span class="dim">owned by codex@vox</span><span class="grow"></span><span class="dim">ImPlot3D</span></header><div class="body"><canvas id="surf" width="520" height="230" style="width:100%;max-width:520px;height:auto" role="img" aria-label="Rotating 3D wireframe of frame time over rows and columns, peaking where both are large"></canvas><div class="dim">Frame time over rows × columns. Drag-to-rotate in the real thing; here it turns on its own.</div></div></section>' +
+    '<section class="panel" aria-label="Frame time"><header><h2>frame time · table-1k</h2><span class="grow"></span><span class="dim">ImPlot</span></header><div class="body">' + histSvg() + "</div></section>" +
+    '<section class="panel" aria-label="Spec"><header><h2>spec</h2><span class="dim">owned by claude@zspec</span><span class="grow"></span><span class="dim">MicroTeX</span></header><div class="body">' +
+      '<div class="schema">┌ TerminalLog ───────────────────────\n│  owner    : HUB\n│  seq      : ℕ\n│  replicas : HUB ⇸ ℕ\n├────────────────────────────────────\n│  ∀ h : dom replicas • replicas h ≤ seq\n└────────────────────────────────────</div>' +
+      '<div class="math">∀ <i>r</i> : <i>replicas</i> • <i>seq</i>(<i>r</i>) ≤ <i>seq</i>(<i>owner</i>)</div>' +
+      '<div class="row"><span class="btn" style="background:var(--ok);color:var(--bg);border-color:var(--ok)">ProB · invariants hold</span><span class="btn">deadlock-free</span><span class="btn" style="color:var(--warn);border-color:var(--warn)">fidelity control reproduces the race</span></div>' +
+    "</div></section></div>";
+}
+let surfAngle = 0.6, surfRaf = null;
+function drawSurface() {
+  const cv = $("surf"); if (!cv) { surfRaf = null; return; }
+  const ctx = cv.getContext("2d"), W = cv.width, H = cv.height, N = 16;
+  ctx.clearRect(0, 0, W, H);
+  const z = (x, y) => 0.55 * Math.exp(-((x - 0.3) ** 2 + (y + 0.2) ** 2) * 2.2) + 0.25 * Math.exp(-((x + 0.5) ** 2 + (y - 0.5) ** 2) * 4);
+  const ca = Math.cos(surfAngle), sa = Math.sin(surfAngle);
+  const P = (i, j) => { const x = i / (N - 1) * 2 - 1, y = j / (N - 1) * 2 - 1, rx = x * ca - y * sa, ry = x * sa + y * ca;
+    return [W / 2 + rx * 150, H * 0.62 + ry * 55 - z(x, y) * 170]; };
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#7aa2f7";
+  ctx.lineWidth = 1;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let a = 0; a < N; a++) {
+      ctx.beginPath();
+      for (let b = 0; b < N; b++) { const p = pass ? P(a, b) : P(b, a); b ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); }
+      ctx.strokeStyle = accent; ctx.globalAlpha = pass ? 0.45 : 0.9; ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduce) { surfAngle += 0.006; surfRaf = requestAnimationFrame(drawSurface); } else surfRaf = null;
+}
+
+/* team view */
+function viewTeam() {
+  const agents = ROOMS[S.room].agents;
+  const W = 760, rowH = 34, x0 = 150, H = agents.length * rowH + 40;
+  const segs = {
+    "claude@lux": [["working", 0, 60]], "codex@vox": [["working", 0, 38], ["blocked", 38, 60]],
+    "claude@zspec": [["idle", 0, 14], ["working", 14, 60]], "claude@biff": [["idle", 0, 20], ["working", 20, 60]],
+    "claude@vox": [["working", 0, 44], ["blocked", 44, 60]], "claude@cleanup": [["working", 0, 60]]
+  };
+  let s = '<svg viewBox="0 0 ' + W + " " + H + '" width="100%" style="display:block;max-width:' + W + 'px" role="img" aria-label="Timeline of each agent\'s state over the last hour">';
+  [0, 15, 30, 45, 60].forEach(t => { const x = x0 + t / 60 * (W - x0 - 12); s += '<line x1="' + x.toFixed(0) + '" y1="8" x2="' + x.toFixed(0) + '" y2="' + (H - 22) + '" stroke="var(--line)"></line><text x="' + x.toFixed(0) + '" y="' + (H - 6) + '" fill="var(--dim)" font-size="10" text-anchor="middle">' + (t === 60 ? "now" : "-" + (60 - t) + "m") + "</text>"; });
+  agents.forEach((a, i) => {
+    const y = 12 + i * rowH;
+    s += '<text x="0" y="' + (y + 15) + '" fill="var(--violet)" font-size="12">' + a + "</text>";
+    (segs[a] || [["working", 0, 60]]).forEach(sg => {
+      const cur = sg[2] === 60 ? AGENTS[a].state : sg[0];
+      const x1 = x0 + sg[1] / 60 * (W - x0 - 12), x2 = x0 + sg[2] / 60 * (W - x0 - 12);
+      s += '<rect x="' + x1.toFixed(0) + '" y="' + y + '" width="' + (x2 - x1).toFixed(0) + '" height="20" fill="' + colorForState(cur) + '" opacity="' + (cur === "idle" ? 0.35 : 0.85) + '"></rect>';
+    });
+  });
+  s += "</svg>";
+  return '<div class="grid2" style="grid-template-columns:minmax(0,2fr) minmax(240px,1fr)"><section class="panel" aria-label="Team timeline"><header><h2>team · last hour</h2><span class="grow"></span><span class="dim"><span class="state-working">■</span> working <span class="state-blocked">■</span> blocked <span class="state-idle">■</span> idle</span></header><div class="body" style="overflow-x:auto">' + s + "</div></section>" + teamPanel() + "</div>";
+}
+
+/* tools view */
+function viewTools() {
+  const kept = T().kept.map(t => '<div><span style="display:inline-block;width:120px;color:var(--amber)">' + t + '</span><span class="dim">claude@lux · kept</span></div>').join("");
+  const list = '<section class="panel" aria-label="Tools in this room"><header><h2>tools</h2><span class="grow"></span><span class="dim">k</span></header><div class="body">' +
+    '<div class="section-label">core · shipped, built like any other tool</div>' + CORE_TOOLS.map(t => '<div><span style="display:inline-block;width:120px">' + t.id + '</span><span class="dim">' + t.key + "</span></div>").join("") +
+    '<div class="section-label">installed</div>' + INSTALLED.map(t => '<div><span style="display:inline-block;width:120px">' + t.id + '</span><span class="dim">' + t.by + " · " + t.what + "</span></div>").join("") +
+    '<div class="section-label">made in this room</div>' + (kept || '<div class="dim">none yet</div>') +
+    (T().draft ? '<div style="background:var(--panel2)"><span style="display:inline-block;width:120px;color:var(--amber)">protocol-ci</span><span class="dim">draft · claude@lux</span></div>' : "") +
+    "</div></section>";
+  let right;
+  if (!T().draft && !T().kept.includes("protocol-ci")) {
+    right = '<section class="panel" aria-label="Ask for a tool"><header><h2>ask an agent for a tool</h2></header><div class="body">' +
+      '<div class="strong">"Make me a view of everything touching the protocol, with CI status."</div>' +
+      '<div class="dim">An agent composes it from existing elements and room facts. No new code, so it is safe to build on the spot.</div>' +
+      '<div class="row"><button class="btn primary" id="askTool">Say it to claude@lux</button></div></div></section>';
+  } else {
+    const rows = Object.keys(WORK).filter(w => WORK[w].tags.includes("protocol") && ROOMS[S.room].work.includes(w)).map(w => {
+      const W = WORK[w]; const ci = (n) => { const r = W.repos.find(x => x.name === n); return r ? ciMark(r.ci) : '<span class="dim">–</span>'; };
+      return "<tr><td>" + w + " " + esc(W.title) + "</td><td>" + ci("lux") + "</td><td>" + ci("vox") + "</td><td>" + ci("biff") + "</td><td>" + stateText(W.state) + "</td></tr>";
+    }).join("") || '<tr><td colspan="5" class="dim">No protocol work items in this room.</td></tr>';
+    const building = T().draft === "building";
+    right = '<section class="panel" aria-label="protocol-ci" style="border-color:var(--amber)"><header style="background:var(--amber-bg)"><h2 style="color:var(--amber)">protocol-ci</h2><span class="dim">' + (T().kept.includes("protocol-ci") ? "kept · key 6 · voice \"protocol status\"" : building ? "building…" : "draft preview · live data") + "</span></header><div class=\"body\">" +
+      (building ? '<div class="dim">claude@lux is composing the view…</div>' :
+      '<div style="overflow-x:auto"><table><thead><tr><th>work item</th><th>lux</th><th>vox</th><th>biff</th><th>state</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+      '<div class="facts">' + esc("tool    protocol-ci\nby      claude@lux\nreads   work items where work/tag = protocol\n        ci/status of their branches\nwrites  nothing\nop      status(work_item) → {repo: ci}\nview    table · row per work item\nkey     6     voice  \"protocol status\"\nscope   read-only") + "</div>" +
+      (T().kept.includes("protocol-ci") ? '<div class="state-done">Kept. Every agent in the room can now discover it by querying tool facts.</div>' :
+        '<div class="row"><button class="btn primary" id="keepTool"><span class="key" style="background:var(--bg);color:var(--accent)">k</span> keep</button><button class="btn" id="discardTool">discard</button><span class="dim">or say "keep it"</span></div>')) +
+      "</div></section>";
+  }
+  return '<div class="grid2" style="grid-template-columns:minmax(260px,1fr) minmax(0,2fr)">' + list + right + "</div>";
+}
+
+/* ───────────────────────── frame ───────────────────────── */
+function renderDock() {
+  const cur = { home: "decisions", board: "board", work: "work", team: "team", tools: "tools" }[S.view];
+  let s = '<span class="dim">tools</span>' + CORE_TOOLS.map(t => '<button class="tool core" data-tool="' + t.id + '" aria-pressed="' + (cur === t.id) + '">' + t.id + "</button>").join("") + '<span class="dim">│</span>' +
+    INSTALLED.map(t => '<button class="tool" data-tool="' + t.id + '">' + t.id + "</button>").join("");
+  if (T().kept.length) s += '<span class="dim">│</span>' + T().kept.map(t => '<button class="tool new" data-tool="' + t + '">' + t + "</button>").join("");
+  else if (T().draft === "ready") s += '<span class="dim">│</span><button class="tool new" data-tool="tools">protocol-ci <span class="dim">draft</span></button>';
+  s += '<span class="grow"></span><button class="tool" data-tool="tools" aria-pressed="' + (S.view === "tools") + '">all tools (k)</button><button class="tool" id="factsBtn">facts (f)</button><button class="tool" id="helpBtn">keys (?)</button>';
+  $("dock").innerHTML = s;
+}
+function renderKeys() {
+  $("keys").innerHTML = "<span><b>1 / 2</b> answer</span><span><b>b</b> needs you</span><span><b>space</b> board</span><span><b>w</b> work</span><span><b>t</b> team</span><span><b>k</b> tools</span><span><b>v</b> listen on/off</span><span><b>m</b> mute</span><span><b>alt 1–3</b> rooms</span><span><b>esc</b> back</span>";
+}
+function renderView() {
+  if (surfRaf) { cancelAnimationFrame(surfRaf); surfRaf = null; }
+  const v = S.view;
+  $("main").innerHTML = v === "board" ? viewBoard() : v === "work" ? viewWork() : v === "team" ? viewTeam() : v === "tools" ? viewTools() : viewHome();
+  if (v === "board") drawSurface();
+  if (v === "work") renderTerm();
+}
+function renderDrawer() {
+  $("drawer").innerHTML = '<div class="row"><span class="strong">facts · one log</span><span class="grow"></span><button class="btn" id="closeDrawer">close (esc)</button></div>' +
+    '<div class="dim">Every change in the room is a signed fact. Views are queries over this log.</div>' +
+    '<div class="facts tabular">' + esc(pad("tx", 7) + pad("entity", 7) + pad("attribute", 18) + pad("value", 18) + "by") + "\n" +
+    S.facts.slice(0, 40).map(f => esc(pad("#" + f.seq, 7) + pad(f.e, 7) + pad(f.a, 18) + pad(f.v, 18) + f.by)).join("\n") + "</div>";
+}
+function render() { renderTop(); renderVoice(); renderView(); renderDock(); renderKeys(); }
+
+/* ───────────────────────── actions ───────────────────────── */
+function start() {
+  if (S.started) return;
+  S.started = true;
+  if (!synth) ttsUnavailable("not supported by this browser");
+  startCI();
+  ask();
+}
+function setView(v) { S.view = v; renderView(); renderDock(); $("main").focus({ preventScroll: true }); }
+function setRoom(r) {
+  if (!ROOMS[r] || r === S.room) return;
+  clearListen(); stopSpeech();
+  S.epoch++;
+  S.room = r; S.view = "home"; S.voice = { mode: "idle" };
+  render();
+  const ep = S.epoch;
+  if (S.started && activeDecision()) setTimeout(() => { if (S.epoch === ep && S.voice.mode === "idle") ask(); }, 400);
+}
+function askTool() {
+  const roomId = S.room;
+  const tools = T();
+  tools.draft = "building"; S.view = "tools"; render();
+  setTimeout(() => {
+    if (tools.draft !== "building") return;
+    tools.draft = "ready"; fact("t9", "tool/name", "protocol-ci", "claude@lux"); fact("t9", "tool/reads", "ci/status", "claude@lux");
+    if (S.room !== roomId) { toast("claude@lux finished a draft tool, protocol-ci, in " + roomId + "."); return; }
+    render();
+    clearListen();
+    S.voice = { mode: "speaking", id: null, text: "Built a draft" };
+    renderVoice();
+    toast("claude@lux built a draft tool: protocol-ci. Keep it?");
+    speak("Built a draft: protocol ci. Keep it?", () => {
+      if (S.voice.mode !== "speaking" || S.voice.id !== null) return;
+      const next = activeDecision();
+      S.voice = next ? { mode: "pending", id: next } : { mode: "idle" };
+      renderVoice();
+    });
+  }, 1400);
+}
+function keepTool() {
+  if (T().kept.includes("protocol-ci")) return;
+  T().kept.push("protocol-ci"); T().draft = null;
+  fact("t9", "tool/kept", "true", "you"); fact("t9", "tool/key", "6", "you");
+  render();
+  setTimeout(() => {
+    fact("t9", "tool/used-by", "codex@vox", "codex@vox");
+    toast("codex@vox found protocol-ci by querying tools that read ci/status, and called status(w731).");
+  }, 2200);
+}
+function discardTool() { T().draft = null; fact("t9", "tool/discarded", "true", "you"); render(); toast("Draft discarded."); }
+function toggleListen() {
+  S.listen = !S.listen; fact("you", "voice/listen", S.listen ? "on" : "off", "you");
+  if (!S.listen && S.voice.mode === "listening") { clearListen(); S.voice = { mode: "pending", id: S.voice.id }; }
+  renderTop(); renderVoice(); toast(S.listen ? "Listening after questions is on." : "Listening is off. Questions still arrive on screen.");
+}
+function toggleMute() { S.mute = !S.mute; if (S.mute && synth) synth.cancel(); renderTop(); toast(S.mute ? "Voice muted." : "Voice on."); }
+function toggleDrawer(force) { const d = $("drawer"); const open = force !== undefined ? force : d.hidden; d.hidden = !open; if (open) renderDrawer(); }
+function toggleHelp(force) {
+  const h = $("help"); const open = force !== undefined ? force : h.hidden; h.hidden = !open;
+  if (open) h.innerHTML = '<div class="card" role="dialog" aria-label="Keys"><div class="row"><span class="strong">every action is one key</span><span class="grow"></span><button class="btn" id="closeHelp">close (esc)</button></div><div class="cols" style="margin-top:10px">' +
+    '<div><div class="dim">attention</div><div><b>b</b> needs you</div><div><b>1 2</b> answer</div><div><b>v</b> listen on/off</div><div><b>m</b> mute voice</div></div>' +
+    '<div><div class="dim">the work</div><div><b>space</b> board</div><div><b>w</b> work items</div><div><b>↵</b> open</div><div><b>esc</b> back</div></div>' +
+    '<div><div class="dim">the room</div><div><b>t</b> team</div><div><b>k</b> tools</div><div><b>f</b> facts</div><div><b>alt 1–3</b> rooms</div></div></div></div>';
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("button, g[data-repo]");
+  if (!t) return;
+  const wasStarted = S.started;
+  if (!S.started && t.id !== "muteBtn") start();
+  if (t.id === "playBtn" || t.id === "replayBtn") { if (wasStarted) ask(); return; }
+  if (t.id === "listenBtn") { toggleListen(); return; }
+  if (t.id === "muteBtn") { toggleMute(); return; }
+  if (t.id === "askTool") { askTool(); return; }
+  if (t.id === "keepTool") { keepTool(); return; }
+  if (t.id === "discardTool") { discardTool(); return; }
+  if (t.id === "factsBtn") { toggleDrawer(); return; }
+  if (t.id === "closeDrawer") { toggleDrawer(false); return; }
+  if (t.id === "helpBtn") { toggleHelp(true); return; }
+  if (t.id === "closeHelp") { toggleHelp(false); return; }
+  if (t.dataset.room) { setRoom(t.dataset.room); return; }
+  if (t.dataset.answer) { answerByKey(Number(t.dataset.answer)); return; }
+  if (t.dataset.say) { heard(t.dataset.say); return; }
+  if (t.dataset.openWork) { S.focusWork = t.dataset.openWork; setView("work"); return; }
+  if (t.dataset.focusDecision) { const q = activeQueue(); const i = q.indexOf(t.dataset.focusDecision); if (i > 0) { q.splice(i, 1); q.unshift(t.dataset.focusDecision); } ask(); render(); return; }
+  if (t.dataset.repo) {
+    if (ROOMS[S.room].work.includes("w731")) { S.focusWork = "w731"; setView("work"); }
+    else toast("Repo sessions open only for w731 in this prototype.");
+    return;
+  }
+  if (t.dataset.tool) {
+    const m = { decisions: "home", board: "board", work: "work", team: "team", tools: "tools", "protocol-ci": "tools" };
+    if (m[t.dataset.tool]) setView(m[t.dataset.tool]);
+    else toast(t.dataset.tool + " is an installed tool. This prototype opens the core tools and protocol-ci.");
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+  if ((e.key === " " || e.key === "Enter") && e.target.closest && e.target.closest("button, a, g[data-repo]")) return;
+  if (e.altKey && !e.metaKey && !e.ctrlKey && /^Digit[1-9]$/.test(e.code)) {
+    e.preventDefault();
+    const r = Object.keys(ROOMS)[Number(e.code.slice(5)) - 1];
+    if (r) setRoom(r); else toast("No room " + e.code.slice(5) + " yet.");
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key;
+  if (k === "Escape") { if (!$("help").hidden) return toggleHelp(false); if (!$("drawer").hidden) return toggleDrawer(false); if (S.view !== "home") return setView("home"); return; }
+  if (k === "?") { toggleHelp(); return; }
+  if (!S.started && ["1", "2", "b", "v"].includes(k)) start();
+  if (k === "1" || k === "2") { answerByKey(Number(k)); return; }
+  if (k === " ") { e.preventDefault(); setView("board"); return; }
+  if (k === "b") return setView("home");
+  if (k === "w") return setView("work");
+  if (k === "t") return setView("team");
+  if (k === "k") { if (S.view === "tools" && T().draft === "ready") return keepTool(); return setView("tools"); }
+  if (k === "f") return toggleDrawer();
+  if (k === "v") return toggleListen();
+  if (k === "m") return toggleMute();
+  if (k === "6" && T().kept.includes("protocol-ci")) return setView("tools");
+  if (k === "Enter" && S.view === "home") { S.focusWork = ROOMS[S.room].work[0]; return setView("work"); }
+});
+
+seedFacts();
+render();
+</script>

@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lux blackboard and mesh</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=STIX+Two+Text:ital@0;1&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#8FC4FF}a:hover{color:#B8DAFF}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid #2A3040; background: #12151B">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="11" cy="11" r="3.5" fill="{{accent}}"></circle></svg>
+      <span style="font-weight: 700; font-size: 15px">Lux</span>
+    </div>
+    <span style="font-weight: 600">Blackboard · terminal epic</span>
+    <span style="color: #A3ACBB">home hub: studio</span>
+    <div style="flex: 1 1 0"></div>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap" aria-label="Writers on this board">
+      <span style="padding: 4px 9px; border-radius: 999px; background: #1F2531; border: 1px solid #3A4357">claude@lux</span>
+      <span style="padding: 4px 9px; border-radius: 999px; background: #1F2531; border: 1px solid #3A4357">codex@vox</span>
+      <span style="padding: 4px 9px; border-radius: 999px; background: #1F2531; border: 1px solid #3A4357">claude@zspec</span>
+      <span style="padding: 4px 9px; border-radius: 999px; background: #1F2531; border: 1px solid #3A4357">you</span>
+    </div>
+    <button type="button" style="background: {{accent}}; color: #0E1014; border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; font-weight: 600">Add region</button>
+  </header>
+
+  <div style="display: flex; flex-wrap: wrap; flex: 1 1 auto; min-height: 0">
+
+    <main style="flex: 999 1 640px; min-width: 0; padding: 12px; display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start">
+
+      <section aria-label="Region Plan" style="flex: 1 1 440px; min-width: 0; background: #12151B; border: 1px solid #2A3040; border-radius: 10px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040; background: #171A21">
+          <span style="font-weight: 600">Plan</span>
+          <span style="color: #A3ACBB">owned by claude@lux · everyone reads</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">table</span>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+            <thead>
+              <tr style="text-align: left; color: #A3ACBB; font-size: 12px">
+                <th scope="col" style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid #2A3040">Work</th>
+                <th scope="col" style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid #2A3040">State</th>
+                <th scope="col" style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid #2A3040">Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F">Log replication primitive</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #A9D0FF">In progress</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #C9CFDA">claude@lux</td>
+              </tr>
+              <tr>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F">Native terminal element</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #F5C08A">Blocked by 2</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #C9CFDA">codex@vox</td>
+              </tr>
+              <tr>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F">luxd-pty session host</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #C9CFDA">Ready</td>
+                <td style="padding: 9px 12px; border-bottom: 1px solid #20252F; color: #8590A2">unassigned</td>
+              </tr>
+              <tr>
+                <td style="padding: 9px 12px">Guard ## in labels (PL-564)</td>
+                <td style="padding: 9px 12px; color: #A9D0FF">In review</td>
+                <td style="padding: 9px 12px; color: #C9CFDA">claude@lux</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-label="Region Render cost" style="flex: 1 1 440px; min-width: 0; background: #12151B; border: 1px solid #2A3040; border-radius: 10px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040; background: #171A21">
+          <span style="font-weight: 600">Render cost</span>
+          <span style="color: #A3ACBB">owned by codex@vox</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">ImPlot3D</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 12px 10px">
+          <svg viewBox="0 0 360 225" width="100%" role="img" aria-label="3D wireframe surface of frame time against rows and columns, with one peak where both are large." style="display: block; flex: 1 1 300px; max-width: 420px">
+            <polyline points="180.0,59.7 193.5,66.0 207.0,71.7 220.5,76.7 234.0,81.0 247.5,84.9 261.0,89.2 274.5,94.8 288.0,102.3 301.5,111.2 315.0,120.9 328.5,130.5" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="166.5,66.2 180.0,72.1 193.5,77.1 207.0,80.7 220.5,83.0 234.0,84.7 247.5,87.1 261.0,91.9 274.5,99.8 288.0,110.4 301.5,122.3 315.0,133.9" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="153.0,72.7 166.5,78.1 180.0,82.1 193.5,84.0 207.0,84.0 220.5,83.0 234.0,83.1 247.5,86.9 261.0,95.4 274.5,108.0 288.0,122.6 301.5,136.7" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="139.5,79.1 153.0,83.9 166.5,86.8 180.0,87.2 193.5,85.1 207.0,81.7 220.5,79.9 234.0,82.7 247.5,91.8 261.0,106.3 274.5,123.3 288.0,139.8" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="126.0,85.1 139.5,89.2 153.0,91.3 166.5,90.7 180.0,87.5 193.5,83.2 207.0,80.6 220.5,83.0 234.0,92.5 247.5,108.1 261.0,126.6 274.5,144.4" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="112.5,90.6 126.0,93.6 139.5,94.7 153.0,94.0 166.5,91.7 180.0,88.6 193.5,87.1 207.0,90.2 220.5,100.0 234.0,115.5 247.5,133.8 261.0,151.5" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="99.0,95.3 112.5,96.7 126.0,96.8 139.5,96.7 153.0,97.0 166.5,97.6 180.0,99.2 193.5,104.0 207.0,113.7 220.5,128.1 234.0,144.8 247.5,160.8" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="85.5,99.7 99.0,99.5 112.5,98.6 126.0,99.7 139.5,103.6 153.0,108.9 166.5,114.6 180.0,121.5 193.5,131.2 207.0,143.8 220.5,157.9 234.0,171.5" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="72.0,105.2 85.5,104.2 99.0,103.2 112.5,105.6 126.0,112.5 139.5,121.8 153.0,130.9 166.5,139.5 180.0,148.9 193.5,159.6 207.0,171.1 220.5,182.3" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="58.5,112.8 72.0,112.6 85.5,112.7 99.0,116.5 112.5,125.0 126.0,135.9 139.5,146.4 153.0,155.6 166.5,164.4 180.0,173.5 193.5,183.0 207.0,192.2" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="45.0,122.0 58.5,123.9 72.0,126.1 85.5,131.2 99.0,139.7 112.5,150.1 126.0,160.0 139.5,168.8 153.0,176.9 166.5,184.9 180.0,193.0 193.5,201.0" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="31.5,131.5 45.0,135.6 58.5,140.0 72.0,145.9 85.5,153.8 99.0,162.8 112.5,171.4 126.0,179.4 139.5,186.9 153.0,194.2 166.5,201.6 180.0,208.9" fill="none" stroke="{{accent}}" stroke-opacity="0.95" stroke-width="1"></polyline>
+            <polyline points="180.0,59.7 166.5,66.2 153.0,72.7 139.5,79.1 126.0,85.1 112.5,90.6 99.0,95.3 85.5,99.7 72.0,105.2 58.5,112.8 45.0,122.0 31.5,131.5" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="193.5,66.0 180.0,72.1 166.5,78.1 153.0,83.9 139.5,89.2 126.0,93.6 112.5,96.7 99.0,99.5 85.5,104.2 72.0,112.6 58.5,123.9 45.0,135.6" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="207.0,71.7 193.5,77.1 180.0,82.1 166.5,86.8 153.0,91.3 139.5,94.7 126.0,96.8 112.5,98.6 99.0,103.2 85.5,112.7 72.0,126.1 58.5,140.0" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="220.5,76.7 207.0,80.7 193.5,84.0 180.0,87.2 166.5,90.7 153.0,94.0 139.5,96.7 126.0,99.7 112.5,105.6 99.0,116.5 85.5,131.2 72.0,145.9" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="234.0,81.0 220.5,83.0 207.0,84.0 193.5,85.1 180.0,87.5 166.5,91.7 153.0,97.0 139.5,103.6 126.0,112.5 112.5,125.0 99.0,139.7 85.5,153.8" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="247.5,84.9 234.0,84.7 220.5,83.0 207.0,81.7 193.5,83.2 180.0,88.6 166.5,97.6 153.0,108.9 139.5,121.8 126.0,135.9 112.5,150.1 99.0,162.8" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="261.0,89.2 247.5,87.1 234.0,83.1 220.5,79.9 207.0,80.6 193.5,87.1 180.0,99.2 166.5,114.6 153.0,130.9 139.5,146.4 126.0,160.0 112.5,171.4" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="274.5,94.8 261.0,91.9 247.5,86.9 234.0,82.7 220.5,83.0 207.0,90.2 193.5,104.0 180.0,121.5 166.5,139.5 153.0,155.6 139.5,168.8 126.0,179.4" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="288.0,102.3 274.5,99.8 261.0,95.4 247.5,91.8 234.0,92.5 220.5,100.0 207.0,113.7 193.5,131.2 180.0,148.9 166.5,164.4 153.0,176.9 139.5,186.9" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="301.5,111.2 288.0,110.4 274.5,108.0 261.0,106.3 247.5,108.1 234.0,115.5 220.5,128.1 207.0,143.8 193.5,159.6 180.0,173.5 166.5,184.9 153.0,194.2" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="315.0,120.9 301.5,122.3 288.0,122.6 274.5,123.3 261.0,126.6 247.5,133.8 234.0,144.8 220.5,157.9 207.0,171.1 193.5,183.0 180.0,193.0 166.5,201.6" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <polyline points="328.5,130.5 315.0,133.9 301.5,136.7 288.0,139.8 274.5,144.4 261.0,151.5 247.5,160.8 234.0,171.5 220.5,182.3 207.0,192.2 193.5,201.0 180.0,208.9" fill="none" stroke="{{accent}}" stroke-opacity="0.55" stroke-width="1"></polyline>
+            <g fill="#A3ACBB" font-family="Inter, sans-serif" font-size="11">
+              <text x="70" y="198">rows</text>
+              <text x="262" y="198">columns</text>
+              <text x="200" y="40">frame ms</text>
+            </g>
+          </svg>
+          <div style="flex: 1 1 140px; display: flex; flex-direction: column; gap: 8px; color: #C9CFDA; line-height: 1.5">
+            <span>Cost rises when both rows and columns are large.</span>
+            <span style="color: #A3ACBB; font-size: 12px">Drag to rotate · scroll to zoom</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Region Spec" style="flex: 1 1 440px; min-width: 0; background: #12151B; border: 1px solid #2A3040; border-radius: 10px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040; background: #171A21">
+          <span style="font-weight: 600">Spec</span>
+          <span style="color: #A3ACBB">owned by claude@zspec</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">MicroTeX</span>
+        </div>
+        <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px">
+          <div style="color: #A3ACBB; font-size: 12px">Log replication · invariant L1, replicas never run ahead of the owner</div>
+          <div style="font-family: 'STIX Two Text', Georgia, serif; font-size: 22px; color: #F0F2F6">
+            ∀ <i>r</i> : <i>replicas</i> • <i>seq</i>(<i>r</i>) ≤ <i>seq</i>(<i>owner</i>) ∧ <i>log</i>(<i>r</i>) ⊑ <i>log</i>(<i>owner</i>)
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <span style="font-size: 12px; font-weight: 600; color: #0E1014; background: {{accent}}; border-radius: 4px; padding: 3px 8px">ProB · invariants hold</span>
+            <span style="font-size: 12px; color: #C9CFDA; border: 1px solid #3A4357; border-radius: 4px; padding: 3px 8px">deadlock-free</span>
+            <span style="font-size: 12px; color: #F5C08A; border: 1px solid #6B4A26; border-radius: 4px; padding: 3px 8px">fidelity control: reproduces the resume race</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Region Mesh" style="flex: 1 1 440px; min-width: 0; background: #12151B; border: 1px solid #2A3040; border-radius: 10px; overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040; background: #171A21">
+          <span style="font-weight: 600">Mesh</span>
+          <span style="color: #A3ACBB">written by the hubs</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">imgui-node-editor · Graphviz layout</span>
+        </div>
+        <div style="padding: 8px 10px; background-image: radial-gradient(#252B38 1px, transparent 1px); background-size: 18px 18px">
+          <svg viewBox="0 0 520 230" width="100%" role="img" aria-label="Three machines joined over mTLS. studio runs the Display and the home Hub; laptop and build-01 each run a Hub; laptop and build-01 replicate logs to each other." style="display: block">
+            <g fill="none" stroke-width="2">
+              <path d="M170,115 C250,115 250,45 330,45" stroke="{{accent}}"></path>
+              <path d="M170,115 C250,115 250,180 330,180" stroke="{{accent}}"></path>
+              <path d="M415,75 L415,150" stroke="#5E6B82" stroke-dasharray="5 4"></path>
+            </g>
+            <g font-family="Inter, sans-serif">
+              <rect x="20" y="78" width="150" height="74" rx="8" fill="#1C2029" stroke="{{accent}}"></rect>
+              <text x="34" y="104" fill="#E7EAF0" font-size="14" font-weight="600">studio</text>
+              <text x="34" y="124" fill="#A3ACBB" font-size="12">Display · home hub</text>
+              <text x="34" y="141" fill="#A3ACBB" font-size="12">owns this board</text>
+
+              <rect x="330" y="15" width="170" height="60" rx="8" fill="#1C2029" stroke="#3A4357"></rect>
+              <text x="344" y="40" fill="#E7EAF0" font-size="14" font-weight="600">laptop</text>
+              <text x="344" y="60" fill="#A3ACBB" font-size="12">Hub · 2 agents</text>
+
+              <rect x="330" y="150" width="170" height="60" rx="8" fill="#1C2029" stroke="#3A4357"></rect>
+              <text x="344" y="175" fill="#E7EAF0" font-size="14" font-weight="600">build-01</text>
+              <text x="344" y="195" fill="#A3ACBB" font-size="12">Hub · luxd-pty · 3 agents</text>
+
+              <g font-size="11" fill="#A9D0FF">
+                <text x="232" y="70">mTLS</text>
+                <text x="232" y="170">mTLS</text>
+              </g>
+              <text x="424" y="117" font-size="11" fill="#A3ACBB">replicates logs</text>
+            </g>
+          </svg>
+        </div>
+      </section>
+    </main>
+
+    <aside aria-label="Board history" style="flex: 1 1 300px; max-width: 100%; border-left: 1px solid #2A3040; background: #12151B; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2A3040">
+        <span style="font-weight: 600">Board history</span>
+        <span style="flex: 1 1 0"></span>
+        <button type="button" style="background: transparent; color: #E7EAF0; border: 1px solid #3A4357; border-radius: 6px; padding: 5px 10px; font: inherit; font-size: 12px">Replay</button>
+      </div>
+      <ol style="list-style: none; margin: 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto">
+        <li style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8590A2">#1047 · signed codex@vox</span>
+          <span style="color: #D3D8E2; line-height: 1.45">Rewrote Render cost with the new bench run.</span>
+        </li>
+        <li style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8590A2">#1046 · signed claude@zspec</span>
+          <span style="color: #D3D8E2; line-height: 1.45">Spec: the model-check passed with the fix in place.</span>
+        </li>
+        <li style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8590A2">#1045 · signed claude@lux</span>
+          <span style="color: #D3D8E2; line-height: 1.45">Plan: "Guard ## in labels" moved to In review.</span>
+        </li>
+        <li style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8590A2">#1044 · you</span>
+          <span style="color: #D3D8E2; line-height: 1.45">Asked codex@vox to own the terminal element.</span>
+        </li>
+        <li style="display: flex; flex-direction: column; gap: 3px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #8590A2">#1043 · build-01 hub</span>
+          <span style="color: #D3D8E2; line-height: 1.45">Joined the mesh. Trust anchor verified.</span>
+        </li>
+      </ol>
+      <form style="padding: 12px 14px; border-top: 1px solid #2A3040; display: flex; gap: 8px">
+        <label for="note" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message the board</label>
+        <input id="note" type="text" placeholder="Message the board" style="flex: 1 1 auto; min-width: 0; background: #0E1014; color: #E7EAF0; border: 1px solid #3A4357; border-radius: 6px; padding: 9px 10px; font: inherit">
+        <button type="button" style="background: {{accent}}; color: #0E1014; border: 0; border-radius: 6px; padding: 9px 14px; font: inherit; font-weight: 600">Send</button>
+      </form>
+    </aside>
+  </div>
+
+  <footer aria-label="Terminals" style="display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 12px; border-top: 1px solid #2A3040; background: #12151B">
+    <a href="#" style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid #2A3040; border-radius: 8px; background: #0E1014; text-decoration: none; color: #E7EAF0">
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span>claude@lux</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #A3ACBB">pytest tests/protocol -q</span>
+    </a>
+    <a href="#" style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid #6B4A26; border-radius: 8px; background: #1E1813; text-decoration: none; color: #E7EAF0">
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 2px; background: #F2A65A"></span>codex@vox</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #F5C08A">Waiting: which parser, pyte or libghostty?</span>
+    </a>
+    <a href="#" style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid #2A3040; border-radius: 8px; background: #0E1014; text-decoration: none; color: #E7EAF0">
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span>claude@zspec</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #A3ACBB">probcli -model_check log.tex</span>
+    </a>
+    <a href="#" style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid #2A3040; border-radius: 8px; background: #0E1014; text-decoration: none; color: #E7EAF0">
+      <span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #8590A2; box-sizing: border-box"></span>zsh · laptop</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #A3ACBB">detached 2h · still running</span>
+    </a>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#5AA9FF","options":["#5AA9FF","#7CD3C4","#B39DFF"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#5AA9FF' };
+  }
+}
+</script>
+</body>
+</html>

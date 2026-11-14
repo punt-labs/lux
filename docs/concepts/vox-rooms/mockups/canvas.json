@@ -1,0 +1,151 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Blackboard.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "C · Blackboard and mesh: agents coordinate on shared state",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "BlackboardImGui.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "D · Blackboard and mesh, built from Lux's real ImGui theme (DarculaDarker + docking)",
+      "w": 1440,
+      "x": 4560,
+      "y": 0
+    },
+    "BlackboardThemed.dc.html": {
+      "h": 900,
+      "title": "F · C rebuilt within ImGui limits: custom theme, fixed layout, one style per text run",
+      "w": 1440,
+      "x": 7600,
+      "y": 0
+    },
+    "Live.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "E · Live environment: halos, inspector, system browser, playground (Pharo-inspired)",
+      "w": 1440,
+      "x": 6080,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "A · Workbench: terminals beside live views",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Scrollback.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "title": "B · Rich scrollback: live widgets inside the terminal",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "TuiWorkspace.dc.html": {
+      "h": 900,
+      "title": "G · Terminal workspace: tiled agents, the ask bar, one key to answer",
+      "w": 1440,
+      "x": 0,
+      "y": 1400
+    },
+    "VoiceLoop.dc.html": {
+      "h": 900,
+      "title": "H · Listen after speaking: a question answered by voice, step by step",
+      "w": 1440,
+      "x": 1520,
+      "y": 1400
+    },
+    "AgentChannel.dc.html": {
+      "h": 900,
+      "title": "I · Agent channel: agents co-design in precise formats, you step in only when flagged",
+      "w": 1440,
+      "x": 3040,
+      "y": 1400
+    },
+    "FirstRun.dc.html": {
+      "h": 900,
+      "title": "J · First run: one command, nothing to configure, and the key layer",
+      "w": 1440,
+      "x": 4560,
+      "y": 1400
+    },
+    "RoomHome.dc.html": {
+      "h": 900,
+      "title": "K · Room home: what needs me, where the work stands, who is on what, and the tools",
+      "w": 1440,
+      "x": 0,
+      "y": 2800
+    },
+    "WorkItem.dc.html": {
+      "h": 900,
+      "title": "L · Cross-repo work item: explicit on top, the implicit layer one key down",
+      "w": 1440,
+      "x": 1520,
+      "y": 2800
+    },
+    "Tools.dc.html": {
+      "h": 900,
+      "title": "M · Tools: the defaults, installed tools, and one an agent built on request",
+      "w": 1440,
+      "x": 3040,
+      "y": 2800
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-12T05:40:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "heading": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Lux as the room where agents work: six directions",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "heading2": {
+      "kind": "title1",
+      "maxW": 6000,
+      "text": "The herdr competitor: keyboard-first, zero config, agents ask and you answer",
+      "x": 0,
+      "y": 1100
+    },
+    "heading3": {
+      "kind": "title1",
+      "maxW": 4480,
+      "text": "Rooms: one container for repos, hosts, agents, state and tools",
+      "x": 0,
+      "y": 2500
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Scrollback.dc.html",
+    "Blackboard.dc.html",
+    "BlackboardImGui.dc.html",
+    "Live.dc.html",
+    "BlackboardThemed.dc.html",
+    "TuiWorkspace.dc.html",
+    "VoiceLoop.dc.html",
+    "AgentChannel.dc.html",
+    "FirstRun.dc.html",
+    "RoomHome.dc.html",
+    "WorkItem.dc.html",
+    "Tools.dc.html"
+  ],
+  "pages": [],
+  "title": "Lux Room mockups"
+}

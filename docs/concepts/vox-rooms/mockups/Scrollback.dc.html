@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lux rich scrollback</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=STIX+Two+Text:ital@0;1&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#8FC4FF}a:hover{color:#B8DAFF}
+</style>
+</helmet>
+<div style="min-height: 900px; background: #0E1014; color: #E7EAF0; font-family: Inter, system-ui, sans-serif; font-size: 13px; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid #2A3040; background: #12151B">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="9" fill="none" stroke="{{accent}}" stroke-width="2"></circle><circle cx="11" cy="11" r="3.5" fill="{{accent}}"></circle></svg>
+      <span style="font-weight: 700; font-size: 15px">Lux</span>
+    </div>
+    <span style="color: #A3ACBB">lux</span>
+    <span style="color: #6F7A8C">/</span>
+    <span style="font-weight: 600">claude@lux</span>
+    <span style="font-size: 11px; color: #A9D0FF; border: 1px solid #2E4D72; border-radius: 4px; padding: 2px 6px">Working</span>
+    <div style="flex: 1 1 0"></div>
+    <button type="button" style="background: transparent; color: #E7EAF0; border: 1px solid #3A4357; border-radius: 6px; padding: 7px 12px; font: inherit">Split right</button>
+    <button type="button" style="background: transparent; color: #E7EAF0; border: 1px solid #3A4357; border-radius: 6px; padding: 7px 12px; font: inherit">Detach</button>
+  </header>
+
+  <div style="display: flex; flex-wrap: wrap; flex: 1 1 auto; min-height: 0">
+
+    <nav aria-label="Sessions" style="flex: 1 1 200px; max-width: 100%; padding: 14px 10px; border-right: 1px solid #2A3040; background: #12151B; display: flex; flex-direction: column; gap: 4px">
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: #A3ACBB; padding: 0 8px 6px">Sessions</div>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 6px; background: #1F2531; color: #E7EAF0; text-decoration: none"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span>claude@lux</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 6px; color: #C9CFDA; text-decoration: none"><span style="width: 8px; height: 8px; border-radius: 2px; background: #F2A65A"></span>claude@biff</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 6px; color: #C9CFDA; text-decoration: none"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{accent}}"></span>codex@vox</a>
+      <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 6px; color: #C9CFDA; text-decoration: none"><span style="width: 8px; height: 8px; border-radius: 50%; border: 2px solid #8590A2; box-sizing: border-box"></span>zsh · build-01</a>
+    </nav>
+
+    <main aria-label="Terminal claude@lux" style="flex: 999 1 560px; min-width: 0; padding: 18px 22px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.65; color: #C9CFDA; display: flex; flex-direction: column; gap: 6px; background: #0E1014">
+      <div><span style="color: #8590A2">~/lux $</span> make bench SCENE=table-1k</div>
+      <div style="color: #8590A2">rendering 600 frames of a 1,000-row table…</div>
+      <div><span style="color: {{accent}}">⏺</span> The slow frames cluster above the 16.7 ms budget. Showing the distribution:</div>
+
+      <figure style="margin: 6px 0 4px; padding: 0; border: 1px solid #2A3040; border-radius: 10px; background: #12151B; font-family: Inter, sans-serif; max-width: 640px">
+        <figcaption style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040">
+          <span style="font-weight: 600; color: #E7EAF0">Frame time · table-1k</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">ImPlot · live widget</span>
+        </figcaption>
+        <svg viewBox="0 0 540 170" width="100%" role="img" aria-label="Histogram of frame times from 0 to 26 ms. Most frames fall between 5 and 12 ms; a tail of frames lies past the 16.7 ms budget line." style="display: block">
+          <g stroke="#262C39" stroke-width="1">
+            <line x1="40" y1="15" x2="510" y2="15"></line>
+            <line x1="40" y1="53" x2="510" y2="53"></line>
+            <line x1="40" y1="92" x2="510" y2="92"></line>
+          </g>
+          <rect x="41.0" y="125.6" width="21.5" height="4.4" fill="{{accent}}"></rect>
+          <rect x="64.5" y="118.9" width="21.5" height="11.1" fill="{{accent}}"></rect>
+          <rect x="88.0" y="105.7" width="21.5" height="24.3" fill="{{accent}}"></rect>
+          <rect x="111.5" y="76.9" width="21.5" height="53.1" fill="{{accent}}"></rect>
+          <rect x="135.0" y="39.3" width="21.5" height="90.7" fill="{{accent}}"></rect>
+          <rect x="158.5" y="15.0" width="21.5" height="115.0" fill="{{accent}}"></rect>
+          <rect x="182.0" y="26.1" width="21.5" height="103.9" fill="{{accent}}"></rect>
+          <rect x="205.5" y="57.0" width="21.5" height="73.0" fill="{{accent}}"></rect>
+          <rect x="229.0" y="83.6" width="21.5" height="46.4" fill="{{accent}}"></rect>
+          <rect x="252.5" y="103.5" width="21.5" height="26.5" fill="{{accent}}"></rect>
+          <rect x="276.0" y="114.5" width="21.5" height="15.5" fill="{{accent}}"></rect>
+          <rect x="299.5" y="121.2" width="21.5" height="8.8" fill="{{accent}}"></rect>
+          <rect x="323.0" y="123.4" width="21.5" height="6.6" fill="{{accent}}"></rect>
+          <rect x="346.5" y="125.6" width="21.5" height="4.4" fill="#F2A65A"></rect>
+          <rect x="370.0" y="127.8" width="21.5" height="2.2" fill="#F2A65A"></rect>
+          <rect x="393.5" y="127.8" width="21.5" height="2.2" fill="#F2A65A"></rect>
+          <rect x="440.5" y="127.8" width="21.5" height="2.2" fill="#F2A65A"></rect>
+          <line x1="342" y1="8" x2="342" y2="130" stroke="#F2A65A" stroke-width="1.5" stroke-dasharray="4 3"></line>
+          <text x="347" y="20" fill="#F5C08A" font-family="Inter, sans-serif" font-size="11">16.7 ms budget</text>
+          <line x1="40" y1="130" x2="510" y2="130" stroke="#3A4357"></line>
+          <g fill="#A3ACBB" font-family="Inter, sans-serif" font-size="11" text-anchor="middle">
+            <text x="40" y="146">0</text>
+            <text x="130" y="146">5</text>
+            <text x="221" y="146">10</text>
+            <text x="311" y="146">15</text>
+            <text x="402" y="146">20</text>
+            <text x="492" y="146">25 ms</text>
+          </g>
+          <g fill="#A3ACBB" font-family="Inter, sans-serif" font-size="11" text-anchor="end">
+            <text x="34" y="134">0</text>
+            <text x="34" y="96">40</text>
+            <text x="34" y="57">80</text>
+            <text x="34" y="19">120</text>
+          </g>
+        </svg>
+        <div style="padding: 6px 12px 10px; color: #A3ACBB; font-size: 12px">Hover a bar for its count · drag to zoom · stays live while make bench runs</div>
+      </figure>
+
+      <div><span style="color: {{accent}}">⏺</span> This change has to keep the Hub's one-owner invariant:</div>
+
+      <figure style="margin: 6px 0 4px; padding: 14px 16px; border: 1px solid #2A3040; border-radius: 10px; background: #12151B; max-width: 640px; font-family: Inter, sans-serif">
+        <div style="font-family: 'STIX Two Text', Georgia, serif; font-size: 22px; color: #F0F2F6; letter-spacing: 0.2px">
+          <span>∀</span> <i>h</i> : <span style="font-style: normal">HubId</span> <span>•</span> #{ <i>c</i> ∈ <i>live</i> | <i>hubOf</i>(<i>c</i>) = <i>h</i> } ≤ 1
+        </div>
+        <figcaption style="display: flex; gap: 10px; align-items: center; margin-top: 10px; color: #A3ACBB; font-size: 12px">
+          <span>At most one live connection per HubId · docs/crosshost_hubid_preemption.tex</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">MicroTeX</span>
+        </figcaption>
+      </figure>
+
+      <div style="margin-top: 6px"><span style="color: #8590A2">~/lux $</span> lux screenshot --inspect table-header</div>
+
+      <figure style="margin: 6px 0 4px; padding: 0; border: 1px solid #2A3040; border-radius: 10px; background: #12151B; font-family: Inter, sans-serif; max-width: 640px">
+        <figcaption style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #2A3040">
+          <span style="font-weight: 600; color: #E7EAF0">Pixel inspector · table header edge</span>
+          <span style="flex: 1 1 0"></span>
+          <span style="font-size: 11px; color: #A3ACBB; border: 1px solid #3A4357; border-radius: 4px; padding: 2px 6px">ImmVision</span>
+        </figcaption>
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; padding: 12px">
+          <div style="flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 120px; border-radius: 6px; background: #171A21; border: 1px solid #2A3040; padding: 10px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px" aria-hidden="true">
+              <div style="height: 14px; width: 70%; border-radius: 3px; background: #3A78C4"></div>
+              <div style="height: 8px; width: 90%; border-radius: 3px; background: #262C39"></div>
+              <div style="height: 8px; width: 80%; border-radius: 3px; background: #262C39"></div>
+              <div style="height: 8px; width: 85%; border-radius: 3px; background: #262C39"></div>
+              <div style="margin-left: 34%; margin-top: -48px; width: 34px; height: 24px; border: 1.5px solid #F2A65A"></div>
+            </div>
+            <span style="color: #A3ACBB; font-size: 12px">Screenshot · orange box is the zoomed area</span>
+          </div>
+          <div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+            <div role="img" aria-label="14 by 8 grid of zoomed pixels showing an anti-aliased edge between the dark background and the blue header" style="display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 1px; background: #0E1014; border: 1px solid #2A3040">
+              <sc-for list="{{pixels}}" as="p" hint-placeholder-count="112">
+                <div style="aspect-ratio: 1; background: {{p.c}}; outline: {{p.ring}}; outline-offset: -2px"></div>
+              </sc-for>
+            </div>
+            <span style="font-family: 'JetBrains Mono', monospace; color: #C9CFDA; font-size: 12px">x 418 · y 96 · rgb(53, 106, 172)</span>
+          </div>
+        </div>
+      </figure>
+
+      <div style="margin-top: 6px"><span style="color: #8590A2">~/lux $</span> <span style="display: inline-block; width: 8px; height: 15px; vertical-align: -3px; background: #E7EAF0"></span></div>
+    </main>
+
+    <aside aria-label="Channel lux-dev" style="flex: 1 1 320px; max-width: 100%; border-left: 1px solid #2A3040; background: #12151B; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #2A3040">
+        <span style="font-weight: 600">#lux-dev</span>
+        <span style="color: #A3ACBB">via Biff</span>
+        <span style="flex: 1 1 0"></span>
+        <span style="color: #A3ACBB; font-size: 12px">3 agents · you</span>
+      </div>
+      <div style="flex: 1 1 auto; padding: 14px; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div><span style="font-weight: 600">you</span> <span style="color: #8590A2; font-size: 12px">10:42</span></div>
+          <div style="color: #D3D8E2; line-height: 1.5">Is the frame-time tail from the table patch?</div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div><span style="font-weight: 600">claude@lux</span> <span style="color: #8590A2; font-size: 12px">10:44</span></div>
+          <div style="color: #D3D8E2; line-height: 1.5">Likely. The slow frames start with that patch. The histogram is live in my terminal.</div>
+          <a href="#" style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #2A3040; border-radius: 8px; background: #171A21; text-decoration: none; color: #E7EAF0">
+            <svg width="34" height="22" viewBox="0 0 34 22" aria-hidden="true"><rect x="2" y="14" width="4" height="6" fill="{{accent}}"></rect><rect x="8" y="6" width="4" height="14" fill="{{accent}}"></rect><rect x="14" y="2" width="4" height="18" fill="{{accent}}"></rect><rect x="20" y="9" width="4" height="11" fill="{{accent}}"></rect><rect x="26" y="17" width="4" height="3" fill="#F2A65A"></rect></svg>
+            <span>Frame time · table-1k</span>
+          </a>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 4px">
+          <div><span style="font-weight: 600">codex@vox</span> <span style="color: #8590A2; font-size: 12px">10:45</span></div>
+          <div style="color: #D3D8E2; line-height: 1.5">The vox music panel is unaffected. I checked on build-01.</div>
+        </div>
+      </div>
+      <form style="padding: 12px 14px; border-top: 1px solid #2A3040; display: flex; gap: 8px">
+        <label for="msg" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Message #lux-dev</label>
+        <input id="msg" type="text" placeholder="Message #lux-dev" style="flex: 1 1 auto; min-width: 0; background: #0E1014; color: #E7EAF0; border: 1px solid #3A4357; border-radius: 6px; padding: 9px 10px; font: inherit">
+        <button type="button" style="background: {{accent}}; color: #0E1014; border: 0; border-radius: 6px; padding: 9px 14px; font: inherit; font-weight: 600">Send</button>
+      </form>
+    </aside>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#5AA9FF","options":["#5AA9FF","#7CD3C4","#B39DFF"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = [23, 26, 33];
+    const btn = [58, 120, 196];
+    const pixels = [];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 14; c++) {
+        let t = Math.max(0, Math.min(1, (c - 4.5 + (r - 3.5) * 0.15) / 2.5));
+        if (r === 0 || r === 7) t = t * 0.4;
+        const rgb = base.map((v, i) => Math.round(v + (btn[i] - v) * t));
+        const picked = r === 1 && c === 7;
+        pixels.push({
+          c: 'rgb(' + rgb.join(', ') + ')',
+          ring: picked ? '2px solid #F2A65A' : 'none'
+        });
+      }
+    }
+    return { accent: this.props.accent ?? '#5AA9FF', pixels: pixels };
+  }
+}
+</script>
+</body>
+</html>

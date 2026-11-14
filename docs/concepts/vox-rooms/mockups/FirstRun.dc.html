@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#16171f}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; box-sizing: border-box; overflow: hidden; background: #16171f; color: #c8d0e8; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 22px; display: flex; flex-direction: column; padding: 28px 36px; gap: 26px">
+
+  <section aria-label="First run output" style="white-space: pre; line-height: 24px"><span style="color: #7f88a8">~ $</span> <span style="color: #e6e9f4">curl -fsSL [INSTALL URL] | sh &amp;&amp; lux</span>
+
+<span style="color: #e6e9f4; font-weight: 700">lux</span>  <span style="color: #7f88a8">first run · nothing to configure</span>
+
+  <span style="color: #9ece6a">✓</span> projects        3   <span style="color: #7f88a8">~/punt-labs/lux  ~/punt-labs/vox  ~/punt-labs/biff</span>
+  <span style="color: #9ece6a">✓</span> agents          4   <span style="color: #7f88a8">claude ×3 (hooks)  codex ×1 (process)</span>
+  <span style="color: #9ece6a">✓</span> sessions        2   <span style="color: #7f88a8">reattached from luxd-pty</span>
+  <span style="color: #9ece6a">✓</span> voice out           <span style="color: #7f88a8">vox</span>
+  <span style="color: #9ece6a">✓</span> voice in            <span style="color: #7f88a8">mic · listen after questions: on</span>
+  <span style="color: #9ece6a">✓</span> agent channels      <span style="color: #7f88a8">biff · #lux-dev</span>
+  <span style="color: #7f88a8">–</span> rich panes          <span style="color: #7f88a8">no GPU display found · text panes only</span>
+
+<span style="color: {{accent}}">ready.</span> <span style="color: #e6e9f4">⌘B jumps to whatever needs you.</span> <span style="color: #7f88a8">⌘? shows every key.</span></section>
+
+  <section aria-label="Key layer" style="border: 1px solid #2c2f40; display: flex; flex-direction: column">
+    <div style="padding: 2px 10px; background: #1c1e29; border-bottom: 1px solid #2c2f40; display: flex; gap: 12px"><span style="color: #e6e9f4; font-weight: 700">⌘?</span><span style="color: #7f88a8">every action is one key · the mouse works but is never needed</span></div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; padding: 12px 16px; font-size: 13px; line-height: 24px">
+      <div style="display: flex; flex-direction: column">
+        <span style="color: #7f88a8">attention</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘B</span>next thing that needs you</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">1 2 3</span>answer the open question</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">r / s</span>repeat / later</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘V</span>listen after speaking on/off</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘M</span>mute voice</span>
+      </div>
+      <div style="display: flex; flex-direction: column">
+        <span style="color: #7f88a8">agents</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘↵</span>new agent in this project</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘H/J/K/L</span>move focus</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘F</span>full-screen the pane</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘C</span>agent channels</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘D</span>detach, everything keeps running</span>
+      </div>
+      <div style="display: flex; flex-direction: column">
+        <span style="color: #7f88a8">projects</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘1–9</span>switch project</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘␣</span>the board</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘G</span>open in the GPU display</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘R</span>remote machines</span>
+        <span><span style="color: #e6e9f4; display: inline-block; width: 120px">⌘Q</span>quit the client, not the agents</span>
+      </div>
+    </div>
+  </section>
+
+  <div style="margin-top: auto; display: flex; gap: 40px; color: #7f88a8; font-size: 13px">
+    <span>no wizard</span><span>no settings screen</span><span>no account</span><span>overrides live in one text file nobody needs to open</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#7aa2f7","options":["#7aa2f7","#7dcfff","#bb9af7"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { accent: this.props.accent ?? '#7aa2f7' };
+  }
+}
+</script>
+</body>
+</html>
