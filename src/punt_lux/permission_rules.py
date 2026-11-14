@@ -10,10 +10,29 @@ from typing import Final
 
 __all__ = ["LUX_RULES"]
 
-# Least privilege (permissions.md §§ 3, 6): the read-only CLI subcommands by
-# name, so enable/disable/hook keep prompting, and skills by scoped name
+# Least privilege (permissions.md §§ 3, 6): the CLI data plane by name -- the
+# hub-client groups that mirror the granted MCP tools, plus the read-only
+# checks -- so install/uninstall/enable/disable/hook and the hub and display
+# service controls keep prompting; skills by scoped name
 # (scripts/check-skill-permissions.sh checks _COMMANDS against plugin/commands).
-_CLI_SUBCOMMANDS: Final = ("doctor", "ping", "status", "version")
+_CLI_SUBCOMMANDS: Final = (
+    "beads",
+    "callback",
+    "display info",
+    "display screenshot",
+    "display status",
+    "doctor",
+    "error",
+    "event",
+    "frame",
+    "hub status",
+    "menu",
+    "ping",
+    "scene",
+    "session",
+    "status",
+    "version",
+)
 _COMMANDS: Final = (
     "callback.pending",
     "display.info",

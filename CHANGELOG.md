@@ -4,10 +4,14 @@
 
 ### Changed
 
-- **`lux enable` grants named read-only CLI rules and scoped skill rules
-  only (PL-1031).** `Bash(lux:*)` is replaced by `Bash(lux doctor:*)`,
-  `Bash(lux ping:*)`, `Bash(lux status:*)` and `Bash(lux version:*)`, so
-  `lux enable`, `lux disable` and `lux hook` keep prompting. Every
+- **`lux enable` grants named data-plane CLI rules and scoped skill rules
+  only (PL-1031).** `Bash(lux:*)` is replaced by one `Bash(lux <cmd>:*)`
+  rule per data-plane command: the hub-client groups that mirror the MCP
+  tools (`beads`, `callback`, `error`, `event`, `frame`, `menu`, `scene`,
+  `session`), `display info|screenshot|status`, `hub status`, `doctor`,
+  `ping`, `status` and `version`. `install`, `uninstall`, `enable`,
+  `disable`, `hook` and the `hub`/`display` service controls keep
+  prompting. Every
   `Skill()` rule now uses its plugin-scoped `Skill(lux:<cmd>)` name.
   `lux disable` removes the new set; the old `Bash(lux:*)` and bare
   `Skill(<cmd>)` rules an earlier `lux enable` wrote stay until you delete
