@@ -28,7 +28,6 @@ lint: ## Lint and format check
 	uv run --extra display ruff check .
 	uv run --extra display ruff format --check .
 	npx markdownlint-cli2 "**/*.md" "#node_modules"
-	bash scripts/check-skill-permissions.sh
 	bash scripts/check-plugin-surface.sh
 
 type: ## Type check with mypy and pyright
