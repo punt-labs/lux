@@ -1,4 +1,4 @@
-"""lux's allow rules in a project's ``.claude/settings.json``.
+"""lux's permission rules in a project's ``.claude/settings.json``.
 
 ``lux enable`` is the operator's explicit opt-in, so it -- not plugin startup
 -- grants Claude Code permission to call lux's MCP tools and slash commands
@@ -22,36 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Self, cast, final
 
-__all__ = ["LUX_RULES", "PermissionChange", "ProjectPermissions"]
+from punt_lux.permission_rules import LUX_RULES
 
-# Every Skill() rule is spelled out so scripts/check-skill-permissions.sh can
-# verify by static grep that each deployed command is allowed.
-LUX_RULES: Final = (
-    "mcp__plugin_lux_lux__*",
-    "Bash(lux:*)",
-    "Skill(callback.pending)",
-    "Skill(display.info)",
-    "Skill(display.screenshot)",
-    "Skill(error.ls)",
-    "Skill(event.ls)",
-    "Skill(frame.raise)",
-    "Skill(frame.remove)",
-    "Skill(lux)",
-    "Skill(menu.ls)",
-    "Skill(menu.set)",
-    "Skill(ping)",
-    "Skill(scene.clear)",
-    "Skill(scene.clear-all)",
-    "Skill(scene.inspect)",
-    "Skill(scene.ls)",
-    "Skill(scene.show)",
-    "Skill(scene.table)",
-    "Skill(scene.update)",
-    "Skill(session.ls)",
-    "Skill(topic.publish)",
-    "Skill(topic.subscribe)",
-    "Skill(topic.unsubscribe)",
-)
+__all__ = ["PermissionChange", "ProjectPermissions"]
 
 _NEW_FILE_MODE: Final = 0o644
 
@@ -163,18 +136,21 @@ class ProjectPermissions:
         return True
 
     def _apply(self, *, add: bool) -> tuple[str, ...]:
-        """Edit the allow list in place and write it back if it changed."""
+        """Edit each tier in place and write the file back if a rule changed."""
         settings = self._read()
-        allow = self._allow_list(settings)
-        if add:
-            changed = tuple(rule for rule in LUX_RULES if rule not in allow)
-            allow.extend(changed)
-        else:
-            changed = tuple(rule for rule in LUX_RULES if rule in allow)
-            allow[:] = [rule for rule in allow if rule not in LUX_RULES]
+        changed: list[str] = []
+        for tier, owned in LUX_RULES.items():
+            rules = self._rule_list(settings, tier, create=add)
+            if add:
+                added = [rule for rule in owned if rule not in rules]
+                rules.extend(added)
+                changed.extend(added)
+            else:
+                changed.extend(rule for rule in owned if rule in rules)
+                rules[:] = [rule for rule in rules if rule not in owned]
         if changed:
             self._write(json.dumps(settings, indent=2) + "\n")
-        return changed
+        return tuple(changed)
 
     def _read(self) -> dict[str, object]:
         """Return the parsed settings, ``{}`` when absent; refuse a non-object."""
@@ -194,21 +170,25 @@ class ProjectPermissions:
         return cast("dict[str, object]", data)
 
     @staticmethod
-    def _allow_list(settings: dict[str, object]) -> list[object]:
-        """Return ``permissions.allow``, creating it if absent; refuse bad shapes.
+    def _rule_list(
+        settings: dict[str, object], tier: str, *, create: bool
+    ) -> list[object]:
+        """Return ``permissions.<tier>``, created if absent and *create*.
 
-        A ``permissions`` or ``allow`` of the wrong type is the user's data, so
-        it is reported rather than overwritten.
+        A ``permissions`` or tier of the wrong type is the user's data, so it
+        is reported rather than overwritten. Containers created here are only
+        written when a rule changes.
         """
         permissions = settings.setdefault("permissions", {})
         if not isinstance(permissions, dict):
             msg = ".claude/settings.json 'permissions' is not an object"
             raise ValueError(msg)
-        allow = cast("dict[str, object]", permissions).setdefault("allow", [])
-        if not isinstance(allow, list):
-            msg = ".claude/settings.json 'permissions.allow' is not a list"
+        tiers = cast("dict[str, object]", permissions)
+        rules = tiers.setdefault(tier, []) if create else tiers.get(tier, [])
+        if not isinstance(rules, list):
+            msg = f".claude/settings.json 'permissions.{tier}' is not a list"
             raise ValueError(msg)
-        return cast("list[object]", allow)
+        return cast("list[object]", rules)
 
     def _write(self, text: str) -> None:
         """Replace ``settings.json`` atomically, keeping an existing mode."""
