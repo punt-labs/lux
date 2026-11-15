@@ -33,6 +33,9 @@ If the question is "what does the code approximately do today?", use
   the persistent `LuxHubClient` listener, and connecting to `luxd`'s MCP
   endpoint directly. The [README](../README.md) is for users; this is the
   developer companion.
+- [user-guide.md](./user-guide.md) — how a session connects to `luxd`, how
+  session menus and the `lux-beads` applet work, and the permission rules
+  `lux enable` writes.
 
 ## Coding Standard
 
