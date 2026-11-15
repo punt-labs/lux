@@ -8,25 +8,11 @@
 [![Python](https://img.shields.io/pypi/pyversions/punt-lux)](https://pypi.org/project/punt-lux/)
 [![Working Backwards](https://img.shields.io/badge/Working%20Backwards-hypothesis-9E9E9E)](prfaq.pdf)
 
-Lux gives agents and apps a shared visual surface. The intended architecture is a hub/display split: clients send UI descriptions to `luxd`, the Hub owns authoritative element state and behavior, and the Display renders a replica of the current scene while forwarding user interactions back to the Hub.
-
-The design draws on X11's client/server split and Smalltalk-style live introspection. MCP is one gateway into Lux, not the whole architecture. If you want the short version of the rewrite target, start with [`docs/architecture/target/target.md`](docs/architecture/target/target.md). If you need help navigating the docs, use [`docs/README.md`](docs/README.md). For the product direction, positioning, and risk assessment — the Working Backwards PR/FAQ — see [`prfaq.pdf`](prfaq.pdf).
+Lux shows tables, charts, forms, and other UI elements in a desktop window on behalf of AI coding agents such as Claude Code, and on behalf of local Python apps. Agents and apps send a description of the UI as JSON to `luxd`, a background service (the Hub) that keeps the UI's state and runs its click and change handlers. A separate window process (the Display) draws that UI and reports what the user does back to the Hub. Lux ships as a Claude Code plugin, an MCP server, a `lux` command-line tool, and a Python library.
 
 **Platforms:** macOS, Linux
 
-**Stage:** alpha --- protocol is stable, published on PyPI as `punt-lux`
-
-*A Claude Code plugin displaying a project issue board --- the agent fetches live data from DoltDB via `bd list --json`, builds a filterable table with detail panel, and renders it in a single tool call. Filters and row selection run at 60fps with zero MCP round-trips.*
-
-![Beads issue board with filterable table and detail panel](docs/assets/beads-board.png)
-
-*The same list/detail pattern generalizes to any tabular data. Search, combo filters, pagination, and a detail panel --- all driven by a single `show_table()` call.*
-
-![Filterable data explorer with detail panel](docs/assets/data-explorer-filtered.png)
-
-*Dashboards compose metric cards, charts, and tables. `show_dashboard()` builds the layout from structured data --- no manual element positioning needed.*
-
-![Dashboard with metrics, charts, and data table](docs/assets/dashboard.png)
+**Stage:** alpha --- published on PyPI as `punt-lux`
 
 ## Quick Start
 
@@ -34,46 +20,74 @@ The design draws on X11's client/server split and Smalltalk-style live introspec
 curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/175b81bc/install.sh | sh
 ```
 
-Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
+Restart Claude Code to activate the plugin. The Lux window opens when an agent sends visual output.
 
 <details>
 <summary>Manual install (if you already have uv)</summary>
+
+Install the CLI, the Hub, and the window renderer:
 
 ```bash
 uv tool install 'punt-lux[display]'
 ```
 
-Then install the plugin via the marketplace:
+Add the Punt Labs plugin marketplace:
 
 ```bash
 claude plugin marketplace add punt-labs/claude-plugins
+```
+
+Install the plugin:
+
+```bash
 claude plugin install lux@punt-labs
 ```
 
 </details>
 
 <details>
-<summary>Lightweight install (CLI and protocol types, no renderer)</summary>
+<summary>Lightweight install (no window renderer)</summary>
 
-If you only need the `lux` CLI and the JSON protocol element types --- enough to
-drive a running luxd over its REST API and to build element trees in Python
---- install the base package:
+The base package has the `lux` CLI, `luxd-hub`, the Python client library, and the JSON element types. It is enough to drive a running `luxd` from the command line or from Python. It does not include the window renderer (imgui-bundle, numpy, Pillow, PyOpenGL), which comes with the `[display]` extra.
+
+Install the CLI without the renderer:
+
+```bash
+uv tool install punt-lux
+```
+
+Or add the library to a Python project:
 
 ```bash
 uv add punt-lux
 ```
-
-This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, numpy, Pillow, PyOpenGL) is only needed to run the renderer (`lux display`) and is available via `punt-lux[display]`.
 
 </details>
 
 <details>
 <summary>Verify before running</summary>
 
+Download the installer:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/175b81bc/install.sh -o install.sh
+```
+
+Print its checksum:
+
+```bash
 shasum -a 256 install.sh
+```
+
+Read it:
+
+```bash
 cat install.sh
+```
+
+Run it:
+
+```bash
 sh install.sh
 ```
 
@@ -82,104 +96,52 @@ sh install.sh
 <details>
 <summary>Homebrew (Apple Silicon macOS)</summary>
 
-macOS only for now, arm64 only. The formula pins a single macOS arm64 wheel for `imgui-bundle`, lux's ImGui binding — there is no Linux stanza yet, so a Linux build would hand pip a macOS wheel and fail. Intel macOS is unsupported for the same reason: `imgui-bundle` publishes no Intel macOS wheel at the version lux pins. Linux support is tracked as a follow-up.
-
-`brew install` puts all four of lux's executables on `PATH`: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), and `lux-beads` (the bundled beads applet).
+The Homebrew formula supports macOS on Apple Silicon (arm64) only. It pins a single macOS arm64 wheel of `imgui-bundle`, the ImGui binding Lux uses for drawing, and `imgui-bundle` publishes no Intel macOS wheel at the pinned version. On Linux or Intel macOS, use the installer above.
 
 ```bash
 brew install punt-labs/tap/lux
 ```
 
-**Use the fully qualified name.** Homebrew Core already ships an unrelated formula also named `lux` (a Go video downloader) — `brew install lux` without the `punt-labs/tap/` prefix silently installs that one instead of this project, since Homebrew resolves unqualified names against Homebrew Core first even with the tap tapped. `brew install punt-labs/tap/lux` is unambiguous.
+`brew install` puts all four Lux executables on `PATH`: `lux` (CLI), `luxd-hub` (Hub service), `luxd-display` (window renderer), and `lux-beads` (the Beads menu applet).
 
-Use one distribution channel per machine — mixing Homebrew with the `curl | sh` installer puts two copies of `lux` on `PATH` in different locations, and whichever comes first wins. Run `which lux` (or `command -v lux`) to see which one that is.
+**Use the fully qualified name.** Homebrew Core has an unrelated formula also named `lux` (a Go video downloader). `brew install lux` without the `punt-labs/tap/` prefix installs that one instead, because Homebrew resolves unqualified names against Homebrew Core first.
 
-</details>
-
-<details>
-<summary>Run a demo</summary>
-
-```bash
-lux display install       # register the display as a launchd/systemd service
-uv run python demos/dashboard.py
-```
-
-The `install.sh` bootstrap already runs `lux display install` for you; run it
-yourself only when driving Lux from a source checkout that did not use the
-bootstrap. Foreground `lux display serve` also works and stays attached to the
-terminal (Ctrl-C stops it) — that is the exact command the supervisor invokes.
-
-Demos are in `demos/` --- each connects as a client and drives the display:
-
-| Demo | What it shows |
-|------|--------------|
-| `interactive.py` | Sliders, checkboxes, combos, text inputs, color pickers |
-| `containers.py` | Windows, tab bars, collapsing headers, groups |
-| `dashboard.py` | Multi-window layout with draw canvases and live controls |
-| `data_viz.py` | Tables, plots, progress bars, spinners, markdown |
-| `menu_bar.py` | Custom menus, event handling, periodic refresh |
+Use one install method per machine. Homebrew and the `curl | sh` installer put `lux` in different directories, and whichever comes first on `PATH` runs. `command -v lux` shows which one that is.
 
 </details>
 
 ## Features
 
 - **25 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, modals, dialogs, groups, tab bars, collapsing headers, windows, separators
-- **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
-- **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
-- **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
-- **Session menus** --- the menu bar shows one submenu per live session. A session registers a menu entry via `register_callback` from the connection it holds open to the Hub, and a click on that entry is pushed straight down that connection for the session to service from its own shell. The "Beads" entry each lux-enabled session's `lux-beads` applet registers is how the beads board reopens from the menu
-- **Agent menus** --- `menu_set` gives the calling session its own menus on the bar, keyed by that session so two sessions never clobber one another even when they name a menu the same. An item may carry a `frame_id`: clicking it raises that session's frame of that name (the same name `scene_show` targets). An item with no `frame_id` delivers its click back to the setting session as a reserved `lux.menu` event on `topic_recv()` (payload `{"menu": <label>, "item": <item_id>}`) --- an agent-in-the-loop notification, not a Hub-side handler --- so the agent learns which item the user chose and acts on it
-- **Interaction handling** --- button clicks, slider changes, and menu clicks fire their handlers on the Hub (D21 remote dispatch); the raw event log is readable via `list_recent_events`. Hub handlers can `publish` app events that the agent reads via `recv`
-- **A push is a notification, not a window-raise** --- a scene arriving where no frame exists yet gets one, on screen, and that is all it does. It takes no focus and disturbs no other frame; a docked frame stays docked, a frame the user closed stays closed, and the selected tab stays selected. Where a window sits is the user's decision, and no update overrides it
-- **Closed is a place, not an erasure** --- the close button puts a frame away with its scenes, widget state and active tab intact. The dock pill, Expand All and the Windows menu's closed-frame list all bring it back as it was --- raising a frame is the user's own gesture at the Display (DES-088), never a client operation; only the client taking its content away disposes of it
-- **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
-- **Themes** --- 11 built-in themes, chosen by the user from the display's Settings menu (agents read the active theme via `display_theme_get` but never set it, per DES-088): `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
-- **Hold and reconcile, never control** --- the Hub never starts, stops, or spawns the display renderer; that is the user's own gesture (`lux display start`/`stop`) or the OS service supervisor's, and soon the display need not even share a machine with the Hub (DES-093). When no display is connected, the Hub *holds* the content it cannot deliver and retries reaching a display at an exponential backoff that slows to a minute-plus, reconciling everything held the moment a display (re)connects. `display_link_get` / `lux display link` report whether a display is linked, how many scenes are held, the current retry delay, and which Hub (host + pid) holds them
-- **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
-
-## MCP Tools
-
-Agents interact with Lux through the MCP tools `luxd` serves over its streamable-HTTP `/mcp` endpoint (the authoritative roster is pinned by a test; this table mirrors it):
-
-| Tool | What it does |
-|------|-------------|
-| **Scene management** | |
-| `scene_show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
-| `scene_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
-| `scene_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
-| `scene_update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
-| `scene_clear(scene_id)` | Clear one scene and blank its frame; unknown or unowned scenes are named errors, never a false "cleared" |
-| `scene_clear_all()` | Remove all of the caller's scenes from the display |
-| **Frames & menus** | |
-| `frame_close(frame_id)` | Close a frame and tear down its scenes on the Hub; a foreign or nonexistent `frame_id` is a named `not_found` error, never a false "closed", and a malformed `frame_id` is `invalid_request` |
-| `menu_set(menus)` | Replace the caller's agent-defined menus on the menu bar. An item's `frame_id` raises the caller's frame of that name on click; an item without one delivers a reserved `lux.menu` event to the caller's `topic_recv()` |
-| `menu_ls()` | List the Hub-owned menu bar and its items |
-| `callback_register(callback_id, label)` | Register a menu entry the calling connection owns; refused unless that connection holds luxd's listen leg, since clicks are delivered by push |
-| `callback_pending()` | Peek at the caller's held callback invocations without draining them |
-| **Display --- read-only (the user owns the display's visual state, per DES-088)** | |
-| `display_info()` | Backend, resolution, frame rate, PID, uptime |
-| `display_theme_get()` | Current theme name (set from the display's Settings menu, not by a client) |
-| `display_window_get()` | Current window settings (opacity, font scale, decoration, idle FPS) |
-| `display_mode_get(repo)` | Read the display mode (`y`/`n`) for the caller's project --- pass the absolute project path (set it via the `lux display mode on\|off` CLI) |
-| `display_screenshot()` | Capture the display framebuffer |
-| `display_link_get()` | Whether a display is linked and, when not, how many scenes the Hub is holding, the current retry delay, and the Hub's host + pid --- Hub-side, answerable with no display connected |
-| **Introspection** | |
-| `scene_inspect(scene_id)` | Return the element tree for a scene the caller owns |
-| `scene_ls()` | List active scenes and frames from the Hub's store |
-| `session_ls()` | The Hub's sessions --- connections and their scopes |
-| `event_ls(count)` | Recent display interaction events |
-| `error_ls(count)` | Recent display errors and warnings |
-| **Session & pub/sub** | |
-| `ping()` | Round-trip latency check |
-| `session_identify(kind, name, repo, agent)` | Declare who this session is so the Hub attributes the UI it installs |
-| `topic_subscribe(topic)` | Subscribe to a Hub-scoped app topic; delivered via `topic_recv` |
-| `topic_unsubscribe(topic)` | Stop receiving a topic |
-| `topic_publish(topic, payload)` | Publish an app event to a Hub topic (separate from the UI observer mechanism) |
-| `topic_recv()` | Take the next queued app event for this session without blocking; returns `event:<topic>:<payload>` or `none`. UI interactions are handled Hub-side, not delivered here |
+- **Frames** --- a scene can target a named inner window (a frame) with `frame_id`, with an initial size (`frame_size`), ImGui window flags (`frame_flags`), tab or stacked layout (`frame_layout`), and an optional lifetime (`frame_ttl_seconds`)
+- **Nested layout** --- windows, tab bars, groups, and collapsing headers can contain any element, to any depth
+- **Incremental updates** --- `scene_update` changes individual elements by ID without resending the scene
+- **Tabs per scene** --- each `scene_show` call with a new `scene_id` adds a tab to its frame; the same `scene_id` replaces that tab's content; the user can close tabs
+- **Composite views** --- `scene_table` builds a searchable, filterable table with a detail panel; `scene_dashboard` builds metric cards, charts, and a table
+- **Interaction handling** --- clicks and value changes run their handlers on the Hub, not in the window; `event_ls` lists recent interactions
+- **App events** --- agents and apps exchange events on named topics with `topic_subscribe`, `topic_publish`, and `topic_recv`
+- **Session menus** --- the menu bar has one submenu per Claude Code session; each lux-enabled session gets a "Beads" entry that opens the issue board
+- **Agent menus** --- `menu_set` adds the calling session's own menus; an item either raises one of that session's frames or sends a `lux.menu` event the agent reads with `topic_recv`
+- **New content does not take focus** --- a new scene opens a frame if none exists, without taking focus or moving, docking, or reopening other frames
+- **Closed frames keep their content** --- closing a frame keeps its scenes, widget state, and selected tab; the dock, Expand All, and the Windows menu reopen it as it was
+- **Content is held while no window is connected** --- the Hub never starts or stops the window; while none is connected it holds new content, retries with backoff, and sends everything when a window connects; `lux display link` reports the link state
+- **Themes** --- 17 built-in themes, chosen by the user from the window's Settings menu; agents can read the active theme with `display_theme_get` but cannot change it
 
 ## What It Looks Like
 
-### Show text and a button
+*A Claude Code session showing a project's issue board. The agent reads the issues with `bd list --json` and sends one `scene_table` call. Filtering and row selection then run inside Lux, with no further tool calls from the agent.*
+
+![Beads issue board with filterable table and detail panel](docs/assets/beads-board.png)
+
+*The same table and detail layout works for any tabular data: search, combo filters, pagination, and a detail panel from one `scene_table` call.*
+
+![Filterable data explorer with detail panel](docs/assets/data-explorer-filtered.png)
+
+*A dashboard of metric cards, charts, and a table. `scene_dashboard` lays it out from structured data, so the agent does not position elements by hand.*
+
+![Dashboard with metrics, charts, and data table](docs/assets/dashboard.png)
+
+### Show Text and a Button
 
 ```json
 {"tool": "scene_show", "input": {
@@ -191,22 +153,15 @@ Agents interact with Lux through the MCP tools `luxd` serves over its streamable
 }}
 ```
 
-Returns `"shown:hello"` immediately — the Hub has accepted the scene and its
-background replicator paints it; no tool call ever waits on the display. A
-button click fires its handler on the Hub (the agent does not poll for it). To observe interactions, read the introspection log:
+The call returns `"shown:hello"` as soon as the Hub accepts the scene. It does not wait for the window to draw it. A click on the button runs its handler on the Hub; the agent does not poll for it. To see recent interactions, read the event log:
 
 ```json
 {"tool": "event_ls", "input": {"count": 5}}
 ```
 
-A Hub-side handler can `topic_publish` an app event that the agent then reads
-with `topic_recv` (see the Communication tools above). An element that declares
-`"publish": ["my.topic"]` publishes what the user did — the event's kind, the
-scene and element it landed on, and its own fields, such as a table selection's
-`row_ids` and `anchor`. The full shape is in
-[the library guide](docs/library.md#what-a-published-event-carries).
+An element that declares `"publish": ["my.topic"]` publishes each user action on that topic: the kind of event, the scene and element it happened on, and the element's own fields, such as a table selection's `row_ids` and `anchor`. A session subscribed with `topic_subscribe` reads these with `topic_recv`. The full event shape is in [the library guide](docs/library.md#what-a-published-event-carries).
 
-### Multi-window dashboard
+### Multi-Window Dashboard
 
 ```json
 {"tool": "scene_show", "input": {
@@ -226,16 +181,57 @@ scene and element it landed on, and its own fields, such as a table selection's
 }}
 ```
 
-### Update a single element
+### Update a Single Element
 
 ```json
-{"tool": "update", "input": {
+{"tool": "scene_update", "input": {
   "scene_id": "dash",
   "patches": [
     {"id": "vol", "set": {"value": 75}}
   ]
 }}
 ```
+
+## MCP Tools
+
+Agents use Lux through the MCP tools that `luxd` serves at its streamable-HTTP endpoint, `http://127.0.0.1:8430/mcp`. The plugin connects Claude Code to that endpoint.
+
+| Tool | What it does |
+|------|-------------|
+| **Scenes** | |
+| `scene_show(scene_id, elements)` | Show an element tree as a scene, replacing any scene with the same ID. Accepts `frame_id`, `frame_size`, `frame_flags`, `frame_layout`, and `frame_ttl_seconds` |
+| `scene_table(scene_id, columns, rows)` | Show a searchable, filterable table with an optional detail panel |
+| `scene_dashboard(scene_id, ...)` | Show a dashboard with metric cards, charts, and a table |
+| `scene_update(scene_id, patches)` | Change or remove elements by ID |
+| `scene_clear(scene_id)` | Remove one of your scenes; an unknown scene or one you do not own returns an error |
+| `scene_clear_all()` | Remove all of your scenes |
+| **Frames and menus** | |
+| `frame_remove(frame_id)` | Remove one of your frames and its scenes; an unknown, foreign, or malformed `frame_id` returns an error |
+| `menu_set(menus)` | Replace your session's menus on the menu bar. An item with a `frame_id` raises your frame of that name when clicked; an item without one sends a `lux.menu` event to your `topic_recv()` |
+| `menu_ls()` | List the menu bar and its items |
+| `callback_register(callback_id, label)` | Register a menu entry owned by the calling connection; only a connection that holds a persistent listener connection (an applet) can register one |
+| `callback_pending()` | Show your pending menu-entry clicks without consuming them |
+| **Display (read-only; the user controls the window's settings)** | |
+| `display_info()` | Backend, resolution, frame rate, PID, and uptime |
+| `display_theme_get()` | Active theme and the available themes |
+| `display_window_get()` | Window settings: opacity, font scale, decoration, idle frame rate |
+| `display_mode_get(repo)` | Whether Lux display mode is on or off for a project; pass the project's absolute path. Set it with `lux display mode on --repo <path>` or `off` |
+| `display_state_get()` | Widget and frame state for the scenes you own |
+| `display_link_get()` | Whether a window is connected and, if not, how many scenes the Hub is holding, the current retry delay, and the Hub's host and PID |
+| `list_frames()` | The window's frames and whether each is on screen, docked, or closed |
+| **Introspection** | |
+| `scene_inspect(scene_id)` | Element tree of a scene you own |
+| `scene_ls()` | Active scenes and frames |
+| `session_ls()` | Sessions connected to the Hub |
+| `event_ls(count)` | Recent interaction events |
+| `error_ls(count)` | Recent errors and warnings |
+| **Sessions and topics** | |
+| `ping()` | Round-trip latency check |
+| `session_identify(kind, name, repo, agent)` | Say who this session is, so the Hub can label the UI it creates |
+| `topic_subscribe(topic)` | Subscribe to an app topic; events arrive through `topic_recv` |
+| `topic_unsubscribe(topic)` | Stop receiving a topic |
+| `topic_publish(topic, payload)` | Publish an app event on a topic |
+| `topic_recv()` | Take the next queued topic event without waiting; returns `event:<topic>:<payload>` or `none` |
 
 ## Element Kinds
 
@@ -246,169 +242,89 @@ scene and element it landed on, and its own fields, such as a table selection's
 | Lists | `selectable`, `tree` |
 | Data | `table`, `plot`, `progress`, `spinner`, `markdown` |
 | Canvas | `draw` (line, rect, circle, triangle, polyline, text, bezier) |
-| Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal`, `dialog` (modal confirm dialog with Hub-side handler dispatch) |
+| Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal`, `dialog` (confirmation dialog whose buttons run Hub-side handlers) |
 
-All elements with an `id` support an optional `tooltip` field (string shown on hover).
+All elements with an `id` accept an optional `tooltip` field (text shown on hover).
 
 ## CLI Commands
 
-Noun-grouped: every operation is `lux <noun> <verb>`, matching the same
-vocabulary the MCP tools and REST routes use. Every write accepts
-`--as/--kind/--name/--repo/--agent` (per-invocation identity) and every
-command accepts `--json/--verbose/--quiet`.
+Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Commands that change state accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Every command accepts `--json`, `--verbose`, and `--quiet`.
 
-| Noun group | Verbs |
+| Noun | Verbs |
 |---|---|
 | `lux scene` | `show`, `update`, `clear`, `clear-all`, `inspect`, `ls`, `table`, `dashboard` |
-| `lux frame` | `set-state` |
+| `lux frame` | `remove` |
 | `lux menu` | `ls`, `set` |
 | `lux session` | `ls`, `inspect`, `identify` |
-| `lux display` | `info`, `theme`, `mode`, `window`, `screenshot`, `link` (linkage + held-scene count + retry delay + Hub host/pid), `serve` (raw render-loop entry point, invoked by the supervisor), `install`, `uninstall`, `start`, `stop`, `status` (admin — window process supervision, CLI-only) |
+| `lux display` | `info`, `theme`, `state`, `mode`, `window`, `link` |
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |
-| `lux hub` | `install`, `uninstall`, `start`, `stop`, `restart`, `status` (admin — luxd process supervision, CLI-only) |
 
-| Top-level singleton | What it does |
+| Service command | What it does |
 |---|---|
-| `lux ping` | Ping the display through luxd; print round-trip time |
-| `lux doctor` | Check installation health (Python, fonts, plugin) |
-| `lux version` | Print version |
-| `lux enable` | Enable visual output for this project and allow lux's CLI, MCP tools and commands broadly (`Bash(lux:*)`, `mcp__plugin_lux_lux__*`, `Skill(lux:*)`) in the repo's `.claude/settings.json`, with `ask` rules so `install`, `uninstall`, `enable`, `disable`, `hook`, `display mode`/`serve`, the `hub`/`display` service controls and `doctor` (its `--fix` removes legacy registrations) and any global option before the verb still prompt (`lux disable` removes them) |
-| `lux disable` | Disable visual output for this project |
-| `lux status` | Check if the display server is running |
-| `lux install` | Install the Claude Code plugin via the marketplace |
+| `lux hub install`, `uninstall` | Register or remove `luxd` as a launchd (macOS) or systemd user (Linux) service |
+| `lux hub start`, `stop`, `restart`, `status` | Control and report on the `luxd` service |
+| `lux hub doctor` | Find legacy registrations and port conflicts; `--fix` repairs them |
+| `lux display install`, `uninstall` | Register or remove the window as a launchd or systemd user service that starts at login and restarts after a crash |
+| `lux display start`, `stop`, `restart`, `status` | Control and report on the window service |
+| `lux display doctor` | Find legacy registrations and port conflicts; `--fix` repairs them |
+| `lux display serve` | Run the window in the foreground (the service runs the same entry point) |
+
+The installer runs `lux display install` for you. On macOS the window gets a Dock icon.
+
+| Command | What it does |
+|---|---|
+| `lux ping` | Ping the window through `luxd` and print the round-trip time |
+| `lux doctor` | Check installation health: Python version, the display packages, fonts, and the Claude Code plugin |
+| `lux version` | Print the version |
+| `lux enable` | Enable visual output for this project and add Lux's permission rules to `.claude/settings.json` ([rule list](docs/user-guide.md#permission-rules)) |
+| `lux disable` | Disable visual output for this project and remove those rules |
+| `lux status` | Check whether the window is running |
+| `lux install` | Install the Claude Code plugin from the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
-| `lux beads` | Display the beads issue board via luxd's REST API (no LLM needed) — a bespoke app-specific convenience, not part of the noun-grouped vocabulary |
-| `lux-beads` | The Beads applet: owns this session's Beads menu entry and services its clicks (launched by the plugin's session-start hook) |
+| `lux beads` | Show the repository's beads issue board, with no agent involved (`--all` includes closed issues) |
+| `lux-beads` | The Beads menu applet; the plugin's session-start hook runs it for each session |
 
-### Display window management
-
-The display window runs as its own supervised service, symmetric to the hub.
-`lux display install` registers a launchd LaunchAgent (macOS) or systemd user
-unit (Linux) that spawns `lux display serve` at login and restarts it on
-crash; `lux display start` / `stop` toggle the running process; `lux display
-status` reports supervisor and window state; `lux display uninstall` reverses
-the registration. This is the reliable path for the window to appear on macOS
-— a child of the graphical login session gets the GUI bootstrap the OS needs
-to draw. Foreground `lux display serve` is the same entry point; the
-supervisor invokes it. On macOS the window gets a Dock icon (regular
-activation policy) so it is visible and switchable; when the menubar-app epic
-(`lux-mxvy.3`) ships, the policy flips to accessory and the menubar controls
-visibility instead.
-
-`lux topic *` and `lux callback pending` are not exposed on the CLI: they
-have no REST route by design (`tests/rest/test_app.py`'s `_MCP_ONLY`) —
-delivery for both runs over the listen leg's push/drain, which a stateless
-CLI request cannot bind to.
+The topic tools and `callback_pending` are MCP-only and have no CLI command.
 
 ## Library (Python)
 
-Python applications drive the Hub through `LuxClient`, the typed async facade
-over `luxd`'s REST API. It gets the same validation, typing, and identity
-handling the CLI gets, with no `[display]` extra required. Long-lived apps add
-`LuxHubClient` to receive menu clicks and pub-sub events over a persistent
-connection; vox's music player is the reference app built this way. The full
-guide, with working examples, is [docs/library.md](docs/library.md).
+Python applications drive the Hub through `LuxClient`, a typed async client for `luxd`'s REST API. It applies the same validation and identity handling as the CLI and does not need the `[display]` extra. Long-running apps add `LuxHubClient` to receive menu clicks and topic events over a persistent connection. The [Python Library Guide](docs/library.md) has working examples.
 
 ## Architecture
 
 ```text
 Agent or app
-  │ MCP or direct Hub API
+  │ MCP tools, CLI, or Python library (HTTP)
   ▼
 luxd (Hub)
-  │ authoritative state + introspection
-  │ scene replicas + remote invocations
+  │ holds scenes and runs handlers
+  │ sends scenes; receives clicks and changes
   ▼
-lux display (ImGui + OpenGL)
-  │ renders at 60fps
+Lux window (ImGui + OpenGL)
+  │ draws at 60fps
   ▼
 Window on screen
 ```
 
-The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
-
-### How a session connects, and how its menu entries work
-
-The bundled plugin connects Claude Code straight to `luxd`, with no per-session process in the path:
-
-```json
-{
-  "mcpServers": {
-    "lux": { "type": "http", "url": "http://127.0.0.1:8430/mcp" }
-  }
-}
-```
-
-Menu entries are a separate connection, and they belong to the session's **applets**. An applet is a small program — not a daemon, not part of `luxd` — that the plugin's session-start hook launches and that runs for the life of that session, in that session's repository and shell. `lux-beads` is the first.
-
-An applet exists because a menu entry must launch in the time a user reads as instant, so the click has to be answered by something already running and already reachable: not a poll, and never a turn of the model. The applet registers its entry on its own connection, receives clicks pushed down it, and does the work itself — running `bd` from the repository's own shell and pushing the board to the Hub, which `luxd` cannot do from launchd with no `PATH`, no credentials, and no working directory.
-
-It does not make you wait for data it could already have. Reading the issues is a query to a hosted database and it is the whole wait, so the applet loads a board as soon as its entry is registered and holds the board from every click after that. A click puts that board up immediately and reloads behind it; the fresh one replaces it in place, without taking focus. A reload that fails leaves the board standing and says why in the applet's log, because a board a few minutes old is worth more than a red message where the board was. Only a session that has not managed to load one yet sees "Loading issues…".
-
-It leaves when its session does. Handed the session's process id at spawn, it checks every few seconds whether that process still exists and exits when it does not, so an applet cannot outlive its session even when the session is killed rather than closed. The Hub's lease sweeps the menu entry underneath that regardless.
-
-`luxd` enforces the arrangement rather than trusting it: `register_callback` is refused unless the calling connection holds a listen leg, because a connection that could never be told its item was clicked must not own one. That is why the tool surface a session talks to owns no entries.
-
-Setup and verification for a hand-configured direct connection are in [docs/library.md](docs/library.md).
-
-## Documentation
-
-[Docs Guide](docs/README.md) |
-[Python Library Guide](docs/library.md) |
-[Target Architecture](docs/architecture/target/target.md) |
-[Current Architecture](docs/architecture/system.tex) |
-[Design Log](DESIGN.md) |
-[Changelog](CHANGELOG.md)
-
-## Development
-
-```bash
-uv sync --extra display        # Install dependencies (dev group installs by default)
-make check                     # Full gate: lint, format, mypy, pyright, tests, OO ratchet
-make test-integration          # Integration tier
-make restart                   # Rebuild, reinstall, restart luxd AND the display
-```
-
-`make check` is the commit gate — it runs ruff, mypy, pyright (via `npx`),
-pytest, and the OO ratchet exactly as CI does.
-
-### Visual verification (`make screenshot`)
-
-```bash
-make screenshot                            # writes .tmp/lux-screenshot.png
-SCREENSHOT_OUT=/tmp/out.png make screenshot # override the output path
-```
-
-Captures the running `lux-display` window to a PNG for agent-driven visual
-verification at the demo gate (`docs/WORKFLOW.md`). **Linux only**,
-verified on Ubuntu with a Wayland session running XWayland
-(`DISPLAY` pointing at the X11 socket). Requires `import`/`convert`
-(ImageMagick), `xwininfo`/`xprop` (x11-utils), `xdotool`, and
-`systemd-inhibit` (systemd) on `PATH`. The script
-(`scripts/screenshot.sh`) resolves the real `luxd-display` client window
-by `_NET_WM_PID` match — never by title alone, so a same-titled window
-manager decoration frame is never mistaken for it — and rejects a
-captured image whose pixel standard deviation is near zero (a locked or
-blanked session can still produce a nonempty, uniformly black PNG), so a
-returned path is always a real, non-blank capture. Not part of
-`make check`; CI has no display to capture.
-
-The Claude Code plugin — its `plugin.json`, the `/lux` command, the session
-hooks, and the skills — lives in `plugin/`, separate from the Python package in
-`src/`. A marketplace install fetches only that directory, so load it for local
-testing with `claude --plugin-dir plugin`. Installing the CLI (`uv tool install`,
-`install.sh`, or `pip`) is unaffected: the wheel ships `src/punt_lux` and never
-contained the plugin surface.
+`luxd` runs as a user service on your machine and listens only on loopback. It stores every scene and runs every handler. The Lux window draws what the Hub sends and reports clicks and value changes back to it; restarting the window does not lose the scenes. Each Claude Code session also runs `lux-beads`, a small helper started by the plugin's session-start hook, which owns that session's Beads menu entry and exits when the session ends. More detail is in the [user guide](docs/user-guide.md).
 
 ## Acknowledgements
 
-Lux is a thin orchestration layer. The rendering is done by [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut's immediate-mode GUI library. ImGui handles all the hard problems --- text layout, widget state, input handling, GPU rendering --- and does so in a single-pass retained-mode-free architecture that maps naturally to Lux's "send JSON, render this frame" model. The 60fps render loop, the composable widget tree, and the ability to drive a full UI from a socket with no threading are all consequences of ImGui's design.
+Rendering uses [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut's immediate-mode GUI library, which handles text layout, widget state, input, and GPU drawing. The Python bindings come from [imgui-bundle](https://github.com/pthom/imgui_bundle) by Pascal Thomet, which packages ImGui, ImPlot, and other ImGui extensions as one wheel with type stubs. [FastMCP](https://github.com/jlowin/fastmcp) provides the MCP server layer.
 
-Python bindings come from [imgui-bundle](https://github.com/pthom/imgui_bundle) by Pascal Thomet, which packages ImGui, ImPlot, and several other ImGui extensions into a single pip-installable wheel with complete type stubs. imgui-bundle is what makes "install one Python package, get a GPU-accelerated UI" possible.
+## Documentation
 
-[FastMCP](https://github.com/jlowin/fastmcp) provides the MCP server layer.
+[User Guide](docs/user-guide.md) |
+[Python Library Guide](docs/library.md) |
+[Docs Guide](docs/README.md) |
+[Target Architecture](docs/architecture/target/target.md) |
+[Current Architecture](docs/architecture/system.tex) |
+[Design Log](DESIGN.md) |
+[PR/FAQ](prfaq.pdf) |
+[Contributing](CONTRIBUTING.md) |
+[Changelog](CHANGELOG.md)
 
 ## License
 

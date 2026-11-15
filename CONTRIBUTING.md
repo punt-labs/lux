@@ -11,23 +11,34 @@ Thank you for your interest in contributing to Lux. This guide covers what you n
 
 ### Setup
 
+Clone the repository:
+
 ```bash
 git clone https://github.com/punt-labs/lux.git
+```
+
+Enter it:
+
+```bash
 cd lux
+```
+
+Install dependencies, including the window renderer (the dev group installs by
+default):
+
+```bash
 uv sync --extra display
 ```
 
 ### Verify your setup
 
+Run the full quality gate:
+
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src/ tests/
-uv run pyright
-uv run pytest
+make check
 ```
 
-All five must pass with zero errors before any commit.
+It must pass before any commit. See [Quality Gates](#quality-gates).
 
 ## Development Workflow
 
@@ -66,34 +77,118 @@ One logical change per commit. Small commits are preferred over large ones.
 Every commit must pass the single gate:
 
 ```bash
-make check   # OO ratchet + lint + format + mypy + pyright + tests
+make check
 ```
 
-`make check` is authoritative — the `Makefile` is the source of truth for the
-exact chain. It composes the **OO ratchet** (`make check-oo`, which compares OO
-scores against `.oo-baseline.json` and fails if any metric regresses on a
-touched file) with formatting, linting, type-checking, tests, and complexity/
-design checks (`radon`, `pylint`). After improving OO quality, run
-`make update-oo` and stage `.oo-baseline.json` + `.oo-audit.jsonl` in the same
-commit. The main tools it draws on:
+`make check` is authoritative; the `Makefile` is the source of truth for the
+exact chain. It runs the OO ratchet (`make check-oo`), the coupling ratchet
+(`make check-coupling`), the suppression ratchet (`make check-suppressions`),
+`make lint`, `make type`, and `make test`. The OO ratchet compares OO scores
+against `.oo-baseline.json` and fails if any metric regresses on a touched
+file. After improving OO quality, run `make update-oo` and stage
+`.oo-baseline.json` and `.oo-audit.jsonl` in the same commit.
+
+`make lint` runs these:
 
 ```bash
-uv run ruff check .           # Linting
-uv run ruff format --check .  # Formatting
-uv run mypy src/ tests/       # Type checking (mypy)
-npx pyright                    # Type checking (pyright; via npx, per the Makefile)
-uv run pytest                  # Tests
+uv run --extra display ruff check .
+```
+
+```bash
+uv run --extra display ruff format --check .
+```
+
+```bash
+npx markdownlint-cli2 "**/*.md" "#node_modules"
+```
+
+```bash
+bash scripts/check-plugin-surface.sh
+```
+
+`make type` runs these. pyright runs through `npx` because the display extras
+confuse uv's pyright wrapper:
+
+```bash
+uv run --extra display mypy src/ tests/
+```
+
+```bash
+npx pyright src/ tests/
 ```
 
 ### Running Tests
 
+Unit tests (the tier `make check` runs):
+
 ```bash
-uv run pytest                              # Unit tests (fast)
-uv run pytest -m integration               # Integration tests (requires display)
-uv run pytest -m e2e                       # End-to-end tests (full stack)
+make test
+```
+
+Integration tests (no display needed):
+
+```bash
+make test-integration
+```
+
+End-to-end tests that need no GUI window:
+
+```bash
+make test-e2e
+```
+
+End-to-end tests that open a real ImGui window (local only):
+
+```bash
+make test-e2e-gui
 ```
 
 New features should have unit tests at minimum.
+
+### Running Your Changes
+
+Reinstall the package and restart `luxd` and the Lux window through their
+services, so they pick up your code changes:
+
+```bash
+make restart
+```
+
+The Claude Code plugin (its `plugin.json`, the `/lux` command, the session
+hooks, and the skills) lives in `plugin/`, separate from the Python package in
+`src/`. A marketplace install fetches only that directory. Load it for local
+testing:
+
+```bash
+claude --plugin-dir plugin
+```
+
+Installing the CLI (`uv tool install`, `install.sh`, or `pip`) is unaffected:
+the wheel ships `src/punt_lux` and never contained the plugin surface.
+
+### Visual Verification
+
+Capture the running Lux window to `.tmp/lux-screenshot.png`:
+
+```bash
+make screenshot
+```
+
+Write the capture somewhere else:
+
+```bash
+SCREENSHOT_OUT=/tmp/out.png make screenshot
+```
+
+This is for visual checks at the demo gate (`docs/WORKFLOW.md`). It works on
+Linux only, verified on Ubuntu with a Wayland session running XWayland
+(`DISPLAY` pointing at the X11 socket). It needs `import` and `convert`
+(ImageMagick), `xwininfo` and `xprop` (x11-utils), `xdotool`, and
+`systemd-inhibit` (systemd) on `PATH`. `scripts/screenshot.sh` finds the real
+`luxd-display` window by matching `_NET_WM_PID`, not by title, and rejects a
+capture that is almost a single color, such as the black image a locked
+session produces. It is not part of `make check`; CI has no display to
+capture.
 
 ## Code Standards
 
