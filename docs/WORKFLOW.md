@@ -254,7 +254,7 @@ function pr_loop(unit):
 
 # poll_tick, merge_gate, close_out, local_review, and every term they use
 # (round, qodo_in, bugbot_in, pending, finding, answered, reviewed_head,
-# delta_head, bugbot_open, demo_ok, escalation, ...) are specified once, in
+# delta_head, bugbot_open, escalation, ...) are specified once, in
 # punt-kit/standards/pr-review.md, and model-checked in that repo's
 # pr-review-model.tex / pr-review-model-bugbot.tex. Run them exactly as
 # written there. This repo adds only the lux-specific deltas:
@@ -263,6 +263,22 @@ function pr_loop(unit):
 #   - local_review (pr-review.md) runs before the PR and before every fix push
 #   - merge is explicit squash on a satisfied gate (ExitPR); never auto-merge
 #   - close_out: branch delete in git.md §4 order, then the merge recap
+#   - the demo gate is lux's own (pr-review.md's human-judged verify step);
+#     its terms stay defined here because they differ from pr-review.md's
+#     verify_* in both name and scope (the plugin/ carve-out is lux-only):
+#       demoed_head  = the commit named in the leader's latest
+#                      "demo confirmed:" PR comment, newer than any
+#                      "demo failed:" comment; posted once the demo passes on
+#                      that commit, with operator confirmation only where the
+#                      demo requires it (rendered pixels or interaction feel a
+#                      human must judge)
+#       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/, and is
+#                      NOT under plugin/ — commands, skills, agents, and hooks
+#                      there are behavior even when Markdown, because Claude
+#                      Code executes them
+#       demo_ok(pr)  = every file the PR changes is demo_exempt, or demoed_head
+#                      exists, is the head or an ancestor of it, and every file
+#                      changed since it is demo_exempt
 ```
 
 Entry and exit for one PR iteration. `merge_gate` in the pseudocode is the
