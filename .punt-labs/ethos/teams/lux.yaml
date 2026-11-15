@@ -67,13 +67,3 @@ collaborations:
   - from: infra-engineer
     to: coo
     type: reports_to
-  # Domain pairings — from CLAUDE.md's ratified worker/evaluator table
-  - from: python-language-design
-    to: python-specialist
-    type: collaborates_with
-  - from: cli-minimalist
-    to: cli-specialist
-    type: collaborates_with
-  - from: ux-cognitive
-    to: ux-designer
-    type: collaborates_with
