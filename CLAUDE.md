@@ -2,9 +2,9 @@
 
 Part of [Punt Labs](https://github.com/punt-labs). This repo must be checked out inside the `punt-labs/` workspace meta-repo so that org-wide configuration loads via Claude Code's ancestor directory walk:
 
-- **`punt-labs/CLAUDE.md`** — org workflow, delegation model, beads issue tracking, tool configuration
+- **`punt-labs/CLAUDE.md`** — org workflow, delegation model, Linear issue tracking, tool configuration
 - **`punt-labs/.claude/rules/python-*.md`** — 19 Python OO coding rules, scoped via `paths:` frontmatter (load on-demand when `.py` files are touched)
-- **`punt-labs/.envrc`** — git identity, beads DB connection, API keys from platform keychain
+- **`punt-labs/.envrc`** — git identity, API keys from platform keychain
 - **`punt-kit/standards/`** — canonical reference docs
 
 If cloned outside the workspace, these rules and configuration will not be present.
@@ -183,7 +183,7 @@ Start with `docs/architecture/target/target.md`. Use
 
 **v2 (future):** **Full ImGui element coverage** — every ImGui widget available as a Lux element — evolving toward a Pharo-inspired live environment where MCP is the message bus and Lux is the Morphic rendering layer (agent introspects and reshapes UI at runtime; system browser, inspector, workspace).
 
-**Guiding constraint:** v1 hones the data-display core and the ask-user/get-response interaction loop. Completeness of the ImGui element set is a **v2 goal** — new element-kind work is tracked with the `v2` bead label and does not block v1. **Lux applets are in scope** (operator ruling 2026-08-01, DES-063): external programs on the library client owning menu entries — bundled ones in `applets/` for software that is not Punt Labs-built (beads; top/clock/irc-class candidates), tool-shipped ones in each tool's own repo (vox's music player). What stays out of scope: applications running inside the display process, and in-display code execution.
+**Guiding constraint:** v1 hones the data-display core and the ask-user/get-response interaction loop. Completeness of the ImGui element set is a **v2 goal** — new element-kind work is tracked with the `v2` Linear label and does not block v1. **Lux applets are in scope** (operator ruling 2026-08-01, DES-063): external programs on the library client owning menu entries — bundled ones in `applets/` for software that is not Punt Labs-built (beads; top/clock/irc-class candidates), tool-shipped ones in each tool's own repo (vox's music player). What stays out of scope: applications running inside the display process, and in-display code execution.
 
 ## Logging
 
@@ -369,29 +369,13 @@ Use `standard` pipeline (design → implement → test → review) for new eleme
 
 ## Issue Tracking
 
-Linear is the tracker of record for lux: the Punt Labs team, issues labelled
-`repo:lux`, listed in the shared `lux` view. Beads (`bd`) is a read-mostly
-local mirror. `.punt-labs/punt/CLAUDE.md` (imported below) is the authority on
-which tracker to write to and carries the full rules; `.beads/README.md` has
-the mirror commands and the required `bd` build. Read the local mirror with the
-repo scope, and before any unscoped or incremental pull confirm `bd config get
-linear.pull_label` prints `repo:lux` on the checkout `bd` runs in (a by-id pull
-is exempt):
-
-```bash
-bd config get linear.pull_label                           # must print repo:lux
-bd ready --label-any repo:lux --exclude-label deferred    # ready work in this repo
-bd list --label-any repo:lux --status=open                # open issues in this repo
-bd show <id>                                              # details with dependencies
-```
+Linear is the sole tracker of record for lux: the Punt Labs team, issues
+labelled `repo:lux`, listed in the shared `lux` view. `.punt-labs/punt/CLAUDE.md`
+(imported below) carries the full rules for reading and writing issues.
 
 Create, claim (In Progress), finish (Done) and cancel issues in Linear, with
 the `repo:lux` label plus a type label (`Bug`, `Feature`, `Improvement`,
-`Epic`); a local `bd update` or `bd close` is undone by the next pull of that
-issue, and a `bd create` leaves an orphan bead no pull removes. Epics are
-Linear projects. To refresh one bead after a Linear change, run
-a by-id pull (`bd linear sync --pull --issues <PL id> --team
-c1dfbb2c-985e-40cf-b004-5127646efc9d`; the PL id must carry `repo:lux`).
+`Epic`). Epics are Linear projects.
 
 ## Session Queue
 
@@ -402,12 +386,11 @@ you can monitor in real-time in the Claude Code UI.
 
 Workflow:
 
-1. Pick a realistic batch from `bd ready --label-any repo:lux --exclude-label deferred`.
-2. Set each issue in the batch to In Progress in Linear, then refresh its bead
-   with a by-id pull (`bd linear sync --pull --issues <PL id> --team <id>`).
+1. Pick a realistic batch of open, unblocked `repo:lux` issues in Linear.
+2. Set each issue in the batch to In Progress in Linear.
 3. `TaskCreate` one entry per claimed issue with the issue ID in the title.
-4. Work through them in order. Mark the issue Done in Linear when done, refresh
-   its bead with a by-id pull, and mark the Task complete immediately after.
+4. Work through them in order. Mark the issue Done in Linear when done, and
+   mark the Task complete immediately after.
 5. Uncompleted tasks at session end carry over as open Linear issues — no extra
    cleanup needed.
 
