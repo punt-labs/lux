@@ -20,26 +20,57 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 
 ## Mandatory Reading
 
-Source-of-truth documents, `@`-imported so they stay in context. Read them before
-writing code; on any conflict, [`target.md`](docs/architecture/target/target.md)
-wins. The full linked index is in [Key Documents](#key-documents) below.
+The authoritative process document, [`docs/WORKFLOW.md`](docs/WORKFLOW.md), is
+`@`-imported so it stays in context every session — it is the one source of
+truth for the three development loops and has no per-turn backstop. On any
+design conflict, [`target.md`](docs/architecture/target/target.md) wins. The
+full linked index is in [Key Documents](#key-documents) below.
 
-@docs/README.md
-@docs/architecture/target/target.md
 @docs/WORKFLOW.md
 
-These org-wide standards from the `punt-kit` sibling repo are the merged source
-of truth for how Punt Labs tools are built, `@`-imported so they load at session
-start. `architecture.md` is the engine-and-clients model that lux **is** — the
-Hub is the engine, the Display is a decomposition of that one engine, and the MCP
-tools, CLI, library, and REST are its thin client surfaces. `oo.md` is the
-object-oriented stance lux's Python answers to. `python.md` is the Python
-standard, including the mandatory OO ratchet lux already runs. These are
-cross-repo (external) imports, so the first load may ask for approval.
+Three more source-of-truth documents are **non-autoloaded references** — linked,
+not `@`-imported, because each is reachable on demand and consulting it every
+session is pure context cost:
 
-@../punt-kit/standards/architecture.md
-@../punt-kit/standards/oo.md
-@../punt-kit/standards/python.md
+- [`docs/README.md`](docs/README.md) — the docs map and conflict triage. Read it
+  when the documentation feels contradictory or you need the right doc for a
+  question; it is an index, not a per-turn rule.
+- [`target.md`](docs/architecture/target/target.md) — the canonical design
+  target for the rewrite, authoritative on any design conflict. Read it before
+  any architecture decision or design proposal (and see the `DESIGN.md` ADR-log
+  consult rule in `docs/WORKFLOW.md`).
+
+These org-wide standards from the `punt-kit` sibling repo are the merged source
+of truth for how Punt Labs tools are built. They are **non-autoloaded
+references** — linked, not `@`-imported — because each is already carried
+per-turn by the `.claude/rules/python-*.md` files (`paths: ["**/*.py"]`) that
+auto-load the moment an agent touches a `.py` file. The full standards are one
+link away; consult them when a per-turn rule does not settle the question:
+
+- [`python.md`](../punt-kit/standards/python.md) — the Python standard,
+  including the mandatory OO ratchet lux runs. Carried per-turn by the 23
+  `.claude/rules/python-*.md` rules.
+- [`oo.md`](../punt-kit/standards/oo.md) — the object-oriented stance lux's
+  Python answers to. Carried per-turn by `python-oo-adoption.md`,
+  `python-oo-design-requirements.md`, `python-cohesion.md`,
+  `python-coupling.md`, `python-encapsulation.md`, and
+  `python-design-patterns.md`.
+- [`architecture.md`](../punt-kit/standards/architecture.md) — the
+  engine-and-clients model lux **is**: the Hub is the engine, the Display a
+  decomposition of that one engine, and the MCP tools, CLI, library, and REST
+  its thin client surfaces. Carried per-turn by `python-package-architecture.md`.
+
+<!-- docs/README.md, target.md, python.md, oo.md, and architecture.md are
+non-autoloaded references (linked above), not @-imports: the three punt-kit
+standards are enforced per-turn by .claude/rules/python-*.md (paths: **/*.py),
+and docs/README.md + target.md are on-demand design references. Only
+docs/WORKFLOW.md stays @-imported (no per-turn backstop). This keeps a clean
+session's instruction load under the harness 150k-char limit. -->
+<!-- @docs/README.md -->
+<!-- @docs/architecture/target/target.md -->
+<!-- @../punt-kit/standards/architecture.md -->
+<!-- @../punt-kit/standards/oo.md -->
+<!-- @../punt-kit/standards/python.md -->
 
 ## Read This First
 
