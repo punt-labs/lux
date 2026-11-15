@@ -3,7 +3,7 @@
 Part of [Punt Labs](https://github.com/punt-labs). This repo must be checked out inside the `punt-labs/` workspace meta-repo so that org-wide configuration loads via Claude Code's ancestor directory walk:
 
 - **`punt-labs/CLAUDE.md`** — org workflow, delegation model, Linear issue tracking, tool configuration
-- **`punt-labs/.claude/rules/python-*.md`** — 19 Python OO coding rules, scoped via `paths:` frontmatter (load on-demand when `.py` files are touched)
+- **`.claude/rules/python-*.md`** (repo-local) — the canonical Python OO coding rules, scoped via `paths:` frontmatter (load on-demand when `.py` files are touched)
 - **`punt-labs/.envrc`** — git identity, API keys from platform keychain
 - **`punt-kit/standards/`** — canonical reference docs
 
@@ -235,7 +235,7 @@ Do not add ad-hoc debug prints — use the logger at the appropriate level. **No
 
 ### OO Python is non-negotiable
 
-Default Python — procedural functions operating on dataclasses, `| None` everywhere, `str` fields with comments listing valid values — fails this project's quality bar. The rules in `punt-labs/.claude/rules/python-*.md` exist precisely to fix that bias and they are NOT load-bearing unless the agent (or the mission author writing a YAML) explicitly cites them. The user has had to repeat OO 101 across multiple sessions while agents shipped procedural code. Stop.
+Default Python — procedural functions operating on dataclasses, `| None` everywhere, `str` fields with comments listing valid values — fails this project's quality bar. The rules in `.claude/rules/python-*.md` exist precisely to fix that bias and they are NOT load-bearing unless the agent (or the mission author writing a YAML) explicitly cites them. The user has had to repeat OO 101 across multiple sessions while agents shipped procedural code. Stop.
 
 **Five rules, cited verbatim in every mission YAML for protocol/data work:**
 
@@ -276,7 +276,7 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 **Do not negotiate with the ratchet.** Do not edit `.oo-baseline.json` by hand. Do not suppress `check-oo`. Do not argue a regression is "acceptable." If the ratchet fails, improve the code until it passes. The ratchet is the quality standard's enforcement — working around it defeats the purpose.
 
-**Org standards override review tools.** Qodo, Bugbot, and Copilot are advisory. When a review suggestion conflicts with rules in `punt-labs/.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
+**Org standards override review tools.** Qodo, Bugbot, and Copilot are advisory. When a review suggestion conflicts with rules in `.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
 
 **Verify outputs, not just metrics.** After writing a file, open it and read the content. `make check` passing does not mean the feature works — it means the code compiles and tests pass. Those are necessary but not sufficient.
 
