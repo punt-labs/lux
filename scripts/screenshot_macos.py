@@ -269,6 +269,13 @@ def crop_and_verify(full: Path, win: Window, scr: Screen, dest: Path) -> None:
         shot.save(f, format="PNG")
 
 
+def check_not_occluded(win: Window) -> None:
+    """Fail if other windows cover more than MAX_COVERED of the window."""
+    if (cov := occluded_fraction(win)) > MAX_COVERED:
+        msg = f"the Lux window is {cov:.0%} covered by other windows"
+        raise ScreenshotError(msg)
+
+
 def capture(out: Path, *, raise_first: bool = True) -> Path:
     """One verified capture of the Lux window to `out`. Raises ScreenshotError."""
     out = out.resolve()
@@ -296,15 +303,17 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     if raise_first:
         raise_window(win.pid)
         win = find_window(pids)  # bounds can change when activated
-    if (cov := occluded_fraction(win)) > MAX_COVERED:
-        msg = f"the Lux window is {cov:.0%} covered by other windows"
-        raise ScreenshotError(msg)
+    check_not_occluded(win)
     scr = screen_for(win, screens())
     tmp = out.with_name(f".{out.stem}.tmp{out.suffix or '.png'}")
     with tempfile.TemporaryDirectory() as td:
         full = Path(td) / "screen.png"
         grab_screen(scr.index, full)
-        check_window_unmoved(win, find_window(pids))
+        post = find_window(pids)
+        check_window_unmoved(win, post)
+        # A window raised over ours mid-grab is in the frame, so re-check with
+        # the post-grab window, the one the frame actually reflects.
+        check_not_occluded(post)
         try:
             crop_and_verify(full, win, scr, tmp)
             tmp.replace(out)

@@ -118,3 +118,42 @@ def test_missing_permission_leaves_no_stale_screenshot(
         sm.capture(out)
     # A caller reading by path must never mistake an old capture for new evidence.
     assert not out.exists()
+
+
+def test_window_occluded_after_grab_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    win = _window(20, 20, 100, 100)
+    covered = iter([0.0, 0.5])  # clear at the first check, covered after the grab
+    seen: list[Any] = []
+
+    def occluded(w: Any) -> float:
+        seen.append(w)
+        return next(covered)
+
+    def find(_pids: list[int]) -> Any:
+        return win
+
+    def grab(_index: int, dest: Path) -> None:
+        dest.write_bytes(b"x")
+
+    def crop(*_args: Any) -> None:
+        raise AssertionError("an occluded capture must never reach the crop step")
+
+    monkeypatch.setattr(sm.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        sm,
+        "_quartz",
+        lambda: SimpleNamespace(CGPreflightScreenCaptureAccess=lambda: True),
+    )
+    monkeypatch.setattr(sm, "display_pids", lambda: [1])
+    monkeypatch.setattr(sm, "find_window", find)
+    monkeypatch.setattr(sm, "occluded_fraction", occluded)
+    monkeypatch.setattr(sm, "screens", lambda: [_screen()])
+    monkeypatch.setattr(sm, "grab_screen", grab)
+    monkeypatch.setattr(sm, "crop_and_verify", crop)
+    out = tmp_path / "shot.png"
+    with pytest.raises(sm.ScreenshotError, match="covered"):
+        sm.capture(out, raise_first=False)
+    assert not out.exists()
+    assert len(seen) == 2
