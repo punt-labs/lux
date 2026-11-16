@@ -180,8 +180,8 @@ Write the capture somewhere else:
 SCREENSHOT_OUT=/tmp/out.png make screenshot
 ```
 
-This is for visual checks at the demo gate (`docs/WORKFLOW.md`). It works on
-Linux only, verified on Ubuntu with a Wayland session running XWayland
+This is for visual checks at the demo gate (`docs/WORKFLOW.md`). On Linux it
+was verified on Ubuntu with a Wayland session running XWayland
 (`DISPLAY` pointing at the X11 socket). It needs `import` and `convert`
 (ImageMagick), `xwininfo` and `xprop` (x11-utils), `xdotool`, and
 `systemd-inhibit` (systemd) on `PATH`. `scripts/screenshot.sh` finds the real
@@ -189,6 +189,31 @@ Linux only, verified on Ubuntu with a Wayland session running XWayland
 capture that is almost a single color, such as the black image a locked
 session produces. It is not part of `make check`; CI has no display to
 capture.
+
+On macOS, `make screenshot` runs `scripts/screenshot_macos.py` instead. It
+needs `ffmpeg` (`brew install ffmpeg`) and the `display` extra. Grant your
+terminal app **Screen Recording** permission (System Settings > Privacy &
+Security > Screen Recording); a terminal that is still running may need a
+restart before it applies. Raising the window uses System Events, which asks
+once for Automation permission.
+
+The macOS script keeps the same contract as the Linux one:
+
+- It finds the window by the `luxd-display` PID, never by title.
+- It removes the output file first and only writes a verified capture.
+- It rejects a blank capture.
+
+It captures what is on screen: `ffmpeg -f avfoundation` grabs the display the
+window is on, then crops the window out. So it raises the window first, and
+fails if another window still covers it, or if the window spans two displays.
+
+For a series of captures at a fixed interval:
+
+```bash
+make screenshots SCREENSHOT_INTERVAL=5 SCREENSHOT_COUNT=12
+```
+
+This writes `lux-screenshot-0001.png`, `lux-screenshot-0002.png`, and so on.
 
 ## Code Standards
 
