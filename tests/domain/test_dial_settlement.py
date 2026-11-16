@@ -12,8 +12,8 @@ where the bound is the thing under test.
 from __future__ import annotations
 
 import logging
-import threading
 import sys
+import threading
 import time
 from typing import TYPE_CHECKING, Self, cast, final
 
