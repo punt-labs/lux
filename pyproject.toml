@@ -57,6 +57,7 @@ display = [
     "imgui-bundle==1.92.900",
     "Pillow>=12.3.0",
     "numpy>=2.0.0",
+    "pyghostty==0.1.4",  # SPIKE: terminal element (exact pin: uses its _ffi layer)
     "PyOpenGL>=3.1.0",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
@@ -117,7 +118,8 @@ line-length = 88
 target-version = "py313"
 # Spike directories are self-contained uv projects with their own pyproject.toml;
 # they should not be linted by the main project's ruff config.
-extend-exclude = ["spikes/"]
+# SPIKE (spike/terminal-ghostty): the terminal widget package is spike code.
+extend-exclude = ["spikes/", "src/punt_lux/display/terminal/"]
 
 [tool.ruff.lint]
 select = [

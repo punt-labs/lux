@@ -71,6 +71,11 @@ from punt_lux.protocol.elements.spinner_codec import (
 )
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_codec import JsonTableDecoder, JsonTableEncoder
+from punt_lux.protocol.elements.terminal import (
+    JsonTerminalDecoder,
+    JsonTerminalEncoder,
+    TerminalElement,
+)
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
 from punt_lux.protocol.elements.tree import TreeElement
@@ -129,6 +134,12 @@ class DefaultLeafKinds:
                 kind="markdown",
                 codec=KindCodec(
                     MarkdownElement, JsonMarkdownDecoder, JsonMarkdownEncoder().encode
+                ),
+            ),
+            LeafKindSpec(  # SPIKE: terminal element (spike/terminal-ghostty)
+                kind="terminal",
+                codec=KindCodec(
+                    TerminalElement, JsonTerminalDecoder, JsonTerminalEncoder().encode
                 ),
             ),
             LeafKindSpec(

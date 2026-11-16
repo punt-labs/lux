@@ -48,6 +48,7 @@ from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab import Tab
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import TableElement
+from punt_lux.protocol.elements.terminal import TerminalElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
@@ -78,6 +79,7 @@ __all__ = [
     "Tab",
     "TabBarElement",
     "TableElement",
+    "TerminalElement",
     "TextElement",
     "TreeElement",
     "WindowElement",
@@ -112,6 +114,7 @@ Element = (
     | PlotElement
     | ProgressElement
     | SpinnerElement
+    | TerminalElement
     | MarkdownElement
     | ModalElement
 )

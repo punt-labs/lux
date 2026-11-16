@@ -50,6 +50,7 @@ class AbcKindNames:
             "window",
             "markdown",
             "spinner",
+            "terminal",
             "separator",
             "image",
             "tree",

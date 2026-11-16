@@ -67,6 +67,9 @@ logger = logging.getLogger(__name__)
 # it persists until the user closes the frame or a new client adopts it.
 _ORPHAN_FD = -1
 
+# SPIKE: keep full frame rate this long after terminal output stops.
+_TERMINAL_WAKE_GRACE_S = 0.25
+
 
 class RenderLoop:
     """The ImGui render loop, with non-blocking Unix socket IPC."""
@@ -278,7 +281,7 @@ class RenderLoop:
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = functools.partial(
-            self._turn.run, self._render_scene, self._flush_events
+            self._turn.run, self._pump_terminals, self._render_scene, self._flush_events
         )
         runner_params.callbacks.after_swap = self._turn.after_swap
         runner_params.callbacks.before_exit = self._on_exit
@@ -338,8 +341,30 @@ class RenderLoop:
         """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
 
+    def _pump_terminals(self) -> None:
+        """SPIKE: read every terminal session's PTY once; stay awake while output flows.
+
+        hello_imgui only counts user input as activity, so a busy terminal in an
+        untouched window would update at fps_idle. Disable idling while bytes
+        arrive and for a short grace period after (STEP2.md, finding 1).
+        """
+        import time
+
+        from imgui_bundle import hello_imgui
+
+        from punt_lux.display.terminal.sessions import TerminalSessions
+
+        busy = TerminalSessions.pump_all()
+        quiet_for = time.monotonic() - TerminalSessions.last_output_at
+        hello_imgui.get_runner_params().fps_idling.enable_idling = (
+            not busy and quiet_for > _TERMINAL_WAKE_GRACE_S
+        )
+
     def _on_exit(self) -> None:
         """Called before the window closes."""
+        from punt_lux.display.terminal.sessions import TerminalSessions
+
+        TerminalSessions.close_all()  # SPIKE: in-Display PTYs die with the window
         self._textures.cleanup()
         self._turn.shutdown()  # the cross-host listen socket and pending peers
         self._socket_listener.shutdown()

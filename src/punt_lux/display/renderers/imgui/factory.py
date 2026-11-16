@@ -34,6 +34,7 @@ from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
+from punt_lux.display.renderers.imgui.terminal import ImGuiTerminalRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
@@ -61,6 +62,7 @@ from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.split_pane import SplitPaneElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import TableElement
+from punt_lux.protocol.elements.terminal import TerminalElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
@@ -107,6 +109,7 @@ class ImGuiRendererFactory:
         (ProgressElement, ImGuiProgressRenderer),
         (MarkdownElement, ImGuiMarkdownRenderer),
         (SpinnerElement, ImGuiSpinnerRenderer),
+        (TerminalElement, ImGuiTerminalRenderer),  # SPIKE
         (SeparatorElement, ImGuiSeparatorRenderer),
         (ImageElement, ImGuiImageRenderer),
         (SliderElement, ImGuiSliderRenderer),
