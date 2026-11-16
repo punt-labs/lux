@@ -1,0 +1,23 @@
+mission: m-2026-11-16-001
+round: 1
+created_at: "2026-11-16T05:40:39Z"
+author: rmh
+verdict: pass
+confidence: 0.8
+files_changed:
+    - path: tests/test_hostile_display.py
+      added: 5
+      removed: 0
+    - path: tests/domain/test_dial_settlement.py
+      added: 6
+      removed: 0
+    - path: tests/test_session_start_pid.py
+      added: 5
+      removed: 2
+evidence:
+    - name: make check on macOS
+      status: pass
+    - name: targets B and C not reproduced (see pl-1105.md)
+      status: pass
+open_questions:
+    - Targets B (cross_host_listener, reply_waiters) and C (display spawn) not reproduced; no slow marks or guards added

@@ -1,0 +1,39 @@
+mission_id: m-2026-11-16-001
+status: closed
+type: implement
+created_at: "2026-11-16T05:07:40Z"
+updated_at: "2026-11-16T05:48:03Z"
+closed_at: "2026-11-16T05:48:03Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-11-16T05:07:40Z"
+    hash: 3bcbf001fd081c9202a4057ea1d60c2ca189f44c6f9caf3213586eadb2a8d75b
+inputs:
+    files:
+        - .tmp/missions/pl-1105-macos-test-gate.md
+write_set:
+    - tests/
+success_criteria:
+    - Read .tmp/missions/pl-1105-macos-test-gate.md in full first — it is the complete brief with the five targets, the per-test fix, the environment setup, and the proof criterion. Work in the worktree <repo>/.claude/worktrees/macos-test-gate on branch fix/pl-1105-macos-test-gate. Use git -C, make -C, and absolute paths.
+    - 'Win condition: on this macOS host, make check exits 0 — fully green, no hang, bounded time. Run make check to completion with output saved under .tmp/ and cite the final summary line. Prove each target with BEFORE (fail/hang via `uv run --with pytest-timeout pytest --timeout=20 --timeout-method=signal`) and AFTER (skipped/slow-excluded/passing).'
+    - Pin Python 3.13 first (uv python pin 3.13; uv sync --extra display) — a fresh worktree resolves to 3.14. Do NOT commit the .python-version it creates; remove it from the tree before the final commit. pytest-timeout is a diagnosis tool only — never a committed dependency, never in pyproject addopts.
+    - 'Targets A (two deterministic socket tests: test_hostile_display deep-frame, test_dial_settlement displays_end) get @pytest.mark.skipif(sys.platform == ''darwin'', reason=... naming PL-1105 and the Linux semantics). Do NOT weaken Linux coverage — darwin-only skips, nothing deleted or unconditionally skipped. The behavior stays gated in CI.'
+    - Targets B (test_cross_host_listener 50ms-deadline cases; test_reply_waiters TestTheOneLock) are load-flaky (pass in isolation). Prefer asserting behavior over wall-clock where a case allows (tests/CLAUDE.md); otherwise @pytest.mark.slow with a reason. For test_reply_waiters, first determine WHY it deadlocks under load — if it is a genuine PRODUCT concurrency defect (not test-harness contention), STOP and escalate to the leader; do not mark it slow to hide a product deadlock.
+    - 'Target C: the display-spawning test that spawns a real luxd-display (not a mocked one) and hangs on macOS without a window — guard it to fail-fast or skipif-darwin-without-window instead of hanging.'
+    - NO production-code changes (write_set is tests/ only) unless target B4 reveals a genuine product concurrency defect — which is a STOP-and-escalate, not a fix. Every skip/skipif/slow carries reason= naming PL-1105. Commit incrementally (skipifs, then flaky marks, then spawn guard); commit only files you changed (git add <file>, never -A/-a). Do not push, do not touch PRs, do not merge — the leader does that. Do not call MCP tools or spawn agents.
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results/pl-1105.md (lux repo root). Submit it with ethos mission result when make check is green on macOS.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries: []
+context: |
+    make check's test tier is a Linux gate — four tests plus a display-spawn
+    test fail or hang on macOS while green in CI (PL-1105). Make the default
+    test tier green on macOS without weakening Linux coverage. This unblocks
+    PL-1101 (macOS make screenshot), which ships on the clean base afterward.
