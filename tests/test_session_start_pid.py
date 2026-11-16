@@ -176,12 +176,15 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
 
     env = dict(os.environ)
     env["HOME"] = str(fake_home)
-    env["PATH"] = f"{stub_bin}:{env.get('PATH', '')}"
+    # claude_bin is launched by bare name through PATH: macOS `ps -o comm=`
+    # reports the path as launched, so an absolute path would never read as
+    # plain "claude" there (PL-1105).
+    env["PATH"] = f"{stub_bin}:{claude_bin.parent}:{env.get('PATH', '')}"
     env["TMPDIR"] = str(hook_tmpdir)
     env["RELAY_TRACE_FILE"] = str(trace_file)
 
     proc = subprocess.Popen(
-        [str(claude_bin), str(relay_sh), "bash", str(relay_sh), "bash", str(_SCRIPT)],
+        [claude_bin.name, str(relay_sh), "bash", str(relay_sh), "bash", str(_SCRIPT)],
         env=env,
     )
     claude_pid = proc.pid
