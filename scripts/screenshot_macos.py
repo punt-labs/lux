@@ -46,6 +46,11 @@ FFMPEG_TIMEOUT_S = 20
 MIN_WINDOW_PT = 200  # ignore menu/status strips the process also owns
 BOUNDS_TOLERANCE_PT = 1.0  # window drift allowed between query and grab
 MAX_COVERED = 0.01  # share of the window other windows may cover
+# System processes that keep a transparent, screen-sized window above every
+# app window (seen on macOS 26.6). Only a window of theirs exactly matching a
+# screen is skipped. A notification banner draws inside Notification Center's
+# full-screen window, so a banner over the Lux window is not detected.
+SCREEN_OVERLAY_OWNERS = frozenset({"Dock", "Notification Center"})
 
 
 class ScreenshotError(Exception):
@@ -194,12 +199,21 @@ def union_area(rects: list[Rect]) -> float:
     return area
 
 
-def occluded_fraction(win: Window) -> float:
+def is_screen_overlay(info: Any, all_screens: list[Screen]) -> bool:
+    """True for a known system overlay window that spans a whole screen."""
+    if info.get("kCGWindowOwnerName") not in SCREEN_OVERLAY_OWNERS:
+        return False
+    r = Rect.from_cg(info["kCGWindowBounds"])
+    return any(r == s.bounds for s in all_screens)
+
+
+def occluded_fraction(win: Window, all_screens: list[Screen]) -> float:
     """Share of the window covered by on-screen windows stacked above it.
 
     Any layer counts, but only where it overlaps the window's own bounds, so
     floating panels are caught while menu-bar and dock chrome elsewhere on the
     screen is not. Overlapping coverers are measured once, as a union.
+    Screen-sized system overlays (`is_screen_overlay`) are skipped.
     """
     q = _quartz()
     above = (
@@ -211,7 +225,7 @@ def occluded_fraction(win: Window) -> float:
     b = win.bounds
     clipped: list[Rect] = []
     for w in above:
-        if float(w.get("kCGWindowAlpha", 1)) == 0:
+        if float(w.get("kCGWindowAlpha", 1)) == 0 or is_screen_overlay(w, all_screens):
             continue
         r = Rect.from_cg(w["kCGWindowBounds"])
         x0, y0 = max(b.x, r.x), max(b.y, r.y)
@@ -301,9 +315,9 @@ def crop_and_verify(full: Path, win: Window, scr: Screen, dest: Path) -> None:
         raise ScreenshotError(msg) from e
 
 
-def check_not_occluded(win: Window) -> None:
+def check_not_occluded(win: Window, all_screens: list[Screen]) -> None:
     """Fail if other windows cover more than MAX_COVERED of the window."""
-    if (cov := occluded_fraction(win)) > MAX_COVERED:
+    if (cov := occluded_fraction(win, all_screens)) > MAX_COVERED:
         msg = f"the Lux window is {cov:.0%} covered by other windows"
         raise ScreenshotError(msg)
 
@@ -349,8 +363,9 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     if raise_first:
         raise_window(win.pid)
         win = find_window(pids)  # bounds can change when activated
-    check_not_occluded(win)
-    scr = screen_for(win, screens())
+    all_screens = screens()
+    check_not_occluded(win, all_screens)
+    scr = screen_for(win, all_screens)
     tmp = out.with_name(f".{out.stem}.tmp{out.suffix or '.png'}")
     with scratch_dir() as td:
         full = Path(td) / "screen.png"
@@ -363,7 +378,7 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
         # in-process path of DES-028), which this tool does not have.
         # A window raised over ours mid-grab is in the frame, so re-check with
         # the post-grab window, the one the frame actually reflects.
-        check_not_occluded(post)
+        check_not_occluded(post, all_screens)
         try:
             crop_and_verify(full, win, scr, tmp)
             tmp.replace(out)
