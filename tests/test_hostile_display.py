@@ -230,6 +230,11 @@ class TestDeepFrames:
         with pytest.raises(ValueError, match="nests"):
             decode_frame(_bomb_frame())
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="the bomb frame exceeds the macOS socketpair send buffer, so "
+        "sendall blocks forever with no reader; Linux's buffer takes it; see PL-1105",
+    )
     def test_recv_message_refuses_a_deep_frame(self) -> None:
         ours, theirs = socket.socketpair()
         with ours, theirs:
