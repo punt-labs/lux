@@ -20,21 +20,6 @@ __all__ = ["FontLoader"]
 
 _FONT_SIZE = 16.0
 
-# SPIKE (terminal element): Inconsolata ships with imgui-bundle.
-# The fallback font paths are macOS-only.
-_MONO_FONT = Path(
-    str(__import__("imgui_bundle").__path__[0]),
-    "assets",
-    "fonts",
-    "Inconsolata-Medium.ttf",
-)
-_TERMINAL_FALLBACKS: tuple[tuple[str, bool], ...] = (
-    ("/System/Library/Fonts/Hiragino Sans GB.ttc", False),
-    ("/System/Library/Fonts/AppleSDGothicNeo.ttc", False),
-    ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", False),
-    ("/System/Library/Fonts/Apple Color Emoji.ttc", True),
-)
-
 
 @final
 class FontLoader:
@@ -77,31 +62,12 @@ class FontLoader:
 
         self._load_terminal_font()
 
-    def _load_terminal_font(self) -> None:
-        """SPIKE: monospace font for the terminal element, with CJK/emoji merged in."""
-        from imgui_bundle import imgui
+    @staticmethod
+    def _load_terminal_font() -> None:
+        """SPIKE: the terminal element's monospace font (terminal/font.py)."""
+        from punt_lux.display.terminal.font import TerminalFont
 
-        from punt_lux.display.renderers.imgui.terminal import TerminalFonts
-
-        mono = _MONO_FONT if _MONO_FONT.exists() else None
-        if mono is None:
-            logger.warning("terminal: monospace font not found at %s", _MONO_FONT)
-            return
-        io = imgui.get_io()
-        size = TerminalFonts.size
-        font = io.fonts.add_font_from_file_ttf(str(mono), size)
-        for path, color in _TERMINAL_FALLBACKS:
-            if not Path(path).exists():
-                continue
-            cfg = imgui.ImFontConfig()
-            cfg.merge_mode = True
-            if color:
-                cfg.font_loader_flags = 1 << 8  # ImGuiFreeTypeLoaderFlags_LoadColor
-            io.fonts.add_font_from_file_ttf(path, size, cfg)
-        TerminalFonts.mono = font
-        logger.info(
-            "terminal: loaded %s + %d fallbacks", mono.name, len(_TERMINAL_FALLBACKS)
-        )
+        TerminalFont.load()
 
     def _find(self) -> tuple[str | None, list[str]]:
         """Return ``(primary, merge_fonts)`` for the current platform."""

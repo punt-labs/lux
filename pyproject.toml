@@ -118,8 +118,7 @@ line-length = 88
 target-version = "py313"
 # Spike directories are self-contained uv projects with their own pyproject.toml;
 # they should not be linted by the main project's ruff config.
-# SPIKE (spike/terminal-ghostty): the terminal widget package is spike code.
-extend-exclude = ["spikes/", "src/punt_lux/display/terminal/"]
+extend-exclude = ["spikes/"]
 
 [tool.ruff.lint]
 select = [
@@ -271,6 +270,7 @@ module = [
     # only ever assigns the untyped client into the package's own _AcmPcaClient
     # Protocol, so Any-typed boto3 is sufficient without adding boto3-stubs.
     "boto3.*",
+    "pyghostty.*",  # SPIKE: no type stubs; confined to display/terminal/ffi.py
 ]
 ignore_missing_imports = true
 
