@@ -200,7 +200,8 @@ def test_legacy_flag_rule_is_stripped(tmp_path: Path, *, add: bool) -> None:
     ask = ["Bash(ls:*)", "Bash(lux -*)"]
     settings.write_text(json.dumps({"permissions": {"ask": ask}}))
     perms = ProjectPermissions(tmp_path)
-    perms.grant() if add else perms.revoke()
+    change = perms.grant() if add else perms.revoke()
+    assert ("Bash(lux -*)" in change.changed) is not add
     kept = json.loads(settings.read_text())["permissions"]["ask"]
     assert kept == ["Bash(ls:*)", *(_ASK if add else ())]
 

@@ -152,7 +152,7 @@ class ProjectPermissions:
         retired = self._retire_legacy(settings)
         if changed or retired:
             self._write(json.dumps(settings, indent=2) + "\n")
-        return changed
+        return changed if add else (*changed, *retired)
 
     @staticmethod
     def _edit(rules: list[object], owned: tuple[str, ...], *, add: bool) -> list[str]:
@@ -165,14 +165,13 @@ class ProjectPermissions:
         rules[:] = [rule for rule in rules if rule not in owned]
         return removed
 
-    def _retire_legacy(self, settings: dict[str, object]) -> bool:
-        """Remove every legacy lux rule from *settings*; return whether any was."""
-        retired = False
+    def _retire_legacy(self, settings: dict[str, object]) -> tuple[str, ...]:
+        """Remove every legacy lux rule from *settings*; return those removed."""
+        retired: tuple[str, ...] = ()
         for tier, legacy in _LEGACY_RULES.items():
             rules = self._rule_list(settings, tier, create=False)
-            kept = [rule for rule in rules if rule not in legacy]
-            retired = retired or len(kept) != len(rules)
-            rules[:] = kept
+            retired = (*retired, *(rule for rule in legacy if rule in rules))
+            rules[:] = [rule for rule in rules if rule not in legacy]
         return retired
 
     def _read(self) -> dict[str, object]:
