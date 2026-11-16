@@ -1,0 +1,24 @@
+mission: m-2026-11-16-002
+round: 1
+created_at: "2026-11-16T07:14:50Z"
+author: rmh
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: Makefile
+      added: 6
+      removed: 4
+    - path: scripts/screenshot_macos.py
+      added: 42
+      removed: 13
+    - path: tests/test_screenshot_macos.py
+      added: 119
+      removed: 0
+evidence:
+    - name: make check exit 0, 8821 passed 2 skipped (.tmp/pl1101-check-4.txt)
+      status: pass
+    - name: crop-bounds test fails on unfixed code with DID NOT RAISE (.tmp/pl1101-crop-before.txt)
+      status: pass
+    - name: listener test file 8 of 8 green after deflake
+      status: pass
+prose: The listener deflake (tests/display/test_cross_host_listener.py, commit 9a92d7aa) is outside the write_set and is deliberately omitted from files_changed; the leader ruled it a leader commit. See .tmp/missions/results/pl1101-fixes.md. Real-display demo not run.

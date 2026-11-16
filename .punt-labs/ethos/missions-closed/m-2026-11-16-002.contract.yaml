@@ -1,0 +1,44 @@
+mission_id: m-2026-11-16-002
+status: closed
+type: implement
+created_at: "2026-11-16T06:36:17Z"
+updated_at: "2026-11-16T07:48:48Z"
+closed_at: "2026-11-16T07:48:48Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-11-16T06:36:17Z"
+    hash: 3bcbf001fd081c9202a4057ea1d60c2ca189f44c6f9caf3213586eadb2a8d75b
+inputs:
+    files:
+        - .tmp/missions/pl-1101-fixes.md
+write_set:
+    - scripts/screenshot_macos.py
+    - Makefile
+    - tests/test_screenshot_macos.py
+success_criteria:
+    - Read .tmp/missions/pl-1101-fixes.md in full first — it is the complete brief with the five fixes in priority order, the TDD requirement, and the test-design note. Work in the worktree <repo>/.claude/worktrees/screenshot-macos on branch feat/screenshot-macos (already rebased on origin/main). git -C / make -C / absolute paths.
+    - Pin Python 3.13 first (uv python pin 3.13; uv sync --extra display); do NOT commit the .python-version. make check is the gate, currently GREEN (8812 passed, 2 skipped); keep it green and make the test count go UP.
+    - 'FIX #1 MUST (false-evidence defect, TDD): crop_and_verify never bounds-checks the crop box, so PIL black-pads an out-of-frame window and the stddev-only blank check still passes. (a) raise ScreenshotError unless the rounded box is fully within the image (left>=0, top>=0, right<=im.width, bottom<=im.height); (b) close the bounds-query->grab race by re-running find_window after grab_screen and failing if the window bounds changed. Write tests/test_screenshot_macos.py with a test that FAILS on the unfixed code and passes after: fixture image must have ENOUGH CONTENT that stddev passes (NOT a uniform image — the stddev gate would reject it first and prove nothing), with the crop box PARTLY OUTSIDE the frame. Record failing-then-passing output under .tmp/.'
+    - 'FIX #2 MUST: the output PNG (a screenshot of the screen) is written ~0644. Write it 0600 — prefer os.open(..., O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600) on the temp (also closes a symlink race), or at least os.chmod(tmp, 0o600) before tmp.replace(out). Keep the no-stale-file contract.'
+    - 'FIX #3 SHOULD (real bug): out.unlink runs before the sys.platform!=''darwin'' check and the Screen-Recording check, so misinvoking on Linux or without permission deletes a prior good screenshot then errors. Reorder: platform + permission checks first, unlink only once committed to a new capture.'
+    - 'FIX #4 SHOULD: a truncated/corrupt ffmpeg PNG raises PIL.UnidentifiedImageError, bypassing the clean ScreenshotError path. Wrap the PIL decode and re-raise as ScreenshotError with a clear message.'
+    - 'FIX #5 CHEAP: Makefile splices $(SCREENSHOT_OUT)/$(SCREENSHOT_INTERVAL)/$(SCREENSHOT_COUNT) into the recipe shell. export them near the ?= lines and reference "$$SCREENSHOT_OUT" etc. in the recipes, including the Linux branch of screenshot. No behavior change.'
+    - 'OUT OF SCOPE (note only, no behavior change): djb #4 proc_pidpath identity check (same-user-on-own-box is outside the threat bar; design already has the honesty note); occlusion edge cases (err toward rejecting a valid capture, safe). Do NOT touch anything outside the write_set — the .claude/rules/*, missions-closed/*, and the three PL-1105 test files in the range diff are already-merged commits.'
+    - 'Commit incrementally: test+crop-fix together (TDD), then perms, then unlink reorder, then decode wrap, then Makefile. Each commit passes make check. Commit only files you changed (git add <file>, never -A/-a). Do NOT push, touch PRs, merge, call MCP tools, or spawn agents — the leader does that.'
+    - 'STANDING WORKER CONTRACT (docs/WORKFLOW.md Level 3 step 1), verbatim. Goal. Good SOLID object-oriented design, stated as responsibilities: which object owns what, who depends on what. The OO and coupling ratchet numbers are signals of that design, never targets. A change that moves a number without improving responsibilities (a grab-bag class, a bundle of collaborators handed out for callers to reach through, a second facade forwarding to the first) is rejected even when the gate goes green. Forbidden. Writing .oo-baseline.json, .oo-audit.jsonl, .oo-coupling-baseline.json, or .oo-coupling-audit.jsonl by any means other than make update-oo / make update-coupling. Running --rebaseline-files (a bless) at all; it is the leader''s act alone, under DES-096/097. Restoring any file from git (git show REV:path > path, checkout --, restore, reset, stash), rm, clean, or switching branches. Pushing, or touching a PR. Calling MCP tools. Piping a gate through head, tail, or grep. On any ratchet regression: stop. Do not extract a class to move the number, do not bless, do not commit. Report the design and the numbers to the leader, who decides. Evidence, not claims. Run make check with output saved to a file under .tmp/; cite the file and its final summary line. A commit is made only after that file shows exit 0. The evaluator and the leader re-run it; a report that disagrees with their run rejects the work.'
+    - 'RESULT: .tmp/missions/results/pl-1101-fixes.md, submit with ethos mission result when make check is green and the crop-bounds test fails-on-unfixed / passes-on-fixed.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries: []
+context: |
+    PL-1101 macOS make screenshot is in local review before its PR. djb + code-reviewer
+    found no injection and confirmed the evidence-integrity contract, but flagged a
+    false-evidence crop-bounds defect (must-fix, TDD) plus perms/reorder/decode/Makefile
+    fixes. Land all of them, keep make check green, then the leader re-verifies and opens
+    the PR (merge waits on the operator's visual demo).
