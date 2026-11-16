@@ -13,6 +13,7 @@ non-blocking, per-frame-pumped accept loop.
 
 from __future__ import annotations
 
+import select
 import socket
 import ssl
 import threading
@@ -138,6 +139,21 @@ def _pump_until_ready_or_dropped(
             time.sleep(delay)  # give a not-yet-arrived connect another chance
         time.sleep(delay)
     return []
+
+
+def _accept_one(listener: CrossHostListener, *, timeout: float = 2.0) -> None:
+    """Call ``accept_pending`` once the listener's socket reports a waiting peer.
+
+    ``accept_pending`` polls with a zero timeout, so a ``connect()`` followed
+    straight away by one call can beat the kernel's loopback delivery and see
+    nothing (PL-1105). Waiting for readability first makes the single accept
+    deterministic without asserting on elapsed time.
+    """
+    sock = listener.server_sock
+    assert sock is not None
+    readable, _, _ = select.select([sock], [], [], timeout)
+    assert readable, "no peer reached the listening socket"
+    listener.accept_pending()
 
 
 def _free_port() -> int:
@@ -331,7 +347,7 @@ class TestBoundedDeadline:
             stalled = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             stalled.connect(("127.0.0.1", port))  # TCP connects; no TLS bytes ever sent
             try:
-                listener.accept_pending()
+                _accept_one(listener)
                 assert listener.pending_count == 1
 
                 # The clock hasn't moved: still well before the budget.
@@ -365,10 +381,10 @@ class TestPendingCap:
             first.connect(("127.0.0.1", port))
             second.connect(("127.0.0.1", port))
             try:
-                listener.accept_pending()  # admits the first -- fills the cap
+                _accept_one(listener)  # admits the first -- fills the cap
                 assert listener.pending_count == 1
 
-                listener.accept_pending()  # the second is refused, not queued
+                _accept_one(listener)  # the second is refused, not queued
                 assert listener.pending_count == 1
             finally:
                 first.close()
@@ -388,7 +404,7 @@ class TestShutdown:
         stalled = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         stalled.connect(("127.0.0.1", port))
         try:
-            listener.accept_pending()
+            _accept_one(listener)
             assert listener.pending_count == 1
         finally:
             stalled.close()

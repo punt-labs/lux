@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`make screenshot` works on macOS.** `scripts/screenshot_macos.py` finds the
+  Lux window by the `luxd-display` PID, raises it, captures its display with
+  `ffmpeg -f avfoundation`, and crops the window out. Like the Linux script, it
+  never leaves a stale file and rejects blank or covered captures. The new
+  `make screenshots` target captures at a fixed interval.
+
 ### Changed
 
 - **`lux enable` allows each surface broadly with exact `ask` carve-outs
