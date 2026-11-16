@@ -1,0 +1,6 @@
+{"elements": [
+  {"kind": "text", "id": "hdr", "content": "Spike: libghostty-vt terminal element inside the real Lux display. Click into it to type."},
+  {"kind": "terminal", "id": "term1", "session": "spike-shell", "command": "/bin/zsh -l"}
+],
+ "title": "Terminal (spike)",
+ "frame": {"frame_id": "terminal-spike", "frame_title": "Terminal (spike)", "size": [1100, 700]}}
