@@ -13,6 +13,7 @@ import contextlib
 import fcntl
 import os
 import pty
+import pwd
 import select
 import signal
 import struct
@@ -20,13 +21,40 @@ import termios
 import time
 from collections.abc import Sequence
 
-__all__ = ["PtyProcess"]
+__all__ = ["PtyProcess", "user_environment"]
 
 DEFAULT_BUDGET = 4 << 20  # bytes read per frame, at most
 DEFAULT_TIME_BUDGET_S = 0.002  # read time per frame, at most (of ~16 ms)
 _REFILL_WAIT_S = 0.002  # how long to wait for more output before returning
 _CHUNK = 64 * 1024
 _HANGUP_GRACE_S = 0.3  # per signal, while closing
+
+
+# Display-process settings a user's shell must not inherit (found live: with
+# the spike's isolated HOME, `cd ~` landed in the Display's state directory and
+# zsh skipped ~/.zshrc, so there was no completion).
+_DISPLAY_ONLY_VARS = ("LUX_SOCKET", "TERM_PROGRAM", "TERM_PROGRAM_VERSION")
+
+
+def user_environment() -> dict[str, str]:
+    """The environment for a user's program: their real login identity.
+
+    The Display may run with a different ``HOME`` (an isolated instance, or a
+    launchd service with a minimal environment), so ``HOME``, ``USER``,
+    ``LOGNAME`` and ``SHELL`` come from the password database for the
+    current user, not from the Display's own environment.
+    """
+    entry = pwd.getpwuid(os.getuid())
+    env = {k: v for k, v in os.environ.items() if k not in _DISPLAY_ONLY_VARS}
+    env.update(
+        HOME=entry.pw_dir,
+        USER=entry.pw_name,
+        LOGNAME=entry.pw_name,
+        SHELL=entry.pw_shell or "/bin/sh",
+        TERM="xterm-256color",
+        COLORTERM="truecolor",
+    )
+    return env
 
 
 class PtyProcess:
@@ -43,9 +71,8 @@ class PtyProcess:
     ) -> None:
         self.budget = budget
         self.time_budget_s = time_budget_s
-        argv = list(argv) if argv else [os.environ.get("SHELL", "/bin/zsh"), "-l"]
-        env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
-        env.pop("TERM_PROGRAM", None)  # don't claim to be the parent terminal
+        env = user_environment()
+        argv = list(argv) if argv else [env["SHELL"], "-l"]
         self.pid, self._fd = pty.fork()
         if self.pid == 0:  # child
             os.execvpe(argv[0], argv, env)  # noqa: S606 -- argv is the caller's command

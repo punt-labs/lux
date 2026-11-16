@@ -24,6 +24,8 @@ terminal; P2 is polish.
 | 1.7 | No working directory, environment or shell choice | P1 | missing | e.g. `cwd`, `env`, a per-repo default shell. |
 | 1.8 | Exit status isn't reported | P2 | missing | Show it, and send an interaction event an agent can read. |
 | 1.9 | No agent API to read the screen or send input | P1 | missing | The Vox Rooms goal. `luxd-pty`'s copy of the screen makes "what's on screen / is it waiting for input" possible without a Display. |
+| 1.10 | The shell inherited the Display's environment, not the user's | P0 | fixed | Found live: with the spike's isolated `HOME`, `cd ~` landed in the Display's state directory and zsh skipped `~/.zshrc`, so there was no completion, history or direnv. Programs now get `HOME`, `USER`, `LOGNAME` and `SHELL` from the user database, without the Display-only variables. This also matters when Lux runs as a launchd service with a minimal environment. |
+| 1.11 | The shell inherits secrets from its directory's `.envrc` | P1 | missing | direnv exports API keys and tokens into the terminal, same as in kitty. Not specific to Lux, but a terminal that agents can start (1.3) should account for it. |
 
 ## 2. Input
 
@@ -110,4 +112,6 @@ terminal; P2 is polish.
 - **A busy terminal updating at idle speed** (ADR-0006).
 - **Heavy output throttled to about 0.1 MB/s** by the PTY's 1 KB buffer:
   now 30-45 MB/s (5.6).
+- **The shell got the Display's environment**: wrong `~`, no `.zshrc`, so no
+  completion (1.10).
 - **pyte-style "bigger box" look**: the terminal background didn't fill its pane.

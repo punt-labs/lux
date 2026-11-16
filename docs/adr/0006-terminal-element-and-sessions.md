@@ -49,6 +49,11 @@ Lux's rules apply too:
 - **Exiting ends the terminal:** when the program exits, the session stays and
   the terminal shows `[process exited]`. It is not restarted. This was found
   live: the first version respawned the shell on the next frame.
+- **The user's environment, not the Display's:** programs start with `HOME`,
+  `USER`, `LOGNAME` and `SHELL` from the user database, without Display-only
+  variables such as `LUX_SOCKET`. Found live: the spike's isolated `HOME`
+  leaked into the shell, so `~` was wrong and zsh skipped `~/.zshrc` (no
+  completion).
 - **Closing never hangs:** SIGHUP, a short wait, then SIGKILL, never a blocking
   `waitpid`. Found live: an interactive shell that ignored SIGHUP hung the
   Display on exit.

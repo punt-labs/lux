@@ -82,6 +82,18 @@ closing a shell that ignores SIGHUP now takes 0.34 s.
    (by hand).
 3. Typing through a Chinese or Japanese input method.
 
+**Tab completion "not working", and `~` pointing somewhere odd (found by
+Jim).** Two separate causes, both fixed:
+
+1. ImGui's built-in Tab focus-cycling runs even with keyboard navigation off
+   and took Tab from the terminal. The terminal's child window now sets
+   `no_nav_inputs` (ADR-0004).
+2. The shell inherited the Display's environment. The spike Lux ran with
+   `HOME=/tmp/lux-spike-home` (to stay isolated from the real Lux), so `cd ~`
+   went there and zsh never read `~/.zshrc`: no `compinit`, history or direnv.
+   Programs now get the user's real login environment from the user database
+   (`pty.user_environment`). Jim confirmed `~` and `ls ~/` are right.
+
 ## Jim's verdict
 
 "The terminal feels completely native. Very snappy. At least as snappy as kitty."
