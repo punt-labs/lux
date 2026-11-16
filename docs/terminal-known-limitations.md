@@ -77,8 +77,9 @@ terminal; P2 is polish.
 | 5.1 | Worst-case redraw is slow | P2 | partial | When every cell has its own colour, a full redraw takes about 37 ms (ADR-0003). Fix with cross-row style caching or a C helper. |
 | 5.2 | Synchronized output (mode 2026) isn't honoured | P1 | missing | Programs that draw a frame at a time can show a half-drawn frame. Ghostty's render-hold callback fixes this. |
 | 5.3 | Smooth scrolling and overscan | P2 | missing | Ghostty supports overscan for partial-row scrolling. |
-| 5.4 | Not measured: a flooding terminal next to a heavy Lux frame (1,000-row table) | P1 | missing | Held during the spike because the machine was overloaded. |
-| 5.5 | Frame budget under many terminals | P2 | missing | Each terminal is pumped every frame; with many busy terminals the per-frame read cap needs to be shared fairly. |
+| 5.4 | Flooding terminal next to a heavy Lux frame (1,000-row table) | P1 | partial | Measured: Lux stayed at 95-112 fps, and the table was the expensive part. It exposed 5.6. |
+| 5.6 | Heavy output was throttled to about 0.1-0.5 MB/s | P1 | fixed (partly) | A macOS PTY buffers about 1 KB, and the pump read only what was ready at that instant. Two rounds of fixes reached 30-45 MB/s at about 8 ms per frame (STEP3.md). Native terminals reach hundreds of MB/s; `luxd-pty` reading out of process would remove the cap. |
+| 5.5 | Frame budget under many terminals | P2 | fixed | One 6 ms read budget per frame, shared out; quiet terminals go first so busy ones inherit their share (STEP3.md). |
 
 ## 6. Platform and packaging
 
@@ -107,4 +108,6 @@ terminal; P2 is polish.
 - **`exit` respawning the shell** (1.4).
 - **The Display hanging on exit** with a live shell (1.6).
 - **A busy terminal updating at idle speed** (ADR-0006).
+- **Heavy output throttled to about 0.1 MB/s** by the PTY's 1 KB buffer:
+  now 30-45 MB/s (5.6).
 - **pyte-style "bigger box" look**: the terminal background didn't fill its pane.

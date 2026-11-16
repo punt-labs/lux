@@ -35,9 +35,13 @@ Lux's rules apply too:
   (`TerminalSessions`, keyed by name):
   - The first time an element names a session, the session starts.
   - Re-rendering the element, or showing it in another frame, reuses it.
-- **One pump per frame:** before painting, the render loop calls
-  `TerminalSessions.pump_all()`. It reads each PTY without blocking, up to
-  256 KB per frame, so a flood can't stall a frame.
+- **One pump per frame, with a time budget:** before painting, the render loop
+  calls `TerminalSessions.pump_all()`. The frame has one read budget (6 ms),
+  shared out so quiet terminals go first and busy ones inherit what they don't
+  use. While output flows, each read waits up to 2 ms for the PTY to refill.
+  The first design read only what was ready at that instant, and a macOS PTY
+  buffers only about 1 KB, so heavy output crawled at about 0.1 MB/s. Now it is
+  30-45 MB/s, with about 8 ms of frame work (STEP3.md, "PTY throughput").
 - **Stay awake while output flows:** hello_imgui only counts input as activity.
   While a terminal produces output, and for 0.25 s after, the loop turns idling
   off. Without this, a busy terminal in an untouched window updated at about

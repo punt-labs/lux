@@ -2,9 +2,9 @@
 
 Lux's Display runs a single thread that polls its sockets once per frame
 with a zero-timeout ``select`` (DES-002). A terminal fits that model:
-``pump()`` does the same for the PTY and never blocks, and reads at most
-``budget`` bytes per call, so a flood of output (``yes``, a large ``cat``)
-can't stall a frame. The rest stays in the kernel buffer for the next frame.
+``pump()`` does the same for the PTY, spending at most a small time budget
+(2 ms) and byte budget per frame, so a flood of output (``yes``, a large
+``cat``) can't stall a frame, yet the program isn't starved either.
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ from collections.abc import Sequence
 
 __all__ = ["PtyProcess"]
 
-DEFAULT_BUDGET = 256 * 1024  # bytes read per frame, at most
+DEFAULT_BUDGET = 4 << 20  # bytes read per frame, at most
+DEFAULT_TIME_BUDGET_S = 0.002  # read time per frame, at most (of ~16 ms)
+_REFILL_WAIT_S = 0.002  # how long to wait for more output before returning
 _CHUNK = 64 * 1024
 _HANGUP_GRACE_S = 0.3  # per signal, while closing
 
@@ -37,8 +39,10 @@ class PtyProcess:
         cols: int = 80,
         rows: int = 24,
         budget: int = DEFAULT_BUDGET,
+        time_budget_s: float = DEFAULT_TIME_BUDGET_S,
     ) -> None:
         self.budget = budget
+        self.time_budget_s = time_budget_s
         argv = list(argv) if argv else [os.environ.get("SHELL", "/bin/zsh"), "-l"]
         env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
         env.pop("TERM_PROGRAM", None)  # don't claim to be the parent terminal
@@ -54,10 +58,25 @@ class PtyProcess:
         return self._alive
 
     def pump(self) -> bytes:
-        """Return whatever output is ready now, up to ``budget`` bytes."""
+        """Return the program's output, reading for at most ``time_budget_s``.
+
+        Reads until the byte budget or the time budget is spent, or no more
+        output arrives within ``_REFILL_WAIT_S``. Reading only what is ready
+        *right now* was the original design, and it throttled heavy output to
+        about 0.1-0.5 MB/s: a macOS PTY buffers only about 1 KB, so the program
+        filled it and then slept until the next frame (STEP3.md, "PTY
+        throughput"). Waiting briefly for the refill keeps it flowing.
+        """
         out = bytearray()
+        deadline = time.monotonic() + self.time_budget_s
         while self._alive and len(out) < self.budget:
-            ready, _, _ = select.select([self._fd], [], [], 0)
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            # Wait for a refill only once output is flowing: an idle terminal
+            # must cost nothing, or every quiet terminal would add 2 ms a frame.
+            wait = min(_REFILL_WAIT_S, left) if out else 0.0
+            ready, _, _ = select.select([self._fd], [], [], wait)
             if not ready:
                 break
             try:

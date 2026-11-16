@@ -96,3 +96,89 @@ defaulting `session` to the `id`. Targeted run with a 30 s per-test timeout:
 `tests/protocol` plus that test, 2,151 passed in 17.8 s. Lint and format pass across
 the repo. mypy passes on the integration files. The widget package
 `display/terminal/` is excluded from ruff on this branch as spike code.
+
+## PTY throughput: two rounds of fixes
+
+**Found by the flood-plus-table measurement.** Lux stayed fast: 95-112 fps
+with a 1,000-row table and flooding terminals, and the table was the expensive
+part (about 53% of one core on its own). But the terminals received only about
+0.5 MB/s, and `yes` sat at 0% CPU. A heavy program ran far slower inside Lux
+than in kitty.
+
+**Cause.** A macOS PTY buffers only about 1 KB (measured: 1,024 bytes queued
+whether we waited 0.5 ms or 5 ms). The original `pump()` read only what was
+ready *at that instant*, about 1 KB, and returned. The program filled the
+buffer, then blocked until the next frame. So throughput was capped near
+1 KB per frame.
+
+All numbers below come from separate runs, each under a hard `timeout`, with
+the child killed in `finally` (no blocking `waitpid`). Machine load average
+was 4-9 during these runs.
+
+### Round 1: wait briefly for the refill (`pty.py`)
+
+`pump()` now keeps reading for up to a time budget (2 ms). Once output is
+flowing it waits up to 2 ms for the next refill instead of returning at once.
+If nothing has arrived it doesn't wait at all, so an idle terminal still costs
+nothing.
+
+Isolated PTY strategies (`pty_throughput.py`, 60 fps loop, `yes` flood):
+
+| Strategy | Throughput | Read time per frame |
+|---|---|---|
+| ready now (original) | 0.1 MB/s | 0.05 ms |
+| keep reading, no wait | 0.1 MB/s | 0.07 ms |
+| wait for refill, 1 ms budget | 4.7 MB/s | 1.0 ms |
+| wait for refill, 2 ms budget | 8.1 MB/s | 2.0 ms |
+| wait for refill, 4 ms budget | 19.4 MB/s | 4.0 ms |
+| wait for refill, 8 ms budget | 69.6 MB/s | 8.0 ms |
+
+The real `PtyProcess.pump`, before and after round 1:
+
+| | Flood | Idle terminal |
+|---|---|---|
+| Before | 0.1 MB/s | 0.023 ms per frame |
+| After round 1 | 6.0 MB/s, 2 ms per frame | 0.014 ms per frame |
+
+Throughput scales with the time budget, so the budget is a straight trade
+between flood speed and frame time.
+
+### Round 2: one budget per frame, shared across terminals (`sessions.py`)
+
+`pump_all()` now gives the whole frame one read budget of 6 ms, out of a
+16.7 ms frame. It shares the budget out so that:
+
+- quiet terminals go first and return at once;
+- each terminal gets an equal share of the time *left*, so busy ones inherit
+  what quiet ones didn't use;
+- many floods together can't exceed the budget.
+
+End to end (`TerminalSessions.pump_all` plus painting real Ghostty views in
+headless ImGui, 60 fps loop):
+
+| Scenario | Round 1 (2 ms each) | Round 2, first try (equal split) | Round 2, final (quiet first) |
+|---|---|---|---|
+| 1 flood | 6.0 MB/s | 45.5 MB/s, 7.8 ms/frame | 29.9-45.5 MB/s, 7.7 ms/frame |
+| 2 floods | not measured | 32.8 MB/s, 7.8 ms/frame | 35.6 MB/s, 7.8 ms/frame |
+| 1 flood + 3 idle | not measured | **4.8 MB/s** | **35.6 MB/s**, 7.9 ms/frame |
+| 4 idle | not measured | 1.1 ms/frame | 0.8 ms/frame |
+
+- The first round-2 try split the budget equally up front. A flood next to
+  three idle terminals got only a quarter of it (4.8 MB/s). Scheduling quiet
+  terminals first fixed that.
+- The 1-flood result varies run to run (29.9-45.5 MB/s) with machine load.
+- **Net: about 0.1 MB/s to 30-45 MB/s, roughly 300×**, with frame work held
+  under about 8 ms p95, so 60 fps is kept.
+
+### Still open
+
+- kitty or Ghostty proper sustain hundreds of MB/s; at 30-45 MB/s a very
+  large `cat` is still slower than in a native terminal. Further options:
+  - a larger budget when only terminals are busy;
+  - a reader thread that only queues bytes (Ghostty stays on the render
+    thread). That conflicts with DES-002's no-threads rule and needs an ADR.
+  - in `luxd-pty`, a separate process reads at full speed and sends to the
+    Display, so this cap moves out of the render loop entirely.
+- Not re-measured live in the Lux window after the fix (the spike display was
+  shut down to stop the flood). The end-to-end headless bench uses the same
+  code path.

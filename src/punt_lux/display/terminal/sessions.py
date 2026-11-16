@@ -23,6 +23,11 @@ from punt_lux.display.terminal.view import TerminalView
 
 __all__ = ["TerminalSession", "TerminalSessions"]
 
+# Time per frame spent reading all terminals' output, at most. Of a 16.7 ms
+# frame at 60 fps; measured (STEP3.md): 6 ms lets one `yes` flood reach about
+# 44 MB/s while keeping ~54 fps.
+FRAME_READ_BUDGET_S = 0.006
+
 # Written into the terminal when its program exits: dim, on a fresh line.
 _ENDED_NOTICE = b"\r\n\x1b[2m[process exited]\x1b[0m"
 
@@ -38,6 +43,7 @@ class TerminalSession:
         self.view.on_resize = self.process.resize
         self.bytes_in = 0
         self.ended = False  # the program exited; the terminal stays, read-only
+        self.had_output = False  # in the last pump: schedules busy sessions last
 
     def pump(self) -> bool:
         """Move ready output into the view. True if there was any."""
@@ -76,11 +82,28 @@ class TerminalSessions:
         return session
 
     @classmethod
-    def pump_all(cls) -> bool:
-        """Pump every session once. True if any produced output this frame."""
+    def pump_all(cls, frame_budget_s: float = FRAME_READ_BUDGET_S) -> bool:
+        """Pump every session once. True if any produced output this frame.
+
+        The frame has one read budget for all terminals. Quiet sessions (no
+        output last frame) go first and return almost at once; each session
+        gets an equal share of the time *left*, so the busy ones inherit what
+        the quiet ones didn't use. One flood next to idle terminals gets
+        nearly the whole budget; many floods together can't exceed it.
+        """
+        live = sorted(
+            (s for s in cls._sessions.values() if not s.ended),
+            key=lambda s: s.had_output,
+        )
+        if not live:
+            return False
+        deadline = time.monotonic() + frame_budget_s
         busy = False
-        for session in list(cls._sessions.values()):
-            busy |= session.pump()
+        for remaining, session in zip(range(len(live), 0, -1), live, strict=True):
+            left = deadline - time.monotonic()
+            session.process.time_budget_s = max(0.0, left / remaining)
+            session.had_output = session.pump()
+            busy |= session.had_output
         if busy:
             cls.last_output_at = time.monotonic()
         return busy
