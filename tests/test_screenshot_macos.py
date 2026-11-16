@@ -157,3 +157,11 @@ def test_window_occluded_after_grab_is_rejected(
         sm.capture(out, raise_first=False)
     assert not out.exists()
     assert len(seen) == 2
+
+
+def test_unwritable_destination_raises_screenshot_error(tmp_path: Path) -> None:
+    full = tmp_path / "full.png"
+    _textured_frame(full, 400, 300)
+    dest = tmp_path / "missing-dir" / "out.png"  # parent absent: open fails
+    with pytest.raises(sm.ScreenshotError, match="could not write"):
+        sm.crop_and_verify(full, _window(20, 20, 100, 100), _screen(), dest)

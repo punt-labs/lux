@@ -263,10 +263,14 @@ def crop_and_verify(full: Path, win: Window, scr: Screen, dest: Path) -> None:
         raise ScreenshotError(msg)
     # The capture is a picture of the user's screen: owner-only, never followed
     # through a planted symlink, never over an existing file.
-    dest.unlink(missing_ok=True)
-    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        shot.save(f, format="PNG")
+    try:
+        dest.unlink(missing_ok=True)
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            shot.save(f, format="PNG")
+    except OSError as e:  # disk full, EPERM, ...: main() only catches ScreenshotError
+        msg = f"could not write capture to {dest}: {e}"
+        raise ScreenshotError(msg) from e
 
 
 def check_not_occluded(win: Window) -> None:
