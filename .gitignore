@@ -94,3 +94,4 @@ demos/
 
 # Biff private configuration (not Ethos-owned)
 .punt-labs/biff/config.local.yaml
+*.punt-import.lock
