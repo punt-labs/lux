@@ -193,8 +193,21 @@ def test_each_surface_is_allowed_broadly() -> None:
     assert _ALLOW == ("Bash(lux:*)", "mcp__plugin_lux_lux__*", "Skill(lux:*)")
 
 
-def test_unsafe_verbs_and_global_options_ask() -> None:
-    assert "Bash(lux -*)" in _ASK
+@pytest.mark.parametrize("add", [True, False])
+def test_legacy_flag_rule_is_stripped(tmp_path: Path, *, add: bool) -> None:
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    ask = ["Bash(ls:*)", "Bash(lux -*)"]
+    settings.write_text(json.dumps({"permissions": {"ask": ask}}))
+    perms = ProjectPermissions(tmp_path)
+    change = perms.grant() if add else perms.revoke()
+    assert ("Bash(lux -*)" in change.changed) is not add
+    kept = json.loads(settings.read_text())["permissions"]["ask"]
+    assert kept == ["Bash(ls:*)", *(_ASK if add else ())]
+
+
+def test_unsafe_verbs_ask_but_no_flag_catch_all() -> None:
+    assert "Bash(lux -*)" not in _ASK
     for verb in ("install", "uninstall", "enable", "disable", "hook"):
         assert f"Bash(lux {verb}:*)" in _ASK
     for group in ("hub", "display"):

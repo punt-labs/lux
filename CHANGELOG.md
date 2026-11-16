@@ -18,10 +18,12 @@
   `ask` rules for `install`, `uninstall`, `enable`, `disable`, `hook`, the
   `hub`/`display` `install|uninstall|start|stop|restart|doctor` service
   controls (`doctor --fix` removes legacy registrations and shims),
-  `display serve`, `display mode` (it grants or revokes these rules) and any
-  global option before the verb (`Bash(lux -*)`). Those prompt even though
-  the broad allow matches; new safe commands, MCP tools and skills work with
-  no rule update. `lux disable` removes both sets; the bare `Skill(<cmd>)`
+  `display serve` and `display mode` (it grants or revokes these rules).
+  Those prompt even though the broad allow matches; new safe commands, MCP
+  tools and skills work with no rule update. There is no `Bash(lux -*)`
+  catch-all, so `lux --version` and `lux --help` do not prompt (punt-kit
+  DES-039); `lux enable` and `lux disable` both remove that rule from a repo
+  an earlier version enabled. `lux disable` removes both sets; the bare `Skill(<cmd>)`
   rules an earlier `lux enable` wrote stay until you delete them (no cleanup
   code, punt-kit#396). `scripts/check-skill-permissions.sh` is removed: with
   `Skill(lux:*)` there is no per-command list to keep in sync.

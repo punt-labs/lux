@@ -15,15 +15,14 @@ __all__ = ["LUX_RULES"]
 # beats allow, so install/uninstall/enable/disable/hook, the hub and display
 # service controls, and ``display mode`` (which grants or revokes these rules)
 # keep prompting while new safe commands, MCP tools and skills work without a
-# rule update. ``Bash(lux -*)`` asks for a global option before the verb, which
-# the verb rules would not match.
+# rule update. A global option before the verb runs under the broad allow: the
+# ask tier is a safety net, not a security boundary (punt-kit DES-039).
 _SERVICE_VERBS: Final = ("install", "uninstall", "start", "stop", "restart", "doctor")
 
 LUX_RULES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType(
     {
         "allow": ("Bash(lux:*)", "mcp__plugin_lux_lux__*", "Skill(lux:*)"),
         "ask": (
-            "Bash(lux -*)",
             *(
                 f"Bash(lux {verb}:*)"
                 for verb in ("install", "uninstall", "enable", "disable", "hook")

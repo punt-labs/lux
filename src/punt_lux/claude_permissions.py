@@ -28,6 +28,10 @@ __all__ = ["PermissionChange", "ProjectPermissions"]
 
 _NEW_FILE_MODE: Final = 0o644
 
+# Rules an earlier lux enable granted and this one does not; grant and revoke
+# both strip them. ``Bash(lux -*)`` made ``lux --version`` prompt (DES-039).
+_LEGACY_RULES: Final[dict[str, tuple[str, ...]]] = {"ask": ("Bash(lux -*)",)}
+
 
 @dataclass(frozen=True, slots=True)
 class PermissionChange:
@@ -138,19 +142,37 @@ class ProjectPermissions:
     def _apply(self, *, add: bool) -> tuple[str, ...]:
         """Edit each tier in place and write the file back if a rule changed."""
         settings = self._read()
-        changed: list[str] = []
-        for tier, owned in LUX_RULES.items():
-            rules = self._rule_list(settings, tier, create=add)
-            if add:
-                added = [rule for rule in owned if rule not in rules]
-                rules.extend(added)
-                changed.extend(added)
-            else:
-                changed.extend(rule for rule in owned if rule in rules)
-                rules[:] = [rule for rule in rules if rule not in owned]
-        if changed:
+        changed = tuple(
+            rule
+            for tier, owned in LUX_RULES.items()
+            for rule in self._edit(
+                self._rule_list(settings, tier, create=add), owned, add=add
+            )
+        )
+        retired = self._retire_legacy(settings)
+        if changed or retired:
             self._write(json.dumps(settings, indent=2) + "\n")
-        return tuple(changed)
+        return changed if add else (*changed, *retired)
+
+    @staticmethod
+    def _edit(rules: list[object], owned: tuple[str, ...], *, add: bool) -> list[str]:
+        """Add the missing *owned* rules to *rules*, or remove them; return those."""
+        if add:
+            added = [rule for rule in owned if rule not in rules]
+            rules.extend(added)
+            return added
+        removed = [rule for rule in owned if rule in rules]
+        rules[:] = [rule for rule in rules if rule not in owned]
+        return removed
+
+    def _retire_legacy(self, settings: dict[str, object]) -> tuple[str, ...]:
+        """Remove every legacy lux rule from *settings*; return those removed."""
+        retired: tuple[str, ...] = ()
+        for tier, legacy in _LEGACY_RULES.items():
+            rules = self._rule_list(settings, tier, create=False)
+            retired = (*retired, *(rule for rule in legacy if rule in rules))
+            rules[:] = [rule for rule in rules if rule not in legacy]
+        return retired
 
     def _read(self) -> dict[str, object]:
         """Return the parsed settings, ``{}`` when absent; refuse a non-object."""
