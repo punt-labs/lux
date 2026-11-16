@@ -165,3 +165,126 @@ def test_unwritable_destination_raises_screenshot_error(tmp_path: Path) -> None:
     dest = tmp_path / "missing-dir" / "out.png"  # parent absent: open fails
     with pytest.raises(sm.ScreenshotError, match="could not write"):
         sm.crop_and_verify(full, _window(20, 20, 100, 100), _screen(), dest)
+
+
+def _cg(x: float, y: float, w: float, h: float, layer: int = 0) -> dict[str, Any]:
+    return {
+        "kCGWindowLayer": layer,
+        "kCGWindowAlpha": 1.0,
+        "kCGWindowBounds": {"X": x, "Y": y, "Width": w, "Height": h},
+    }
+
+
+def _stack_above(monkeypatch: pytest.MonkeyPatch, above: list[dict[str, Any]]) -> None:
+    def copy_info(_opts: int, _number: int) -> list[dict[str, Any]]:
+        return above
+
+    quartz = SimpleNamespace(
+        kCGWindowListOptionOnScreenAboveWindow=1, CGWindowListCopyWindowInfo=copy_info
+    )
+    monkeypatch.setattr(sm, "_quartz", lambda: quartz)
+
+
+def test_floating_window_overlapping_lux_counts_as_cover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stack_above(monkeypatch, [_cg(0, 0, 100, 100, layer=25)])
+    assert sm.occluded_fraction(_window(0, 0, 400, 400)) > sm.MAX_COVERED
+
+
+def test_system_chrome_not_overlapping_lux_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    menu_bar = _cg(0, -30, 1000, 30, layer=24)
+    _stack_above(monkeypatch, [menu_bar])
+    assert sm.occluded_fraction(_window(0, 0, 400, 400)) == 0.0
+
+
+def test_overlapping_coverers_are_measured_as_a_union(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Each cover is 0.6% of the 400x400 window; stacked on one another they
+    # still cover 0.6%, within MAX_COVERED, not 1.2%.
+    _stack_above(monkeypatch, [_cg(0, 0, 40, 24), _cg(0, 0, 40, 24)])
+    assert sm.occluded_fraction(_window(0, 0, 400, 400)) == pytest.approx(0.006)
+
+
+def test_output_symlink_is_acted_on_not_its_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    decoy = tmp_path / "decoy.txt"
+    decoy.write_text("keep")
+    link = tmp_path / "shot.png"
+    link.symlink_to(decoy)
+    quartz = SimpleNamespace(
+        CGPreflightScreenCaptureAccess=lambda: False,
+        CGRequestScreenCaptureAccess=lambda: None,
+    )
+    monkeypatch.setattr(sm.sys, "platform", "darwin")
+    monkeypatch.setattr(sm, "_quartz", lambda: quartz)
+    with pytest.raises(sm.ScreenshotError):
+        sm.capture(link)
+    assert decoy.read_text() == "keep"
+    assert not link.is_symlink()
+
+
+def test_unmakeable_output_dir_is_a_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(self: Path, *_a: Any, **_k: Any) -> None:
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(sm.Path, "mkdir", refuse)
+    with pytest.raises(sm.ScreenshotError, match="output directory"):
+        sm.capture(tmp_path / "sub" / "shot.png")
+
+
+def test_missing_quartz_is_a_clean_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "Quartz", None)
+    with pytest.raises(sm.ScreenshotError, match="Quartz"):
+        sm._quartz()
+
+
+def test_temp_dir_failure_is_a_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse() -> None:
+        raise OSError("no space")
+
+    monkeypatch.setattr(sm.tempfile, "TemporaryDirectory", refuse)
+    with pytest.raises(sm.ScreenshotError, match="temporary"):
+        sm.scratch_dir()
+
+
+@pytest.mark.parametrize("count", ["0", "-1"])
+def test_non_positive_count_is_rejected_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: str
+) -> None:
+    out = tmp_path / "shot.png"
+    monkeypatch.setattr(
+        sys, "argv", ["screenshot_macos.py", str(out), "--count", count]
+    )
+    with pytest.raises(SystemExit) as exc:
+        sm.main()
+    assert exc.value.code != 0
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_shorter_series_clears_stale_higher_numbers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "shot.png"
+    for n in range(3, 13):
+        (tmp_path / f"shot-{n:04d}.png").write_bytes(b"old")
+    keep = tmp_path / "other-0003.png"
+    keep.write_bytes(b"unrelated")
+
+    def fake_capture(path: Path, *, raise_first: bool = True) -> Path:
+        path.write_bytes(b"new")
+        return path
+
+    monkeypatch.setattr(sm, "capture", fake_capture)
+    monkeypatch.setattr(sys, "argv", ["screenshot_macos.py", str(out), "--count", "2"])
+    assert sm.main() == 0
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ["other-0003.png", "shot-0001.png", "shot-0002.png"]

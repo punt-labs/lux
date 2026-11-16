@@ -30,12 +30,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -52,8 +54,11 @@ class ScreenshotError(Exception):
 
 def _quartz() -> Any:
     """pyobjc Quartz, imported lazily so a missing [display] extra fails cleanly."""
-    import Quartz  # type: ignore[import-untyped]
-
+    try:
+        import Quartz  # type: ignore[import-untyped]
+    except ImportError as e:
+        msg = f"cannot import Quartz ({e}) -- install the [display] extra"
+        raise ScreenshotError(msg) from e
     return Quartz
 
 
@@ -174,8 +179,28 @@ def raise_window(pid: int) -> None:
     time.sleep(0.5)  # let the window server bring it forward
 
 
+def union_area(rects: list[Rect]) -> float:
+    """Area covered by at least one rect (coordinate compression, exact)."""
+    xs = sorted({v for r in rects for v in (r.x, r.x + r.w)})
+    area = 0.0
+    for x0, x1 in pairwise(xs):
+        spans = sorted((r.y, r.y + r.h) for r in rects if r.x <= x0 and r.x + r.w >= x1)
+        top = float("-inf")
+        for y0, y1 in spans:
+            y0 = max(y0, top)
+            if y1 > y0:
+                area += (x1 - x0) * (y1 - y0)
+                top = y1
+    return area
+
+
 def occluded_fraction(win: Window) -> float:
-    """Share of the window covered by on-screen windows stacked above it."""
+    """Share of the window covered by on-screen windows stacked above it.
+
+    Any layer counts, but only where it overlaps the window's own bounds, so
+    floating panels are caught while menu-bar and dock chrome elsewhere on the
+    screen is not. Overlapping coverers are measured once, as a union.
+    """
     q = _quartz()
     above = (
         q.CGWindowListCopyWindowInfo(
@@ -183,14 +208,17 @@ def occluded_fraction(win: Window) -> float:
         )
         or []
     )
-    covered = 0.0
+    b = win.bounds
+    clipped: list[Rect] = []
     for w in above:
-        if int(w.get("kCGWindowLayer", 0)) != 0:
-            continue
         if float(w.get("kCGWindowAlpha", 1)) == 0:
             continue
-        covered += win.bounds.overlap(Rect.from_cg(w["kCGWindowBounds"]))
-    return min(1.0, covered / (win.bounds.w * win.bounds.h))
+        r = Rect.from_cg(w["kCGWindowBounds"])
+        x0, y0 = max(b.x, r.x), max(b.y, r.y)
+        x1, y1 = min(b.x + b.w, r.x + r.w), min(b.y + b.h, r.y + r.h)
+        if x1 > x0 and y1 > y0:
+            clipped.append(Rect(x0, y0, x1 - x0, y1 - y0))
+    return min(1.0, union_area(clipped) / (b.w * b.h))
 
 
 def grab_screen(index: int, dest: Path) -> None:
@@ -280,10 +308,24 @@ def check_not_occluded(win: Window) -> None:
         raise ScreenshotError(msg)
 
 
+def scratch_dir() -> tempfile.TemporaryDirectory[str]:
+    try:
+        return tempfile.TemporaryDirectory()
+    except OSError as e:
+        msg = f"could not create a temporary directory: {e}"
+        raise ScreenshotError(msg) from e
+
+
 def capture(out: Path, *, raise_first: bool = True) -> Path:
     """One verified capture of the Lux window to `out`. Raises ScreenshotError."""
-    out = out.resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # Resolve the directory only: a symlink at the final component must stay
+        # a link, so the unlink and replace below act on it, never its target.
+        out = out.parent.resolve() / out.name
+    except OSError as e:
+        msg = f"could not prepare the output directory for {out}: {e}"
+        raise ScreenshotError(msg) from e
     if sys.platform != "darwin":
         msg = "screenshot_macos.py is macOS-only (use screenshot.sh on Linux)"
         raise ScreenshotError(msg)
@@ -310,11 +352,15 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     check_not_occluded(win)
     scr = screen_for(win, screens())
     tmp = out.with_name(f".{out.stem}.tmp{out.suffix or '.png'}")
-    with tempfile.TemporaryDirectory() as td:
+    with scratch_dir() as td:
         full = Path(td) / "screen.png"
         grab_screen(scr.index, full)
         post = find_window(pids)
         check_window_unmoved(win, post)
+        # Residual limit: these two stack checks narrow, but cannot eliminate, a
+        # cover that was present only in the single frame ffmpeg grabbed and
+        # left before this query. Closing it needs frame-tied capture (the
+        # in-process path of DES-028), which this tool does not have.
         # A window raised over ours mid-grab is in the frame, so re-check with
         # the post-grab window, the one the frame actually reflects.
         check_not_occluded(post)
@@ -326,6 +372,20 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     return out
 
 
+def clear_stale_series(out: Path, count: int) -> None:
+    """Remove NAME-NNNN images above `count` left by an earlier, longer series."""
+    suffix = out.suffix or ".png"
+    pattern = re.compile(rf"{re.escape(out.stem)}-(\d{{4}}){re.escape(suffix)}")
+    try:
+        for p in out.parent.glob(f"{out.stem}-*{suffix}"):
+            m = pattern.fullmatch(p.name)
+            if m and int(m[1]) > count:
+                p.unlink()
+    except OSError as e:
+        msg = f"could not clear stale series images beside {out}: {e}"
+        raise ScreenshotError(msg) from e
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Capture the Lux window (macOS).")
     ap.add_argument("out", nargs="?", default=os.environ.get("SCREENSHOT_OUT"))
@@ -334,11 +394,14 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=1, help="number of captures")
     ap.add_argument("--no-raise", action="store_true", help="keep window order")
     a = ap.parse_args()
+    if a.count < 1:
+        ap.error(f"--count must be at least 1, got {a.count}")
     out = Path(a.out_flag or a.out or ".tmp/lux-screenshot.png")
     try:
         if a.count <= 1:
             print(capture(out, raise_first=not a.no_raise))
             return 0
+        clear_stale_series(out, a.count)
         for i in range(1, a.count + 1):
             t0 = time.monotonic()
             path = out.with_name(f"{out.stem}-{i:04d}{out.suffix or '.png'}")
