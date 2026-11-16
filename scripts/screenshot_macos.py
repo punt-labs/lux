@@ -46,11 +46,12 @@ FFMPEG_TIMEOUT_S = 20
 MIN_WINDOW_PT = 200  # ignore menu/status strips the process also owns
 BOUNDS_TOLERANCE_PT = 1.0  # window drift allowed between query and grab
 MAX_COVERED = 0.01  # share of the window other windows may cover
-# System processes that keep a transparent, screen-sized window above every
-# app window (seen on macOS 26.6). Only a window of theirs exactly matching a
-# screen is skipped. A notification banner draws inside Notification Center's
-# full-screen window, so a banner over the Lux window is not detected.
-SCREEN_OVERLAY_OWNERS = frozenset({"Dock", "Notification Center"})
+# Bundle IDs of the Dock and Notification Center, which keep a transparent,
+# screen-sized window above every app window (seen on macOS 26.6). Matched by
+# bundle ID because kCGWindowOwnerName is localized. Only a window of theirs
+# exactly matching a screen is skipped. A notification banner draws inside
+# Notification Center's full-screen window, so a banner over Lux is not detected.
+SCREEN_OVERLAY_BUNDLES = frozenset({"com.apple.dock", "com.apple.notificationcenterui"})
 
 
 class ScreenshotError(Exception):
@@ -65,6 +66,16 @@ def _quartz() -> Any:
         msg = f"cannot import Quartz ({e}) -- install the [display] extra"
         raise ScreenshotError(msg) from e
     return Quartz
+
+
+def _appkit() -> Any:
+    """pyobjc AppKit, imported lazily like `_quartz`."""
+    try:
+        import AppKit  # type: ignore[import-untyped]
+    except ImportError as e:
+        msg = f"cannot import AppKit ({e}) -- install the [display] extra"
+        raise ScreenshotError(msg) from e
+    return AppKit
 
 
 @dataclass(frozen=True)
@@ -175,9 +186,7 @@ def raise_window(pid: int) -> None:
         ["osascript", "-e", script], capture_output=True, text=True, check=False
     )
     if r.returncode != 0:
-        import AppKit as _AppKit  # type: ignore[import-untyped]
-
-        ak: Any = _AppKit  # untyped pyobjc shim, as in punt_lux.display.macos
+        ak = _appkit()
         app = ak.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
         if app is not None:
             app.activateWithOptions_(ak.NSApplicationActivateIgnoringOtherApps)
@@ -199,12 +208,18 @@ def union_area(rects: list[Rect]) -> float:
     return area
 
 
+def bundle_id(pid: int) -> str:
+    """Bundle ID of the running app with this PID, or "" when it has none."""
+    app = _appkit().NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    return str(app.bundleIdentifier() or "") if app is not None else ""
+
+
 def is_screen_overlay(info: Any, all_screens: list[Screen]) -> bool:
     """True for a known system overlay window that spans a whole screen."""
-    if info.get("kCGWindowOwnerName") not in SCREEN_OVERLAY_OWNERS:
-        return False
     r = Rect.from_cg(info["kCGWindowBounds"])
-    return any(r == s.bounds for s in all_screens)
+    if not any(r == s.bounds for s in all_screens):
+        return False
+    return bundle_id(int(info.get("kCGWindowOwnerPID", -1))) in SCREEN_OVERLAY_BUNDLES
 
 
 def occluded_fraction(win: Window, all_screens: list[Screen]) -> float:

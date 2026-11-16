@@ -40,7 +40,8 @@
   covered.** On macOS 26.6 the Dock and Notification Center each keep a
   transparent, screen-sized window above every app window. The occlusion check
   now skips a window from those two processes when it exactly matches a
-  screen. A notification banner over the Lux window is no longer detected.
+  screen. It identifies them by bundle ID, since window owner names are
+  localized. A notification banner over the Lux window is no longer detected.
 
 - **`punt_lux.__version__` fails fast when the package is not installed
   (`lux-h2pj`).** It read the version from package metadata but fell back to

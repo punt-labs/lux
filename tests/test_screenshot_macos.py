@@ -167,11 +167,23 @@ def test_unwritable_destination_raises_screenshot_error(tmp_path: Path) -> None:
         sm.crop_and_verify(full, _window(20, 20, 100, 100), _screen(), dest)
 
 
+_DOCK = "com.apple.dock"
+_NOTIFICATION_CENTER = "com.apple.notificationcenterui"
+_PIDS = {"com.example.app": 100, _DOCK: 101, _NOTIFICATION_CENTER: 102}
+
+
 def _cg(
-    x: float, y: float, w: float, h: float, layer: int = 0, owner: str = "App"
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    layer: int = 0,
+    owner: str = "App",
+    bundle: str = "com.example.app",
 ) -> dict[str, Any]:
     return {
         "kCGWindowOwnerName": owner,
+        "kCGWindowOwnerPID": _PIDS[bundle],
         "kCGWindowLayer": layer,
         "kCGWindowAlpha": 1.0,
         "kCGWindowBounds": {"X": x, "Y": y, "Width": w, "Height": h},
@@ -185,7 +197,13 @@ def _stack_above(monkeypatch: pytest.MonkeyPatch, above: list[dict[str, Any]]) -
     quartz = SimpleNamespace(
         kCGWindowListOptionOnScreenAboveWindow=1, CGWindowListCopyWindowInfo=copy_info
     )
+    bundles = {pid: bundle for bundle, pid in _PIDS.items()}
     monkeypatch.setattr(sm, "_quartz", lambda: quartz)
+
+    def bundle_id(pid: int) -> str:
+        return bundles.get(pid, "")
+
+    monkeypatch.setattr(sm, "bundle_id", bundle_id)
 
 
 def test_floating_window_overlapping_lux_counts_as_cover(
@@ -216,11 +234,11 @@ def _full_screen() -> Any:
     return sm.Screen(index=0, bounds=sm.Rect(0, 0, 1600, 1200))
 
 
-@pytest.mark.parametrize("owner", sorted(sm.SCREEN_OVERLAY_OWNERS))
+@pytest.mark.parametrize("bundle", sorted(sm.SCREEN_OVERLAY_BUNDLES))
 def test_screen_sized_system_overlay_is_ignored(
-    monkeypatch: pytest.MonkeyPatch, owner: str
+    monkeypatch: pytest.MonkeyPatch, bundle: str
 ) -> None:
-    _stack_above(monkeypatch, [_cg(0, 0, 1600, 1200, layer=20, owner=owner)])
+    _stack_above(monkeypatch, [_cg(0, 0, 1600, 1200, layer=20, bundle=bundle)])
     win = _window(14, 44, 1200, 828)
     assert sm.occluded_fraction(win, [_full_screen()]) == 0.0
 
@@ -233,10 +251,55 @@ def test_screen_sized_window_of_another_owner_counts_as_cover(
     assert sm.occluded_fraction(win, [_full_screen()]) == 1.0
 
 
+def test_localized_system_overlay_is_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    overlay = _cg(
+        0,
+        0,
+        1600,
+        1200,
+        layer=21,
+        owner="Mitteilungszentrale",
+        bundle=_NOTIFICATION_CENTER,
+    )
+    _stack_above(monkeypatch, [overlay])
+    win = _window(14, 44, 1200, 828)
+    assert sm.occluded_fraction(win, [_full_screen()]) == 0.0
+
+
+def test_window_named_like_a_system_overlay_counts_as_cover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stack_above(monkeypatch, [_cg(0, 0, 1600, 1200, layer=20, owner="Dock")])
+    win = _window(14, 44, 1200, 828)
+    assert sm.occluded_fraction(win, [_full_screen()]) == 1.0
+
+
+@pytest.mark.parametrize(
+    ("app", "expected"),
+    [
+        (None, ""),
+        (SimpleNamespace(bundleIdentifier=lambda: None), ""),
+        (SimpleNamespace(bundleIdentifier=lambda: _DOCK), _DOCK),
+    ],
+)
+def test_bundle_id_of_a_pid(
+    monkeypatch: pytest.MonkeyPatch, app: Any, expected: str
+) -> None:
+    def running_app(_pid: int) -> Any:
+        return app
+
+    running = SimpleNamespace(runningApplicationWithProcessIdentifier_=running_app)
+    appkit = SimpleNamespace(NSRunningApplication=running)
+    monkeypatch.setattr(sm, "_appkit", lambda: appkit)
+    assert sm.bundle_id(7) == expected
+
+
 def test_system_owner_window_smaller_than_the_screen_counts_as_cover(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    panel = _cg(0, 0, 400, 400, layer=21, owner="Notification Center")
+    panel = _cg(0, 0, 400, 400, layer=21, bundle=_NOTIFICATION_CENTER)
     _stack_above(monkeypatch, [panel])
     win = _window(0, 0, 400, 400)
     assert sm.occluded_fraction(win, [_full_screen()]) == 1.0
@@ -245,7 +308,7 @@ def test_system_owner_window_smaller_than_the_screen_counts_as_cover(
 def test_system_overlay_sized_to_another_screen_counts_as_cover(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _stack_above(monkeypatch, [_cg(0, 0, 1600, 1200, layer=20, owner="Dock")])
+    _stack_above(monkeypatch, [_cg(0, 0, 1600, 1200, layer=20, bundle=_DOCK)])
     win = _window(14, 44, 1200, 828)
     other = sm.Screen(index=1, bounds=sm.Rect(1600, 0, 1920, 1080))
     assert sm.occluded_fraction(win, [other]) == 1.0
