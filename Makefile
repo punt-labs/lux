@@ -109,17 +109,19 @@ reload: install ## Install + restart luxd only (display keeps running)
 SCREENSHOT_OUT ?= .tmp/lux-screenshot.png
 SCREENSHOT_INTERVAL ?= 5
 SCREENSHOT_COUNT ?= 12
+# Exported so recipes read "$$SCREENSHOT_*" from the environment, never a splice.
+export SCREENSHOT_OUT SCREENSHOT_INTERVAL SCREENSHOT_COUNT
 
 screenshot: ## Capture the running lux-display window to a PNG (dev/verification only, not in `check`)
 	@if [ "$$(uname -s)" = Darwin ]; then \
-		path="$$(uv run --quiet --extra display python scripts/screenshot_macos.py "$(SCREENSHOT_OUT)")"; \
+		path="$$(uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT")"; \
 	else \
-		path="$$(bash scripts/screenshot.sh "$(SCREENSHOT_OUT)")"; \
+		path="$$(bash scripts/screenshot.sh "$$SCREENSHOT_OUT")"; \
 	fi && echo "screenshot: $$path"
 
 screenshots: ## Capture the lux-display window every SCREENSHOT_INTERVAL s, SCREENSHOT_COUNT times (macOS)
-	@uv run --quiet --extra display python scripts/screenshot_macos.py "$(SCREENSHOT_OUT)" \
-		--interval "$(SCREENSHOT_INTERVAL)" --count "$(SCREENSHOT_COUNT)"
+	@uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT" \
+		--interval "$$SCREENSHOT_INTERVAL" --count "$$SCREENSHOT_COUNT"
 
 prove-reaping: ## Manual regression demo for dead-connection reaping (lux-d84d) — needs a running luxd on branch code (`lux hub restart`); takes ~2 minutes
 	@echo "prove-reaping: requires luxd already running the branch's code — run 'lux hub restart' first if unsure"

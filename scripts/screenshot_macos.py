@@ -42,6 +42,7 @@ from typing import Any
 BLACK_STDDEV_THRESHOLD = 1.0  # on 0-255 grey; a blank or locked capture is ~0
 FFMPEG_TIMEOUT_S = 20
 MIN_WINDOW_PT = 200  # ignore menu/status strips the process also owns
+BOUNDS_TOLERANCE_PT = 1.0  # window drift allowed between query and grab
 MAX_COVERED = 0.01  # share of the window other windows may cover
 
 
@@ -217,20 +218,42 @@ def grab_screen(index: int, dest: Path) -> None:
         raise ScreenshotError(msg)
 
 
+def check_window_unmoved(before: Window, after: Window) -> None:
+    """Fail if the window moved or resized between the bounds query and the grab."""
+    a, b = before.bounds, after.bounds
+    drift = max(abs(a.x - b.x), abs(a.y - b.y), abs(a.w - b.w), abs(a.h - b.h))
+    # Quartz reports whole points; one point absorbs rounding, not a real move.
+    if before.number != after.number or drift > BOUNDS_TOLERANCE_PT:
+        msg = f"the Lux window moved or resized during capture ({a} -> {b})"
+        raise ScreenshotError(msg)
+
+
 def crop_and_verify(full: Path, win: Window, scr: Screen, dest: Path) -> None:
     from PIL import Image, ImageStat
 
-    with Image.open(full) as im:
-        s = im.width / scr.bounds.w  # pixels per point, from the capture itself
-        left = (win.bounds.x - scr.bounds.x) * s
-        top = (win.bounds.y - scr.bounds.y) * s
-        box = (
-            round(left),
-            round(top),
-            round(left + win.bounds.w * s),
-            round(top + win.bounds.h * s),
-        )
-        shot = im.crop(box).convert("RGB")
+    try:
+        with Image.open(full) as im:
+            s = im.width / scr.bounds.w  # pixels per point, from the capture itself
+            left = (win.bounds.x - scr.bounds.x) * s
+            top = (win.bounds.y - scr.bounds.y) * s
+            box = (
+                round(left),
+                round(top),
+                round(left + win.bounds.w * s),
+                round(top + win.bounds.h * s),
+            )
+            # PIL pads an out-of-frame crop with black, which the stddev gate
+            # below would not catch when the rest of the frame has content.
+            if box[0] < 0 or box[1] < 0 or box[2] > im.width or box[3] > im.height:
+                msg = (
+                    f"window box {box} is outside the {im.width}x{im.height} "
+                    "capture -- the window moved or changed display during capture"
+                )
+                raise ScreenshotError(msg)
+            shot = im.crop(box).convert("RGB")
+    except (OSError, ValueError) as e:  # UnidentifiedImageError is an OSError
+        msg = f"ffmpeg output is not a readable image: {e}"
+        raise ScreenshotError(msg) from e
     stddev = ImageStat.Stat(shot.convert("L")).stddev[0]
     if stddev < BLACK_STDDEV_THRESHOLD:
         msg = (
@@ -238,14 +261,18 @@ def crop_and_verify(full: Path, win: Window, scr: Screen, dest: Path) -> None:
             "Recording permission missing for this terminal app?"
         )
         raise ScreenshotError(msg)
-    shot.save(dest)
+    # The capture is a picture of the user's screen: owner-only, never followed
+    # through a planted symlink, never over an existing file.
+    dest.unlink(missing_ok=True)
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        shot.save(f, format="PNG")
 
 
 def capture(out: Path, *, raise_first: bool = True) -> Path:
     """One verified capture of the Lux window to `out`. Raises ScreenshotError."""
     out = out.resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.unlink(missing_ok=True)  # never leave a stale image at the evidence path
     if sys.platform != "darwin":
         msg = "screenshot_macos.py is macOS-only (use screenshot.sh on Linux)"
         raise ScreenshotError(msg)
@@ -258,6 +285,7 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
             "restart the terminal"
         )
         raise ScreenshotError(msg)
+    out.unlink(missing_ok=True)  # never leave a stale image at the evidence path
     pids = display_pids()
     if not pids:
         msg = "luxd-display is not running -- start it first (lux display start)"
@@ -274,6 +302,7 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     with tempfile.TemporaryDirectory() as td:
         full = Path(td) / "screen.png"
         grab_screen(scr.index, full)
+        check_window_unmoved(win, find_window(pids))
         try:
             crop_and_verify(full, win, scr, tmp)
             tmp.replace(out)
