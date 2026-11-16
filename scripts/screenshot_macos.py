@@ -276,6 +276,9 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
     if sys.platform != "darwin":
         msg = "screenshot_macos.py is macOS-only (use screenshot.sh on Linux)"
         raise ScreenshotError(msg)
+    # Past the platform guard we are committed to this path: every later exit
+    # (permission, no window, occlusion) must leave no stale image to read.
+    out.unlink(missing_ok=True)
     q = _quartz()
     if not q.CGPreflightScreenCaptureAccess():
         q.CGRequestScreenCaptureAccess()
@@ -285,7 +288,6 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
             "restart the terminal"
         )
         raise ScreenshotError(msg)
-    out.unlink(missing_ok=True)  # never leave a stale image at the evidence path
     pids = display_pids()
     if not pids:
         msg = "luxd-display is not running -- start it first (lux display start)"

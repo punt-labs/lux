@@ -102,7 +102,7 @@ def test_guard_failure_keeps_prior_screenshot(
     assert out.read_bytes() == b"good earlier capture"
 
 
-def test_missing_permission_keeps_prior_screenshot(
+def test_missing_permission_leaves_no_stale_screenshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quartz = SimpleNamespace(
@@ -116,4 +116,5 @@ def test_missing_permission_keeps_prior_screenshot(
     monkeypatch.setattr(sm, "_quartz", lambda: quartz)
     with pytest.raises(sm.ScreenshotError, match="Screen Recording"):
         sm.capture(out)
-    assert out.read_bytes() == b"good earlier capture"
+    # A caller reading by path must never mistake an old capture for new evidence.
+    assert not out.exists()
