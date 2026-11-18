@@ -277,3 +277,15 @@ and no file.
 - The full macOS test suite was deliberately not run, per the operator's
   earlier constraint. Broader suite and live-window verification remain merge
   prerequisites; this pass does not claim the whole branch is merge-ready.
+
+### Stage 2 — framing checkpoint
+
+- Added a native-independent `protocol/pty` package with immutable frames and
+  an incremental, bounded decoder. Header layout follows the plan.
+- Receives are capped at 64 KiB and payloads at 1 MiB. Invalid headers fail
+  immediately; malformed input and truncated EOF poison the decoder so the
+  connection owner cannot resume using a desynchronized stream.
+- 38 tests cover every frame kind, every split through a sample header and
+  payload, byte-at-a-time input, coalesced channels, maximum payload, invalid
+  channel values, oversize declarations and truncated EOF.
+- Socket service, control messages and daemon integration are not built yet.
