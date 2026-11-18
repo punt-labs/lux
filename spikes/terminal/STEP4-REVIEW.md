@@ -38,7 +38,9 @@ are qualified below. Canonical architecture remains Lux's DESIGN/target docs.
   changing the program or daemon PID. See STEP4-LIVE.md and results/two-windows.json.
 - [ ] End-to-end real keyboard-to-pixel latency under flood and a heavy
   neighboring 1,000-row table. Hub/Display ping and replica response timing do
-  not substitute for these measurements. STEP3's older FPS numbers are historical.
+  not substitute for these measurements. The OS-input diagnostic renders the
+  table but fails to establish warm key delivery; it is not promoted to a passing
+  test (STEP4-KEYBOARD-PROBE.md). STEP3's older FPS numbers are historical.
 - [ ] Exhaustive pixel/native-state fidelity across interactive applications,
   many terminals, docking and high-DPI/font variations after this lifetime move.
 - [ ] Long-duration memory/FD/process soak and maximum-throughput characterization.

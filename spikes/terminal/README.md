@@ -16,6 +16,9 @@ No production module imports the experimental harnesses in this directory.
   screenshot helper from Lux main (read-only), ffmpeg, tesseract and permission.
 - `check_two_windows.py`: two isolated real Hubs/Displays share one PTY owner;
   crash/survivor/rejoin evidence with PID-selected screenshots.
+- `probe_keyboard_table.py`, `STEP4-KEYBOARD-PROBE.md`: incomplete OS-input
+  diagnostic. Table/terminal render, but warm input delivery is not established;
+  not a passing acceptance check or keyboard-latency result.
 - `docs/adr/0007-independent-terminal-owner-and-replicas.md`: current spike decision.
 
 ## Historical, not current implementation instructions

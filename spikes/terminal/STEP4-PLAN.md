@@ -494,3 +494,20 @@ private lock/log state is not claimed as a transient leak.
 - Keyboard-to-pixel/heavy-table experiments were not started before the operator
   requested this checkpoint. Soak, platform, independent review and broader
   macOS verification remain explicit gaps. No PR or merge is authorized.
+
+### Keyboard/table probe — incomplete evidence
+
+- Actual isolated window renders the terminal and six-column 1,000-row table;
+  geometry and PID-selected screenshot/OCR verify both. Permission preflight
+  reports capture and event posting allowed.
+- PID-targeted Quartz key events do not produce the expected warm response,
+  despite focus attempts. The bounded probe fails before finite-burst/key
+  samples. Driver/focus versus product input issue is unresolved; no keyboard
+  latency numbers or successful keyboard/pixel acceptance are claimed.
+- No system-wide keyboard fallback or relabeling of transport input was used.
+  Owned program/daemon/Display/Hub and private instance are cleaned. Normal Lux
+  is untouched. No production code changes or acceptance relaxation.
+- STEP4-KEYBOARD-PROBE.md, explicit incomplete status JSON and setup/unverified
+  input screenshots preserve the finding. The helper is labeled exploratory,
+  not a passing test. Last production verification remains 835 focused tests,
+  18 integrations and all quality gates.
