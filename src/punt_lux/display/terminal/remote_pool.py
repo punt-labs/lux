@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Self
 
 from punt_lux.display.terminal.remote import RemoteSession
-from punt_lux.protocol.pty.control import ControlCodec
+from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
@@ -102,7 +102,7 @@ class RemotePool:
             return
         self._connection = TerminalConnection(self._path)
         self._hello_id = self._id()
-        hello = HelloRequest(self._hello_id, 1, snapshot_version())
+        hello = HelloRequest(self._hello_id, WIRE_VERSION, snapshot_version())
         self.send(Frame(0, FrameKind.DATA, ControlCodec.encode(hello)))
 
     def _attach(self, session: RemoteSession) -> None:

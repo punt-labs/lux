@@ -2268,11 +2268,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/display/terminal/remote.py": {
-    "efferent_coupling": 7.0,
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.331,
-    "avg_lcom": 0.331
+    "max_lcom": 0.322,
+    "avg_lcom": 0.322
   },
   "src/punt_lux/display/terminal/remote_phase.py": {
     "efferent_coupling": 0.0,
@@ -2316,6 +2316,13 @@
     "max_lcom": 0.618,
     "avg_lcom": 0.618
   },
+  "src/punt_lux/display/terminal/sizing.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.286,
+    "avg_lcom": 0.286
+  },
   "src/punt_lux/display/terminal/theme.py": {
     "efferent_coupling": 2.0,
     "public_names": 1.0,
@@ -2327,8 +2334,8 @@
     "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.553,
-    "avg_lcom": 0.553
+    "max_lcom": 0.515,
+    "avg_lcom": 0.515
   },
   "src/punt_lux/display/texture_cache.py": {
     "efferent_coupling": 4.0,
@@ -5522,6 +5529,13 @@
     "max_lcom": 0.6,
     "avg_lcom": 0.6
   },
+  "src/punt_lux/protocol/pty/frame_types.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/protocol/pty/frames.py": {
     "efferent_coupling": 1.0,
     "public_names": 6.0,
@@ -5545,13 +5559,6 @@
   },
   "src/punt_lux/protocol/pty/session_requests.py": {
     "efferent_coupling": 1.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/protocol/pty/types.py": {
-    "efferent_coupling": 0.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -5669,13 +5676,6 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/ptyd/bindings.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.25,
-    "avg_lcom": 0.25
-  },
   "src/punt_lux/ptyd/child.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -5710,6 +5710,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/credit.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.1,
+    "avg_lcom": 0.1
   },
   "src/punt_lux/ptyd/dispatch.py": {
     "efferent_coupling": 7.0,
@@ -5781,13 +5788,6 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/ptyd/publisher.py": {
-    "efferent_coupling": 7.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
   "src/punt_lux/ptyd/server.py": {
     "efferent_coupling": 5.0,
     "public_names": 2.0,
@@ -5816,12 +5816,33 @@
     "max_lcom": 0.4,
     "avg_lcom": 0.4
   },
-  "src/punt_lux/ptyd/stream_dispatch.py": {
-    "efferent_coupling": 4.0,
+  "src/punt_lux/ptyd/stream_output.py": {
+    "efferent_coupling": 8.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.067,
+    "avg_lcom": 0.067
+  },
+  "src/punt_lux/ptyd/viewer_flow.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.543,
+    "avg_lcom": 0.543
+  },
+  "src/punt_lux/ptyd/viewer_input.py": {
+    "efferent_coupling": 6.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/viewers.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.25,
+    "avg_lcom": 0.25
   },
   "src/punt_lux/ptyd/writer.py": {
     "efferent_coupling": 0.0,
@@ -6025,6 +6046,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.179,
     "avg_lcom": 0.179
+  },
+  "src/punt_lux/terminal/transfer.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.267,
+    "avg_lcom": 0.267
   },
   "src/punt_lux/tools/__init__.py": {
     "efferent_coupling": 6.0,

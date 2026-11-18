@@ -11,11 +11,11 @@ from punt_lux.protocol.pty.control import (
     ListRequest,
     Request,
 )
-from punt_lux.ptyd.bindings import ViewerBindings
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.publisher import StreamPublisher
 from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.ptyd.stream_output import StreamPublisher
+from punt_lux.ptyd.viewers import ViewerBindings
 
 
 class ControlDispatch:
@@ -63,12 +63,11 @@ class ControlDispatch:
         )
 
     def _attach(self, peer: Peer, request: AttachRequest) -> None:
-        if self._bindings.session(request.session) is not None:
-            raise ValueError("session already has an attached viewer")
         session = self._core.acquire(request)
-        self._core.resize(request.session, request.cols, request.rows)
+        if not self._bindings.session(request.session):
+            self._core.resize(request.session, request.cols, request.rows)
         snapshot = session.capture()
-        binding = self._bindings.add(peer, request.session)
+        binding = self._bindings.add(peer, request.session, request.cols, request.rows)
         StreamPublisher.attach(
             binding, request.request_id, snapshot, session.describe()
         )

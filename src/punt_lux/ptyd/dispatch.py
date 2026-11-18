@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.protocol.pty.frames import Frame
-from punt_lux.ptyd.bindings import ViewerBindings
 from punt_lux.ptyd.control_input import ControlInput
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.publisher import StreamPublisher
-from punt_lux.ptyd.stream_dispatch import StreamDispatch
+from punt_lux.ptyd.stream_output import StreamPublisher
+from punt_lux.ptyd.viewer_input import StreamDispatch
+from punt_lux.ptyd.viewers import ViewerBindings
 
 
 class SessionDispatch:
@@ -24,8 +24,8 @@ class SessionDispatch:
         self = super().__new__(cls)
         bindings = ViewerBindings()
         self._control = ControlInput(core, bindings)
-        self._stream = StreamDispatch(core, bindings)
         self._publisher = StreamPublisher(core, bindings)
+        self._stream = StreamDispatch(core, bindings, self._publisher)
         return self
 
     def receive(self, peer: Peer, frame: Frame) -> None:

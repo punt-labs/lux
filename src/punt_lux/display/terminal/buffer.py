@@ -9,7 +9,7 @@ from punt_lux.display.terminal.clipboard import ClipboardActions
 from punt_lux.display.terminal.input import Input, MouseFrame
 from punt_lux.display.terminal.render_state import RenderState
 from punt_lux.display.terminal.selection import Selection
-from punt_lux.display.terminal.theme import TerminalTheme
+from punt_lux.display.terminal.theme import TerminalTheme as TerminalTheme
 from punt_lux.terminal.ffi import Terminal
 from punt_lux.terminal.ffi_terminal import TerminalIO
 
@@ -18,8 +18,8 @@ __all__ = [
     "MouseFrame",
     "RenderState",
     "Selection",
-    "Terminal",
     "TerminalBuffer",
+    "TerminalTheme",
 ]
 
 

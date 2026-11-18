@@ -15,6 +15,7 @@ pytest.importorskip("imgui_bundle")
 
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
+from punt_lux.protocol.pty.control import WIRE_VERSION
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
@@ -40,7 +41,8 @@ class PoolWait:
         client = WireClient(path)
         try:
             assert isinstance(
-                client.request(HelloRequest(1, 1, snapshot_version())), SuccessReply
+                client.request(HelloRequest(1, WIRE_VERSION, snapshot_version())),
+                SuccessReply,
             )
             reply = client.request(ListRequest(2))
             assert isinstance(reply, SuccessReply)
@@ -86,7 +88,7 @@ def test_new_replica_pool_reattaches_to_the_same_process_and_screen(
         second.close()
     client = WireClient(daemon)
     try:
-        client.request(HelloRequest(1, 1, snapshot_version()))
+        client.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
         assert isinstance(client.request(KillRequest(2, "display")), SuccessReply)
     finally:
         client.close()

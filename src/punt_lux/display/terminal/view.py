@@ -34,9 +34,10 @@ from punt_lux.display.terminal.buffer import (
     RenderState,
     Selection,
     TerminalBuffer,
+    TerminalTheme,
 )
 from punt_lux.display.terminal.painter import CellGrid, Painter
-from punt_lux.display.terminal.theme import TerminalTheme
+from punt_lux.display.terminal.sizing import ViewSizing
 from punt_lux.terminal.ffi import (
     Terminal,
     ffi,
@@ -58,14 +59,10 @@ class TerminalView:
     _buffer: TerminalBuffer
     _on_input: Callable[[bytes], None]
     _on_resize: Callable[[int, int], None]
-    _fixed_size: bool
-    _cols: int
-    _rows: int
+    _sizing: ViewSizing
     _painter: Painter
     _render_ms: float
     _closed: bool
-    _remote_size: bool
-    _wanted: tuple[int, int]
 
     def __new__(
         cls,
@@ -79,13 +76,10 @@ class TerminalView:
         self._buffer = TerminalBuffer.local(cols, rows, scrollback, self._send)
         self._on_input = lambda _data: None
         self._on_resize = lambda _cols, _rows: None
-        self._fixed_size = fixed_size  # replays: keep the recorded size
-        self._cols, self._rows = cols, rows
+        self._sizing = ViewSizing((cols, rows), fixed=fixed_size)
         self._painter = Painter()
         self._render_ms = 0.0  # Python time of the last render(), for diagnostics
         self._closed = False
-        self._remote_size = False
-        self._wanted = (cols, rows)
         return self
 
     def close(self) -> None:
@@ -100,13 +94,11 @@ class TerminalView:
         replacement = TerminalBuffer(term, self._send)
         self._buffer.close()
         self._buffer = replacement
-        self._cols, self._rows = replacement.size
-        self._remote_size = True
-        self._wanted = (self._cols, self._rows)
+        self._sizing.adopt(replacement.size)
 
     def resize_from_daemon(self, cols: int, rows: int) -> None:
         self._buffer.resize(cols, rows)
-        self._cols, self._rows = cols, rows
+        self._sizing.accept((cols, rows))
 
     # -- data ----------------------------------------------------------------
     def feed(self, data: bytes) -> None:
@@ -116,15 +108,15 @@ class TerminalView:
 
     @property
     def size(self) -> tuple[int, int]:
-        return self._cols, self._rows
+        return self._sizing.actual[0], self._sizing.actual[1]
 
     @property
     def cols(self) -> int:
-        return self._cols
+        return self._sizing.actual[0]
 
     @property
     def rows(self) -> int:
-        return self._rows
+        return self._sizing.actual[1]
 
     @property
     def title(self) -> str:
@@ -165,21 +157,21 @@ class TerminalView:
             self._handle_mouse(grid, hovered=hovered)
         self._buffer.state.update()
         self._painter.paint(self._buffer.state, grid, focused=focused)
-        imgui.dummy(ImVec2(self._cols * grid.cell_w, self._rows * grid.cell_h))
+        imgui.dummy(
+            ImVec2(
+                self._sizing.actual[0] * grid.cell_w,
+                self._sizing.actual[1] * grid.cell_h,
+            )
+        )
         self._render_ms = (time.perf_counter() - started) * 1e3
 
     def _fit(self, cols: int, rows: int) -> None:
         cols, rows = max(MIN_COLS, cols), max(MIN_ROWS, rows)
-        if self._remote_size:
-            if (cols, rows) != self._wanted:
-                self._wanted = (cols, rows)
-                self._on_resize(cols, rows)
-            return
-        if self._fixed_size or (cols, rows) == (self._cols, self._rows):
-            return
-        self._cols, self._rows = cols, rows
-        self._buffer.resize(cols, rows)
-        self._on_resize(cols, rows)
+        result = self._sizing.fit((cols, rows))
+        if result == "local":
+            self._buffer.resize(cols, rows)
+        if result != "none":
+            self._on_resize(cols, rows)
 
     # -- keyboard ------------------------------------------------------------
     def _handle_keys(self) -> None:
@@ -188,10 +180,10 @@ class TerminalView:
             return
         io = imgui.get_io()
         if io.key_shift and imgui.is_key_pressed(imgui.Key.page_up):
-            self._scroll_by(-self._rows // 2)
+            self._scroll_by(-self._sizing.actual[1] // 2)
             return
         if io.key_shift and imgui.is_key_pressed(imgui.Key.page_down):
-            self._scroll_by(self._rows // 2)
+            self._scroll_by(self._sizing.actual[1] // 2)
             return
         if self._buffer.input.poll_keyboard():
             self._buffer.selection.clear()
@@ -211,8 +203,8 @@ class TerminalView:
                     mouse.y - grid.origin.y,
                     grid.cell_w,
                     grid.cell_h,
-                    self._cols,
-                    self._rows,
+                    self._sizing.actual[0],
+                    self._sizing.actual[1],
                 )
             )
             return
@@ -233,7 +225,9 @@ class TerminalView:
         self, grid: CellGrid, mouse: ImVec2, *, hovered: bool
     ) -> None:
         left = imgui.MouseButton_.left
-        col, row = grid.cell_at(mouse.x, mouse.y, self._cols, self._rows)
+        col, row = grid.cell_at(
+            mouse.x, mouse.y, self._sizing.actual[0], self._sizing.actual[1]
+        )
         if hovered and imgui.is_mouse_clicked(left):
             clicks = imgui.get_mouse_clicked_count(left)
             if clicks >= 3:
@@ -245,7 +239,7 @@ class TerminalView:
         elif self._buffer.selection.dragging and imgui.is_mouse_down(left):
             if mouse.y < grid.origin.y:  # dragging past an edge scrolls
                 self._scroll_by(-1)
-            elif mouse.y > grid.origin.y + self._rows * grid.cell_h:
+            elif mouse.y > grid.origin.y + self._sizing.actual[1] * grid.cell_h:
                 self._scroll_by(1)
             self._buffer.selection.extend_drag((col, row + self._viewport_top()))
         if imgui.is_mouse_released(left):
@@ -304,11 +298,11 @@ class TerminalView:
 
     @property
     def fixed_size(self) -> bool:
-        return self._fixed_size
+        return self._sizing.fixed
 
     @fixed_size.setter
     def fixed_size(self, value: bool) -> None:
-        self._fixed_size = value
+        self._sizing.fixed = value
 
     @property
     def render_ms(self) -> float:

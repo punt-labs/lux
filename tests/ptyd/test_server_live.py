@@ -12,6 +12,7 @@ import pytest
 pytest.importorskip("pyghostty")
 
 from punt_lux.protocol.pty.attach import AttachRequest
+from punt_lux.protocol.pty.control import WIRE_VERSION
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import FailureReply, SuccessReply
@@ -23,7 +24,7 @@ pytestmark = pytest.mark.integration
 
 
 def hello(client: WireClient, request_id: int = 1) -> SuccessReply:
-    reply = client.request(HelloRequest(request_id, 1, snapshot_version()))
+    reply = client.request(HelloRequest(request_id, WIRE_VERSION, snapshot_version()))
     assert isinstance(reply, SuccessReply)
     return reply
 
@@ -96,7 +97,7 @@ def test_request_before_hello_cannot_start_a_program(daemon: Path) -> None:
 def test_version_mismatch_does_not_mark_peer_ready(daemon: Path) -> None:
     client = WireClient(daemon)
     try:
-        reply = client.request(HelloRequest(1, 2, snapshot_version()))
+        reply = client.request(HelloRequest(1, WIRE_VERSION + 1, snapshot_version()))
         assert isinstance(reply, FailureReply)
         reply = client.request(AttachRequest(2, "forbidden"))
         assert isinstance(reply, FailureReply)

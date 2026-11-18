@@ -312,8 +312,10 @@ the Display. Start the daemon manually before showing terminals. Set
 `LUX_PTY_SOCKET` on the Display to use an isolated endpoint. Display exit
 releases its replicas and connection, not the held programs.
 
-The daemon currently supports one viewer per session, with bounded queues.
-Automatic startup, credit and repaint-on-lag are later work.
+Several viewers may attach to the same session. Output is credit-controlled
+per viewer; a stalled viewer receives a fresh snapshot instead of an
+unbounded backlog. The last viewer to type or request a resize sets the grid.
+Automatic daemon startup is still later work.
 See the [step-4 plan](spikes/terminal/STEP4-PLAN.md).
 
 ## Architecture

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import struct
 import time
 from pathlib import Path
 from typing import Self
@@ -17,15 +18,20 @@ class WireClient:
     _socket: socket.socket
     _decoder: FrameDecoder
     _frames: list[Frame]
+    _auto_credit: bool
 
-    def __new__(cls, path: Path) -> Self:
+    def __new__(cls, path: Path, *, auto_credit: bool = True) -> Self:
         self = super().__new__(cls)
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.settimeout(4)
         self._socket.connect(str(path))
         self._decoder = FrameDecoder()
         self._frames = []
+        self._auto_credit = auto_credit
         return self
+
+    def enable_credit(self) -> None:
+        self._auto_credit = True
 
     def close(self) -> None:
         self._socket.close()
@@ -46,7 +52,9 @@ class WireClient:
         while time.monotonic() < deadline:
             for index, frame in enumerate(self._frames):
                 if frame.channel == channel:
-                    return self._frames.pop(index)
+                    value = self._frames.pop(index)
+                    self._acknowledge(value)
+                    return value
             data = self._socket.recv(MAX_READ_BYTES)
             if not data:
                 raise EOFError("daemon closed the test connection")
@@ -62,3 +70,17 @@ class WireClient:
             assert frame.kind is FrameKind.SNAPSHOT
             data.extend(frame.payload)
         return channel, SessionSnapshot.from_dict(metadata, bytes(data))
+
+    def _acknowledge(self, frame: Frame) -> None:
+        if not self._auto_credit or frame.channel == 0:
+            return
+        if frame.kind in (FrameKind.DATA, FrameKind.SNAPSHOT):
+            self.send(
+                Frame(
+                    frame.channel,
+                    FrameKind.CREDIT,
+                    struct.pack("<I", len(frame.payload)),
+                )
+            )
+        elif frame.kind is FrameKind.CLOSE:
+            self.send(Frame(frame.channel, FrameKind.CLOSE, b""))

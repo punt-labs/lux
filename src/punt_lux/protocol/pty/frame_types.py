@@ -1,4 +1,4 @@
-"""Version-one frame vocabulary shared by codecs and channel dispatch."""
+"""Frame vocabulary shared by codecs and channel dispatch."""
 
 from __future__ import annotations
 
@@ -17,3 +17,4 @@ class FrameKind(IntEnum):
     CREDIT = 2
     RESIZE = 3
     CLOSE = 4
+    SNAPSHOT_START = 5

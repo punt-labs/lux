@@ -8,7 +8,9 @@
   `terminal` extra, same-user Unix IPC and versioned snapshot/byte attachment.
   Sessions survive client disconnects. The Display now attaches through
   native replicas; closing or crashing it does not end the held programs.
-  Automatic startup and credit/repaint flow control remain unfinished.
+  Multiple viewers, per-viewer credit and repaint-on-lag are implemented.
+  Wire generation two negotiates snapshot-reset frames. Automatic startup
+  remains unfinished.
 
 ### Changed
 

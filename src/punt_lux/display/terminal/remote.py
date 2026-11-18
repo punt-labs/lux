@@ -15,8 +15,7 @@ from punt_lux.display.terminal.view import TerminalView
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.control_fields import ControlFields
 from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import restore_binary, snapshot_version
+from punt_lux.terminal.transfer import SnapshotTransfer
 
 
 class RemoteSession:
@@ -27,9 +26,7 @@ class RemoteSession:
     _phase: RemotePhase
     _status: str
     _channel: int
-    _size: int
-    _metadata: dict[str, object]
-    _snapshot: bytearray
+    _transfer: SnapshotTransfer
     _bytes_in: int
 
     def __new__(cls, name: str, command: str, send: Callable[[Frame], None]) -> Self:
@@ -41,9 +38,8 @@ class RemoteSession:
         self._view.on_resize = self.resize
         self._phase = RemotePhase.CONNECTING
         self._status = "connecting to luxd-pty"
-        self._channel = self._size = self._bytes_in = 0
-        self._metadata = {}
-        self._snapshot = bytearray()
+        self._channel = self._bytes_in = 0
+        self._transfer = SnapshotTransfer(name)
         return self
 
     @property
@@ -66,42 +62,32 @@ class RemoteSession:
     def phase(self) -> RemotePhase:
         return self._phase
 
+    @property
+    def status(self) -> str:
+        return f"{self._phase.value}: {self._status}"
+
     def request(self, request_id: int) -> AttachRequest:
         cols, rows = self._view.size
         return AttachRequest(request_id, self._name, self._command, cols, rows)
 
     def begin(self, metadata: dict[str, object]) -> None:
-        fields = ControlFields(metadata)
-        if (
-            fields.session() != self._name
-            or fields.text("snapshot_version") != snapshot_version()
-        ):
-            raise ValueError("snapshot identity/version mismatch")
-        self._channel = fields.integer("channel", 1, (1 << 32) - 1)
-        self._size = fields.integer("size", 1, 16 * 1024 * 1024)
-        self._metadata = metadata
-        self._snapshot.clear()
+        self._transfer.begin(metadata)
+        self._channel = self._transfer.channel
         self._phase = RemotePhase.SNAPSHOT
 
     def receive(self, frame: Frame) -> None:
-        if frame.kind is FrameKind.SNAPSHOT:
+        if frame.kind is FrameKind.SNAPSHOT_START:
+            self.begin(self._reset_metadata(frame.payload))
+        elif frame.kind is FrameKind.SNAPSHOT:
             self._collect(frame.payload)
         elif frame.kind is FrameKind.DATA:
             if self._phase is not RemotePhase.READY:
                 raise ValueError("live bytes preceded snapshot completion")
             self._view.feed(frame.payload)
             self._bytes_in += len(frame.payload)
-        elif frame.kind is FrameKind.RESIZE:
-            self._size_changed(frame.payload)
+            self._acknowledge(len(frame.payload))
         elif frame.kind is FrameKind.CLOSE:
-            notice: object = json.loads(frame.payload.decode())
-            if not isinstance(notice, dict):
-                raise ValueError("invalid terminal close notice")
-            reason = ControlFields(cast("dict[str, object]", notice)).text("reason")
-            self._phase = (
-                RemotePhase.EXITED if reason == "exited" else RemotePhase.FAILED
-            )
-            self._status = reason
+            self._notice(frame.payload)
 
     def write(self, data: bytes) -> None:
         if self._phase is RemotePhase.READY:
@@ -123,7 +109,7 @@ class RemoteSession:
         self._phase = RemotePhase.DISCONNECTED
         self._status = message
         self._channel = 0
-        self._snapshot.clear()
+        self._transfer.clear()
 
     def fail(self, message: str) -> None:
         self._phase = RemotePhase.FAILED
@@ -132,38 +118,48 @@ class RemoteSession:
     def close(self) -> None:
         self._phase = RemotePhase.CLOSED
         self._view.close()
-        self._snapshot.clear()
+        self._transfer.clear()
 
     def render_in_child(self, label: str, size: ImVec2) -> None:
         if self._phase in (RemotePhase.READY, RemotePhase.EXITED):
             self._view.render_in_child(label, size)
         else:
-            imgui.text_unformatted(f"Terminal {self._name}: {self._status}")
+            imgui.text_unformatted(f"Terminal {self._name}: {self.status}")
 
     def _collect(self, data: bytes) -> None:
-        if (
-            self._phase is not RemotePhase.SNAPSHOT
-            or len(self._snapshot) + len(data) > self._size
-        ):
-            raise ValueError("unexpected or oversized snapshot fragment")
-        self._snapshot.extend(data)
-        if len(self._snapshot) == self._size:
-            checkpoint = SessionSnapshot.from_dict(
-                self._metadata, bytes(self._snapshot)
-            )
-            self._view.adopt(restore_binary(checkpoint.data))
-            self._snapshot.clear()
+        if self._phase is not RemotePhase.SNAPSHOT:
+            raise ValueError("unexpected snapshot fragment")
+        native = self._transfer.feed(data)
+        self._acknowledge(len(data))
+        if native is not None:
+            self._view.adopt(native)
             self._phase = (
-                RemotePhase.EXITED
-                if self._metadata.get("ended") is True
-                else RemotePhase.READY
+                RemotePhase.EXITED if self._transfer.ended else RemotePhase.READY
             )
-            if self._phase is RemotePhase.EXITED:
-                self._send(Frame(self._channel, FrameKind.CLOSE, b""))
 
-    def _size_changed(self, data: bytes) -> None:
-        if len(data) != 4:
-            raise ValueError("invalid grid announcement")
-        cols, rows = struct.unpack("<HH", data)
-        AttachRequest(1, self._name, cols=cols, rows=rows)
-        self._view.resize_from_daemon(cols, rows)
+    def _acknowledge(self, amount: int) -> None:
+        if amount and self._phase in (
+            RemotePhase.SNAPSHOT,
+            RemotePhase.READY,
+            RemotePhase.EXITED,
+        ):
+            self._send(
+                Frame(self._channel, FrameKind.CREDIT, struct.pack("<I", amount))
+            )
+
+    def _notice(self, data: bytes) -> None:
+        notice: object = json.loads(data.decode())
+        if not isinstance(notice, dict):
+            raise ValueError("invalid terminal close notice")
+        reason = ControlFields(cast("dict[str, object]", notice)).text("reason")
+        self._phase = RemotePhase.EXITED if reason == "exited" else RemotePhase.FAILED
+        self._status = reason
+        self._transfer.clear()
+        self._send(Frame(self._channel, FrameKind.CLOSE, b""))
+
+    @staticmethod
+    def _reset_metadata(data: bytes) -> dict[str, object]:
+        raw: object = json.loads(data.decode())
+        if not isinstance(raw, dict):
+            raise ValueError("invalid snapshot reset")
+        return cast("dict[str, object]", raw)

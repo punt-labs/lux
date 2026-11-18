@@ -70,7 +70,8 @@ Framed, binary, on a Unix stream socket. Every frame is
   `DATA` frames; the Display sends `DATA` (keys), `RESIZE` and `CREDIT`.
   A snapshot larger than the frame cap is transferred in bounded chunks with
   a declared total length; the client applies it only when complete.
-- Frame kinds: `DATA`, `SNAPSHOT`, `CREDIT`, `RESIZE`, `CLOSE`.
+- Frame kinds: `DATA`, `SNAPSHOT`, `CREDIT`, `RESIZE`, `CLOSE`, and
+  generation-two `SNAPSHOT_START` carrying reset metadata.
 - Flow control: a channel starts with 256 KiB of credit; the Display returns
   credit as it consumes. A viewer more than 4 MiB behind gets a fresh
   `SNAPSHOT` instead of the backlog.
@@ -366,4 +367,26 @@ and no file.
   the same program survives, and the new Display owns the viewer binding.
   Evidence and test limits are recorded in `STEP4-LIVE.md`.
 - The daemon still requires manual startup. Credit, lag repaint, multiple
-  viewers and performance measurements remain stage 3/4 work.
+  viewers and performance measurements remained open at this checkpoint.
+
+### Stage 3 — viewer flow and multicast
+
+- Added independent 256 KiB credit windows, including snapshot fragments.
+  ACKs may return only actual in-flight bytes. Snapshot resets preserve old
+  debt rather than minting a second window.
+- Unsent live tail is bounded at 4 MiB. Overflow requests an authoritative
+  repaint; pending initial snapshots finish rather than being restarted by
+  every burst. Capture that is temporarily unavailable is retried with backoff.
+- Several viewers share one process. Input/resize selects the active grid,
+  broadcasts fresh snapshots, and passive geometry does not fight the owner.
+- The client assembles snapshots in a separate bounded transfer object and
+  acknowledges fragments before the whole snapshot is applied.
+- Wire generation two adds `SNAPSHOT_START`. Older versions are rejected by
+  hello; they are not allowed to misinterpret reset metadata as native bytes.
+- Finite 5 MiB burst integration: the fast viewer reaches END while another
+  withholds credit; the slow viewer then catches up by repaint. No endless
+  flood process is used.
+- Credit/reset model: 1,024 states and 5,249 transitions, no violations.
+  Mutations reproduce minted credit and output across a dropped-tail gap.
+- Automatic startup, idle daemon exit and timing/performance evidence remain
+  stage 4/5 work.

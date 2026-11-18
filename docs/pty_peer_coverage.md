@@ -27,6 +27,6 @@ or negotiation. The model does not assume the safety properties as predicates.
 | Headless native package | Import test blocks GUI dependency modules |
 | Malformed frames and short writes | Framing tests and bounded writer tests |
 
-Stage two supports one viewer per session and uses a bounded output queue.
-It does not yet implement credit accounting, repaint-on-lag, automatic startup,
-or a Display attaching to the daemon. Those remain later-stage work.
+Stage three adds multiple viewers, per-viewer credit and repaint-on-lag.
+The credit model and its coverage report document reset ordering. Automatic
+startup and daemon-upgrade persistence remain later work.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import struct
 
 import pytest
@@ -12,6 +13,7 @@ pytest.importorskip("imgui_bundle")
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.protocol.pty.frames import Frame, FrameKind
+from punt_lux.ptyd.output import SessionSnapshot
 from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
 
 
@@ -60,8 +62,10 @@ def test_replica_never_sends_automatic_query_replies() -> None:
     try:
         begin(session, data)
         session.receive(Frame(1, FrameKind.SNAPSHOT, data))
+        sent.clear()
         session.receive(Frame(1, FrameKind.DATA, bytes([27]) + b"[5n"))
-        assert sent == []
+        assert all(frame.kind is FrameKind.CREDIT for frame in sent)
+        sent.clear()
         session.view.input.paste("hello")
         assert sent == [Frame(1, FrameKind.DATA, b"hello")]
     finally:
@@ -75,11 +79,21 @@ def test_resize_waits_for_authoritative_announcement() -> None:
     try:
         begin(session, data)
         session.receive(Frame(1, FrameKind.SNAPSHOT, data))
+        sent.clear()
         session.resize(40, 8)
         assert session.view.term.size == (20, 4)
         announcement = Frame(1, FrameKind.RESIZE, struct.pack("<HH", 40, 8))
         assert sent == [announcement]
-        session.receive(announcement)
+        data = encode_binary(tracked_terminal(40, 8))
+        metadata = SessionSnapshot(
+            "shell", 0, 40, 8, snapshot_version(), data
+        ).to_dict()
+        metadata["channel"] = 1
+        session.receive(
+            Frame(1, FrameKind.SNAPSHOT_START, json.dumps(metadata).encode())
+        )
+        assert session.view.term.size == (20, 4)
+        session.receive(Frame(1, FrameKind.SNAPSHOT, data))
         assert session.view.term.size == (40, 8)
     finally:
         session.close()
@@ -91,6 +105,7 @@ def test_view_close_never_queues_session_kill_or_input() -> None:
     session = RemoteSession("shell", "", sent.append)
     begin(session, data)
     session.receive(Frame(1, FrameKind.SNAPSHOT, data))
+    sent.clear()
     session.close()
     session.close()
     assert sent == []

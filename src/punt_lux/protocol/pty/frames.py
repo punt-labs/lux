@@ -12,7 +12,7 @@ import struct
 from dataclasses import dataclass
 from typing import ClassVar, Self
 
-from punt_lux.protocol.pty.types import FrameError, FrameKind
+from punt_lux.protocol.pty.frame_types import FrameError, FrameKind
 
 __all__ = [
     "MAX_PAYLOAD_BYTES",

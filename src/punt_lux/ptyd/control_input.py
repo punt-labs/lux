@@ -6,11 +6,11 @@ from typing import Self
 
 from punt_lux.protocol.pty.control import ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.ptyd.bindings import ViewerBindings
 from punt_lux.ptyd.control_dispatch import ControlDispatch
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.publisher import StreamPublisher
+from punt_lux.ptyd.stream_output import StreamPublisher
+from punt_lux.ptyd.viewers import ViewerBindings
 
 
 class ControlInput:
