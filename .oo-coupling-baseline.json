@@ -2232,6 +2232,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/display/terminal/ffi_terminal.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.179,
+    "avg_lcom": 0.179
+  },
   "src/punt_lux/display/terminal/font.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -2266,13 +2273,6 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
-  },
-  "src/punt_lux/display/terminal/pty.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.561,
-    "avg_lcom": 0.561
   },
   "src/punt_lux/display/terminal/render_state.py": {
     "efferent_coupling": 3.0,
@@ -5637,6 +5637,69 @@
   "src/punt_lux/ptyd/__init__.py": {
     "efferent_coupling": 0.0,
     "public_names": 0.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/child.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.476,
+    "avg_lcom": 0.476
+  },
+  "src/punt_lux/ptyd/core.py": {
+    "efferent_coupling": 5.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.25,
+    "avg_lcom": 0.25
+  },
+  "src/punt_lux/ptyd/environment.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/holder.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.505,
+    "avg_lcom": 0.505
+  },
+  "src/punt_lux/ptyd/input_buffer.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/output.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/process_port.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/ptyd/session.py": {
+    "efferent_coupling": 6.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.379,
+    "avg_lcom": 0.379
+  },
+  "src/punt_lux/ptyd/session_state.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0

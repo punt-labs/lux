@@ -15,7 +15,7 @@ from imgui_bundle import ImVec2, imgui
 
 import sys; sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1])); import demo
 from punt_lux.display.terminal.view import TerminalView as GhosttyTerminalView
-from punt_lux.display.terminal.pty import PtyProcess
+from punt_lux.ptyd.holder import PtyHolder as PtyProcess
 
 K = imgui.Key
 

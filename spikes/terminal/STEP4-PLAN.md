@@ -309,3 +309,25 @@ and no file.
 - This is not a proof of daemon lifecycle, peer authentication or eventual
   delivery. The coverage report names the missing core and real-PTY tests.
 - Request handling, replies, daemon IO and Display integration are next.
+
+### Stage 2 — held-process and core checkpoint
+
+- Moved PTY ownership out of the Display package into `ptyd/holder.py`.
+  The existing in-Display stand-in uses this holder until remote attachment
+  replaces it; this module move alone does not yet preserve shells on restart.
+- Added bounded input buffering for short writes/EAGAIN, explicit child
+  reaping with WNOHANG, and guarded, idempotent descriptor closure. Exec failure
+  always exits the forked child, including unexpected exceptions.
+- Added a native-independent process port and a headless session core.
+  Sessions parse output with no viewers, capture exact byte positions, do not
+  respawn on reattach, and keep failed cleanup tracked for retry.
+- The authoritative parser alone answers terminal queries. A parser failure
+  prevents publishing a snapshot with a false output cut. A typed native IO
+  owner explicitly releases Ghostty resources after process closure.
+- Six real-PTY integration tests pass under an outer timeout. They cover large
+  input, final output/status, multiple exec failure paths and a real headless
+  core being inspected and used without respawning its program.
+- `docs/pty_child.tex` and its PDF model PID ownership. ProB checks 28 states
+  and 75 transitions. Mutations reproduce signalling a reaped PID and
+  forgetting a child before reap. The coverage document states the limits.
+- Replies, socket service and Display integration remain outstanding.

@@ -18,8 +18,8 @@ import shlex
 import time
 from typing import ClassVar, Self
 
-from punt_lux.display.terminal.pty import PtyProcess
 from punt_lux.display.terminal.view import TerminalView
+from punt_lux.ptyd.holder import PtyHolder as PtyProcess
 
 __all__ = ["TerminalSession", "TerminalSessions"]
 

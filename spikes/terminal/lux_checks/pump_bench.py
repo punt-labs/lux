@@ -1,6 +1,6 @@
 """Benchmark the real PtyProcess.pump in a 60 fps frame loop: flood throughput + idle cost."""
 import sys, time
-from punt_lux.display.terminal.pty import PtyProcess
+from punt_lux.ptyd.holder import PtyHolder as PtyProcess
 
 FRAME = 1 / 60
 def run(argv, seconds, **kw):

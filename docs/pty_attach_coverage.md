@@ -1,7 +1,8 @@
 # Terminal attach: model results and coverage
 
 This is a bounded model of snapshot/tail ordering and viewer detach, not a
-proof of the whole daemon. The daemon core is not implemented yet.
+proof of the whole daemon. A session core now exists; socket/viewer ordering
+and real disconnect coverage remain outstanding.
 
 ## Safety claims
 
@@ -57,11 +58,11 @@ The corrected model finds neither violation.
 | Frame fragmentation and bounded buffering | `tests/protocol/test_pty_frames.py` | Covered at codec layer |
 | Strict typed hello/attach/list/kill control boundary | `tests/protocol/test_pty_control.py` | Covered at codec layer |
 | Both screens, modes and parser continuation in snapshots | `tests/ptyd/test_snapshot.py` | Covered at native codec layer |
-| Output arriving between capture and completion | Model and its bad-cut witness | **GAP: core test needed** |
+| Output arriving between capture and completion | Model, bad-cut witness and `test_session_core.py` snapshot/tail test | Covered at core layer; socket ordering still needed |
 | Credit exhausted, returned, and isolated per viewer | Model only | **GAP: core test needed** |
 | Detach and reattach while the program stays live | Model and bad-detach witness | **GAP: real PTY integration needed** |
 | Socket peer authentication and stale endpoint handling | Outside this model | **GAP: service implementation and tests needed** |
-| Explicit session kill and daemon shutdown | Outside this model | **GAP: lifecycle model and tests needed** |
+| Explicit session kill and daemon shutdown | Child model, failed-close retry and live PTY tests | Covered at holder/core layer; daemon shutdown still needed |
 
 These gaps must be filled as the implementation reaches each stage. Passing
 codec tests is not evidence that socket or process lifecycle works.
