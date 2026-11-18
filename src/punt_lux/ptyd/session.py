@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.display.terminal.ffi_terminal import TerminalIO
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
 from punt_lux.ptyd.session_state import SessionState
 from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
+from punt_lux.terminal.ffi_terminal import TerminalIO
 
 _ENDED_NOTICE = b"\r\n\x1b[?2026l\x1b[2m[process exited]\x1b[0m"
 
@@ -54,7 +54,7 @@ class TerminalSession:
     def pump(self) -> OutputChunk:
         """Keep parsing while no viewer is attached; output remains sequenced."""
         start = self._position
-        if self._state is SessionState.CLOSED:
+        if self._state in (SessionState.CLOSED, SessionState.FAILED):
             return OutputChunk(self.name, start, b"")
         self._check_usable()
         data = self._process.pump()

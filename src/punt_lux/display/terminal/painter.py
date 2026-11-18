@@ -16,9 +16,9 @@ from dataclasses import dataclass
 
 from imgui_bundle import ImVec2, imgui
 
-from punt_lux.display.terminal.ffi import lib
 from punt_lux.display.terminal.model import RGB
 from punt_lux.display.terminal.render_state import RenderState
+from punt_lux.terminal.ffi import lib
 
 __all__ = ["CellGrid", "Painter", "rgba"]
 

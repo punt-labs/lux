@@ -53,6 +53,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+terminal = ["pyghostty==0.1.4"]  # headless PTY owner; no GPU dependencies
+
 display = [
     "imgui-bundle==1.92.900",
     "Pillow>=12.3.0",
@@ -99,6 +101,7 @@ dev = [
 lux = "punt_lux.__main__:app"
 luxd-hub = "punt_lux.luxd:main"
 luxd-display = "punt_lux.luxd_display:DisplayEntryPoint.main"
+luxd-pty = "punt_lux.ptyd.__main__:PtyEntryPoint.main"
 lux-beads = "punt_lux.applets.beads:app"
 
 [project.urls]

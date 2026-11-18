@@ -28,7 +28,12 @@ from typing import Self
 
 from imgui_bundle import ImVec2, imgui
 
-from punt_lux.display.terminal.ffi import (
+from punt_lux.display.terminal.input import Input, MouseFrame
+from punt_lux.display.terminal.painter import CellGrid, Painter
+from punt_lux.display.terminal.render_state import RenderState
+from punt_lux.display.terminal.selection import Selection
+from punt_lux.display.terminal.theme import TerminalTheme
+from punt_lux.terminal.ffi import (
     Terminal,
     ffi,
     handle,
@@ -36,11 +41,6 @@ from punt_lux.display.terminal.ffi import (
     scroll_viewport,
     string_value,
 )
-from punt_lux.display.terminal.input import Input, MouseFrame
-from punt_lux.display.terminal.painter import CellGrid, Painter
-from punt_lux.display.terminal.render_state import RenderState
-from punt_lux.display.terminal.selection import Selection
-from punt_lux.display.terminal.theme import TerminalTheme
 
 __all__ = ["TerminalView"]
 

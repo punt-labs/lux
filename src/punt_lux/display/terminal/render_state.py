@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from punt_lux.display.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 from punt_lux.display.terminal.model import RGB, Row
 from punt_lux.display.terminal.row_builder import RowBuilder
+from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 __all__ = ["RenderState"]
 

@@ -20,7 +20,6 @@ from typing import Any, Self
 
 from imgui_bundle import imgui
 
-from punt_lux.display.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 from punt_lux.display.terminal.keymap import (
     CTRL,
     KEYMAP,
@@ -29,6 +28,7 @@ from punt_lux.display.terminal.keymap import (
     SUPER,
     terminal_mods,
 )
+from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 __all__ = ["Input", "MouseFrame"]
 

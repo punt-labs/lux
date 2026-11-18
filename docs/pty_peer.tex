@@ -1,0 +1,87 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Terminal service: authenticated, negotiated peers}
+\maketitle
+
+A kernel UID check precedes peer registration; a matching version handshake
+precedes session creation. Closing a peer retains its created programs.
+This model abstracts credential syscalls and transport bytes, tested separately.
+
+\begin{zed}
+[PEER]
+\end{zed}
+\begin{zed}
+PHASE ::= absent | accepted | ready | closed
+\end{zed}
+\begin{schema}{Peers}
+phase : PEER \fun PHASE \\
+authorized : \power PEER \\
+created : \power PEER
+\end{schema}
+\begin{schema}{Init}
+Peers'
+\where
+phase' = \{p : PEER @ p \mapsto absent\} \\
+authorized' = \emptyset \land created' = \emptyset
+\end{schema}
+\begin{schema}{AcceptSameUID}
+\Delta Peers \\
+p? : PEER
+\where
+phase(p?) = absent \\
+phase' = phase \oplus \{p? \mapsto accepted\} \\
+authorized' = authorized \cup \{p?\} \land created' = created
+\end{schema}
+\begin{schema}{RejectOtherUID}
+\Delta Peers \\
+p? : PEER
+\where
+phase(p?) = absent \\
+phase' = phase \oplus \{p? \mapsto closed\} \\
+authorized' = authorized \land created' = created
+\end{schema}
+\begin{schema}{HelloCompatible}
+\Delta Peers \\
+p? : PEER
+\where
+phase(p?) = accepted \land p? \in authorized \\
+phase' = phase \oplus \{p? \mapsto ready\} \\
+authorized' = authorized \land created' = created
+\end{schema}
+\begin{schema}{HelloMismatch}
+\Xi Peers \\
+p? : PEER
+\where
+phase(p?) = accepted
+\end{schema}
+\begin{schema}{CreateProgram}
+\Delta Peers \\
+p? : PEER
+\where
+phase(p?) = ready \\
+created' = created \cup \{p?\} \\
+phase' = phase \land authorized' = authorized
+\end{schema}
+\begin{schema}{Disconnect}
+\Delta Peers \\
+p? : PEER
+\where
+phase(p?) \in \{accepted, ready\} \\
+phase' = phase \oplus \{p? \mapsto closed\} \\
+authorized' = authorized \land created' = created
+\end{schema}
+\begin{schema}{Idle}
+\Xi Peers
+\end{schema}
+
+Search for violations, not predicates imposed on state:
+\begin{itemize}
+\item Unauthorized creation: \texttt{created /<: authorized}.
+\item Creation without a completed hello: a created peer is still accepted.
+\end{itemize}
+Fidelity mutation: weaken CreateProgram to accept any phase. An unauthenticated
+absent peer can then create a program. Removing a peer must never remove it
+from created: this models program survival, not a claim that a closed peer can
+still control it. Explicit kill is outside this model.
+\end{document}

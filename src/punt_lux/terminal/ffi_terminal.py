@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Self, cast
 
-from punt_lux.display.terminal.ffi import Terminal
+from punt_lux.terminal.ffi import Terminal
 
 
 class TerminalIO:

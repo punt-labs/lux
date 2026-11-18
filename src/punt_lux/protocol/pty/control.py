@@ -6,10 +6,13 @@ import json
 from collections.abc import Callable, Mapping
 from typing import ClassVar, Protocol, Self, cast, runtime_checkable
 
-from punt_lux.protocol.pty.attach import AttachRequest
+from punt_lux.protocol.pty.attach import AttachRequest as AttachRequest
 from punt_lux.protocol.pty.control_fields import ControlError
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+from punt_lux.protocol.pty.hello import HelloRequest as HelloRequest
+from punt_lux.protocol.pty.session_requests import (
+    KillRequest as KillRequest,
+    ListRequest as ListRequest,
+)
 
 MAX_CONTROL_BYTES = 16 * 1024
 WIRE_VERSION = 1
@@ -64,7 +67,6 @@ class ControlCodec:
             raise ControlError(f"invalid control JSON: {error}") from error
         if not isinstance(raw, dict):
             raise ControlError("control message must be an object")
-        # JSON object keys are strings; _object rejects duplicate keys.
         fields = cast("dict[str, object]", raw)
         operation = fields.get("op")
         if not isinstance(operation, str) or operation not in cls._DECODERS:
@@ -79,11 +81,9 @@ class ControlCodec:
     @staticmethod
     def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
         """Reject duplicate keys rather than silently choosing one authority."""
-        result: dict[str, object] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ControlError(f"duplicate field {key}")
-            result[key] = value
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ControlError("duplicate control field")
         return result
 
     @staticmethod

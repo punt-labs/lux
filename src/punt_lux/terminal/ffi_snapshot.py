@@ -13,7 +13,7 @@ from __future__ import annotations
 import weakref
 from typing import Any
 
-from punt_lux.display.terminal.ffi import Terminal, ffi, handle, init_sized, lib
+from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 CONTINUATION_LIMIT = 64 * 1024
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024

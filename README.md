@@ -292,6 +292,26 @@ The topic tools and `callback_pending` are MCP-only and have no CLI command.
 
 Python applications drive the Hub through `LuxClient`, a typed async client for `luxd`'s REST API. It applies the same validation and identity handling as the CLI and does not need the `[display]` extra. Long-running apps add `LuxHubClient` to receive menu clicks and topic events over a persistent connection. The [Python Library Guide](docs/library.md) has working examples.
 
+## Terminal spike (experimental)
+
+The spike branch provides a separate foreground terminal owner, `luxd-pty`.
+It requires the headless `terminal` extra, not the GPU dependencies:
+
+```bash
+uv run --extra terminal luxd-pty
+```
+
+It binds `~/.punt-labs/lux/pty/luxd-pty.sock` in a private directory. Use
+`--socket` for an isolated instance with a short Unix-socket pathname.
+Clients must have the same OS UID and negotiate matching wire/snapshot
+versions. Sessions survive client disconnects; stopping the daemon ends them.
+An occupied endpoint is refused, not automatically removed.
+
+**Display attachment is not wired yet.** The existing terminal element still
+uses its in-Display stand-in. The daemon currently supports one viewer per
+session, with bounded queues; credit and repaint-on-lag are later work.
+See the [step-4 plan](spikes/terminal/STEP4-PLAN.md).
+
 ## Architecture
 
 ```text

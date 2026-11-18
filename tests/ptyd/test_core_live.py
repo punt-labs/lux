@@ -13,6 +13,7 @@ pytest.importorskip("pyghostty")
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore
+from punt_lux.ptyd.output import OutputChunk
 from punt_lux.ptyd.snapshot import restore_binary
 
 pytestmark = pytest.mark.integration
@@ -25,6 +26,7 @@ class CoreOutputWait:
         output = bytearray()
         while time.monotonic() < deadline:
             for chunk in core.pump():
+                assert isinstance(chunk, OutputChunk)
                 output.extend(chunk.data)
             if text in output:
                 return bytes(output)

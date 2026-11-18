@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.display.terminal.ffi import Terminal, ffi, handle, init_sized, lib
+from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 __all__ = ["Selection"]
 

@@ -40,8 +40,8 @@ class ControlFields:
         value = self._raw.get(key)
         if not isinstance(value, str):
             raise ControlError(f"{key} must be a string")
-        if len(value) > maximum or "\x00" in value:
-            raise ControlError(f"{key} is too long or contains NUL")
+        if len(value) > maximum or re.search(r"[\x00\uD800-\uDFFF]", value) is not None:
+            raise ControlError(f"{key} is too long or contains invalid Unicode")
         return value
 
     def request_id(self) -> int:

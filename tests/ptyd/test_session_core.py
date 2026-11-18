@@ -14,7 +14,8 @@ pytest.importorskip("pyghostty")
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore, SessionError
-from punt_lux.ptyd.output import SessionSnapshot
+from punt_lux.ptyd.fault import SessionFault
+from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
 from punt_lux.ptyd.snapshot import restore_binary
 
@@ -61,13 +62,19 @@ class FakeFactory:
         return process
 
 
+def output(events: list[OutputChunk | SessionFault]) -> OutputChunk:
+    event = events[0]
+    assert isinstance(event, OutputChunk)
+    return event
+
+
 def test_sessions_keep_up_with_output_without_viewers() -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
     try:
         session = core.acquire(AttachRequest(1, "shell"))
         factory.created[0].output.append(b"headless output")
-        assert core.pump()[0].data == b"headless output"
+        assert output(core.pump()).data == b"headless output"
         restored = restore_binary(session.capture().data)
         assert restored.text() == "headless output"
         assert core.acquire(AttachRequest(2, "shell")) is session
@@ -84,10 +91,10 @@ def test_snapshot_cut_does_not_lose_output_arriving_during_transfer() -> None:
         session = core.acquire(AttachRequest(1, "shell"))
         process = factory.created[0]
         process.output.append(b"abc")
-        assert core.pump()[0].start == 0
+        assert output(core.pump()).start == 0
         snapshot = session.capture()
         process.output.append(b"def")
-        tail = core.pump()[0]
+        tail = output(core.pump())
         assert snapshot.position == tail.start == 3
         viewer = restore_binary(snapshot.data)
         assert viewer.text() == "abc"
@@ -119,7 +126,7 @@ def test_process_exit_is_recorded_once_and_never_respawned() -> None:
         process = factory.created[0]
         process.alive = False
         process.exit_code = 7
-        assert b"[process exited]" in core.pump()[0].data
+        assert b"[process exited]" in output(core.pump()).data
         assert core.pump() == []
         assert core.acquire(AttachRequest(2, "shell")) is session
         assert len(factory.created) == 1
@@ -170,11 +177,29 @@ def test_parser_callback_failure_cannot_publish_a_mislabelled_snapshot() -> None
         process = factory.created[0]
         process.refuse_write = True
         process.output.append(bytes([27]) + b"[5n")
-        with pytest.raises(BufferError):
-            core.pump()
+        events = core.pump()
+        assert isinstance(events[0], SessionFault)
         assert core.describe()[0]["state"] == "failed"
         with pytest.raises(RuntimeError, match="failed"):
             session.capture()
+    finally:
+        core.close()
+
+
+def test_one_session_fault_does_not_discard_another_sessions_output() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        core.acquire(AttachRequest(1, "good"))
+        core.acquire(AttachRequest(2, "bad"))
+        factory.created[0].output.append(b"retained")
+        factory.created[1].refuse_write = True
+        factory.created[1].output.append(bytes([27]) + b"[5n")
+        events = core.pump()
+        assert isinstance(events[0], OutputChunk)
+        assert events[0].data == b"retained"
+        assert isinstance(events[1], SessionFault)
+        assert core.pump() == []
     finally:
         core.close()
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from imgui_bundle import imgui
 
-from punt_lux.display.terminal.ffi import lib
+from punt_lux.terminal.ffi import lib
 
 __all__ = [
     "ALT",

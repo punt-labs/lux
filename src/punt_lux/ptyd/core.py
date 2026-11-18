@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import shlex
-from collections.abc import Callable
 from typing import Self
 
 from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.ptyd.holder import PtyHolder
+from punt_lux.ptyd.fault import SessionFault
 from punt_lux.ptyd.output import OutputChunk
-from punt_lux.ptyd.process_port import ProcessPort
+from punt_lux.ptyd.process_factory import ProcessCreator, ProcessFactory, ProcessPort
 from punt_lux.ptyd.session import TerminalSession
 
 
@@ -17,27 +15,17 @@ class SessionError(RuntimeError):
     """A named-session operation could not be completed."""
 
 
-class ProcessFactory:
-    """Spawn exactly an argv vector, never implicitly run it through a shell."""
-
-    @staticmethod
-    def start(request: AttachRequest) -> ProcessPort:
-        return PtyHolder(
-            shlex.split(request.command), cols=request.cols, rows=request.rows
-        )
-
-
 class SessionCore:
     """One authoritative map, with explicit session removal and bounded count."""
 
     _sessions: dict[str, TerminalSession]
     _pending: dict[str, ProcessPort]
-    _factory: Callable[[AttachRequest], ProcessPort]
+    _factory: ProcessCreator
     _limit: int
 
     def __new__(
         cls,
-        factory: Callable[[AttachRequest], ProcessPort] = ProcessFactory.start,
+        factory: ProcessCreator = ProcessFactory.start,
         *,
         limit: int = 16,
     ) -> Self:
@@ -56,9 +44,16 @@ class SessionCore:
             raise SessionError("session is waiting for failed-start cleanup")
         existing = self._sessions.get(request.session)
         if existing is not None:
-            if request.command and request.command != existing.command:
-                raise SessionError("session already exists with another command")
+            self._check_command(request)
             return existing
+        return self._start(request)
+
+    def _check_command(self, request: AttachRequest) -> None:
+        command = self._sessions[request.session].command
+        if request.command and request.command != command:
+            raise SessionError("session already exists with another command")
+
+    def _start(self, request: AttachRequest) -> TerminalSession:
         if len(self._sessions) + len(self._pending) >= self._limit:
             raise SessionError("terminal session limit reached")
         process = self._factory(request)
@@ -83,11 +78,15 @@ class SessionCore:
         except KeyError as error:
             raise SessionError(f"unknown terminal session {name}") from error
 
-    def pump(self) -> list[OutputChunk]:
+    def pump(self) -> list[OutputChunk | SessionFault]:
         """Read every session regardless of which viewers are attached."""
-        output: list[OutputChunk] = []
+        output: list[OutputChunk | SessionFault] = []
         for session in self._sessions.values():
-            chunk = session.pump()
+            try:
+                chunk = session.pump()
+            except (OSError, RuntimeError, BufferError) as error:
+                output.append(SessionFault(session.name, str(error)))
+                continue
             if chunk.data:
                 output.append(chunk)
         return output

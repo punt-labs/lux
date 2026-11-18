@@ -139,9 +139,9 @@ src/punt_lux/
     (sessions.py and pty.py move to ptyd/; the rest is unchanged)
 ```
 
-`ffi.py` and its `ffi_snapshot.py` companion contain the pyghostty boundary.
-The companion keeps native allocation and decoder ownership separate from
-snapshot policy. No daemon module accesses private handles directly.
+The `terminal/ffi*.py` modules are the shared pyghostty boundary, without
+Display or GPU imports. They own native allocation and terminal release.
+No daemon module accesses private handles directly.
 
 ## Quality bar
 
@@ -330,4 +330,23 @@ and no file.
 - `docs/pty_child.tex` and its PDF model PID ownership. ProB checks 28 states
   and 75 transitions. Mutations reproduce signalling a reaped PID and
   forgetting a child before reap. The coverage document states the limits.
-- Replies, socket service and Display integration remain outstanding.
+- Replies, socket service and Display integration remain outstanding at this
+  core checkpoint; the service checkpoint below adds replies and Unix IO.
+
+### Stage 2 — foreground service checkpoint
+
+- Added `luxd-pty`, a foreground Unix service with private endpoint checks,
+  kernel peer-UID authentication and hello/version negotiation before creation.
+- Added bounded nonblocking peer output queues and success/failure replies.
+  Sessions survive socket CLOSE/EOF. Explicit kill and daemon shutdown own
+  process termination. One session failure does not discard another's output.
+- The native bindings moved into shared `terminal/`, removing the daemon's
+  accidental GPU import. A `terminal` extra installs pyghostty without ImGui,
+  Pillow, numpy or OpenGL; an import-guard test verifies that separation.
+- Three independent-daemon integration tests pass: disconnect/reconnect keeps
+  the same PID and screen; pre-hello creation is denied; mismatch stays unready.
+- Added `pty_peer.tex`, its PDF and coverage report. ProB explores 49 states
+  and 176 transitions without unauthorized or pre-hello creation. The weakened
+  creation guard produces an immediate counterexample.
+- Credit accounting, multiple viewers per session, automatic startup and
+  actual Display integration remain outstanding.

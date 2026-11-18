@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.display.terminal.ffi import Terminal, snapshot_version, terminal_title
-from punt_lux.display.terminal.ffi_snapshot import (
+from punt_lux.terminal.ffi import Terminal, snapshot_version, terminal_title
+from punt_lux.terminal.ffi_snapshot import (
     SnapshotError,
     active_screen_vt,
     encode_binary,

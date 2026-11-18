@@ -19,7 +19,7 @@ from typing import Any, Self
 
 import numpy as np
 
-from punt_lux.display.terminal.ffi import ffi, lib
+from punt_lux.terminal.ffi import ffi, lib
 
 __all__ = ["CellLayout", "Field", "cell_layout"]
 

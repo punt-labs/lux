@@ -30,8 +30,8 @@ from typing import Any, Self
 import numpy as np
 
 from punt_lux.display.terminal.cell_layout import CellLayout, cell_layout
-from punt_lux.display.terminal.ffi import ffi, init_sized, lib
 from punt_lux.display.terminal.model import RGB, BgSpan, CellStyle, Row, Run
+from punt_lux.terminal.ffi import ffi, init_sized, lib
 
 __all__ = ["RowBuilder"]
 

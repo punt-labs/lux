@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from punt_lux.display.terminal.cell_style import RGB
-from punt_lux.display.terminal.ffi import Terminal, ffi, handle, lib
+from punt_lux.terminal.ffi import Terminal, ffi, handle, lib
 
 
 class TerminalTheme:

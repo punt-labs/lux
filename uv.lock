@@ -1221,6 +1221,9 @@ display = [
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
     { name = "pyopengl" },
 ]
+terminal = [
+    { name = "pyghostty" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1245,6 +1248,7 @@ requires-dist = [
     { name = "pillow", marker = "extra == 'display'", specifier = ">=12.3.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3" },
     { name = "pyghostty", marker = "extra == 'display'", specifier = "==0.1.4" },
+    { name = "pyghostty", marker = "extra == 'terminal'", specifier = "==0.1.4" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin' and extra == 'display'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin' and extra == 'display'", specifier = ">=10.0" },
     { name = "pyopengl", marker = "extra == 'display'", specifier = ">=3.1.0" },
@@ -1255,7 +1259,7 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.34.0" },
     { name = "websockets", specifier = ">=16.0,<18" },
 ]
-provides-extras = ["display", "aws"]
+provides-extras = ["terminal", "display", "aws"]
 
 [package.metadata.requires-dev]
 dev = [
