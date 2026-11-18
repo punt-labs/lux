@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyghostty import Terminal, ffi, lib
+from pyghostty import Terminal, __version__ as _pyghostty_version, ffi, lib
 from pyghostty._ffi import union_fn  # private: calls that pass a union by value
 from pyghostty.core import init_sized  # sized-struct allocator
 
@@ -28,7 +28,9 @@ __all__ = [
     "init_sized",
     "lib",
     "scroll_viewport",
+    "snapshot_version",
     "string_value",
+    "terminal_title",
 ]
 
 # ghostty_terminal_scroll_viewport takes a tagged union *by value*. cffi in ABI
@@ -66,3 +68,19 @@ def string_value(term: Terminal, key: int) -> str:
     if lib.ghostty_terminal_get(handle(term), key, buf) or not buf.len:
         return ""
     return str(ffi.buffer(buf.ptr, buf.len)[:].decode("utf-8", "replace"))
+
+
+def terminal_title(term: Terminal) -> str:
+    """Read the title without exposing the native enum to callers."""
+    return string_value(term, lib.GHOSTTY_TERMINAL_DATA_TITLE)
+
+
+def snapshot_version() -> str:
+    """The identity of the binary snapshot format this process can decode.
+
+    Ghostty's binary snapshot is readable only by the same libghostty-vt, so
+    two processes compare this before sending one. pyghostty is pinned
+    exactly (ADR-0002) and bundles its own library, so its version names the
+    library.
+    """
+    return f"pyghostty-{_pyghostty_version}"

@@ -68,6 +68,8 @@ Framed, binary, on a Unix stream socket. Every frame is
   an `id`; replies echo it.
 - Each attach gets its own channel. On it the daemon sends `SNAPSHOT`, then
   `DATA` frames; the Display sends `DATA` (keys), `RESIZE` and `CREDIT`.
+  A snapshot larger than the frame cap is transferred in bounded chunks with
+  a declared total length; the client applies it only when complete.
 - Frame kinds: `DATA`, `SNAPSHOT`, `CREDIT`, `RESIZE`, `CLOSE`.
 - Flow control: a channel starts with 256 KiB of credit; the Display returns
   credit as it consumes. A viewer more than 4 MiB behind gets a fresh
@@ -81,12 +83,15 @@ client is built here.
 
 Two forms, chosen per attach:
 
-- **Binary** (`ghostty_snapshot_encode` / decoder): exact, includes a
-  half-received escape sequence and the scrollback. Used when both sides
-  report the same pyghostty version.
+- **Binary** (`ghostty_snapshot_encode` / decoder): includes both screens,
+  scrollback and a half-received escape sequence when continuation tracking
+  was enabled before output was fed. Tracking is bounded at 64 KiB; exceeding
+  that bound postpones attach until the parser returns to ground state.
+  This is the normal same-version attach format.
 - **VT repaint** (Ghostty's formatter, `FORMAT_VT`, with modes, keyboard
-  flags, charsets and cursor): any VT-speaking viewer can use it. Used as the
-  fallback and the debugging path.
+  flags, charsets and cursor): a visible-state fallback, not an exact emulator
+  checkpoint. It has no history or parser continuation. Negotiated separately;
+  a version mismatch must never silently promise lossless restoration.
 
 Rules, from the research (`STEP4-DESIGN.md`):
 
@@ -134,8 +139,9 @@ src/punt_lux/
     (sessions.py and pty.py move to ptyd/; the rest is unchanged)
 ```
 
-`ffi.py` stays the single pyghostty boundary and gains the snapshot and
-formatter calls. No new private-API use outside it.
+`ffi.py` and its `ffi_snapshot.py` companion contain the pyghostty boundary.
+The companion keeps native allocation and decoder ownership separate from
+snapshot policy. No daemon module accesses private handles directly.
 
 ## Quality bar
 
@@ -172,8 +178,9 @@ Pure code, no daemon, no socket.
   mid-escape-sequence; a 200x60 screen with 10,000 lines of scrollback.
 - Fix the off-by-one found in research, with the test that shows it.
 
-Done when: every state round-trips in both forms, and the test runs under a
-second.
+Done when: binary snapshots round-trip retained parser and screen state;
+VT paints round-trip the supported visible-state cases. A VT paint cannot
+round-trip an unfinished sequence; callers must wait for parser ground.
 
 ### Stage 2: daemon with one session, Display as client
 
@@ -228,4 +235,21 @@ and no file.
 
 ## Log
 
-Results appended per stage.
+### Stage 1 — snapshot primitives
+
+- 45 tests pass in 0.51 s under a hard 60 s limit. They compare visible text,
+  renderer rows (including styles), cursor, modes and title. They also cover
+  returning from alternate screen, history, malformed input, partial CSI input,
+  and continuation overflow followed by recovery.
+- Binary snapshots require continuation tracking to be enabled before feeding
+  output. The previous claim that any terminal could snapshot mid-sequence was
+  wrong. Tracked terminals retain at most 64 KiB of parser continuation.
+- Native encoder and formatter buffers are freed with `ghostty_free` after
+  copying. Decoder-created terminals receive the same finalizer as pyghostty's
+  normal terminal constructor.
+- Ruff, mypy and pyright pass on this stage. The suppression ratchet passes.
+  Whole-branch OO/coupling gates report earlier spike regressions. The OO gate
+  also rejects the new functional codec modules (method ratio and class/function
+  ratio), and reports paint complexity. Those failures are not waived. Resolve
+  the facade shape in stage 2 and the older spike debt before proposing merge.
+- No daemon or Display connection is implemented yet. Stage 2 is next.
