@@ -7,6 +7,8 @@ No production module imports the experimental harnesses in this directory.
 
 ## Current step-4 handoff
 
+- `LOCAL-WHEEL-INSTALL.md`: operator-requested local tool install, preserved
+  dependency/rollback material, installed-executable smoke and pending activation.
 - `TERMINAL-LAUNCHER-PLAN.md`, `TERMINAL-LAUNCHER-RESULTS.md`: subsequent operator-
   requested machine enablement/menu launcher, superseding demand-start policy.
 - `check_menu_launcher.py`: real isolated Hub/Display/owner menu routing and
