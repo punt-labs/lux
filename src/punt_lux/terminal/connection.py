@@ -32,7 +32,7 @@ class TerminalConnection:
         code = self._socket.connect_ex(str(path))
         if code not in (0, errno.EINPROGRESS, errno.EAGAIN, errno.EWOULDBLOCK):
             self.close()
-            raise OSError(code, "cannot connect to luxd-pty; start the daemon")
+            raise OSError(code, "luxd-pty unavailable; enable it on this machine")
         return self
 
     def queue(self, frame: Frame) -> None:

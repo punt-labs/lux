@@ -21,7 +21,7 @@ class PtyServer:
     _clients: PeerBook
     _stopping: bool
 
-    def __new__(cls, path: Path, *, idle_timeout: float = 30.0) -> Self:
+    def __new__(cls, path: Path, *, idle_timeout: float | None = 30.0) -> Self:
         self = super().__new__(cls)
         path = path.absolute()
         self._claim = DaemonClaim(path)
@@ -59,7 +59,7 @@ class PtyServer:
         finally:
             self.close()
 
-    def tick(self, timeout: float = 0.005) -> None:
+    def tick(self, timeout: float = 0.005) -> bool:
         self._clients.purge()
         listener = self._endpoint.listener
         ready, writable, _ = select.select(
@@ -69,8 +69,8 @@ class PtyServer:
             self._clients.accept(listener)
         self._clients.service(ready, writable)
         self._dispatch.pump()
-        if self._clients.expired(len(self._core.describe())):
-            self._stopping = True
+        self._stopping |= self._clients.expired(len(self._core.describe()))
+        return not self._stopping
 
     def close(self) -> None:
         self._clients.close()

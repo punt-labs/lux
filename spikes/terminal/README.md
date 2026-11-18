@@ -7,6 +7,10 @@ No production module imports the experimental harnesses in this directory.
 
 ## Current step-4 handoff
 
+- `TERMINAL-LAUNCHER-PLAN.md`, `TERMINAL-LAUNCHER-RESULTS.md`: subsequent operator-
+  requested machine enablement/menu launcher, superseding demand-start policy.
+- `check_menu_launcher.py`: real isolated Hub/Display/owner menu routing and
+  Hub-restart recovery, with the routed click scope stated explicitly.
 - `STEP4-HANDOFF.md`: final scheduled status; central lifetime goal demonstrated,
   full product/merge acceptance explicitly incomplete.
 - `STEP4-LIFECYCLE-CYCLES.md`, `lifecycle_bench.py`: 20 bounded create/reattach/

@@ -133,7 +133,9 @@ with (
         waitfor(lambda: (run / ".punt-labs/lux/hub.port").exists())
         first = start("luxd-display", "--socket", str(display_path))
         waitfor(lambda: display_path.exists())
-        assert not pty.exists(), "daemon must not start before a terminal is used"
+        waitfor(lambda: pty.exists())
+        assert listing(pty) == [], "launcher availability must not start a shell"
+        waitfor(lambda: "Terminal" in cli("menu", "ls", "--json"))
         code = (
             "import sys,time; print('COLD START: owner survives Display crash',flush=True); "
             "sys.stdin.readline(); chunk='x'*79+'\\n'; "

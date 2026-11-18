@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 from typing import Self
 
-from punt_lux.ptyd.environment import UserEnvironment
 from punt_lux.terminal.runtime_directory import RuntimeDirectory
 
 
@@ -56,7 +55,7 @@ class DaemonLauncher:
                 self._pid = os.posix_spawn(
                     sys.executable,
                     argv,
-                    UserEnvironment.build(),
+                    dict(os.environ),
                     file_actions=actions,
                     setsid=True,
                 )

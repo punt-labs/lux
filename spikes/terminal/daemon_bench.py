@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import platform
 import shlex
 import statistics
@@ -57,6 +58,7 @@ class Measurements:
 
     @staticmethod
     def main() -> None:
+        os.environ["LUX_PTY_NO_MENU"] = "1"  # benchmark never registers with normal Hub
         report: dict[str, object] = {
             "platform": platform.platform(),
             "python": platform.python_version(),

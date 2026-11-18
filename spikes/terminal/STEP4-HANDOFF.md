@@ -1,6 +1,10 @@
 # Step 4 terminal daemon — final scheduled handoff
 
 The 12-run sequence has produced a working bounded local owner/replica spike.
+A subsequent operator-requested launcher changes the operational policy: see
+TERMINAL-LAUNCHER-RESULTS.md and ADR-0008. Machine enablement now controls the
+running daemon/menu; the Display no longer demand-starts it. The scheduled
+sequence/timing evidence below is historical where it describes lazy startup.
 **The central lifetime goal is demonstrated. Full product/merge acceptance is
 not complete.** No PR, merge or canonical architecture adoption is authorized.
 

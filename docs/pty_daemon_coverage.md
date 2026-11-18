@@ -1,5 +1,11 @@
 # Daemon lifecycle: model and implementation coverage
 
+The model describes empty-only headless lifetime (`--no-menu`). Subsequent
+operator-requested machine enablement/menu application lifetime is recorded in
+ADR-0008 and TERMINAL-LAUNCHER-RESULTS.md; it remains available without sessions
+and uses a parent-watched Hub helper. No supervised-app liveness proof is
+inferred from this original headless model.
+
 ## Lifetime arbitration
 
 Every `PtyServer` owns a nonblocking exclusive flock before stale cleanup,

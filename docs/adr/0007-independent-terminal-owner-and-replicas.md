@@ -1,6 +1,9 @@
 # ADR-0007: Independent terminal owner; Display holds replaceable replicas
 
 - **Status:** Accepted for `spike/terminal-ghostty`, not canonical Lux architecture.
+  The lazy-start operational policy below is superseded by
+  [ADR-0008](0008-machine-enabled-terminal-menu-launcher.md): machine enablement
+  controls the running owner and its Terminal menu registration.
 - **Date:** 2026-11-18
 - **Supersedes:** ADR-0006's Display-owned process lifetime and PTY pump. Its
   `terminal` element/session naming decision remains.

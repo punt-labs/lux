@@ -8,7 +8,7 @@ from typing import Self
 
 from punt_lux.ptyd.credentials import PeerCredentials
 from punt_lux.ptyd.dispatch import SessionDispatch
-from punt_lux.ptyd.idle_timer import IdleTimer
+from punt_lux.ptyd.lifetime import DaemonLifetime
 from punt_lux.ptyd.peer import Peer
 
 logger = logging.getLogger(__name__)
@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 class PeerBook:
     _peers: dict[socket.socket, Peer]
     _dispatch: SessionDispatch
-    _idle: IdleTimer
+    _idle: DaemonLifetime
 
-    def __new__(cls, dispatch: SessionDispatch, idle_timeout: float) -> Self:
+    def __new__(cls, dispatch: SessionDispatch, idle_timeout: float | None) -> Self:
         self = super().__new__(cls)
         self._peers = {}
         self._dispatch = dispatch
-        self._idle = IdleTimer(idle_timeout)
+        self._idle = DaemonLifetime(idle_timeout)
         return self
 
     @property

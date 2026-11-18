@@ -9,9 +9,13 @@
   Sessions survive client disconnects. The Display now attaches through
   native replicas; closing or crashing it does not end the held programs.
   Multiple viewers, per-viewer credit and repaint-on-lag are implemented.
-  Wire generation two negotiates snapshot-reset frames. Missing owners start
-  lazily, detached from Display. Lifetime flock protects concurrent startup
-  and stale-socket reclamation; empty-only idle shutdown cleans the socket.
+  Wire generation two negotiates snapshot-reset frames. Machine-local
+  `lux terminal enable/disable/status/restart` manage the supervised owner;
+  its Terminal menu callback launches/reopens a shell scene. Display never
+  implicitly enables/starts a missing owner. Lifetime flock protects startup
+  and stale-socket reclamation; `--no-menu` retains empty-only idle shutdown.
+  Hub I/O uses a bounded parent-watched helper process, keeping forkpty native
+  ownership single-threaded. ADR-0008 supersedes the demand-start checkpoint.
   Bounded wire coalescing prevents tiny credit frames from serializing ahead
   of input. Actual-window cold-start/crash/repaint and bounded responsiveness
   measurements are recorded, with flooded-input and cold-retry limits explicit.

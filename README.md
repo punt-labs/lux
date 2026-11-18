@@ -294,12 +294,30 @@ Python applications drive the Hub through `LuxClient`, a typed async client for 
 
 ## Terminal spike (experimental)
 
-The spike branch provides a separate foreground terminal owner, `luxd-pty`.
-It requires the headless `terminal` extra, not the GPU dependencies:
+The spike branch provides a machine-enabled terminal owner, `luxd-pty`.
+After installing this branch with the `terminal` extra, the operator chooses
+which machines run it:
 
 ```bash
-uv run --extra terminal luxd-pty
+lux terminal enable    # install/start the local launchd/systemd service
+lux terminal status    # read-only
+lux terminal disable   # stop held programs and remove service registration
 ```
+
+The running daemon registers **Terminal** in Lux's menu, like voxd Music. The
+menu command launches/reopens the terminal; registration alone starts no shell.
+`restart` explicitly restarts the owner and ends its programs. No Display or
+terminal element implicitly enables a daemon on a machine.
+
+The daemon needs the headless `terminal` extra, not GPU dependencies. For an
+isolated foreground debugging instance (no supervisor installation):
+
+```bash
+uv run --extra terminal luxd-pty --socket /tmp/private-lux-pty/p.sock
+```
+
+Supervisor enablement resolves the installed `~/.local/bin/luxd-pty`; do not run
+it against your normal installed main binary just to test this unmerged branch.
 
 It binds `~/.punt-labs/lux/pty/luxd-pty.sock` in a private directory. Use
 `--socket` for an isolated instance with a short Unix-socket pathname.
@@ -309,15 +327,18 @@ A lifetime OS claim arbitrates concurrent startup. Owned stale sockets are
 reclaimed under that claim; live listeners and non-socket nodes are preserved.
 
 The terminal element now attaches to this daemon instead of owning a PTY in
-the Display. A missing daemon starts lazily using the Display's interpreter.
-Set `LUX_PTY_SOCKET` on the Display to use an isolated endpoint. Display exit
-releases its replicas and connection, not the detached owner or held programs.
+the Display. If the owner is unavailable, the Display reports that this machine
+needs enablement; it never starts it implicitly. Set `LUX_PTY_SOCKET` on the
+Display to use an isolated endpoint. Display exit releases its replicas and
+connection, not the machine owner or held programs.
 
 Several viewers may attach to the same session. Output is credit-controlled
 per viewer; a stalled viewer receives a fresh snapshot instead of an
 unbounded backlog. The last viewer to type or request a resize sets the grid.
-An empty daemon exits after 30 seconds. Any client or retained session
-prevents idle shutdown. Private reusable lock/log files intentionally persist.
+Menu-enabled application lifetime stays available without sessions. Explicit
+`--no-menu` headless mode retains empty-only 30-second idle exit. Private reusable
+lock/log files intentionally persist. Hub I/O uses an owned, parent-watched helper
+process so the native `forkpty` owner stays single-threaded.
 See the [step-4 plan](spikes/terminal/STEP4-PLAN.md) and
 [measured evidence and remaining limits](spikes/terminal/STEP4-PERFORMANCE.md),
 and the [acceptance/merge review ledger](spikes/terminal/STEP4-REVIEW.md).

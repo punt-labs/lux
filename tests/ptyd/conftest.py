@@ -12,12 +12,18 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def no_normal_hub_menu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test owners never register callbacks with the operator's normal Hub."""
+    monkeypatch.setenv("LUX_PTY_NO_MENU", "1")
+
+
 @pytest.fixture
 def daemon() -> Iterator[Path]:
     temporary = tempfile.TemporaryDirectory(prefix="lxpty-", dir="/tmp")
     path = Path(temporary.name) / "private" / "pty.sock"
     process = subprocess.Popen(
-        [sys.executable, "-m", "punt_lux.ptyd", "--socket", str(path)],
+        [sys.executable, "-m", "punt_lux.ptyd", "--no-menu", "--socket", str(path)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )

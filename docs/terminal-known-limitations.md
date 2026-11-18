@@ -83,7 +83,7 @@ terminal; P2 is polish.
 | 5.6 | Heavy output was throttled to about 0.1-0.5 MB/s | P1 | fixed (partly) | Historical Display-local fixes reached 30-45 MB/s (STEP3.md). Step 4 moves reads out of Display; its paced finite bursts prove responsiveness, not maximum throughput. See STEP4-PERFORMANCE.md. |
 | 5.5 | Frame budget under many terminals | P2 | partial | Historical local pump shared a 6 ms read budget. Step 4 bounds socket pumps and daemon reads; many-terminal GUI/render budgeting still needs measurement. |
 | 5.7 | Input during a finite terminal flood is slower than quiet input | P1 | partial | Bounded wire batching removes tiny-ACK backlog. Shared-pool probe median/p95 60.586/70.034 ms during the measured 8 MiB burst, versus 3.242/3.260 ms idle. Actual Hub/Display control path stays responsive; this is not under-50 ms keyboard-to-pixel proof. |
-| 5.8 | Lazy owner startup waits for the pool retry interval | P2 | partial | Measured cold startup 1,126.099 ms includes a one-second retry; warm reattach median/p95 5.013/5.276 ms. |
+| 5.8 | Owner availability is machine opt-in | P2 | explicit policy | ADR-0008 supersedes lazy startup: enable runs the supervised owner/menu on chosen machines; Display never implicitly starts it. The historical 1,126.099 ms cold-start measurement is not current menu-launch latency. |
 
 ## 6. Platform and packaging
 

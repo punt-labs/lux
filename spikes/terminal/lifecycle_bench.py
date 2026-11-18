@@ -62,6 +62,7 @@ class ResourceCycles:
 
     @staticmethod
     def main() -> None:
+        os.environ["LUX_PTY_NO_MENU"] = "1"  # headless resource check, no normal Hub
         report: dict[str, object] = {
             "platform": platform.platform(),
             "scope": "20 finite sequential lifecycle cycles; FD/RSS snapshots, not soak proof",

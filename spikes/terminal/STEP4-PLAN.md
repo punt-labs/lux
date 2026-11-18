@@ -1,5 +1,11 @@
 # Step 4 plan: `luxd-pty`, PTYs out of the Display
 
+Subsequent operator clarification supersedes demand-start policy: selected
+machines run the supervised owner via `lux terminal enable`; the daemon registers
+Terminal and its callback launches the scene. Display never implicitly enables
+it. Current evidence: TERMINAL-LAUNCHER-RESULTS.md and ADR-0008. The stage logs
+below preserve the historical sequence.
+
 Written before the code. Supersedes the architecture explorations in
 `STEP4-DESIGN.md`, `step4-options.html` and `merged-architecture.html`, which
 stay as records of the research. This plan is deliberately smaller than any of

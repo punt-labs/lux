@@ -14,11 +14,9 @@ from punt_lux.cli import (
 )
 from punt_lux.cli.beads import beads as beads_command
 from punt_lux.cli.callback import callback_app
-from punt_lux.cli.display_service import display_app
 from punt_lux.cli.error import error_app
 from punt_lux.cli.event import event_app
 from punt_lux.cli.frame import frame_app
-from punt_lux.cli.hub import hub_app
 from punt_lux.cli.menu import menu_app
 from punt_lux.cli.plugin import (
     _PLUGIN_ID,
@@ -26,6 +24,7 @@ from punt_lux.cli.plugin import (
     uninstall as plugin_uninstall,
 )
 from punt_lux.cli.scene import scene_app
+from punt_lux.cli.services import ServiceCommands
 from punt_lux.cli.session import session_app
 
 if TYPE_CHECKING:
@@ -47,12 +46,11 @@ class _SubcommandRegistry:
 
     def __call__(self, app: typer.Typer) -> None:
         """Wire every noun sub-app and admin verb onto ``app``."""
-        app.add_typer(hub_app, name="hub")
+        ServiceCommands.register(app)
         app.add_typer(session_app, name="session")
         app.add_typer(scene_app, name="scene")
         app.add_typer(frame_app, name="frame")
         app.add_typer(menu_app, name="menu")
-        app.add_typer(display_app, name="display")
         app.add_typer(event_app, name="event")
         app.add_typer(error_app, name="error")
         app.add_typer(callback_app, name="callback")

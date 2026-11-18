@@ -20,6 +20,7 @@ needs is in [`../terminal-known-limitations.md`](../terminal-known-limitations.m
 | [0004](0004-input-through-ghostty-encoders.md) | Turn all input into bytes with Ghostty's encoders | Accepted (spike) |
 | [0005](0005-cell-geometry-from-glyph-advance.md) | Measure the cell from the glyph advance, not `calc_text_size` | Accepted (spike) |
 | [0006](0006-terminal-element-and-sessions.md) | A `terminal` element names a session; the Display pumps sessions each frame | Superseded by ADR-0007 (element schema remains) |
-| [0007](0007-independent-terminal-owner-and-replicas.md) | Independent owner, replaceable replicas, credit/reset and lazy lifecycle | Accepted (spike), not merge approval |
+| [0007](0007-independent-terminal-owner-and-replicas.md) | Independent owner, replaceable replicas, credit/reset and lifecycle | Accepted (spike); lazy-start policy superseded by ADR-0008 |
+| [0008](0008-machine-enabled-terminal-menu-launcher.md) | Machine opt-in owner registers Terminal launcher, like voxd | Accepted (spike), not merge/install approval |
 
 Each record has Context, Decision, Consequences and Alternatives.

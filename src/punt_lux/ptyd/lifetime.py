@@ -1,4 +1,4 @@
-"""Idle means no clients and no sessions, including retained exited sessions."""
+"""Explicit application lifetime or continuous empty-only headless idle exit."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ import time
 from typing import Self
 
 
-class IdleTimer:
-    _timeout: float
+class DaemonLifetime:
+    _timeout: float | None
     _since: float | None
 
-    def __new__(cls, timeout: float = 30.0) -> Self:
-        if not math.isfinite(timeout) or timeout <= 0:
+    def __new__(cls, timeout: float | None = 30.0) -> Self:
+        # None means a registered application remains available, not a timer.
+        if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise ValueError("idle timeout must be finite and positive")
         self = super().__new__(cls)
         self._timeout = timeout
@@ -20,7 +21,7 @@ class IdleTimer:
         return self
 
     def expired(self, clients: int, sessions: int) -> bool:
-        if clients or sessions:
+        if self._timeout is None or clients or sessions:
             self._since = None
             return False
         now = time.monotonic()

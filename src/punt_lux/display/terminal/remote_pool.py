@@ -13,11 +13,11 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
 from punt_lux.ptyd.snapshot import snapshot_version
-from punt_lux.terminal.connector import LocalConnector, TerminalConnection
+from punt_lux.terminal.connection import TerminalConnection
 
 
 class RemotePool:
-    _connector: LocalConnector
+    _path: Path
     _sessions: dict[str, RemoteSession]
     _channels: dict[int, RemoteSession]
     _pending: dict[int, RemoteSession]
@@ -30,7 +30,7 @@ class RemotePool:
 
     def __new__(cls, path: Path) -> Self:
         self = super().__new__(cls)
-        self._connector = LocalConnector(path)
+        self._path = path
         self._sessions, self._channels, self._pending = {}, {}, {}
         self._connection = None
         self._ready = False
@@ -62,7 +62,6 @@ class RemotePool:
         return session
 
     def pump(self, budget_s: float = 0.003) -> bool:
-        self._connector.poll()
         if not self._sessions:
             return False
         try:
@@ -76,7 +75,7 @@ class RemotePool:
                 self._last_output_at = time.monotonic()
             return bool(frames)
         except (OSError, EOFError, ValueError, RuntimeError, BufferError) as error:
-            self._disconnect(str(error))
+            self._disconnect(f"{self._path}: {error}")
             return False
 
     def send(self, frame: Frame) -> None:
@@ -100,7 +99,7 @@ class RemotePool:
     def _ensure_connection(self) -> None:
         if self._connection is not None or time.monotonic() < self._retry_at:
             return
-        self._connection = self._connector.open()
+        self._connection = TerminalConnection(self._path)
         self._hello_id = self._id()
         hello = HelloRequest(self._hello_id, WIRE_VERSION, snapshot_version())
         self.send(Frame(0, FrameKind.DATA, ControlCodec.encode(hello)))

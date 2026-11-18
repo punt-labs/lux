@@ -18,8 +18,10 @@ are qualified below. Canonical architecture remains Lux's DESIGN/target docs.
   debt; fast/slow-viewer finite-burst integration.
 - [x] Several production replica pools share one process, synchronize resize and
   survive another viewer closing; passive geometry avoids resize ping-pong.
-- [x] Lazy detached startup, simultaneous-start arbitration, guarded stale socket
-  replacement and continuous empty-only idle exit.
+- [x] Machine-enabled launcher (subsequent operator requirement, ADR-0008): local
+  supervisor commands, daemon-owned persistent Terminal menu, registration without
+  starting a shell, routed launch/reopen and Hub-restart recovery. Display does not
+  enable/start a missing owner. `--no-menu` retains headless idle semantics.
 - [x] Bounded partial-send/coalesced socket output and measured ACK-backlog fix.
 - [x] Finite local reconnect/flood measurements, actual Hub/Display control-path
   ping during a GUI burst, raw reports and reproducible manual helpers.
@@ -128,8 +130,8 @@ This review is a local source/test audit, not an independent external review.
 
 ## Latest verification
 
-- Scoped `make check BASE_REF=3712972`: **835 passed, 19 integration deselected**.
-- Separately all **19 integration tests passed** under timeout.
+- Scoped `make check BASE_REF=3712972`: **850 passed, 22 integration deselected**.
+- Separately all **22 integration tests passed** in sequential isolated sets under timeout.
 - Whole-repository typing: zero errors, seven existing native ImGui source warnings.
 - OO/coupling/suppression gates pass; source suppression count remains **123**.
 - No test daemon remains; isolated children/sockets/instance cleanup completed.
@@ -139,8 +141,13 @@ This review is a local source/test audit, not an independent external review.
 ```sh
 PYTEST_ADDOPTS='tests/ptyd tests/protocol tests/render tests/display/test_display_setup.py tests/test_protocol.py tests/test_frame_geometry_timing.py tests/test_frame_placement.py tests/test_frame_tiling.py tests/test_frame_entry_order_agreement.py tests/test_markdown_font.py tests/test_per_frame_tracing.py tests/test_renderers_import_fallback.py' \
   timeout 420 make check BASE_REF=3712972
-timeout 120 .venv/bin/python -m pytest tests/ptyd -m integration -o addopts='' -q
+timeout 120 .venv/bin/python -m pytest tests/ptyd/test_core_live.py tests/ptyd/test_holder_live.py -o addopts='' -q
+timeout 120 .venv/bin/python -m pytest tests/ptyd -m integration --ignore=tests/ptyd/test_core_live.py --ignore=tests/ptyd/test_holder_live.py -o addopts='' -q
 ```
+
+Cold demand-start timing is historical after machine opt-in superseded it;
+current launcher evidence is TERMINAL-LAUNCHER-RESULTS.md. Native in-process
+fork tests run separately from Hub/CLI thread fixtures, without warning suppression.
 
 Run benchmarks/manual GUI checks separately and sequentially with the documented
 hard limits. Stop owned children/sockets/instances. Never touch normal Lux,
