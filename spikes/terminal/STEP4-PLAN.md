@@ -1,0 +1,231 @@
+# Step 4 plan: `luxd-pty`, PTYs out of the Display
+
+Written before the code. Supersedes the architecture explorations in
+`STEP4-DESIGN.md`, `step4-options.html` and `merged-architecture.html`, which
+stay as records of the research. This plan is deliberately smaller than any of
+them.
+
+## Goal
+
+Shells survive a Display restart, crash or upgrade. Nothing else.
+
+Today (ADR-0006) each terminal's PTY and Ghostty state live inside the Display
+process. Step 4 moves them into a small process per user, `luxd-pty`, that the
+Display attaches to. On attach the Display gets a snapshot of the screen, then
+live bytes; it sends keys back. When the Display goes away the daemon keeps
+reading, so the next attach is just another snapshot.
+
+## Not the goal
+
+Kept out on purpose, so the branch stays mergeable and does not pre-decide the
+Vox Rooms architecture (`docs/concepts/vox-rooms/prfaq.tex`, "the code merges
+later, if at all"):
+
+- Any client other than the Display. Agents reading screens, principals,
+  consent, trust levels: later, on top of the same two operations.
+- Any transport other than a local Unix socket.
+- Daemon upgrades that keep shells (the Holder/Core process split). The seam
+  is kept as two modules; the split is not built.
+- The Hub. It does not know the daemon exists. Terminal bytes never pass
+  through it (ADR-0006's rule stands).
+- Themes, scrollback search, Linux testing, and the rest of
+  `docs/terminal-known-limitations.md`.
+
+## Shape
+
+```
+  Display process                         luxd-pty process (one per user)
+  ┌─────────────────────────┐             ┌──────────────────────────────┐
+  │ terminal element        │   Unix      │ Core                         │
+  │ renderer, painter       │   socket    │   Session: Ghostty + state   │
+  │ key encoder (ADR-0004)  │◀══════════▶ │   snapshot, attach, viewers  │
+  │ Ghostty replica/session │  attach/    │ Holder                       │
+  │ (fed from the socket)   │  send       │   spawn, read, write, resize │
+  └─────────────────────────┘             │   reap, pump with budget     │
+                                          └──────────────┬───────────────┘
+                                                      PTY│
+                                                   ┌─────┴─────┐
+                                                   │ zsh / vim │
+                                                   └───────────┘
+```
+
+Two operations, plus housekeeping:
+
+| Operation | Direction | Meaning |
+|---|---|---|
+| `attach(session, command, cols, rows)` | Display → daemon | Create the session if it does not exist (with `command`), then stream: one snapshot, then bytes until detach. |
+| `send(session, bytes)` / `resize(session, cols, rows)` | Display → daemon | Keys to the PTY; a new size. |
+| `list`, `kill` | Display → daemon | Housekeeping. |
+| `exited(status)` | daemon → Display | The program ended. The session stays until killed; the Display shows `[process exited]` as the spike does today. |
+
+## Wire protocol
+
+Framed, binary, on a Unix stream socket. Every frame is
+`[channel u32 LE][kind u8][len u32 LE][payload]`, payload at most 1 MiB
+(small on purpose: a keystroke must not queue behind a large frame).
+
+- Channel 0 carries control messages: one JSON object per frame. Requests have
+  an `id`; replies echo it.
+- Each attach gets its own channel. On it the daemon sends `SNAPSHOT`, then
+  `DATA` frames; the Display sends `DATA` (keys), `RESIZE` and `CREDIT`.
+- Frame kinds: `DATA`, `SNAPSHOT`, `CREDIT`, `RESIZE`, `CLOSE`.
+- Flow control: a channel starts with 256 KiB of credit; the Display returns
+  credit as it consumes. A viewer more than 4 MiB behind gets a fresh
+  `SNAPSHOT` instead of the backlog.
+
+This is herdr-core's framing with fewer kinds. It is kept in
+`src/punt_lux/protocol/pty/` so a later client can reuse it, but no later
+client is built here.
+
+## Snapshot
+
+Two forms, chosen per attach:
+
+- **Binary** (`ghostty_snapshot_encode` / decoder): exact, includes a
+  half-received escape sequence and the scrollback. Used when both sides
+  report the same pyghostty version.
+- **VT repaint** (Ghostty's formatter, `FORMAT_VT`, with modes, keyboard
+  flags, charsets and cursor): any VT-speaking viewer can use it. Used as the
+  fallback and the debugging path.
+
+Rules, from the research (`STEP4-DESIGN.md`):
+
+1. A snapshot carries modes (mouse, bracketed paste, alternate screen, kitty
+   keyboard flags), not just cells.
+2. The cut between snapshot and tail falls on a parser boundary: the daemon
+   snapshots at ground state, or uses the binary form, which carries the
+   partial sequence.
+3. The VT repaint has a tested recipe. The naive formatter output replays one
+   row off; the recipe fixes that and the test proves it.
+
+## Security model, for this step only
+
+Same-user only, enforced by the operating system:
+
+- Socket at `<lux state dir>/pty/luxd-pty.sock`, directory mode 0700, socket
+  created under umask 077.
+- The daemon refuses to start if the directory exists with the wrong owner or
+  mode (tmux's check).
+- The peer's uid is checked on every connection (`SO_PEERCRED` on Linux,
+  `LOCAL_PEERCRED` on macOS); a different uid is closed without a reply.
+
+Access to the socket is a shell as the user. That is true of tmux and herdr
+and cannot be dressed up; the policy layer that distinguishes clients is out
+of scope here.
+
+## Code layout
+
+```
+src/punt_lux/
+  protocol/pty/
+    __init__.py
+    frames.py        framing: encode/decode, kinds, size cap          (pure, tested)
+    messages.py      control messages as dataclasses + JSON codec      (pure, tested)
+  ptyd/
+    __init__.py
+    __main__.py      `python -m punt_lux.ptyd` / the `luxd-pty` entry point
+    holder.py        PTY ownership: spawn, read, write, resize, reap, tail
+    core.py          sessions, Ghostty per session, snapshots, viewers, credit
+    server.py        the socket: listen, peer check, frame dispatch, lifecycle
+    snapshot.py      binary + VT snapshot/restore recipe                (pure, tested)
+    paths.py         socket path, state dir, permission checks
+  display/terminal/
+    remote.py        the Display's client: attach, feed the replica, send keys
+    (sessions.py and pty.py move to ptyd/; the rest is unchanged)
+```
+
+`ffi.py` stays the single pyghostty boundary and gains the snapshot and
+formatter calls. No new private-API use outside it.
+
+## Quality bar
+
+The branch is to be mergeable, so every stage meets Lux's bar as the spike
+did not:
+
+- Type hints throughout; `ruff`, strict `mypy` and `pyright` clean on the new
+  packages.
+- Unit tests in `tests/` for every pure module (frames, messages, snapshot
+  recipe) and for the core's session and credit logic with a fake holder.
+- One integration test that starts the daemon, attaches twice, kills the first
+  client, and compares screens. Hard `timeout` on every test; no blocking
+  `waitpid`.
+- `make check-oo`, `make check-coupling` and `make check-suppressions` run at
+  the end of each stage; regressions fixed, not blessed.
+- No apostrophes or em dashes in prose; sentences under thirty words.
+- Each stage is one or more signed commits with a message that says what it
+  proves.
+
+## Stages
+
+Each stage ends with a measurable result written into this file's log.
+
+### Stage 1: the snapshot recipe
+
+Pure code, no daemon, no socket.
+
+- `ptyd/snapshot.py`: `encode_binary`, `restore_binary`, `paint_vt`,
+  and the version check.
+- `ffi.py`: the formatter and snapshot calls.
+- Tests: snapshot a terminal in each known state into a fresh terminal and
+  compare cells, cursor, title and modes. States: plain scrolled text; vim on
+  the alternate screen; mouse tracking on; bracketed paste on; a cut
+  mid-escape-sequence; a 200x60 screen with 10,000 lines of scrollback.
+- Fix the off-by-one found in research, with the test that shows it.
+
+Done when: every state round-trips in both forms, and the test runs under a
+second.
+
+### Stage 2: daemon with one session, Display as client
+
+- `protocol/pty/`: framing and messages, with tests.
+- `ptyd/holder.py`: `pty.py` moved and given the pump loop, without a frame
+  budget (the daemon has no frames).
+- `ptyd/core.py`, `ptyd/server.py`, `ptyd/paths.py`: one session, one
+  viewer, no credit yet.
+- `display/terminal/remote.py`: the Display attaches and feeds its replica.
+  `TerminalSessions` and `_pump_terminals` removed.
+
+Done when: typing in the real Lux window feels the same as the spike, and
+`yes` in one terminal does not drop the frame rate of a table next to it.
+Record: keystroke round trip, bytes per second the daemon reads, Display
+frame time under flood.
+
+### Stage 3: restart and multiple viewers
+
+- Credit and the 4 MiB lag rule.
+- Several viewers per session; the last one to type or resize sets the size.
+- Reconnect: kill the Display, start it, compare the screen to the daemon's.
+
+Done when: the screen is identical after a restart, two Displays show the same
+session, and the reconnect time is measured. Record it.
+
+### Stage 4: lifecycle
+
+- Start on demand: the first Display that needs the daemon starts it, with the
+  user's environment (the spike's `user_environment()`), detached from the
+  Display.
+- A session ends when killed, or stays as `[process exited]` after its program
+  exits until killed.
+- The daemon exits when it has had no sessions and no clients for a while.
+- Nothing leaks: no orphaned shells, no sockets or directories left behind.
+
+Done when: a start, use, Display-restart, kill, exit cycle leaves no process
+and no file.
+
+### Stage 5: hygiene
+
+- ADR-0007 superseding ADR-0006.
+- `docs/terminal-known-limitations.md` updated.
+- Spike checks that still matter moved into `tests/`; the rest deleted.
+- Ratchets run and clean.
+
+## Decisions deferred to measurements
+
+- **Holder in Python or Rust.** Python first. Stage 2's bytes-per-second and
+  flood numbers decide. The Holder is the only piece that would move.
+- **Snapshot history length.** The screen plus a bounded history on attach;
+  the bound is set from stage 3's reconnect timing.
+
+## Log
+
+Results appended per stage.
