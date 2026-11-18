@@ -21,6 +21,9 @@
   Control transport isolates allocation/grouped cleanup faults without swallowing
   operator stop/interrupt signals. Two actual simultaneous windows share one
   program; crash, survivor updates and rejoin are backed by screenshots/OCR.
+  Repeated real-daemon lifetime cycles cover retained exits, PID/screen reattach
+  and explicit kill. Short FD/RSS observations are recorded separately, not
+  represented as long-duration leak/soak proof.
 
 ### Changed
 

@@ -44,6 +44,9 @@ are qualified below. Canonical architecture remains Lux's DESIGN/target docs.
 - [ ] Exhaustive pixel/native-state fidelity across interactive applications,
   many terminals, docking and high-DPI/font variations after this lifetime move.
 - [ ] Long-duration memory/FD/process soak and maximum-throughput characterization.
+  Twenty bounded lifecycle cycles are now recorded (STEP4-LIFECYCLE-CYCLES.md):
+  FD counts stable and sampled direct-child lists empty. They do not close the
+  long-duration/descendant/memory/resource-policy gap.
 
 These are explicit acceptance gaps, not thresholds that were relaxed.
 
@@ -125,8 +128,8 @@ This review is a local source/test audit, not an independent external review.
 
 ## Latest verification
 
-- Scoped `make check BASE_REF=3712972`: **835 passed, 18 integration deselected**.
-- Separately all **18 integration tests passed** under timeout.
+- Scoped `make check BASE_REF=3712972`: **835 passed, 19 integration deselected**.
+- Separately all **19 integration tests passed** under timeout.
 - Whole-repository typing: zero errors, seven existing native ImGui source warnings.
 - OO/coupling/suppression gates pass; source suppression count remains **123**.
 - No test daemon remains; isolated children/sockets/instance cleanup completed.

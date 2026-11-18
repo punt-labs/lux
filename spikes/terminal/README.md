@@ -7,6 +7,10 @@ No production module imports the experimental harnesses in this directory.
 
 ## Current step-4 handoff
 
+- `STEP4-HANDOFF.md`: final scheduled status; central lifetime goal demonstrated,
+  full product/merge acceptance explicitly incomplete.
+- `STEP4-LIFECYCLE-CYCLES.md`, `lifecycle_bench.py`: 20 bounded create/reattach/
+  exit/kill resource cycles, not long-duration soak.
 - `STEP4-PLAN.md`: bounded implementation plan and chronological checkpoints.
 - `STEP4-LIVE.md`: actual-window lifetime and visible replay evidence.
 - `STEP4-PERFORMANCE.md`, `results/`: reproducible measured observations/limits.

@@ -511,3 +511,23 @@ private lock/log state is not claimed as a transient leak.
   input screenshots preserve the finding. The helper is labeled exploratory,
   not a passing test. Last production verification remains 835 focused tests,
   18 integrations and all quality gates.
+
+### Final scheduled checkpoint — short lifecycle/resource cycles
+
+- Added five-cycle real-daemon regression coverage for create/input/detach/
+  reattach/retained exit/explicit kill. PID and retained screen stay unchanged;
+  exited programs do not respawn and each kill leaves no sessions.
+- A separate bounded 20-cycle benchmark observes daemon numeric FD set
+  [0,1,2,3,4,5] after cycles 2/10/20, empty direct-child lists and unchanged
+  parent FD count. RSS rises 496 KiB between warm/final snapshots. This is not
+  long-duration memory/descendant/soak proof or maximum throughput evidence.
+- Owned program/daemon cleanup/reaping, socket removal and private instance
+  deletion complete. Normal Lux is untouched; no test daemon remains.
+- Final scoped make check: **835 passed**, 19 integrations deselected; separately
+  all **19 integration tests pass**. Whole strict typing/lint and all ratchets
+  pass; source suppressions remain 123. Full macOS suite remains unrun under
+  the operator constraint.
+- STEP4-HANDOFF.md summarizes delivery/evidence and incomplete product/merge
+  acceptance. Central shell lifetime separation is demonstrated; unresolved
+  keyboard/pixel, long-duration/platform/broader-suite and independent review
+  gaps are not hidden or marked complete. No PR or merge is authorized.

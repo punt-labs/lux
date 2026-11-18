@@ -321,6 +321,8 @@ prevents idle shutdown. Private reusable lock/log files intentionally persist.
 See the [step-4 plan](spikes/terminal/STEP4-PLAN.md) and
 [measured evidence and remaining limits](spikes/terminal/STEP4-PERFORMANCE.md),
 and the [acceptance/merge review ledger](spikes/terminal/STEP4-REVIEW.md).
+The [final scheduled handoff](spikes/terminal/STEP4-HANDOFF.md) separates the
+demonstrated lifetime goal from incomplete product/merge acceptance.
 
 ## Architecture
 
