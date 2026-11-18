@@ -25,7 +25,7 @@ Correctness is checked against the straightforward per-cell reader in
 from __future__ import annotations
 
 import itertools
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 
@@ -39,8 +39,20 @@ __all__ = ["RowBuilder"]
 class RowBuilder:
     """Builds ``Row``\\ s from a render-state row iterator. Reuses its buffers."""
 
-    def __init__(self) -> None:
-        self._layout: CellLayout = cell_layout()
+    _layout: CellLayout
+    _cells: Any
+    _view: Any
+    _color: Any
+    _style: Any
+    _utf8: Any
+    _utf8_buf: Any
+    _styles: dict[int, CellStyle]
+    _fg: RGB
+    _bg: RGB
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._layout = cell_layout()
         self._cells = ffi.new("GhosttyRenderStateRowCells*")
         lib.ghostty_render_state_row_cells_new(ffi.NULL, self._cells)
         self._view = ffi.new("GhosttyCellsView*")
@@ -49,9 +61,10 @@ class RowBuilder:
         self._utf8 = ffi.new("uint8_t[]", 256)
         self._utf8_buf = ffi.new("GhosttyBuffer*")
         self._utf8_buf.ptr, self._utf8_buf.cap = self._utf8, len(self._utf8)
-        self._styles: dict[int, CellStyle] = {}
-        self.fg: RGB = (204, 204, 204)  # the terminal's defaults, set per update
-        self.bg: RGB = (30, 30, 30)
+        self._styles = {}
+        self._fg = (204, 204, 204)  # the terminal's defaults, set per update
+        self._bg = (30, 30, 30)
+        return self
 
     def close(self) -> None:
         lib.ghostty_render_state_row_cells_free(self._cells[0])
@@ -78,7 +91,7 @@ class RowBuilder:
         )
         if plain:
             text = codepoints.tobytes().decode("utf-32-le").rstrip(" ")
-            return Row([Run(0, text, len(text), self.fg)] if text else [], [])
+            return Row([Run(0, text, len(text), self._fg)] if text else [], [])
 
         lib.ghostty_render_state_row_get(
             row_iterator, lib.GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, self._cells
@@ -104,7 +117,7 @@ class RowBuilder:
             kind, width = int(tag[start]), int(wide[start])
             if kind in (lay.tag_bg_palette, lay.tag_bg_rgb):  # colour, no text
                 if (bg := self._cell_bg(start)) is not None:
-                    _add_bg(bgs, start, end - start, bg, self.bg)
+                    self._add_bg(bgs, start, end - start, bg, self._bg)
                 continue
             if width == lay.wide_spacer_tail:  # second half of a wide glyph
                 continue
@@ -112,23 +125,41 @@ class RowBuilder:
             is_wide = width == lay.wide_wide
             if style.bg is not None:
                 ncells = 2 if is_wide else end - start
-                _add_bg(bgs, start, ncells, style.bg, self.bg)
-            if style.invisible:
-                continue
-            if kind == lay.tag_grapheme or is_wide:  # always one-glyph segments
-                glyph = self._grapheme(start)
-                if glyph.strip(" "):
-                    runs.append(_run(start, glyph, 2 if is_wide else 1, style, is_wide))
-                continue
-            text = codepoints[start:end].tobytes().decode("utf-32-le").rstrip(" ")
-            if text:
-                runs.append(_run(start, text, len(text), style, wide=False))
+                self._add_bg(bgs, start, ncells, style.bg, self._bg)
+            self._append_text(
+                runs, start, end, int(kind), style, codepoints, is_wide=is_wide
+            )
         return Row(runs, bgs)
+
+    def _append_text(
+        self,
+        runs: list[Run],
+        start: int,
+        end: int,
+        kind: int,
+        style: CellStyle,
+        codepoints: np.ndarray,
+        *,
+        is_wide: bool,
+    ) -> None:
+        """Append one text segment; background-only cells are handled upstream."""
+        if style.invisible:
+            return
+        if kind == self._layout.tag_grapheme or is_wide:
+            glyph = self._grapheme(start)
+            if glyph.strip(" "):
+                runs.append(
+                    self._run(start, glyph, 2 if is_wide else 1, style, is_wide)
+                )
+            return
+        text = codepoints[start:end].tobytes().decode("utf-32-le").rstrip(" ")
+        if text:
+            runs.append(self._run(start, text, len(text), style, wide=False))
 
     def _cell_style(self, style_id: int, x: int) -> CellStyle:
         """Resolve a style id (cached for this row); 0 is the default style."""
         if style_id == 0:
-            return CellStyle(self.fg, None)
+            return CellStyle(self._fg, None)
         if (cached := self._styles.get(style_id)) is not None:
             return cached
         cells, get, st = (
@@ -138,10 +169,12 @@ class RowBuilder:
         )
         lib.ghostty_render_state_row_cells_select(cells, x)
         get(cells, lib.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE, st)
-        fg = self._resolved(lib.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR) or self.fg
+        fg = (
+            self._resolved(lib.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_FG_COLOR) or self._fg
+        )
         bg = self._resolved(lib.GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_BG_COLOR)
         if st.inverse:
-            fg, bg = (bg or self.bg), fg
+            fg, bg = (bg or self._bg), fg
         style = CellStyle(
             fg=fg,
             bg=bg,
@@ -172,19 +205,37 @@ class RowBuilder:
         raw: bytes = ffi.buffer(self._utf8, self._utf8_buf.len)[:]
         return raw.decode("utf-8", "replace")
 
+    @property
+    def fg(self) -> RGB:
+        return self._fg
 
-def _run(x: int, text: str, ncells: int, style: CellStyle, wide: bool) -> Run:  # noqa: FBT001
-    return Run(
-        x, text, ncells, style.fg, style.bold, style.italic, style.underline, wide
-    )
+    @fg.setter
+    def fg(self, value: RGB) -> None:
+        self._fg = value
 
+    @property
+    def bg(self) -> RGB:
+        return self._bg
 
-def _add_bg(bgs: list[BgSpan], x: int, ncells: int, color: RGB, default: RGB) -> None:
-    """Append a background span, merging with the previous one when adjacent."""
-    if color == default:
-        return
-    last = bgs[-1] if bgs else None
-    if last is not None and last.color == color and last.x + last.ncells == x:
-        last.ncells += ncells
-    else:
-        bgs.append(BgSpan(x, ncells, color))
+    @bg.setter
+    def bg(self, value: RGB) -> None:
+        self._bg = value
+
+    @staticmethod
+    def _run(x: int, text: str, ncells: int, style: CellStyle, wide: bool) -> Run:  # noqa: FBT001
+        return Run(
+            x, text, ncells, style.fg, style.bold, style.italic, style.underline, wide
+        )
+
+    @staticmethod
+    def _add_bg(
+        bgs: list[BgSpan], x: int, ncells: int, color: RGB, default: RGB
+    ) -> None:
+        """Append a background span, merging with the previous one when adjacent."""
+        if color == default:
+            return
+        last = bgs[-1] if bgs else None
+        if last is not None and last.color == color and last.x + last.ncells == x:
+            last.ncells += ncells
+        else:
+            bgs.append(BgSpan(x, ncells, color))

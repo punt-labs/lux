@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, Self
 
 from imgui_bundle import imgui
 
@@ -55,7 +56,17 @@ class MouseFrame:
 class Input:
     """Owns one terminal's key and mouse encoders; sends bytes via ``write``."""
 
-    def __init__(self, term: Terminal, write: Callable[[bytes], None]) -> None:
+    _term: Terminal
+    _write: Callable[[bytes], None]
+    _key_encoder: Any
+    _mouse_encoder: Any
+    _out: Any
+    _out_len: Any
+    _buttons_down: int
+    _last_cell: tuple[int, int] | None
+
+    def __new__(cls, term: Terminal, write: Callable[[bytes], None]) -> Self:
+        self = super().__new__(cls)
         self._term = term
         self._write = write
         self._key_encoder = ffi.new("GhosttyKeyEncoder*")
@@ -65,7 +76,8 @@ class Input:
         self._out = ffi.new("char[]", 256)
         self._out_len = ffi.new("size_t*")
         self._buttons_down = 0  # bit per Ghostty button number
-        self._last_cell: tuple[int, int] | None = None
+        self._last_cell = None
+        return self
 
     def close(self) -> None:
         lib.ghostty_key_encoder_free(self._key_encoder[0])

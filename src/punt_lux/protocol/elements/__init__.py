@@ -21,9 +21,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# _strip_none is re-exported for protocol.messages.scene; lives in
-# _util because the codec layer above the per-element modules uses it.
-from punt_lux.protocol.elements._util import strip_none as _strip_none
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
@@ -83,11 +80,8 @@ __all__ = [
     "TextElement",
     "TreeElement",
     "WindowElement",
-    "_strip_none",
     "element_to_dict",
 ]
-# The underscore-prefixed names above are package-internal API kept in
-# __all__ so pyright's reportPrivateUsage accepts intra-protocol imports.
 
 
 Element = (

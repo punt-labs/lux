@@ -80,10 +80,10 @@ def test_factory_raises_for_unmigrated_kind() -> None:
         _factory()(object())
 
 
-def test_introspection_element_kind_total_is_25() -> None:
-    # Every kind is on the Element-ABC path, so the registry is the sole
-    # authority for how many kinds the Display can paint.
-    assert len(DEFAULT_ABC_REGISTRY.all_kinds) == 25
+def test_introspection_element_kind_total_includes_terminal() -> None:
+    # Every kind is on the Element-ABC path, including the terminal kind.
+    assert len(DEFAULT_ABC_REGISTRY.all_kinds) == 26
+    assert "terminal" in DEFAULT_ABC_REGISTRY.all_kinds
 
 
 # -- leaf adapters ---------------------------------------------------------

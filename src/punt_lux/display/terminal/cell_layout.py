@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from functools import cache
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 
@@ -30,6 +30,11 @@ class Field:
 
     lsb: int
     width: int
+
+    @classmethod
+    def from_spec(cls, spec: dict[str, int], offset: int = 0) -> Self:
+        """Decode one manifest field, relative to its containing union."""
+        return cls(spec["lsb"] + offset, spec["width"])
 
     def extract(self, cells: np.ndarray) -> np.ndarray:
         """Return this field of every cell in ``cells`` (a ``uint64`` array)."""
@@ -52,32 +57,32 @@ class CellLayout:
     wide_wide: int
     wide_spacer_tail: int
 
+    @classmethod
+    @cache
+    def from_library(cls) -> Self:
+        """Read the layout once from the loaded library's type manifest."""
+        types: dict[str, Any] = json.loads(
+            ffi.string(lib.ghostty_type_json()).decode()
+        )["types"]
+        bits = types["GhosttyCell"]["bits"]
+        content = bits["content"]  # a tagged union; its arms start at content.lsb
 
-@cache
-def cell_layout() -> CellLayout:
-    """Read the layout once from the loaded library's type manifest."""
-    types: dict[str, Any] = json.loads(ffi.string(lib.ghostty_type_json()).decode())[
-        "types"
-    ]
-    bits = types["GhosttyCell"]["bits"]
-    content = bits["content"]  # a tagged union; its arms start at content.lsb
+        tags = types["GhosttyCellContentTag"]["values"]
+        wides = types["GhosttyCellWide"]["values"]
+        return cls(
+            content_tag=Field.from_spec(bits["content_tag"]),
+            codepoint=Field.from_spec(
+                content["arms"]["CODEPOINT"]["bits"]["codepoint"], content["lsb"]
+            ),
+            style_id=Field.from_spec(bits["style_id"]),
+            wide=Field.from_spec(bits["wide"]),
+            tag_codepoint=tags["CODEPOINT"],
+            tag_grapheme=tags["CODEPOINT_GRAPHEME"],
+            tag_bg_palette=tags["BG_COLOR_PALETTE"],
+            tag_bg_rgb=tags["BG_COLOR_RGB"],
+            wide_wide=wides["WIDE"],
+            wide_spacer_tail=wides["SPACER_TAIL"],
+        )
 
-    def field(spec: dict[str, int], offset: int = 0) -> Field:
-        return Field(spec["lsb"] + offset, spec["width"])
 
-    tags = types["GhosttyCellContentTag"]["values"]
-    wides = types["GhosttyCellWide"]["values"]
-    return CellLayout(
-        content_tag=field(bits["content_tag"]),
-        codepoint=field(
-            content["arms"]["CODEPOINT"]["bits"]["codepoint"], content["lsb"]
-        ),
-        style_id=field(bits["style_id"]),
-        wide=field(bits["wide"]),
-        tag_codepoint=tags["CODEPOINT"],
-        tag_grapheme=tags["CODEPOINT_GRAPHEME"],
-        tag_bg_palette=tags["BG_COLOR_PALETTE"],
-        tag_bg_rgb=tags["BG_COLOR_RGB"],
-        wide_wide=wides["WIDE"],
-        wide_spacer_tail=wides["SPACER_TAIL"],
-    )
+cell_layout = CellLayout.from_library

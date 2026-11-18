@@ -28,3 +28,5 @@ The package is a pipeline, one module per stage::
 Everything runs on the Display's render thread (DES-002); nothing here takes
 a lock.
 """
+
+from __future__ import annotations

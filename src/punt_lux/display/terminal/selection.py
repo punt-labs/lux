@@ -12,6 +12,8 @@ turns mouse gestures into selection calls; it doesn't track a range itself.
 
 from __future__ import annotations
 
+from typing import Self
+
 from punt_lux.display.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 __all__ = ["Selection"]
@@ -22,9 +24,14 @@ Cell = tuple[int, int]  # (column, row)
 class Selection:
     """Drag, word and line selection for one terminal."""
 
-    def __init__(self, term: Terminal) -> None:
+    _term: Terminal
+    _anchor: Cell | None
+
+    def __new__(cls, term: Terminal) -> Self:
+        self = super().__new__(cls)
         self._term = term
-        self._anchor: Cell | None = None  # screen coordinates: survive scrolling
+        self._anchor = None  # screen coordinates: survive scrolling
+        return self
 
     @property
     def dragging(self) -> bool:

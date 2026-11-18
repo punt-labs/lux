@@ -15,7 +15,7 @@ import logging
 import socket
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.display.auto_click import AutoClicker
 from punt_lux.display.client_queries import ClientQueries
@@ -23,21 +23,21 @@ from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.dock_bar import DockBar
 from punt_lux.display.exit_signal import ExitSignal
 from punt_lux.display.frame_placement import FramePlacement
+from punt_lux.display.frame_presentation import FramePresentation
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.frame_turn import FrameTurn
 from punt_lux.display.hub_reconciliation import HubReconciliation
 from punt_lux.display.identity_guard import IdentityGuard
-from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
-from punt_lux.display.macos import set_regular_activation_policy
-from punt_lux.display.markdown_font import MarkdownFont
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.replica import Frame, SceneReplica, WidgetState
 from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
+from punt_lux.display.setup import DisplaySetup
 from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
+from punt_lux.display.terminal.activity import TerminalActivity
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
@@ -68,7 +68,6 @@ logger = logging.getLogger(__name__)
 _ORPHAN_FD = -1
 
 # SPIKE: keep full frame rate this long after terminal output stops.
-_TERMINAL_WAKE_GRACE_S = 0.25
 
 
 class RenderLoop:
@@ -263,21 +262,9 @@ class RenderLoop:
         if not self._socket_listener.setup(self._socket_path):
             return
         self._announce_listening()
-        from imgui_bundle import hello_imgui, immapp
+        from imgui_bundle import immapp
 
-        from punt_lux.display.fonts import FontLoader
-
-        runner_params = hello_imgui.RunnerParams()
-        runner_params.app_window_params.window_title = "Lux"
-        runner_params.app_window_params.window_geometry.size = (1200, 800)
-        runner_params.imgui_window_params.show_menu_bar = True
-        runner_params.imgui_window_params.show_menu_app = False
-        runner_params.imgui_window_params.show_menu_view = False
-        runner_params.imgui_window_params.show_menu_view_themes = False
-        runner_params.imgui_window_params.show_status_bar = False
-        runner_params.imgui_window_params.show_status_fps = False
-        runner_params.imgui_window_params.remember_status_bar_settings = False
-        runner_params.callbacks.load_additional_fonts = FontLoader().load
+        runner_params = DisplaySetup.parameters()
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = functools.partial(
@@ -285,24 +272,9 @@ class RenderLoop:
         )
         runner_params.callbacks.after_swap = self._turn.after_swap
         runner_params.callbacks.before_exit = self._on_exit
-        runner_params.fps_idling.fps_idle = 30.0
         self._exit_signal = ExitSignal(runner_params)
 
-        addons = immapp.AddOnsParams()
-        addons.with_implot = True
-        # MarkdownFont points imgui_md at the packaged DejaVu (its own font lacks
-        # arrows). Options go once through with_markdown_options (static-guard drop).
-        try:
-            from imgui_bundle import imgui_md
-
-            md_opts = imgui_md.MarkdownOptions()
-            md_opts.font_options.regular_size = 13.0
-            MarkdownFont().apply_to(md_opts, hello_imgui.add_assets_search_path)
-            addons.with_markdown_options = md_opts
-        except ImportError:
-            logger.warning("imgui_md unavailable; markdown renders as plain text")
-            addons.with_markdown = True
-
+        addons = DisplaySetup.addons()
         immapp.run(runner_params, addons)
 
     def _announce_listening(self) -> None:
@@ -314,14 +286,7 @@ class RenderLoop:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import imgui
-
-        # Ensure docking is enabled (drag-merge frames into tabs).
-        io = imgui.get_io()
-        io.config_flags |= imgui.ConfigFlags_.docking_enable.value
-
-        set_regular_activation_policy()
-
+        DisplaySetup.post_init()
         self._settings.start()
 
     def _clear_all(self) -> None:
@@ -341,30 +306,11 @@ class RenderLoop:
         """Callback for MenuReplica: request fit-all layout."""
         self._fit_all_frames = True
 
-    def _pump_terminals(self) -> None:
-        """SPIKE: read every terminal session's PTY once; stay awake while output flows.
-
-        hello_imgui only counts user input as activity, so a busy terminal in an
-        untouched window would update at fps_idle. Disable idling while bytes
-        arrive and for a short grace period after (STEP2.md, finding 1).
-        """
-        import time
-
-        from imgui_bundle import hello_imgui
-
-        from punt_lux.display.terminal.sessions import TerminalSessions
-
-        busy = TerminalSessions.pump_all()
-        quiet_for = time.monotonic() - TerminalSessions.last_output_at
-        hello_imgui.get_runner_params().fps_idling.enable_idling = (
-            not busy and quiet_for > _TERMINAL_WAKE_GRACE_S
-        )
+    _pump_terminals = staticmethod(TerminalActivity.pump)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
-        from punt_lux.display.terminal.sessions import TerminalSessions
-
-        TerminalSessions.close_all()  # SPIKE: in-Display PTYs die with the window
+        TerminalActivity.close()
         self._textures.cleanup()
         self._turn.shutdown()  # the cross-host listen socket and pending peers
         self._socket_listener.shutdown()
@@ -502,15 +448,7 @@ class RenderLoop:
 
         imgui.get_style().font_scale_main = self._settings.font_scale
 
-        # Provide a viewport-wide dock space so manual imgui.begin() windows
-        # can be dragged into tabbed dock nodes by the user.
-        imgui.dock_space_over_viewport(
-            flags=imgui.DockNodeFlags_.passthru_central_node.value,
-        )
-
-        # Always render the ambient flame as a background element.
-        # Content renders on top of it.
-        render_idle(imgui)
+        DisplaySetup.background(imgui)
 
         # World menu: background click to toggle, floating panel.
         self._menus.check_world_menu_background_click(imgui)
@@ -535,31 +473,8 @@ class RenderLoop:
     _CASCADE_DY = 30.0
     _FRAME_FILL = 0.75
 
-    _FLAG_MAP: ClassVar[dict[str, str]] = {
-        "no_resize": "no_resize",
-        "no_collapse": "no_collapse",
-        "auto_resize": "always_auto_resize",
-        "no_title_bar": "no_title_bar",
-        "no_background": "no_background",
-        "no_scrollbar": "no_scrollbar",
-    }
-
-    @staticmethod
-    def _resolve_frame_flags(frame: Frame, imgui: Any) -> int:
-        """Map frame flag names to an ImGui window flags bitmask."""
-        result = 0
-        if not frame.hints.flags:
-            return result
-        for key, enabled in frame.hints.flags.items():
-            if not enabled:
-                continue
-            attr = RenderLoop._FLAG_MAP.get(key)
-            if attr is None:
-                continue
-            flag = getattr(imgui.WindowFlags_, attr, None)
-            if flag is not None:
-                result |= flag.value
-        return result
+    _resolve_frame_flags = staticmethod(FramePresentation.flags)
+    _cascaded_frame_size = staticmethod(FramePresentation.initial_size)
 
     def _apply_fit_all(self) -> bool:
         """Undock on-screen frames and tile them if fit-all was asked; return True
@@ -570,15 +485,6 @@ class RenderLoop:
         for frame in self._scenes.docked_frames():
             frame.restore()
         return True
-
-    @staticmethod
-    def _cascaded_frame_size(
-        frame: Frame, default_size: tuple[float, float]
-    ) -> tuple[float, float]:
-        """Return the frame's own initial size, or ``default_size`` if unset."""
-        if not frame.initial_size:
-            return default_size
-        return float(frame.initial_size[0]), float(frame.initial_size[1])
 
     def _render_single_frame(
         self, frame: Frame, imgui: Any, placement: FramePlacement

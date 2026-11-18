@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import shlex
 import time
-from typing import ClassVar
+from typing import ClassVar, Self
 
 from punt_lux.display.terminal.pty import PtyProcess
 from punt_lux.display.terminal.view import TerminalView
@@ -35,30 +35,76 @@ _ENDED_NOTICE = b"\r\n\x1b[2m[process exited]\x1b[0m"
 class TerminalSession:
     """One program on a PTY, and the view that renders it."""
 
-    def __init__(self, name: str, command: str) -> None:
-        self.name = name
-        self.process = PtyProcess(shlex.split(command) if command else None)
-        self.view = TerminalView()
-        self.view.on_input = self.process.write
-        self.view.on_resize = self.process.resize
-        self.bytes_in = 0
-        self.ended = False  # the program exited; the terminal stays, read-only
-        self.had_output = False  # in the last pump: schedules busy sessions last
+    _name: str
+    _process: PtyProcess
+    _view: TerminalView
+    _bytes_in: int
+    _ended: bool
+    _had_output: bool
+
+    def __new__(cls, name: str, command: str) -> Self:
+        self = super().__new__(cls)
+        self._name = name
+        self._process = PtyProcess(shlex.split(command) if command else None)
+        self._view = TerminalView()
+        self._view.on_input = self._process.write
+        self._view.on_resize = self._process.resize
+        self._bytes_in = 0
+        self._ended = False  # the program exited; the terminal stays, read-only
+        self._had_output = False  # in the last pump: schedules busy sessions last
+        return self
 
     def pump(self) -> bool:
         """Move ready output into the view. True if there was any."""
-        data = self.process.pump()
+        data = self._process.pump()
         if data:
-            self.bytes_in += len(data)
-            self.view.feed(data)
-        if not self.process.alive and not self.ended:
-            self.ended = True
-            self.view.feed(_ENDED_NOTICE)
+            self._bytes_in += len(data)
+            self._view.feed(data)
+        if not self._process.alive and not self._ended:
+            self._ended = True
+            self._view.feed(_ENDED_NOTICE)
             return True
         return bool(data)
 
     def close(self) -> None:
-        self.process.close()
+        self._process.close()
+        self._view.close()
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def process(self) -> PtyProcess:
+        return self._process
+
+    @property
+    def view(self) -> TerminalView:
+        return self._view
+
+    @property
+    def bytes_in(self) -> int:
+        return self._bytes_in
+
+    @bytes_in.setter
+    def bytes_in(self, value: int) -> None:
+        self._bytes_in = value
+
+    @property
+    def ended(self) -> bool:
+        return self._ended
+
+    @ended.setter
+    def ended(self, value: bool) -> None:
+        self._ended = value
+
+    @property
+    def had_output(self) -> bool:
+        return self._had_output
+
+    @had_output.setter
+    def had_output(self, value: bool) -> None:
+        self._had_output = value
 
 
 class TerminalSessions:

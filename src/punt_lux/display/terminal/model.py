@@ -13,19 +13,7 @@ from dataclasses import dataclass
 
 __all__ = ["RGB", "BgSpan", "CellStyle", "Row", "Run"]
 
-RGB = tuple[int, int, int]
-
-
-@dataclass(frozen=True, slots=True)
-class CellStyle:
-    """The visual attributes a run shares, with colours already resolved."""
-
-    fg: RGB
-    bg: RGB | None  # None: the terminal's default background
-    bold: bool = False
-    italic: bool = False
-    underline: bool = False
-    invisible: bool = False
+from punt_lux.display.terminal.cell_style import RGB, CellStyle
 
 
 @dataclass(slots=True)

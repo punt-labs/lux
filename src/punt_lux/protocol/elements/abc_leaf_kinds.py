@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.protocol.elements.abc_kind_codec import KindCodec
 from punt_lux.protocol.elements.abc_kind_specs import DialogKindSpec
 from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
+from punt_lux.protocol.elements.abc_static_leaf_kinds import StaticLeafKinds
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonDecoder, JsonButtonEncoder
 from punt_lux.protocol.elements.button_sugar import ButtonWireSugar
@@ -24,10 +25,6 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
-from punt_lux.protocol.elements.draw import DrawElement
-from punt_lux.protocol.elements.draw_codec import JsonDrawDecoder, JsonDrawEncoder
-from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_number_codec import (
     JsonInputNumberDecoder,
@@ -38,18 +35,6 @@ from punt_lux.protocol.elements.input_text_codec import (
     JsonInputTextDecoder,
     JsonInputTextEncoder,
 )
-from punt_lux.protocol.elements.markdown import MarkdownElement
-from punt_lux.protocol.elements.markdown_codec import (
-    JsonMarkdownDecoder,
-    JsonMarkdownEncoder,
-)
-from punt_lux.protocol.elements.plot import PlotElement
-from punt_lux.protocol.elements.plot_codec import JsonPlotDecoder, JsonPlotEncoder
-from punt_lux.protocol.elements.progress import ProgressElement
-from punt_lux.protocol.elements.progress_codec import (
-    JsonProgressDecoder,
-    JsonProgressEncoder,
-)
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.radio_codec import JsonRadioDecoder, JsonRadioEncoder
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -57,29 +42,10 @@ from punt_lux.protocol.elements.selectable_codec import (
     JsonSelectableDecoder,
     JsonSelectableEncoder,
 )
-from punt_lux.protocol.elements.separator import SeparatorElement
-from punt_lux.protocol.elements.separator_codec import (
-    JsonSeparatorDecoder,
-    JsonSeparatorEncoder,
-)
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
-from punt_lux.protocol.elements.spinner import SpinnerElement
-from punt_lux.protocol.elements.spinner_codec import (
-    JsonSpinnerDecoder,
-    JsonSpinnerEncoder,
-)
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_codec import JsonTableDecoder, JsonTableEncoder
-from punt_lux.protocol.elements.terminal import (
-    JsonTerminalDecoder,
-    JsonTerminalEncoder,
-    TerminalElement,
-)
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
-from punt_lux.protocol.elements.tree import TreeElement
-from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
 from punt_lux.protocol.elements.value_change_handlers import (
     build_standalone_value_handler_decoder,
 )
@@ -120,60 +86,7 @@ class DefaultLeafKinds:
     def specs() -> list[AbcKindSpec]:
         """Return the leaf specs: static leaves, Dialog, then interactive inputs."""
         return [
-            LeafKindSpec(
-                kind="text",
-                codec=KindCodec(TextElement, JsonTextDecoder, JsonTextEncoder().encode),
-            ),
-            LeafKindSpec(
-                kind="progress",
-                codec=KindCodec(
-                    ProgressElement, JsonProgressDecoder, JsonProgressEncoder().encode
-                ),
-            ),
-            LeafKindSpec(
-                kind="markdown",
-                codec=KindCodec(
-                    MarkdownElement, JsonMarkdownDecoder, JsonMarkdownEncoder().encode
-                ),
-            ),
-            LeafKindSpec(  # SPIKE: terminal element (spike/terminal-ghostty)
-                kind="terminal",
-                codec=KindCodec(
-                    TerminalElement, JsonTerminalDecoder, JsonTerminalEncoder().encode
-                ),
-            ),
-            LeafKindSpec(
-                kind="spinner",
-                codec=KindCodec(
-                    SpinnerElement, JsonSpinnerDecoder, JsonSpinnerEncoder().encode
-                ),
-            ),
-            LeafKindSpec(
-                kind="separator",
-                codec=KindCodec(
-                    SeparatorElement,
-                    JsonSeparatorDecoder,
-                    JsonSeparatorEncoder().encode,
-                ),
-            ),
-            LeafKindSpec(
-                kind="image",
-                codec=KindCodec(
-                    ImageElement, JsonImageDecoder, JsonImageEncoder().encode
-                ),
-            ),
-            LeafKindSpec(
-                kind="tree",
-                codec=KindCodec(TreeElement, JsonTreeDecoder, JsonTreeEncoder().encode),
-            ),
-            LeafKindSpec(
-                kind="plot",
-                codec=KindCodec(PlotElement, JsonPlotDecoder, JsonPlotEncoder().encode),
-            ),
-            LeafKindSpec(
-                kind="draw",
-                codec=KindCodec(DrawElement, JsonDrawDecoder, JsonDrawEncoder().encode),
-            ),
+            *StaticLeafKinds.specs(),
             DialogKindSpec(
                 codec=KindCodec(
                     DialogElement, JsonDialogDecoder, JsonDialogEncoder().encode

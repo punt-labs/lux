@@ -69,13 +69,7 @@ class AbcKindNames:
 
     @classmethod
     def is_migrated(cls, kind: object) -> bool:
-        """Return whether ``kind`` decodes onto an Element-ABC class.
-
-        A non-str ``kind`` (including an unhashable wire value like ``{}`` or
-        ``[]``) returns ``False`` — the validated boundary (PY-EH-1), so the
-        container gate fails closed rather than raising ``TypeError`` on the
-        ``in`` membership test.
-        """
+        """Check migration membership, rejecting non-string wire values."""
         return isinstance(kind, str) and kind in cls.MIGRATED_ABC_KINDS
 
     @classmethod

@@ -248,8 +248,32 @@ and no file.
   copying. Decoder-created terminals receive the same finalizer as pyghostty's
   normal terminal constructor.
 - Ruff, mypy and pyright pass on this stage. The suppression ratchet passes.
-  Whole-branch OO/coupling gates report earlier spike regressions. The OO gate
-  also rejects the new functional codec modules (method ratio and class/function
-  ratio), and reports paint complexity. Those failures are not waived. Resolve
-  the facade shape in stage 2 and the older spike debt before proposing merge.
+  The original OO/coupling failures were resolved in the quality pass below.
 - No daemon or Display connection is implemented yet. Stage 2 is next.
+
+### Quality pass before stage 2
+
+- Replaced constructor-time public assignments with private typed state and
+  property-backed APIs. Constructors follow the repository's `__new__` pattern.
+- Native snapshot/access adapters own their codec operations. VT repaint is an
+  object bound to its source terminal; field-layout decoding belongs to its
+  value types. Split cell-style data from row data and extracted appearance.
+- Extracted renderer bindings, static leaf specs, window setup, frame hint
+  translation and terminal activity from their coordinators. Removed the
+  private `_strip_none` re-export; its consumer imports the utility directly.
+- Fixed native view-resource cleanup and added an idempotent close test.
+- Added terminal wire round-trips and window-setup tests. Updated the renderer
+  kind-count assertion from 25 to 26, explicitly including terminal.
+- All new source modules meet OO thresholds. Existing touched modules show
+  improvements without regressions against `3712972`. Coupling and suppression
+  checks pass; suppression count stays 123.
+- Registered the passing scores through `make update-oo` and
+  `make update-coupling`, including their generated audit logs. No thresholds
+  were changed, and no regressions were blessed.
+- `make check BASE_REF=3712972` passes with the test portion scoped through
+  `PYTEST_ADDOPTS`: 682 terminal, protocol, renderer and frame tests. Lint and
+  typing cover the whole repository. Pyright reports no errors and seven
+  missing-source warnings for native ImGui modules.
+- The full macOS test suite was deliberately not run, per the operator's
+  earlier constraint. Broader suite and live-window verification remain merge
+  prerequisites; this pass does not claim the whole branch is merge-ready.

@@ -59,20 +59,27 @@ NO_TEXT_KEYS = frozenset(
 """Keys whose text event, if any, is not terminal input: the encoder owns them."""
 
 
-def terminal_mods() -> int:
-    """The held modifiers as Ghostty ``MODS`` bits, by *physical* key.
+class TerminalModifiers:
+    """Translate physical keyboard modifiers into terminal protocol flags."""
 
-    With ``io.config_mac_osx_behaviors`` (Lux's default on macOS) ImGui swaps
-    Cmd and Ctrl: physical Ctrl arrives as ``key_super`` and Cmd as
-    ``key_ctrl``. A terminal must see physical Ctrl as CTRL (Ctrl-C is
-    SIGINT), so undo the swap here.
-    """
-    io = imgui.get_io()
-    mac = io.config_mac_osx_behaviors
-    ctrl, cmd = (io.key_super, io.key_ctrl) if mac else (io.key_ctrl, io.key_super)
-    return (
-        (SHIFT if io.key_shift else 0)
-        | (CTRL if ctrl else 0)
-        | (ALT if io.key_alt else 0)
-        | (SUPER if cmd else 0)
-    )
+    @staticmethod
+    def terminal_mods() -> int:
+        """The held modifiers as Ghostty ``MODS`` bits, by *physical* key.
+
+        With ``io.config_mac_osx_behaviors`` (Lux's default on macOS) ImGui swaps
+        Cmd and Ctrl: physical Ctrl arrives as ``key_super`` and Cmd as
+        ``key_ctrl``. A terminal must see physical Ctrl as CTRL (Ctrl-C is
+        SIGINT), so undo the swap here.
+        """
+        io = imgui.get_io()
+        mac = io.config_mac_osx_behaviors
+        ctrl, cmd = (io.key_super, io.key_ctrl) if mac else (io.key_ctrl, io.key_super)
+        return (
+            (SHIFT if io.key_shift else 0)
+            | (CTRL if ctrl else 0)
+            | (ALT if io.key_alt else 0)
+            | (SUPER if cmd else 0)
+        )
+
+
+terminal_mods = TerminalModifiers.terminal_mods

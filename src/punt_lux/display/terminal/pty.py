@@ -20,6 +20,7 @@ import struct
 import termios
 import time
 from collections.abc import Sequence
+from typing import Self
 
 __all__ = ["PtyProcess", "user_environment"]
 
@@ -60,25 +61,33 @@ def user_environment() -> dict[str, str]:
 class PtyProcess:
     """A child process on a PTY, with non-blocking pump, write, resize, close."""
 
-    def __init__(
-        self,
+    _pid: int
+    _fd: int
+    _budget: int
+    _time_budget_s: float
+    _alive: bool
+
+    def __new__(
+        cls,
         argv: Sequence[str] | None = None,
         *,
         cols: int = 80,
         rows: int = 24,
         budget: int = DEFAULT_BUDGET,
         time_budget_s: float = DEFAULT_TIME_BUDGET_S,
-    ) -> None:
-        self.budget = budget
-        self.time_budget_s = time_budget_s
+    ) -> Self:
+        self = super().__new__(cls)
+        self._budget = budget
+        self._time_budget_s = time_budget_s
         env = user_environment()
         argv = list(argv) if argv else [env["SHELL"], "-l"]
-        self.pid, self._fd = pty.fork()
-        if self.pid == 0:  # child
+        self._pid, self._fd = pty.fork()
+        if self._pid == 0:  # child
             os.execvpe(argv[0], argv, env)  # noqa: S606 -- argv is the caller's command
         os.set_blocking(self._fd, False)
         self.resize(cols, rows)
         self._alive = True
+        return self
 
     @property
     def alive(self) -> bool:
@@ -95,8 +104,8 @@ class PtyProcess:
         throughput"). Waiting briefly for the refill keeps it flowing.
         """
         out = bytearray()
-        deadline = time.monotonic() + self.time_budget_s
-        while self._alive and len(out) < self.budget:
+        deadline = time.monotonic() + self._time_budget_s
+        while self._alive and len(out) < self._budget:
             left = deadline - time.monotonic()
             if left <= 0:
                 break
@@ -107,7 +116,7 @@ class PtyProcess:
             if not ready:
                 break
             try:
-                data = os.read(self._fd, min(_CHUNK, self.budget - len(out)))
+                data = os.read(self._fd, min(_CHUNK, self._budget - len(out)))
             except BlockingIOError:
                 break
             except OSError:  # EIO: the child exited and the PTY closed
@@ -140,7 +149,7 @@ class PtyProcess:
         if self._alive:
             for sig in (signal.SIGHUP, signal.SIGKILL):
                 try:
-                    os.kill(self.pid, sig)
+                    os.kill(self._pid, sig)
                 except ProcessLookupError:
                     break
                 if self._reaped_within(_HANGUP_GRACE_S):
@@ -153,10 +162,30 @@ class PtyProcess:
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             try:
-                pid, _ = os.waitpid(self.pid, os.WNOHANG)
+                pid, _ = os.waitpid(self._pid, os.WNOHANG)
             except ChildProcessError:
                 return True  # already reaped
             if pid:
                 return True
             time.sleep(0.02)
         return False
+
+    @property
+    def pid(self) -> int:
+        return self._pid
+
+    @property
+    def budget(self) -> int:
+        return self._budget
+
+    @budget.setter
+    def budget(self, value: int) -> None:
+        self._budget = value
+
+    @property
+    def time_budget_s(self) -> float:
+        return self._time_budget_s
+
+    @time_budget_s.setter
+    def time_budget_s(self, value: float) -> None:
+        self._time_budget_s = value
