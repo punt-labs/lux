@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `lux display start` on macOS handles an already-loaded, cleanly stopped job
+  with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
+  Unloaded jobs still bootstrap; start does not kill an existing process.
+
 ### Added
 
 - Experimental `luxd-pty` foreground terminal-session owner with a headless

@@ -45,7 +45,10 @@ No gpg/password-store files or other tool installations were changed.
   Marker `INSTALLED_WHEEL_READY` is retained; listing is empty after kill.
 - Temporary owner/socket/program/instance are cleaned. No PTY test process remains.
 
-## Runtime activation is deliberately pending
+## Runtime activation was pending at the first install checkpoint
+
+The operator subsequently approved it. LOCAL-ACTIVATION.md records the Hub
+switch, Terminal enablement and the Display loaded/stopped startup diagnosis.
 
 Normal Hub PID **40752** remains running; no normal Display was running at the
 inspection. Installing the wheel does not reload already-imported Hub code.

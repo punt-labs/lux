@@ -130,3 +130,51 @@ class TestKeepAliveRendering:
         assert lines[keep_alive + 1] == "<dict>"
         success_exit = lines.index("<key>SuccessfulExit</key>")
         assert lines[success_exit + 1] == "<false/>"
+
+
+class TestLaunchdStartRegistration:
+    def test_loaded_cleanly_stopped_display_uses_non_destructive_kickstart(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        args = run.call_args.args[0]
+        assert args[:2] == ["launchctl", "kickstart"]
+        assert args[2].endswith("/com.punt-labs.luxd-display")
+        assert "-k" not in args
+
+    def test_loaded_hub_start_does_not_kill_an_existing_process(self):
+        backend = LaunchdBackend(HUB_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        assert run.call_args.args[0][:2] == ["launchctl", "kickstart"]
+        assert "-k" not in run.call_args.args[0]
+
+    def test_unloaded_service_bootstraps_the_installed_plist(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=False),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        assert run.call_args.args[0][:2] == ["launchctl", "bootstrap"]
+        assert run.call_args.args[0][-1] == str(backend.config_path())
+
+    def test_failed_kickstart_reports_failure_without_bootstrap_fallback(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(5)
+            assert not backend.start()
+        assert run.call_count == 1
+        assert run.call_args.args[0][:2] == ["launchctl", "kickstart"]

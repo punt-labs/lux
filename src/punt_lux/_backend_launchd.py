@@ -57,6 +57,10 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         )
         return result.returncode == 0
 
+    @property
+    def _target(self) -> str:
+        return f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
+
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
 
@@ -108,48 +112,46 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             replace(self._spec, legacy_launchd_labels=(self._spec.launchd_label,))
         )
 
+    @property
+    def _installed(self) -> bool:
+        return self._plist_path.exists()
+
     def uninstall(self) -> None:
         """Boot the job out of launchd (if loaded) and remove the plist."""
-        if not self._plist_path.exists():
-            logger.info(
-                "No plist found at %s -- nothing to uninstall",
-                self._plist_path,
-            )
+        if not self._installed:
+            logger.info("No plist at %s; nothing to uninstall", self._plist_path)
             return
-        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
-        launchctl.run(["launchctl", "bootout", target], verb="bootout")
+        launchctl.run(["launchctl", "bootout", self._target], verb="bootout")
         self._plist_path.unlink()
         logger.info("Removed %s", self._plist_path)
 
     def stop(self) -> bool:
-        """Boot the job out of launchd (plist stays); a missing plist is a no-op.
+        """Boot out registration (plist stays); missing config is a no-op.
 
-        ``bootout``, not ``unload``: KeepAlive respawns the job on a plain
-        SIGTERM, so only deregistering it from the GUI domain actually stops it.
+        KeepAlive respawns plain SIGTERM; deregistration is the actual stop.
         """
-        if not self._plist_path.exists():
+        if not self._installed:
             logger.info("No plist found at %s -- nothing to stop", self._plist_path)
             return True
-        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
-        return launchctl.run(["launchctl", "bootout", target], verb="bootout")
+        return launchctl.run(["launchctl", "bootout", self._target], verb="bootout")
 
     def restart(self) -> bool:
         """Atomically kill-and-respawn under the same plist — one call, no pid file."""
-        target = f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
         return launchctl.run(
-            ["launchctl", "kickstart", "-k", target],
+            ["launchctl", "kickstart", "-k", self._target],
             verb="kickstart",
         )
 
     def start(self) -> bool:
-        """Re-bootstrap the installed plist into launchd, symmetric to :meth:`stop`.
+        """Kickstart registration without -k, else bootstrap installed config.
 
-        The plist must already exist -- :meth:`ServiceManager.start` checks
-        that and reports the "run install" message before this ever runs.
-        ``bootstrap``, not ``load``: the counterpart to ``bootout`` in the same
-        modern subsystem, so a service this backend stopped can be started
-        again without relying on the legacy load/unload shim.
+        Clean Display exit retains its job; repeated bootstrap fails with rc=5.
+        A plain kickstart leaves any already-running job alone.
         """
+        if self.is_active():  # this backend's existing contract means loaded
+            return launchctl.run(
+                ["launchctl", "kickstart", self._target], verb="kickstart"
+            )
         return launchctl.run(
             ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
             verb="bootstrap",

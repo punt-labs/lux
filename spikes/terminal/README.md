@@ -7,6 +7,8 @@ No production module imports the experimental harnesses in this directory.
 
 ## Current step-4 handoff
 
+- `LOCAL-ACTIVATION.md`: approved normal Hub switch/Terminal enable and the
+  loaded-but-stopped Display kickstart regression fix.
 - `LOCAL-WHEEL-INSTALL.md`: operator-requested local tool install, preserved
   dependency/rollback material, installed-executable smoke and pending activation.
 - `TERMINAL-LAUNCHER-PLAN.md`, `TERMINAL-LAUNCHER-RESULTS.md`: subsequent operator-
