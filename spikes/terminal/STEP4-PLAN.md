@@ -288,4 +288,24 @@ and no file.
 - 38 tests cover every frame kind, every split through a sample header and
   payload, byte-at-a-time input, coalesced channels, maximum payload, invalid
   channel values, oversize declarations and truncated EOF.
-- Socket service, control messages and daemon integration are not built yet.
+- Socket service, control messages and daemon integration are not built yet
+  at this framing checkpoint; the control checkpoint below adds requests.
+
+### Stage 2 — control and ordering checkpoint
+
+- Added immutable hello, attach, list and kill requests with owned codecs and
+  a runtime-checkable structural contract. Validation is strict: bounded
+  UTF-8 JSON, exact fields, duplicate-key rejection, positive integer ids,
+  bounded grid sizes and identifier-only session names.
+- 43 control tests cover typed round-trips, malformed input and direct
+  construction validation. The scoped `make check` now passes 763 tests;
+  repository-wide lint/type and all three ratchets pass.
+- Added `docs/pty_attach.tex`, its compiled PDF and a coverage report.
+  The two-viewer model checks all 830 states and 4,171 transitions for
+  snapshot-prefix correctness, no tail before snapshot completion, and
+  detach leaving the terminal process running.
+- Fidelity checks reproduce both a bad snapshot cut and the original
+  in-Display disconnect/termination defect. The corrected model finds neither.
+- This is not a proof of daemon lifecycle, peer authentication or eventual
+  delivery. The coverage report names the missing core and real-PTY tests.
+- Request handling, replies, daemon IO and Display integration are next.
