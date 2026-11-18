@@ -6,7 +6,9 @@
 
 - Experimental `luxd-pty` foreground terminal-session owner with a headless
   `terminal` extra, same-user Unix IPC and versioned snapshot/byte attachment.
-  Sessions survive client disconnects. Display integration remains unfinished.
+  Sessions survive client disconnects. The Display now attaches through
+  native replicas; closing or crashing it does not end the held programs.
+  Automatic startup and credit/repaint flow control remain unfinished.
 
 ### Changed
 

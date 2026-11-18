@@ -307,9 +307,13 @@ Clients must have the same OS UID and negotiate matching wire/snapshot
 versions. Sessions survive client disconnects; stopping the daemon ends them.
 An occupied endpoint is refused, not automatically removed.
 
-**Display attachment is not wired yet.** The existing terminal element still
-uses its in-Display stand-in. The daemon currently supports one viewer per
-session, with bounded queues; credit and repaint-on-lag are later work.
+The terminal element now attaches to this daemon instead of owning a PTY in
+the Display. Start the daemon manually before showing terminals. Set
+`LUX_PTY_SOCKET` on the Display to use an isolated endpoint. Display exit
+releases its replicas and connection, not the held programs.
+
+The daemon currently supports one viewer per session, with bounded queues.
+Automatic startup, credit and repaint-on-lag are later work.
 See the [step-4 plan](spikes/terminal/STEP4-PLAN.md).
 
 ## Architecture

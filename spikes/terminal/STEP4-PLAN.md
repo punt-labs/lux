@@ -349,4 +349,21 @@ and no file.
   and 176 transitions without unauthorized or pre-hello creation. The weakened
   creation guard produces an immediate counterexample.
 - Credit accounting, multiple viewers per session, automatic startup and
-  actual Display integration remain outstanding.
+  actual Display integration remain outstanding at this service checkpoint.
+
+### Stage 2 — Display attachment checkpoint
+
+- Replaced the in-Display PTY registry with `RemoteSessions` and a nonblocking
+  connection/replica pool. Display shutdown closes only its connection and
+  native replicas. It never sends session kill.
+- Snapshot adoption replaces the terminal, render cache, selection and encoders
+  together. Replicas do not answer program queries. Grid changes wait for an
+  authoritative resize notification before resizing the replica.
+- The daemon publishes explicit exit notices; reconnecting to an exited
+  program keeps it exited, without respawning.
+- Production replica-pool integration tests restore the same PID and screen.
+  Isolated actual-window tests pass normal close/restart and SIGKILL/restart;
+  the same program survives, and the new Display owns the viewer binding.
+  Evidence and test limits are recorded in `STEP4-LIVE.md`.
+- The daemon still requires manual startup. Credit, lag repaint, multiple
+  viewers and performance measurements remain stage 3/4 work.

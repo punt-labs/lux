@@ -2,7 +2,7 @@
 that has other items (as in a Lux frame)? Headless ImGui, real view + PTY."""
 import time
 from imgui_bundle import ImVec2, imgui
-from punt_lux.display.terminal.sessions import TerminalSessions
+from punt_lux.display.terminal.remote_sessions import RemoteSessions as TerminalSessions
 
 imgui.create_context(); io = imgui.get_io(); io.display_size = ImVec2(1400, 900); io.delta_time = 1/60
 io.backend_flags |= imgui.BackendFlags_.renderer_has_textures.value

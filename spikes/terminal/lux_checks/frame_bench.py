@@ -2,7 +2,7 @@
 import statistics, sys, time
 from imgui_bundle import ImVec2, imgui
 from punt_lux.display.terminal.font import TerminalFont
-from punt_lux.display.terminal.sessions import TerminalSessions
+from punt_lux.display.terminal.remote_sessions import RemoteSessions as TerminalSessions
 
 FLOOD = "/bin/sh -c \"exec yes 'the quick brown fox jumps over the lazy dog 0123456789'\""
 IDLE = "/bin/sh -c 'exec sleep 30'"

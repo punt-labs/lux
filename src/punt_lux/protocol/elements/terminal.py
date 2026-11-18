@@ -2,10 +2,9 @@
 
 Spike-only (spike/terminal-ghostty). The element is pure placement: it names
 a terminal ``session`` and, optionally, the ``command`` to start in it. The
-bytes never travel through the Hub: the Display owns a PTY per session (an
-in-process stand-in for the future ``luxd-pty`` daemon) and pumps it once per
-frame. ``rows``/``cols`` are not on the wire — the grid fits the space the
-element is given, like any terminal.
+bytes never travel through the Hub. The Display holds a native replica;
+``luxd-pty`` owns the PTY and streams a snapshot followed by output bytes.
+``rows``/``cols`` are not on the wire; the grid fits the element's space.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ class TerminalElement(Element):
 
     @property
     def session(self) -> str:
-        """Return the terminal session name (one PTY per name per Display)."""
+        """Return the daemon session name, independent of Display lifetime."""
         return self._session
 
     @property

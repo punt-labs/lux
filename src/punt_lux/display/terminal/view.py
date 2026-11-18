@@ -28,10 +28,14 @@ from typing import Self
 
 from imgui_bundle import ImVec2, imgui
 
-from punt_lux.display.terminal.input import Input, MouseFrame
+from punt_lux.display.terminal.buffer import (
+    Input,
+    MouseFrame,
+    RenderState,
+    Selection,
+    TerminalBuffer,
+)
 from punt_lux.display.terminal.painter import CellGrid, Painter
-from punt_lux.display.terminal.render_state import RenderState
-from punt_lux.display.terminal.selection import Selection
 from punt_lux.display.terminal.theme import TerminalTheme
 from punt_lux.terminal.ffi import (
     Terminal,
@@ -51,10 +55,7 @@ WHEEL_SCROLL_LINES = 3
 class TerminalView:
     """A Ghostty terminal drawn and driven inside the current ImGui window."""
 
-    _term: Terminal
-    _state: RenderState
-    _input: Input
-    _selection: Selection
+    _buffer: TerminalBuffer
     _on_input: Callable[[bytes], None]
     _on_resize: Callable[[int, int], None]
     _fixed_size: bool
@@ -63,6 +64,8 @@ class TerminalView:
     _painter: Painter
     _render_ms: float
     _closed: bool
+    _remote_size: bool
+    _wanted: tuple[int, int]
 
     def __new__(
         cls,
@@ -73,16 +76,7 @@ class TerminalView:
         fixed_size: bool = False,
     ) -> Self:
         self = super().__new__(cls)
-        self._term = Terminal(
-            cols, rows, scrollback=scrollback, fg=TerminalTheme.FG, bg=TerminalTheme.BG
-        )
-        TerminalTheme.apply(self._term)
-        self._term.on_reply(
-            self._send
-        )  # replies to queries (DA, DSR) go to the program
-        self._state = RenderState(self._term)
-        self._input = Input(self._term, self._send)
-        self._selection = Selection(self._term)
+        self._buffer = TerminalBuffer.local(cols, rows, scrollback, self._send)
         self._on_input = lambda _data: None
         self._on_resize = lambda _cols, _rows: None
         self._fixed_size = fixed_size  # replays: keep the recorded size
@@ -90,6 +84,8 @@ class TerminalView:
         self._painter = Painter()
         self._render_ms = 0.0  # Python time of the last render(), for diagnostics
         self._closed = False
+        self._remote_size = False
+        self._wanted = (cols, rows)
         return self
 
     def close(self) -> None:
@@ -97,14 +93,30 @@ class TerminalView:
         if self._closed:
             return
         self._closed = True
-        self._input.close()
-        self._state.close()
+        self._buffer.close()
+
+    def adopt(self, term: Terminal) -> None:
+        """Install a daemon snapshot; replicas never answer program queries."""
+        replacement = TerminalBuffer(term, self._send)
+        self._buffer.close()
+        self._buffer = replacement
+        self._cols, self._rows = replacement.size
+        self._remote_size = True
+        self._wanted = (self._cols, self._rows)
+
+    def resize_from_daemon(self, cols: int, rows: int) -> None:
+        self._buffer.resize(cols, rows)
+        self._cols, self._rows = cols, rows
 
     # -- data ----------------------------------------------------------------
     def feed(self, data: bytes) -> None:
         """Process output from the program."""
         if data:
-            self._term.feed(data)
+            self._buffer.feed(data)
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return self._cols, self._rows
 
     @property
     def cols(self) -> int:
@@ -117,7 +129,7 @@ class TerminalView:
     @property
     def title(self) -> str:
         """The window title the program set (OSC 0/2), or ''."""
-        return string_value(self._term, lib.GHOSTTY_TERMINAL_DATA_TITLE)
+        return string_value(self._buffer.term, lib.GHOSTTY_TERMINAL_DATA_TITLE)
 
     def _send(self, data: bytes) -> None:
         self._on_input(data)
@@ -144,24 +156,29 @@ class TerminalView:
         started = time.perf_counter()
         grid = CellGrid.for_current_font(imgui.get_cursor_screen_pos())
         avail = imgui.get_content_region_avail()
-        self._fit(int(avail.x / grid.cell_w), int(avail.y / grid.cell_h), grid)
+        self._fit(int(avail.x / grid.cell_w), int(avail.y / grid.cell_h))
         focused = imgui.is_window_focused()
         hovered = imgui.is_window_hovered()
         if focused:
             self._handle_keys()
-        if hovered or self._selection.dragging:
+        if hovered or self._buffer.selection.dragging:
             self._handle_mouse(grid, hovered=hovered)
-        self._state.update()
-        self._painter.paint(self._state, grid, focused=focused)
+        self._buffer.state.update()
+        self._painter.paint(self._buffer.state, grid, focused=focused)
         imgui.dummy(ImVec2(self._cols * grid.cell_w, self._rows * grid.cell_h))
         self._render_ms = (time.perf_counter() - started) * 1e3
 
-    def _fit(self, cols: int, rows: int, grid: CellGrid) -> None:
+    def _fit(self, cols: int, rows: int) -> None:
         cols, rows = max(MIN_COLS, cols), max(MIN_ROWS, rows)
+        if self._remote_size:
+            if (cols, rows) != self._wanted:
+                self._wanted = (cols, rows)
+                self._on_resize(cols, rows)
+            return
         if self._fixed_size or (cols, rows) == (self._cols, self._rows):
             return
         self._cols, self._rows = cols, rows
-        self._term.resize(cols, rows, int(grid.cell_w), int(grid.cell_h))
+        self._buffer.resize(cols, rows)
         self._on_resize(cols, rows)
 
     # -- keyboard ------------------------------------------------------------
@@ -176,35 +193,19 @@ class TerminalView:
         if io.key_shift and imgui.is_key_pressed(imgui.Key.page_down):
             self._scroll_by(self._rows // 2)
             return
-        if self._input.poll_keyboard():
-            self._selection.clear()
-            if not self._term.get("viewport_active", "bool"):
-                scroll_viewport(self._term, lib.GHOSTTY_SCROLL_VIEWPORT_BOTTOM)
+        if self._buffer.input.poll_keyboard():
+            self._buffer.selection.clear()
+            if not self._buffer.term.get("viewport_active", "bool"):
+                scroll_viewport(self._buffer.term, lib.GHOSTTY_SCROLL_VIEWPORT_BOTTOM)
 
     def _clipboard_shortcut(self) -> bool:
-        """Clipboard actions own their key; other keys remain terminal input."""
-        io = imgui.get_io()
-        # Cmd+C/V on macOS (ImGui reports Cmd as key_ctrl there);
-        # Ctrl+Shift+C/V elsewhere.
-        clip = (
-            io.key_ctrl
-            if io.config_mac_osx_behaviors
-            else (io.key_ctrl and io.key_shift)
-        )
-        if clip and imgui.is_key_pressed(imgui.Key.c):
-            if text := self._selection.text():
-                imgui.set_clipboard_text(text)
-            return True
-        if clip and imgui.is_key_pressed(imgui.Key.v):
-            self._input.paste(imgui.get_clipboard_text() or "")
-            return True
-        return False
+        return self._buffer.clipboard()
 
     # -- mouse ---------------------------------------------------------------
     def _handle_mouse(self, grid: CellGrid, *, hovered: bool) -> None:
         mouse = imgui.get_mouse_pos()
-        if hovered and self._input.program_wants_mouse():
-            self._input.poll_mouse(
+        if hovered and self._buffer.input.program_wants_mouse():
+            self._buffer.input.poll_mouse(
                 MouseFrame(
                     mouse.x - grid.origin.x,
                     mouse.y - grid.origin.y,
@@ -221,10 +222,10 @@ class TerminalView:
 
     def _wheel(self, wheel: float) -> None:
         """Scroll back, or send arrows to an alternate-screen program (xterm 1007)."""
-        if self._on_alternate_screen() and self._term.mode(1007):
+        if self._on_alternate_screen() and self._buffer.term.mode(1007):
             key = lib.GHOSTTY_KEY_ARROW_UP if wheel > 0 else lib.GHOSTTY_KEY_ARROW_DOWN
             for _ in range(WHEEL_SCROLL_LINES):
-                self._input.key(key, 0, None, lib.GHOSTTY_KEY_ACTION_PRESS)
+                self._buffer.input.key(key, 0, None, lib.GHOSTTY_KEY_ACTION_PRESS)
         else:
             self._scroll_by(-WHEEL_SCROLL_LINES if wheel > 0 else WHEEL_SCROLL_LINES)
 
@@ -236,54 +237,54 @@ class TerminalView:
         if hovered and imgui.is_mouse_clicked(left):
             clicks = imgui.get_mouse_clicked_count(left)
             if clicks >= 3:
-                self._selection.select_line((col, row))
+                self._buffer.selection.select_line((col, row))
             elif clicks == 2:
-                self._selection.select_word((col, row))
+                self._buffer.selection.select_word((col, row))
             else:
-                self._selection.start_drag((col, row + self._viewport_top()))
-        elif self._selection.dragging and imgui.is_mouse_down(left):
+                self._buffer.selection.start_drag((col, row + self._viewport_top()))
+        elif self._buffer.selection.dragging and imgui.is_mouse_down(left):
             if mouse.y < grid.origin.y:  # dragging past an edge scrolls
                 self._scroll_by(-1)
             elif mouse.y > grid.origin.y + self._rows * grid.cell_h:
                 self._scroll_by(1)
-            self._selection.extend_drag((col, row + self._viewport_top()))
+            self._buffer.selection.extend_drag((col, row + self._viewport_top()))
         if imgui.is_mouse_released(left):
-            self._selection.end_drag()
+            self._buffer.selection.end_drag()
 
     # -- viewport ------------------------------------------------------------
     def _scroll_by(self, rows: int) -> None:
-        scroll_viewport(self._term, lib.GHOSTTY_SCROLL_VIEWPORT_DELTA, rows)
+        scroll_viewport(self._buffer.term, lib.GHOSTTY_SCROLL_VIEWPORT_DELTA, rows)
 
     def _viewport_top(self) -> int:
         """Rows of scrollback above the viewport (viewport row + this = screen row)."""
         bar = ffi.new("GhosttyTerminalScrollbar*")
         lib.ghostty_terminal_get(
-            handle(self._term), lib.GHOSTTY_TERMINAL_DATA_SCROLLBAR, bar
+            handle(self._buffer.term), lib.GHOSTTY_TERMINAL_DATA_SCROLLBAR, bar
         )
         return int(bar.offset)
 
     def _on_alternate_screen(self) -> bool:
         screen = ffi.new("int*")
         lib.ghostty_terminal_get(
-            handle(self._term), lib.GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, screen
+            handle(self._buffer.term), lib.GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, screen
         )
         return bool(screen[0] == lib.GHOSTTY_TERMINAL_SCREEN_ALTERNATE)
 
     @property
     def term(self) -> Terminal:
-        return self._term
+        return self._buffer.term
 
     @property
     def state(self) -> RenderState:
-        return self._state
+        return self._buffer.state
 
     @property
     def input(self) -> Input:
-        return self._input
+        return self._buffer.input
 
     @property
     def selection(self) -> Selection:
-        return self._selection
+        return self._buffer.selection
 
     @property
     def on_input(self) -> Callable[[bytes], None]:
