@@ -7,9 +7,9 @@ from typing import Self
 from punt_lux.protocol.pty.control import ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.ptyd.control_dispatch import ControlDispatch
+from punt_lux.ptyd.control_failures import ControlFailures
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.stream_output import StreamPublisher
 from punt_lux.ptyd.viewers import ViewerBindings
 
 
@@ -25,7 +25,4 @@ class ControlInput:
         if frame.kind is not FrameKind.DATA:
             raise ValueError("control channel accepts DATA only")
         request = ControlCodec.decode(frame.payload)
-        try:
-            self._dispatch.execute(peer, request)
-        except (ValueError, RuntimeError, OSError) as error:
-            StreamPublisher.failure(peer, request.request_id, str(error)[:4096])
+        ControlFailures.execute(self._dispatch, peer, request)

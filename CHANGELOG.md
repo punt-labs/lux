@@ -18,6 +18,9 @@
   Initial attach recovers after oversized parser continuation instead of staying
   permanently failed; invalid daemon stream directions are rejected. ADR-0007
   and an explicit acceptance/merge-prerequisite ledger close out the decision record.
+  Control transport isolates allocation/grouped cleanup faults without swallowing
+  operator stop/interrupt signals. Two actual simultaneous windows share one
+  program; crash, survivor updates and rejoin are backed by screenshots/OCR.
 
 ### Changed
 

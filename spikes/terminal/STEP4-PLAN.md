@@ -472,3 +472,25 @@ private lock/log state is not claimed as a transient leak.
   all 18 integrations pass. Whole typing/lint and all ratchets pass, suppression
   count 123 unchanged; no test daemon remains.
 - Remaining bounded proof and merge work is enumerated in STEP4-REVIEW.md.
+
+### Stage 5 — transport faults and actual multi-window proof
+
+- Operation allocation and grouped allocation/cleanup errors previously escaped
+  the control transport and could trigger daemon-wide cleanup. ControlFailures
+  now returns a bounded nonempty failure reply to the caller, preserves pending
+  cleanup ownership and leaves other sessions alive. Twelve socket/core fault
+  cases include empty messages and preserve SystemExit/KeyboardInterrupt,
+  including BaseExceptionGroup forms. Actual process-wide OOM recovery is not
+  claimed.
+- Two simultaneous real Displays (7542/7740), each with an isolated Hub, share
+  daemon 7626/program 7688. PID-selected/OCR screenshots show the same program.
+  SIGKILL of one window leaves the other receiving a new update; replacement
+  Display 8054 rejoins the same program/daemon. Owned instances are cleaned.
+- `check_two_windows.py`, raw report and four screenshots retain reproducible
+  evidence. Normal Lux services and Hub topology are untouched.
+- Scoped make check: **835 passed**, 18 integration deselected; separately all
+  **18 integration tests pass**. Whole typing/lint and all ratchets pass, source
+  suppressions remain 123. No test daemon remains.
+- Keyboard-to-pixel/heavy-table experiments were not started before the operator
+  requested this checkpoint. Soak, platform, independent review and broader
+  macOS verification remain explicit gaps. No PR or merge is authorized.

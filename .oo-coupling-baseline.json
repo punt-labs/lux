@@ -5690,6 +5690,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/ptyd/control_failures.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/ptyd/control_input.py": {
     "efferent_coupling": 7.0,
     "public_names": 1.0,

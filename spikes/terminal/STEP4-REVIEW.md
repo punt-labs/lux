@@ -30,11 +30,12 @@ are qualified below. Canonical architecture remains Lux's DESIGN/target docs.
 - [x] Strict whole-repository typing/lint and all quality ratchets; no relaxed
   thresholds, no added source suppressions. Scoped tests and integrations only.
 
-## Original acceptance wording that is not fully established
+## Original acceptance experiments: current evidence and gaps
 
-- [ ] Two **actual GUI windows** attached simultaneously to one session. Two
-  production RemotePools prove the protocol/client behavior, but are not two
-  GL windows. The individual-window restart proof is a separate result.
+- [x] Two **actual GUI windows** attached simultaneously to one session. The
+  PID-selected/OCR-checked two-window run also kills one Display, sends a new
+  update visible in the survivor, and rejoins the crashed window without
+  changing the program or daemon PID. See STEP4-LIVE.md and results/two-windows.json.
 - [ ] End-to-end real keyboard-to-pixel latency under flood and a heavy
   neighboring 1,000-row table. Hub/Display ping and replica response timing do
   not substitute for these measurements. STEP3's older FPS numbers are historical.
@@ -82,9 +83,13 @@ slice did not help and was reverted, not retained as speculative optimization.
 
 ### Explicit remaining concerns
 
-- Transport-level fault injection should verify grouped construction/cleanup
-  errors remain isolated to the requesting peer. Core tests retain both errors,
-  but do not by themselves establish dispatch-level ExceptionGroup handling.
+- Fixed transport-level allocation/grouped construction-cleanup failure escape:
+  ControlFailures returns a bounded failure reply while retaining failed-cleanup
+  ownership and leaving other sessions alive. Twelve socket/core fault cases
+  cover successful/refused cleanup, nonempty/empty errors and operator signals.
+  SystemExit/KeyboardInterrupt and their BaseExceptionGroup forms propagate.
+  This is injected operation-fault coverage, not a claim that true process-wide
+  memory exhaustion can always be recovered.
 - Same-UID shell authority is not agent consent or a render-command capability.
   Hub/renderer authorization and session namespace/cleanup policy need adoption
   review; hiding behind socket UID validation would be incorrect.
@@ -108,7 +113,8 @@ This review is a local source/test audit, not an independent external review.
   under the current operator constraint.
 - [ ] Verify Linux PTY, credentials, detached spawn, packaging and fonts. Windows
   is not supported by this spike's current native wheel/PTY implementation.
-- [ ] Complete the outstanding actual-window/multi-view and keyboard/render checks.
+- [ ] Complete the outstanding keyboard/render checks; the actual simultaneous
+  multi-window acceptance case is now demonstrated.
 - [ ] Independent review of protocol, FD/PID ownership, native ABI/resource bounds
   and the shell-authority/consent implications of terminal rendering.
 - [ ] Decide shipping/default-enable policy, dependency packaging and native API
@@ -117,7 +123,7 @@ This review is a local source/test audit, not an independent external review.
 
 ## Latest verification
 
-- Scoped `make check BASE_REF=3712972`: **823 passed, 18 integration deselected**.
+- Scoped `make check BASE_REF=3712972`: **835 passed, 18 integration deselected**.
 - Separately all **18 integration tests passed** under timeout.
 - Whole-repository typing: zero errors, seven existing native ImGui source warnings.
 - OO/coupling/suppression gates pass; source suppression count remains **123**.

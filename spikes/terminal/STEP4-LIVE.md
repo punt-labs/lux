@@ -72,6 +72,31 @@ Every isolated process was stopped and instance directory removed. Normal Lux
 was untouched. The live helper is `check_daemon_window.py`, requiring the
 reviewed macOS capture script from Lux main (read-only), ffmpeg and tesseract.
 
+## Two simultaneous actual windows
+
+`check_two_windows.py` starts two isolated Hubs/Displays with distinct private
+HOME/Display sockets and one shared private PTY socket. It does not change Hub
+topology or touch normal Lux. Both PID-selected screenshots are OCR-checked
+for the same `SHARED PID` marker (whitespace normalization only).
+
+- Daemon PID **7626**, program PID **7688**.
+- Simultaneous Display PIDs **7542** and **7740** show that same program marker.
+- Display 7542 is SIGKILLed. A new input through the control client produces
+  `UPDATE:survivor` in Display 7740, proving continuing live updates, not a
+  frozen screenshot of a program merely left running.
+- Replacement Display **8054** rejoins through its original Hub and shows the
+  same update. Program and daemon PIDs remain unchanged.
+- Explicit kill and orderly teardown stop the owned program, daemon, Displays
+  and Hubs; the private instance directory is removed. No test daemon remains.
+
+Raw evidence is `results/two-windows.json` and `results/two-windows-*.png`.
+Reproduce on macOS with the same reviewed capture prerequisites:
+
+```sh
+LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py \
+  timeout 120 .venv/bin/python -m spikes.terminal.check_two_windows
+```
+
 ## Remaining
 
 Cold-start retry delay, flooded-input latency, full keyboard/pixel fidelity,

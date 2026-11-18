@@ -14,6 +14,8 @@ No production module imports the experimental harnesses in this directory.
 - `daemon_bench.py`: finite local production-replica benchmark; run with timeout.
 - `check_daemon_window.py`: isolated macOS live check; requires the reviewed
   screenshot helper from Lux main (read-only), ffmpeg, tesseract and permission.
+- `check_two_windows.py`: two isolated real Hubs/Displays share one PTY owner;
+  crash/survivor/rejoin evidence with PID-selected screenshots.
 - `docs/adr/0007-independent-terminal-owner-and-replicas.md`: current spike decision.
 
 ## Historical, not current implementation instructions
