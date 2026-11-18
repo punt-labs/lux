@@ -417,5 +417,30 @@ and no file.
   ratchets pass against 3712972, suppression count remains 123. No test daemon
   remains. Main Lux services are untouched.
 - Timing/scene-isolation measurements, actual-window cold-start/restart proof,
-  superseding ADR and final hygiene remain. Broader macOS verification stays
-  a merge prerequisite; no merge or PR is requested.
+  superseding ADR and final hygiene remained at this checkpoint. Broader macOS
+  verification stays a merge prerequisite; no merge or PR is requested.
+
+### Stage 5 — window evidence and bounded measurements
+
+- Actual isolated macOS window lazily starts the owner. Program PID 66887 and
+  daemon PID 66826 survive Display SIGKILL/restart; Hub replay restores the
+  visible marker. PID-selected/OCR-checked screenshots and logs back this up.
+  A too-early blank restart screenshot was rejected and the check corrected.
+- Added reproducible finite-burst benchmarks and raw reports. Warm attach
+  median/p95 5.013/5.276 ms (10 samples). Cold startup 1,126.099 ms includes the
+  pool's one-second retry delay; not a sub-50 ms cold-start claim.
+- Found tiny CREDIT frames accumulating ahead of input when one frame was
+  flushed per pump. Bounded 64 KiB coalescing preserves FIFO and partial sends;
+  tests include 32 varied chunk partitions. Smaller PTY slice was tried and
+  reverted after measurement showed no improvement.
+- Same-observer before/after burst-input median/p95: 93.943/279.429 ms to
+  60.586/70.034 ms. Full pool pump p95 0.171 ms; no GUI render loop in that test.
+  Input during flood is still slower than idle and remains an explicit limit.
+- Actual GUI: 20 Hub/Display pings overlap a finite paced 5 MiB burst. Median/
+  p95 14.928/15.906 ms versus quiet-idle 59.021/62.573 ms (output wakes render
+  loop). This does not measure keyboard-to-pixel latency or GPU FPS.
+- Scoped `make check`: 821 passing tests, all gates pass, no added suppressions.
+  Separately 17 integration tests pass. Owned test children/sockets cleaned.
+- See STEP4-PERFORMANCE.md and STEP4-LIVE.md. Superseding ADR, final design/doc
+  hygiene, targeted review and merge-prerequisite checklist remain. Full macOS
+  suite has not been run under the operator constraint.

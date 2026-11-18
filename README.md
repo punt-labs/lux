@@ -318,7 +318,8 @@ per viewer; a stalled viewer receives a fresh snapshot instead of an
 unbounded backlog. The last viewer to type or request a resize sets the grid.
 An empty daemon exits after 30 seconds. Any client or retained session
 prevents idle shutdown. Private reusable lock/log files intentionally persist.
-See the [step-4 plan](spikes/terminal/STEP4-PLAN.md).
+See the [step-4 plan](spikes/terminal/STEP4-PLAN.md) and
+[measured evidence and remaining limits](spikes/terminal/STEP4-PERFORMANCE.md).
 
 ## Architecture
 

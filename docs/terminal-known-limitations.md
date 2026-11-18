@@ -80,8 +80,10 @@ terminal; P2 is polish.
 | 5.2 | Synchronized output (mode 2026) isn't honoured | P1 | missing | Programs that draw a frame at a time can show a half-drawn frame. Ghostty's render-hold callback fixes this. |
 | 5.3 | Smooth scrolling and overscan | P2 | missing | Ghostty supports overscan for partial-row scrolling. |
 | 5.4 | Flooding terminal next to a heavy Lux frame (1,000-row table) | P1 | partial | Measured: Lux stayed at 95-112 fps, and the table was the expensive part. It exposed 5.6. |
-| 5.6 | Heavy output was throttled to about 0.1-0.5 MB/s | P1 | fixed (partly) | A macOS PTY buffers about 1 KB, and the pump read only what was ready at that instant. Two rounds of fixes reached 30-45 MB/s at about 8 ms per frame (STEP3.md). Native terminals reach hundreds of MB/s; `luxd-pty` reading out of process would remove the cap. |
-| 5.5 | Frame budget under many terminals | P2 | fixed | One 6 ms read budget per frame, shared out; quiet terminals go first so busy ones inherit their share (STEP3.md). |
+| 5.6 | Heavy output was throttled to about 0.1-0.5 MB/s | P1 | fixed (partly) | Historical Display-local fixes reached 30-45 MB/s (STEP3.md). Step 4 moves reads out of Display; its paced finite bursts prove responsiveness, not maximum throughput. See STEP4-PERFORMANCE.md. |
+| 5.5 | Frame budget under many terminals | P2 | partial | Historical local pump shared a 6 ms read budget. Step 4 bounds socket pumps and daemon reads; many-terminal GUI/render budgeting still needs measurement. |
+| 5.7 | Input during a finite terminal flood is slower than quiet input | P1 | partial | Bounded wire batching removes tiny-ACK backlog. Shared-pool probe median/p95 60.586/70.034 ms during the measured 8 MiB burst, versus 3.242/3.260 ms idle. Actual Hub/Display control path stays responsive; this is not under-50 ms keyboard-to-pixel proof. |
+| 5.8 | Lazy owner startup waits for the pool retry interval | P2 | partial | Measured cold startup 1,126.099 ms includes a one-second retry; warm reattach median/p95 5.013/5.276 ms. |
 
 ## 6. Platform and packaging
 

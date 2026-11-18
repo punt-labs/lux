@@ -11,13 +11,13 @@ from typing import Self
 
 from punt_lux.protocol.pty.frames import MAX_READ_BYTES, Frame, FrameDecoder
 from punt_lux.ptyd.credentials import PeerCredentials
-from punt_lux.ptyd.writer import WireWriter
+from punt_lux.ptyd.socket_writer import SocketWriter
 
 
 class TerminalConnection:
     _socket: socket.socket
     _decoder: FrameDecoder
-    _writer: WireWriter
+    _writer: SocketWriter
     _connected: bool
     _closed: bool
 
@@ -26,7 +26,7 @@ class TerminalConnection:
         self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._socket.settimeout(0.0)
         self._decoder = FrameDecoder()
-        self._writer = WireWriter(limit=2 * 1024 * 1024)
+        self._writer = SocketWriter(limit=2 * 1024 * 1024)
         self._connected = False
         self._closed = False
         code = self._socket.connect_ex(str(path))

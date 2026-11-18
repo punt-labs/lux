@@ -1,7 +1,8 @@
 # Step 4: Display restart and crash checks
 
 The isolated live checks use this branch, never the main Lux checkout.
-The daemon is started explicitly; automatic startup is not implemented yet.
+The first checkpoint started the daemon explicitly. Later checks below cover
+lazy startup, multiple-viewer-era protocol and actual rendered restart proof.
 
 ## Isolation
 
@@ -49,8 +50,30 @@ pixel-perfect rendering or keyboard-latency/flood-performance measurements.
   the same PID/screen. Exited programs remain exited on a new attachment.
 - `test_server_live.py`: independent daemon/client lifecycle and negotiation.
 
+## Stage-5 actual-window evidence
+
+A fresh private HOME/socket instance started no PTY owner until a terminal was
+shown. The Display then lazily launched daemon PID **66826**, which started
+program PID **66887**. A finite paced burst completed at position **5,321,141**.
+After Display SIGKILL and Hub scene replay into a new window, the same daemon,
+program PID, output position and visible `BURST DONE` marker remained.
+
+Three PID-selected screenshots are retained under `results/window-*.png`; OCR
+verifies the cold and resumed markers. A preliminary restart capture was taken
+before Hub replay and was blank. The check was corrected to wait for a connected
+active Hub and verify pixels, rather than accepting PID persistence alone.
+
+Twenty actual Hub-to-Display pings overlapped the burst. Median/p95 were
+14.928/15.906 ms; the quiet idle window measured 59.021/62.573 ms. Output wakes
+the render loop; this is control-path responsiveness, not keyboard-to-pixel or
+FPS proof. See `STEP4-PERFORMANCE.md` for scope, raw reports and reproducibility.
+
+Every isolated process was stopped and instance directory removed. Normal Lux
+was untouched. The live helper is `check_daemon_window.py`, requiring the
+reviewed macOS capture script from Lux main (read-only), ffmpeg and tesseract.
+
 ## Remaining
 
-Credit accounting, lag repaint, several viewers of one session, automatic
-startup, reconnect/flood timing and broader suite verification remain open.
-The branch is still experimental and is not automatically merge-ready.
+Cold-start retry delay, flooded-input latency, full keyboard/pixel fidelity,
+long-duration leak/soak and broader macOS suite verification remain open.
+The branch is experimental and is not automatically merge-ready.

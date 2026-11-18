@@ -12,6 +12,9 @@
   Wire generation two negotiates snapshot-reset frames. Missing owners start
   lazily, detached from Display. Lifetime flock protects concurrent startup
   and stale-socket reclamation; empty-only idle shutdown cleans the socket.
+  Bounded wire coalescing prevents tiny credit frames from serializing ahead
+  of input. Actual-window cold-start/crash/repaint and bounded responsiveness
+  measurements are recorded, with flooded-input and cold-retry limits explicit.
 
 ### Changed
 

@@ -6,7 +6,7 @@ import socket
 from typing import Self
 
 from punt_lux.protocol.pty.frames import MAX_READ_BYTES, Frame, FrameDecoder
-from punt_lux.ptyd.writer import WireWriter
+from punt_lux.ptyd.socket_writer import SocketWriter
 
 
 class Peer:
@@ -14,7 +14,7 @@ class Peer:
 
     _socket: socket.socket
     _decoder: FrameDecoder
-    _writer: WireWriter
+    _writer: SocketWriter
     _ready: bool
     _closed: bool
 
@@ -23,7 +23,7 @@ class Peer:
         self._socket = sock
         sock.settimeout(0.0)
         self._decoder = FrameDecoder()
-        self._writer = WireWriter()
+        self._writer = SocketWriter()
         self._ready = False
         self._closed = False
         return self

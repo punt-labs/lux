@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.ptyd.writer import WireWriter
+from punt_lux.ptyd.socket_writer import SocketWriter
 
 
 class FakeSender:
@@ -21,7 +21,7 @@ class FakeSender:
 
 
 def test_short_send_and_eagain_keep_tail() -> None:
-    writer = WireWriter()
+    writer = SocketWriter()
     sender = FakeSender()
     writer.append(b"hello")
     writer.flush(sender)
@@ -34,7 +34,7 @@ def test_short_send_and_eagain_keep_tail() -> None:
 
 
 def test_full_queue_rejects_new_data_without_discarding_old() -> None:
-    writer = WireWriter(limit=4)
+    writer = SocketWriter(limit=4)
     writer.append(b"abc")
     with pytest.raises(BufferError):
         writer.append(b"de")
