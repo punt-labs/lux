@@ -88,15 +88,14 @@ class RemoteSession:
             self._acknowledge(len(frame.payload))
         elif frame.kind is FrameKind.CLOSE:
             self._notice(frame.payload)
+        else:
+            raise ValueError("unsupported daemon stream frame")
 
     def write(self, data: bytes) -> None:
         if self._phase is RemotePhase.READY:
             for offset in range(0, len(data), 64 * 1024):
-                self._send(
-                    Frame(
-                        self._channel, FrameKind.DATA, data[offset : offset + 64 * 1024]
-                    )
-                )
+                payload = data[offset : offset + 64 * 1024]
+                self._send(Frame(self._channel, FrameKind.DATA, payload))
 
     def resize(self, cols: int, rows: int) -> None:
         if self._phase is RemotePhase.READY:

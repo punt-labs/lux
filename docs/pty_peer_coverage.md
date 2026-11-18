@@ -27,6 +27,7 @@ or negotiation. The model does not assume the safety properties as predicates.
 | Headless native package | Import test blocks GUI dependency modules |
 | Malformed frames and short writes | Framing tests and bounded writer tests |
 
-Stage three adds multiple viewers, per-viewer credit and repaint-on-lag.
-The credit model and its coverage report document reset ordering. Automatic
-startup and daemon-upgrade persistence remain later work.
+The credit model/coverage documents reset ordering. Lazy startup, lifetime
+claims, safe stale reclamation and empty-only idle exit are implemented and
+covered in pty_daemon_coverage.md. Daemon-upgrade program persistence is not a
+goal of this step; only Display restart/crash preserves held programs.

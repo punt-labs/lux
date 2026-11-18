@@ -48,6 +48,10 @@ kernel response deadlines, nor cleanup of deliberately detached grandchildren.
 | Automatic query replies have one owner | `TerminalSession` | One reply from the core; decoding the snapshot emits no duplicate |
 | Parser callback failure cannot advertise a false cut | `TerminalSession.pump` | Failed state rejects subsequent capture |
 
-Still outstanding: socket-peer authentication, connection/disconnection tests,
-actual daemon crash/restart behaviour, and a Display reconnecting to the daemon.
-These tests do not yet establish the overall step-4 goal.
+Later peer/daemon/credit models and integrations cover socket authentication,
+attach/disconnect, idle exit and stale endpoint recovery. Actual-window evidence
+covers Display SIGKILL/restart with the same program and visible marker.
+Daemon crash recovery only reclaims the endpoint; it does not preserve programs.
+These are complementary observations, not additional claims proved by this
+child model. Native/OS soak, other platforms and full pixel fidelity remain gaps;
+see spikes/terminal/STEP4-REVIEW.md.

@@ -15,6 +15,9 @@
   Bounded wire coalescing prevents tiny credit frames from serializing ahead
   of input. Actual-window cold-start/crash/repaint and bounded responsiveness
   measurements are recorded, with flooded-input and cold-retry limits explicit.
+  Initial attach recovers after oversized parser continuation instead of staying
+  permanently failed; invalid daemon stream directions are rejected. ADR-0007
+  and an explicit acceptance/merge-prerequisite ledger close out the decision record.
 
 ### Changed
 

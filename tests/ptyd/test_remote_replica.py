@@ -110,3 +110,15 @@ def test_view_close_never_queues_session_kill_or_input() -> None:
     session.close()
     assert sent == []
     assert session.phase is RemotePhase.CLOSED
+
+
+@pytest.mark.parametrize("kind", [FrameKind.CREDIT, FrameKind.RESIZE])
+def test_unexpected_daemon_stream_direction_is_rejected(kind: FrameKind) -> None:
+    sent: list[Frame] = []
+    session = RemoteSession("shell", "", sent.append)
+    try:
+        with pytest.raises(ValueError, match="unsupported daemon stream"):
+            session.receive(Frame(1, kind, b""))
+        assert not sent
+    finally:
+        session.close()

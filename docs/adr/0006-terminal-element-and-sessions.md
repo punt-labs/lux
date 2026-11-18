@@ -1,11 +1,13 @@
 # ADR-0006: A `terminal` element names a session; the Display pumps sessions each frame
 
-- **Status:** Accepted for the spike. To be superseded by a separate `luxd-pty`
-  daemon (step 4).
+- **Status:** Superseded for the spike by
+  [ADR-0007](0007-independent-terminal-owner-and-replicas.md). The element
+  schema/session naming remains; Display-owned process lifetime does not.
 - **Date:** 2026-11-15
 - **Evidence:** `spikes/terminal/STEP3.md`;
   `src/punt_lux/protocol/elements/terminal.py`,
-  `src/punt_lux/display/terminal/sessions.py`, `display/render_loop.py`
+  `src/punt_lux/display/terminal/sessions.py` (historical, removed by step 4),
+  `display/render_loop.py`. Current lifetime evidence is in ADR-0007.
 
 ## Context
 

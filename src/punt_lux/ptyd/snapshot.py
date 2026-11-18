@@ -5,7 +5,7 @@
 Binary snapshots preserve both screens, history and tracked parser state.
 VT paints are a visible-state fallback, not a complete serialized emulator.
 They cannot carry unfinished sequences; callers must wait for parser ground.
-Native allocation and ownership live in ``display.terminal.ffi_snapshot``.
+Native allocation and ownership live in ``terminal.ffi_snapshot``.
 """
 
 from __future__ import annotations

@@ -215,16 +215,20 @@ session, and the reconnect time is measured. Record it.
 - A session ends when killed, or stays as `[process exited]` after its program
   exits until killed.
 - The daemon exits when it has had no sessions and no clients for a while.
-- Nothing leaks: no orphaned shells, no sockets or directories left behind.
+- Nothing leaks: no orphaned shells or transient sockets; isolated test instances
+  are removed after their owners stop. Private reusable lock/log files persist
+  under ADR-0007's inode-safe runtime-state policy.
 
-Done when: a start, use, Display-restart, kill, exit cycle leaves no process
-and no file.
+Done when: a start, use, Display-restart, kill, exit cycle leaves no owned process
+or socket. The original zero-file wording is superseded by ADR-0007; stable
+private lock/log state is not claimed as a transient leak.
 
 ### Stage 5: hygiene
 
 - ADR-0007 superseding ADR-0006.
 - `docs/terminal-known-limitations.md` updated.
-- Spike checks that still matter moved into `tests/`; the rest deleted.
+- Spike behavioral checks that still matter live in `tests/`; remaining research
+  scripts are retained with an explicit historical/non-production artifact index.
 - Ratchets run and clean.
 
 ## Decisions deferred to measurements
@@ -444,3 +448,27 @@ and no file.
 - See STEP4-PERFORMANCE.md and STEP4-LIVE.md. Superseding ADR, final design/doc
   hygiene, targeted review and merge-prerequisite checklist remain. Full macOS
   suite has not been run under the operator constraint.
+
+### Stage 5 — targeted review and decision handoff
+
+- ADR-0007 records current ownership, framing/credit, lazy lifecycle and local
+  shell-authority scope, superseding ADR-0006's Display lifetime/pump decision.
+- Added STEP4-REVIEW.md: implemented evidence is separated from still-unmet
+  original acceptance experiments and merge prerequisites. No merge approval
+  is implied. Two real simultaneous GUI windows, real keyboard/pixel under a
+  heavy neighboring table, soak/many-terminal tests and broader platform/suite
+  checks are not claimed as complete.
+- Review reproduced a permanent FAILED replica when initial snapshot attach
+  happened during a 70,000-byte unfinished OSC sequence. Initial unavailable
+  snapshots now close only that viewer connection for bounded reconnect. The
+  integration recovers at parser ground with the same PID; no program kill.
+- Replica rejects daemon-to-viewer CREDIT/RESIZE instead of silently ignoring
+  invalid stream directions. Added unit tests; current native ownership comment
+  points at the shared headless codec rather than the removed Display module.
+- Stable private lock/log retention and historical research-script retention
+  are explicit plan clarifications, not zero-file/deletion claims. Artifact
+  index identifies old scripts/options as evidence, not shipping dependencies.
+- Scoped make check: 823 tests pass with 18 integration deselected; separately
+  all 18 integrations pass. Whole typing/lint and all ratchets pass, suppression
+  count 123 unchanged; no test daemon remains.
+- Remaining bounded proof and merge work is enumerated in STEP4-REVIEW.md.

@@ -11,9 +11,9 @@ from punt_lux.protocol.pty.control import (
     ListRequest,
     Request,
 )
+from punt_lux.ptyd import snapshot as _snapshots
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.snapshot import snapshot_version
 from punt_lux.ptyd.stream_output import StreamPublisher
 from punt_lux.ptyd.viewers import ViewerBindings
 
@@ -32,10 +32,9 @@ class ControlDispatch:
     def execute(self, peer: Peer, request: Request) -> None:
         if isinstance(request, HelloRequest):
             self._hello(peer, request)
-            return
-        if not peer.ready:
+        elif not peer.ready:
             raise ValueError("hello must precede session requests")
-        if isinstance(request, AttachRequest):
+        elif isinstance(request, AttachRequest):
             self._attach(peer, request)
         elif isinstance(request, ListRequest):
             StreamPublisher.success(
@@ -48,25 +47,25 @@ class ControlDispatch:
 
     @staticmethod
     def _hello(peer: Peer, request: HelloRequest) -> None:
-        if (
-            request.version != WIRE_VERSION
-            or request.snapshot_version != snapshot_version()
-        ):
-            raise ValueError(
-                "protocol or snapshot version mismatch; restart client/daemon together"
-            )
+        expected = (WIRE_VERSION, _snapshots.snapshot_version())
+        if (request.version, request.snapshot_version) != expected:
+            raise ValueError("protocol/snapshot mismatch; restart client and daemon")
         peer.mark_ready()
         StreamPublisher.success(
             peer,
             request.request_id,
-            {"version": WIRE_VERSION, "snapshot_version": snapshot_version()},
+            {"version": expected[0], "snapshot_version": expected[1]},
         )
 
     def _attach(self, peer: Peer, request: AttachRequest) -> None:
         session = self._core.acquire(request)
         if not self._bindings.session(request.session):
             self._core.resize(request.session, request.cols, request.rows)
-        snapshot = session.capture()
+        try:
+            snapshot = session.capture()
+        except _snapshots.SnapshotError:
+            peer.close()  # retry negotiation after parser ground; keep program alive
+            return
         binding = self._bindings.add(peer, request.session, request.cols, request.rows)
         StreamPublisher.attach(
             binding, request.request_id, snapshot, session.describe()
