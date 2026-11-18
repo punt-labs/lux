@@ -388,5 +388,34 @@ and no file.
   flood process is used.
 - Credit/reset model: 1,024 states and 5,249 transitions, no violations.
   Mutations reproduce minted credit and output across a dropped-tail gap.
-- Automatic startup, idle daemon exit and timing/performance evidence remain
-  stage 4/5 work.
+- Automatic startup, idle daemon exit and timing/performance evidence remained
+  open at this checkpoint.
+
+### Stage 4 — lazy owner and safe lifecycle
+
+- Display-side connection failure starts a missing daemon with the current
+  interpreter, argument-vector posix_spawn, setsid and detached stdio. The UI
+  does not wait for launch. Startup children are polled with WNOHANG; Display
+  close never kills the owner. Spawn cooldown prevents repeated contenders.
+- A lifetime nonblocking flock is acquired before stale cleanup, bind and
+  listen, and retained through endpoint/session cleanup. No pid-file age or
+  unguarded unlink is used. Stable private lock/log files intentionally remain.
+- Owned stale socket is reclaimed only after refused connection and matching
+  inode. Existing live listeners, foreign/non-socket nodes and symlinks are
+  preserved or rejected. Shared private-directory validation is headless.
+- An empty daemon exits after 30 seconds with no clients and no retained
+  sessions. Detached live programs and retained exited screens prevent idle
+  exit. Socket removal is inode-safe; claim is released after core cleanup.
+- Model checks all 53 states / 208 transitions; no ownership or unsafe-idle
+  violation. Mutations expose replacing an active claim and stopping with a
+  client still attached. Spec, PDF and coverage report are committed.
+- Real integration covers simultaneous detached launchers, crash/stale socket
+  replacement, short-idle empty shutdown, and a production RemotePool cold
+  start followed by viewer close and reconnect for explicit session kill.
+- Scoped `make check` passes 816 tests; separately all 17 integrations pass.
+  Full typing has zero errors (seven existing ImGui source warnings), all
+  ratchets pass against 3712972, suppression count remains 123. No test daemon
+  remains. Main Lux services are untouched.
+- Timing/scene-isolation measurements, actual-window cold-start/restart proof,
+  superseding ADR and final hygiene remain. Broader macOS verification stays
+  a merge prerequisite; no merge or PR is requested.

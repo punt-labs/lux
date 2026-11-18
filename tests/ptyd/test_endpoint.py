@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.ptyd.credentials import PeerCredentials
-from punt_lux.ptyd.endpoint import LocalEndpoint
+from punt_lux.terminal.local_endpoint import LocalEndpoint
 
 if TYPE_CHECKING:
     from pytest import MonkeyPatch

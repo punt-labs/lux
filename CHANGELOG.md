@@ -9,8 +9,9 @@
   Sessions survive client disconnects. The Display now attaches through
   native replicas; closing or crashing it does not end the held programs.
   Multiple viewers, per-viewer credit and repaint-on-lag are implemented.
-  Wire generation two negotiates snapshot-reset frames. Automatic startup
-  remains unfinished.
+  Wire generation two negotiates snapshot-reset frames. Missing owners start
+  lazily, detached from Display. Lifetime flock protects concurrent startup
+  and stale-socket reclamation; empty-only idle shutdown cleans the socket.
 
 ### Changed
 

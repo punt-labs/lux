@@ -1,46 +1,55 @@
-"""Foreground Unix service; viewer disconnects do not own process lifetime."""
+"""Single-threaded daemon coordinator with lifetime claim and idle shutdown."""
 
 from __future__ import annotations
 
-import logging
 import select
-import socket
 from pathlib import Path
 from typing import Self
 
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.credentials import PeerCredentials
 from punt_lux.ptyd.dispatch import SessionDispatch
-from punt_lux.ptyd.endpoint import LocalEndpoint
-from punt_lux.ptyd.peer import Peer
-
-logger = logging.getLogger(__name__)
+from punt_lux.ptyd.peer_book import PeerBook
+from punt_lux.terminal.daemon_claim import DaemonClaim
+from punt_lux.terminal.local_endpoint import LocalEndpoint
 
 
 class PtyServer:
-    """Single-threaded socket/core coordinator with bounded peer count."""
-
+    _claim: DaemonClaim
     _endpoint: LocalEndpoint
     _core: SessionCore
     _dispatch: SessionDispatch
-    _peers: dict[socket.socket, Peer]
+    _clients: PeerBook
     _stopping: bool
 
-    def __new__(cls, path: Path) -> Self:
+    def __new__(cls, path: Path, *, idle_timeout: float = 30.0) -> Self:
         self = super().__new__(cls)
-        self._endpoint = LocalEndpoint(path)
+        path = path.absolute()
+        self._claim = DaemonClaim(path)
+        try:
+            self._endpoint = LocalEndpoint(path)
+        except BaseException:
+            self._claim.close()
+            raise
         try:
             self._core = SessionCore()
             self._dispatch = SessionDispatch(self._core)
+            self._clients = PeerBook(self._dispatch, idle_timeout)
         except BaseException:
             self._endpoint.close()
+            self._claim.close()
             raise
-        self._peers = {}
         self._stopping = False
         return self
 
+    @property
+    def client_count(self) -> int:
+        return len(self._clients.readers)
+
+    @property
+    def session_count(self) -> int:
+        return len(self._core.describe())
+
     def stop(self) -> None:
-        """Signal handlers set a flag; cleanup executes on the main loop."""
         self._stopping = True
 
     def run(self) -> None:
@@ -51,58 +60,22 @@ class PtyServer:
             self.close()
 
     def tick(self, timeout: float = 0.005) -> None:
-        self._purge_closed()
+        self._clients.purge()
         listener = self._endpoint.listener
-        reads = [listener, *self._peers]
-        writes = [sock for sock, peer in self._peers.items() if peer.wants_write]
-        ready, writable, _ = select.select(reads, writes, [], timeout)
-        for sock in ready:
-            if sock is listener:
-                self._accept()
-            elif sock in self._peers:
-                self._read(self._peers[sock])
-        for sock in writable:
-            peer = self._peers.get(sock)
-            if peer is not None and not peer.closed:
-                try:
-                    peer.flush()
-                except (OSError, ConnectionError):
-                    self._drop(peer)
+        ready, writable, _ = select.select(
+            [listener, *self._clients.readers], self._clients.writers, [], timeout
+        )
+        if listener in ready:
+            self._clients.accept(listener)
+        self._clients.service(ready, writable)
         self._dispatch.pump()
-
-    def _accept(self) -> None:
-        try:
-            sock, _address = self._endpoint.listener.accept()
-        except BlockingIOError:
-            return
-        try:
-            if len(self._peers) >= 8:
-                raise PermissionError("viewer connection limit reached")
-            PeerCredentials.require_same_user(sock)
-            self._peers[sock] = Peer(sock)
-        except (OSError, PermissionError):
-            sock.close()
-
-    def _read(self, peer: Peer) -> None:
-        try:
-            for frame in peer.receive():
-                self._dispatch.receive(peer, frame)
-        except (EOFError, ValueError, OSError, RuntimeError, BufferError) as error:
-            logger.debug("terminal viewer disconnected: %s", error)
-            self._drop(peer)
-
-    def _drop(self, peer: Peer) -> None:
-        self._dispatch.detach(peer)
-        self._peers.pop(peer.socket, None)
-        peer.close()
-
-    def _purge_closed(self) -> None:
-        for peer in list(self._peers.values()):
-            if peer.closed:
-                self._drop(peer)
+        if self._clients.expired(len(self._core.describe())):
+            self._stopping = True
 
     def close(self) -> None:
-        for peer in list(self._peers.values()):
-            self._drop(peer)
+        self._clients.close()
         self._endpoint.close()
-        self._core.close()
+        try:
+            self._core.close()
+        finally:
+            self._claim.close()

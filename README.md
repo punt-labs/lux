@@ -305,17 +305,19 @@ It binds `~/.punt-labs/lux/pty/luxd-pty.sock` in a private directory. Use
 `--socket` for an isolated instance with a short Unix-socket pathname.
 Clients must have the same OS UID and negotiate matching wire/snapshot
 versions. Sessions survive client disconnects; stopping the daemon ends them.
-An occupied endpoint is refused, not automatically removed.
+A lifetime OS claim arbitrates concurrent startup. Owned stale sockets are
+reclaimed under that claim; live listeners and non-socket nodes are preserved.
 
 The terminal element now attaches to this daemon instead of owning a PTY in
-the Display. Start the daemon manually before showing terminals. Set
-`LUX_PTY_SOCKET` on the Display to use an isolated endpoint. Display exit
-releases its replicas and connection, not the held programs.
+the Display. A missing daemon starts lazily using the Display's interpreter.
+Set `LUX_PTY_SOCKET` on the Display to use an isolated endpoint. Display exit
+releases its replicas and connection, not the detached owner or held programs.
 
 Several viewers may attach to the same session. Output is credit-controlled
 per viewer; a stalled viewer receives a fresh snapshot instead of an
 unbounded backlog. The last viewer to type or request a resize sets the grid.
-Automatic daemon startup is still later work.
+An empty daemon exits after 30 seconds. Any client or retained session
+prevents idle shutdown. Private reusable lock/log files intentionally persist.
 See the [step-4 plan](spikes/terminal/STEP4-PLAN.md).
 
 ## Architecture

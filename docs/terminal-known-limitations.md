@@ -15,7 +15,7 @@ terminal; P2 is polish.
 
 | # | Limitation | Pri | Status | Notes |
 |---|---|---|---|---|
-| 1.1 | Display restart/crash killed shells | P0 | fixed | Step 4 moves PTY ownership into `luxd-pty`. Live isolated-window checks preserve the same PID across normal close and SIGKILL, then confirm the new Display owns the viewer binding. Daemon startup is still manual. |
+| 1.1 | Display restart/crash killed shells | P0 | fixed | Step 4 moves PTY ownership into `luxd-pty`. Live isolated-window checks preserve the same PID across normal close and SIGKILL, then confirm the new Display owns the viewer binding. Daemon startup is now lazy and detached; empty-only idle exit preserves retained sessions. |
 | 1.2 | No session ownership or cleanup policy: who may start a session, and whether it ends when its scene is cleared | P0 | missing | Today a session lives until the Display exits. |
 | 1.3 | No security model for `command` | P0 | missing | Any client that can show a scene can start any program as the user. Needs a consent gate like DES-004's code-running consent, or an allow-list. |
 | 1.4 | `exit` respawned the shell | P0 | fixed | Now shows `[process exited]`; the frame stays until closed. |

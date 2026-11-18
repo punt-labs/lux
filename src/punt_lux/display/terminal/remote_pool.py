@@ -13,11 +13,11 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
 from punt_lux.ptyd.snapshot import snapshot_version
-from punt_lux.terminal.connection import TerminalConnection
+from punt_lux.terminal.connector import LocalConnector, TerminalConnection
 
 
 class RemotePool:
-    _path: Path
+    _connector: LocalConnector
     _sessions: dict[str, RemoteSession]
     _channels: dict[int, RemoteSession]
     _pending: dict[int, RemoteSession]
@@ -30,12 +30,11 @@ class RemotePool:
 
     def __new__(cls, path: Path) -> Self:
         self = super().__new__(cls)
-        self._path = path
+        self._connector = LocalConnector(path)
         self._sessions, self._channels, self._pending = {}, {}, {}
         self._connection = None
         self._ready = False
-        self._next_id = 1
-        self._hello_id = 0
+        self._next_id, self._hello_id = 1, 0
         self._retry_at = self._last_output_at = 0
         return self
 
@@ -63,6 +62,7 @@ class RemotePool:
         return session
 
     def pump(self, budget_s: float = 0.003) -> bool:
+        self._connector.poll()
         if not self._sessions:
             return False
         try:
@@ -100,7 +100,7 @@ class RemotePool:
     def _ensure_connection(self) -> None:
         if self._connection is not None or time.monotonic() < self._retry_at:
             return
-        self._connection = TerminalConnection(self._path)
+        self._connection = self._connector.open()
         self._hello_id = self._id()
         hello = HelloRequest(self._hello_id, WIRE_VERSION, snapshot_version())
         self.send(Frame(0, FrameKind.DATA, ControlCodec.encode(hello)))
