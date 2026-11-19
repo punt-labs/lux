@@ -231,7 +231,7 @@ On Linux, the Hub service logs to the user systemd journal (`journalctl --user -
 
 When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
 
-**One variable, two defaults.** `LUX_LOG_LEVEL` lowers the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the Hub and Display are independently supervised services. Set `LUX_LOG_LEVEL` in the service environment to change its logging level, or run `LUX_LOG_LEVEL=DEBUG luxd-display` directly for a foreground diagnostic run.
+**One variable, two defaults.** `LUX_LOG_LEVEL` sets the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the Hub and Display are independently supervised services. Set `LUX_LOG_LEVEL` in the service environment to change its logging level, or run `LUX_LOG_LEVEL=DEBUG luxd-display` directly for a foreground diagnostic run.
 
 Do not add ad-hoc debug prints — use the logger at the appropriate level. **Nothing on the per-frame render path may log.** ImGui repaints every element every frame, so one line there is sixty lines per element per second; the `@trace` decorator belongs on event-driven paths (a click, a decode, a send), never on a renderer's `render`. `tests/test_per_frame_tracing.py` enforces this.
 

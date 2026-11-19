@@ -211,7 +211,7 @@ Agents use Lux through the MCP tools that `luxd` serves at its streamable-HTTP e
 | `scene_dashboard(scene_id, ...)` | Show a dashboard with metric cards, charts, and a table |
 | `scene_update(scene_id, patches)` | Change or remove elements by ID |
 | `scene_clear(scene_id)` | Remove one of your scenes; an unknown scene or one you do not own returns an error |
-| `scene_clear_all()` | Remove all of your scenes |
+| `scene_clear_all()` | Remove elements you currently own across scenes; retained, unowned content is not cleared |
 | **Frames and menus** | |
 | `frame_remove(frame_id)` | Remove one of your frames and its scenes; an unknown, foreign, or malformed `frame_id` returns an error |
 | `menu_set(menus)` | Replace your session's menus on the menu bar. An item with a `frame_id` raises your frame of that name when clicked; an item without one sends a `lux.menu` event to your `topic_recv()` |

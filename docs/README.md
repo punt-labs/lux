@@ -151,6 +151,42 @@ deleted). These documents are the historical record:
 - [architecture/skill-tool-reusability-audit.md](./architecture/skill-tool-reusability-audit.md)
   — the audit behind DES-040's tools-vs-skills split.
 
+Additional historical records not individually linked by the migration index:
+
+- [ABC baseline debt audit](./architecture/migration/abc-baseline-debt-audit.md)
+  — baseline cleanup inventory.
+- [Foundation audit](./architecture/migration/foundation-audit.md)
+  — the first four Element-ABC exemplars.
+- [Foundation review R1](./architecture/migration/foundation-review-r1.md)
+  and [R2](./architecture/migration/foundation-review-r2.md)
+  — exemplar hardening reviews.
+- [Hub write path](./architecture/migration/hub-write-path-design.md)
+  — Hub-authoritative write-path design.
+- [Factory decomposition](./architecture/migration/element-factory-decomposition-design.md)
+  — the ABC-kind registry design.
+- [Renderer decomposition](./architecture/migration/element-renderer-decomposition-design.md)
+  — extraction of per-kind renderers.
+- [Continuous-edit extraction](./architecture/migration/continuous-edit-extraction-design.md)
+  — the shared `ContinuousEditArbiter` design (`lux-ld6y`).
+- [Color picker](./architecture/migration/color-picker-element-design.md)
+  — element migration and continuous-edit extraction.
+- [Combo and radio](./architecture/migration/combo-radio-design.md)
+  — selection-widget migration.
+- [Composite kinds and Hub authority](./architecture/migration/composite-kinds-hub-design.md)
+  — composite migration design and correction.
+- [Group](./architecture/migration/group-element-design.md)
+  — the first container migration.
+- [Input number](./architecture/migration/input-number-element-design.md)
+  — numeric-input migration.
+- [Selectable](./architecture/migration/selectable-element-design.md)
+  — selectable-row migration.
+- [Simple composites](./architecture/migration/simple-composites-design.md)
+  — `tab_bar` and `collapsing_header` migration.
+- [Slider](./architecture/migration/slider-element-design.md)
+  — slider migration.
+- [Table](./architecture/migration/table-design.md)
+  — composed basic data-grid migration (B6).
+
 ## Current Architecture
 
 - [architecture/system.tex](./architecture/system.tex) →
