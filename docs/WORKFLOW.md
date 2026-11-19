@@ -231,8 +231,8 @@ function pr_loop(unit):
     make restart                          # rebuilds and restarts luxd AND the display
     write down the expected outcome, then drive the real entry point
     capture machine evidence with the introspection tools, on both tiers:
-        Hub store (inspect_scene, list_scenes) and
-        Display behavior (list_recent_events, list_errors, screenshot)
+        Hub store (scene_inspect, scene_ls, event_ls, error_ls) and
+        Display state (display_state_get); capture pixels with make screenshot
     the operator confirms the sensory outcome: rendered pixels,
         interaction feel — the part no introspection API can attest
 
@@ -536,8 +536,8 @@ leader.
    reviews it; reflect-and-advance rounds continue until the evaluator
    accepts.
 6. **The leader verifies and closes.** Check the result against the
-   contract: `make restart`, `make test` against the installed artifact, and
-   exercise the change through its real entry point with expected output
+   contract: `make test` against the source, then `make restart` to install it,
+   and exercise the installed change through its real entry point with expected output
    written first — one invalid input, one missing dependency, one boundary.
    Run the applicable local review agents on the mission diff and fix every
    finding; a dismissal requires the exact finding, the specific reason it
