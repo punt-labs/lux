@@ -70,6 +70,11 @@ update-suppressions: ## Update suppression baseline
 check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
 	bash scripts/check-plugin-surface.sh
 
+check-layers: ## Report future-package layer violations (never gates)
+	uv run --extra display python tools/layer_contract.py
+
+.PHONY: check-layers
+
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
