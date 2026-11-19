@@ -26,7 +26,6 @@ class RemoteSession:
     _status: str
     _channel: int
     _transfer: SnapshotTransfer
-    _bytes_in: int
 
     def __new__(cls, name: str, command: str, send: Callable[[Frame], None]) -> Self:
         AttachRequest(1, name, command)  # apply the daemon's public boundary locally
@@ -37,7 +36,7 @@ class RemoteSession:
         self._view.on_resize = self.resize
         self._phase = RemotePhase.CONNECTING
         self._status = "connecting to luxd-pty"
-        self._channel = self._bytes_in = 0
+        self._channel = 0
         self._transfer = SnapshotTransfer(name)
         return self
 
@@ -50,16 +49,17 @@ class RemoteSession:
         return self._view
 
     @property
-    def bytes_in(self) -> int:
-        return self._bytes_in
-
-    @property
     def channel(self) -> int:
         return self._channel
 
     @property
     def phase(self) -> RemotePhase:
         return self._phase
+
+    @property
+    def is_live(self) -> bool:
+        """Whether daemon output may arrive on any frame."""
+        return self._phase in (RemotePhase.SNAPSHOT, RemotePhase.READY)
 
     @property
     def status(self) -> str:
@@ -83,7 +83,6 @@ class RemoteSession:
             if self._phase is not RemotePhase.READY:
                 raise ValueError("live bytes preceded snapshot completion")
             self._view.feed(frame.payload)
-            self._bytes_in += len(frame.payload)
             self._acknowledge(len(frame.payload))
         elif frame.kind is FrameKind.CLOSE:
             self._notice(frame.payload)

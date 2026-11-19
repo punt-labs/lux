@@ -2,25 +2,25 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_pool import RemotePool
 
+if TYPE_CHECKING:
+    from punt_lux.display.terminal.idling_decision import IdlingDecision
+
 
 class RemoteSessions:
     _pool: ClassVar[RemotePool] = RemotePool.default()
-    last_output_at: ClassVar[float] = 0
 
     @classmethod
     def get(cls, name: str, command: str) -> RemoteSession:
         return cls._pool.get(name, command)
 
     @classmethod
-    def pump_all(cls, frame_budget_s: float = 0.006) -> bool:
-        busy = cls._pool.pump(frame_budget_s)
-        cls.last_output_at = cls._pool.last_output_at
-        return busy
+    def pump_frame(cls) -> IdlingDecision:
+        return cls._pool.pump_frame()
 
     @classmethod
     def close_all(cls) -> None:
