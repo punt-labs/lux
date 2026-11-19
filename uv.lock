@@ -1540,7 +1540,7 @@ requires-dist = [
     { name = "mcp-types", specifier = ">=2.3.0,<3" },
     { name = "numpy", marker = "extra == 'display'", specifier = ">=2.0.0" },
     { name = "pillow", marker = "extra == 'display'", specifier = ">=12.3.0" },
-    { name = "punt-observe", git = "https://github.com/punt-labs/punt-observe.git?rev=a90872cc20cf688dfd41aeb36c7120e63fc69849" },
+    { name = "punt-observe", git = "https://github.com/punt-labs/punt-observe.git?rev=53e657555cab240795c850ea7f0e4dd77a8d98fc" },
     { name = "pydantic", specifier = ">=2.0.0,<3" },
     { name = "pyghostty", marker = "extra == 'display'", specifier = "==0.1.4" },
     { name = "pyghostty", marker = "extra == 'terminal'", specifier = "==0.1.4" },
@@ -1582,7 +1582,7 @@ docs = [
 [[package]]
 name = "punt-observe"
 version = "0.1.0"
-source = { git = "https://github.com/punt-labs/punt-observe.git?rev=a90872cc20cf688dfd41aeb36c7120e63fc69849#a90872cc20cf688dfd41aeb36c7120e63fc69849" }
+source = { git = "https://github.com/punt-labs/punt-observe.git?rev=53e657555cab240795c850ea7f0e4dd77a8d98fc#53e657555cab240795c850ea7f0e4dd77a8d98fc" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
