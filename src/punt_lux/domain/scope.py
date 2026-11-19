@@ -49,7 +49,7 @@ class Scope:
 
     @classmethod
     def observed(cls, connection_id: ConnectionId, client_host: ClientHost) -> Self:
-        """The scope of a contact whose transport reported where it came from.
+        """Create a scope using the observed transport peer.
 
         A transport that reported no peer is an in-process caller, whatever the
         door called it.
@@ -60,17 +60,17 @@ class Scope:
 
     @classmethod
     def in_process(cls, connection_id: ConnectionId) -> Self:
-        """The scope of a caller no transport observed: a library or stdio client."""
+        """Create a scope for a caller not observed by the transport."""
         return cls(connection_id, UNOBSERVED, "in_process")
 
     @classmethod
     def on_behalf_of(cls, owner: ConnectionId) -> Self:
-        """The scope of a Hub-internal act under ``owner``'s name: no contact."""
+        """Create a Hub-internal scope under the named owner without a contact."""
         return cls(owner, UNOBSERVED, "on_behalf_of")
 
     @classmethod
     def client_side(cls, connection_id: ConnectionId) -> Self:
-        """The key a remote client names its own requests under; never a contact."""
+        """Create a request scope for a remote client without claiming a contact."""
         return cls(connection_id, UNOBSERVED, "client_side")
 
     @property

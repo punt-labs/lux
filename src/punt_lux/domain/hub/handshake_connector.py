@@ -69,13 +69,11 @@ class HandshakeConnector:
     def dial(self, connect_timeout: float) -> HandshakeResult:
         """Open the display socket and perform the Ready/Connect handshake.
 
-        Raises
-        ------
-        DisplayNotConnectedError
-            If the display fails to start, the handshake times out or
-            mismatches, or the declared-identity ``ConnectMessage`` fails to
-            send. The opened socket is closed on every failure path -- no
-            caller ever sees a half-open connection.
+        Raises:
+            DisplayNotConnectedError: If the socket cannot connect, no Ready
+                message arrives, or the identity cannot be sent.
+            RuntimeError: If starting the local display times out.
+            ValueError: If the Ready frame is malformed.
         """
         dp = DisplayPaths(self._socket_path)
         path = dp.ensure(connect_timeout) if self._auto_spawn else dp.socket_path
@@ -95,13 +93,14 @@ class HandshakeConnector:
     def complete_handshake(
         self, sock: socket.socket, endpoint: str, connect_timeout: float
     ) -> HandshakeResult:
-        """Run the transport-agnostic tail on an already-open ``sock``.
+        """Receive Ready and send Connect on an open socket.
 
-        Receives and validates the ``ReadyMessage``, then sends this
-        connection's ``ConnectMessage``. Shared by the local dial above and
-        by ``CrossHostConnector`` on a TLS socket it has already handshaked,
-        so the wire sequence exists in exactly one place. ``sock`` is closed
-        on every failure path.
+        The handshake closes the socket on failure.
+
+        Raises:
+            DisplayNotConnectedError: If no Ready message arrives or the
+                identity cannot be sent.
+            ValueError: If the Ready frame is malformed.
         """
         ready = self._recv_ready(sock, endpoint, connect_timeout)
         self._send_identity(sock)

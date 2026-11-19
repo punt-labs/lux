@@ -146,7 +146,7 @@ def _accept_one(listener: CrossHostListener, *, timeout: float = 2.0) -> None:
 
     ``accept_pending`` polls with a zero timeout, so a ``connect()`` followed
     straight away by one call can beat the kernel's loopback delivery and see
-    nothing (PL-1105). Waiting for readability first makes the single accept
+    nothing. Waiting for readability first makes the single accept
     deterministic without asserting on elapsed time.
     """
     sock = listener.server_sock

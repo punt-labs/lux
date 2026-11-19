@@ -127,9 +127,7 @@ class CertificateAuthority:
         return TrustAnchor((self.certificate_pem(),))
 
     def sign_csr(self, csr: CertificateSigningRequest) -> LeafCertificate:
-        """Sign *csr* into a leaf chaining to this CA, rejecting a bad
-        signature or non-P-256 key (PY-EH-1) — the CA's key never travels.
-        """
+        """Sign a verified P-256 CSR into a leaf without exporting the CA key."""
         if not csr.is_signature_valid:
             msg = "CSR signature does not verify — refusing to sign"
             raise ValueError(msg)
@@ -172,10 +170,7 @@ class CertificateAuthority:
         return LeafCertificate(self._key_pair.sign_certificate_builder(builder))
 
     def issue_leaf(self, hostname: str) -> tuple[KeyPair, LeafCertificate]:
-        """Generate a fresh keypair and sign its own leaf for *hostname* —
-        requester and CA are the same machine (system.tex step 2), so the
-        CSR round-trip that keeps a key from crossing hosts is moot.
-        """
+        """Generate and sign a fresh key pair for the CA host's own leaf."""
         key_pair = KeyPair.generate()
         csr = CertificateSigningRequest.generate(hostname, key_pair)
         return key_pair, self.sign_csr(csr)

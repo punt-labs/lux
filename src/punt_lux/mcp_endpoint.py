@@ -31,11 +31,13 @@ class McpAsgiApp:
     __slots__ = ("_manager",)
 
     def __new__(cls, manager: StreamableHTTPSessionManager) -> Self:
+        """Bind the streamable-HTTP MCP manager to its ASGI endpoint."""
         self = super().__new__(cls)
         self._manager = manager
         return self
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Serve the MCP request under its session context."""
         request = Request(scope)
         session = SessionKey.from_request(request.query_params.get("session_key", ""))
         binding = bind_session(session.value, ClientHost.of_connection(request))

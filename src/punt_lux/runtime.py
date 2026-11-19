@@ -41,6 +41,7 @@ class RenderContext:
         height: float,
         event_callback: Callable[[str, dict[str, Any] | None], None] | None = None,
     ) -> Self:
+        """Bind the allowed operations and context exposed to render code."""
         self = super().__new__(cls)
         self._state = state
         self._dt = dt
@@ -128,6 +129,7 @@ class CodeExecutor:
         existing_state: dict[str, Any] | None = None,
         event_callback: Callable[[str, dict[str, Any] | None], None] | None = None,
     ) -> Self:
+        """Configure the executor with its runtime context and limits."""
         self = super().__new__(cls)
         self._source = source
         self._render_fn = None

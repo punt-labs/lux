@@ -16,7 +16,7 @@ _Register = Callable[
 
 @dataclass(frozen=True, slots=True)
 class RemoteEventHandlerInvocation:
-    """User interacted with an element."""
+    """Report a user interaction for remote handler dispatch."""
 
     element_id: str
     action: str

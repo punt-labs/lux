@@ -44,7 +44,7 @@ class Registration:
 
     @classmethod
     def took(cls, write: SessionWrite, callback: SessionCallback) -> Self:
-        """A registration the registry accepted: its write, which stored ``callback``.
+        """Represent the accepted registration and its stored callback.
 
         Raises ``ValueError`` if the write's session does not hold ``callback``.
         """
@@ -55,7 +55,7 @@ class Registration:
 
     @classmethod
     def refused(cls, outcome: Literal["superseded", "declined"]) -> Self:
-        """A registration the registry did not write, and why."""
+        """Represent a rejected registration and its reason."""
         return cls(outcome, None)
 
     @property
@@ -89,18 +89,18 @@ class Detachment:
 
     @classmethod
     def released(cls, write: SessionWrite) -> Self:
-        """A release: it carried the callbacks off with it if the session held any."""
+        """Represent a release and the callbacks removed with the session."""
         return cls(cls._released_outcome(write), write)
 
     @staticmethod
     def _released_outcome(write: SessionWrite) -> ListenerDetachment:
-        """What a release is called: the one place it is decided, from its write."""
+        """Classify the release from its registry write."""
         held = write.before is not None and bool(write.before.callbacks)
         return "released_with_callbacks" if held else "released"
 
     @classmethod
     def nothing(cls, outcome: Literal["kept", "released_with_session"]) -> Self:
-        """A teardown that released nothing: a successor holds the slot, or none."""
+        """Represent a teardown that found no session or encountered a successor."""
         return cls(outcome, None)
 
     @property

@@ -25,7 +25,7 @@ __all__ = ["RenderTableRequest"]
 
 
 class RenderTableRequest(BaseModel):
-    """A searchable table with optional categorical filters and drill-down detail.
+    """Specify a searchable table with optional filters and row details.
 
     Filters and detail are open wire shapes (PY-TS-14 wire boundary) the
     composition reads by key; this request parses the tool arguments and hands a
@@ -49,8 +49,7 @@ class RenderTableRequest(BaseModel):
     @field_validator("key_column", mode="before")
     @classmethod
     def _reject_bool_key_column(cls, value: object) -> object:
-        """Reject a bool before coercion — ``bool`` subclasses ``int``, so Pydantic
-        would otherwise read ``True`` as column index 1."""
+        """Reject booleans before Pydantic can coerce them to column indices."""
         if isinstance(value, bool):
             msg = "key_column must be an int index or a column name, not a bool"
             raise ValueError(msg)
@@ -58,8 +57,7 @@ class RenderTableRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_key_column(self) -> Self:
-        """Reject a key-column *name* absent from ``columns`` (an index is checked
-        by ``validate`` against the agent's own value, as the wire codec does)."""
+        """Reject a named key column that is not present."""
         if isinstance(self.key_column, str) and self.key_column not in self.columns:
             msg = (
                 f"key_column {self.key_column!r} does not name a column "
@@ -70,9 +68,10 @@ class RenderTableRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_table_id(self) -> Self:
-        """Reject an empty/whitespace table_id — it would make the table anonymous
-        (the ``""`` element-id sentinel) and its synthesized control ids ambiguous.
-        ``None`` is fine: it synthesizes the default ``"table"``."""
+        """Reject blank IDs because synthesized controls need an unambiguous prefix.
+
+        ``None`` is fine: it synthesizes the default ``"table"``.
+        """
         if self.table_id is not None and not self.table_id.strip():
             msg = f"table_id must be a non-empty identifier, got {self.table_id!r}"
             raise ValueError(msg)

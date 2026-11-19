@@ -16,11 +16,7 @@ if TYPE_CHECKING:
 
 @final
 class MenuAccessor:
-    """The ``client.menu.*`` verbs -- ``ls`` and ``set`` this cycle.
-
-    ``client.menu.get(label)`` is tracked as ``lux-m69c``; its command is not
-    yet on the ABC path, so the accessor method lands with that follow-on bead.
-    """
+    """Read the Hub menu and publish this session's menu entries."""
 
     _ops: MenuOps
     _identity: ClientIdentity
@@ -28,6 +24,7 @@ class MenuAccessor:
     __slots__ = ("_identity", "_ops", "_scope")
 
     def __new__(cls, ops: MenuOps, identity: ClientIdentity, scope: Scope) -> Self:
+        """Bind menu operations to the caller's identity and scope."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

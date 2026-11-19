@@ -50,7 +50,7 @@ _DEFAULT_FLAGS = TableFlags()
 
 
 class TableElement(Element):
-    """A basic data grid: a data leaf with a Hub-authoritative row selection.
+    """Render a data grid whose row selection the Hub owns.
 
     ``tooltip`` stays ``str | None`` — absence is the documented contract for an
     optional tooltip (PY-TS-14). ``column_widths`` is ``()`` when the grid
@@ -235,8 +235,7 @@ class TableElement(Element):
         self._notify_observers("selected_row_ids")
 
     def _set_anchor_row_id(self, value: object) -> None:
-        """Set the anchor (a detail sibling shows it) and notify, so an anchor-only
-        patch re-drives a bound detail (deferred + de-duped like the other setters)."""
+        """Set the anchor and notify observers even on an anchor-only patch."""
         self._selection = self._selection.with_anchor(
             PatchField("anchor_row_id").as_str(value)
         )

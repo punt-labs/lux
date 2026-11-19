@@ -52,7 +52,7 @@ _HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 
 @final
 class ColorPickerElement(Element):
-    """An RGB(A) color picker on the Element ABC.
+    """Render a picker for RGB or RGBA colors.
 
     ``value`` is a total ``str`` (a hex color); ``alpha`` (RGBA channel count)
     and ``picker`` (full-picker vs inline-edit widget) are genuine two-state

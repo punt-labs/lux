@@ -47,5 +47,5 @@ class BoardRead:
         return self._issues.summary()
 
     def built(self, request: BoardRequest) -> BuiltBoard:
-        """The board these issues make, at the place their read began."""
+        """Build the board at the ordering position reserved before its read."""
         return BuiltBoard(request, self._began)

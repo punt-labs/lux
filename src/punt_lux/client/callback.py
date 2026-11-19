@@ -1,8 +1,4 @@
-"""``client.callback.*`` -- the Callback accessor over the REST transport.
-
-Only ``register`` ships this cycle; ``pending()`` needs the listen-leg drain
-and lands with a follow-on bead.
-"""
+"""Register callbacks through the client session's REST connection."""
 
 from __future__ import annotations
 
@@ -17,20 +13,14 @@ if TYPE_CHECKING:
 
 @final
 class CallbackAccessor:
-    """The ``client.callback.*`` verbs -- ``register`` this cycle.
-
-    ``register`` reaches REST directly rather than the
-    :mod:`punt_lux.commands.callback_register` singleton because the transport
-    already validates and posts (bead ``lux-0shg.7-follow-on``). ``frame_id``
-    is applet-only, naming the frame a click raises Display-locally; agents
-    never pass it.
-    """
+    """Register callbacks delivered through the same session's listener."""
 
     _rest: _RestTransport
     _identity: ClientIdentity
     __slots__ = ("_identity", "_rest")
 
     def __new__(cls, rest: _RestTransport, identity: ClientIdentity) -> Self:
+        """Bind callback registration to this transport and identity."""
         self = super().__new__(cls)
         self._rest = rest
         self._identity = identity
@@ -39,7 +29,12 @@ class CallbackAccessor:
     async def register(
         self, callback_id: str, label: str, frame_id: str | None = None
     ) -> Ok | OpError:
-        """Register a menu callback for this session."""
+        """Register a menu callback for this session.
+
+        Args:
+            frame_id: Applet-only frame to raise locally on click. Omit for
+                agent callbacks that only notify the listener.
+        """
         return await asyncio.to_thread(
             self._rest.register_callback, callback_id, label, frame_id
         )

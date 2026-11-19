@@ -27,9 +27,9 @@ class LoadingBoard:
     __slots__ = ()
 
     def request(self, work: BoardWork) -> BoardRequest:
-        """The scene a click opens with when no board has been read yet."""
+        """Return the placeholder scene for a board that has not been read."""
         return work.placeholder()
 
     def said(self) -> str:
-        """What a click answering with the placeholder says it answered with."""
+        """Label a click served with the loading placeholder."""
         return _PLACEHOLDER

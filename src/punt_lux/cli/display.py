@@ -168,9 +168,7 @@ def serve(
         help="Auto-fire click events for buttons (testing)",
     ),
 ) -> None:
-    """Start the Lux display server -- the interactive/manual entry point onto
-    :meth:`punt_lux.luxd_display.DisplayEntryPoint.serve` (launchd/systemd runs
-    ``luxd-display`` directly instead)."""
+    """Start the display server in the foreground."""
     try:
         from punt_lux.luxd_display import DisplayEntryPoint
     except ModuleNotFoundError as exc:

@@ -73,7 +73,7 @@ class ImGuiWindowRenderer:
         return mask
 
     def paint(self) -> None:
-        """A window is a container; its body is its children, so paint no widget.
+        """Paint no body widget because the window body consists of children.
 
         The rect is recorded in ``end`` after the children have laid out — the
         skeleton runs ``paint`` before the children, so recording here would

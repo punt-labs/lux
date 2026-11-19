@@ -38,7 +38,7 @@ __all__ = ["CheckboxElement"]
 
 
 class CheckboxElement(Element):
-    """A boolean checkbox on the Element ABC.
+    """Render a checkbox with a boolean value.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the
     documented contract for no tooltip.

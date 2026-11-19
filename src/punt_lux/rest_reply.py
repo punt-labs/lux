@@ -45,6 +45,7 @@ class RestReply:
     __slots__ = ("_response",)
 
     def __new__(cls, response: HttpResponse) -> Self:
+        """Wrap an HTTP response for typed result decoding."""
         self = super().__new__(cls)
         self._response = response
         return self

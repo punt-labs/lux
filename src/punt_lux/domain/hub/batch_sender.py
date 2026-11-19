@@ -68,7 +68,7 @@ class _InFlight:
         self._dial = dial
 
     def failed(self, cause: OSError) -> BatchSendError:
-        """The error that names ``cause`` and the dial in use now."""
+        """Build an error naming the failure cause and active dial."""
         return BatchSendError(cause, self._dial)
 
 
@@ -201,14 +201,14 @@ class BatchSender:
         return tuple(emptied)
 
     def _sender(self, flight: _InFlight) -> DisplaySender:
-        """A sender pinned to the dial that is current, noting it for a failure."""
+        """Pin a sender to the active dial and record its failure target."""
         self._connected(flight)  # connects if the dial is gone
         sender = self._seat.current()
         flight.on(sender.dial)
         return sender
 
     def _connected(self, flight: _InFlight) -> DisplayProbe:
-        """The ask port on the dial in use, connecting first if there is none."""
+        """Get the active dial's request port, connecting if necessary."""
         probe = self._clients.asks()
         flight.on(probe.dial)
         return probe

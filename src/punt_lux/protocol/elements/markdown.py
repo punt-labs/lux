@@ -35,7 +35,7 @@ __all__ = ["MarkdownElement"]
 
 
 class MarkdownElement(Element):
-    """A block of rendered markdown text.
+    """Render a block of Markdown text.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``content`` is a total ``str``.

@@ -32,12 +32,14 @@ class LoopbackTransport:
     __slots__ = ("_port", "_timeout")
 
     def __new__(cls, port: int, timeout: float) -> Self:
+        """Bind the loopback connection to a port and timeout."""
         self = super().__new__(cls)
         self._port = port
         self._timeout = timeout
         return self
 
     def request(self, call: HttpCall) -> HttpResponse:
+        """Send a request to the loopback Hub and read the response."""
         conn = http.client.HTTPConnection(
             "127.0.0.1", self._port, timeout=self._timeout
         )

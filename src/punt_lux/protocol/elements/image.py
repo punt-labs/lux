@@ -44,7 +44,7 @@ type ImageFormat = Literal["png", "jpeg", "svg"]
 
 
 class ImageElement(Element):
-    """An image to display, sourced from a path xor inline base64 data.
+    """Display an image from a path or inline base64 data, but not both.
 
     PY-TS-14 OK: ``format`` / ``alt`` / ``width`` / ``height`` / ``tooltip`` are
     genuinely optional — ``format``/``alt``/``tooltip`` absent means the renderer

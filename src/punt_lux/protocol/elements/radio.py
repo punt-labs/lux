@@ -40,7 +40,7 @@ __all__ = ["RadioElement"]
 
 @final
 class RadioElement(Element):
-    """A set of radio buttons on the Element ABC.
+    """Render a set of radio buttons for a single selection.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``selected`` is a total ``int`` (default ``0``),

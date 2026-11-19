@@ -74,7 +74,7 @@ class RequestExchange:
         return self
 
     def current(self) -> DialGeneration:
-        """The dial a port made now is pinned to; raises if there is none."""
+        """Get the active dial for a request port, raising if absent."""
         return self._connection.require()
 
     @contextlib.contextmanager

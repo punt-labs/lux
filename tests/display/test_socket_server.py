@@ -254,7 +254,7 @@ class TestRemoveClientDeadFd:
 
     A closed socket returns -1 from ``fileno()`` rather than raising, so keying
     cleanup on it would hit whatever happens to be registered under the -1
-    sentinel instead of the real fd (lux-2kv9).
+    sentinel instead of the real fd.
     """
 
     def test_negative_fileno_skips_disconnect_callback(self) -> None:

@@ -34,7 +34,7 @@ __all__ = ["TextElement"]
 
 
 class TextElement(Element):
-    """A text block.
+    """Render a block of plain text.
 
     PY-TS-14 OK: ``style`` and ``tooltip`` stay ``str | None`` —
     ``style`` stays permissive so snapshot parity can accept arbitrary

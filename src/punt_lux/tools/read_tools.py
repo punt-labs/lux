@@ -80,7 +80,14 @@ __all__ = [
 
 @mcp.tool(name="ping")
 async def ping() -> str:
-    """Ping the display server. Returns round-trip time, or raises on failure."""
+    """Check whether the display server responds.
+
+    Returns:
+        A ``"pong rtt=X.XXXs"`` report with the round-trip time in seconds.
+
+    Raises:
+        ToolError: If the display does not respond in time or its reply is invalid.
+    """
     ctx: CommandCtx[PingOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -94,16 +101,16 @@ async def ping() -> str:
 def inspect_scene(
     scene_id: str, *, want_geometry: bool = False
 ) -> SceneInspection | OpError:
-    """Return the element tree for a scene you own, read from the authoritative store.
+    """Inspect the Hub's element tree for a scene you installed.
 
-    Each element reports its render path (constant "abc" — every kind is on the
-    Element-ABC path) and resolved state including defaults, so you verify what
-    the Hub holds without inspecting pixels. ``scene_id`` is composed against
-    your own connection before the lookup — you can only inspect a scene you
-    yourself installed, with no override (DES-086).
-    ``want_geometry`` also reads each painted element's screen rect and the frame
-    rect from the last completed frame — an element not painted is absent. An
-    unknown or unowned scene is a not_found error.
+    Args:
+        scene_id: The caller's local ID from ``scene_show``.
+        want_geometry: Include painted screen rectangles from the last frame.
+
+    Returns:
+        Element state with defaults, or an error for an invalid, unknown, or
+        unowned scene. Geometry omits unpainted elements and reports
+        ``geometry.kind = "unavailable"`` when requested but unobtainable.
     """
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
@@ -137,16 +144,20 @@ def list_scenes(*, want_visibility: bool = False) -> SceneList:
 def list_frames() -> FrameStates | OpError:
     """List the display's frames and where each one is currently shown.
 
-    Each frame reports a ``visibility`` of ``on_screen``, ``docked``, or
-    ``closed`` (the user shut it, but it still holds its scenes) — read from
-    the running display, since visibility is never replicated (DES-088).
+    Returns:
+        Visibility from the live display: on_screen, docked, or closed
+        (content retained). Returns an error if the display is unavailable.
     """
     return _core.OPERATIONS.list_frames()
 
 
 @mcp.tool(name="display_screenshot")
 def screenshot() -> str:
-    """Report that display screenshot capture is unsupported (DES-028)."""
+    """Report that display screenshot capture is unsupported.
+
+    Raises:
+        ToolError: Always. Use ``scene_inspect`` to verify installed content.
+    """
     ctx: CommandCtx[ScreenshotOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -156,7 +167,10 @@ def screenshot() -> str:
 
 @mcp.tool(name="display_info")
 def get_display_info() -> DisplayInfo | OpError:
-    """Return display server metadata: backend, resolution, FPS, PID, uptime."""
+    """Inspect the running display's backend, resolution, FPS, PID, and uptime.
+
+    Returns an operation error if the display cannot answer.
+    """
     ctx: CommandCtx[DisplayInfoOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -165,7 +179,10 @@ def get_display_info() -> DisplayInfo | OpError:
 
 @mcp.tool(name="display_window_get")
 def get_window_settings() -> WindowSettings | OpError:
-    """Return current window settings: opacity, font scale, decoration, idle FPS."""
+    """Read live opacity, font scale, window decorations, and idle FPS.
+
+    Returns an operation error if the display cannot answer.
+    """
     ctx: CommandCtx[WindowOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -174,7 +191,10 @@ def get_window_settings() -> WindowSettings | OpError:
 
 @mcp.tool(name="display_theme_get")
 def get_theme() -> ThemeState | OpError:
-    """Return current theme and available themes."""
+    """Read the active theme and available theme names from the live display.
+
+    Returns an operation error if the display cannot answer.
+    """
     ctx: CommandCtx[ThemeOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -183,7 +203,11 @@ def get_theme() -> ThemeState | OpError:
 
 @mcp.tool(name="display_state_get")
 def get_display_state() -> DisplayStateSnapshot | OpError:
-    """Return your own widget/frame state, scoped to scenes you own."""
+    """Inspect transient widget state for your scenes and frame presentation.
+
+    Returns an operation error if the display cannot answer. Use
+    ``scene_inspect`` for the scene content stored by the Hub.
+    """
     ctx: CommandCtx[DisplayStateOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -192,13 +216,19 @@ def get_display_state() -> DisplayStateSnapshot | OpError:
 
 @mcp.tool(name="display_link_get")
 def get_display_link() -> DisplayLinkState:
-    """Return the Hub's observed display-link state — never round-trips or faults."""
+    """Check display connectivity without contacting the display.
+
+    The Hub reports its observed link state and any pending retry delay.
+    """
     return _core.OPERATIONS.get_link()
 
 
 @mcp.tool(name="session_ls")
 def list_clients() -> ClientList | OpError:
-    """List the Hub's sessions — the connections and their scopes."""
+    """List the Hub's active connections and their scopes.
+
+    The result covers Hub sessions, not display frames.
+    """
     ctx: CommandCtx[SessionOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -207,7 +237,7 @@ def list_clients() -> ClientList | OpError:
 
 @mcp.tool(name="menu_ls")
 def list_menus() -> MenuList | OpError:
-    """List the Hub-owned menu bar and its items, read with no reach-around."""
+    """Inspect the menu entries stored by the Hub, without contacting the display."""
     ctx: CommandCtx[MenuOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -216,7 +246,14 @@ def list_menus() -> MenuList | OpError:
 
 @mcp.tool(name="event_ls")
 def list_recent_events(count: int = 50) -> RecentEvents | OpError:
-    """Return the last N interaction events. Default 50, max 200, proxied."""
+    """Read recent interaction events from the display.
+
+    Args:
+        count: Number of events to return, from zero up to the latest 200.
+
+    Returns:
+        Recent events or an operation error for a negative count or display failure.
+    """
     ctx: CommandCtx[EventOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -225,7 +262,14 @@ def list_recent_events(count: int = 50) -> RecentEvents | OpError:
 
 @mcp.tool(name="error_ls")
 def list_errors(count: int = 20) -> RecentErrors | OpError:
-    """Return the last N display-side errors. Default 20, max 100, proxied."""
+    """Read recent display-side errors for troubleshooting.
+
+    Args:
+        count: Number of errors to return, from zero up to the latest 100.
+
+    Returns:
+        Recent errors or an operation error for a negative count or display failure.
+    """
     ctx: CommandCtx[ErrorOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )

@@ -19,7 +19,7 @@ class Screenshot(BaseModel):
 
 
 class Pong(BaseModel):
-    """A completed ping round-trip."""
+    """Report the result of a completed ping round-trip."""
 
     model_config = ConfigDict(frozen=True)
 

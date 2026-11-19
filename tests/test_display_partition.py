@@ -74,9 +74,7 @@ def _register(server: RenderLoop, sock: MagicMock) -> None:
 def _hub_sock(server: RenderLoop, fd: int = 42) -> MagicMock:
     """Create a mock socket already identified as ``kind="hub"``.
 
-    A scene installs only from an identified ``"hub"`` fd (bead lux-2kv9 /
-    W1); tests that only need one scene-installing client use this instead
-    of a bare :func:`_sock` plus a separate registration step.
+    Use this when only one client needs to install a scene.
     """
     sock = _sock(fd)
     server._socket_listener.register_client_identity(
@@ -88,9 +86,7 @@ def _hub_sock(server: RenderLoop, fd: int = 42) -> MagicMock:
 def _register_hub(server: RenderLoop, sock: MagicMock) -> None:
     """Attach ``sock`` as a client identified as ``kind="hub"``.
 
-    A scene installs only from an identified ``"hub"`` fd (bead lux-2kv9 /
-    W1); every scene-installing test in this module uses this helper instead
-    of the identity-free :func:`_register`.
+    Installing a scene requires an identified Hub, not a bare connection.
     """
     _register(server, sock)
     server._socket_listener.register_client_identity(

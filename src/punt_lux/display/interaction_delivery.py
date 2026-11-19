@@ -1,6 +1,6 @@
-"""InteractionDelivery — route queued display interactions to the Hub that
-owns each one (scene owner, else declared Hub), never a broadcast. What
-cannot be delivered gives up its display-side optimism via ``Compensation``.
+"""Route queued display interactions only to their owning Hub.
+
+What cannot be delivered gives up its display-side optimism via ``Compensation``.
 """
 
 from __future__ import annotations
@@ -58,10 +58,11 @@ class InteractionDelivery:
     def deliver(
         self, events: Sequence[RemoteEventHandlerInvocation]
     ) -> _DeliveryReport:
-        """Send events under the frame's budget; return the events to drop and
-        the unroutable subset to compensate. ``blocked`` stops the line (retry
-        next frame); ``deferred`` is skipped and kept (its Hub may be
-        mid-reconnect); ``dropped`` is given up now."""
+        """Send queued interactions within the frame budget and report what was lost.
+
+        ``blocked`` stops the line (retry next frame); ``deferred`` is skipped and kept
+        (its Hub may be mid-reconnect); ``dropped`` is given up now.
+        """
         removed: list[RemoteEventHandlerInvocation] = []
         dropped: list[RemoteEventHandlerInvocation] = []
         for event in events:
@@ -90,17 +91,19 @@ class InteractionDelivery:
 
     @staticmethod
     def _unresolved(event: RemoteEventHandlerInvocation) -> _SendOutcome:
-        """Classify an event with no live target. A menu event (no scene) whose
-        Hub token did not resolve may be mid-reconnect -- ``deferred``, so the
-        bounded buffer holds it for the reconnect window. Everything else -- a
-        scene gone from the replica, an event naming no target -- is ``dropped``."""
+        """Classify an interaction with no live target.
+
+        A menu event (no scene) whose Hub token did not resolve may be mid-reconnect --
+        ``deferred``, so the bounded buffer holds it for the reconnect window.
+        Everything else -- a scene gone from the replica, an event naming no target --
+        is ``dropped``.
+        """
         if event.scene_id is None and event.hub_token is not None:
             return "deferred"
         return "dropped"
 
     def _resolve_target(self, event: RemoteEventHandlerInvocation) -> int | None:
-        """Return one event's target fd: its scene's owner, else the Hub its
-        ``hub_token`` names -- a menu id resolves only within its own Hub."""
+        """Resolve the scene owner or the Hub named by the interaction token."""
         if event.scene_id:
             return self._scenes.scene_to_owner.get(event.scene_id)
         if event.hub_token is not None:
@@ -108,17 +111,16 @@ class InteractionDelivery:
         return None
 
     def compensate_evicted(self, evicted: Evictions) -> None:
-        """Revert optimistic display state for every interaction the buffer
-        lost (aged, overflowed, or dropped) whose element no newer gesture
-        of the same kind is still speaking for -- the next frame then
-        renders the Hub's own value instead of a rejection that never came."""
+        """Revert lost interactions unless a newer gesture superseded them."""
         for event in evicted.compensable:
             self._compensate_one(event)
 
     def _compensate_one(self, event: RemoteEventHandlerInvocation) -> None:
-        """Give up one lost interaction's optimism. A scene-less event (a
-        menu click) and one whose scene is gone both have no latch to give
-        up: it lives in per-scene widget state, so no scene means none."""
+        """Revert the optimistic state for one lost interaction.
+
+        A scene-less event (a menu click) and one whose scene is gone both have no latch
+        to give up: it lives in per-scene widget state, so no scene means none.
+        """
         if event.scene_id is None:
             return
         ws = self._scenes.widget_state_for(event.scene_id)

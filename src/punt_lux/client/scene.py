@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 @final
 class SceneAccessor:
-    """The ``client.scene.*`` verbs, each awaiting one command singleton."""
+    """Manage and inspect the scenes this client can access."""
 
     _ops: SceneOps
     _identity: ClientIdentity
@@ -44,6 +44,7 @@ class SceneAccessor:
     __slots__ = ("_identity", "_ops", "_scope")
 
     def __new__(cls, ops: SceneOps, identity: ClientIdentity, scope: Scope) -> Self:
+        """Bind scene operations to the caller's identity and scope."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

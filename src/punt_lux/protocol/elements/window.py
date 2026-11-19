@@ -47,7 +47,7 @@ _DEFAULT_FLAGS = WindowFlags()
 
 
 class WindowElement(Element):
-    """A floating sub-window that arranges its ABC children inside itself.
+    """Arrange child elements inside a floating sub-window.
 
     Holds only ABC children — the render template calls ``child.render()``, which
     only ABC elements provide; the decoder guarantees this by decoding a

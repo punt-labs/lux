@@ -21,6 +21,7 @@ class ProgressClock:
     __slots__ = ("_last",)
 
     def __new__(cls) -> Self:
+        """Start measuring elapsed time from the current monotonic clock."""
         self = super().__new__(cls)
         self._last = time.monotonic()
         return self
@@ -30,7 +31,7 @@ class ProgressClock:
         self._last = time.monotonic()
 
     def expires_at(self, window: float) -> float:
-        """The monotonic time ``window`` seconds after the last progress."""
+        """Compute the monotonic deadline relative to the last progress."""
         return self._last + window
 
     def progressed_within(self, window: float) -> bool:

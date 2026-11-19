@@ -1,6 +1,6 @@
 """Tests for LaunchdLegacySweep / SystemdLegacySweep -- the cure/verify primitive.
 
-Regression coverage for lux-ehzy: ``launchctl unload -w`` no-ops on a
+``launchctl unload -w`` can silently leave a
 ``bootstrap``-registered service, and the plist was deleted regardless
 (docs/architecture/service-lifecycle-migration.md §1, §7). These tests patch
 the actual call site (``punt_lux._launchctl.subprocess.run`` /

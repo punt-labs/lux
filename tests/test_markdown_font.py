@@ -1,6 +1,6 @@
 """The packaged DejaVu markdown font ships, covers the arrows, and wires imgui_md.
 
-lux-efun: imgui_md's own text font lacks U+2192, so markdown arrows paint as tofu.
+The imgui_md text font lacks U+2192, so Markdown arrows render as boxes.
 The fix bundles DejaVu (which carries them) and points imgui_md at it. These are
 structural guards — the visual confirmation is the demo gate — proving the files
 are in the installed layout, cover the glyphs, and that the markdown options route

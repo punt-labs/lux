@@ -68,7 +68,7 @@ class DialSocket:
         return self
 
     def writer(self, failed: Callable[[BaseException], None]) -> DialWriter:
-        """The writer to this socket: it takes the same line a read does.
+        """Return a writer sharing the same socket line as reads.
 
         ``failed`` is told of a write that raised from its first byte on, which may
         have left half a frame on the wire.
@@ -197,7 +197,7 @@ class DialSocket:
         return self._frames.iter_typed(DISPLAY_VOCABULARY)
 
     def head(self, count: int) -> bytes:
-        """The first ``count`` unread bytes, for a log line about a bad frame."""
+        """Preview up to ``count`` unread bytes for a malformed-frame log message."""
         return self._frames.head(count)
 
     def close(self) -> None:
@@ -214,7 +214,7 @@ class DialSocket:
             self._dial.sock.close()
 
     def _decrypted_backlog(self) -> bytes:
-        """What TLS already decrypted but ``select`` cannot see, so it is not stranded.
+        """Check for decrypted TLS bytes that socket readiness does not report.
 
         ``select`` watches the file descriptor; a record batch read in one ``recv``
         can leave plaintext in the SSL buffer with the descriptor quiet. Called

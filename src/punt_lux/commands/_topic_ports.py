@@ -1,11 +1,4 @@
-"""The ops-surface Protocol the topic (pub-sub) commands read.
-
-Split out of :mod:`punt_lux.commands._ports` (lux-03k6): topic publish,
-subscribe, unsubscribe, and receive are already their own command modules
-(``topic_publish.py``, ``topic_subscribe.py``, ``topic_unsubscribe.py``,
-``topic_recv.py``); giving the family's Protocol its own module matches
-that existing per-command-family split.
-"""
+"""Define the operation port shared by publish, subscribe, and receive."""
 
 from __future__ import annotations
 

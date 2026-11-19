@@ -1,22 +1,8 @@
-"""Fidelity-control e2e: the operator's actual ``make restart`` sequence.
+"""Verify that make restart installs the binaries named by the real services.
 
-lux-j169 renamed the hub disk binary (``luxd`` -> ``luxd-hub``) but the
-Makefile's ``restart`` target kept running ``launchctl kickstart -k`` — which
-never rewrites a launchd plist, so it hung forever waiting on the program at
-the DELETED ``~/.local/bin/luxd`` path. No mocked unit test can catch this
-class of defect: it requires a real ``uv tool install``, a real
-``lux hub install`` / ``lux display install`` (which regenerate the plist via
-:meth:`~punt_lux.service.ServiceManager.install`), and a real
-``launchctl print`` against the resulting service, on the real machine.
-
-This is the acceptance gate for lux-5i3n: it would have failed the moment
-lux-j169 merged with the display's ``binary_name`` still ``lux``. It never
-touches a scratch fixture — it drives the real
-``~/.local/bin/luxd-hub`` / ``~/.local/bin/luxd-display`` shims and the real
-``com.punt-labs.luxd-hub`` / ``com.punt-labs.luxd-display`` launchd services,
-exactly as ``make restart`` does on the operator's machine.
-
-Run via ``make test-e2e`` -- excluded from the default ``make test`` gate.
+A launchd kickstart does not refresh ProgramArguments after a binary moves.
+Run with ``make test-e2e``; this test uses the actual service labels, local
+executables, and supervisor, not disposable fixtures.
 """
 
 from __future__ import annotations

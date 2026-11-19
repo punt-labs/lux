@@ -2,7 +2,8 @@
 
 Split into two discriminated shapes rather than one model with an optional
 ``retry_delay_seconds: float | None`` -- a connected link never has a pending
-retry delay, so the field does not exist on that shape at all (PY-TS-14)."""
+retry delay, so the field does not exist on that shape at all (PY-TS-14).
+"""
 
 from __future__ import annotations
 

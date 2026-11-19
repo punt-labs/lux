@@ -1,5 +1,4 @@
-"""KeyPair — an ECDSA private key, encapsulated so it never leaves the class
-except by explicit, deliberate serialization.
+"""Encapsulate an ECDSA private key and expose it only on explicit serialization.
 
 The signing operations a certificate authority and a CSR requester both need
 (sign a builder, expose the public key) live here; every caller that wants a
@@ -76,9 +75,7 @@ class KeyPair:
         )
 
     def to_pem(self) -> bytes:
-        """Serialize the private key as unencrypted PKCS8 PEM — ``0600``
-        (applied by :meth:`save`) is this design's stated at-rest protection.
-        """
+        """Serialize the private key as unencrypted PKCS8 PEM."""
         return self._private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
@@ -86,9 +83,7 @@ class KeyPair:
         )
 
     def save(self, path: Path) -> None:
-        """Write the private key to *path*, created (or reset) as ``0600``
-        via ``os.open``/``fchmod`` — never briefly group/other-readable.
-        """
+        """Write the key with owner-only permissions, even when replacing a file."""
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             os.fchmod(fd, 0o600)

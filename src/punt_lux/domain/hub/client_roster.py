@@ -88,7 +88,7 @@ class ClientRoster:
         return {cid: labels[self._key_of[cid]] for cid in identities}
 
     def held(self) -> dict[ConnectionId, str]:
-        """The names held right now, as the last assignment or fallback left them."""
+        """Return the current assignments, including fallback names."""
         labels = self._names.labels()
         return {cid: labels[key] for cid, key in self._key_of.items()}
 

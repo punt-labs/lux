@@ -1,4 +1,4 @@
-"""A terminal for the Lux display, built on libghostty-vt (SPIKE).
+r"""A terminal for the Lux display, built on libghostty-vt (SPIKE).
 
 Spike branch ``spike/terminal-ghostty``; see ``docs/adr/0001``-``0006`` for
 the decisions and ``spikes/terminal/STEP*.md`` for the evidence.

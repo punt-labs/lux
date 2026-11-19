@@ -104,6 +104,7 @@ class HubListenSession:
         lifecycle: ClientLifecycle,
         router: CallbackRouter,
     ) -> Self:
+        """Bind the listen session to its registry and connection state."""
         self = super().__new__(cls)
         self._ws = ws
         self._client_host = ClientHost.of_connection(ws)

@@ -53,13 +53,10 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
 
-        Returns whether this call was a no-op: already active under the
-        plist content we would write anyway. A live long-lived MCP daemon
-        may never actually exit on SIGTERM (unbounded uvicorn shutdown
-        window), so reinstalling unchanged must never bootout-then-bootstrap
-        the same thing back (lux-94p0). A genuine content change still uses
-        :class:`~punt_lux._legacy_sweep_launchd.LaunchdLegacySweep`'s
-        bootout-and-verify discipline, fatal on failure.
+        Return true if the service is already active with the intended plist.
+        Leave an unchanged service running: an MCP session can prevent the
+        daemon from exiting promptly. A changed plist requires a verified stop
+        before the new version can load.
         """
         from punt_lux.hub_paths import HubPaths
 

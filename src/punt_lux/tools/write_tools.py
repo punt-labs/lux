@@ -53,7 +53,12 @@ def identify(
     ``kind`` is one of "mcp-session", "cli", or "app"; ``name`` is the label
     introspection shows for you; ``repo`` is the absolute path of your project
     (omit when headless); ``agent`` is your persona handle when you are an agent.
-    Returns "identified:<name>", or "error: <reason>" for a malformed declaration.
+
+    Returns:
+        ``"identified:<name>"`` on success.
+
+    Raises:
+        ToolError: If the identity declaration is rejected.
     """
     ctx: CommandCtx[SessionOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
@@ -81,9 +86,9 @@ def show(
     frame_layout: Literal["tab", "stack"] | None = None,
     frame_ttl_seconds: float | None = None,
 ) -> str:
-    """Display a scene in the Lux window.
+    r"""Display a scene in the Lux window.
 
-    Replaces the current window contents with the given elements.
+    Create or replace the caller's scene under the same ``scene_id``.
     Each element is a dict with a ``kind`` field (defaults to "text").
 
     Display elements:
@@ -93,7 +98,7 @@ def show(
       Image:        {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
       Separator:    {"kind": "separator"}
 
-    Interactive elements (generate "changed" events via recv):
+    Interactive elements (change state in the displayed scene):
       Slider:       {"kind": "slider", "id": "sl1", "label": "Vol"}
       Checkbox:     {"kind": "checkbox", "id": "cb1", "label": "On"}
       Combo:        {"kind": "combo", "id": "co1", "items": ["A","B"]}
@@ -122,7 +127,7 @@ def show(
       Spinner:      {"kind": "spinner", "id": "sp1", "label": "Loading..."}
 
     Rich text:
-      Markdown:     {"kind": "markdown", "id": "md1", "content": "# Title\\n**bold**"}
+      Markdown:     {"kind": "markdown", "id": "md1", "content": "# Title\n**bold**"}
 
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
@@ -148,8 +153,11 @@ def show(
       frame_ttl_seconds: positive lifetime after which the Hub removes the frame and
         its scenes, unless a re-show refreshes it; omit for a frame that never expires.
 
-    Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
-    replicator sends it in the background; "shown" means accepted, not drawn.
+    Returns:
+        ``"shown:<scene_id>"`` when the Hub accepts the scene, before it is drawn.
+
+    Raises:
+        ToolError: If the scene or frame request is invalid or the write is denied.
     """
     request = RenderRequest.parse(
         {
@@ -181,11 +189,12 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     Each patch targets an element by id and can set fields or remove it:
       {"id": "t1", "set": {"content": "Updated text"}}  or  {"id": "b1", "remove": true}
 
-    The Hub mutates its authoritative store and marks the scene dirty; the
-    background replicator re-sends it, the same replication a click takes, and the
-    tool returns ``"shown:<scene_id>"``. A rejected write — an invalid patch, an
-    unknown field, or a ``set`` that would break an element — mutates nothing and
-    returns ``"error: scene not updated — <reason>"``.
+    Returns:
+        ``"shown:<scene_id>"`` when the Hub accepts the update.
+
+    Raises:
+        ToolError: If the scene is inaccessible or a patch is invalid.
+            A rejected batch does not change the scene.
     """
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
@@ -200,7 +209,10 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
 
 @mcp.tool(name="scene_clear_all")
 def clear() -> str:
-    """Clear every scene you own (not other agents' UI); use ``clear_scene`` for one."""
+    """Clear all scenes owned by this session.
+
+    Returns ``"cleared"``. Use ``scene_clear`` to clear just one scene.
+    """
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
@@ -210,10 +222,13 @@ def clear() -> str:
 
 @mcp.tool(name="scene_clear")
 def clear_scene(scene_id: str) -> str:
-    """Clear one scene and blank its frame; only ``scene_id`` goes.
+    """Clear a scene using the local ID supplied to ``scene_show``.
 
-    An unknown scene, or one you own nothing in, is an error, never a false
-    ``"cleared"`` — a mistyped id cannot look like a successful clear.
+    Returns:
+        ``"cleared"`` when the Hub removes the scene.
+
+    Raises:
+        ToolError: If the scene ID is invalid, unknown, or not owned by this session.
     """
     ctx: CommandCtx[SceneOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

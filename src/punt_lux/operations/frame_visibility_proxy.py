@@ -79,7 +79,7 @@ class FrameVisibilityProxy:
 
     @staticmethod
     def absent(scope: InspectScope) -> FrameVisibilityState:
-        """The state for a frame the display never mentioned, under ``scope``."""
+        """Build the scoped state for a frame absent from the display report."""
         if not scope.want_visibility:
             return VisibilityNotRequested()
         return VisibilityUnavailable(reason="the display did not report this frame")

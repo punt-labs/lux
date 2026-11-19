@@ -33,6 +33,7 @@ class DoctorReport:
     __slots__ = ("_failed", "_lines", "_passed")
 
     def __new__(cls) -> Self:
+        """Start with no diagnostic rows."""
         self = super().__new__(cls)
         self._lines = []
         self._passed = 0

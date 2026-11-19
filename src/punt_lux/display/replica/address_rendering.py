@@ -45,8 +45,7 @@ class AddressRendering:
         self._book.forget_connection(hub, connection_key)
 
     def hidden_id_for(self, hub: HubId, composed_key: str) -> str:
-        """The ImGui identity: the Hub dimension prepended onto an already-
-        composed Rung-2 key -- a frame id, or a ``CallbackInvocation.menu_id``.
+        """Prefix the frame or menu key with its owning Hub for ImGui identity.
 
         Prepended, never re-derived, so a key already carrying the separator is
         namespaced rather than rejected. Unique across every aggregated Hub,
@@ -55,8 +54,7 @@ class AddressRendering:
         return ID_SEPARATOR.join((hub.wire_token, composed_key))
 
     def frame_title(self, frame: Frame) -> str:
-        """The frame's window title: its owner's scope label when the Hub named
-        one, behind the Hub's label only while more than one Hub is aggregated.
+        """Use the owner label as the title and prefix the Hub label when needed.
 
         The label is a fact the frame carries, so nothing counts frames or
         sessions: a lone ``Vox`` of a named session reads ``lux :: Vox`` and an
@@ -72,7 +70,7 @@ class AddressRendering:
         )
 
     def frame_window_label(self, frame: Frame) -> str:
-        """The label ImGui opens the frame's window with: title, then its id.
+        """Combine the visible title and unique window ID for ImGui.
 
         ImGui keys a window on what follows ``##``, so the visible title may move
         (a label arrives, a second Hub appears) without the window losing its
@@ -81,5 +79,5 @@ class AddressRendering:
         return f"{self.frame_title(frame)}##{self.frame_window_id(frame)}"
 
     def frame_window_id(self, frame: Frame) -> str:
-        """The frame's ImGui window id, unique across every aggregated Hub."""
+        """Return the frame's ImGui ID, unique across Hubs."""
         return self.hidden_id_for(frame.hub, frame.frame_id)

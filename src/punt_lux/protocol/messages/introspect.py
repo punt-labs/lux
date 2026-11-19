@@ -68,7 +68,7 @@ class ListScenesResponse:
             raise ValueError(msg)
 
     def to_dict(self) -> dict[str, Any]:
-        """The wire form: ``error`` is present only when the listing failed."""
+        """Serialize the listing, including an error only on failure."""
         d: dict[str, Any] = {
             "type": self.type,
             "scenes": self.scenes,

@@ -1,5 +1,4 @@
-"""ClientRegistry -- the six per-fd maps (once ``SocketListener``'s own
-parallel dicts) a connected client's state lives in, per PY-OO-5."""
+"""Track the state of each connected display client by file descriptor."""
 
 from __future__ import annotations
 
@@ -55,7 +54,7 @@ class ClientRegistry:
         return self._client_connect_times
 
     def report(self) -> dict[str, object]:
-        """The clients as the ``list_clients`` query reports them."""
+        """Return clients in the format used by the list-clients query."""
         now = time.time()
         return {
             "clients": [
@@ -118,17 +117,14 @@ class ClientRegistry:
         return self._client_hub_ids.get(fd)
 
     def hub_fd_for(self, hub_id: HubId) -> int | None:
-        """Return the live fd currently declaring ``kind="hub"`` with this
-        ``HubId`` -- never the declared ``name`` (W11), which every Hub today
-        shares identically and two Hubs must be free to keep sharing."""
+        """Return the live Hub's descriptor by declared Hub identity, not by name."""
         for candidate_fd, kind in self._client_kinds.items():
             if kind == "hub" and self._client_hub_ids.get(candidate_fd) == hub_id:
                 return candidate_fd
         return None
 
     def fd_for_hub_token(self, token: str) -> int | None:
-        """Return the live ``kind="hub"`` fd declaring this ``HubId.wire_token``
-        -- a menu's Hub, never a ``kind="test"`` probe standing in for none."""
+        """Resolve a live Hub by wire token without accepting test probes."""
         kinds, hub_ids = self._client_kinds, self._client_hub_ids
         hub_fds = filter(lambda fd: kinds[fd] == "hub", kinds)
         return next(filter(lambda fd: hub_ids[fd].wire_token == token, hub_fds), None)

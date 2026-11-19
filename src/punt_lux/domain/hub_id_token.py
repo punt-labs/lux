@@ -28,7 +28,7 @@ class HubIdToken:
     raw: str
 
     def resolve(self) -> HubId:
-        """Return the ``HubId`` this token names, or raise ``ValueError``.
+        r"""Return the ``HubId`` this token names, or raise ``ValueError``.
 
         ``ID_SEPARATOR`` can never appear in an FQDN, so the split round-trips
         exactly: ``HubIdToken(x.wire_token).resolve() == x`` for every

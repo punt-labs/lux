@@ -1,5 +1,4 @@
-"""DisplayModeOperations — read a project's display-mode config; the file's
-path and I/O belong to DisplayModeStore, so a read failure surfaces as a fault.
+"""Read display mode and return config I/O failures as operation faults.
 
 Writing moved out of the Hub entirely (DES-088): a user path to per-repo
 enable/disable is the enablement/install flow's committed marker, not a

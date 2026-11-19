@@ -77,7 +77,7 @@ class WriteSeat:
         return self
 
     def current(self) -> DisplayWriter:
-        """A writer pinned to the dial that is current now.
+        """Pin a writer to the active dial.
 
         Raises the error that says why there is none (see
         :meth:`~punt_lux.domain.hub.display_connection.DisplayConnection.require`).

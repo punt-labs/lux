@@ -55,6 +55,7 @@ class HubListenTransport:
     def __new__(
         cls, hub: Hub, lifecycle: ClientLifecycle, router: CallbackRouter
     ) -> Self:
+        """Bind a WebSocket transport to its session collaborators."""
         self = super().__new__(cls)
         self._hub = hub
         self._lifecycle = lifecycle

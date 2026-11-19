@@ -47,9 +47,13 @@ def _topic_ctx() -> CommandCtx[TopicOps]:
 def subscribe(topic: str) -> str:
     """Subscribe the calling session to ``topic`` within its own scope.
 
-    Returns ``"subscribed:<topic>"``. Declaration is implicit — the
-    first subscribe (or publish) for a topic name in this session's
-    scope declares it. Subscriptions never cross sessions.
+    The first subscribe or publish declares the topic in this session's scope.
+
+    Returns:
+        ``"subscribed:<topic>"`` when the subscription is active.
+
+    Raises:
+        ToolError: If the topic is invalid or starts with the reserved ``lux.`` prefix.
     """
     return signal(
         asyncio.run(topic_subscribe_command(_topic_ctx(), topic, scope=scope()))
@@ -58,7 +62,14 @@ def subscribe(topic: str) -> str:
 
 @mcp.tool(name="topic_unsubscribe")
 def unsubscribe(topic: str) -> str:
-    """Drop the calling session's subscription to ``topic``. No-op if absent."""
+    """Drop the calling session's subscription without affecting other sessions.
+
+    Returns:
+        ``"unsubscribed:<topic>"``, even if there was no subscription.
+
+    Raises:
+        ToolError: If the topic is invalid or starts with the reserved ``lux.`` prefix.
+    """
     return signal(
         asyncio.run(topic_unsubscribe_command(_topic_ctx(), topic, scope=scope()))
     )
@@ -68,9 +79,14 @@ def unsubscribe(topic: str) -> str:
 def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
 
-    Returns ``"delivered:<count>"`` — the number of in-scope subscribers
-    that received the message. A publish with no subscribers returns
-    ``"delivered:0"`` and is otherwise a no-op.
+    Args:
+        payload: JSON object to send; omit it to send an empty object.
+
+    Returns:
+        ``"delivered:<count>"`` with the number of in-scope recipients.
+
+    Raises:
+        ToolError: If the topic is invalid or starts with the reserved ``lux.`` prefix.
     """
     request = PublishRequest(payload=payload or {})
     return signal(
@@ -110,9 +126,14 @@ def pending_callbacks() -> str:
 
 @mcp.tool(name="callback_register")
 def register_callback(callback_id: str, label: str) -> str:
-    """Register a menu callback; requires the caller to hold a listen leg + identify.
+    """Register a menu callback until the caller's session lease ends.
 
-    Returns ``"registered:<callback_id>"``; dies with the session's lease.
+    Returns:
+        ``"registered:<callback_id>"`` when the callback is available.
+
+    Raises:
+        ToolError: If the fields are invalid or the caller has not identified
+            itself and connected a listener for push delivery.
     """
     ctx: CommandCtx[CallbackRegisterOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

@@ -47,6 +47,7 @@ class McpHttpTransport:
     __slots__ = ("_endpoint", "_manager", "_registry")
 
     def __new__(cls, policy: LoopbackTransportPolicy | None = None) -> Self:
+        """Configure the HTTP app with the supplied or default loopback policy."""
         self = super().__new__(cls)
         policy = policy or LoopbackTransportPolicy()
         self._registry = SessionRegistry()

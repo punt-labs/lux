@@ -18,7 +18,7 @@ __all__ = ["HttpResponse", "HttpTransport", "HubUnavailableError"]
 
 
 class HubUnavailableError(ConnectionError):
-    """luxd could not be reached: no port file, a refused connection, or a stall.
+    """Report an absent port file, refused connection, or stalled Hub request.
 
     Carries a single actionable sentence the CLI prints before exiting non-zero.
     """

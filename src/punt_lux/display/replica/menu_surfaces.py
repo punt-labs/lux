@@ -1,6 +1,4 @@
-"""MenuSurfaces — the two rendering surfaces menu state draws through: the
-application menu bar and the World panel, both guarded by the same model
-builder.
+"""Render the same menu model in the application bar and World panel.
 
 Composed out of :class:`MenuReplica <punt_lux.display.replica.menu_replica.MenuReplica>`
 so the render-surface concern clusters around its own state, separate from

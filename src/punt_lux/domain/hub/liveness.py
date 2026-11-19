@@ -108,8 +108,7 @@ class DisplayLiveness:
         self._reconnect(probe.dial)
 
     def _reconnect(self, dial: DialRef | None) -> None:
-        """Drop the dead dial and re-probe -- a live probe marks connected at
-        once, sparing a further disconnected-interval cycle."""
+        """Retire the dead dial and immediately probe for a replacement."""
         if dial is not None:  # None: the probe never got a dial, nothing to drop
             self._clients.drop_unresponsive(dial)
         if self._probe.run().alive:

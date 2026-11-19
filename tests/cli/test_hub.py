@@ -103,7 +103,7 @@ class TestHubStop:
 class TestHubRestart:
     def test_restart_routes_through_the_service_manager(self) -> None:
         """The CLI's restart handler must call HubRestart, not touch the pid
-        file — this is what fixes the ENOENT regression in lux-2ph5."""
+        file so binding does not fail with ENOENT."""
         with patch("punt_lux.cli.hub.HubRestart") as mock_cls:
             mock_cls.return_value.run.return_value = "luxd restarted (port 8430)"
             result = runner.invoke(app, ["hub", "restart"])

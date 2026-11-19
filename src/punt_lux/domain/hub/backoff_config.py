@@ -1,5 +1,4 @@
-"""BackoffConfig — the clock, delay bounds, and stability bar one RespawnBackoff
-paces within.
+"""Configure the clock, bounds, and stability interval for respawn backoff.
 
 Bundled into one value object so :class:`~punt_lux.domain.hub.respawn_backoff.
 RespawnBackoff`'s constructor takes a single parameter instead of several, and

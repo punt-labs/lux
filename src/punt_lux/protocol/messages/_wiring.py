@@ -1,12 +1,6 @@
-"""Wire-protocol assembly -- unions and dispatch registry for every family.
+"""Assemble the wire message families and their codec registry.
 
-Internal to the ``messages`` package (leading underscore -- not part of the
-public surface): this is the "assemble every family into one dispatch
-table" concern the package facade (``__init__.py``) delegates to, per
-PL-CU-1's prescribed remedy for a module that would otherwise need to
-import every family submodule directly just to build its re-export
-surface. Adding a new message family only ever grows this module's
-efferent coupling, never the facade's.
+The facade imports these entry points without depending on each codec.
 """
 
 from __future__ import annotations
@@ -140,11 +134,15 @@ class _MessageWiring:
         return registry
 
 
-# Module-level dispatch registry, populated at import time.  Tests that need
-# isolation construct their own MessageRegistry instance directly via the
-# registry sub-module.
+# Use a separate MessageRegistry when isolation from the dispatch table is needed.
 _registry = _MessageWiring.build_registry()
 
-# The package's codec entry points ARE the registry's own bound methods.
 message_to_dict = _registry.to_dict
+"""Encode a wire message as a dictionary, including its discriminator."""
 message_from_dict = _registry.from_dict
+"""Decode by discriminator; preserve unrecognized types as UnknownMessage.
+
+Raises:
+    KeyError: If a codec looks up a required field that is missing.
+    ValueError: If the discriminator is invalid or a codec rejects a field value.
+"""

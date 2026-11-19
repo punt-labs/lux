@@ -60,7 +60,7 @@ class _DisplayOps(
 
 @final
 class DisplayAccessor:
-    """The ``client.display.*`` verbs: info, theme, window, mode, shot, state."""
+    """Query the display's configuration and state or capture a screenshot."""
 
     _ops: _DisplayOps
     _identity: ClientIdentity
@@ -68,6 +68,7 @@ class DisplayAccessor:
     __slots__ = ("_identity", "_ops", "_scope")
 
     def __new__(cls, ops: _DisplayOps, identity: ClientIdentity, scope: Scope) -> Self:
+        """Bind display operations to the caller's identity and scope."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

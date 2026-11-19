@@ -4,6 +4,9 @@
 
 ### Added
 
+- Generated Python API reference, with CI checks for public docstrings,
+  stale parameter names, and tracker references in Python prose.
+
 - Experimental `luxd-pty` foreground terminal-session owner with a headless
   `terminal` extra, same-user Unix IPC and versioned snapshot/byte attachment.
   Sessions survive client disconnects. The Display now attaches through

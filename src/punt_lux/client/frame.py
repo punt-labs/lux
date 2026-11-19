@@ -16,13 +16,14 @@ if TYPE_CHECKING:
 
 @final
 class FrameAccessor:
-    """The ``client.frame.*`` verbs -- ``remove`` this cycle."""
+    """Manage this client's display frames."""
 
     _ctx: Ctx[FrameOps]
     _scope: Scope
     __slots__ = ("_ctx", "_scope")
 
     def __new__(cls, deps: FrameAccessorDeps) -> Self:
+        """Bind the frame accessor to its client dependencies."""
         self = super().__new__(cls)
         self._ctx = Ctx(ops=deps.ops, identity=deps.identity)
         self._scope = deps.scope

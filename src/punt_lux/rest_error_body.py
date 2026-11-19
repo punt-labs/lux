@@ -32,6 +32,7 @@ class ErrorBody:
     __slots__ = ("_text",)
 
     def __new__(cls, raw: bytes) -> Self:
+        """Wrap the raw response body for error reporting."""
         self = super().__new__(cls)
         self._text = raw.decode(errors="replace")
         return self
@@ -49,7 +50,7 @@ class ErrorBody:
         return reason if reason.strip() else self._text
 
     def snippet(self, limit: int = _SNIPPET_LIMIT) -> str:
-        """A one-line, printable, bounded preview of the body.
+        """Format a printable one-line preview within the size limit.
 
         Non-printable characters collapse to spaces, whitespace runs fold to one,
         and the result is truncated so a huge body cannot bloat the reason.

@@ -1,10 +1,4 @@
-"""The frame routes -- remove the caller's own frame's content, over the real facade.
-
-Split out of ``test_display_routes.py`` to mirror the source split
-(``rest/frame.py`` out of ``rest/display.py``, lux-03k6): removing a frame's
-content is a Hub-side write with its own ownership rule, not a proxied
-display read.
-"""
+"""Check that frame removal respects caller ownership and reports missing content."""
 
 from __future__ import annotations
 
@@ -24,7 +18,7 @@ _TEXT = {"kind": "text", "id": "t1", "content": "hi"}
 
 def test_remove_frame_of_a_nonexistent_frame_is_not_found() -> None:
     # No caller ever showed anything into "f1" -- the route must not report a
-    # blanket success for a frame it tore nothing down (lux-03k6).
+    # success when no content was removed.
     client = make_client(display_port=StubPort(DisplayReplied({})))
     resp = client.post("/display/frames/f1/remove")
     assert resp.status_code == 404

@@ -1,5 +1,4 @@
-"""_TrustFacade — the one internal edge trust/ consumers take for the shared
-boundary-check primitives, instead of a direct edge to each (PL-CU-1).
+"""Expose the shared validation primitives used at the trust boundary.
 
 Curve, Pairing, MaterialLoad, and AtomicDirInstall are four small,
 single-purpose classes (PY-OO-7, PY-IC-6) — splitting them stays correct
@@ -54,18 +53,14 @@ class _TrustFacade:
     def require_matching(
         a: KeyedByPublicKeyPem, b: KeyedByPublicKeyPem, what: str
     ) -> None:
-        """Raise :class:`ValueError` naming *what* unless *a* and *b*
-        report the same public key.
-        """
+        """Require two keys to expose the same public key."""
         Pairing.require_matching(a, b, what)
 
     @staticmethod
     def require_matching_certificate(
         key_pair: KeyedByPublicKeyPem, certificate: x509.Certificate, what: str
     ) -> None:
-        """Raise :class:`ValueError` naming *what* unless *key_pair* and
-        *certificate* share a public key.
-        """
+        """Require the certificate and key pair to expose the same public key."""
         Pairing.require_matching_certificate(key_pair, certificate, what)
 
     @staticmethod

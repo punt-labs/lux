@@ -42,7 +42,7 @@ def test_from_payload_refuses_a_non_mapping() -> None:
 def test_from_payload_refuses_a_reply_missing_the_frames_key() -> None:
     """Regression: a missing "frames" key used to fall back to an empty list,
     silently conflating "no frames" with "reply I don't recognise" -- Copilot
-    finding on lux-mxvy.8 / DES-088."""
+    contract in DES-088."""
     result = FrameStates.from_payload({"scenes": []})
 
     assert isinstance(result, OpError)

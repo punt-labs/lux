@@ -233,7 +233,7 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
         against an isolated ``Hub``/``HubDisplay`` pair, then reads the outcome
         back through :class:`ClientListing` -- the same read ``session_ls``
         serves -- so the proof is in ``subscribed_topics``/``writer_bound``,
-        not in which functions got called (lux-95zt).
+        not in which functions got called.
         """
         hub = Hub()
         factory = HubStoreFactory(hub=hub)

@@ -60,7 +60,7 @@ class TerminalModifiers:
 
     @staticmethod
     def terminal_mods() -> int:
-        """The held modifiers as Ghostty ``MODS`` bits, by *physical* key.
+        """Map held physical modifier keys to Ghostty modifier bits.
 
         With ``io.config_mac_osx_behaviors`` (Lux's default on macOS) ImGui swaps
         Cmd and Ctrl: physical Ctrl arrives as ``key_super`` and Cmd as

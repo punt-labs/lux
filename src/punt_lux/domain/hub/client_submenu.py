@@ -40,10 +40,10 @@ class ClientSubmenu:
         return self._label
 
     def menu(self) -> Menu:
-        """This submenu: every member's entries in label order."""
+        """Build the submenu with each member's entries in label order."""
         return Menu(label=self._label, items=self._ordered())
 
     def _ordered(self) -> list[MenuEntry]:
-        """What the members contribute, by label."""
+        """Return the menu contributions grouped by label."""
         actions = chain.from_iterable(MemberEntries(m).actions() for m in self._members)
         return sorted(actions, key=attrgetter("label"))

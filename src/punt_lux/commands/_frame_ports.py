@@ -1,11 +1,4 @@
-"""The ops-surface Protocol the frame commands read.
-
-Split out of :mod:`punt_lux.commands._ports` (lux-03k6): that module had
-grown into a single file mixing every command family's Protocol, one class
-per unrelated concern. Frame removal is its own family; giving it its own
-module is the same move :mod:`punt_lux.operations.frame_removal` makes on
-the implementation side.
-"""
+"""Define the operation port used by frame removal commands."""
 
 from __future__ import annotations
 

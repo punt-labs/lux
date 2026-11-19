@@ -92,5 +92,5 @@ class NoBoard:
         work.push(self._blank.request(work))
 
     def said(self) -> str:
-        """What the line calls that blank: the placeholder, or the last failure."""
+        """Label the blank scene as a placeholder or by its last failure."""
         return self._blank.said()

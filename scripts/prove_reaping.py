@@ -1,4 +1,4 @@
-"""Run-and-prove harness for the dead-connection-reaping model (lux-d84d).
+"""Run the dead-connection reaping model and check its safety properties.
 
 Invoked as:
 

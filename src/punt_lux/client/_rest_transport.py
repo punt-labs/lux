@@ -102,9 +102,10 @@ class _RestTransport:
 
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
-        """The CLI convenience -- a ``cli`` identity derived from context
-        (``LUX_CLIENT``, else the repo, else headless). A daemon/app must use
-        :meth:`for_identity` instead, so it is attributed to itself.
+        """Build a CLI client with an identity derived from context.
+
+        A daemon/app must use :meth:`for_identity` instead, so it is attributed to
+        itself.
         """
         return cls.for_identity(CliIdentity.resolve(), timeout=timeout)
 

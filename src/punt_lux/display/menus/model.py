@@ -49,10 +49,7 @@ class Submenu:
 
     @classmethod
     def from_wire(cls, menu: WireMenu, handlers: MenuHandlers) -> Self:
-        """Return the menu a checked replicated menu describes, ImGui-keyed on
-        ``(hub, owner, label)`` so neither two Hubs' nor two sessions' same-named
-        menus collide — the owner segment separates same-labelled headings from
-        different agent sessions aggregated onto one Hub bar.
+        """Build a replicated menu keyed by Hub, owner, and label.
 
         A ``frame_id`` leaf raises its frame first (DES-088); every leaf click
         emits one ``action="menu"`` invocation.

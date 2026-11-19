@@ -54,7 +54,7 @@ def _mock_sock() -> Any:
 
 
 def _inspect(server: RenderLoop, *elements: Element) -> QueryResponse:
-    # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+    # A scene installs only from an identified 'hub' fd.
     server._socket_listener.register_client_identity(
         7, kind="hub", name="test-hub", connect_time=0.0
     )

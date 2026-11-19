@@ -37,7 +37,7 @@ __all__ = ["SpinnerElement"]
 
 
 class SpinnerElement(Element):
-    """An animated loading spinner: a ``radius``/``color`` disc plus a ``label``.
+    """Render an animated loading indicator with a configurable disc and label.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``label`` (default ``""``), ``radius`` (default

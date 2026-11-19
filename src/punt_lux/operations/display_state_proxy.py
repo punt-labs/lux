@@ -91,7 +91,7 @@ class DisplayStateProxy:
         """Narrow to ``scope``'s own scenes; normalize its own frame/tab/scene ids.
 
         Every frame stays reported, same as ``list_frames``; only this
-        caller's own ``frame_id``/``active_tab`` get localized (lux-p3i8).
+        caller's own frame and active-tab IDs are localized.
         """
         scenes = DisplayStateProxy._owned_scenes(snapshot.scenes, scope)
         frames = [

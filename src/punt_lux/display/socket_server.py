@@ -96,7 +96,7 @@ class SocketListener:
         return self._registry.client_connect_times
 
     def client_report(self, **_kwargs: object) -> dict[str, object]:
-        """The connected clients, as the ``list_clients`` query reports them."""
+        """Return connected clients in the format used by the list-clients query."""
         return self._registry.report()
 
     @property

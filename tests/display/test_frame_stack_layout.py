@@ -1,4 +1,4 @@
-"""``_render_frame_stack`` — the collapsed-scene outer-walk gate (lux-qfzu.5).
+"""Check that the render walk skips collapsed scenes.
 
 The outer scene walk in stack layout already gates every per-scene render
 cost — element painting, the widget-state swap, the paint-clock stamp, the

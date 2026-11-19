@@ -1,8 +1,7 @@
-"""Domain layer — the algebra of Lux as defined in docs/architecture/domain-model.md.
+"""Define the Lux domain's identities, elements, updates, and events.
 
-This package owns the nouns of the domain (Element, Scene, Client) and the
-verbs (Update, Event). It does not import imgui_bundle, json, socket, or any
-other adapter. Adapters live in display/, hub/, transport/, tools/.
+See ``docs/architecture/target/ui-model.md`` for the target UI model.
+Keep element and identity types independent of ImGui, JSON, and sockets.
 
 The surface here is identity NewTypes, the Element Protocol and its ABC, the
 three Update kinds (AddElement, RemoveElement, SetProperty), and the matching

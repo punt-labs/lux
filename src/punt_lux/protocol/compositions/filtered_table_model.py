@@ -213,8 +213,7 @@ class FilteredTableModel:
         self._reproject()
 
     def visible_ids(self) -> frozenset[str]:
-        """Return the ids of the rows the filter leaves visible (shares the cache
-        ``_visible_rows`` fills, so an ids-only caller never re-derives them)."""
+        """Return visible row IDs using the cached filtered rows."""
         self._visible_rows()
         return cast("frozenset[str]", self._visible_cache_ids)
 
@@ -239,9 +238,7 @@ class FilteredTableModel:
             self._reprojecting = False
 
     def _visible_rows(self) -> tuple[tuple[object, ...], ...]:
-        """Return the unfiltered rows passing the search/combo predicates, memoized
-        by ``(rows identity, filter state)`` so an unchanged call (e.g. every
-        render frame) skips the rescan."""
+        """Cache matching rows by source row identity and filter state."""
         key = (id(self._all_rows), self._search, frozenset(self._combo_picks.items()))
         if self._visible_cache_rows is not None and key == self._visible_cache_key:
             return self._visible_cache_rows

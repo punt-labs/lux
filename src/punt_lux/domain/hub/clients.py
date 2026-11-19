@@ -125,7 +125,7 @@ class ClientRegistry:
             return self._ensure_client().desk.take_seat()
 
     def _connect_and_reconcile(self) -> DisplayLink:
-        """The connected link: connect a fresh socket if need be, then reconcile.
+        """Return the connected link, opening and reconciling a new dial if needed.
 
         The one choke point every fresh connect runs through (DES-068): the link
         declares the manifest inside its own connect step (a manifest that cannot be

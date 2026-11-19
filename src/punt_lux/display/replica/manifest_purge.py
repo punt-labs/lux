@@ -1,10 +1,9 @@
-"""ManifestPurge -- the manifest-purge policy DES-068's Hub reconciliation
-drives, composed out of a :class:`FrameBook` (PY-OO-5, PY-IC-6): two
-independent rules, never conflated into one condition. A sending Hub's
-manifest disowns whatever it omits from *its own* scenes only; a scene whose
-owning Hub is no longer live is swept unconditionally, regardless of any
-manifest's content, so an unrelated live Hub's coincidentally-matching local
-id can never shield an orphan.
+"""Select stale scenes for removal using the frame book and Hub manifests.
+
+A sending Hub's manifest disowns whatever it omits from *its own* scenes only; a scene
+whose owning Hub is no longer live is swept unconditionally, regardless of any
+manifest's content, so an unrelated live Hub's coincidentally-matching local id can
+never shield an orphan.
 """
 
 from __future__ import annotations
@@ -22,8 +21,7 @@ __all__ = ["ManifestPurge"]
 
 @final
 class ManifestPurge:
-    """Computes purge candidates against a composed :class:`FrameBook`'s
-    own-Hub-scoped scene placement."""
+    """Compute purge candidates using Hub-scoped scene placement."""
 
     _book: FrameBook
     __slots__ = ("_book",)
@@ -42,9 +40,7 @@ class ManifestPurge:
     def _own_hub(
         self, hub: HubId, manifest: frozenset[str]
     ) -> list[tuple[HubScopedKey, str]]:
-        """``hub``'s own scenes its manifest omits -- scoped to ``hub``'s own
-        entries by construction, so a second Hub's scenes are never
-        candidates."""
+        """Find scenes this Hub owns but omitted from its manifest."""
         return [
             (HubScopedKey(hub, frame_id), scene_id)
             for scene_id, frame_id in self._book.scene_to_frame_for_hub(hub)
@@ -52,9 +48,7 @@ class ManifestPurge:
         ]
 
     def _orphans(self, live_hubs: frozenset[HubId]) -> list[tuple[HubScopedKey, str]]:
-        """Every scene owned by a Hub no longer live -- independent of any
-        manifest, so a dead Hub's scene is never shielded by an unrelated
-        live Hub's coincidentally-matching manifest entry."""
+        """Find all scenes owned by Hubs that are no longer live."""
         return [
             (HubScopedKey(dead_hub, frame_id), scene_id)
             for dead_hub in self._book.scene_hubs() - live_hubs

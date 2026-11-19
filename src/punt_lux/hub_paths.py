@@ -26,13 +26,14 @@ class HubPaths:
     _dir: Path
 
     def __new__(cls, root: Path | None = None) -> Self:
+        """Resolve metadata paths under the specified or default Hub root."""
         self = super().__new__(cls)
         self._dir = root or Path.home() / ".punt-labs" / "lux"
         return self
 
     @property
     def dir(self) -> Path:
-        """Return the hub state directory: ~/.punt-labs/lux/"""
+        """Return the hub state directory, usually ``~/.punt-labs/lux/``."""
         return self._dir
 
     @property

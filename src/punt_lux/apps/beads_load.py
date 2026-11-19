@@ -41,7 +41,7 @@ class BeadsLoad:
 
     @classmethod
     def failed(cls, failure: BeadsResult) -> Self:
-        """A run that read nothing, and so has no figures worth reporting."""
+        """Represent a read with no issues or useful timing figures."""
         return cls(failure, BdOutput.none(), 0.0)
 
     @property

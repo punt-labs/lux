@@ -1,4 +1,4 @@
-"""Plain data the row builder produces and the painter consumes.
+r"""Plain data the row builder produces and the painter consumes.
 
 A ``Row`` is one terminal line, already reduced to what drawing needs:
 text ``Run``\\ s (consecutive cells sharing a style, drawn with one

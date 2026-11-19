@@ -63,6 +63,7 @@ class HubRestart:
         manager: HubServiceManager | None = None,
         paths: HubPaths | None = None,
     ) -> Self:
+        """Configure the dependencies used to restart the Hub."""
         self = super().__new__(cls)
         self._spec = spec if spec is not None else HUB_SPEC
         self._manager = manager if manager is not None else HubServiceManager()
@@ -102,7 +103,7 @@ class HubRestart:
 
     @staticmethod
     def _polls() -> Iterator[None]:
-        """The bounded poll schedule: sleep, then look, until spent."""
+        """Yield the bounded sequence of restart poll delays."""
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield

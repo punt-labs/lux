@@ -60,8 +60,6 @@ class PersonalCaProvider:
         return self._ca.sign_csr(csr)
 
     def issue_own_leaf(self, hostname: str) -> EnrolledIdentity:
-        """Issue the Display's own leaf certificate for *hostname* — the
-        CSR round-trip collapses to one local call (system.tex step 2).
-        """
+        """Issue the Display's own certificate without a remote CSR exchange."""
         key_pair, leaf = self._ca.issue_leaf(hostname)
         return EnrolledIdentity(key_pair, leaf)

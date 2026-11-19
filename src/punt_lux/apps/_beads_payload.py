@@ -103,11 +103,11 @@ class BeadsPayloadBuilder:
 
     @staticmethod
     def _columns() -> list[str]:
-        """The board's columns, in the order the table shows them."""
+        """Return the board columns in display order."""
         return ["ID", "Title", "Status", "P", "Type"]
 
     def _filters(self, issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """The board's chrome: a search over id and title, and a combo per facet.
+        """Build the board's ID and title search and one selector per facet.
 
         A combo offers only the values actually present, plus ``All``, so a board
         with nothing in progress does not offer to filter for it.

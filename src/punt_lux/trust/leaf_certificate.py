@@ -35,10 +35,7 @@ class LeafCertificate:
 
     @classmethod
     def from_der(cls, der: bytes) -> Self:
-        """Load a DER-encoded certificate -- the form
-        ``ssl.SSLSocket.getpeercert(binary_form=True)`` returns for an
-        already mTLS-verified peer (system.tex §"Resolving the Trust Fork").
-        """
+        """Load a peer certificate in the DER format returned by the SSL socket."""
         return cls(x509.load_der_x509_certificate(der))
 
     @classmethod
@@ -59,9 +56,7 @@ class LeafCertificate:
         path.write_bytes(self.to_pem())
 
     def public_key_pem(self) -> bytes:
-        """Return this leaf's public key as PEM SubjectPublicKeyInfo, to
-        compare pairing with a key without cryptography's own equality.
-        """
+        """Serialize the leaf public key as PEM for key pairing."""
         return self._certificate.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -92,9 +87,7 @@ class LeafCertificate:
 
     @property
     def hostname(self) -> str:
-        """Return the single SAN DNSName this leaf certifies, or raise if
-        the SAN is absent or does not name exactly one hostname.
-        """
+        """Return the only certified SAN DNS name."""
         names = self._dns_names()
         if len(names) != 1:
             msg = f"leaf must name exactly one SAN DNSName, found {len(names)}"

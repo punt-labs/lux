@@ -63,7 +63,7 @@ class NoClaim:
     __slots__ = ()
 
     def take(self) -> bool:
-        """Always yield: no session means no sibling that could be serving it."""
+        """Yield unconditionally because there cannot be a sibling for this session."""
         return True
 
 

@@ -61,6 +61,7 @@ class ServiceManager:
             raise TypeError(msg)
 
     def __new__(cls) -> Self:
+        """Discover the platform's service backend."""
         if "_SPEC" not in cls.__dict__:
             msg = (
                 f"{cls.__name__} is abstract — instantiate HubServiceManager or "

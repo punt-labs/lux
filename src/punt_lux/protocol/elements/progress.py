@@ -36,7 +36,7 @@ __all__ = ["ProgressElement"]
 
 
 class ProgressElement(Element):
-    """A progress bar: a fill ``fraction`` plus an optional overlay ``label``.
+    """Render a fractional progress bar with an optional overlay label.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``fraction`` is a total ``float`` (default

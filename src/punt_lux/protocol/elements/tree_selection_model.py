@@ -108,9 +108,7 @@ class TreeSelectionModel:
 
     @staticmethod
     def live_ids(nodes: Iterable[TreeNode]) -> frozenset[str]:
-        """Return every id ``nodes`` (and their descendants) use — the live-id
-        source ``TreeElement`` reconciles the selection against on every write.
-        """
+        """Collect node and descendant IDs for selection reconciliation."""
         return frozenset(chain.from_iterable(n.ids() for n in nodes))
 
     def resolved_props(self) -> dict[str, object]:

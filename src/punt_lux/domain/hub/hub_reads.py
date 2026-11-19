@@ -51,9 +51,7 @@ class HubReads:
             return self._index.element_count(scene_id)
 
     def scene_owners(self, scene_id: SceneId) -> tuple[Owner, ...]:
-        """Return each scene's distinct root owners (with declared identity),
-        first-appearance order; filter(None) drops a root whose owner is unrecorded.
-        """
+        """Return distinct declared root owners in first-appearance order."""
         with self._lock.read():
             roots = self._index.scene_root_items(scene_id)
             owned = (self._owners.get(scene_id, key) for key, _ in roots)

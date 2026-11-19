@@ -1,8 +1,7 @@
-"""Public-key pairing — the invariant every (key, signed material) pair in
-this package holds: an EnrolledIdentity's key and leaf, a
-CertificateAuthority's key and root. Checked once, at construction, so a
-mismatched pair is rejected before it is ever used for a handshake or a
-signing operation (DES-090).
+"""Enforce matching public keys across private keys and signed material.
+
+Checked once, at construction, so a mismatched pair is rejected before it is ever used
+for a handshake or a signing operation (DES-090).
 """
 
 from __future__ import annotations
@@ -31,19 +30,14 @@ class Pairing:
     def require_matching(
         a: KeyedByPublicKeyPem, b: KeyedByPublicKeyPem, what: str
     ) -> None:
-        """Raise :class:`ValueError` naming *what* unless *a* and *b*
-        report the same public key.
-        """
+        """Require both objects to report the same public key."""
         Pairing.require_matching_pem(a.public_key_pem(), b.public_key_pem(), what)
 
     @staticmethod
     def require_matching_certificate(
         key_pair: KeyedByPublicKeyPem, certificate: x509.Certificate, what: str
     ) -> None:
-        """Raise :class:`ValueError` naming *what* unless *key_pair* and
-        *certificate* share a public key — for a raw ``x509.Certificate``
-        with no :meth:`public_key_pem` of its own.
-        """
+        """Require the key pair to match the certificate's public key."""
         cert_pem = certificate.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
@@ -52,9 +46,7 @@ class Pairing:
 
     @staticmethod
     def require_matching_pem(a: bytes, b: bytes, what: str) -> None:
-        """Raise :class:`ValueError` naming *what* unless PEM blobs *a*
-        and *b* are byte-identical.
-        """
+        """Require the two PEM values to match byte for byte."""
         if a != b:
             msg = f"key pair does not match {what}'s public key"
             raise ValueError(msg)

@@ -45,7 +45,8 @@ class CallbackMenuReader(Protocol):
 
     Composed from the session registry, so whatever sessions are in lease when
     the send runs is what the display renders -- the same read-at-send
-    discipline the agent bar uses, with no payload to go stale."""
+    discipline the agent bar uses, with no payload to go stale.
+    """
 
     def callback_menu_wire(self) -> list[dict[str, object]]:
         """Return the uniform ``Clients`` menu as wire payloads."""
@@ -93,7 +94,7 @@ class WriteSeatPort(Protocol):
     """Where senders are made: the replicator's one way to write to the display."""
 
     def current(self) -> DisplaySender:
-        """A sender pinned to the dial that is current now."""
+        """Pin a sender to the active dial."""
         ...
 
 
@@ -123,7 +124,7 @@ class DeathQueuePort(Protocol):
     """The deaths dials left and nobody has charged: the charger's alone."""
 
     def take(self) -> DialDeath | None:
-        """The oldest death, handed over once."""
+        """Take the oldest unreported display death."""
         ...
 
     def put_back(self, death: DialDeath) -> None:

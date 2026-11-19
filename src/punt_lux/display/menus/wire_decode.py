@@ -51,8 +51,7 @@ class WireMenuDecoder:
         return self
 
     def entries(self, menu: WireMenu) -> Iterator[MenuEntry]:
-        """Yield one entry per checked entry; a nested menu recurses via
-        ``build_submenu`` (the clients under ``Clients``)."""
+        """Yield entries, recursively building nested client menus."""
         for entry in menu.entries:
             if isinstance(entry, WireMenu):
                 yield self._build_submenu(entry, self._handlers)

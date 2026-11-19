@@ -1,4 +1,4 @@
-"""Ghostty's render state, plus a per-row cache of built ``Row``\\ s.
+r"""Ghostty's render state, plus a per-row cache of built ``Row``\\ s.
 
 Each frame ``update()`` syncs the render state from the terminal, rebuilds
 only the rows Ghostty marks dirty (all of them when it reports a full

@@ -38,9 +38,9 @@ class UnreadableBoard:
         return self
 
     def request(self, work: BoardWork) -> BoardRequest:
-        """The red message naming why there is no board to show."""
+        """Return the visible error explaining why the board is unavailable."""
         return work.unavailable(self._reason)
 
     def said(self) -> str:
-        """What a click answering with that message says it answered with."""
+        """Label a click served with the unreadable-board message."""
         return _LAST_FAILURE

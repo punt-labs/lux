@@ -91,9 +91,7 @@ class PendingInteractions:
         self._events.extend(_Held(event, now) for event in new)
 
     def expire(self, now: float) -> Evictions:
-        """Remove interactions aged or overflowed past the bound, split
-        against what is still held -- a stalled frame's late entry is caught
-        the next time this runs, never left to live forever."""
+        """Drop expired or excess interactions and preserve the rest."""
         lost = self._evict_aged(now)
         lost.extend(self._evict_overflow())
         evicted = Evictions.of(lost, self.pending_events())
@@ -112,9 +110,7 @@ class PendingInteractions:
         self._discard(lambda event: id(event) in consumed)
 
     def evict_all(self) -> Evictions:
-        """Remove every held interaction -- the display was cleared, so none
-        may deliver against it later, and nothing is left holding to speak
-        for any gesture."""
+        """Discard all held interactions so none can target a cleared display."""
         evicted = Evictions.of((held.event for held in self._events), ())
         self._events.clear()
         return evicted

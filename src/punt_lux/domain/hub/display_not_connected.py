@@ -11,8 +11,9 @@ __all__ = ["DisplayNotConnectedError"]
 
 
 class DisplayNotConnectedError(RuntimeError):
-    """No dial is open and none could be made: ``DisplayLink.connect`` failed to
-    dial, or ``DisplayConnection.require`` was asked of a link that never dialed.
+    """Signal that no dial is open and no usable connection could be established.
+
     Distinct from a plain ``RuntimeError`` raised elsewhere (a mid-send teardown, a
     listener-thread API-misuse guard), so ``HubReplicator`` can pace the "never
-    connected" backoff without misclassifying those onto it."""
+    connected" backoff without misclassifying those onto it.
+    """

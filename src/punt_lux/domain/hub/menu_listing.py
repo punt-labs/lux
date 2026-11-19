@@ -86,11 +86,11 @@ class MenuListing:
         )
 
     def _declared(self) -> ClientIdentity | None:
-        """The identity the listed session declared; ``None`` for no session."""
+        """Return the listed session's identity, or ``None`` when absent."""
         return self._session.identity if self._session is not None else None
 
     def _entries(self) -> tuple[SessionCallback, ...]:
-        """The entries the session registered -- a change to them is a revision.
+        """Return registered menu entries whose changes count as revisions.
 
         Read here, once, so every write that can add, withdraw or relabel an entry
         is a revision without restating the rule at the write.

@@ -79,7 +79,7 @@ class HubClientRegistry:
             return self._sessions.get(connection_id)
 
     def identity_of(self, connection_id: ConnectionId) -> ClientIdentity | None:
-        """The identity the connection declared; None if unregistered or anonymous."""
+        """Return the declared identity, or ``None`` for an anonymous session."""
         with self._lock:
             session = self._sessions.get(connection_id)
         return None if session is None else session.identity
@@ -102,6 +102,6 @@ class HubClientRegistry:
         return self.named_sessions().sessions
 
     def _live_locked(self) -> dict[ConnectionId, ClientSession]:
-        """The sessions whose lease has not lapsed, as of now. Caller locks."""
+        """Return unexpired sessions while the caller holds the lock."""
         now = self._clock()
         return dict(filter(lambda kv: kv[1].is_live(now), self._sessions.items()))

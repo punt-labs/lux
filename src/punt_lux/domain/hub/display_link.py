@@ -132,19 +132,17 @@ class DisplayLink:
     def connect(self, *, listen: bool = False) -> None:
         """Connect to the display server, and start the listener on the new dial.
 
-        No-op if already connected.  If *auto_spawn* is enabled and no
-        display is running, spawns one first.  Blocks until the
-        ``ReadyMessage``/``ConnectMessage`` handshake completes (delegated to
-        :class:`HandshakeConnector`, which owns the socket-open and identity
-        concern). With ``listen`` the reader is started on the dial just opened,
-        before anything is sent on it; if it cannot start, that dial is retired
-        and the error raised, so the next connect redials. This link writes no
-        manifest: that is :meth:`open_as_hub`.
+        Reuse an existing connection; otherwise wait for the handshake,
+        spawning the display first if configured. With ``listen``, start
+        the reader before any requests are sent. If it cannot start on a
+        new connection, retire that connection so the next call reconnects.
+        Use ``open_as_hub`` to also send the scene manifest.
 
-        Raises
-        ------
-        DisplayNotConnectedError
-            If the display fails to start or the handshake times out.
+        Raises:
+            DisplayNotConnectedError: If the display rejects or does not answer
+                the connection or the handshake cannot complete.
+            RuntimeError: If starting the local display times out.
+            ValueError: If the Ready frame is malformed.
         """
         if not listen:
             self._connection.open()
@@ -184,7 +182,7 @@ class DisplayLink:
         self._connection.close()
 
     def take_deaths(self) -> DeathQueue:
-        """The queue of display deaths not yet charged, handed out once."""
+        """Drain the queue of display deaths not yet reported."""
         return self._connection.take_deaths()
 
     @property

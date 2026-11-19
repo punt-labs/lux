@@ -72,7 +72,7 @@ class SessionWrite:
         )
 
     def seated(self, listener: CallbackListener) -> Self:
-        """This write, with ``listener`` also seated in the stored session's slot.
+        """Return the write with the listener seated in the stored session's slot.
 
         The attach is the declaration plus the seating, so it is the recorded
         write that seats the listener: it already holds the session before and

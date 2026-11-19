@@ -57,11 +57,11 @@ class BoardWork:
         return self._load.board(read)
 
     def placeholder(self) -> BoardRequest:
-        """The scene to open with when there is no board to show yet."""
+        """Return the scene to open when the board is absent."""
         return self._load.placeholder()
 
     def unavailable(self, reason: str) -> BoardRequest:
-        """The red message saying why there is no board."""
+        """Return the visible error explaining why the board is absent."""
         return self._load.unavailable(reason)
 
     def push(self, request: BoardRequest) -> None:

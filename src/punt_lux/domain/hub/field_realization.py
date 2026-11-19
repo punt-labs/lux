@@ -46,15 +46,15 @@ class FieldRealization(Protocol):
         ...
 
     def current(self) -> WireElement:
-        """The target as the store holds it now."""
+        """Return the unmodified target from the store."""
         ...
 
     def projected(self) -> tuple[str, WireElement]:
-        """The target's id and the element it would become, without applying it."""
+        """Preview the target ID and resulting element without applying the patch."""
         ...
 
     def write(self) -> tuple[AbcElement, Mapping[str, object]]:
-        """The element this realization patches and the very mapping it patches with."""
+        """Return the element and mapping used to apply the patch."""
         ...
 
     def commit(self) -> None:
@@ -112,11 +112,11 @@ class AbcFieldRealization:
         return WriteRejected(ValidationReport(errors).describe()) if errors else None
 
     def current(self) -> WireElement:
-        """The element as the store holds it, untouched."""
+        """Return the untouched element from the store."""
         return self._wire(self._element)
 
     def projected(self) -> tuple[str, WireElement]:
-        """The element's id and what it would be once the patch is applied.
+        """Preview the target ID and resulting element after the patch.
 
         A throwaway deep copy, made once and shared with ``rejection``: the element
         itself, and any observer of it, is untouched.
@@ -124,12 +124,12 @@ class AbcFieldRealization:
         return self._element.id, self._wire(self._patched_copy())
 
     def write(self) -> tuple[AbcElement, Mapping[str, object]]:
-        """The element and the mapping ``commit`` hands its ``apply_patch``."""
+        """Return the element and mapping used by the commit."""
         return self._element, self._fields
 
     @staticmethod
     def _wire(element: AbcElement) -> WireElement:
-        """The ABC element seen through its wire contract.
+        """View the ABC element through its wire contract.
 
         Every ABC kind the store holds has a wire form (``to_dict``); the ABC base
         leaves it to the kind, so a kind without one fails loudly where the cap

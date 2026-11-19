@@ -50,7 +50,7 @@ class BoardLoad:
         return self
 
     def entry(self, callback_id: str, label: str) -> MenuEntry:
-        """The menu entry that raises this board's frame, so the two cannot differ."""
+        """Return the menu entry bound to the board's own frame."""
         return MenuEntry(callback_id, label, self._board.frame_id)
 
     def issues(self) -> BoardRead:
@@ -80,9 +80,9 @@ class BoardLoad:
         return self.board(self.issues())
 
     def placeholder(self) -> BoardRequest:
-        """The scene a click opens with when it has no board to show yet."""
+        """Return the placeholder scene for a click without a board."""
         return self._board.starting()
 
     def unavailable(self, reason: str) -> BoardRequest:
-        """The red message that says why there is no board to show."""
+        """Return the visible error explaining why no board is available."""
         return self._board.failure(reason)

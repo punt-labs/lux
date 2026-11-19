@@ -38,17 +38,17 @@ class Drained:
 
     @classmethod
     def holding(cls, chunk: bytes) -> Self:
-        """The look that found ``chunk``: the stream goes on."""
+        """Represent a read that produced a chunk and left the stream open."""
         return cls(chunk, ended=False)
 
     @classmethod
     def quiet(cls) -> Self:
-        """The look that found nothing more now, and no end."""
+        """Represent an open stream with no additional bytes ready."""
         return cls(b"", ended=False)
 
     @classmethod
     def end(cls) -> Self:
-        """The look that found the stream's end."""
+        """Represent a read that reached the end of the stream."""
         return cls(b"", ended=True)
 
 

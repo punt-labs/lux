@@ -3,7 +3,7 @@
 When a send to the display fails, the worker hands the failure here, and what to do
 is decided by the cause the dial recorded for its own end, not by the exception that
 carried the failure. A display that stopped reading (recorded ``unresponsive``) is
-killed — its launchd/systemd unit respawns it (lux-5uc7); the Hub never spawns a
+killed so its supervisor can respawn it; the Hub never spawns a
 competing process — and a dead peer (``OSError``) is only dropped so the next send
 reconnects. Either way
 the heal re-marks every live scene, a consumed clear, and the menu, so a display

@@ -10,7 +10,7 @@ __all__ = ["Cleared", "SceneShown"]
 
 
 class SceneShown(BaseModel):
-    """A scene was installed and marked for resend."""
+    """Confirm that the Hub installed the scene and marked it for replication."""
 
     model_config = ConfigDict(frozen=True)
 

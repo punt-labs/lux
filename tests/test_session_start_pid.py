@@ -4,7 +4,7 @@ Claude Code invokes SessionStart hooks through a short-lived ``sh`` wrapper: the
 hook's own ``$PPID`` names that wrapper, not the long-running ``claude`` process
 that actually owns the session. lux-beads was spawned watching ``$PPID``
 directly, so its SessionWatch saw the wrapper vanish within seconds and left
-before ever registering in the Lux menu (lux-zrnd).
+before ever registering in the Lux menu.
 
 These tests drive the real hook script as a subprocess at the bottom of a real
 three-level process tree — a stand-in ``claude`` process, a wrapper that forks
@@ -178,7 +178,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
     env["HOME"] = str(fake_home)
     # claude_bin is launched by bare name through PATH: macOS `ps -o comm=`
     # reports the path as launched, so an absolute path would never read as
-    # plain "claude" there (PL-1105).
+    # plain "claude" there.
     env["PATH"] = f"{stub_bin}:{claude_bin.parent}:{env.get('PATH', '')}"
     env["TMPDIR"] = str(hook_tmpdir)
     env["RELAY_TRACE_FILE"] = str(trace_file)

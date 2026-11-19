@@ -1,5 +1,7 @@
-"""MenuReplica — composes the replicated menu state and the model both surfaces
-render. ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs."""
+"""Compose replicated menus for the application bar and World panel.
+
+``imgui`` is typed ``Any``: imgui_bundle ships no type stubs.
+"""
 
 from __future__ import annotations
 
@@ -28,8 +30,7 @@ _NO_HUB = HubId.stub()
 
 @final
 class MenuReplica:
-    """Compose the replicated menu state (:class:`ReplicatedMenus`) and the
-    two rendering surfaces (:class:`MenuSurfaces`) that draw its model."""
+    """Bind the replicated menu state to both rendering surfaces."""
 
     _emit_event: Callable[[RemoteEventHandlerInvocation], None]
     _on_raise_frame: Callable[[str, HubId], None]
@@ -89,8 +90,7 @@ class MenuReplica:
         return self._menus.stats
 
     def menu_model(self) -> MenuModel:
-        """Compose Lux, Clients, agent bars, chrome, rebuilt each frame -- each
-        Hub-sourced section's handlers route straight to its own Hub."""
+        """Compose the menu model for this frame with handlers scoped to their Hub."""
         emit, raise_frame = self._emit_event, self._on_raise_frame
         return MenuModel(
             [

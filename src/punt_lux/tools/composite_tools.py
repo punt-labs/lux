@@ -56,7 +56,6 @@ def show_table(
     a filter reappears when the filter is cleared.
 
     Args:
-        scene_id: Unique identifier for this scene.
         columns: Column headers (e.g., ["ID", "Title", "Status"]).
         rows: Table data — each row is a list matching columns order.
         filters: Built-in filter controls rendered above the table.
@@ -86,9 +85,14 @@ def show_table(
         table_id: Identity of the composed table within the scene (default:
             "table"). Set a distinct id for each table when a scene holds
             more than one, so their synthesized control ids do not collide.
-        title: Window title.
         frame_id: Target frame for tab isolation (e.g., "beads-lux").
         frame_title: Display title for the frame (e.g., "Beads: lux").
+
+    Returns:
+        ``"shown:<scene_id>"`` once the Hub accepts the table scene.
+
+    Raises:
+        ToolError: If the table configuration is invalid or submission is denied.
 
     Example — issue explorer with search, status filter, and detail::
 
@@ -160,7 +164,6 @@ def show_dashboard(
     only the ones relevant to your data.
 
     Args:
-        scene_id: Unique identifier for this scene.
         metrics: Key-value metric cards displayed in a row.
             Each dict: {"label": "Total Users", "value": "1,234"}.
             2-5 cards is ideal for a single-glance overview.
@@ -174,7 +177,12 @@ def show_dashboard(
             "scatter" (correlations).
         table_columns: Column headers for the summary table.
         table_rows: Rows for the summary table.
-        title: Window title.
+
+    Returns:
+        ``"shown:<scene_id>"`` once the Hub accepts the dashboard scene.
+
+    Raises:
+        ToolError: If the dashboard is invalid or submission is denied.
 
     Example — test results dashboard::
 

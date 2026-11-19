@@ -1,5 +1,4 @@
-"""JsonCollapsingHeaderDecoder + JsonCollapsingHeaderEncoder — wire codec for the
-ABC ``CollapsingHeaderElement``.
+"""Encode and decode collapsing-header elements on the wire.
 
 Mirrors two exemplars: the group codec (child recursion plus the shared all-ABC
 gate) and the checkbox codec (a built-in state-sync handler registered before

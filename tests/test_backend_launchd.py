@@ -1,4 +1,4 @@
-"""Tests for punt_lux._backend_launchd -- launchd install() idempotency (lux-94p0)."""
+"""Check that installing an unchanged launchd service leaves it running."""
 
 from __future__ import annotations
 

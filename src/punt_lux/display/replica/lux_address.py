@@ -60,7 +60,7 @@ class LuxAddress:
         return ID_SEPARATOR.join((self.hub.key, self.connection.key, self.leaf.key))
 
     def title(self, *, hub_ambiguous: bool, connection_shown: bool) -> str:
-        """The visible title: the leaf always, higher rungs when the caller says.
+        """Build the visible title, including parent components when requested.
 
         The Hub rung is shown only while ambiguous; the connection rung
         whenever the item has a label to show (DES-100). Both are caller

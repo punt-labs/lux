@@ -5,6 +5,8 @@ noun-grouped accessors, the persistent listening client, and the direct MCP
 connection. This is developer documentation; the [README](../README.md) covers
 users.
 
+Run `make build-api-docs` to build the checked Python API reference locally.
+
 ## `LuxClient` — the public facade
 
 `LuxClient` is the public Python library API of `luxd`. A downstream

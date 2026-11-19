@@ -120,7 +120,7 @@ class Element(EventHandlerHost, ABC):
         """Return the element's stable identity within its enclosing Scene."""
 
     def render(self) -> None:
-        """Fixed template skeleton over four step hooks. NEVER overridden.
+        """Render this element using the four fixed step hooks.
 
         Runs ``_begin`` → ``_paint_self`` → ``_render_children`` → ``_end``;
         ``_end`` runs in a ``finally`` so an opened ImGui surface stays
@@ -137,28 +137,37 @@ class Element(EventHandlerHost, ABC):
             self._end(renderer, opened=opened)
 
     def _begin(self, renderer: Renderer) -> bool:
-        """Open this node's surface; return whether the inner steps run.
-        Default: delegate to the renderer's ``begin`` — a leaf renderer
-        returns True (nothing to open), a container renderer opens its
-        surface and may report it hidden."""
+        """Open this node's surface and report whether to paint its contents.
+
+        Default: delegate to the renderer's ``begin`` — a leaf renderer returns True
+        (nothing to open), a container renderer opens its surface and may report it
+        hidden.
+        """
         return renderer.begin()
 
     def _paint_self(self, renderer: Renderer) -> None:
-        """Paint this node's own body. Default: delegate to the renderer.
-        A pure container's renderer ``paint`` is a no-op."""
+        """Paint this node's body through its renderer.
+
+        Default: delegate to the renderer. A pure container's renderer ``paint`` is a
+        no-op.
+        """
         renderer.paint()
 
     def _render_children(self, renderer: Renderer) -> None:
-        """Paint the children between ``_begin`` and ``_end``. Default:
-        recurse ``_children()``; a leaf paints nothing."""
+        """Paint the children between opening and closing the node.
+
+        Default: recurse ``_children()``; a leaf paints nothing.
+        """
         _ = renderer
         for child in self._children():
             child.render()
 
     def _end(self, renderer: Renderer, *, opened: bool) -> None:
-        """Close this node's surface. Default: delegate to the renderer's
-        ``end`` — a leaf renderer's ``end`` is a no-op, a container renderer
-        closes only what ``opened`` says it opened."""
+        """Close this node's surface through its renderer.
+
+        Default: delegate to the renderer's ``end`` — a leaf renderer's ``end`` is a
+        no-op, a container renderer closes only what ``opened`` says it opened.
+        """
         renderer.end(opened=opened)
 
     def _children(self) -> tuple[Element, ...]:

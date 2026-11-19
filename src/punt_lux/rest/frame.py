@@ -1,11 +1,4 @@
-"""The frame routes -- remove the caller's own frame's content (lux-03k6).
-
-Split out of :mod:`punt_lux.rest.display` (a proxy for display-process facts):
-removing a frame's content is a Hub-side write with its own ownership rule
-(DES-086), not a proxied read, so it gets its own small route class -- the
-same per-concern split :class:`~punt_lux.rest.app.RestSurface` already uses
-for scenes, menus, and display-mode config.
-"""
+"""Route frame content removal to the Hub under the caller's ownership scope."""
 
 from __future__ import annotations
 

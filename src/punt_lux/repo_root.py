@@ -35,6 +35,7 @@ class RepoRoot:
     __slots__ = ("_headless_name", "_path")
 
     def __new__(cls, path: Path | None, headless_name: str) -> Self:
+        """Store the repository path or the fallback name for headless use."""
         self = super().__new__(cls)
         self._path = path
         self._headless_name = headless_name

@@ -1,12 +1,8 @@
-"""macOS-specific NSApplication activation policy for the Lux display.
+"""Set the Lux display's macOS application activation policy.
 
 The display sets ``NSApplicationActivationPolicyRegular`` so the OS gives it
 a Dock icon and lists it in Cmd-Tab — standard macOS app behaviour when a
 window is on screen and there is no menubar/status-item entry.
-
-When the menubar-app epic (lux-mxvy.3) ships, this flips to
-``NSApplicationActivationPolicyAccessory`` so the menubar controls visibility
-and the Dock stays clean.
 """
 
 from __future__ import annotations

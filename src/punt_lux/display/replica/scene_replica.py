@@ -27,10 +27,11 @@ _NO_HUB = HubId.stub()
 
 
 class SceneReplica:
-    """Own the scene graph: framed scenes (via a composed :class:`FrameBook`),
-    widget state (:class:`WidgetStateStore`), stale-id bookkeeping
-    (:class:`StaleIds`). Two authorities write here: a client owns *content*,
-    the user owns *visibility* -- why ``close``/``dispose_frame`` differ."""
+    """Coordinate framed scenes, widget state, and stale-element bookkeeping.
+
+    Two authorities write here: a client owns *content*, the user owns *visibility* --
+    why ``close``/``dispose_frame`` differ.
+    """
 
     _book: FrameBook
     _widget_state: WidgetStateStore
@@ -131,7 +132,7 @@ class SceneReplica:
         return self._departure
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
-        """The frame ``(hub, frame_id)`` addresses -- collision-safe."""
+        """Return the Hub-scoped addresses of all frames."""
         return self._book.frame(frame_id, hub)
 
     def owner_facts_for(
@@ -193,16 +194,14 @@ class SceneReplica:
         return not frame.scenes
 
     def close(self, frame_id: str) -> list[str]:
-        """Put a frame away, returning its scene ids -- visibility only; content
-        stays."""
+        """Hide a frame and return its scene IDs without discarding content."""
         frame = self._book.close(frame_id)
         if frame is None:
             return []
         return list(frame.scene_order)
 
     def dispose_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> list[str]:
-        """Throw a frame and its scenes out, returning stale element IDs -- content
-        is gone (empty push, manifest purge, TTL, Clear All)."""
+        """Remove a frame and its scenes and return the stale element IDs."""
         frame = self._book.pop_frame(frame_id, hub)
         if frame is None:
             return []
@@ -241,7 +240,7 @@ class SceneReplica:
     def widget_snapshot(
         self, scene_id: str, hub: HubId = _NO_HUB
     ) -> dict[str, WireScalar] | None:
-        """The scene's curated widget-state snapshot, or None if untracked."""
+        """Return the curated widget state, or ``None`` for an untracked scene."""
         state = self.widget_state_for(scene_id, hub)
         return state.observable_snapshot() if state is not None else None
 
