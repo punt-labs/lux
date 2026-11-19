@@ -48,6 +48,7 @@ def pointer(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(imgui, "is_mouse_released", released)
     monkeypatch.setattr(imgui, "is_window_hovered", lambda: state.hovered)
     monkeypatch.setattr(imgui, "is_window_focused", lambda: False)
+    monkeypatch.setattr(imgui, "set_window_focus", Mock())
     monkeypatch.setattr(imgui, "get_cursor_screen_pos", lambda: ImVec2(0, 0))
     monkeypatch.setattr(imgui, "get_content_region_avail", lambda: ImVec2(200, 40))
     monkeypatch.setattr(imgui, "dummy", Mock())

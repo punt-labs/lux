@@ -146,9 +146,11 @@ class TerminalView:
         grid = CellGrid.for_current_font(imgui.get_cursor_screen_pos())
         avail = imgui.get_content_region_avail()
         self._fit(int(avail.x / grid.cell_w), int(avail.y / grid.cell_h))
-        focused = imgui.is_window_focused()
         hovered = imgui.is_window_hovered()
-        if focused:
+        if hovered and imgui.is_mouse_clicked(imgui.MouseButton_.left):
+            imgui.set_window_focus()
+        focused = imgui.is_window_focused()
+        if focused and (hovered or not imgui.is_mouse_clicked(imgui.MouseButton_.left)):
             self._handle_keys()
         captured = self._buffer.input.mouse_captured
         if any((hovered, self._buffer.selection.dragging, captured)):
