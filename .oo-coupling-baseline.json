@@ -451,8 +451,8 @@
     "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.722,
-    "avg_lcom": 0.722
+    "max_lcom": 0.8,
+    "avg_lcom": 0.8
   },
   "src/punt_lux/cli/__init__.py": {
     "efferent_coupling": 0.0,
@@ -490,7 +490,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/cli/display.py": {
-    "efferent_coupling": 4.0,
+    "efferent_coupling": 9.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -553,7 +553,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/cli/registry.py": {
-    "efferent_coupling": 11.0,
+    "efferent_coupling": 12.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -2327,8 +2327,8 @@
     "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.618,
-    "avg_lcom": 0.618
+    "max_lcom": 0.636,
+    "avg_lcom": 0.636
   },
   "src/punt_lux/display/terminal/sizing.py": {
     "efferent_coupling": 0.0,
@@ -2348,8 +2348,8 @@
     "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.515,
-    "avg_lcom": 0.515
+    "max_lcom": 0.525,
+    "avg_lcom": 0.525
   },
   "src/punt_lux/display/texture_cache.py": {
     "efferent_coupling": 4.0,
@@ -5684,7 +5684,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/ptyd/__main__.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -5705,7 +5705,7 @@
     "avg_lcom": 0.476
   },
   "src/punt_lux/ptyd/control_dispatch.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -5841,8 +5841,8 @@
     "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.089,
-    "avg_lcom": 0.089
+    "max_lcom": 0.156,
+    "avg_lcom": 0.156
   },
   "src/punt_lux/ptyd/process_factory.py": {
     "efferent_coupling": 3.0,
@@ -5866,18 +5866,18 @@
     "avg_lcom": 0.333
   },
   "src/punt_lux/ptyd/service.py": {
-    "efferent_coupling": 0.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
   "src/punt_lux/ptyd/session.py": {
-    "efferent_coupling": 6.0,
+    "efferent_coupling": 7.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.379,
-    "avg_lcom": 0.379
+    "max_lcom": 0.394,
+    "avg_lcom": 0.394
   },
   "src/punt_lux/ptyd/session_state.py": {
     "efferent_coupling": 0.0,
@@ -6142,8 +6142,8 @@
     "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.4,
-    "avg_lcom": 0.4
+    "max_lcom": 0.467,
+    "avg_lcom": 0.467
   },
   "src/punt_lux/terminal/local_endpoint.py": {
     "efferent_coupling": 1.0,
