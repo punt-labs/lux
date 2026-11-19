@@ -36,48 +36,33 @@ type: ## Type check with mypy and pyright
 
 check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
 
-# BASE_REF overrides the default comparison base for both ratchets. Set by CI
-# on BOTH triggers -- the push-to-main job passes github.event.before (the
-# pre-push tip of main); the pull_request job passes merge-base(origin/main,
-# HEAD) computed once in the workflow so both ratchets score the WHOLE PR
-# range, not just its last commit. Unset locally, so a developer's ad-hoc
-# `make check-oo`/`make check-coupling` keeps each tool's own plain default:
-# merge-base(origin/main, HEAD) for BOTH tools now (oo_score.py's
-# GitRepo.resolve_base; oo_coupling.py's CouplingRatchet's own default base
-# resolver), falling back to HEAD~1 when merge-base cannot resolve (no
-# origin/main ref fetched, no origin remote, or no common history with
-# origin/main -- note a detached HEAD does NOT prevent merge-base, which
-# resolves fine as long as the ref and shared history exist) or when the
-# merge-base IS HEAD (HEAD carries no commits ahead of origin/main, so the
-# range is empty -- e.g. a push whose origin/main was just fetched to the
-# pushed tip). check-coupling's plain default used to be an unconditional
-# HEAD~1 -- the last commit only -- so a within-cap regression buried in an
-# earlier commit of a multi-commit local branch passed `make check` and only
-# ever failed once pushed, where CI always overrode the default explicitly.
-# The fix lives entirely in the tools; this Makefile plumbing is unchanged.
+# CI compares PRs with their merge base and pushes to main with the pre-push
+# tip (github.event.before). Without BASE_REF, the package resolves the merge
+# base of origin/main and HEAD. Keep the explicit push base: comparing the
+# freshly fetched main tip to itself would silently check an empty range.
 check-oo: ## OO ratchet — must improve over baseline, never regress
-	uv run --extra display python tools/oo_score.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF) --require-base,)
+	uv run --extra display oo-ratchet oo src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF) --require-base,)
 
 update-oo: ## Update OO baseline after improvements (stage .oo-baseline.json and .oo-audit.jsonl)
-	uv run --extra display python tools/oo_score.py src/punt_lux/ --update
+	uv run --extra display oo-ratchet oo src/punt_lux/ --update
 
 check-suppressions: ## Suppression ratchet — count must not increase
-	uv run --extra display python tools/suppression_ratchet.py src/punt_lux/ --check
+	uv run --extra display oo-ratchet suppressions src/punt_lux/ --check
 
 update-suppressions: ## Update suppression baseline
-	uv run --extra display python tools/suppression_ratchet.py src/punt_lux/ --update
+	uv run --extra display oo-ratchet suppressions src/punt_lux/ --update
 
 check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
 	bash scripts/check-plugin-surface.sh
 
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
-	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
+	uv run --extra display oo-ratchet coupling src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
 update-coupling: ## Update coupling baseline
-	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --update
+	uv run --extra display oo-ratchet coupling src/punt_lux/ --update
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
-	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
+	-uv run --extra display oo-ratchet oo src/punt_lux/ --threshold
 	-uv run --extra display mypy src/ tests/
 	-uv run --extra display ruff format --check .
 	-uv run --extra display ruff check --preview --select PLR6301,PLR0913,UP035,UP040,UP007,N,I,SIM,S101 .
