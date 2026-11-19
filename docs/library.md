@@ -23,7 +23,7 @@ vocabulary the CLI, MCP, and REST surfaces speak. IDE completion on
 ```python
 import asyncio
 
-from punt_lux import LuxClient, RenderRequest, SceneShown, TextElement
+from punt_lux import LuxClient, RenderRequest, SceneShown
 
 # connect() locates a running luxd and derives this invocation's identity from
 # the git repository it runs in — so the scene below is owned by that repo.
@@ -34,7 +34,7 @@ async def render_hello() -> None:
     result = await client.scene.show(
         RenderRequest(
             scene_id="hello",
-            elements=[TextElement(id="t1", content="Hello from Python")],
+            elements=[{"kind": "text", "id": "t1", "content": "Hello from Python"}],
         )
     )
     if isinstance(result, SceneShown):
@@ -50,22 +50,22 @@ An unreachable `luxd` raises `HubUnavailableError`; a reachable Hub's refusal
 of a request comes back as a typed `OpError` in the result.
 
 Every accessor method is `async` and returns the typed operation result. The
-facade dispatches through the shared command singletons in
+facade generally dispatches through the shared command singletons in
 `punt_lux.commands`, so a library caller executes the same code path as the
 CLI, MCP, and REST adapters.
 
 ### Shipped accessors
 
-The library facade exposes nine accessors this cycle:
+The library facade exposes eight accessors:
 
 | Accessor | Verbs |
 |----------|-------|
 | `client.scene` | `show`, `update`, `clear`, `clear_all`, `inspect`, `ls`, `table`, `dashboard` |
-| `client.frame` | `close` |
+| `client.frame` | `remove` |
 | `client.menu` | `ls`, `set` |
 | `client.session` | `ls`, `identify` |
 | `client.callback` | `register` |
-| `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `screenshot` |
+| `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `get_state`, `screenshot` (currently unsupported) |
 | `client.event` | `ls` |
 | `client.error` | `ls` |
 
@@ -77,9 +77,9 @@ Top-level (no noun grouping):
 Verbs deferred to follow-on beads: `client.frame.lower` / `client.frame.expire`
 (`lux-01iw` / `lux-0qrw`, waiting on the MCP tools), `client.menu.get`
 (`lux-m69c`), `client.session.inspect` (`lux-aom6`), `client.callback.pending`
-(architecturally REST-unreachable — landing with the listen-leg wiring). The
-`client.display.*` split verbs fuse into `client.display.theme(name=None)`
-etc. once `lux-5pwu` lands. `client.topic.*` (publish / subscribe / receive)
+(architecturally REST-unreachable — landing with the listen-leg wiring).
+Theme and window setters are user-only gestures in the Display.
+`client.topic.*` (publish / subscribe / receive)
 lands once the REST routes ship or a listener-based accessor is chosen.
 
 ## Listening: a persistent hub client
@@ -253,17 +253,35 @@ same way: straight to `luxd`'s HTTP endpoint (`http://127.0.0.1:8430/mcp`), with
 no per-session process in the path. A copy-paste example is in
 [`plugin/.claude-plugin/mcp-http.example.json`](../plugin/.claude-plugin/mcp-http.example.json).
 
-Such a session gets the whole tool surface but owns no menu entries, because it
-holds no connection a click could arrive on. Menu entries belong to the
-session's **applets** — `lux-beads` and the like — which the session-start hook
-launches and which hold their own listener; `register_callback` from the tool
-surface is refused, saying so.
+After identifying, such a session can own agent-menu entries through `menu_set`.
+Items may raise one of its frames; clicks also arrive in its inbox as `lux.menu`
+events, drained with `topic_recv()` without a subscription. This is separate from listener-backed
+callbacks: `callback_register` requires a persistent listen leg and is refused
+for a tool-only MCP session. Applets such as `lux-beads` hold that leg and service
+their own callbacks.
 
-Start `luxd` first (`lux hub install` and start the service, or run `luxd` in a
+Start `luxd` first (`lux hub install` and start the service, or run `luxd-hub` in a
 terminal), then verify the direct connection end to end:
 
-```bash
-uv run python scripts/direct_connection_probe.py
+```python
+import asyncio
+
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+
+async def probe() -> None:
+    async with (
+        streamable_http_client("http://127.0.0.1:8430/mcp") as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        tools = await session.list_tools()
+        print("tools:", len(tools.tools))
+        print(await session.call_tool("scene_ls", {}))
+
+
+asyncio.run(probe())
 ```
 
 The probe initializes a session, lists the tool surface, and calls a read-only

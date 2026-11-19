@@ -35,6 +35,12 @@
   and explicit kill. Short FD/RSS observations are recorded separately, not
   represented as long-duration leak/soak proof.
 
+- **`make screenshot` works on macOS.** `scripts/screenshot_macos.py` finds the
+  Lux window by the `luxd-display` PID, raises it, captures its display with
+  `ffmpeg -f avfoundation`, and crops the window out. Like the Linux script, it
+  never leaves a stale file and rejects blank or covered captures. The new
+  `make screenshots` target captures at a fixed interval.
+
 ### Changed
 
 - **`lux enable` allows each surface broadly with exact `ask` carve-outs
@@ -43,10 +49,12 @@
   `ask` rules for `install`, `uninstall`, `enable`, `disable`, `hook`, the
   `hub`/`display` `install|uninstall|start|stop|restart|doctor` service
   controls (`doctor --fix` removes legacy registrations and shims),
-  `display serve`, `display mode` (it grants or revokes these rules) and any
-  global option before the verb (`Bash(lux -*)`). Those prompt even though
-  the broad allow matches; new safe commands, MCP tools and skills work with
-  no rule update. `lux disable` removes both sets; the bare `Skill(<cmd>)`
+  `display serve` and `display mode` (it grants or revokes these rules).
+  Those prompt even though the broad allow matches; new safe commands, MCP
+  tools and skills work with no rule update. There is no `Bash(lux -*)`
+  catch-all, so `lux --version` and `lux --help` do not prompt (punt-kit
+  DES-039); `lux enable` and `lux disable` both remove that rule from a repo
+  an earlier version enabled. `lux disable` removes both sets; the bare `Skill(<cmd>)`
   rules an earlier `lux enable` wrote stay until you delete them (no cleanup
   code, punt-kit#396). `scripts/check-skill-permissions.sh` is removed: with
   `Skill(lux:*)` there is no per-command list to keep in sync.
@@ -60,6 +68,13 @@
   with a by-id pull.
 
 ### Fixed
+
+- **`make screenshot` on macOS no longer reports the Lux window as 100%
+  covered.** On macOS 26.6 the Dock and Notification Center each keep a
+  transparent, screen-sized window above every app window. The occlusion check
+  now skips a window from those two processes when it exactly matches a
+  screen. It identifies them by bundle ID, since window owner names are
+  localized. A notification banner over the Lux window is no longer detected.
 
 - **`punt_lux.__version__` fails fast when the package is not installed
   (`lux-h2pj`).** It read the version from package metadata but fell back to

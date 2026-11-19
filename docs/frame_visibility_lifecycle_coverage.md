@@ -8,10 +8,10 @@ schemas, then maps them against the tests in `tests/display/replica/` and
 `tests/display/`. The bar is that the spec's partitions are covered by a test,
 not merely that the model type-checks.
 
-**This audit is written at design time**, so most rows are GAPs by
-construction — the code the spec describes does not exist yet. That is the
-point: the GAP column is the implementation mission's test plan, and every row
-marked REPLACE names a test that today asserts a behaviour DES-065 R8 retires.
+**Historical design-time audit; implementation delivered (DES-088).**
+`SceneReplica.close`, `FrameVisibility`, and `Frame.restore` now implement the
+content/visibility split. The GAP and REPLACE rows below retain the original
+implementation test plan; they have not been re-audited against today's tests.
 
 Spec-operation → code mapping (target state, not current):
 

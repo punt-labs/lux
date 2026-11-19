@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload prove-reaping screenshot
+.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload prove-reaping screenshot screenshots
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -70,6 +70,11 @@ update-suppressions: ## Update suppression baseline
 check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
 	bash scripts/check-plugin-surface.sh
 
+check-layers: ## Report future-package layer violations (never gates)
+	uv run --extra display python tools/layer_contract.py
+
+.PHONY: check-layers
+
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
@@ -78,6 +83,7 @@ update-coupling: ## Update coupling baseline
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
+	-uv run --extra display python tools/layer_contract.py
 	-uv run --extra display mypy src/ tests/
 	-uv run --extra display ruff format --check .
 	-uv run --extra display ruff check --preview --select PLR6301,PLR0913,UP035,UP040,UP007,N,I,SIM,S101 .
@@ -107,9 +113,21 @@ reload: install ## Install + restart luxd only (display keeps running)
 	@echo "luxd restarted through the service supervisor"
 
 SCREENSHOT_OUT ?= .tmp/lux-screenshot.png
+SCREENSHOT_INTERVAL ?= 5
+SCREENSHOT_COUNT ?= 12
+# Exported so recipes read "$$SCREENSHOT_*" from the environment, never a splice.
+export SCREENSHOT_OUT SCREENSHOT_INTERVAL SCREENSHOT_COUNT
 
 screenshot: ## Capture the running lux-display window to a PNG (dev/verification only, not in `check`)
-	@path="$$(bash scripts/screenshot.sh "$(SCREENSHOT_OUT)")" && echo "screenshot: $$path"
+	@if [ "$$(uname -s)" = Darwin ]; then \
+		path="$$(uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT")"; \
+	else \
+		path="$$(bash scripts/screenshot.sh "$$SCREENSHOT_OUT")"; \
+	fi && echo "screenshot: $$path"
+
+screenshots: ## Capture the lux-display window every SCREENSHOT_INTERVAL s, SCREENSHOT_COUNT times (macOS)
+	@uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT" \
+		--interval "$$SCREENSHOT_INTERVAL" --count "$$SCREENSHOT_COUNT"
 
 prove-reaping: ## Manual regression demo for dead-connection reaping (lux-d84d) — needs a running luxd on branch code (`lux hub restart`); takes ~2 minutes
 	@echo "prove-reaping: requires luxd already running the branch's code — run 'lux hub restart' first if unsure"

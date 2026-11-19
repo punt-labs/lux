@@ -65,11 +65,12 @@ Allowed without a prompt:
 
 Claude Code asks before running:
 
-- `Bash(lux -*)`
 - `lux install`, `uninstall`, `enable`, `disable`, and `hook`
 - `lux hub install`, `uninstall`, `start`, `stop`, `restart`, and `doctor`
 - `lux display install`, `uninstall`, `start`, `stop`, `restart`, `doctor`,
   `serve`, and `mode`
 
-Each command in the last three items is written as a `Bash(<command>:*)`
-rule, for example `Bash(lux hub restart:*)`.
+Each command is written as a `Bash(<command>:*)` rule, for example
+`Bash(lux hub restart:*)`. A command that starts with an option, such as
+`lux --version`, does not prompt. Both commands also remove `Bash(lux -*)`,
+which earlier versions added.

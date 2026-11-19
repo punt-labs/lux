@@ -2,13 +2,14 @@
 
 **Bead:** `lux-mxvy.8` (R8 of epic `lux-mxvy`)
 **Mission:** `m-2026-08-29-004` (design; worker `rmh`, evaluator `gvr`)
-**Status:** design complete, model-checked, awaiting leader review
+**Status:** delivered (DES-088); `SceneReplica.close`, `FrameVisibility`, and
+`Frame.restore` implement the Display-owned closed state and reopening path.
 **Model:** [`frame-visibility-lifecycle.tex`](frame-visibility-lifecycle.tex),
 fidelity control [`frame-visibility-lifecycle_buggy.tex`](frame-visibility-lifecycle_buggy.tex),
 partition audit [`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md)
 
-Design only. No source file is touched by this mission; the write-set for the
-implementation mission is in §7.
+Retained as the design record. The original implementation write-set is in §7;
+problem descriptions below refer to the pre-implementation code.
 
 ---
 

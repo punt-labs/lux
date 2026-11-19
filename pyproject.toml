@@ -121,7 +121,7 @@ line-length = 88
 target-version = "py313"
 # Spike directories are self-contained uv projects with their own pyproject.toml;
 # they should not be linted by the main project's ruff config.
-extend-exclude = ["spikes/"]
+extend-exclude = ["spikes/", ".claude"]
 
 [tool.ruff.lint]
 select = [

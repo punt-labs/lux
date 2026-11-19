@@ -1,7 +1,9 @@
 # Library Client Encapsulation: Retiring the Public REST Transport
 
-**Status:** design, unimplemented. Bead `lux-duqj`, mission `m-2026-08-22-006`.
-Implementation is a separate mission after operator ratification.
+**Status:** delivered. Bead `lux-duqj`, design mission `m-2026-08-22-006`.
+`LuxRestClient` and `rest_client.py` are removed; `LuxClient` is the public
+facade, and applet services hold narrow operation protocols (`BoardOps`).
+Sections below retain the pre-fix diagnosis and design.
 
 This document answers the design questions in bead `lux-duqj`. The framing is
 **encapsulation, not deletion**: `LuxClient` (`src/punt_lux/client/facade.py:46`)

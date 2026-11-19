@@ -12,6 +12,7 @@ where the bound is the thing under test.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING, Self, cast, final
@@ -692,6 +693,11 @@ class TestAnAskerOnTheHoldersOwnThread:
 class TestTheEndOfAStreamTheDrainSees:
     """O-eof: a reset after queued acks and a plain end of file are both the end."""
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="closing a socket with unread data sends a reset on Linux but a "
+        "clean EOF on macOS, so no 'cut short' is logged; see PL-1105",
+    )
     def test_a_reset_that_follows_queued_acks_is_the_displays_end(
         self, display: Display, caplog: pytest.LogCaptureFixture
     ) -> None:

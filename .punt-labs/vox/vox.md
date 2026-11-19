@@ -1,6 +1,6 @@
 ---
 notify: "y"
-speak: "n"
+speak: "y"
 provider: "elevenlabs"
 model: "eleven_v3"
 voice: "lily"
