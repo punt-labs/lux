@@ -1,6 +1,8 @@
 # Agent Menu Dispatch — Why an Agent's `menu_set` Item Is Dead on Click, and the Full Fix
 
-**Status:** design for bead `lux-m3xr` (P0). Aligns to
+**Status:** delivered (DES-098, bead `lux-m3xr`, PR #495). The shipped
+`HubInteractionDispatch` routes agent menu leaves to the owning session inbox;
+sections below retain the motivating pre-fix analysis. Aligns to
 [target/target.md](target/target.md); on any conflict that document wins.
 Read [target/ui-model.md](target/ui-model.md) and
 [menu-capability-model.md](menu-capability-model.md) alongside this — the
