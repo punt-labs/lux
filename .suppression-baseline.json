@@ -1,27 +1,31 @@
 {
-  "total": 123,
+  "total": 174,
   "by_category": {
     "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
-    "pyright_ignore": 6,
-    "per_file_ignores": 90
+    "pyright_ignore": 4,
+    "file_level": 54,
+    "per_file_ignores": 89
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
       "noqa": 1,
-      "pyright_ignore": 2
+      "pyright_ignore": 2,
+      "per_file_ignores": 3
     },
     "src/punt_lux/_backend_launchd.py": {
-      "pylint_disable": 1
+      "pylint_disable": 1,
+      "per_file_ignores": 3
     },
     "src/punt_lux/_backend_systemd.py": {
-      "pylint_disable": 1
+      "pylint_disable": 1,
+      "per_file_ignores": 2
     },
     "src/punt_lux/apps/_beads_payload.py": {
       "type_ignore": 1
     },
-    "src/punt_lux/apps/bd_command.py": {
+    "src/punt_lux/apps/bd_child.py": {
       "noqa": 1
     },
     "src/punt_lux/cli/hub.py": {
@@ -34,32 +38,165 @@
       "noqa": 1,
       "pyright_ignore": 1
     },
+    "src/punt_lux/display/client_queries.py": {
+      "file_level": 1
+    },
     "src/punt_lux/display/cross_host_verification.py": {
       "noqa": 1
     },
+    "src/punt_lux/display/dock_bar.py": {
+      "file_level": 2
+    },
+    "src/punt_lux/display/dock_pill.py": {
+      "file_level": 2
+    },
+    "src/punt_lux/display/framebuffer_capture.py": {
+      "file_level": 2
+    },
+    "src/punt_lux/display/geometry_capture.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/gl_texture.py": {
+      "file_level": 2,
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/idle_screen.py": {
+      "file_level": 2,
+      "per_file_ignores": 1
+    },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
-      "pyright_ignore": 1
+      "pyright_ignore": 1,
+      "per_file_ignores": 1
     },
     "src/punt_lux/display/nonblocking.py": {
       "noqa": 1
     },
     "src/punt_lux/display/query_dispatcher.py": {
-      "noqa": 1
+      "noqa": 1,
+      "per_file_ignores": 1
     },
     "src/punt_lux/display/render_loop.py": {
-      "noqa": 1,
-      "type_ignore": 1,
-      "pyright_ignore": 1
+      "file_level": 2,
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/renderers/_arrow.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/button_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/checkbox_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/color_picker_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/combo_renderer.py": {
+      "file_level": 1
     },
     "src/punt_lux/display/renderers/draw_element_renderer.py": {
-      "noqa": 1
+      "noqa": 1,
+      "file_level": 2
+    },
+    "src/punt_lux/display/renderers/image_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/collapsing_header.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/color_channel_strip.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/continuous_edit_selection.py": {
+      "file_level": 1
     },
     "src/punt_lux/display/renderers/imgui/dialog.py": {
       "noqa": 1
     },
+    "src/punt_lux/display/renderers/imgui/full_color_picker.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/image.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/leaf.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/markdown.py": {
+      "file_level": 1
+    },
     "src/punt_lux/display/renderers/imgui/modal.py": {
-      "noqa": 1
+      "noqa": 1,
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/plot.py": {
+      "file_level": 2
+    },
+    "src/punt_lux/display/renderers/imgui/progress.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/radio.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/split_pane.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/tab_bar.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/table.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/table_row_painter.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/tree.py": {
+      "noqa": 1,
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/imgui/window.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/input_number_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/input_text_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/markdown_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/radio_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/selectable_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/separator_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/slider_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/spinner_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/text_renderer.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/renderers/tooltip_painter.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/texture_cache.py": {
+      "file_level": 2
+    },
+    "src/punt_lux/display/window_chrome.py": {
+      "file_level": 1
+    },
+    "src/punt_lux/display/window_settings.py": {
+      "type_ignore": 1,
+      "file_level": 1
     },
     "src/punt_lux/doctor_checks.py": {
       "noqa": 1
@@ -72,20 +209,129 @@
     },
     "src/punt_lux/luxd.py": {
       "noqa": 1,
-      "type_ignore": 1
+      "type_ignore": 1,
+      "per_file_ignores": 1
     },
     "src/punt_lux/paths.py": {
       "noqa": 2
-    },
-    "src/punt_lux/protocol/messages/scene_codec.py": {
-      "pyright_ignore": 1
     },
     "src/punt_lux/protocol/messages/unknown_message.py": {
       "noqa": 1
     },
     "src/punt_lux/trust/aws_private_ca_provider.py": {
       "noqa": 1
+    },
+    "tools/*": {
+      "per_file_ignores": 5
+    },
+    "tests/*": {
+      "per_file_ignores": 11
+    },
+    "tests/e2e/test_legacy_sweep.py": {
+      "per_file_ignores": 3
+    },
+    "demos/*": {
+      "per_file_ignores": 3
+    },
+    "scripts/*": {
+      "per_file_ignores": 5
+    },
+    "src/punt_lux/consent.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/runtime.py": {
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/config.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/hooks.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/fonts.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/replica/menu_replica.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/replica/menu_surfaces.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/cli.py": {
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/show.py": {
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/cli/*.py": {
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/apps/beads.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/tools/server.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/rest/identity.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/ws_transport.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/tools/__init__.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/protocol/elements/*.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/service.py": {
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/_backends.py": {
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/_launchctl.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/_port_guard.py": {
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/_legacy_sweep_launchd.py": {
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/_legacy_sweep_systemd.py": {
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/_shim_ownership.py": {
+      "per_file_ignores": 2
+    },
+    "tests/e2e/test_binary_sweep.py": {
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/domain/event_handler_host.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/domain/hub/hub_interaction_dispatch.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/domain/hub/element_index.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/domain/hub/builtin_callbacks.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/protocol/element_factory.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/protocol/elements/dialog_codec.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/protocol/messages/scene_codec.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/protocol/messages/pickled_element_codec.py": {
+      "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-09-11T21:46:52Z"
+  "updated_at": "2026-11-19T03:00:50Z"
 }

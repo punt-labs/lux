@@ -263,6 +263,11 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 **MCP tool boilerplate — resolved.** Every tool under `tools/` (`read_tools.py`, `write_tools.py`, `composite_tools.py`, `display_write_tools.py`, `subscribe_tools.py`) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
+**Ratchet tooling:** `uv sync` installs the dev-only PyPI package
+`punt-oo-ratchet==0.1.0`. The `oo-ratchet oo`, `oo-ratchet coupling`, and
+`oo-ratchet suppressions` commands power the Makefile gates; do not embed
+copies under `tools/`. Existing root baselines and audit logs stay committed.
+
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 
 **Why the ratchet exists — and how to work with it, not against it.** The ratchet is a tech-debt paydown mechanism: like paying down a loan, you retire OO debt a bit at a time, on every change, *including in parts of the code unrelated to the feature you came to write*. This is deliberate, and it is counterintuitive because it means **taking on additional scope on purpose**. When you touch a module, the expectation is a real, medium-scale OO improvement to it — extract a class, move behavior onto the data, replace a `str`-with-comment with a `Literal`, kill an Optional — not the smallest possible edit that clears the "at least one metric improved" bar. **Squeezing one trivial change in under the limit and moving on is a failure of the mechanism, even when the check goes green.** A lot of time gets wasted fighting the ratchet over tiny deltas and near-misses; that time should instead go straight into a substantive improvement to the module you are already sitting in. Bigger, deliberate improvements clear the ratchet trivially and pay the debt down far faster than a stream of minimal ones. When in doubt: improve more, not less. Make the medium-scale improvement at every opportunity.

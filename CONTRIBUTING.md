@@ -83,7 +83,10 @@ make check
 ```
 
 `make check` is authoritative; the `Makefile` is the source of truth for the
-exact chain. It runs the OO ratchet (`make check-oo`), the coupling ratchet
+exact chain. `uv sync` installs the pinned dev-only PyPI package
+`punt-oo-ratchet==0.1.0`, which supplies all three ratchets through the
+`oo-ratchet` CLI (no embedded tooling). It runs the OO ratchet (`make check-oo`),
+the coupling ratchet
 (`make check-coupling`), the suppression ratchet (`make check-suppressions`),
 `make lint`, `make type`, and `make test`. The OO ratchet compares OO scores
 against `.oo-baseline.json` and fails if any metric regresses on a touched
