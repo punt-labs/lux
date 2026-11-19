@@ -23,19 +23,18 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.ids import ConnectionId
 
-_log = logging.getLogger(__name__)
-
 
 @final
 class SessionCleanup:
     """Run a disconnected session's teardown legs in isolation."""
 
+    _connection_id: ConnectionId
     __slots__ = ("_connection_id",)
 
     def __new__(cls, connection_id: ConnectionId) -> Self:
         """Bind cleanup work to the specified connection."""
         self = super().__new__(cls)
-        self._connection_id: ConnectionId = connection_id
+        self._connection_id = connection_id
         return self
 
     def run(self) -> None:
@@ -50,7 +49,7 @@ class SessionCleanup:
         try:
             step()
         except Exception as exc:
-            site = extract_tb(exc.__traceback__)[-1]
-            _log.error("MCP leg=%s error=%s (%s)", leg, type(exc).__name__, site.name)
+            failure = f"{type(exc).__name__} ({extract_tb(exc.__traceback__)[-1].name})"
+            logging.getLogger(__name__).error("MCP leg=%s error=%s", leg, failure)
             if isinstance(exc, ProgrammerError):
                 raise  # run() lets the other leg go first, then this propagates
