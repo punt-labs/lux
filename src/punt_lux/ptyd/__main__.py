@@ -14,8 +14,8 @@ class PtyEntryPoint:
     """Run the independent owner; Display disconnect never reaches this lifecycle."""
 
     @staticmethod
+    @TerminalRuntime.run("daemon", "terminal daemon")
     def main() -> None:
-        TerminalRuntime.start("daemon", "terminal daemon")
         parser = argparse.ArgumentParser(description="Lux local terminal-session owner")
         options = DaemonOptions.parse(parser)
         try:

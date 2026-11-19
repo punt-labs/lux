@@ -20,8 +20,8 @@ class MenuEntryPoint:
             await asyncio.gather(task, return_exceptions=True)
 
     @staticmethod
+    @TerminalRuntime.run("worker", "terminal menu helper")
     def main() -> None:
-        TerminalRuntime.start("worker", "terminal menu helper")
         asyncio.run(MenuEntryPoint.serve(int(sys.argv[1])))
 
 

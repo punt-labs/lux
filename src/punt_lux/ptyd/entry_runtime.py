@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, final
 
-from punt_lux.logging_config import configure_logging, failure_details
+from punt_lux.logging_config import failure_details, process_diagnostics
 from punt_lux.terminal.process_session import ProcessSession
 
 if TYPE_CHECKING:
     from argparse import ArgumentParser
+    from collections.abc import Generator
 
 logger = logging.getLogger(__name__)
+_INSTALL_HINT = "; install punt-lux[terminal]"
 
 
 class DaemonOptions(NamedTuple):
@@ -38,20 +41,17 @@ class TerminalRuntime:
     """Run the shared terminal process bootstrap and owner lifecycle."""
 
     @staticmethod
-    def start(role: str, name: str) -> None:
-        """Configure diagnostics before detaching a terminal process."""
-        configure_logging("lux", role)
-        logger.info("Starting %s", name)
-        ProcessSession.detach()
+    @contextmanager
+    def run(role: str, name: str) -> Generator[None]:
+        """Configure diagnostics before detaching and through process shutdown."""
+        with process_diagnostics(role, name):
+            logger.info("Starting %s", name)
+            yield ProcessSession.detach()
 
     @staticmethod
     def start_failed(parser: ArgumentParser, error: Exception) -> NoReturn:
         """Report a daemon startup failure to the operator and durable sink."""
-        hint = (
-            "; install punt-lux[terminal]"
-            if isinstance(error, ModuleNotFoundError)
-            else ""
-        )
+        hint = _INSTALL_HINT if isinstance(error, ModuleNotFoundError) else ""
         logger.error("Terminal daemon could not start: %s", failure_details(error))
         parser.exit(1, f"luxd-pty: {error}{hint}\n")
 

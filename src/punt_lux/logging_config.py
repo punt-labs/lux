@@ -22,8 +22,7 @@ class _Diagnostics:
     @staticmethod
     def configure(tool: str, role: str, *, verbose: bool = False) -> None:
         """Configure a private durable log with an optional diagnostic override."""
-        default = "DEBUG" if verbose else "INFO"
-        level, invalid = resolve_level(default)
+        level, invalid = ("DEBUG", False) if verbose else resolve_level("INFO")
         _configure_logging(
             tool,
             role,
@@ -31,7 +30,7 @@ class _Diagnostics:
             stderr_level="DEBUG" if verbose else "WARNING",
         )
         if invalid:
-            logger.warning("Invalid LUX_LOG_LEVEL; using %s", default)
+            logger.warning("Invalid LUX_LOG_LEVEL; using INFO")
 
     @staticmethod
     def failure_details(error: Exception) -> str:

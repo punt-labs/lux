@@ -77,3 +77,24 @@ def test_detached_failure_is_durable_without_its_message(tmp_path: Path) -> None
     assert "test worker failed: RuntimeError" in log
     assert "<module>:3" in log
     assert "private input" not in log
+
+
+def test_verbose_overrides_the_environment_level(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import logging\n"
+                "from punt_lux.logging_config import configure_logging\n"
+                "configure_logging('lux', 'cli', verbose=True)\n"
+                "logging.getLogger('lux.test').debug('verbose detail')\n"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+    assert "verbose detail" in result.stderr
+    assert "verbose detail" in (tmp_path / ".punt-labs/lux/logs/lux.log").read_text()
