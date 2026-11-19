@@ -84,7 +84,7 @@ make check
 
 `make check` is authoritative; the `Makefile` is the source of truth for the
 exact chain. `uv sync` installs the pinned dev-only PyPI package
-`punt-oo-ratchet==0.2.2`, which supplies all three ratchets through the
+`punt-oo-ratchet==0.3.0`, which supplies all three ratchets through the
 `oo-ratchet` CLI (no embedded tooling). It runs the OO ratchet (`make check-oo`),
 the coupling ratchet
 (`make check-coupling`), the suppression ratchet (`make check-suppressions`),
@@ -93,8 +93,8 @@ against `.oo-baseline.json` and fails if any metric regresses on a touched
 file. After improving OO quality, run `make update-oo` and stage
 `.oo-baseline.json` and `.oo-audit.jsonl` in the same commit.
 
-Coupling uses Lux's broad stateless-value LCOM exemption and four wiring-hub
-fan-out caps of 20, configured under `[tool.oo-ratchet.coupling]` in
+Coupling uses Lux's broad stateless-value LCOM exemption, a default fan-out cap
+of 10, and three wiring-hub caps of 20, configured under `[tool.oo-ratchet.coupling]` in
 `pyproject.toml`. Run `make update-coupling` after improvements. For an audited,
 bounded bless, pass repository-relative paths:
 `make bless-coupling FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation"`;
