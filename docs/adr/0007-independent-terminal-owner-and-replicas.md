@@ -48,7 +48,8 @@ Exploratory architecture HTML/design notes are not authority for this decision.
 ### Attach and flow
 
 - Normal attach requires matching wire generation and Ghostty snapshot version.
-  The current wire generation is two. A binary native snapshot carries both
+  The current wire generation is three; failure replies identify retryable
+  operation faults separately from permanently invalid requests. A binary native snapshot carries both
   screens, bounded history and parser continuation. Its cut precedes all live
   tail bytes sent to that viewer.
 - Continuation tracking is enabled before parsing and bounded at 64 KiB. When
