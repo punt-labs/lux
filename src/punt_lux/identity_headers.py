@@ -127,7 +127,7 @@ class ClientHeaders:
 
     @classmethod
     def _declared(cls, headers: Mapping[str, str]) -> dict[str, object]:
-        """The fields these headers actually declare, blank ones dropped.
+        """Return only identity headers with nonblank values.
 
         The mirror of :meth:`to_wire`'s rule, and the same one absence spelling: a
         missing header and a blank one both mean the caller declared no such field,

@@ -1,9 +1,4 @@
-"""``ping`` -- round-trip a display ping and render the shared result envelope.
-
-Text shapes match the shipped MCP tool byte-for-byte -- ``"pong rtt=X.XXXs"``,
-``"not running"``, ``"timeout"``, and ``"error: <reason>"`` -- so adapters that
-already print those lines pick up the command without changing output.
-"""
+"""Round-trip a display ping and render the result as text or JSON."""
 
 from __future__ import annotations
 
@@ -52,3 +47,4 @@ class PingCommand:
 
 
 ping: PingCommand = PingCommand()
+"""Run a display ping with a command context; apps should use LuxClient.ping."""

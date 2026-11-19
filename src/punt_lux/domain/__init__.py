@@ -1,4 +1,4 @@
-"""Domain layer — the algebra of Lux as defined in docs/architecture/domain-model.md.
+"""Define the Lux domain's identities, elements, updates, and events.
 
 This package owns the nouns of the domain (Element, Scene, Client) and the
 verbs (Update, Event). It does not import imgui_bundle, json, socket, or any

@@ -1,6 +1,4 @@
-"""LivenessPacing — the two-speed cadence and once-per-transition logging
-``DisplayLiveness`` runs its probe loop at (display-presence-demand-driven.md
-§6.4).
+"""Set the probe cadence and log only state transitions.
 
 Probing every ``_interval`` while genuinely disconnected is needless chatter;
 relaxing to ``_DISCONNECTED_PROBE_INTERVAL`` is still prompt for a reconnect

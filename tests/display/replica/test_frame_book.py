@@ -364,7 +364,7 @@ class TestRestore:
         assert book.consume_focus("ghost") is False
 
     def test_a_scoped_restore_reopens_only_its_own_hubs_frame(self) -> None:
-        # W6 / lux-oshd class: two Hubs each hold a frame under the identical
+        # Two Hubs each hold a frame under the same
         # id, both closed. A callback item names its owning Hub, so its raise
         # must reopen that Hub's frame alone -- never the other's same-named one.
         book = FrameBook()

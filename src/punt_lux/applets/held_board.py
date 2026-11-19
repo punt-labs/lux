@@ -54,7 +54,7 @@ class HeldBoard:
         return self._built.began_at
 
     def newer_of(self, held: CachedBoard) -> CachedBoard:
-        """This board, unless *held* holds one whose load began after this one's.
+        """Keep this board unless a later-started load supplied the held board.
 
         Neither which writer stored last nor which load returned last decides it.
         A warm-up that began before a click can return and store after it, and

@@ -53,17 +53,17 @@ class SessionLease:
 
     @classmethod
     def unidentified(cls, now: float) -> Self:
-        """The lease a session holds before it has declared an identity."""
+        """Create the lease used before the session declares an identity."""
         return cls(now, _UNIDENTIFIED_TTL)
 
     @classmethod
     def for_kind(cls, kind: ClientKind, now: float) -> Self:
-        """The lease a session of ``kind`` holds, renewed at ``now``."""
+        """Renew the lease for the session kind at the given time."""
         return cls(now, _TTL_BY_KIND[kind])
 
     @classmethod
     def for_declared(cls, kind: ClientKind, ttl: float | None, now: float) -> Self:
-        """The lease a session holds: its declared ``ttl`` when given, else its kind's.
+        """Use the declared lease duration or the default for its kind.
 
         An originator that declares a TTL sets its own cadence; one that declares
         none falls to the kind default, which is how luxd's built-ins stay permanent

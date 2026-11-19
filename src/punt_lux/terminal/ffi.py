@@ -106,7 +106,7 @@ class GhosttyAccess:
 
     @staticmethod
     def snapshot_version() -> str:
-        """The identity of the binary snapshot format this process can decode.
+        """Identify the binary snapshot format this process can decode.
 
         Ghostty's binary snapshot is readable only by the same libghostty-vt, so
         two processes compare this before sending one. pyghostty is pinned

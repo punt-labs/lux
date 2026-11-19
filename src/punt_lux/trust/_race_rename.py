@@ -1,7 +1,4 @@
-"""_RenameOutcome — classify a failed directory rename as a race loss or a
-genuine I/O failure, cleaning up after a race loss and re-raising anything
-else so a real error is never mistaken for "someone else won."
-"""
+"""Distinguish a directory rename race from a real I/O failure."""
 
 from __future__ import annotations
 

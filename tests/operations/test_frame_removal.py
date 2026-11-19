@@ -54,7 +54,7 @@ def _show_framed(
 
 def test_remove_of_a_nonexistent_frame_is_not_found() -> None:
     # A frame never shown by anyone reports why, rather than a blanket
-    # "removed" that tore nothing down (lux-03k6).
+    # "removed" that tore nothing down.
     factory = HubStoreFactory()
     store = factory.display
     recorder = _Recorder()
@@ -124,7 +124,7 @@ def test_remove_removes_the_callers_own_frame_and_marks_dirty() -> None:
 
 
 def test_close_frame_no_longer_exists_on_operations() -> None:
-    """Rename train (lux-81t3.6): no alias survives for the retired op name."""
+    """Keep the retired name out of the public operations."""
     assert not hasattr(Operations, "close_frame")
     assert not hasattr(FrameRemover, "close")
     assert hasattr(Operations, "remove_frame")

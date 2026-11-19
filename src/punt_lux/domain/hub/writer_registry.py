@@ -76,7 +76,7 @@ class WriterRegistry:
         return self._writers.get(connection_id) == writer
 
     def writer_for(self, connection_id: ConnectionId) -> Handler:
-        """The connection's writer; raise ``KeyError`` if it has none.
+        """Return the connection's writer.
 
         A subscription registered against no writer would have no recipient, so
         this raises rather than answering with an absence the caller must re-check.

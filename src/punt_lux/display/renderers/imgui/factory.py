@@ -62,8 +62,7 @@ class ImGuiRendererFactory:
 
     @widget_state.setter
     def widget_state(self, value: WidgetState) -> None:
-        """Re-thread the factory to the scene being rendered — ABC adapters read
-        per-scene state (echo suppression, edit buffers, split ratios) here."""
+        """Bind renderers to the active scene's shared widget state."""
         self._widget_state = value
 
     @property

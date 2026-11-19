@@ -3,7 +3,7 @@
 A push that could not be sent is logged rather than raised, because the board
 it carried has already cost a multi-second query and the caller is keeping it.
 Visibility -- raising a frame -- is no longer this channel's concern: DES-088
-makes that a Display-local gesture, never a client round trip (lux-81t3.5).
+makes that a Display-local gesture, never a client round trip.
 """
 
 from __future__ import annotations

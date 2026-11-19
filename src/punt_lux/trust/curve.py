@@ -1,7 +1,8 @@
-"""P-256 (SECP256R1) curve enforcement, shared by every EC key and CSR this
-package holds (DES-090). Both KeyPair and CertificateSigningRequest funnel
-every construction and load path through here, so a hand-crafted P-384 or
-P-521 PEM is rejected before either class ever holds it.
+"""Enforce P-256 for the trust package's EC keys and requests.
+
+Both KeyPair and CertificateSigningRequest funnel every construction and load path
+through here, so a hand-crafted P-384 or P-521 PEM is rejected before either class ever
+holds it.
 """
 
 from __future__ import annotations

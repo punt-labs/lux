@@ -106,8 +106,7 @@ class SocketLine:
         self._heard.moved()
 
     def is_progressing(self) -> bool:
-        """Whether the keepalive has no verdict to give: the display spoke within ``D``,
-        or a write holds the line and is still moving bytes.
+        """Report whether recent traffic or continued write progress precludes timeout.
 
         A write that completed proves only that the kernel took its bytes, and the
         lock being taken proves nothing. A write still progressing is the write's own

@@ -531,21 +531,8 @@ def test_two_pushes_land_in_the_order_they_were_taken() -> None:
 
 # --- P2 -------------------------------------------------------------------
 
-# P2's own scenario -- a click's acknowledge observes the slot, then a refresh
-# on another thread stores and shows a newer board, then the first click
-# reaches its push -- described an interleaving that ran *inside the raise
-# round trip*: the raise was the only I/O between "observe" and "push" a test
-# could gate. lux-81t3.5 (DES-088) removed that round trip: acknowledge no
-# longer performs any I/O between reading the slot and calling
-# BoardGlass.shows, which itself re-reads the slot fresh, under its own lock,
-# immediately before every push (see BoardGlass.shows's docstring). There is
-# no longer a gateable point between "observe" and "push" on the click's own
-# thread, so this partition of the interleaving space is no longer
-# constructible -- not merely untested, structurally absent. The invariant it
-# protected (I2: the display never shows what a pusher captured before a
-# newer board landed) still holds, now by construction, and the interleaving
-# that remains reachable -- two writers both inside BoardGlass's lock -- is
-# P1's test above.
+# A click performs no I/O before BoardGlass.shows rereads the slot under its
+# lock, so a captured board cannot be pushed after a newer board has landed.
 
 
 # --- P3 -------------------------------------------------------------------
@@ -612,38 +599,10 @@ def test_a_board_the_slot_refused_never_reaches_the_display() -> None:
 
 # --- P6 -------------------------------------------------------------------
 
-# P6's scenario gated the placeholder-pushing click at its raise, so a board
-# could arrive and be shown while the cold click's own round trip was still in
-# flight, then have the placeholder land over it once released. The raise is
-# gone (same elimination as P2), and the placeholder is now pushed
-# immediately, inside BoardGlass's lock, with no I/O beforehand -- there is no
-# window left in which a board could arrive between "the click decided to
-# offer the placeholder" and "the placeholder is offered." Offered rather than
-# pushed still means BoardGlass.shows's newer_of always wins for whichever
-# board actually reaches the slot first; P1 and P4 exercise that ordering.
-#
-# Reconsidered for round 2 (lux-81t3.5): could P6 still be constructed by
-# gating on `pushes` -- the socket write itself, inside BoardGlass._lock --
-# rather than the deleted `raises` gate? No, and the reason is the region's
-# own lock discipline, not the raise: BoardGlass._lock fully serialises every
-# call to `shows`, read-then-write, so at most one push is ever in flight.
-# For P6 to hold, a board's own `shows` call would have to complete and land
-# BEFORE the placeholder's `shows` call reads the slot -- but a completed push
-# can only be observed by a later reader (the lock guarantees it), so a
-# placeholder-click that reads an empty slot proves no board's push has
-# landed yet, and any push still holding the lock blocks every other caller,
-# including a real board's, until it releases. A store landing mid-push (via
-# BoardSlot.store, which does not take this lock) cannot retroactively change
-# what a push already in flight sends -- that is exactly the gap P12 measures
-# and names as accepted staleness, not a P6-shaped violation: gating `pushes`
-# this way reconstructs P12's scenario
-# (test_a_store_landing_during_a_push_leaves_the_display_one_behind, which
-# proves the earlier-decided value lands and the later store does not
-# retroactively pre-empt it), not a new one. P6 is therefore unconstructable
-# for a distinct, stronger reason than P2/P3 (which lost their gateable point
-# entirely): here the gateable point still exists, but the lock's
-# full-serialisation and fresh-read-at-decision-time design prove no
-# ordering it permits can ever blank an already-landed board.
+# BoardGlass serializes the read and push, so a placeholder can never land
+# over a board already shown. A store during an in-flight push cannot preempt
+# it; test_a_store_landing_during_a_push_leaves_the_display_one_behind covers
+# that separate case.
 
 
 # --- P7 -------------------------------------------------------------------

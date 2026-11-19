@@ -30,6 +30,7 @@ class ClientHost:
     __slots__ = ("_host",)
 
     def __new__(cls, host: str) -> Self:
+        """Wrap an observed host string."""
         if not host:
             msg = "a reported host is never blank; an unreported one is UNOBSERVED"
             raise ValueError(msg)
@@ -39,19 +40,19 @@ class ClientHost:
 
     @classmethod
     def unreported(cls) -> Self:
-        """The host of a contact no transport reported one for: blank, unobserved."""
+        """Represent an unobserved peer with a blank host."""
         self = super().__new__(cls)
         self._host = ""
         return self
 
     @classmethod
     def of(cls, host: str | None) -> ClientHost:
-        """A reported address; ``None`` -- no peer reported -- is :data:`UNOBSERVED`."""
+        """Normalize the reported address, returning ``UNOBSERVED`` for ``None``."""
         return UNOBSERVED if not host else cls(host)
 
     @classmethod
     def of_connection(cls, connection: HTTPConnection) -> ClientHost:
-        """The host the connection's transport reported, read at the door."""
+        """Return the peer address reported by the transport at connection time."""
         client = connection.client
         return cls.of(None if client is None else client.host)
 
@@ -89,6 +90,7 @@ class ClientHosts:
     __slots__ = ("_names",)
 
     def __new__(cls, names: tuple[str, ...] = ()) -> Self:
+        """Store the observed host names in their given order."""
         if not all(names):
             msg = f"a host list holds no blank name: {names!r}"
             raise ValueError(msg)
@@ -116,7 +118,7 @@ class ClientHosts:
         return self._names
 
     def with_host(self, host: ClientHost) -> ClientHosts:
-        """These hosts with ``host`` last, unless it is unobserved or already here."""
+        """Append an observed host unless it is already present."""
         if not host.observed or host.address in self._names:
             return self
         return ClientHosts((*self._names, host.address))

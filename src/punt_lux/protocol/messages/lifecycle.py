@@ -36,7 +36,7 @@ _Register = Callable[
 
 @dataclass(frozen=True, slots=True)
 class PingMessage:
-    """Heartbeat / latency probe."""
+    """Probe liveness and latency."""
 
     type: Literal["ping"] = "ping"
     ts: float | None = None  # absent when the sender omits a timestamp
@@ -99,7 +99,7 @@ class HubManifestMessage:
 
 @dataclass(frozen=True, slots=True)
 class ReadyMessage:
-    """Display is initialized and ready to render."""
+    """Announce that the display is ready to render."""
 
     version: str = PROTOCOL_VERSION
     type: Literal["ready"] = "ready"
@@ -123,7 +123,7 @@ class ReadyMessage:
 
 @dataclass(frozen=True, slots=True)
 class AckMessage:
-    """Acknowledges a scene or update."""
+    """Acknowledge a scene or update."""
 
     scene_id: str
     type: Literal["ack"] = "ack"
@@ -147,7 +147,7 @@ class AckMessage:
 
 @dataclass(frozen=True, slots=True)
 class PongMessage:
-    """Response to a ping."""
+    """Echo a ping and optionally report the display's clock."""
 
     type: Literal["pong"] = "pong"
     ts: float | None = None  # echoes the ping's timestamp, absent if it had none

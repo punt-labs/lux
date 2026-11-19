@@ -98,7 +98,8 @@ class InputTextRenderer:
         """Return whether the just-ended edit was committed by an Enter key.
 
         Distinguishes an Enter-commit (refocus the search) from a blur-commit
-        (the user clicked away — do not yank focus back)."""
+        (the user clicked away — do not yank focus back).
+        """
         return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(
             imgui.Key.keypad_enter
         )

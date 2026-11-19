@@ -57,7 +57,7 @@ class Selection:
         )
 
     def text(self) -> str:
-        """The selected text, soft-wrapped lines joined; '' with no selection."""
+        """Return selected text with soft wraps joined, or an empty string."""
         sel = init_sized("GhosttySelection")
         if lib.ghostty_terminal_get(
             handle(self._term), lib.GHOSTTY_TERMINAL_DATA_SELECTION, sel

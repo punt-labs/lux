@@ -39,7 +39,7 @@ type Layout = Literal["rows", "columns"]
 
 
 class GroupElement(Element):
-    """A layout container that arranges its ABC children in a stack.
+    """Arrange child elements in a stack.
 
     An ABC ``GroupElement`` holds only ABC children — the render template
     calls ``child.render()``, which only ABC elements provide. The wire

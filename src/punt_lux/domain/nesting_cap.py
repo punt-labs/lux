@@ -38,7 +38,7 @@ class NestingCap:
 
     @staticmethod
     def reason() -> str:
-        """The agent-facing refusal, the same whichever door the write came through."""
+        """Build the same agent-facing refusal for every write surface."""
         return (
             f"an element tree nests deeper than {MAX_ELEMENT_NESTING} "
             "levels of JSON (a container counts two a level); flatten it"

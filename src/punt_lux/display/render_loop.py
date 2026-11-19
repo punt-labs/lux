@@ -283,13 +283,12 @@ class RenderLoop:
     # -- ImGui callbacks ---------------------------------------------------
 
     def _on_post_init(self) -> None:
-        """Called once the OpenGL context is ready."""
+        """Initialize graphics resources once the OpenGL context is ready."""
         DisplaySetup.post_init()
         self._settings.start()
 
     def _clear_all(self) -> None:
-        """Callback for MenuReplica: throw every frame out, then clear scenes
-        and state."""
+        """Discard all frames, scenes, and widget state from the menu callback."""
         self._scenes.dispose_all_frames()
         self._handle_clear()
 
@@ -301,13 +300,13 @@ class RenderLoop:
         self._scenes.raise_frame(frame_id)
 
     def _request_fit_all(self) -> None:
-        """Callback for MenuReplica: request fit-all layout."""
+        """Request a fit-all layout from the menu."""
         self._fit_all_frames = True
 
     _pump_terminals = staticmethod(TerminalActivity.pump)
 
     def _on_exit(self) -> None:
-        """Called before the window closes."""
+        """Release graphics resources before the window closes."""
         TerminalActivity.close()
         self._textures.cleanup()
         self._turn.shutdown()  # the cross-host listen socket and pending peers
@@ -357,9 +356,7 @@ class RenderLoop:
         self._widget_state = WidgetState()
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
-        """Record identity, preempt a stale Hub, and note the Hub for cross-Hub
-        title disambiguation (DES-089) -- ``fd`` read first, before a rejected
-        connect may close the socket."""
+        """Record the peer identity, preempt stale Hubs, and register title labels."""
         fd = sock.fileno()
         self._hub_reconciliation.handle_connect(sock, msg)
         hub = self._socket_listener.hub_id_of(fd)
@@ -475,8 +472,7 @@ class RenderLoop:
     _cascaded_frame_size = staticmethod(FramePresentation.initial_size)
 
     def _apply_fit_all(self) -> bool:
-        """Undock on-screen frames and tile them if fit-all was asked; return True
-        while fitting -- a *closed* frame is left closed, never pulled back."""
+        """Undock and tile visible frames without restoring closed ones."""
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
@@ -487,8 +483,7 @@ class RenderLoop:
     def _render_single_frame(
         self, frame: Frame, imgui: Any, placement: FramePlacement
     ) -> tuple[str | None, bool]:
-        """Render one frame window; return (result, hovered) where result is
-        'closed', 'minimized', or None."""
+        """Render a frame and return its close or minimize result and hover state."""
         # A fit-all pass tiles this frame if it has a computed rect; else cascade.
         tiled = placement.tile_layout.get(frame.frame_id) if placement.fitting else None
         if tiled is not None:

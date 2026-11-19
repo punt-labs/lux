@@ -124,7 +124,7 @@ class ClientSender:
             self.clear_frame_deadline()
 
     def _transmit(self, sock: socket.socket, msg: Message) -> bool:
-        """The one place a byte leaves for a client; whether it beat its deadline.
+        """Send bytes to a client and report whether the write met its deadline.
 
         A slow-but-alive peer (``BlockingIOError``) keeps the client and defers;
         only a dead peer (``OSError``) removes it.

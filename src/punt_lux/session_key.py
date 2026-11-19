@@ -33,6 +33,7 @@ class SessionKey:
     __slots__ = ("_value",)
 
     def __new__(cls, raw: str | None) -> Self:
+        """Retain the supplied session key for validation."""
         self = super().__new__(cls)
         self._value = _CONTROL_CHAR_RE.sub("", raw or "")[:64]
         return self

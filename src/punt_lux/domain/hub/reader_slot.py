@@ -153,7 +153,7 @@ class ReaderSlot:
         return self._hold(route, held_route)
 
     def hold_born(self, route: Route, held_route: Route) -> ListenerHold:
-        """The hold of the listener the dial was born holding the slot for, once.
+        """Take the original listener's reader slot once.
 
         Raises ``RuntimeError`` if the dial was not born held, or the hold was
         already handed out: a hold is the holder's, so there is one.
@@ -227,11 +227,11 @@ class ReaderSlot:
         return Settler(self._generation, route, self._capture, self._late())
 
     def _late(self) -> Callable[[RetireCause], bool]:
-        """The bound's capture: wait for the holder, then settle undrained."""
+        """Wait for the reader and settle the bounded capture without draining."""
         return BoundedAsk(self._generation, self._capture).settle_by_bound
 
     def _hold(self, route: Route, held_route: Route) -> ListenerHold:
-        """The listener's hold: its settler over ``route``, and its one release.
+        """Return the reader hold with its routing settler and release.
 
         The release settles over ``held_route``, which runs an interaction after the
         request lock and the slot are let go, so a handler never runs inside them.

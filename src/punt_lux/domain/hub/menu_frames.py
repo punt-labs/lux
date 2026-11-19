@@ -37,7 +37,7 @@ class MenuFrames:
         return DetailsFrame(self._connection_id).scoped_id
 
     def of(self, callback: SessionCallback) -> str | None:
-        """The frame *callback* opens; None when it registered no frame."""
+        """Return the frame a callback opens, or ``None`` if it named none."""
         if callback.frame_id is None:
             return None
         return ConnectionScopedId.compose(self._connection_id, callback.frame_id)

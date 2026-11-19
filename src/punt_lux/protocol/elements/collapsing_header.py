@@ -44,7 +44,7 @@ __all__ = ["CollapsingHeaderElement"]
 
 
 class CollapsingHeaderElement(Element):
-    """A collapsible section that owns a Hub-authoritative ``open`` flag.
+    """Group elements under a header whose open state the Hub owns.
 
     Holds only ABC children — the render template calls ``child.render()``,
     which every element provides. The decoder recurses each child through the

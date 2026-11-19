@@ -35,6 +35,7 @@ class SessionCleanup:
     __slots__ = ("_connection_id",)
 
     def __new__(cls, connection_id: ConnectionId) -> Self:
+        """Bind cleanup work to the specified connection."""
         self = super().__new__(cls)
         self._connection_id = connection_id
         return self

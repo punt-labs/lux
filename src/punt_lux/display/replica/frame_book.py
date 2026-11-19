@@ -1,7 +1,7 @@
-"""FrameBook — the frame collection, keyed by
-:class:`HubScopedKey <punt_lux.domain.hub_scoped_key.HubScopedKey>` so two
-Hubs minting the identical id can never clobber one another. Scene placement
-is a composed :class:`SceneIndex`, not this class's own state."""
+"""Index frames by Hub and frame ID so identical IDs do not collide.
+
+Scene placement is a composed :class:`SceneIndex`, not this class's own state.
+"""
 
 from __future__ import annotations
 
@@ -28,9 +28,10 @@ _NO_HUB = HubId.stub()
 
 @final
 class FrameBook:
-    """Owns the frames, all keyed by :class:`HubScopedKey` so two Hubs
-    minting the identical id never merge. Scene placement is delegated to
-    a composed :class:`SceneIndex`."""
+    """Own Hub-scoped frames and delegate scene placement to a separate index.
+
+    Scene placement is delegated to a composed :class:`SceneIndex`.
+    """
 
     _frames: HubScopedStore[Frame]
     _focus: FocusRequest
@@ -46,13 +47,14 @@ class FrameBook:
 
     @property
     def frames(self) -> Mapping[str, Frame]:
-        """Flattened, read-only view of every frame; a collision is last-write-
-        wins. Use :meth:`frame` for a collision-safe write path."""
+        """Return a read-only flattened snapshot where the last frame wins a collision.
+
+        Use :meth:`frame` for a collision-safe write path.
+        """
         return MappingProxyType(self._frames.flatten())
 
     def frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:
-        """Return the frame ``(hub, frame_id)`` addresses, or ``None`` --
-        never another Hub's identically-named frame."""
+        """Return Hub-scoped frame addresses, or ``None`` when absent."""
         return self._frames.get(HubScopedKey(hub, frame_id))
 
     @property
@@ -64,12 +66,12 @@ class FrameBook:
         return self._scene_index.scene_to_owner
 
     def frame_of_scene(self, scene_id: str) -> Frame | None:
-        """The flattened, best-effort frame a scene lives in, or ``None``."""
+        """Find the scene frame in the flattened best-effort view."""
         frame_id = self._scene_index.scene_to_frame.get(scene_id)
         return self._frames.flatten().get(frame_id) if frame_id is not None else None
 
     def frame_of_hub_scene(self, key: HubScopedKey) -> Frame | None:
-        """The frame ``key`` lives in, resolved by its owning Hub only."""
+        """Find the scene frame within its owning Hub only."""
         frame_id = self._scene_index.frame_id_of(key)
         if frame_id is None:
             return None
@@ -98,9 +100,7 @@ class FrameBook:
         return [f for f in self._frames.values() if f.is_closed]
 
     def ensure(self, msg: SceneMessage, owner_fd: int, hub: HubId = _NO_HUB) -> Frame:
-        """The scene's frame, creating it or refreshing its presentation --
-        resolved by ``(hub, msg.frame_id)``, so a second Hub minting the
-        identical frame id never joins the first's frame."""
+        """Create or refresh the scene's frame under its owning Hub."""
         frame = self._frames.get(HubScopedKey(hub, msg.frame_id))
         if frame is None:
             return self._born(msg, owner_fd, hub)
@@ -130,8 +130,7 @@ class FrameBook:
 
     @staticmethod
     def _adopt_presentation(frame: Frame, msg: SceneMessage) -> None:
-        """Take the title, scope label, flags, and layout a push carries; an
-        omitted field means "leave it", never "reset it"."""
+        """Apply supplied frame presentation fields without resetting omitted ones."""
         frame.heading.adopt(msg.frame_title, msg.frame_scope_label)
         if msg.frame_flags is not None:
             frame.hints.flags = msg.frame_flags
@@ -153,8 +152,11 @@ class FrameBook:
         return self._focus.consume(frame_id)
 
     def minimize(self, frame_id: str) -> None:
-        """Dock the named frame. No-op if it is gone -- a visibility gesture,
-        so this resolves through the flattened view like :attr:`frames`."""
+        """Dock a named frame if it exists in the flattened view.
+
+        No-op if it is gone -- a visibility gesture, so this resolves through the
+        flattened view like :attr:`frames`.
+        """
         frame = self._frames.flatten().get(frame_id)
         if frame is not None:
             frame.minimize()
@@ -169,10 +171,12 @@ class FrameBook:
         return frame
 
     def restore(self, frame_id: str, hub: HubId = _NO_HUB) -> bool:
-        """Bring a frame on screen and ask for focus; report whether held. A
-        named Hub scopes the lookup to its own frames, so a callback item never
-        reopens another Hub's identically-named frame; ``_NO_HUB`` keeps the
-        flattened best-effort view its other callers read (lux-oshd scopes them)."""
+        """Bring an existing frame forward and request focus within the named Hub.
+
+        A named Hub scopes the lookup to its own frames, so a callback item never
+        reopens another Hub's identically-named frame; ``_NO_HUB`` keeps the flattened
+        best-effort view for callers without a Hub identity.
+        """
         frame = (
             self._frames.get(HubScopedKey(hub, frame_id))
             if hub != _NO_HUB
@@ -185,10 +189,11 @@ class FrameBook:
         return True
 
     def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
-        """Transfer a departed client's framed scenes to a surviving co-owner,
-        or to ``orphan_fd`` when none remains. Scenes persist; never dismissed.
-        Each frame's own Hub scopes its reassignment, so a second Hub's
-        identically-named scene is never a candidate."""
+        """Transfer framed scenes to a surviving co-owner or the orphan descriptor.
+
+        Scenes persist; never dismissed. Each frame's own Hub scopes its reassignment,
+        so a second Hub's identically-named scene is never a candidate.
+        """
         for frame in self._frames.values():
             frame.owner_fds.discard(departed_fd)
             heir = next(iter(frame.owner_fds), orphan_fd)
@@ -210,15 +215,11 @@ class FrameBook:
     def forget_scene_from(
         self, scene_id: str, frame_id: str, hub: HubId = _NO_HUB
     ) -> None:
-        """Drop exactly the ``(hub, scene_id)`` -> ``frame_id`` mapping --
-        resolved by the exact key, never a bare-value search that could
-        also match a second Hub's identically-valued entry."""
+        """Drop the placement for precisely this Hub and scene."""
         self._scene_index.forget_scene_from(scene_id, frame_id, hub)
 
     def forget_scenes_of_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> None:
-        """Drop every ``hub``-owned entry pointing at ``frame_id`` -- the
-        whole-frame :meth:`forget_scene_from`, scoped by owner so a second
-        Hub's identically-named frame is never a candidate."""
+        """Drop this Hub's placements for the frame without touching other Hubs."""
         self._scene_index.forget_scenes_of_frame(frame_id, hub)
 
     def pop_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> Frame | None:

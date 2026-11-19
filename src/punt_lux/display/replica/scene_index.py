@@ -1,6 +1,4 @@
-"""SceneIndex — the scene→frame and scene→owner placement maps, both keyed by
-:class:`HubScopedKey <punt_lux.domain.identity.HubScopedKey>` so two Hubs
-minting the identical scene id can never clobber one another.
+"""Track scene placement and ownership by Hub-scoped scene ID.
 
 Composed out of :class:`FrameBook <punt_lux.display.replica.frame_book.FrameBook>`
 so scene-placement methods don't crowd FrameBook's own frame-storage methods.
@@ -47,7 +45,7 @@ class SceneIndex:
         return MappingProxyType(store.flatten())
 
     def frame_id_of(self, key: HubScopedKey) -> str | None:
-        """The frame id ``key`` is placed in, resolved by its owning Hub only."""
+        """Find the frame ID for the scene under its owning Hub only."""
         return self._scene_to_frame.get(key)
 
     def for_hub(self, hub: HubId) -> Iterator[tuple[str, str]]:
@@ -71,9 +69,7 @@ class SceneIndex:
         self._scene_to_owner.remove_all(scene_id)
 
     def forget_scene_from(self, scene_id: str, frame_id: str, hub: HubId) -> None:
-        """Drop exactly the ``(hub, scene_id)`` -> ``frame_id`` mapping --
-        resolved by the exact key, never a bare-value search that could
-        also match a second Hub's identically-valued entry."""
+        """Drop the placement for precisely this Hub and scene."""
         key = HubScopedKey(hub, scene_id)
         if self._scene_to_frame.get(key) != frame_id:
             return
@@ -81,9 +77,7 @@ class SceneIndex:
         self._scene_to_owner.remove(key)
 
     def forget_scenes_of_frame(self, frame_id: str, hub: HubId) -> None:
-        """Drop every ``hub``-owned entry pointing at ``frame_id`` -- the
-        whole-frame :meth:`forget_scene_from`, scoped by owner so a second
-        Hub's identically-named frame is never a candidate."""
+        """Drop only this Hub's placements for the named frame."""
         for key in self._scene_to_frame.remove_matching_hub_value(hub, frame_id):
             self._scene_to_owner.remove(key)
 
@@ -94,8 +88,7 @@ class SceneIndex:
         heir_fd: int,
         scenes: frozenset[str],
     ) -> None:
-        """Transfer ``departed_fd``'s ownership of ``scenes`` (one Hub's own)
-        to ``heir_fd``."""
+        """Transfer ownership of this Hub's specified scenes between descriptors."""
         self._scene_to_owner.reassign_value(hub, departed_fd, heir_fd, scenes)
 
     def clear(self) -> None:

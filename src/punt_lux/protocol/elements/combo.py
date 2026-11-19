@@ -40,7 +40,7 @@ __all__ = ["ComboElement"]
 
 @final
 class ComboElement(Element):
-    """A single-selection dropdown on the Element ABC.
+    """Render a dropdown that allows one selection.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``selected`` is a total ``int`` (default ``0``),

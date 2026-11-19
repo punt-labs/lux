@@ -75,14 +75,14 @@ class BoardRun:
         return self._reasoned(self._unwatched)
 
     def _staged(self) -> BuiltBoard:
-        """The load a user watches, each of its waits under its own figure."""
+        """Load the board and time each wait shown to the user."""
         with self._work.stage(_FETCHED):
             read = self._work.issues()
         with self._work.stage(_BUILT):
             return self._work.board(read)
 
     def _unwatched(self) -> BuiltBoard:
-        """The load nobody watches, timed as the one wait they do not have."""
+        """Load the board in the background and time the overall wait."""
         return self._work.board(self._work.issues())
 
     @staticmethod

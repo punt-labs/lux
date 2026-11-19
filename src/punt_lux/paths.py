@@ -57,14 +57,14 @@ class DisplayPaths:
     _socket_path: Path
 
     def __new__(cls, socket_path: Path | None = None) -> Self:
+        """Use the supplied socket path or discover the default on demand."""
         self = super().__new__(cls)
         self._socket_path = socket_path or cls._default_path()
         return self
 
     @staticmethod
     def _default_path() -> Path:
-        """Return the default socket path: ``$LUX_SOCKET``, else
-        ``$XDG_RUNTIME_DIR/lux/`` or ``/tmp/lux-$USER/``, plus ``display.sock``."""
+        """Resolve the display socket from LUX_SOCKET or the runtime directory."""
         env = os.environ.get("LUX_SOCKET")
         if env:
             return Path(env)

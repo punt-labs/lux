@@ -447,7 +447,7 @@ class TestRowsReconcileNotifiesObservers:
 
 
 class TestLiveIdsCacheIsOSelected:
-    """``_live_ids_cache`` (lux-qfzu.4): recomputed only when rows change.
+    """Recompute live row IDs only when the rows change.
 
     A selection-only patch must never touch the cache object — proven by object
     identity, not wall-clock — while a rows patch always produces a fresh one.
@@ -481,7 +481,7 @@ class TestLiveIdsCacheIsOSelected:
 
 
 class TestSelectionPreservationAcrossTheCacheRefactor:
-    """The six correctness axes lux-qfzu.4's contract names.
+    """Exercise selection reconciliation across row and selection changes.
 
     Selection state after the ``_live_ids_cache`` refactor must bit-equal
     selection state before under every one of these operations.

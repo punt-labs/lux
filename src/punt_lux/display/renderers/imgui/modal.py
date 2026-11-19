@@ -94,7 +94,7 @@ class ImGuiModalRenderer:
         return visible
 
     def paint(self) -> None:
-        """A modal is a container; its body is its children, so paint no widget.
+        """Paint no body widget because the modal body consists of children.
 
         The rect is recorded in ``end`` after the children have laid out — the
         skeleton runs ``paint`` before the children, so recording here would

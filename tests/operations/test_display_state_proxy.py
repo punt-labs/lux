@@ -134,7 +134,7 @@ def test_snapshot_never_drops_a_scene_when_two_connections_share_a_local_name() 
 
 
 def test_snapshot_normalizes_the_callers_own_frame_id_to_its_local_name() -> None:
-    # lux-p3i8: every scene install composes its frame id against the owning
+    # Each scene uses a frame ID qualified by the owning
     # connection (DES-086), so the display's real reply carries the composed
     # form -- not the bare "f1" the other tests in this file use as a
     # simplified stand-in. A caller comparing its own local frame name

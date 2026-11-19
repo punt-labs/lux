@@ -71,6 +71,7 @@ class ConfigManager:
     _config_path: Path
 
     def __new__(cls, config_path: Path | None = None) -> Self:
+        """Bind the configuration path, resolving the default when omitted."""
         self = super().__new__(cls)
         self._config_path = config_path or resolve_config_path()
         return self

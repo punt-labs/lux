@@ -50,7 +50,7 @@ __all__ = ["Tab", "TabBarElement"]
 
 
 class TabBarElement(Element):
-    """A tabbed container that owns a Hub-authoritative active-tab selection.
+    """Group child elements into tabs whose active selection the Hub owns.
 
     Holds only ABC children — the render template calls ``child.render()``,
     which every element provides. The decoder recurses each tab's children

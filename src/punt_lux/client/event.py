@@ -15,13 +15,14 @@ if TYPE_CHECKING:
 
 @final
 class EventAccessor:
-    """The ``client.event.*`` verbs -- caller-scoped event log."""
+    """Read recent events for this client identity."""
 
     _ops: EventOps
     _identity: ClientIdentity
     __slots__ = ("_identity", "_ops")
 
     def __new__(cls, ops: EventOps, identity: ClientIdentity) -> Self:
+        """Bind event queries to the caller's identity."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

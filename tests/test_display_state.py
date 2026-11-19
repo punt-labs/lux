@@ -74,7 +74,7 @@ def _hub_sock(server: RenderLoop) -> MagicMock:
     """Create a mock socket already identified as ``kind="hub"``.
 
     A scene/menu/theme message installs only from an identified ``"hub"``
-    fd (bead lux-2kv9 / W1); tests that install content use this instead of
+    fd; tests that install content use this instead of
     the identity-free :func:`_mock_sock`.
     """
     sock = _mock_sock()

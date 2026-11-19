@@ -56,5 +56,5 @@ class CachedBoard(Protocol):
         ...
 
     def said(self) -> str:
-        """What the click's line calls that answer, once it is the one shown."""
+        """Label what the click shows after this answer is installed."""
         ...

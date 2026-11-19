@@ -29,9 +29,9 @@ class BlankBoard(Protocol):
     """What goes up in place of a board, and what the click's line calls it."""
 
     def request(self, work: BoardWork) -> BoardRequest:
-        """The scene to install where a board would be."""
+        """Return the scene to install when the board is absent."""
         ...
 
     def said(self) -> str:
-        """What a click answering with this says it answered with."""
+        """Label a click served with the blank scene."""
         ...

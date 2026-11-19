@@ -1,7 +1,4 @@
-"""The click-time value types a wire menu threads through activation: the
-callbacks a click fires (:class:`MenuHandlers`) and what one clickable line
-reports about itself (:class:`ClickTarget`), bundled so every method in
-:meth:`Submenu.from_wire`'s recursion takes a handful of parameters."""
+"""Describe callback groups and clickable entries in replicated menus."""
 
 from __future__ import annotations
 

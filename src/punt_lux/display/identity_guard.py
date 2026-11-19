@@ -48,8 +48,7 @@ class IdentityGuard:
         return self
 
     def hub_id_of(self, sock: socket.socket) -> HubId:
-        """Return the sender's ``HubId`` for a fd :meth:`reject_if_unidentified`
-        already confirmed identified. :meth:`HubId.stub` is the fallback."""
+        """Return the identified sender's Hub ID, or the stub if none is recorded."""
         hub = self._socket_listener.hub_id_of(sock.fileno())
         return hub if hub is not None else HubId.stub()
 

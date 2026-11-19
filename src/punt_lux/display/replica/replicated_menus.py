@@ -1,7 +1,8 @@
-"""ReplicatedMenus — the agent-defined and Clients (callback) menu bars, each
-keyed by ``HubScopedKey`` so a second live Hub's push concatenates onto the
-first's bar rather than erasing it. Composed out of ``MenuReplica``, which
-also holds the two render surfaces as a separate collaborator."""
+"""Keep agent and callback menus scoped by Hub.
+
+Composed out of ``MenuReplica``, which also holds the two render surfaces as a separate
+collaborator.
+"""
 
 from __future__ import annotations
 
@@ -44,8 +45,7 @@ class ReplicatedMenus:
 
     @property
     def agent_menus(self) -> tuple[WireMenu, ...]:
-        """Every live Hub's agent-defined bar, concatenated (not replaced) --
-        a second Hub's push used to overwrite the first's outright."""
+        """Return the concatenated agent menus from all live Hubs."""
         return tuple(chain.from_iterable(self._agent_menus.values()))
 
     def replace_agent_menus(
@@ -74,8 +74,7 @@ class ReplicatedMenus:
         ).to_report()
 
     def hub_scoped_menus_by_hub(self) -> Iterator[tuple[HubId, WireMenu]]:
-        """Yield every live Hub's callback then agent-defined menus, each
-        paired with its Hub -- the routing hint a scene-less click carries."""
+        """Yield each Hub's callback and agent menus with its routing identity."""
         yield from MenuByHub.pairs(self._callback_menus)
         yield from MenuByHub.pairs(self._agent_menus)
 

@@ -330,7 +330,7 @@ class TestSceneRejectionFromTestKind:
         assert sock in server._socket_listener.clients
 
     def test_a_scene_from_an_unidentified_fd_is_rejected_and_closed(self) -> None:
-        """No ConnectMessage at all fails closed too (bead lux-2kv9 / W1).
+        """No ConnectMessage at all fails closed too.
 
         Distinct from ``kind="test"``: this fd never identified at all, so it
         has no attribution to install a scene under -- a strictly worse case
@@ -362,7 +362,7 @@ class TestSceneRejectionFromTestKind:
 
 
 class TestContentRejectionFromUnidentifiedFd:
-    """Menu/callback-menu/theme also fail closed on an unidentified fd (lux-2kv9 / W1).
+    """Menu/callback-menu/theme also fail closed on an unidentified fd.
 
     Unlike scene, these were never restricted to ``kind="hub"`` -- an
     identified ``"test"`` fd may still install them; only a fd that never

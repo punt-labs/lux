@@ -10,10 +10,7 @@ from punt_lux.domain.identity import HubScopedKey, HubScopedStore
 
 
 class WidgetStateStore:
-    """One :class:`WidgetState` per scene, opened and discarded with it --
-    Display-only bookkeeping (selection, scroll, in-progress text), keyed by
-    :class:`~punt_lux.domain.hub_scoped_key.HubScopedKey` so two Hubs' scenes
-    sharing a local id never share one scroll position."""
+    """Keep one display-side widget state per live Hub-scoped scene."""
 
     _by_scene: HubScopedStore[WidgetState]
 

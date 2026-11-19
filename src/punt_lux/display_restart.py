@@ -61,6 +61,7 @@ class DisplayRestart:
         manager: DisplayServiceManager | None = None,
         paths: DisplayPaths | None = None,
     ) -> Self:
+        """Configure the dependencies used to restart the display."""
         self = super().__new__(cls)
         self._spec = spec if spec is not None else DISPLAY_SPEC
         self._manager = manager if manager is not None else DisplayServiceManager()
@@ -102,7 +103,7 @@ class DisplayRestart:
 
     @staticmethod
     def _polls() -> Iterator[None]:
-        """The bounded poll schedule: sleep, then look, until spent."""
+        """Yield the bounded sequence of restart poll delays."""
         for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
             time.sleep(_POLL_SECONDS)
             yield

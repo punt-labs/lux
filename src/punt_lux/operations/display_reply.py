@@ -36,7 +36,7 @@ class DisplayReplied:
     payload: Mapping[str, object]
 
     def resolve(self) -> Mapping[str, object] | OpError:
-        """A payload reply resolves to its payload."""
+        """Resolve a successful display reply to its payload."""
         return self.payload
 
 
@@ -47,7 +47,7 @@ class DisplayErrored:
     message: str
 
     def resolve(self) -> Mapping[str, object] | OpError:
-        """A display-reported error resolves to a ``rejected`` OpError."""
+        """Convert a display-reported error to a rejected operation."""
         return OpError(code="rejected", reason=self.message)
 
 
@@ -68,7 +68,7 @@ class DisplayFault:
     }
 
     def resolve(self) -> Mapping[str, object] | OpError:
-        """A fault resolves to the OpError its code names."""
+        """Convert a reply fault to the operation error named by its code."""
         return OpError(code=self.code, reason=self._REASON[self.code])
 
 

@@ -121,7 +121,7 @@ class NamedSessions:
         return self._sessions
 
     def name_of(self, connection_id: ConnectionId, fallback: str) -> str:
-        """What the menu calls *connection_id*, or *fallback* if it holds no name."""
+        """Return the connection's menu label, using the fallback if unnamed."""
         return self._names.get(connection_id, fallback)
 
     def named(self, connection_id: ConnectionId, fallback: str) -> NamedSession | None:

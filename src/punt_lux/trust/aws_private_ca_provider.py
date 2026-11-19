@@ -79,9 +79,7 @@ class AwsPrivateCaProvider:
         return cls(config, client)
 
     def trust_anchor(self) -> TrustAnchor:
-        """Return the CA's own certificate chain as the verification set a
-        Display loads — root plus any intermediate ACM Private CA reports.
-        """
+        """Return the root and any intermediate CA certificates for verification."""
         response = self._ca_certificate_response()
         bundle = response["Certificate"].encode("ascii")
         # Absent for a root CA with no subordinate above it — the documented
@@ -93,8 +91,7 @@ class AwsPrivateCaProvider:
         return TrustAnchor(self._split_pem_bundle(bundle))
 
     def issue_leaf_certificate(self, csr: CertificateSigningRequest) -> LeafCertificate:
-        """Sign *csr* via ACM Private CA issuance, returning a leaf chaining
-        to this provider's CA.
+        """Issue a leaf from the CSR through ACM Private CA.
 
         Runs the identical pre-issuance checks
         :meth:`.certificate_authority.CertificateAuthority.sign_csr` runs
@@ -139,20 +136,13 @@ class AwsPrivateCaProvider:
         )
 
     def _ca_certificate_response(self) -> dict[str, str]:
-        """Return ACM Private CA's own ``GetCertificateAuthorityCertificate``
-        response — the one AWS call both :meth:`trust_anchor` and
-        :meth:`_clamped_leaf_expiry` read from, kept in one place rather than
-        duplicated at each call site.
-        """
+        """Fetch the ACM Private CA certificate and chain."""
         return self._client.get_certificate_authority_certificate(
             CertificateAuthorityArn=self._config.ca_authority_arn,
         )
 
     def _clamped_leaf_expiry(self) -> datetime:
-        """Return the leaf's ``not_valid_after``, clamped to the CA's own
-        remaining lifetime — a leaf must never outlive the CA that vouches
-        for it, mirroring :meth:`.certificate_authority.CertificateAuthority
-        .sign_csr`'s identical ``min(now + validity, root_expiry)`` clamp.
+        """Clamp the leaf expiration to the CA's remaining lifetime.
 
         A CA at or past its own expiry has no window left to clamp to: the
         clamp would produce a ``not_valid_after`` in the past, which ACM

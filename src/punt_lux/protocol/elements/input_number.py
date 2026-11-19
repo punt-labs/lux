@@ -212,8 +212,7 @@ class InputNumberElement(Element):
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> InputNumberElement:
-        """Construct an InputNumberElement from a mapping (noop handler bus; a
-        ``publish`` chain raises via ``RaisingPublishSink``)."""
+        """Decode a numeric input without installing a publishing handler."""
         decoder = JsonInputNumberDecoder(
             renderer_factory=RAISING_FACTORY,
             emit=NO_EMIT,

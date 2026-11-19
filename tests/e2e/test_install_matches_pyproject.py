@@ -1,14 +1,7 @@
-"""e2e: every ``[project.scripts]`` entry point exists after a real install.
+"""Verify that declared service and console binaries exist after installation.
 
-Companion to ``test_make_restart.py``: parses ``pyproject.toml`` directly (no
-hardcoded executable list to drift from the source of truth) and asserts every
-declared console script is a real file under ``~/.local/bin``, and every
-:class:`~punt_lux.service.ServiceSpec` resolves to an existing binary. This is
-the class of defect lux-5i3n fixed for the display -- a spec whose
-``binary_name`` names an executable ``[project.scripts]`` never declares.
-
-Run via ``make test-e2e`` -- requires a prior real ``uv tool install``
-(``make install`` or the sequence in ``test_make_restart.py``).
+Read the script names from pyproject.toml so the test also covers new scripts.
+Run with ``make test-e2e`` after installing Lux with ``make install``.
 """
 
 from __future__ import annotations

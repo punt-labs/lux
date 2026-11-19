@@ -24,11 +24,27 @@ snapshot-parity: ## Replay the characterization corpus — every snapshot must m
 snapshot-record: ## Rebuild the characterization corpus (overwrites snapshots/)
 	uv run --extra display python -m tests.characterization.build_corpus
 
-lint: ## Lint and format check
+.PHONY: check-comments check-docstrings build-api-docs
+
+lint: check-comments check-docstrings ## Lint and format check
 	uv run --extra display ruff check .
 	uv run --extra display ruff format --check .
 	npx markdownlint-cli2 "**/*.md" "#node_modules"
 	bash scripts/check-plugin-surface.sh
+
+check-comments: ## Reject commented-out code and tracker references in Python prose
+	uv run --locked ruff check --select ERA001 .
+	uv run --locked python tools/check_python_docs.py comments src tests tools scripts plugin typings
+
+check-docstrings: ## Check public Python docstrings and documented argument names
+	# Griffe checks exported class and member presence; Ruff checks their style.
+	uv run --locked ruff check --select D,D401 --ignore D101,D102,D105,D106,D107,D417 src/
+	uv run --locked python tools/check_python_docs.py docstrings src/
+	uv run --locked python tools/check_python_docs.py public src/
+
+build-api-docs: ## Build and verify the generated Python API reference
+	UV_NO_SYNC=false UV_PROJECT_ENVIRONMENT=.tmp/docs-venv uv run --locked --only-group docs mkdocs build --strict
+	uv run --locked python tools/check_python_docs.py api .tmp/api-site/objects.inv
 
 type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/

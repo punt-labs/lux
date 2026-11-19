@@ -284,7 +284,7 @@ class DialGeneration:
         return self._socket.messages(chunk)
 
     def head(self, count: int) -> bytes:
-        """The first ``count`` unread bytes, for a log line about a bad frame."""
+        """Preview up to ``count`` unread bytes for a malformed-frame log message."""
         return self._socket.head(count)
 
     def shut(self) -> None:
@@ -339,7 +339,7 @@ class DialGeneration:
             raise self.closed_error()
 
     def closed_error(self) -> ConnectionClosedError:
-        """The error that says this dial is gone, and who ended it.
+        """Describe the retired dial and the party that ended it.
 
         A plain :class:`ConnectionClosedError` when the display ended it,
         :class:`UnresponsiveError` when the Hub gave up on its silence, and

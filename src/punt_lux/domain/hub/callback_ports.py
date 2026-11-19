@@ -35,7 +35,7 @@ class LiveSessions(Protocol):
 
 @runtime_checkable
 class CallbackListener(Protocol):
-    """A persistent leg's wake: 'a routed invocation landed — drain and push it.'
+    """Wake a persistent leg when a routed invocation reaches its inbox.
 
     Payload-less by design, like the replicator's menu flag: the leg reads the hold
     itself on waking, so the wake carries no state the hold does not already own.

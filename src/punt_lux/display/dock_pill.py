@@ -1,7 +1,6 @@
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
 # pyright: reportMissingModuleSource=false
-"""One minimized frame's pill: where it sits, whether it is under the mouse, and
-what a click on it restores.
+"""Represent the bounds, hover state, and restore target of a docked frame pill.
 
 ``imgui`` is typed ``Any``: imgui_bundle ships no type stubs. It is handed in
 rather than imported so the pill paints into the caller's frame.
@@ -52,7 +51,7 @@ class DockPill:
     def at(
         cls, imgui: Any, frame: Frame, title: str, anchor: ImVec2, height: float
     ) -> Self:
-        """The pill for *frame*, labelled *title*, its top-left corner at *anchor*.
+        """Build a pill with the frame title at the given top-left anchor.
 
         Its width is its title's, so the bar cannot know where the next pill
         starts without building this one first — which is why overflow is
@@ -100,5 +99,5 @@ class DockPill:
         scenes.raise_frame(self._frame.frame_id)
 
     def _middle(self, height: float) -> float:
-        """The y that centres something *height* tall inside the pill."""
+        """Center an item of the given height vertically inside the pill."""
         return self._low.y + (self._high.y - self._low.y - height) * 0.5

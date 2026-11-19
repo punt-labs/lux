@@ -43,7 +43,7 @@ class BeadsBoard:
 
     @classmethod
     def for_project(cls, project: str) -> Self:
-        """The one beads board of a repository, by the name every surface uses.
+        """Identify the repository's board by its shared name.
 
         A repository has one board, not one per surface: the ``lux show beads``
         command, the post-``bd`` refresh, and a session's menu entry all name this
@@ -65,7 +65,7 @@ class BeadsBoard:
 
     @classmethod
     def for_repo(cls) -> Self:
-        """The board of the repository this process runs in, named from its root.
+        """Identify this working repository's board by its root.
 
         The name comes from the repository root rather than the working directory,
         so ``lux show beads`` from a subdirectory refreshes the repository's board

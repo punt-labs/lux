@@ -46,13 +46,14 @@ class HeaderValue:
     __slots__ = ("_text",)
 
     def __new__(cls, text: str) -> Self:
+        """Wrap the text declared by one header."""
         self = super().__new__(cls)
         self._text = text
         return self
 
     @classmethod
     def sent(cls, value: str | None) -> str:
-        """The header text for ``value``, or ``""`` for a field the client omits.
+        """Encode a header value, using an empty string for an omitted field.
 
         A blank header equals no header on the read side, so one absence spelling
         serves both: a caller renders every field and drops the blanks.
@@ -61,7 +62,7 @@ class HeaderValue:
 
     @classmethod
     def declared(cls, raw: str) -> str:
-        """The text a header declares, or ``""`` when it declares nothing.
+        """Return the declared header text or an empty string.
 
         The read counterpart of :meth:`sent`: a missing header, a blank one, and a
         whitespace-only one all mean the client declared no such field.

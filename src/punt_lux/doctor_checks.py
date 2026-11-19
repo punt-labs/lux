@@ -93,6 +93,7 @@ class EnvironmentChecks:
     __slots__ = ("_plugin_id", "_report")
 
     def __new__(cls, report: CheckReporter, plugin_id: str) -> Self:
+        """Bind the output reporter and identify the plugin to check."""
         self = super().__new__(cls)
         self._report = report
         self._plugin_id = plugin_id
@@ -168,7 +169,7 @@ class EnvironmentChecks:
 
     @staticmethod
     def _first_existing(candidates: tuple[str, ...]) -> str:
-        """The first candidate path that is a file, or ``""`` when none is.
+        """Return the first existing file, or an empty string if none exists.
 
         Empty means "no font of this kind here", which every caller renders as its
         own advice — a total answer, so no caller has to unwrap an absence.

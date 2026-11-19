@@ -53,6 +53,7 @@ class SocketOwner:
     __slots__ = ("_path",)
 
     def __new__(cls, path: Path) -> Self:
+        """Claim ownership bookkeeping for the specified socket path."""
         self = super().__new__(cls)
         self._path = path
         return self

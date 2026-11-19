@@ -1,14 +1,7 @@
-"""Fidelity-control e2e: LaunchdLegacySweep against REAL launchd/systemd.
+"""Verify legacy service removal against a real launchd or systemd instance.
 
-No mock can reproduce the cross-domain no-op that shipped the lux-ehzy
-bug -- ``launchctl unload -w`` silently failing to deregister a
-``bootstrap``-loaded job is a property of the real launchd subsystem, not
-of this codebase's logic (docs/architecture/service-lifecycle-migration.md
-§7.3). This module bootstraps a real, disposable scratch label/unit,
-proves the sweep actually deregisters it with the real supervisor, and
-tears it down unconditionally even on assertion failure.
-
-Run via ``make test-e2e`` -- excluded from the default ``make test`` gate.
+A launchd job registered through bootstrap can survive unload, so mocks
+cannot verify deregistration. Use a disposable unit and always tear it down.
 """
 
 from __future__ import annotations

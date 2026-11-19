@@ -148,7 +148,7 @@ class TestStartupBindGuard:
 
 
 class TestGracefulShutdownBound:
-    """lux-94p0: uvicorn must not wait forever for open connections on shutdown.
+    """Bound uvicorn shutdown while connections are still open.
 
     Unset, ``timeout_graceful_shutdown`` defaults to ``None`` -- uvicorn
     waits indefinitely for every open connection to close before a

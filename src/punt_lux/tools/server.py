@@ -74,10 +74,10 @@ def unbind_session(binding: SessionBinding) -> None:
 
 
 def current_session() -> str:
-    """The MCP session identity bound to the calling context."""
+    """Return the MCP session identity bound to the current context."""
     return _session_key.get()
 
 
 def current_client_host() -> ClientHost:
-    """The host observed when the calling context's session connected, if any."""
+    """Return the session's observed peer address, if any."""
     return _client_host.get()

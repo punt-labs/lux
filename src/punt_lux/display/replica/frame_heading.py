@@ -46,7 +46,7 @@ class FrameHeading:
         return self._scope_label is not None
 
     def rungs(self) -> tuple[Rung, Rung]:
-        """The owner rung and the title rung the addressing seam composes."""
+        """Return the owner and title components of the window address."""
         return Rung("", self._scope_label or ""), Rung("", self._title)
 
     def adopt(

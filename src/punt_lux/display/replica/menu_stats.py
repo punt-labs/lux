@@ -16,8 +16,10 @@ __all__ = ["MenuStats"]
 @final
 @dataclass(frozen=True, slots=True)
 class MenuStats:
-    """A point-in-time count of a :class:`~punt_lux.display.replica.menu_replica.
-    MenuReplica`'s replicated and Hub-composed menus."""
+    """Count replicated and Hub-composed menus at one instant.
+
+    MenuReplica`'s replicated and Hub-composed menus.
+    """
 
     agent_menu_count: int
     callback_menu_count: int

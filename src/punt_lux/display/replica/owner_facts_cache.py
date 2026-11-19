@@ -1,5 +1,4 @@
-"""OwnerFactsCache and OwnerFactsStore — a frame's departure-guarded snapshot
-of its owner's facts, and the keyed store that holds one per live frame.
+"""Record owner facts for each live frame until its owner departs.
 
 The two classes are close collaborators, not an unrelated pair (PY-OO-2): the
 store is a dict of ``HubScopedKey`` -> cache, and its only job is picking the

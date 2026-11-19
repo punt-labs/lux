@@ -39,7 +39,7 @@ __all__ = ["SeparatorElement"]
 
 
 class SeparatorElement(Element):
-    """A visual divider.
+    """Render a visual divider.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``id`` defaults to ``""`` — the anonymous sentinel

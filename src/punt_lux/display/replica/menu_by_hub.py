@@ -22,8 +22,7 @@ __all__ = ["MenuByHub"]
 
 @final
 class MenuByHub:
-    """The routing primitive a scene-less (menu-sourced) click resolves its
-    one target Hub through, once callback and agent menus are Hub-scoped (W3)."""
+    """Resolve a scene-less menu click to its one target Hub."""
 
     __slots__ = ()
 

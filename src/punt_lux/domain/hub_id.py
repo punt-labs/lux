@@ -68,12 +68,12 @@ class HubId:
 
     @classmethod
     def current(cls) -> Self:
-        """This process's own HubId, as declared to the Display."""
+        """Return this process's Hub identity for display declarations."""
         return cls(socket.getfqdn(), os.getpid())
 
     @classmethod
     def stub(cls) -> Self:
-        """A synthetic identity for a same-host ``kind="test"`` connection.
+        """Build an identity for a same-host test connection.
 
         A test connection is a stand-in for a Hub on the ``AF_UNIX`` leg --
         it runs the identical accept path and the identical

@@ -244,7 +244,7 @@ def test_a_click_holding_a_board_answers_with_that_board() -> None:
 def test_a_click_holding_nothing_opens_with_the_placeholder() -> None:
     """The cold click: there is no board yet, so the window says what it is doing.
 
-    The placeholder is pushed unconditionally now (lux-81t3.5): the applet has
+    The placeholder is unconditional because the applet has
     no round trip left to ask the display whether a frame was already up, since
     the raise moved Display-local and synchronous. The cost is a cosmetic
     flicker on repeated cold clicks; see ``NoBoard.answered``'s own docstring.

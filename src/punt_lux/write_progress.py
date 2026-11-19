@@ -20,7 +20,7 @@ class ProgressSource(Protocol):
     """What a bounded send asks of its clock: its deadline, and a byte having moved."""
 
     def expires_at(self, window: float) -> float:
-        """The monotonic time ``window`` seconds after the last progress."""
+        """Compute the monotonic deadline relative to the last progress."""
         ...
 
     def moved(self) -> None:
@@ -37,6 +37,7 @@ class WriteProgress:
     __slots__ = ("_line", "_own")
 
     def __new__(cls, line: ProgressClock) -> Self:
+        """Track write progress on the supplied monotonic clock."""
         self = super().__new__(cls)
         self._line = line
         self._own = ProgressClock()  # made when the write starts

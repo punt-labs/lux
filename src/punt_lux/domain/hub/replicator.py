@@ -20,7 +20,8 @@ tell which render actually crashed. The first attributed death switches to
 *isolation*: each live, non-quarantined scene sends alone, for a single
 suspect, left only once ``CrashAttribution`` sees a death-free
 ``STABLE_INTERVAL``; a scene at the threshold is quarantined and excluded
-from every future send, breaking the respawn loop."""
+from every future send, breaking the respawn loop.
+"""
 
 from __future__ import annotations
 
@@ -94,7 +95,8 @@ class HubReplicator:
     Composes the store's scene reader (its locked read side), the client
     provider, the dirty signal, and the ``SendRecovery`` that heals a failed
     send. ``mark_dirty``/``mark_menus`` are what surface tools call; this
-    worker thread owns every send."""
+    worker thread owns every send.
+    """
 
     _clients: ClientProvider
     _signal: DirtySignal
@@ -190,10 +192,11 @@ class HubReplicator:
             raise RuntimeError(msg)
 
     def stop(self) -> None:
-        """Flush pending, stop, and join. A stop is terminal, even before a
-        start: latches the dirty signal shutting so a later ``start`` raises,
-        wakes a parked disconnected wait so the join below isn't trapped
-        behind it, and is a no-op (nothing to join) before any ``start``.
+        """Flush pending replication and stop permanently, even before a start.
+
+        A stop is terminal, even before a start: latches the dirty signal shutting so a
+        later ``start`` raises, wakes a parked disconnected wait so the join below isn't
+        trapped behind it, and is a no-op (nothing to join) before any ``start``.
         """
         self._signal.request_stop()
         self._clients.reconnects.request_stop()
@@ -287,7 +290,8 @@ class HubReplicator:
         this condition and propagates to the caller's outer guard instead.
         ``OSError`` is healed by ``SendRecovery`` (a wedged display reaped, a
         dead peer reconnected, a Hub-retired dial redialed without blame); a
-        death is charged from its own dial's ledger, however it was found."""
+        death is charged from its own dial's ledger, however it was found.
+        """
         # Snapshotted BEFORE the attempt: race-safe.
         since_gen = self._clients.reconnects.reconnect_generation
         try:

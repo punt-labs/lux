@@ -18,11 +18,7 @@ __all__ = ["_AcmPcaClient", "_Boto3Module"]
 
 
 class _Boto3Module(Protocol):
-    """The one ``boto3`` module member :meth:`.AwsPrivateCaProvider.connect`
-    calls — typed so casting the untyped ``boto3`` import onto it, once,
-    resolves every downstream type cleanly instead of needing a
-    ``# pyright: ignore`` at the call site.
-    """
+    """Define the one boto3 entry point the private CA provider uses."""
 
     def client(
         self, service_name: Literal["acm-pca"], *, region_name: str | None = None

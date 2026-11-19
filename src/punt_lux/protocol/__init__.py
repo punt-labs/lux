@@ -189,7 +189,7 @@ def decode_frame(data: bytes) -> tuple[dict[str, Any], bytes]:
 
 
 class FrameReader:
-    """Accumulates bytes from a socket and yields complete messages.
+    """Buffer socket bytes and yield complete messages.
 
     Call ``feed()`` with bytes from ``socket.recv()``, then iterate
     ``drain()`` for decoded messages. Handles partial reads gracefully.
@@ -212,7 +212,7 @@ class FrameReader:
         self._buf.extend(data)
 
     def head(self, count: int) -> bytes:
-        """The first ``count`` buffered bytes -- what a malformed frame starts with."""
+        """Preview the leading buffered bytes of a malformed frame."""
         return bytes(self._buf[:count])
 
     def drain(self) -> list[dict[str, Any]]:

@@ -25,6 +25,7 @@ class LoopbackTransportPolicy:
     _DEFAULT_HOSTNAMES: ClassVar[tuple[str, ...]] = ("127.0.0.1", "localhost")
 
     def __new__(cls, hostnames: tuple[str, ...] = ()) -> Self:
+        """Set the bind and Host/Origin allowlist, defaulting to loopback."""
         self = super().__new__(cls)
         self._hostnames = hostnames or cls._DEFAULT_HOSTNAMES
         return self

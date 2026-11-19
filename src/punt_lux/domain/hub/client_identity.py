@@ -66,7 +66,7 @@ _LeaseTtl = Annotated[
 
 
 class ClientIdentity(BaseModel):
-    """What a client declares itself to be — the owner the Hub attributes UI to.
+    """Declare the client identity the Hub uses to attribute UI ownership.
 
     ``kind`` is the discriminator; ``name`` is the human-readable label
     introspection prints. ``repo`` and ``agent`` are genuine absences, not
@@ -125,7 +125,7 @@ class ClientIdentity(BaseModel):
 
     @model_validator(mode="after")
     def _validate_applet_shape(self) -> Self:
-        """An applet's name must be the four-part shape the grouping composer parses.
+        """Require an applet name in the four-part form used to group menus.
 
         The menu-grouping composer reads the session pid off an applet's
         ``name`` to fold sibling applets into one submenu (DES-067). A name

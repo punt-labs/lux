@@ -15,13 +15,14 @@ if TYPE_CHECKING:
 
 @final
 class ErrorAccessor:
-    """The ``client.error.*`` verbs -- caller-scoped error log."""
+    """Read recent errors for this client identity."""
 
     _ops: ErrorOps
     _identity: ClientIdentity
     __slots__ = ("_identity", "_ops")
 
     def __new__(cls, ops: ErrorOps, identity: ClientIdentity) -> Self:
+        """Bind error queries to the caller's identity."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

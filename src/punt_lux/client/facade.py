@@ -1,11 +1,7 @@
-"""The ``LuxClient`` facade -- the one public entry point every consumer holds.
+"""Access the Lux Hub through a single identity-bound Python client.
 
-A downstream app builds one ``LuxClient`` from its declared identity, then
-reaches the Hub through noun-grouped accessors: ``client.scene.show``,
-``client.topic.publish(...)``, ``client.callback.register(...)``. The facade
-composes the transport once and hands the same reference to every accessor, so
-a callback registered through one is delivered through this client's listener
-on another -- built on demand from :meth:`LuxClient.listener`.
+Use noun-grouped methods such as ``client.scene.show``. A callback registered
+by the client is delivered through a listener made by that same client.
 """
 
 from __future__ import annotations
@@ -43,7 +39,7 @@ if TYPE_CHECKING:
 
 @final
 class LuxClient:
-    """The one public entry point every downstream consumer holds.
+    """Access the Hub and subscribe to events under a single identity.
 
     Construction is through :meth:`for_identity` (the daemon/app path, an
     explicit ``ClientIdentity``) or :meth:`connect` (the CLI convenience,
@@ -57,6 +53,7 @@ class LuxClient:
     __slots__ = ("__dict__", "_identity", "_scope", "_transport")
 
     def __new__(cls, transport: _RestTransport, identity: ClientIdentity) -> Self:
+        """Bind the transport and scope to the supplied identity."""
         self = super().__new__(cls)
         self._transport = transport
         self._identity = identity
@@ -76,12 +73,12 @@ class LuxClient:
 
     @property
     def identity(self) -> ClientIdentity:
-        """The identity this client declared."""
+        """Return the identity this client declared."""
         return self._identity
 
     @property
     def scope(self) -> Scope:
-        """The scope every accessor scopes writes and content reads under."""
+        """Return the scope used for writes and content reads."""
         return self._scope
 
     @cached_property
@@ -107,7 +104,7 @@ class LuxClient:
 
     @cached_property
     def callback(self) -> CallbackAccessor:
-        """The ``client.callback.*`` verbs (``register`` only this cycle)."""
+        """Return the accessor for menu callback registration."""
         return CallbackAccessor(self._transport, self._identity)
 
     @cached_property

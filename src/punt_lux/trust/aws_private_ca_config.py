@@ -84,26 +84,22 @@ class AwsPrivateCaConfig:
 
     @property
     def partition(self) -> str:
-        """The AWS partition segment of the CA ARN (``aws``, ``aws-us-gov``,
-        ``aws-cn``) — the CA ARN is validated in ``__post_init__``, so the
-        segment is always present.
-        """
+        """Return the partition named in the validated CA ARN."""
         return self.ca_authority_arn.split(":")[_ARN_PARTITION]
 
     @property
     def region(self) -> str:
-        """The AWS region segment of the CA ARN. The ACM Private CA client must
-        talk to the region the CA lives in, so Provider 2 derives the client's
-        region from this rather than boto3's ambient default — a client pointed
-        at the wrong region fails confusingly against a CA that "does not exist"
-        there.
+        """Return the CA ARN's region so issuance reaches the same region as the CA.
+
+        The ACM Private CA client must talk to the region the CA lives in, so Provider 2
+        derives the client's region from this rather than boto3's ambient default — a
+        client pointed at the wrong region fails confusingly against a CA that "does not
+        exist" there.
         """
         return self.ca_authority_arn.split(":")[_ARN_REGION]
 
     def _reject_malformed_arn(self) -> None:
-        """Raise unless ``ca_authority_arn`` is a well-formed ACM Private CA
-        certificate-authority ARN carrying a partition and a region.
-        """
+        """Validate an ACM Private CA authority ARN with a partition and region."""
         if not self.ca_authority_arn:
             msg = "ca_authority_arn must be a non-empty ACM Private CA ARN"
             raise ValueError(msg)
@@ -131,8 +127,5 @@ class AwsPrivateCaConfig:
 
     @staticmethod
     def _default_template_arn(partition: str) -> str:
-        """Build the AWS-predefined end-entity template ARN for *partition* —
-        partition-scoped so GovCloud and China CAs get a template ARN in their
-        own partition rather than a commercial-partition one AWS would reject.
-        """
+        """Build the end-entity template ARN in the CA's AWS partition."""
         return f"arn:{partition}:{_TEMPLATE_RESOURCE}"

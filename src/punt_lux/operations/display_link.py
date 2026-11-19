@@ -3,7 +3,8 @@
 Pure classification: no round-trip to the display, only local facts (the
 connection's live/dead state, the replicator's pending retry delay, the
 store's live-scene count) so a caller learns the state even while the
-display is unreachable (design §6)."""
+display is unreachable (design §6).
+"""
 
 from __future__ import annotations
 
@@ -71,7 +72,8 @@ class DisplayLinkOperations:
 
         ``hub_host``/``hub_pid`` name which Hub, on which machine, holds this
         state (design §9) -- an agent seeing ``HELD`` needs to know where to
-        look, not just that content is waiting somewhere."""
+        look, not just that content is waiting somewhere.
+        """
         count = len(self._display.live_scene_ids())
         host, pid = socket.gethostname(), os.getpid()
         linkage = DisplayLinkage.classify(

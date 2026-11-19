@@ -44,7 +44,7 @@ __all__ = ["SelectableElement"]
 
 @final
 class SelectableElement(Element):
-    """A boolean selectable list row on the Element ABC.
+    """Render a list row with a boolean selection state.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip.

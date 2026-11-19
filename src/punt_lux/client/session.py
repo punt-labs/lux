@@ -16,12 +16,7 @@ if TYPE_CHECKING:
 
 @final
 class SessionAccessor:
-    """The ``client.session.*`` verbs -- ``ls`` and ``identify`` this cycle.
-
-    ``client.session.inspect(id)`` is tracked as ``lux-aom6``; its command is
-    not yet on the ABC path, so the accessor method lands with that follow-on
-    bead.
-    """
+    """List Hub sessions and identify the current session."""
 
     _ops: SessionOps
     _identity: ClientIdentity
@@ -29,6 +24,7 @@ class SessionAccessor:
     __slots__ = ("_identity", "_ops", "_scope")
 
     def __new__(cls, ops: SessionOps, identity: ClientIdentity, scope: Scope) -> Self:
+        """Bind session operations to the caller's identity and scope."""
         self = super().__new__(cls)
         self._ops = ops
         self._identity = identity

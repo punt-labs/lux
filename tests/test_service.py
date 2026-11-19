@@ -500,8 +500,7 @@ class TestBackendStartStopSymmetry:
     def test_launchd_stop_calls_launchctl_bootout(self, tmp_path: Path):
         # bootout, not unload/stop: under KeepAlive=true, launchctl stop
         # sends SIGTERM and launchd immediately respawns the job. bootout
-        # deregisters it from the GUI domain so nothing respawns it
-        # (lux-5uc7 F5 — the operator live-reproduced the respawn).
+        # deregisters it from the GUI domain so nothing respawns it.
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch("punt_lux._backend_launchd.Path.home", return_value=fake_home):

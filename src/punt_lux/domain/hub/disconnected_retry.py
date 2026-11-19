@@ -52,7 +52,7 @@ class DisconnectedRetry:
 
     @classmethod
     def paced(cls, *, base_delay: float, max_delay: float) -> Self:
-        """A retry whose delay doubles from ``base_delay`` up to ``max_delay``."""
+        """Back off by doubling from ``base_delay`` up to ``max_delay``."""
         return cls(BackoffConfig(base_delay=base_delay, max_delay=max_delay))
 
     @property
@@ -61,9 +61,11 @@ class DisconnectedRetry:
         return self._backoff.current_delay
 
     def wait(self, clients: ReconnectWaiter, *, since_gen: int) -> None:
-        """Wait the current delay, breakable by a reconnect since ``since_gen``;
-        grow it after. The caller snapshots ``since_gen`` BEFORE its own dial
-        attempt, so a reconnect racing that attempt is never missed."""
+        """Wait for the retry delay or a newer reconnect, then increase the delay.
+
+        The caller snapshots ``since_gen`` BEFORE its own dial attempt, so a reconnect
+        racing that attempt is never missed.
+        """
         delay = self._backoff.note_respawn()
         self._log(delay)
         clients.wait_for_reconnect(ReconnectWait(since_gen, delay))
@@ -77,7 +79,6 @@ class DisconnectedRetry:
         self._was_disconnected = True
 
     def reset(self) -> None:
-        """Reset to base on a clean SEND, not merely a successful dial -- a
-        dial whose immediate send fails is ``recovered``, never routed here."""
+        """Reset backoff only after a clean send, not merely a successful dial."""
         self._backoff = RespawnBackoff(self._config)
         self._was_disconnected = False

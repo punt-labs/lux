@@ -1,50 +1,8 @@
-"""Scale-perf guardrail for the lux-qfzu epic — 1000 elements, 10k table rows.
+"""Guard the pure-Python render walk at 1,000 elements and table work at 10,000 rows.
 
-``test_frame_budget.py`` proved the pattern at 10 ``TextElement`` instances;
-this module extends it to the two scales the epic's four fix beads (texture
-eviction, filter memoization, selection scan, stack-layout skip) compare
-against. Same discipline: pure-Python dispatch cost via ``RecordingRenderer``,
-absolute wall-clock bounds loose enough to survive CI noise (~70x above
-measured cost, per the sibling module's rationale), immune to GPU/GL timing
-because nothing here touches ImGui.
-
-Two classes of cost are measured, matching what is actually reachable without
-a live display:
-
-- The **outer render walk** — ``Element.render()`` dispatch over a scene, the
-  same seam ``RenderLoop._render_framed_scene`` (render_loop.py:1043-1060)
-  exercises per frame for every element in a scene.
-- The **Hub-side table model cost** — ``FilteredTableModel``'s per-event
-  filter scan and ``TableElement``'s per-patch selection-intersect scan. Both
-  were O(rows) Python work with no ImGui dependency: the actual row *painting*
-  (``TableRowPainter``, the list-clipper walk) requires a live ImGui frame
-  and cannot run in-process, but the Hub-side scans these two fix beads
-  target (#3 filter memoization, #4 selection O(rows)->O(selected)) run on
-  every filter keystroke and every selection patch, live or not.
-
-Measured receipts (this machine, both before lux-qfzu.3/.4 and after; ``make
-test-slow`` prints these live — treat as an order-of-magnitude reference, not
-an assertion):
-
-- ``table-10k-no-filter``: 29.0 ms -> ~10.3 ms. ``_visible_rows`` no longer
-  rescans on a repeated identical (empty) filter, but ``_reproject`` still
-  patches all 10k rows back onto the table every call (``_set_rows`` rebuilds
-  ``_live_ids_cache`` over the full row set) — that remaining O(rows) cost is
-  outside bead #3's scope (it targets the filter *scan*, not the patch push).
-- ``table-10k-filtered-100``: 9.1 ms -> ~0.2 ms. The dominant win: a repeated
-  identical ("active") filter now hits the memoized 100-row visible set
-  instead of rescanning 10k rows every call.
-- ``table-10k-select-0`` / ``table-10k-select-100``: 6.1 ms / 6.0 ms (near-
-  identical, the O(rows) defect) -> ~0.003 ms / ~0.013 ms. The two now
-  *diverge* in proportion to selection size — proof bead #4 replaced the
-  O(rows) ``_live_ids()`` rescan with an O(1) cached lookup plus an
-  O(selected) intersect.
-
-Marked ``slow`` (not the mission-requested ``perf``): ``pyproject.toml``
-already wires ``slow`` into ``addopts`` and ``make test-slow``, and the
-module's write-set here does not extend to ``pyproject.toml``. An
-unregistered ``perf`` marker would not be excluded from the default
-``make test`` gate, defeating the point of the guardrail.
+Use RecordingRenderer to isolate dispatch from GPU timing. The table cases
+measure filter memoization and selection reconciliation, not row painting.
+Run with ``make test-slow``; the absolute bounds allow for CI scheduling noise.
 """
 
 from __future__ import annotations
@@ -150,7 +108,7 @@ class MixedSceneBuilder:
 
 
 class TableScaleFixture:
-    """Build the three ``show_table`` wire-shape scenarios lux-qfzu.1 covers.
+    """Build the three ``show_table`` wire shapes used for the scale budget.
 
     Each scenario builds a fresh composition via ``TableComposition.build``
     — the real production entry point (``operations/conveniences.py`` and

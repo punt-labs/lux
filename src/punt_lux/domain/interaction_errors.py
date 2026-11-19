@@ -1,5 +1,4 @@
-"""Typed exceptions the Hub interaction dispatch raises on domain-validation
-failure.
+"""Define typed failures for invalid interaction dispatch.
 
 ``HubInteractionDispatch`` drops and logs most invalid interactions rather
 than raising (the Display is a replica; there is nobody local to hand an

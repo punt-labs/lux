@@ -93,7 +93,7 @@ def test_copy_id_off_does_not_touch_the_clipboard(
 def test_copy_id_copies_on_a_same_row_reclick_without_firing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # PR #283: re-clicking the row that is already the whole selection changes no
+    # Re-clicking the row that is already the whole selection changes no
     # set (no RowSelectionChanged), but copy_id still copies its id — legacy
     # click-again-to-copy parity.
     imgui = MagicMock()
@@ -130,7 +130,7 @@ def test_same_row_reclick_decision() -> None:
 
 
 def test_no_spurious_fire_for_a_non_representable_pending_id() -> None:
-    # PR #283 HIGH: the seed carries B, a pending id the Hub filter removed from
+    # The seed carries B, a pending id the Hub filter removed from
     # the rows, so display_ids is just A. B cannot be seeded into the storage; the
     # fire must compare only the representable part (seed ∩ display_ids = {A})
     # against the storage's {A} -> no change, no fire. Comparing the full seed

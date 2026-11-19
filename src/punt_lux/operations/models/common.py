@@ -26,7 +26,7 @@ OpErrorCode = Literal[
 
 
 class OpError(BaseModel):
-    """A capability failed; ``code`` is machine-branchable, ``reason`` is prose.
+    """Report an operation failure with a machine-readable code and reason.
 
     Tagged ``kind="error"`` so a discriminated result cannot be both a success and
     a failure at once. ``reason`` carries the bare cause with no surface wording;

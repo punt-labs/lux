@@ -56,6 +56,7 @@ class BoundedSend:
     __slots__ = ()
 
     def __new__(cls) -> Self:
+        """Initialize a writer with no send in progress."""
         return super().__new__(cls)
 
     def send(self, sock: socket.socket, data: bytes, deadline: float) -> None:

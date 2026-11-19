@@ -38,12 +38,10 @@ __all__ = ["DrawElement"]
 
 
 class DrawElement(Element):
-    """A 2D canvas painted from a tuple of typed ``DrawCommand`` values.
+    """Paint a 2D canvas using a sequence of ``DrawCommand`` values.
 
-    PY-TS-14 OK: ``bg_color`` stays ``str | None`` — absence is the documented
-    contract for "no background fill, use the renderer default"; ``tooltip``
-    likewise means no tooltip. ``width``/``height`` are total ``int`` pixel sizes
-    and ``commands`` a total tuple, so neither needs an Optional.
+    Leave ``bg_color`` unset to use the renderer's default background and
+    ``tooltip`` unset to omit the hover text. The dimensions are in pixels.
     """
 
     _id: str

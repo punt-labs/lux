@@ -398,7 +398,7 @@ def test_render_reports_a_duplicate_id_as_a_rejected_error() -> None:
 
 
 def test_remove_frame_over_the_real_surface_takes_a_plain_frame_id() -> None:
-    # Finding 7 (PR #464): FrameOps.remove_frame's PUBLIC signature is a plain
+    # FrameOps.remove_frame takes a plain
     # string, matching every sibling SyncOps method -- never the internal
     # FrameTarget value object, which a caller cannot construct.
     client = _client_over(SurfaceTransport(make_client()))

@@ -182,7 +182,7 @@ class DisplayReplies:
     def _decoded(
         generation: DialGeneration, messages: Iterator[Message]
     ) -> Message | None:
-        """The next message the chunk completes; a frame that cannot decode raises.
+        """Return the next completed message, raising if its frame cannot decode.
 
         The wire boundary: any decoder failure is the display's, and ends the stream.
         """

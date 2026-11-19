@@ -117,7 +117,7 @@ class CallbackInvocation:
 
     @classmethod
     def details(cls, connection_id: ConnectionId) -> Self:
-        """The invocation the Hub's own Details command on *connection_id* fires.
+        """Build the Hub's Details callback for this connection.
 
         The entry a connection with no registered command contributes. The Hub
         answers it itself, reporting that connection's own state rather than

@@ -81,13 +81,10 @@ class CrossHostConnector:
     def dial(self, connect_timeout: float) -> HandshakeResult:
         """Open TCP+mTLS to the remote Display and complete the handshake.
 
-        Raises
-        ------
-        DisplayNotConnectedError
-            If the TCP connection, the TLS handshake (unreachable host,
-            untrusted or mismatched certificate), or the
-            ``ReadyMessage``/``ConnectMessage`` exchange fails. The socket is
-            closed on every failure path -- no half-open connection escapes.
+        Raises:
+            DisplayNotConnectedError: If TCP or TLS setup fails, no Ready
+                message arrives, or the identity cannot be sent.
+            ValueError: If the Ready frame is malformed.
         """
         endpoint = f"{self._host}:{self._port}"
         sock = self._open_tls(connect_timeout, endpoint)

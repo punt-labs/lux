@@ -24,10 +24,7 @@ class MaterialLoad:
 
     @staticmethod
     def or_raise_clearly(directory: Path, load: Callable[[], _T]) -> _T:
-        """Call *load*, or raise :class:`ValueError` naming *directory*
-        on a :class:`ValueError` (damaged) or :class:`OSError` (missing
-        or unreadable — e.g. a partial directory missing one file).
-        """
+        """Load trust material and report damaged or missing data with its directory."""
         try:
             return load()
         except (ValueError, OSError) as exc:

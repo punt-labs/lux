@@ -57,7 +57,7 @@ class DisplayLog:
     def report(
         self, channel: LogChannel, count: int | None = None, **_kwargs: Any
     ) -> dict[str, Any]:
-        """The last ``count`` entries of ``channel`` and how many are buffered.
+        """Return up to ``count`` channel entries and the number buffered.
 
         Raises ``ValueError`` for a negative ``count``; zero returns no entries.
         """

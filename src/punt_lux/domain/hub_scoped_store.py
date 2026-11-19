@@ -22,10 +22,7 @@ __all__ = ["HubScopedStore"]
 
 @final
 class HubScopedStore[V]:
-    """The one aggregated-storage shape every Display-side multi-Hub
-    collection composes, in place of a bare dict -- owns its own keying
-    discipline; a caller never reaches past this class into a bare mapping.
-    """
+    """Index Display state by owning Hub and local ID."""
 
     _entries: dict[HubScopedKey, V]
     __slots__ = ("_entries",)
@@ -56,19 +53,18 @@ class HubScopedStore[V]:
         return self._entries.pop(key, None)
 
     def remove_all(self, local: str) -> list[V]:
-        """Drop every Hub's entry for ``local`` -- for a caller with no live
-        Hub to scope by, e.g. a Display-local closed tab."""
+        """Drop a local ID across all Hubs for a gesture without a Hub scope."""
         stale = [key for key in self._entries if key.local == local]
         return [self._entries.pop(key) for key in stale]
 
     def remove_matching_hub_value(self, hub: HubId, value: V) -> list[HubScopedKey]:
-        """Remove every entry ``hub`` owns whose value matches -- the whole-frame
-        removal :meth:`forget_scenes_of_frame` is built on, scoped by owner so a
-        second Hub's identically-valued entries are never candidates. There is no
-        hub-blind ``remove_matching(local, value)`` counterpart: matching on local
-        id and value alone, across every Hub, is exactly the collision this store
-        exists to make unrepresentable -- two Hubs placing the same local id at
-        the same value would both be removed."""
+        """Remove matching values owned by this Hub only.
+
+        There is no hub-blind ``remove_matching(local, value)`` counterpart: matching on
+        local id and value alone, across every Hub, is exactly the collision this store
+        exists to make unrepresentable -- two Hubs placing the same local id at the same
+        value would both be removed.
+        """
         matches = [
             key for key, v in self._entries.items() if key.hub == hub and v == value
         ]
@@ -79,12 +75,11 @@ class HubScopedStore[V]:
     def reassign_value(
         self, hub: HubId, old: V, new: V, locals_filter: frozenset[str]
     ) -> None:
-        """Replace ``old`` with ``new`` for every ``hub``-owned entry whose local
-        id is in ``locals_filter`` -- each entry's own key is otherwise
-        untouched, only its value moves, and a second Hub's identically-named
-        entry is never a candidate. The ownership-transfer primitive a departed
-        client's co-owned entries reassign through, scoped to one frame's
-        scenes."""
+        """Replace matching values for this Hub, preserving their keys.
+
+        The ownership-transfer primitive a departed client's co-owned entries reassign
+        through, scoped to one frame's scenes.
+        """
         for key, value in list(self._entries.items()):
             if key.hub == hub and key.local in locals_filter and value == old:
                 self._entries[key] = new
@@ -131,8 +126,7 @@ class HubScopedStore[V]:
         return {key.local: value for key, value in self._entries.items()}
 
     def purge_hub_not_in(self, hub: HubId, still_named: frozenset[str]) -> list[V]:
-        """Drop every entry this Hub owns whose local id is absent from
-        ``still_named``.
+        """Drop this Hub's entries absent from the retained ID set.
 
         The manifest-purge operation, scoped to one Hub's own entries by
         construction, so a second live Hub's entries are never candidates.

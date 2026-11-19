@@ -54,6 +54,7 @@ class SessionRegistry:
     __slots__ = ("_active",)
 
     def __new__(cls) -> Self:
+        """Start with no registered MCP sessions."""
         self = super().__new__(cls)
         self._active = Counter()
         return self
@@ -100,6 +101,7 @@ class SessionScopedServer:
     def __new__(
         cls, inner: MCPServer[object, object], registry: SessionRegistry
     ) -> Self:
+        """Bind a server and the collaborators used to scope tool invocations."""
         self = super().__new__(cls)
         self._inner = inner
         self._registry = registry

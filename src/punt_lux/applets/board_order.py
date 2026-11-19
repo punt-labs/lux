@@ -48,12 +48,12 @@ class BoardOrder:
 
     @classmethod
     def beginning(cls) -> Self:
-        """The place of a load that starts now — taken before its query runs."""
+        """Reserve this load's ordering position before its query runs."""
         return cls(next(_LOADS))
 
     @classmethod
     def before_any_load(cls) -> Self:
-        """The place of a state holding no board: earlier than every load."""
+        """Return a sentinel that sorts before every load."""
         return cls(_BEFORE_ANY_LOAD)
 
     def after(self, other: BoardOrder) -> bool:

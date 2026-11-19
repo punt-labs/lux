@@ -44,7 +44,7 @@ __all__ = ["RowBuilder"]
 
 
 class RowBuilder:
-    """Builds ``Row``\\ s from a render-state row iterator. Reuses its buffers."""
+    r"""Builds ``Row``\\ s from a render-state row iterator. Reuses its buffers."""
 
     _layout: CellLayout
     _cells: Pointer[Pointer[GhosttyRenderStateRowCellsImpl]]
@@ -194,7 +194,7 @@ class RowBuilder:
         return style
 
     def _resolved(self, key: int) -> RGB | None:
-        """A resolved colour of the selected cell, or None for the default."""
+        """Resolve the selected cell's color, or return ``None`` for the default."""
         c = self._color
         ok = lib.ghostty_render_state_row_cells_get(self._cells[0], key, c) == 0
         return (c.r, c.g, c.b) if ok else None

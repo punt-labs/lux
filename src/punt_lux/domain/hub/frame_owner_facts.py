@@ -1,5 +1,4 @@
-"""FrameOwnerFactsReader — the port the replicator resolves a frame's owner
-facts on, and the pieces that make the domain safe to use before it is bound.
+"""Define the replicator's port for reading frame owner facts.
 
 The replicator's scene-send path is domain code and the dependency arrow runs
 operations -> domain, never back (mirrors ``ClientDetailsRenderer`` /

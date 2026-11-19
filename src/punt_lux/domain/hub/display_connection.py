@@ -135,7 +135,7 @@ class DisplayConnection:
         return None
 
     def require_reading(self) -> tuple[DialGeneration, ReaderSlot]:
-        """The current dial and its slot, taken in one look; raises if there is none.
+        """Read the current dial and its slot together, raising if none is open.
 
         The error is the one :meth:`require` raises. One lock hold names both, so a
         redial cannot come between asking for the dial and asking who reads it.
@@ -297,7 +297,7 @@ class DisplayConnection:
 
     @staticmethod
     def _why_none(last: DialGeneration | None) -> Exception:
-        """The error that says there is no current dial, and why."""
+        """Build an error explaining why no dial is current."""
         if last is None:
             msg = "Not connected -- open() the display connection first"
             return DisplayNotConnectedError(msg)  # nothing was ever dialed

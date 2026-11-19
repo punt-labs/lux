@@ -43,7 +43,7 @@ __all__ = ["ButtonElement"]
 
 
 class ButtonElement(Element):
-    """A clickable button on the Element ABC.
+    """Render a button that can dispatch click events.
 
     PY-TS-14: ``action`` and ``arrow`` stay ``str | None`` — ``action``
     None means "renderer falls back to ``id``" (the documented contract

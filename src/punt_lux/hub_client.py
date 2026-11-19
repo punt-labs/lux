@@ -53,14 +53,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["CallbackHandler", "ConnectHandler", "EventHandler", "LuxHubClient"]
 
-# An app handler for a menu click (the callback id) and for a subscribed event
-# (its topic and payload). Either may be sync or async; the loop awaits a coroutine.
 type CallbackHandler = Callable[[str], Awaitable[None] | None]
+"""Handle a menu click by callback ID, synchronously or as a coroutine."""
 type EventHandler = Callable[[str, Mapping[str, object]], Awaitable[None] | None]
-# An app's per-connection setup, run after every handshake: re-register callbacks,
-# re-push scenes. Takes no arguments — the app closes over its own client and
-# identity. Sync or async; the loop awaits a coroutine.
+"""Handle a subscribed topic and its payload, synchronously or as a coroutine."""
 type ConnectHandler = Callable[[], Awaitable[None] | None]
+"""Restore app state after each handshake, synchronously or as a coroutine."""
 
 # Reconnect backoff: start fast, double to a ceiling, reset on a clean session, so a
 # briefly-down Hub is rejoined at once and a long-down one is retried at a sane rate.
@@ -72,15 +70,14 @@ _RENEW_INTERVAL_SECONDS = 15.0
 
 @final
 class LuxHubClient:
-    """A daemon's live connection to luxd: subscribe, receive, dispatch, reconnect."""
+    """Maintain a daemon's connection to luxd and dispatch pushed events."""
 
     _url: str
     _reresolve: bool
     _headers: dict[str, str]
     _on_callback: CallbackHandler
     _on_event: EventHandler
-    # None when the app only receives and re-subscription is enough; genuinely
-    # optional per-connection setup, so its absence is a real state, not a default.
+    # A receive-only client can rely on topic re-subscription.
     _on_connect: ConnectHandler | None
     _renew_interval: float
     _topics: set[str]
@@ -114,6 +111,7 @@ class LuxHubClient:
         # reconnect loop re-reads it each attempt so a luxd restart onto a new
         # port is followed, not backed off against forever. A pinned client
         # (an explicit url, e.g. a test) keeps that url across reconnects.
+        """Bind the listener to a WebSocket endpoint and caller identity."""
         self = super().__new__(cls)
         self._url = url
         self._reresolve = reresolve

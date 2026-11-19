@@ -1,7 +1,4 @@
-"""TreeElement — a collapsible tree on the Element ABC with Hub-authoritative selection.
-
-Selection lives behind ``tree_selection_facade`` (PL-CU-1); codec in ``tree_codec.py``.
-"""
+"""Define a collapsible tree with Hub-authoritative selection."""
 
 from __future__ import annotations
 
@@ -31,12 +28,10 @@ __all__ = ["TreeElement"]
 
 @final
 class TreeElement(Element):
-    """A collapsible tree of recursive ``TreeNode`` values with an optional selection.
+    """Render recursive nodes with an optional selection.
 
-    The selection setters intersect against the live ids the node setter computes,
-    so a patch's nodes are applied first whatever order its keys came in.
-
-    PY-TS-14 OK: only ``tooltip`` is ``str | None``; every other field is total.
+    A patch applies nodes before selection, regardless of key order, so a
+    selection can only refer to nodes that survive the patch.
     """
 
     _SETTER_PRIORITY: ClassVar[SetterPriority] = SetterPriority(
@@ -73,38 +68,47 @@ class TreeElement(Element):
 
     @property
     def id(self) -> str:
+        """Return the element ID used by scene updates."""
         return self._model.id
 
     @property
     def kind(self) -> Literal["tree"]:
+        """Return the tree's wire discriminator."""
         return "tree"
 
     @property
     def label(self) -> str:
+        """Return the visible tree label."""
         return self._model.label
 
     @property
     def nodes(self) -> tuple[TreeNode, ...]:
+        """Return the root nodes in display order."""
         return self._model.content.nodes
 
     @property
     def flat(self) -> bool:
+        """Report whether the tree renders as a flat list."""
         return self._model.flat
 
     @property
     def tooltip(self) -> str | None:
+        """Return hover text, or None when no tooltip is configured."""
         return self._model.tooltip
 
     @property
     def selection_mode(self) -> SelectionMode:
+        """Return the tree's selection policy."""
         return self._model.selection.mode
 
     @property
     def selected_node_ids(self) -> frozenset[str]:
+        """Return the IDs of selected nodes, including hidden descendants."""
         return self._model.selection.selected_node_ids
 
     @property
     def anchor_node_id(self) -> str:
+        """Return the range-selection anchor, or an empty string if unset."""
         return self._model.selection.anchor
 
     def _set_label(self, value: object) -> None:
@@ -133,17 +137,21 @@ class TreeElement(Element):
         self._notify_observers("selected_node_ids")
 
     def validate(self) -> tuple[ValidationError, ...]:  # DES-039
+        """Report invalid node and selection state without changing it."""
         return TreeValidator(self).errors()
 
     def to_dict(self) -> dict[str, object]:
+        """Encode the tree's public fields for the wire."""
         return JsonTreeEncoder().encode(self)
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> TreeElement:
+        """Decode wire fields into a tree without display-side bindings."""
         decoder = JsonTreeDecoder(
             renderer_factory=RAISING_FACTORY, emit=NO_EMIT, element_cls=cls
         )
         return decoder.decode(d)
 
     def resolved_props(self) -> Mapping[str, object]:
+        """Return the normalized properties reported by scene inspection."""
         return self._model.resolved_props()

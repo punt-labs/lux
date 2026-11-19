@@ -63,7 +63,7 @@ class TreeModel:
         return replace(self, tooltip=PatchField("tooltip").as_optional_str(value))
 
     def resolved_props(self) -> dict[str, object]:
-        """The fields as the introspection API reports them."""
+        """Return the fields reported by the introspection API."""
         return {
             "label": self.label,
             "flat": self.flat,

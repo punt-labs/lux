@@ -24,5 +24,5 @@ class MenuArmingDeps:
     ensure_writer: EnsureWriter
 
     def arming(self) -> MenuArming:
-        """The :class:`MenuArming` over these collaborators."""
+        """Compose menu arming from the bound collaborators."""
         return MenuArming(self)

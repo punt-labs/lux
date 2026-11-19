@@ -47,7 +47,7 @@ class FrameSpec(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    """A whole scene to install: its id, its element tree, and its frame."""
+    """Specify the scene ID, element tree, and frame to install."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 

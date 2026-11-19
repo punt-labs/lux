@@ -75,7 +75,7 @@ class FrameTurn:
         cross_host: CrossHostPump | None,
         queries: ClientQueries,
     ) -> Self:
-        """A turn with the display's own paint clock; tests inject theirs."""
+        """Build a frame turn using the display's paint clock."""
         return cls(
             sockets=sockets,
             sender=sender,

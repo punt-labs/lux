@@ -41,7 +41,7 @@ __all__ = ["InputTextElement"]
 
 @final
 class InputTextElement(Element):
-    """A single-line text input on the Element ABC.
+    """Render an editable single-line text field.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``value`` and ``hint`` are total ``str`` (default

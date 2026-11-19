@@ -75,7 +75,7 @@ def test_unrelated_hub_push_wins_over_a_stale_pending() -> None:
 
 
 def test_intermediate_subset_repush_is_convergence_not_override() -> None:
-    # PR #283 HIGH: the Hub confirms a multi-pick incrementally. Pending {A, B}
+    # The Hub confirms a multi-pick incrementally. Pending {A, B}
     # may draw a re-push of {A} (confirming click 1) before {A, B} lands. That
     # subset is CONVERGENCE — the pending must be held so no frame reseeds below
     # {A, B} and a rapid third click still accumulates. The old rule cleared on

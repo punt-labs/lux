@@ -229,7 +229,8 @@ class ReplySink:
             return True
 
     def decide(self, *, saw_end: bool) -> RetireCause:
-        """Fix the cause, first recorded wins; the one that stands.
+        """Preserve the first recorded cause.
+
         See :meth:`DialEnd.decide <punt_lux.domain.hub.dial_end.DialEnd.decide>`: the
         end of file the reader saw is the display's, else a Hub request is the Hub's,
         else the cause recorded stands.

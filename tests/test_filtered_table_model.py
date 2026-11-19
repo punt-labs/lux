@@ -1,4 +1,4 @@
-"""``FilteredTableModel`` filter-scan memoization (lux-qfzu.3).
+"""Verify that repeated table filters reuse the cached row scan.
 
 ``_visible_rows`` caches its result by ``(rows identity, filter state)``; these
 tests drive the cache through a real ``_matches_search``/``_matches_combos``

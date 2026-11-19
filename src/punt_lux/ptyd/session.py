@@ -104,7 +104,7 @@ class TerminalSession:
         }
 
     def close(self) -> ProcessPort:
-        """Called only for explicit session termination or daemon shutdown."""
+        """Close resources on explicit termination or daemon shutdown."""
         self._process.close()
         self._term.close()
         self._lifecycle.state = SessionState.CLOSED

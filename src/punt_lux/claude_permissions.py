@@ -74,6 +74,7 @@ class ProjectPermissions:
     _root: Path
 
     def __new__(cls, root: Path | str) -> Self:
+        """Bind the permission manager to a project root."""
         self = super().__new__(cls)
         self._root = Path(root)
         self._dir = self._root / ".claude"

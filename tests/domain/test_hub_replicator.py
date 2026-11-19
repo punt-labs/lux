@@ -515,7 +515,7 @@ class _FakeProvider:
 class _FakeLifecycle:
     """Records reap calls; ``reap`` can be armed to fail.
 
-    Killing is the Hub's only remaining lifecycle role (lux-5uc7) — the
+    The Hub only kills the unresponsive process; the
     display's own service unit respawns it, so there is no ``ensure`` to call
     or to arm a failure on. An armed ``reap`` raises once and then clears,
     modelling a kill that cannot complete on the first try but recovers on a

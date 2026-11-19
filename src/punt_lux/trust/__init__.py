@@ -1,5 +1,4 @@
-"""Cross-host mTLS trust material: a personal CA, enrollment, and the
-pluggable trust-anchor-provider abstraction (DES-090 W7).
+"""Provide enrollment, certificate authority, and trust-anchor types for mTLS.
 
 Provider 1, the default, is :class:`.personal_ca_provider.PersonalCaProvider`
 — a self-managed CA whose private key never leaves the Display's machine

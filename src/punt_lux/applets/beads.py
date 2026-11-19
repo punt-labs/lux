@@ -80,7 +80,7 @@ class BeadsApplet:
 
     @staticmethod
     def _leg_for(session_pid: int) -> AppletLeg:
-        """The leg this applet serves on, identified to the Hub by its session."""
+        """Return the applet's session-bound leg to the Hub."""
         identity = AppletIdentity.for_session(_PROGRAM, session_pid)
         return AppletLeg(identity.client, BeadsService.for_repo())
 

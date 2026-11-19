@@ -223,8 +223,7 @@ class TableRowPainter:
 
     @staticmethod
     def _is_same_row_reclick(clicked_id: str, representable: frozenset[str]) -> bool:
-        """Return whether the click landed on the row that is already the whole
-        selection — the set did not change, but a copy_id re-click still copies."""
+        """Detect a click on the sole selected row, which can still trigger copying."""
         return clicked_id != "" and representable == frozenset({clicked_id})
 
     @staticmethod

@@ -81,9 +81,7 @@ class CertificateSigningRequest:
 
     @property
     def is_signature_valid(self) -> bool:
-        """Return whether the CSR's self-signature verifies against its key
-        — proof, before signing, that the requester actually holds it.
-        """
+        """Verify that the requester controls the key in the CSR."""
         return self._csr.is_signature_valid
 
     @property

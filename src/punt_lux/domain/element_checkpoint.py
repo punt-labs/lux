@@ -13,8 +13,7 @@ __all__ = ["ElementCheckpoint"]
 
 @final
 class ElementCheckpoint:
-    """The state of one element at one moment: its fields, shallowly copied, the state
-    of the parts it owns, and the state its observers derive from it.
+    """Capture an element's fields, owned parts, and observer-derived state.
 
     Setters replace a field, never mutate one in place, so a shallow copy is the whole
     field state of the element. A part it owns (a dialog's model) mutates in place, so

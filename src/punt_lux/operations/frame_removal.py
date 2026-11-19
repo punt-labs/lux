@@ -1,9 +1,4 @@
-"""FrameRemover — tear down the caller's own frame's content, or say why not.
-
-Split out of ``SceneOperations`` (lux-03k6): removing a frame's content is a
-distinct concern from installing, patching, and clearing scenes, and mirrors
-``SceneClearer``/``SceneInstaller`` as its own single-purpose collaborator.
-"""
+"""Remove the caller's frame content or report why it could not be removed."""
 
 from __future__ import annotations
 

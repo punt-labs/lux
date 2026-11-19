@@ -40,7 +40,7 @@ _DEFAULT_FORMATS: dict[bool, str] = {False: "%.1f", True: "%d"}
 
 @final
 class SliderElement(Element):
-    """A numeric slider on the Element ABC.
+    """Render a slider for selecting a numeric value.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. The ``format`` *parameter* is ``str | None`` (``None``

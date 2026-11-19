@@ -71,7 +71,7 @@ class BdOutput:
 
     @classmethod
     def none(cls) -> Self:
-        """The output of a run that produced none: nothing read, nothing to time."""
+        """Represent an empty run with no output or timings."""
         return cls("", 0.0, 0.0)
 
     @property

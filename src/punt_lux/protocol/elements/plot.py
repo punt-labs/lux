@@ -40,7 +40,7 @@ __all__ = ["PlotElement"]
 
 
 class PlotElement(Element):
-    """A 2D plot of one or more typed ``PlotSeries`` (line, scatter, bar).
+    """Plot one or more line, scatter, or bar series in two dimensions.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``title``/``x_label``/``y_label`` are total ``str``

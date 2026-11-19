@@ -24,7 +24,7 @@ def test_an_object_missing_remove_frame_does_not_satisfy_it() -> None:
 
 
 def test_remove_frame_takes_a_plain_frame_id_not_a_value_object() -> None:
-    # Finding 7 (PR #464): the public Protocol takes a caller-facing string,
+    # The public Protocol takes a caller-facing string,
     # never the internal FrameTarget bundle -- proving it can be called with
     # a bare frame_id + scope, matching every sibling Ops Protocol's shape.
     result = _Implementer().remove_frame(
@@ -34,7 +34,7 @@ def test_remove_frame_takes_a_plain_frame_id_not_a_value_object() -> None:
 
 
 def test_an_object_with_only_the_retired_close_frame_name_does_not_satisfy_it() -> None:
-    """Rename train (lux-81t3.6): no alias survives for the retired name."""
+    """Keep the retired name out of the public port."""
 
     class _OldNamedImplementer:
         def close_frame(self, frame_id: str, *, scope: Scope) -> Ok:

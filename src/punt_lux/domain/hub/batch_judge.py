@@ -109,7 +109,7 @@ class BatchJudge:
         self._removals.setdefault(id(element), element)
 
     def commit(self) -> None:
-        """The batch stood: remove the elements it removed, in the order asked."""
+        """Commit the batch by removing its elements in the requested order."""
         self._settle()
         removals = tuple(self._removals.values())
         self._removals.clear()

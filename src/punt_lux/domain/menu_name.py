@@ -124,7 +124,7 @@ class MenuNames[H]:
         self._reclaim_freed_bases()
 
     def labels(self) -> dict[H, str]:
-        """What each holder is called, as the last take or drop left it."""
+        """Read the current label assignments."""
         return {holder: name.label for holder, name in self._names.items()}
 
     def _reclaim_freed_bases(self) -> None:

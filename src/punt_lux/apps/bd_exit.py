@@ -51,7 +51,7 @@ class BdExit:
         return self._returncode == 0
 
     def failure(self, limit: int) -> str:
-        """The reason to show for a failed exit: its stderr, else its status.
+        """Explain the failed exit with stderr, falling back to its status.
 
         At most ``limit`` characters of the child's own complaint; a child that
         said nothing is named by its exit status.

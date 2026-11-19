@@ -31,7 +31,7 @@ class Figure:
         return self
 
     def text(self) -> str:
-        """The phrase this figure contributes to the click's one line."""
+        """Format this timing figure for the click report."""
         if self._said:
             return f"{self._name} {self._ms:.0f} ms ({self._said})"
         return f"{self._name} {self._ms:.0f} ms"

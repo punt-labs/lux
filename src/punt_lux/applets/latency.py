@@ -94,5 +94,5 @@ class ClickLatency:
         logger.info("click %s: %s", self._callback_id, self._line())
 
     def _line(self) -> str:
-        """This click's figures, as the one line both reports are built around."""
+        """Format the click timings shared by both reports."""
         return self._times.line()

@@ -24,6 +24,7 @@ jobs:
       - run: uv sync --locked --extra display
       - run: uv run --extra display ruff check .
       - run: uv run --extra display ruff format --check .
+      - run: make check-comments check-docstrings
       - run: uv run --extra display mypy src/ tests/
       - run: uv run --extra display pyright src/ tests/
       # The plugin surface has to stand alone: a marketplace install fetches

@@ -25,6 +25,7 @@ class DisplayEnablement:
     __slots__ = ("_flags",)
 
     def __new__(cls, flags: OutputFlags) -> Self:
+        """Bind the flags that determine whether display output is enabled."""
         self = super().__new__(cls)
         self._flags = flags
         return self

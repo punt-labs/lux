@@ -16,11 +16,13 @@ if TYPE_CHECKING:
 
 @final
 class Frame:
-    """A named inner window in the workspace, owned by one Hub. Where the
-    frame is -- on screen, docked, or put away -- is asked through the
-    three predicates and moved through the three mutators; there is no
-    flag to assign (DES-065 R8). Visibility, active tab, and cascade slot
-    are a composed :class:`FramePlacement`, not three separate fields."""
+    """Represent a Hub-owned workspace window and its visibility.
+
+    Where the frame is -- on screen, docked, or put away -- is asked through the three
+    predicates and moved through the three mutators; there is no flag to assign (DES-065
+    R8). Visibility, active tab, and cascade slot are a composed
+    :class:`FramePlacement`, not three separate fields.
+    """
 
     _hub: HubId
     _frame_id: str
@@ -143,8 +145,7 @@ class Frame:
         self._placement.minimize()
 
     def close(self) -> None:
-        """Put the frame away: not painted, no pill -- visibility only, so a
-        later restore brings back what the user shut, not a fresh rebuild."""
+        """Hide the window without showing a dock pill or discarding its content."""
         self._placement.close()
 
     def restore(self) -> None:

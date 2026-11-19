@@ -179,7 +179,7 @@ class TestHubSideFiltering:
         return group
 
     def test_search_input_is_the_autofocus_target(self) -> None:
-        # PR #283 polish: the composed search is the keyboard-focus target so the
+        # The composed search is the keyboard-focus target so the
         # user can type immediately; other scenes' inputs stay autofocus=False.
         assert _search(self._explorer()).autofocus is True
 
@@ -216,7 +216,7 @@ class TestHubSideFiltering:
         assert table.selected_row_ids == frozenset({"a"})
 
     def test_agent_selection_under_a_filter_writes_through_to_the_model(self) -> None:
-        # PR #283 MEDIUM: an agent apply_patch of selected_row_ids (not a gesture)
+        # An agent apply_patch of selected_row_ids (not a gesture)
         # must reach the model's full selection, or the next re-projection shadows
         # it. Select d (all visible), filter it out, then agent-select a visible
         # row; clearing the filter must restore BOTH the agent's pick and d.
@@ -230,7 +230,7 @@ class TestHubSideFiltering:
         assert table.selected_row_ids == frozenset({"a", "d"})  # both restored
 
     def test_agent_rows_patch_refreshes_the_dataset_under_a_filter(self) -> None:
-        # PR #283 HIGH (rows analog): an agent apply_patch of rows (the refresh
+        # An agent apply_patch of rows (the refresh
         # path) becomes the new dataset; the active filter re-applies to it, and a
         # later filter change uses the NEW dataset, not the stale snapshot.
         group = self._explorer()
@@ -263,7 +263,7 @@ class TestHubSideFiltering:
         assert table.selected_row_ids == frozenset({"a"})
 
     def test_dual_rows_and_selection_patch_keeps_the_selection(self) -> None:
-        # PR #283 HIGH: one apply_patch that sets BOTH rows and selected_row_ids
+        # One apply_patch that sets BOTH rows and selected_row_ids
         # must keep the patched selection — the rows notification's re-projection
         # must not clobber it by projecting off the stale full selection.
         group = self._explorer()
@@ -385,7 +385,7 @@ class TestDetailBinding:
         assert _table(group).scroll_reserve_lines == 0
 
     def test_anchor_only_patch_re_drives_the_detail(self) -> None:
-        # PR #283: an anchor-only agent patch must re-drive the detail through the
+        # An anchor-only agent patch must re-drive the detail through the
         # selection observer, not leave it stale until the next selection write.
         group = self._master_detail()
         table = _table(group)
@@ -398,7 +398,7 @@ class TestDetailBinding:
         assert "STALE" not in detail.content
 
     def test_rows_only_patch_dropping_the_anchor_re_drives_the_detail(self) -> None:
-        # PR #283: a rows-only patch that reconciles away the selected/anchored row
+        # A rows-only patch that reconciles away the selected/anchored row
         # must re-drive the detail (via the _set_rows reconcile notification), not
         # leave it showing the vanished row.
         group = self._master_detail()
@@ -410,7 +410,7 @@ class TestDetailBinding:
         assert "Select a row" in detail.content  # anchor cleared -> placeholder
 
     def test_agent_selection_patch_re_drives_the_detail(self) -> None:
-        # PR #283 HIGH: an agent apply_patch of selected_row_ids (not a gesture,
+        # An agent apply_patch of selected_row_ids (not a gesture,
         # no RowSelectionChanged) must re-drive the detail through the same path a
         # gesture and a filter re-projection use — the selection observer.
         group = self._master_detail()
@@ -449,7 +449,7 @@ class TestDetailBinding:
 
 class TestFilterRobustness:
     def test_empty_table_id_is_rejected_at_the_builder(self) -> None:
-        # PR #283: the invariant lives in build() too, so a direct caller can't
+        # The invariant lives in build() too, so a direct caller can't
         # construct an anonymous composition (the "" element-id sentinel).
         with pytest.raises(ValueError, match="table_id must be a non-empty"):
             TableComposition.build(
@@ -471,7 +471,7 @@ class TestFilterRobustness:
         assert [row[0] for row in _table(group).rows] == ["1"]
 
     def test_search_all_out_of_range_columns_searches_all_columns(self) -> None:
-        # PR #283: search indices all out of range must not fail closed — they
+        # Search indices all out of range must not fail closed — they
         # drop to () at build time, so the model falls open to every column.
         group = TableComposition.build(
             TableCompositionSpec(
@@ -505,7 +505,7 @@ class TestFilterRobustness:
             )
 
     def test_combo_ignores_a_bool_value_as_no_selection(self) -> None:
-        # PR #283: bool subclasses int, so ValueChanged(value=True) must not read
+        # Bool subclasses int, so ValueChanged(value=True) must not read
         # as index 1 ("open"); it falls back to no selection and leaves all rows.
         group = TableComposition.build(
             TableCompositionSpec(
@@ -521,7 +521,7 @@ class TestFilterRobustness:
         assert [row[0] for row in _table(group).rows] == ["a", "b"]
 
     def test_combo_out_of_range_column_is_rejected(self) -> None:
-        # PR #283: an out-of-range combo column would empty the table the moment a
+        # An out-of-range combo column would empty the table the moment a
         # non-"All" value is picked. Range-check at construction with a named error.
         with pytest.raises(ValueError, match="out of range for 2 columns"):
             TableComposition.build(
@@ -533,7 +533,7 @@ class TestFilterRobustness:
             )
 
     def test_empty_combo_items_is_rejected(self) -> None:
-        # PR #283: an empty items list builds a choiceless control — fail loud,
+        # An empty items list builds a choiceless control — fail loud,
         # matching the legacy TableFilter contract.
         with pytest.raises(ValueError, match="'items' must be a non-empty list"):
             TableComposition.build(
@@ -555,7 +555,7 @@ class TestFilterRobustness:
             )
 
     def test_non_list_combo_items_is_rejected(self) -> None:
-        # PR #283: an open wire shape can arrive as None/scalar — fail loud with
+        # An open wire shape can arrive as None/scalar — fail loud with
         # the field name, not a bare TypeError inside a comprehension.
         with pytest.raises(ValueError, match="combo filter 'items' must be a list"):
             TableComposition.build(

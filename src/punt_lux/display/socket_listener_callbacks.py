@@ -1,5 +1,4 @@
-"""SocketListenerCallbacks -- the three domain-reaction callbacks a
-``SocketListener`` delegates to.
+"""Define the domain callbacks the socket listener invokes.
 
 Bundled as one value object (DES-090 W8) rather than three loose
 constructor parameters: pure networking (``SocketListener``) stays

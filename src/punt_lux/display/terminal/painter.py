@@ -53,7 +53,7 @@ class CellGrid:
         return cls(origin, glyph.advance_x, imgui.get_text_line_height())
 
     def cell_at(self, x: float, y: float, cols: int, rows: int) -> tuple[int, int]:
-        """The (column, row) under screen point (x, y), clamped to the grid."""
+        """Find the grid cell beneath the point, clamped to the grid."""
         col = int((x - self.origin.x) // self.cell_w)
         row = int((y - self.origin.y) // self.cell_h)
         return min(cols - 1, max(0, col)), min(rows - 1, max(0, row))

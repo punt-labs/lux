@@ -274,7 +274,7 @@ class TestTheFrameIdRoundTrip:
         """The regression this whole change exists to prevent: the id a
         Display-local click raises must be byte-for-byte the connection-scoped
         id a real ``FrameBook`` keys the frame under, or reopening a closed
-        board from its menu entry is a silent no-op (lux-81t3.2/DES-089).
+        board from its menu entry is a silent no-op (DES-089).
 
         Builds the Hub's real submenu-composition path (``ClientSubmenu`` via
         ``CallbackMenu``) from a session carrying a callback with a raw local

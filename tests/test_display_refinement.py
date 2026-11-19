@@ -62,7 +62,7 @@ def _register_client(server: RenderLoop, sock: MagicMock) -> None:
     """Manually register a mock client (bypasses socket accept).
 
     Identified as ``kind="hub"`` -- a scene installs only from an
-    identified ``"hub"`` fd (bead lux-2kv9 / W1).
+    identified ``"hub"`` fd.
     """
     server._socket_listener.clients.append(sock)
     server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
@@ -118,7 +118,7 @@ class TestRefinementReceiveScene:
     def test_receive_scene_commutes(self):
         server = _make_server()
         sock = _mock_sock()
-        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        # A scene installs only from an identified 'hub' fd.
         server._socket_listener.register_client_identity(
             sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
         )
@@ -146,7 +146,7 @@ class TestRefinementReceiveScene:
         """Same-ID replacement drains stale events and updates active scene."""
         server = _make_server()
         sock = _mock_sock()
-        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        # A scene installs only from an identified 'hub' fd.
         server._socket_listener.register_client_identity(
             sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
         )
@@ -176,7 +176,7 @@ class TestRefinementReceiveScene:
     def test_receive_scene_with_all_element_kinds(self):
         server = _make_server()
         sock = _mock_sock()
-        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        # A scene installs only from an identified 'hub' fd.
         server._socket_listener.register_client_identity(
             sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
         )
@@ -213,7 +213,7 @@ class TestRefinementReceiveScene:
         """
         server = _make_server()
         sock = _mock_sock()
-        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        # A scene installs only from an identified 'hub' fd.
         server._socket_listener.register_client_identity(
             sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
         )
@@ -244,7 +244,7 @@ class TestRefinementReceiveScene:
         """
         server = _make_server()
         sock = _mock_sock()
-        # A scene installs only from an identified 'hub' fd (bead lux-2kv9 / W1).
+        # A scene installs only from an identified 'hub' fd.
         server._socket_listener.register_client_identity(
             sock.fileno(), kind="hub", name="test-hub", connect_time=0.0
         )
