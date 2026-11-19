@@ -2516,9 +2516,10 @@ configuration.
 
 Each MCP session has its own identity.  \texttt{McpAsgiApp}
 (\modpath{mcp\_endpoint.py}) resolves the session identity on each request
-and refuses the reserved REST connection key.  \texttt{SessionScopedServer}
-(\modpath{mcp\_session.py}) runs the Hub cleanup cascade when a session
-ends, and \texttt{session\_cleanup.py} tears down that session's Hub-side
+and refuses the reserved REST connection key.  Lux requires the stateful
+MCP handshake over HTTP.  Its middleware (\modpath{mcp\_session\_manager.py})
+registers Hub cleanup on the SDK connection's exit stack.  When the last
+session with a given key ends, \texttt{session\_cleanup.py} tears down its Hub-side
 menu items, subscriptions, and inbox; its scenes stay behind (see
 \S\ref{sec:frames}, Scenes Survive Their Session).  A vanished
 client --- a killed process, a dropped socket --- is reaped 30 minutes

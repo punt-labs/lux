@@ -19,9 +19,16 @@ import anyio
 import httpx
 import pytest
 import uvicorn
+from fastmcp import Client
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import LATEST_PROTOCOL_VERSION, CallToolResult, TextContent
+from mcp.types import UNSUPPORTED_PROTOCOL_VERSION, CallToolResult, TextContent
+from mcp_types import CLIENT_CAPABILITIES_META_KEY, PROTOCOL_VERSION_META_KEY
+from mcp_types.version import (
+    HANDSHAKE_PROTOCOL_VERSIONS,
+    LATEST_HANDSHAKE_VERSION,
+    LATEST_MODERN_VERSION,
+)
 
 from punt_lux.luxd import build_app
 from punt_lux.mcp_transport import SESSION_IDLE_TIMEOUT_SECONDS, McpHttpTransport
@@ -98,7 +105,7 @@ def test_full_session_capabilities_over_streamable_http() -> None:
     async def _drive(port: int) -> dict[str, object]:
         url = f"http://127.0.0.1:{port}/mcp?session_key=itest"
         async with (
-            streamable_http_client(url) as (read, write, _),
+            streamable_http_client(url) as (read, write),
             ClientSession(read, write) as session,
         ):
             await session.initialize()
@@ -112,7 +119,7 @@ def test_full_session_capabilities_over_streamable_http() -> None:
             block = received.content[0]
             return {
                 "tool_names": frozenset(tool.name for tool in tools.tools),
-                "scenes_error": scenes.isError,
+                "scenes_error": scenes.is_error,
                 "recv": block.text if isinstance(block, TextContent) else "",
                 "sessions_during": _health_sessions(port),
             }
@@ -131,10 +138,53 @@ def test_full_session_capabilities_over_streamable_http() -> None:
     assert sessions_after == 0
 
 
+def test_auto_negotiation_keeps_http_stateful() -> None:
+    """A FastMCP 4 client falls back to the persistent session protocol."""
+
+    async def _drive(port: int) -> None:
+        async with Client(f"http://127.0.0.1:{port}/mcp?session_key=auto") as client:
+            assert _health_sessions(port) == 1
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
+def test_sessionless_discovery_requires_a_stateful_handshake() -> None:
+    """A modern request gets the supported handshake versions, not a session."""
+    with _running_luxd() as port:
+        response = httpx.post(
+            f"http://127.0.0.1:{port}/mcp?session_key=sessionless",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "MCP-Protocol-Version": LATEST_MODERN_VERSION,
+                "Mcp-Method": "server/discover",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": {
+                    "_meta": {
+                        PROTOCOL_VERSION_META_KEY: LATEST_MODERN_VERSION,
+                        CLIENT_CAPABILITIES_META_KEY: {},
+                    }
+                },
+            },
+            timeout=5,
+        )
+        assert response.status_code == 400, response.text
+        error = response.json()["error"]
+        assert error["code"] == UNSUPPORTED_PROTOCOL_VERSION
+        assert set(error["data"]["supported"]) == set(HANDSHAKE_PROTOCOL_VERSIONS)
+        assert "mcp-session-id" not in response.headers
+        assert _health_sessions(port) == 0
+
+
 def test_transport_wires_the_recommended_idle_timeout() -> None:
     """McpHttpTransport hands the SDK manager the module's idle-timeout constant."""
     transport = McpHttpTransport()
-    assert transport._manager.session_idle_timeout == SESSION_IDLE_TIMEOUT_SECONDS
+    assert transport._manager._sdk.session_idle_timeout == SESSION_IDLE_TIMEOUT_SECONDS
 
 
 def _open_session_without_get_stream(url: str) -> None:
@@ -154,7 +204,7 @@ def _open_session_without_get_stream(url: str) -> None:
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": LATEST_PROTOCOL_VERSION,
+            "protocolVersion": LATEST_HANDSHAKE_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "idle-test", "version": "0"},
         },
@@ -163,7 +213,7 @@ def _open_session_without_get_stream(url: str) -> None:
         response = client.post(url, json=initialize, headers=headers)
         response.raise_for_status()
         headers["mcp-session-id"] = response.headers["mcp-session-id"]
-        headers["mcp-protocol-version"] = LATEST_PROTOCOL_VERSION
+        headers["mcp-protocol-version"] = LATEST_HANDSHAKE_VERSION
         initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
         client.post(url, json=initialized, headers=headers).raise_for_status()
 
@@ -174,9 +224,8 @@ def test_idle_session_is_reaped_and_runs_the_disconnect_cascade(
     """A session left idle past the timeout is reaped, running the full cascade.
 
     The client initializes and then sends nothing, so only the SDK's idle timer
-    can end the session. Reaping cancels ``SessionScopedServer.run``, whose
-    ``finally`` both drops the registry entry (the count this asserts) and runs
-    the disconnect cascade via :class:`SessionCleanup`.
+    can end the session. The SDK's connection exit stack drops the registry
+    entry and runs the disconnect cascade.
     """
     monkeypatch.setattr("punt_lux.mcp_transport.SESSION_IDLE_TIMEOUT_SECONDS", 0.5)
 
@@ -216,12 +265,12 @@ def test_two_concurrent_sessions_are_isolated() -> None:
         url_b = f"http://127.0.0.1:{port}/mcp?session_key=beta"
         topic = "shared.topic"
         async with (
-            streamable_http_client(url_b) as (read_b, write_b, _),
+            streamable_http_client(url_b) as (read_b, write_b),
             ClientSession(read_b, write_b) as session_b,
         ):
             await session_b.initialize()
             a_scope = AsyncExitStack()
-            read_a, write_a, _ = await a_scope.enter_async_context(
+            read_a, write_a = await a_scope.enter_async_context(
                 streamable_http_client(url_a)
             )
             session_a = await a_scope.enter_async_context(
@@ -252,7 +301,7 @@ def test_two_concurrent_sessions_are_isolated() -> None:
                     break
                 await anyio.sleep(0.1)
 
-            b_still_works = not (await session_b.call_tool("scene_ls", {})).isError
+            b_still_works = not (await session_b.call_tool("scene_ls", {})).is_error
             return both_live, a_recv, b_recv, after_a_close, b_still_works
 
     with _running_luxd() as port:
