@@ -87,6 +87,39 @@ Four client surfaces reach the Hub, and each is thin:
     surface.
 \end{itemize}
 
+\subsection{Current Process and Front Doors}
+
+\begin{lstlisting}
+Claude Code plugin -- MCP HTTP /mcp --+
+lux CLI / LuxClient ------ REST -----+--> 127.0.0.1:8430
+lux-beads / applets -- REST + WS -----+         |
+                                              v
+luxd-hub: MCP / RestSurface -> Operations -> HubDisplay
+                                               |
+                                         HubReplicator
+                                               |
+                                          DisplayLink
+                                               |
+                         Unix socket: framed JSON scenes
+                                               v
+luxd-display: SceneReplica -> ImGui -> wrapped handler
+                                               |
+                          RemoteEventHandlerInvocation
+                                               |
+                              Unix socket back to Hub
+                                               v
+luxd-hub: HubInteractionDispatch -> real handler
+                      -> mark dirty -> replicate scene
+\end{lstlisting}
+
+The applets' WebSocket leg listens for callbacks and topic events;
+REST carries their commands. The Hub's default port is defined in
+\modpath{luxd.py}; \modpath{mcp_transport.py} mounts \texttt{/mcp}.
+The public library facade is \texttt{LuxClient}
+(\modpath{client/facade.py}). Replication and return dispatch live in
+\modpath{domain/hub/replicator.py}, \modpath{domain/hub/display_link.py},
+and \modpath{domain/hub/hub_interaction_dispatch.py}.
+
 \subsection{Current and Target}
 
 This document describes the architecture \emph{as the code stands today}.
@@ -901,10 +934,11 @@ restores the frame.
 \begin{quote}
 \small\textit{Design status: DES-089 in \texttt{DESIGN.md}, Status:
 ACCEPTED --- ratified by the operator 2026-09-05.  The addressing model
-below is evaluator-accepted design, not yet implemented; the code today
-runs a single Hub connection to the Display in practice, though nothing in
-the transport enforces that.  The implementation plan and bead map live in
-the companion increment-of-work document,
+below is implemented in \modpath{display/replica/lux_address.py},
+\modpath{display/replica/address_book.py}, and
+\modpath{domain/hub_scoped_store.py}. The listings are abbreviated
+implementation sketches, not complete source copies. The original
+implementation plan and bead map live in the companion historical document,
 \path{docs/architecture/multi-hub-addressing-work.md}.}
 \end{quote}
 
@@ -930,20 +964,13 @@ silently evicted the first's root.  The fix was \texttt{ConnectionScopedId}:
 compose the store key from the writing connection's own id, so collision
 becomes unrepresentable rather than merely checked.
 
-The Display's own storage has the identical shape of bug, one layer up, and
-it is live in the tree today.  \texttt{FrameBook} holds
-\field{\_scene\_to\_frame} and \field{\_scene\_to\_owner} as flat
-dictionaries keyed by the bare Rung-2 scene id string, spanning every
-connection the Display has ever seen.  \texttt{MenuReplica} holds
-\field{\_callback\_menus}, replaced wholesale on every push.  Neither
-carries a dimension for ``which Hub sent this.''  \texttt{ConnectionId} is
-a deterministic hash of a client's self-declared fields, computed
-independently by each Hub process with no cross-Hub coordination --- two
-different Hubs can and eventually will mint the identical
-\texttt{ConnectionId} for two different real clients.  The day a second Hub
-connects, its scene push can silently clobber the first Hub's scene under
-the identical key, by the same mechanism DES-086 already found and fixed
-once.
+Before the addressing implementation, the Display's flat scene and menu
+dictionaries lacked a Hub-of-origin dimension.
+\texttt{ConnectionId} is computed independently by each Hub, so two Hubs
+can mint the same Rung-2 id. Without the Hub dimension, a second Hub's
+push could silently clobber the first Hub's scene. The implemented
+\texttt{HubScopedStore} prevents that collision
+(\modpath{domain/hub_scoped_store.py}).
 
 \subsection{Identity Is a Path}
 
@@ -960,8 +987,10 @@ it.  That is DES-089's governing phrase.
 
 \subsection{The Three-Rung Ladder}
 
-Three rungs exist.  The first two are already shipped, in two different
-mechanisms that share one shape.  The third does not exist in code today.
+All three rungs are implemented. The Hub namespaces client-owned ids;
+the Display adds the Hub-of-origin dimension through \texttt{LuxAddress}
+and \texttt{AddressBook} (\modpath{display/replica/lux_address.py} and
+\modpath{display/replica/address_book.py}).
 
 \begin{lstlisting}
 Rung 1 -- Producer label            unscoped, freely reused
@@ -972,7 +1001,7 @@ Rung 1 -- Producer label            unscoped, freely reused
 Rung 2 -- Hub-connection scope       unique within ONE Hub's own registry
   ConnectionScopedId / CallbackInvocation: {connection_id}\x1f{local_id}
         |
-        |  namespaced by the Display, across every Hub it holds (this design)
+        |  namespaced by the Display, across every Hub it holds (AddressBook)
         v
 Rung 3 -- Hub-of-origin scope         unique across every Hub the Display holds
   LuxAddress: {hub}\x1f{connection_id}\x1f{local_id}
@@ -991,8 +1020,8 @@ Rung 3 -- Hub-of-origin scope         unique across every Hub the Display holds
   (scenes/frames, DES-086); \texttt{CallbackInvocation} (menu leaves,
   DES-058) \\
 3. Hub-of-origin scope & The Display, over every Hub it holds & Unique
-  across every Hub connection the Display currently holds & Does not exist
-  yet --- this design specifies it \\
+  across every Hub connection the Display currently holds &
+  \texttt{LuxAddress}, \texttt{AddressBook}, \texttt{HubScopedStore} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1093,6 +1122,10 @@ makes one Hub connection distinct from another, and, per the operator's
 cross-host ruling, distinct from a Hub on a different machine, not merely a
 different process on the same one.
 
+The sketch below includes the current lowercase ASCII hostname
+normalization through \texttt{Hostname}; the complete type, including
+\texttt{stub()}, is in \modpath{domain/hub_id.py}.
+
 \begin{lstlisting}
 @final
 @dataclass(frozen=True, slots=True)
@@ -1114,8 +1147,17 @@ class HubId:
     place -- that argument does not carry across a network, which is
     exactly why cross-host needs mTLS (see Cross-Host Transport and
     Trust)."""
-    hostname: str
+    _hostname: str
     pid: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "_hostname", Hostname(self._hostname).value
+        )
+
+    @property
+    def hostname(self) -> str:
+        return self._hostname
 
     @classmethod
     def current(cls) -> Self:
@@ -1155,7 +1197,7 @@ Display-side store for the type-level guarantee the \texttt{Optional}
 declined to make.  The operator's correction: a \texttt{kind="test"}
 connection is a stand-in for a Hub on this leg --- it runs the identical
 accept path, the identical \msg{ReadyMessage}/\msg{ConnectMessage}
-exchange, and the identical eventual \texttt{AddressBook} bookkeeping a
+exchange, and the identical \texttt{AddressBook} bookkeeping a
 real Hub does --- so it should present a \texttt{HubId} exactly as a real
 Hub does, not decline to.  ``This leg'' is the same-host \field{AF\_UNIX}
 leg specifically, the only leg \texttt{kind="test"} is ever sent on;
@@ -1166,7 +1208,8 @@ already builds a real one) satisfies the identical contract.  Once every
 connecting \field{kind} populates \field{hub\_id}, there is no connection
 on the same-host \field{AF\_UNIX} socket that legitimately lacks one, and
 both the \texttt{Optional} and the runtime discriminated check that used
-to stand behind it go away:
+to stand behind it have been removed. The current message is defined in
+\modpath{protocol/messages/connect_message.py}; codecs are omitted here:
 
 \begin{lstlisting}
 @dataclass(frozen=True, slots=True)
@@ -1295,20 +1338,13 @@ again.
 \subsection{Aggregated Storage: \texttt{HubScopedStore}}\label{sec:hubscopedstore}
 
 An aggregated store is an object, not a dictionary passed between
-functions.  \texttt{FrameBook}'s \field{\_scene\_to\_frame} and
-\field{\_scene\_to\_owner}, and \texttt{MenuReplica}'s
-\field{\_callback\_menus}, are today flat \texttt{dict[str, ...]}
-mappings spanning every connection the Display has ever seen --- a
-primitive collection standing in for a domain type, with the keying and
-purge logic living in whichever caller happens to touch the dict rather
-than on the collection itself.  That is exactly what PY-OO-5 (behavior
-lives with its data) and PY-IC-1 (composition over primitives) in
-\path{punt-labs/.claude/rules} forbid, and what \path{punt-kit/standards/oo.md}
-names as the same mistake at the language-agnostic level.
-\textbf{This design specifies the replacement as a class, not a shape
-left to the implementer:} \texttt{HubScopedKey} is the key type, and
-\texttt{HubScopedStore} is the container every aggregator composes in
-place of its bare dict.
+functions. \texttt{HubScopedKey} is the implemented key type
+(\modpath{domain/hub_scoped_key.py}); \texttt{HubScopedStore} owns keying,
+lookup, and per-Hub retirement
+(\modpath{domain/hub_scoped_store.py}). \texttt{FrameBook} composes it
+for frames (\modpath{display/replica/frame_book.py}), replacing the old
+unscoped dictionary discipline. The listing below abbreviates the store's
+public operations.
 
 \begin{lstlisting}
 @final
