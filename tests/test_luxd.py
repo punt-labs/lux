@@ -267,7 +267,7 @@ class TestPeriodicSweepLifespan:
         import asyncio
 
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.luxd import _periodic_sweep_running
+        from punt_lux.hub_lifespan import _periodic_sweep_running
 
         sweep = ExpirySweep(_IdleFrames(), _SpyMarker())
 
@@ -283,7 +283,7 @@ class TestPeriodicSweepLifespan:
         import asyncio
 
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.luxd import _periodic_sweep_running
+        from punt_lux.hub_lifespan import _periodic_sweep_running
 
         sweep = ExpirySweep(_RaisingWaitFrames(), _SpyMarker())
 
