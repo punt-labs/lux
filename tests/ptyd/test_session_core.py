@@ -184,6 +184,8 @@ def test_parser_callback_failure_cannot_publish_a_mislabelled_snapshot() -> None
         events = core.pump()
         assert isinstance(events[0], SessionFault)
         assert core.describe()[0]["state"] == "failed"
+        assert not process.alive
+        assert process.close_calls == 1
         with pytest.raises(RuntimeError, match="failed"):
             session.capture()
     finally:

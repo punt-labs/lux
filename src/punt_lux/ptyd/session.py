@@ -7,6 +7,7 @@ from typing import Self
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
+from punt_lux.ptyd.session_lifecycle import SessionLifecycle
 from punt_lux.ptyd.session_state import SessionState
 from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
 from punt_lux.terminal.ffi_terminal import TerminalIO
@@ -21,7 +22,7 @@ class TerminalSession:
     _process: ProcessPort
     _term: TerminalIO
     _position: int
-    _state: SessionState
+    _lifecycle: SessionLifecycle
 
     def __new__(cls, request: AttachRequest, process: ProcessPort) -> Self:
         self = super().__new__(cls)
@@ -31,7 +32,7 @@ class TerminalSession:
         # Only the authority answers program queries, never Display replicas.
         self._term.on_reply(process.write)
         self._position = 0
-        self._state = SessionState.RUNNING
+        self._lifecycle = SessionLifecycle(request.session, process)
         return self
 
     @property
@@ -48,26 +49,27 @@ class TerminalSession:
 
     @property
     def ended(self) -> bool:
-        return self._state is SessionState.EXITED
+        return self._lifecycle.state is SessionState.EXITED
 
     def pump(self) -> OutputChunk:
         """Keep parsing while no viewer is attached; output remains sequenced."""
         start = self._position
-        if self._state in (SessionState.CLOSED, SessionState.FAILED):
+        self._lifecycle.pump()
+        if self._lifecycle.state in (SessionState.CLOSED, SessionState.FAILED):
             return OutputChunk(self.name, start, b"")
         self._check_usable()
-        data = self._process.pump()
-        if not self._process.alive and self._state is SessionState.RUNNING:
-            self._state = SessionState.FAILED
-            self._process.close()  # retain the screen, not an exhausted master FD
-            self._state = SessionState.EXITED
-            data += _ENDED_NOTICE
-        if data:
-            previous = self._state
-            self._state = SessionState.FAILED
-            self._term.feed(data)
-            self._position += len(data)
-            self._state = previous
+        with self._lifecycle:
+            data = self._process.pump()
+            if (
+                not self._process.alive
+                and self._lifecycle.state is SessionState.RUNNING
+            ):
+                self._process.close()  # retain the screen, not an exhausted master FD
+                self._lifecycle.state = SessionState.EXITED
+                data += _ENDED_NOTICE
+            if data:
+                self._term.feed(data)
+                self._position += len(data)
         return OutputChunk(self.name, start, data)
 
     def capture(self) -> SessionSnapshot:
@@ -81,16 +83,14 @@ class TerminalSession:
 
     def write(self, data: bytes) -> None:
         self._check_usable()
-        if self._state is SessionState.RUNNING:
+        if self._lifecycle.state is SessionState.RUNNING:
             self._process.write(data)
 
     def resize(self, cols: int, rows: int) -> None:
         self._check_usable()
-        previous = self._state
-        self._state = SessionState.FAILED
-        self._process.resize(cols, rows)
-        self._term.resize(cols, rows)
-        self._state = previous
+        with self._lifecycle:
+            self._process.resize(cols, rows)
+            self._term.resize(cols, rows)
 
     def describe(self) -> dict[str, object]:
         return {
@@ -99,7 +99,7 @@ class TerminalSession:
             "pid": self._process.pid,
             "position": self._position,
             "ended": self.ended,
-            "state": self._state.value,
+            "state": self._lifecycle.state.value,
             "exit_code": self._process.exit_code,
         }
 
@@ -107,9 +107,9 @@ class TerminalSession:
         """Called only for explicit session termination or daemon shutdown."""
         self._process.close()
         self._term.close()
-        self._state = SessionState.CLOSED
+        self._lifecycle.state = SessionState.CLOSED
         return self._process
 
     def _check_usable(self) -> None:
-        if self._state in (SessionState.CLOSED, SessionState.FAILED):
-            raise RuntimeError(f"terminal session is {self._state.value}")
+        if self._lifecycle.state in (SessionState.CLOSED, SessionState.FAILED):
+            raise RuntimeError(f"terminal session is {self._lifecycle.state.value}")
