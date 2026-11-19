@@ -66,8 +66,9 @@ check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-ba
 update-coupling: ## Update coupling baseline
 	uv run --extra display oo-ratchet coupling src/punt_lux/ --update
 
-bless-coupling: export override FILES := $(value FILES)
-bless-coupling: export override REASON := $(value REASON)
+export FILES REASON
+bless-coupling: override FILES := $(value FILES)
+bless-coupling: override REASON := $(value REASON)
 bless-coupling: ## Bounded coupling bless (FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation")
 	uv run --extra display oo-ratchet coupling src/punt_lux/ --rebaseline-files "$$FILES" --reason "$$REASON"
 
