@@ -134,9 +134,7 @@ class _MessageWiring:
         return registry
 
 
-# Module-level dispatch registry, populated at import time.  Tests that need
-# isolation construct their own MessageRegistry instance directly via the
-# registry sub-module.
+# Use a separate MessageRegistry when isolation from the dispatch table is needed.
 _registry = _MessageWiring.build_registry()
 
 message_to_dict = _registry.to_dict
@@ -145,5 +143,6 @@ message_from_dict = _registry.from_dict
 """Decode by discriminator; preserve unrecognized types as UnknownMessage.
 
 Raises:
-    ValueError: If the discriminator or a known message's fields are invalid.
+    KeyError: If a codec looks up a required field that is missing.
+    ValueError: If the discriminator is invalid or a codec rejects a field value.
 """
