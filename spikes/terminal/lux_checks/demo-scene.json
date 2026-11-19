@@ -1,0 +1,6 @@
+{"elements": [
+  {"kind": "markdown", "id": "intro", "content": "**Lux terminal spike: libghostty-vt in the Lux display**\n\nTry: `ls -F` (columns line up), type `ech` + **Tab** (completion), `vim`, `top`, `cat` a big file (fast now), then `exit` (ends cleanly, shows *[process exited]*). Shift+PgUp scrolls back; Cmd+C/V copy and paste."},
+  {"kind": "terminal", "id": "demo", "session": "demo-shell", "command": "/bin/zsh -l"}
+],
+ "title": "Terminal demo",
+ "frame": {"frame_id": "terminal-demo", "frame_title": "Terminal demo (spike)", "size": [1150, 750]}}

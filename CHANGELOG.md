@@ -4,6 +4,31 @@
 
 ### Added
 
+- Experimental `luxd-pty` foreground terminal-session owner with a headless
+  `terminal` extra, same-user Unix IPC and versioned snapshot/byte attachment.
+  Sessions survive client disconnects. The Display now attaches through
+  native replicas; closing or crashing it does not end the held programs.
+  Multiple viewers, per-viewer credit and repaint-on-lag are implemented.
+  Wire generation two negotiates snapshot-reset frames. Machine-local
+  `lux terminal enable/disable/status/restart` manage the supervised owner;
+  its Terminal menu callback launches/reopens a shell scene. Display never
+  implicitly enables/starts a missing owner. Lifetime flock protects startup
+  and stale-socket reclamation; `--no-menu` retains empty-only idle shutdown.
+  Hub I/O uses a bounded parent-watched helper process, keeping forkpty native
+  ownership single-threaded. ADR-0008 supersedes the demand-start checkpoint.
+  Bounded wire coalescing prevents tiny credit frames from serializing ahead
+  of input. Actual-window cold-start/crash/repaint and bounded responsiveness
+  measurements are recorded, with flooded-input and cold-retry limits explicit.
+  Initial attach recovers after oversized parser continuation instead of staying
+  permanently failed; invalid daemon stream directions are rejected. ADR-0007
+  and an explicit acceptance/merge-prerequisite ledger close out the decision record.
+  Control transport isolates allocation/grouped cleanup faults without swallowing
+  operator stop/interrupt signals. Two actual simultaneous windows share one
+  program; crash, survivor updates and rejoin are backed by screenshots/OCR.
+  Repeated real-daemon lifetime cycles cover retained exits, PID/screen reattach
+  and explicit kill. Short FD/RSS observations are recorded separately, not
+  represented as long-duration leak/soak proof.
+
 - **`make screenshot` works on macOS.** `scripts/screenshot_macos.py` finds the
   Lux window by the `luxd-display` PID, raises it, captures its display with
   `ffmpeg -f avfoundation`, and crops the window out. Like the Linux script, it
@@ -20,6 +45,9 @@
   Version 0.2.2 preserves default-mode exemptions while detecting private
   collection writes and service mutators, and records complete audit data for
   bulk blesses and justified rebaselines.
+
+- Type the pinned pyghostty native boundary without file-wide Pyright
+  suppressions, including snapshot ownership and encoder/render buffers (PL-1174).
 
 - **Ratchet gates use `punt-oo-ratchet==0.1.0` from PyPI (PL-1159).** The
   published CLI replaces the embedded OO, coupling/cohesion and suppression
@@ -54,6 +82,15 @@
   with a by-id pull.
 
 ### Fixed
+
+- Terminal mouse releases reach the program after the pointer leaves the grid,
+  including when Shift is pressed during a captured gesture (PL-1174).
+- Terminal GUI proof scripts clean up their detached daemon and sessions on
+  SIGTERM/SIGINT, including timeout termination (PL-1174).
+
+- `lux display start` on macOS handles an already-loaded, cleanly stopped job
+  with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
+  Unloaded jobs still bootstrap; start does not kill an existing process.
 
 - **`make screenshot` on macOS no longer reports the Lux window as 100%
   covered.** On macOS 26.6 the Dock and Notification Center each keep a

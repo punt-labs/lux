@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lux + biff + vox: layers and domains</title>
+<style>
+  :root {
+    --bg:#1e1f22; --panel:#2b2d30; --ink:#dfe1e5; --dim:#9da0a6; --line:#6b6f78;
+    --identity:#e06c75; --comms:#e5a84b; --content:#4a90d9; --process:#5cb870;
+    --voice:#c678dd; --render:#56b6c2; --transport:#8a8f98;
+  }
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;margin:0;padding:32px 40px 80px}
+  h1{font-weight:600;font-size:26px;margin:0 0 6px}
+  h2{font-weight:600;font-size:20px;margin:44px 0 10px}
+  p.lead{color:var(--dim);max-width:78ch;margin:0 0 20px}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 24px;font-size:13px;color:var(--dim)}
+  .legend span::before{content:"";display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px}
+  .l-identity::before{background:var(--identity)} .l-comms::before{background:var(--comms)}
+  .l-content::before{background:var(--content)} .l-process::before{background:var(--process)}
+  .l-voice::before{background:var(--voice)} .l-render::before{background:var(--render)} .l-transport::before{background:var(--transport)}
+  svg{width:100%;height:auto;display:block;background:#232528;border-radius:8px}
+  svg text{font:12px -apple-system,"Helvetica Neue",Arial,sans-serif;fill:var(--ink)}
+  svg text.t{font-size:13px;font-weight:600} svg text.s{font-size:11px;fill:var(--dim)}
+  svg text.layer{font-size:11px;fill:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+  svg text.src{font-size:10px;fill:#7d8188;font-style:italic}
+  .layer-band{fill:#262830;stroke:#34373e;stroke-width:1}
+  .d-identity{fill:#3d2426;stroke:var(--identity);stroke-width:1.5}
+  .d-comms{fill:#3f3320;stroke:var(--comms);stroke-width:1.5}
+  .d-content{fill:#1f3450;stroke:var(--content);stroke-width:1.5}
+  .d-process{fill:#1f3a28;stroke:var(--process);stroke-width:1.5}
+  .d-voice{fill:#382442;stroke:var(--voice);stroke-width:1.5}
+  .d-render{fill:#1f3a3e;stroke:var(--render);stroke-width:1.5}
+  .d-transport{fill:#2c2f35;stroke:var(--transport);stroke-width:1.5}
+  .proc{fill:none;stroke:#9da0a6;stroke-width:1.2;stroke-dasharray:7 4;rx:10}
+  .w{stroke:var(--line);stroke-width:1.5;fill:none}
+  .w-mesh{stroke:var(--comms);stroke-width:2.5;fill:none}
+  .w-client{stroke:var(--content);stroke-width:2.5;fill:none}
+  .w-stream{stroke:var(--process);stroke-width:2.5;fill:none}
+  .w-id{stroke:var(--identity);stroke-width:1.5;fill:none;stroke-dasharray:3 3}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:10px}
+  th,td{text-align:left;padding:7px 10px;vertical-align:top;border-bottom:1px solid #3a3d43}
+  th{color:var(--dim);font-weight:600} td:first-child{white-space:nowrap}
+  .note{font-size:13px;color:var(--dim);margin-top:10px;max-width:80ch}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+</style>
+</head>
+<body>
+
+<h1>Lux + biff + vox as one system: layers and domains</h1>
+<p class="lead">
+Three layers (peer fabric, per-host server, human surface) and seven domains. A domain keeps its own
+model, protocol and owner even where several share a process. Process boundaries are dashed; they are
+the part most likely to change and the least important.
+</p>
+<div class="legend">
+  <span class="l-identity">Identity &amp; trust</span>
+  <span class="l-comms">Communication &amp; presence</span>
+  <span class="l-content">Content &amp; coordination</span>
+  <span class="l-process">Process hosting</span>
+  <span class="l-render">Rendering</span>
+  <span class="l-voice">Voice</span>
+  <span class="l-transport">Transport</span>
+</div>
+
+<svg viewBox="0 0 1200 1010" xmlns="http://www.w3.org/2000/svg" aria-label="Layered architecture">
+
+  <!-- ===== LAYER 3: HUMAN SURFACE ===== -->
+  <rect class="layer-band" x="20" y="20" width="1160" height="210" rx="8"/>
+  <text class="layer" x="36" y="42">Layer 3 · human surface · one per machine the human sits at · optional, attach and detach freely</text>
+
+  <rect class="proc" x="40" y="56" width="1120" height="160"/>
+  <text class="s" x="52" y="74">process today: Display (lux) + voxd (vox). Could be one process; same lifecycle either way.</text>
+
+  <!-- rendering domain -->
+  <rect class="d-render" x="60" y="86" width="520" height="118" rx="8"/>
+  <text class="t" x="320" y="106" text-anchor="middle">Rendering</text>
+  <text class="s" x="76" y="126">scenes → ImGui draw lists · frames, docking, themes</text>
+  <text class="s" x="76" y="142">terminal replica: Ghostty per visible session, cell painter, key encoder</text>
+  <text class="s" x="76" y="158">consent modal: shows a request, returns Allow / Deny (DES-004 shape)</text>
+  <text class="s" x="76" y="174">aggregates every server it is attached to (DES-089)</text>
+  <text class="src" x="76" y="194">today: lux Display</text>
+
+  <!-- voice domain -->
+  <rect class="d-voice" x="600" y="86" width="300" height="118" rx="8"/>
+  <text class="t" x="750" y="106" text-anchor="middle">Voice</text>
+  <text class="s" x="616" y="126">speech synthesis, playback queue, dedup</text>
+  <text class="s" x="616" y="142">chimes, recordings, provider keys</text>
+  <text class="s" x="616" y="158">spoken notifications and consent prompts</text>
+  <text class="src" x="616" y="194">today: voxd (DES-021, DES-049)</text>
+
+  <!-- surface-side identity -->
+  <rect class="d-identity" x="920" y="86" width="220" height="118" rx="8"/>
+  <text class="t" x="1030" y="106" text-anchor="middle">Human's key</text>
+  <text class="s" x="936" y="126">the human's keypair lives here,</text>
+  <text class="s" x="936" y="142">never on a server or an agent</text>
+  <text class="s" x="936" y="158">signs consent answers and</text>
+  <text class="s" x="936" y="174">delegations to agents (R-A.4, R-A.5)</text>
+
+  <!-- ===== LINK: surface <-> server ===== -->
+  <path class="w-client" d="M320 230 L320 300"/>
+  <path class="w-stream" d="M470 230 L470 300"/>
+  <path class="w-client" d="M750 230 L750 300"/>
+  <text class="s" x="330" y="252">client protocol</text>
+  <text class="s" x="330" y="266">scenes, events, tools</text>
+  <text class="s" x="480" y="252">stream channel</text>
+  <text class="s" x="480" y="266">terminal bytes ↓ keys ↑ credit</text>
+  <text class="s" x="760" y="252">notifications to speak</text>
+  <text class="s" x="760" y="266">(push, R-D.5)</text>
+  <text class="s" x="1000" y="259" text-anchor="middle">one transport, local socket or mTLS across hosts</text>
+  <text class="s" x="1000" y="274" text-anchor="middle">(today: lux unix socket + DES-090; vox WebSocket :8421)</text>
+
+  <!-- ===== LAYER 2: SERVER ===== -->
+  <rect class="layer-band" x="20" y="300" width="1160" height="470" rx="8"/>
+  <text class="layer" x="36" y="322">Layer 2 · server · one per user per host · always on · runs headless</text>
+
+  <rect class="proc" x="40" y="336" width="1120" height="420"/>
+  <text class="s" x="52" y="354">process today: luxd (lux) + MCP server (biff, to become biffd). The merge candidate.</text>
+
+  <!-- identity & trust (cross-cutting bar) -->
+  <rect class="d-identity" x="60" y="366" width="1080" height="70" rx="8"/>
+  <text class="t" x="600" y="386" text-anchor="middle">Identity &amp; trust  (cross-cutting: every request in every domain below carries a principal and a trust level)</text>
+  <text class="s" x="76" y="406">principal = a keypair · agents have their own keys with scoped delegations from an owner · ethos registry is the system of record (R-A.7)</text>
+  <text class="s" x="76" y="422">trust level per message: trusted / verified / untrusted / unverified → what it may do (biffd M3 table), extended with: start a shell · type into · read a screen</text>
+
+  <!-- comms domain -->
+  <rect class="d-comms" x="60" y="452" width="340" height="190" rx="8"/>
+  <text class="t" x="230" y="472" text-anchor="middle">Communication &amp; presence</text>
+  <text class="s" x="76" y="492">who / finger / write / talk / wall / mesg / last</text>
+  <text class="s" x="76" y="508">inbox (POP, read once) · .plan · presence heartbeat</text>
+  <text class="s" x="76" y="524">notification fan-out to attached surfaces</text>
+  <text class="s" x="76" y="540">consent requests travel as messages when</text>
+  <text class="s" x="76" y="556">no surface is attached (answered from anywhere)</text>
+  <text class="s" x="76" y="572">delivery policy by trust level (R-P.2)</text>
+  <text class="src" x="76" y="630">today: biff MCP server → biffd (M1)</text>
+
+  <!-- content domain -->
+  <rect class="d-content" x="420" y="452" width="340" height="190" rx="8"/>
+  <text class="t" x="590" y="472" text-anchor="middle">Content &amp; coordination</text>
+  <text class="s" x="436" y="492">scenes, frames, elements, validation</text>
+  <text class="s" x="436" y="508">client leases (DES-094) · menu dispatch (DES-098)</text>
+  <text class="s" x="436" y="524">blackboard: regions with one owner each,</text>
+  <text class="s" x="436" y="540">everyone reads · signed history log</text>
+  <text class="s" x="436" y="556">agent roster and state (declared, not guessed)</text>
+  <text class="s" x="436" y="572">inspect_scene: asks the owning domain for text</text>
+  <text class="src" x="436" y="630">today: luxd (Hub)</text>
+
+  <!-- process hosting domain -->
+  <rect class="d-process" x="780" y="452" width="360" height="190" rx="8"/>
+  <text class="t" x="960" y="472" text-anchor="middle">Process hosting</text>
+  <rect x="796" y="482" width="328" height="56" rx="5" fill="none" stroke="#5cb870" stroke-dasharray="3 3"/>
+  <text class="s" x="804" y="498">Core: Ghostty per session · snapshots (binary / VT)</text>
+  <text class="s" x="804" y="514">session = owner + lifetime (attached / kept / leased)</text>
+  <text class="s" x="804" y="530">read screen · wait for change · send keys · kill</text>
+  <rect x="796" y="548" width="328" height="44" rx="5" fill="none" stroke="#5cb870" stroke-dasharray="3 3"/>
+  <text class="s" x="804" y="564">Holder: spawn · read · write · resize · reap · 1 MB tail</text>
+  <text class="s" x="804" y="580">survives a Core restart (herdr's seam)</text>
+  <text class="s" x="804" y="612">publishes one stream per session to the content domain</text>
+  <text class="src" x="804" y="630">proposed: luxd-pty (spike step 4)</text>
+
+  <!-- shells under process hosting -->
+  <path class="w" d="M880 642 L880 672"/><path class="w" d="M1040 642 L1040 672"/>
+  <rect class="d-transport" x="830" y="672" width="100" height="26" rx="5"/><text x="880" y="690" text-anchor="middle">zsh</text>
+  <rect class="d-transport" x="990" y="672" width="100" height="26" rx="5"/><text x="1040" y="690" text-anchor="middle">claude</text>
+
+  <!-- inter-domain links in server -->
+  <path class="w-id" d="M230 436 L230 452"/><path class="w-id" d="M590 436 L590 452"/><path class="w-id" d="M960 436 L960 452"/>
+  <path class="w" d="M400 547 L420 547"/>
+  <text class="s" x="402" y="540" text-anchor="middle">·</text>
+  <path class="w-stream" d="M760 600 L780 600"/>
+
+  <!-- agents (clients of the server) -->
+  <rect class="d-content" x="60" y="672" width="300" height="70" rx="8" style="fill:#1a2a3e"/>
+  <text class="t" x="210" y="692" text-anchor="middle">Agents &amp; apps  (clients, each a principal)</text>
+  <text class="s" x="76" y="712">MCP / REST / library: show scenes, write regions,</text>
+  <text class="s" x="76" y="728">send messages, start sessions, read screens</text>
+  <path class="w-client" d="M210 672 L210 642"/>
+  <path class="w-id" d="M330 672 L330 436"/>
+  <text class="s" x="338" y="660">key + delegation</text>
+
+  <!-- local-only note -->
+  <text class="s" x="420" y="700">Works with no peers and no relay: scenes, terminals, local agents.</text>
+  <text class="s" x="420" y="716">(biff's LocalRelay rule, kept.) Layer 1 adds reach, not function.</text>
+  <text class="s" x="420" y="740">Terminal bytes never leave this host except to Layer 3.</text>
+
+  <!-- ===== LINK: server <-> fabric ===== -->
+  <path class="w-mesh" d="M230 770 L230 840"/>
+  <path class="w-mesh" d="M590 770 L590 840"/>
+  <text class="s" x="240" y="796">subjects: inbox, wtmp, presence</text>
+  <text class="s" x="240" y="810">(biff today, DES-016 shared streams)</text>
+  <text class="s" x="600" y="796">subjects: board regions, history log,</text>
+  <text class="s" x="600" y="810">roster · JetStream for replay after restart</text>
+  <text class="s" x="900" y="803">Process hosting has NO link here.</text>
+
+  <!-- ===== LAYER 1: PEER FABRIC ===== -->
+  <rect class="layer-band" x="20" y="840" width="1160" height="150" rx="8"/>
+  <text class="layer" x="36" y="862">Layer 1 · peer fabric · shared by every host · the mesh</text>
+
+  <rect class="d-transport" x="60" y="878" width="1080" height="96" rx="8"/>
+  <text class="t" x="600" y="898" text-anchor="middle">NATS relay  (biff's, in production)  ·  subjects + JetStream + KV</text>
+  <text class="s" x="76" y="918">delivery and ordering only. No semantics: it carries signed payloads it cannot forge or alter (R-A.2). Untrusted infrastructure by design.</text>
+  <text class="s" x="76" y="934">reach: clients dial out, so NAT and firewalls are fine · identity per connection via NATS creds · optional leaf node per site to keep working when the relay is away</text>
+  <text class="s" x="76" y="950">constraint: Synadia R1 = 25 streams; biff uses 3 → shared streams with subject isolation (DES-016 pattern), never a stream per board</text>
+  <text class="src" x="76" y="968">today: biff-relay.punt-labs.com · LocalRelay (JSONL files) when there is no relay at all</text>
+</svg>
+
+<h2>Reading the picture</h2>
+<table>
+  <tr><th>Layer</th><th>Cardinality</th><th>Lifetime</th><th>What it must do alone</th></tr>
+  <tr><td>3 · Human surface</td><td>One per machine a human uses; a human may have several</td><td>Comes and goes. Nothing below notices beyond a subscription.</td><td>Nothing. It renders and speaks what Layer 2 holds.</td></tr>
+  <tr><td>2 · Server</td><td>One per user per host</td><td>Always on. Started by launchd / systemd. Survives surface and peer loss.</td><td>Everything local: scenes, terminals, local agents, consent via a local surface.</td></tr>
+  <tr><td>1 · Peer fabric</td><td>One per team (or per site with leaf nodes)</td><td>Independent of every host.</td><td>Carry bytes between servers. Knows nothing about them.</td></tr>
+</table>
+
+<h2>The domains, and who owns each today</h2>
+<table>
+  <tr><th>Domain</th><th>Owns</th><th>Today</th><th>Where it moves</th></tr>
+  <tr><td><span class="dot" style="background:var(--identity)"></span>Identity &amp; trust</td><td>Keys, delegations, trust levels, the policy table</td><td>biffd requirements M2/M3 (not built); lux client-identity ladder (DES-057/089)</td><td>One model, biff's. Lux's ladder becomes a view of it.</td></tr>
+  <tr><td><span class="dot" style="background:var(--comms)"></span>Communication &amp; presence</td><td>Messages, talk, wall, who, plan, notifications</td><td>biff</td><td>Stays biff's. Gains "consent request" as a message kind.</td></tr>
+  <tr><td><span class="dot" style="background:var(--content)"></span>Content &amp; coordination</td><td>Scenes, leases, blackboard, roster</td><td>luxd (scenes, leases); blackboard is a Vox Rooms proposal</td><td>Stays lux's. Blackboard regions ride Layer 1 subjects.</td></tr>
+  <tr><td><span class="dot" style="background:var(--process)"></span>Process hosting</td><td>PTYs, Ghostty state, sessions, snapshots</td><td>Spike only, in the Display (ADR-0006)</td><td>luxd-pty: new. Its only interface is the Layer 2 client protocol plus a stream, so it fits before and after a merge.</td></tr>
+  <tr><td><span class="dot" style="background:var(--render)"></span>Rendering</td><td>Drawing, input, consent UI</td><td>lux Display</td><td>Stays. Gains the terminal replica and a stream subscription.</td></tr>
+  <tr><td><span class="dot" style="background:var(--voice)"></span>Voice</td><td>Speech, playback, recordings</td><td>voxd</td><td>Stays. Becomes a notification sink of Layer 2 instead of its own MCP path.</td></tr>
+  <tr><td><span class="dot" style="background:var(--transport)"></span>Transport</td><td>Sockets, mTLS, NATS, framing, credit</td><td>Three answers: lux unix+mTLS, vox WebSocket, biff NATS</td><td>Two answers: one for Layer 3↔2, NATS for Layer 2↔1.</td></tr>
+</table>
+
+<h2>What this settles for the terminal, and what it does not</h2>
+<p class="note">
+<b>Settled:</b> process hosting is a Layer 2 domain, beside content and communication, not a client of them and not a
+separate tier. Its north interface is the stream channel to the surface; its east interface is the content domain
+(a session is shown by a scene element, read by inspect_scene); its policy comes from identity &amp; trust. It has no
+south interface: terminal bytes never reach the fabric.
+</p>
+<p class="note">
+<b>Not settled, and decided by you, not by this diagram:</b> (1) whether Layer 2 becomes one process or stays two with a
+shared protocol; (2) which transport Layer 3↔2 uses, since vox and lux chose differently; (3) whether "start a
+shell" is a row in biffd's M3 trust table or a separate consent regime; (4) the order of work: biffd M1 first, or the
+process-hosting domain first against today's luxd.
+</p>
+</body>
+</html>

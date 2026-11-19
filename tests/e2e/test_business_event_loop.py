@@ -18,23 +18,33 @@ observed gap rather than asserting a defence the system lacks.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.hub import hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
+from .conftest import LoopHarness
 from .inspection_view import InspectionView
 from .invariants import LoopInvariants
+from .rig import InProcessLoop
 from .scenario import SCENARIOS, Scenario
 
-if TYPE_CHECKING:
-    from .conftest import LoopHarness
-
 pytestmark = pytest.mark.integration
+
+
+def test_harness_teardown_removes_departed_scenes() -> None:
+    before = set(hub_display.live_scene_ids())
+    harness = LoopHarness(InProcessLoop.start())
+    try:
+        agent = harness.agent("e2e-cleanup")
+        agent.show(SCENARIOS[0])
+        assert set(hub_display.live_scene_ids()) != before
+    finally:
+        harness.teardown()
+    assert set(hub_display.live_scene_ids()) == before
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda s: s.name)

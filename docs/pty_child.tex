@@ -1,0 +1,86 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{PTY child ownership: reap before forgetting}
+\maketitle
+
+This models one child and its sole parent waiter. A zombie retains its PID;
+reaping releases it, so a later signal could target an unrelated reused PID.
+The Python owner must never signal after reaping, and the session core must
+retain ownership if termination fails. External waiters are excluded: the
+daemon is single-threaded and exclusively owns its children.
+
+\begin{zed}
+LIFE ::= active | zombie | gone
+\end{zed}
+\begin{zed}
+FLAG ::= yes | no
+\end{zed}
+\begin{schema}{Child}
+life : LIFE \\
+reaped : FLAG \\
+masterOpen : FLAG \\
+tracked : FLAG \\
+signals : \power LIFE
+\where
+reaped = yes \implies life = gone
+\end{schema}
+\begin{schema}{Init}
+Child'
+\where
+life' = active \land reaped' = no \\
+masterOpen' = yes \land tracked' = yes \land signals' = \emptyset
+\end{schema}
+\begin{schema}{KernelExit}
+\Delta Child
+\where
+life = active \\
+life' = zombie \land reaped' = reaped \\
+masterOpen' = masterOpen \land tracked' = tracked \land signals' = signals
+\end{schema}
+\begin{schema}{CloseMaster}
+\Delta Child
+\where
+masterOpen = yes \\
+masterOpen' = no \land life' = life \land reaped' = reaped \\
+tracked' = tracked \land signals' = signals
+\end{schema}
+\begin{schema}{PollReap}
+\Delta Child
+\where
+life = zombie \land reaped = no \\
+life' = gone \land reaped' = yes \\
+masterOpen' = masterOpen \land tracked' = tracked \land signals' = signals
+\end{schema}
+\begin{schema}{SignalChild}
+\Delta Child
+\where
+tracked = yes \land reaped = no \\
+signals' = signals \cup \{life\} \\
+life' = life \land reaped' = reaped \\
+masterOpen' = masterOpen \land tracked' = tracked
+\end{schema}
+\begin{schema}{ForgetChild}
+\Delta Child
+\where
+tracked = yes \land reaped = yes \\
+tracked' = no \land life' = life \land reaped' = reaped \\
+masterOpen' = masterOpen \land signals' = signals
+\end{schema}
+\begin{schema}{Idle}
+\Xi Child
+\end{schema}
+
+Search for the safety violations, which are not state predicates:
+\begin{itemize}
+\item \texttt{gone:signals}: a signal targets a released PID.
+\item \texttt{tracked=no \& life/=gone}: a live child is forgotten.
+\end{itemize}
+
+Fidelity checks remove the reap guard from SignalChild and ForgetChild
+respectively. The first must find a signal after PollReap; the second must
+find ownership discarded before KernelExit. This proves safety under the
+sole-waiter assumption, not eventual scheduling, bounded kernel response,
+or cleanup of deliberately detached grandchildren.
+
+\end{document}

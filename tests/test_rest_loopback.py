@@ -46,8 +46,9 @@ def test_loopback_transport_wraps_a_refused_connection() -> None:
     # luxd unreachable rather than leaking the OSError.
     with _bound_unlistened_port() as port:
         transport = LoopbackTransport(port, timeout=1.0)
-        with pytest.raises(HubUnavailableError, match="not reachable"):
+        with pytest.raises(HubUnavailableError, match="not reachable") as failure:
             transport.request(HttpCall.read("/display/ping", {}))
+        assert isinstance(failure.value, ConnectionError)
 
 
 def test_loopback_transport_sends_json_and_reads_the_reply() -> None:

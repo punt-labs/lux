@@ -1,0 +1,16 @@
+{
+  "both_windows": [
+    "/private/tmp/lux-two-window-1.png",
+    "/private/tmp/lux-two-window-2.png"
+  ],
+  "program_pid": 7688,
+  "owner_pid": 7626,
+  "display_pids": [
+    7542,
+    7740
+  ],
+  "survivor_window": "/private/tmp/lux-two-window-survivor.png",
+  "rejoined_window": "/private/tmp/lux-two-window-rejoined.png",
+  "rejoined_display_pid": 8054,
+  "cleanup": "owned Displays/Hubs/daemon/program stopped; private instance removed"
+}

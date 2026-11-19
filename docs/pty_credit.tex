@@ -1,0 +1,107 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Viewer credit and lag repaint}
+\maketitle
+
+Two viewers have independent windows. Snapshot bytes spend credit too;
+copying a fragment into the bounded receiver buffer returns credit before
+the whole snapshot is applied. A lag repaint discards unsent tail only,
+never outstanding debt. It must not replace an incomplete snapshot forever.
+
+\begin{zed}
+[VIEW]
+\end{zed}
+\begin{schema}{Flows}
+available : VIEW \fun (0 \upto 2) \\
+inflight : VIEW \fun (0 \upto 2) \\
+snapshot : VIEW \fun (0 \upto 2) \\
+backlog : VIEW \fun (0 \upto 2) \\
+repaint : \power VIEW \\
+unsafeTail : \power VIEW
+\end{schema}
+\begin{schema}{Init}
+Flows'
+\where
+available' = \{v : VIEW @ v \mapsto 2\} \\
+inflight' = \{v : VIEW @ v \mapsto 0\} \\
+snapshot' = \{v : VIEW @ v \mapsto 2\} \\
+backlog' = \{v : VIEW @ v \mapsto 0\} \\
+repaint' = \emptyset \land unsafeTail' = \emptyset
+\end{schema}
+\begin{schema}{SendSnapshot}
+\Delta Flows \\
+v? : VIEW
+\where
+snapshot(v?) > 0 \land available(v?) > 0 \\
+snapshot' = snapshot \oplus \{v? \mapsto (snapshot(v?) - 1)\} \\
+available' = available \oplus \{v? \mapsto (available(v?) - 1)\} \\
+inflight' = inflight \oplus \{v? \mapsto (inflight(v?) + 1)\} \\
+backlog' = backlog \land repaint' = repaint \land unsafeTail' = unsafeTail
+\end{schema}
+\begin{schema}{ReturnCredit}
+\Delta Flows \\
+v? : VIEW
+\where
+inflight(v?) > 0 \\
+inflight' = inflight \oplus \{v? \mapsto (inflight(v?) - 1)\} \\
+available' = available \oplus \{v? \mapsto (available(v?) + 1)\} \\
+snapshot' = snapshot \land backlog' = backlog \\
+repaint' = repaint \land unsafeTail' = unsafeTail
+\end{schema}
+\begin{schema}{AppendOutput}
+\Delta Flows \\
+v? : VIEW
+\where
+v? \notin repaint \land backlog(v?) < 2 \\
+backlog' = backlog \oplus \{v? \mapsto (backlog(v?) + 1)\} \\
+available' = available \land inflight' = inflight \land snapshot' = snapshot \\
+repaint' = repaint \land unsafeTail' = unsafeTail
+\end{schema}
+\begin{schema}{LagOverflow}
+\Delta Flows \\
+v? : VIEW
+\where
+v? \notin repaint \land backlog(v?) = 2 \\
+repaint' = repaint \cup \{v?\} \\
+backlog' = backlog \oplus \{v? \mapsto 0\} \\
+available' = available \land inflight' = inflight \land snapshot' = snapshot \\
+unsafeTail' = unsafeTail
+\end{schema}
+\begin{schema}{SendTail}
+\Delta Flows \\
+v? : VIEW
+\where
+snapshot(v?) = 0 \land v? \notin repaint \\
+backlog(v?) > 0 \land available(v?) > 0 \\
+backlog' = backlog \oplus \{v? \mapsto (backlog(v?) - 1)\} \\
+available' = available \oplus \{v? \mapsto (available(v?) - 1)\} \\
+inflight' = inflight \oplus \{v? \mapsto (inflight(v?) + 1)\} \\
+snapshot' = snapshot \land repaint' = repaint \\
+unsafeTail' = unsafeTail \cup (\{v?\} \cap repaint)
+\end{schema}
+\begin{schema}{RepaintLatest}
+\Delta Flows \\
+v? : VIEW
+\where
+v? \in repaint \land snapshot(v?) = 0 \land available(v?) > 0 \\
+snapshot' = snapshot \oplus \{v? \mapsto 2\} \\
+backlog' = backlog \oplus \{v? \mapsto 0\} \\
+repaint' = repaint \setminus \{v?\} \\
+available' = available \land inflight' = inflight \\
+unsafeTail' = unsafeTail
+\end{schema}
+\begin{schema}{Idle}
+\Xi Flows
+\end{schema}
+
+Search goals, not assumed state predicates:
+\begin{itemize}
+\item Some viewer has $available(v)+inflight(v) \neq 2$.
+\item $unsafeTail \neq \emptyset$: output crosses a known dropped-tail gap.
+\end{itemize}
+Fidelity mutations reset available to two in RepaintLatest, forgetting old
+debt, and remove the repaint guard from SendTail. For the latter, permit
+AppendOutput during repaint to expose a tail after the dropped gap.
+This model establishes finite-state safety, not network fairness or throughput.
+\end{document}

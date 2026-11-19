@@ -1,0 +1,155 @@
+{
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "scope": "20 finite sequential lifecycle cycles; FD/RSS snapshots, not soak proof",
+  "daemon_pid": 86329,
+  "cycles": [
+    {
+      "cycle": 0,
+      "pid": 86334,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 1,
+      "pid": 86335,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 2,
+      "pid": 86340,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 3,
+      "pid": 86341,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 4,
+      "pid": 86342,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 5,
+      "pid": 86343,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 6,
+      "pid": 86344,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 7,
+      "pid": 86345,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 8,
+      "pid": 86346,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 9,
+      "pid": 86352,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 10,
+      "pid": 86357,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 11,
+      "pid": 86358,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 12,
+      "pid": 86359,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 13,
+      "pid": 86360,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 14,
+      "pid": 86361,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 15,
+      "pid": 86362,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 16,
+      "pid": 86363,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 17,
+      "pid": 86364,
+      "exited_before_reattach": false
+    },
+    {
+      "cycle": 18,
+      "pid": 86365,
+      "exited_before_reattach": true
+    },
+    {
+      "cycle": 19,
+      "pid": 86366,
+      "exited_before_reattach": false
+    }
+  ],
+  "daemon_resources": [
+    {
+      "completed_cycles": 2,
+      "numeric_fd_count": 6,
+      "numeric_fds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rss_kib": 58432,
+      "child_pids": []
+    },
+    {
+      "completed_cycles": 10,
+      "numeric_fd_count": 6,
+      "numeric_fds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rss_kib": 58704,
+      "child_pids": []
+    },
+    {
+      "completed_cycles": 20,
+      "numeric_fd_count": 6,
+      "numeric_fds": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "rss_kib": 58928,
+      "child_pids": []
+    }
+  ],
+  "parent_fd_count_before": 6,
+  "parent_fd_count_after": 6,
+  "cleanup": "programs reaped, owned daemon stopped/reaped, socket removed, private instance removed",
+  "memory_note": "RSS includes allocator/cache retention; short samples cannot prove absence of long-term leaks"
+}

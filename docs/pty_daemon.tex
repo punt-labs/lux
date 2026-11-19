@@ -1,0 +1,138 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Terminal daemon: lifetime claim and empty-only idle shutdown}
+\maketitle
+
+Every daemon holds an exclusive OS lock before stale cleanup, bind and listen,
+until endpoint cleanup and process shutdown finish. The kernel releases it
+on crash. No PID-age or lock-file deletion is used. Idle means zero clients
+and zero sessions; an exited screen is still a retained session.
+
+\begin{zed}
+[STARTER]
+\end{zed}
+\begin{zed}
+SOCK ::= absent | bound | listening | stale
+\end{zed}
+\begin{zed}
+PHASE ::= idle | claimed | binding | serving | exited
+\end{zed}
+\begin{zed}
+FLAG ::= yes | no
+\end{zed}
+\begin{schema}{Daemon}
+claim : \power STARTER \\
+listeners : \power STARTER \\
+phase : STARTER \fun PHASE \\
+node : SOCK \\
+clients : 0 \upto 2 \\
+sessions : 0 \upto 2 \\
+unsafeStop : FLAG
+\end{schema}
+\begin{schema}{Init}
+Daemon'
+\where
+claim' = \emptyset \land listeners' = \emptyset \\
+phase' = \{a : STARTER @ a \mapsto idle\} \\
+node' = absent \land clients' = 0 \land sessions' = 0 \land unsafeStop' = no
+\end{schema}
+\begin{schema}{Acquire}
+\Delta Daemon \\
+a? : STARTER
+\where
+phase(a?) = idle \land claim = \emptyset \\
+claim' = \{a?\} \land phase' = phase \oplus \{a? \mapsto claimed\} \\
+listeners' = listeners \land node' = node \\
+clients' = clients \land sessions' = sessions \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{ClearStale}
+\Delta Daemon \\
+a? : STARTER
+\where
+a? \in claim \land phase(a?) = claimed \land node = stale \\
+node' = absent \land claim' = claim \land phase' = phase \\
+listeners' = listeners \land clients' = clients \\
+sessions' = sessions \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{Bind}
+\Delta Daemon \\
+a? : STARTER
+\where
+a? \in claim \land phase(a?) = claimed \land node = absent \\
+node' = bound \land phase' = phase \oplus \{a? \mapsto binding\} \\
+claim' = claim \land listeners' = listeners \\
+clients' = clients \land sessions' = sessions \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{Listen}
+\Delta Daemon \\
+a? : STARTER
+\where
+a? \in claim \land phase(a?) = binding \land node = bound \\
+node' = listening \land phase' = phase \oplus \{a? \mapsto serving\} \\
+listeners' = listeners \cup \{a?\} \land claim' = claim \\
+clients' = clients \land sessions' = sessions \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{ClientArrives}
+\Delta Daemon
+\where
+node = listening \land clients < 2 \\
+clients' = clients + 1 \land sessions' = sessions \\
+node' = node \land claim' = claim \land listeners' = listeners \\
+phase' = phase \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{ClientLeaves}
+\Delta Daemon
+\where
+clients > 0 \\
+clients' = clients - 1 \land sessions' = sessions \\
+node' = node \land claim' = claim \land listeners' = listeners \\
+phase' = phase \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{SessionStarts}
+\Delta Daemon
+\where
+clients > 0 \land sessions < 2 \\
+sessions' = sessions + 1 \land clients' = clients \\
+node' = node \land claim' = claim \land listeners' = listeners \\
+phase' = phase \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{SessionKilled}
+\Delta Daemon
+\where
+sessions > 0 \\
+sessions' = sessions - 1 \land clients' = clients \\
+node' = node \land claim' = claim \land listeners' = listeners \\
+phase' = phase \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{IdleShutdown}
+\Delta Daemon \\
+a? : STARTER
+\where
+phase(a?) = serving \land clients = 0 \land sessions = 0 \\
+claim' = claim \setminus \{a?\} \land listeners' = listeners \setminus \{a?\} \\
+phase' = phase \oplus \{a? \mapsto exited\} \land node' = absent \\
+clients' = clients \land sessions' = sessions \\
+(clients = 0 \land sessions = 0 \implies unsafeStop' = unsafeStop) \\
+(clients > 0 \lor sessions > 0 \implies unsafeStop' = yes)
+\end{schema}
+\begin{schema}{Crash}
+\Delta Daemon \\
+a? : STARTER
+\where
+a? \in claim \\
+claim' = claim \setminus \{a?\} \land listeners' = listeners \setminus \{a?\} \\
+phase' = phase \oplus \{a? \mapsto exited\} \\
+(node = absent \implies node' = absent) \\
+(node \neq absent \implies node' = stale) \\
+clients' = 0 \land sessions' = 0 \land unsafeStop' = unsafeStop
+\end{schema}
+\begin{schema}{Wait}
+\Xi Daemon
+\end{schema}
+
+Search for more than one claim/listener, a listener without a claim, or
+unsafeStop=yes. Fidelity mutations remove Acquire's empty-claim guard and
+IdleShutdown's empty-work guard. Timing, filesystem credentials and detached
+spawn are covered by real integration tests, not abstracted as proofs here.
+\end{document}

@@ -1,0 +1,6 @@
+{"elements": [
+  {"kind": "text", "id": "hdr2", "content": "Second terminal: its own session and shell, independent of the first."},
+  {"kind": "terminal", "id": "term2", "session": "spike-shell-2", "command": "/bin/zsh -l"}
+],
+ "title": "Terminal 2 (spike)",
+ "frame": {"frame_id": "terminal-spike-2", "frame_title": "Terminal 2 (spike)", "size": [1000, 600]}}

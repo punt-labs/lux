@@ -480,11 +480,7 @@ class TestServiceManagerRestart:
 
 
 class TestBackendStartStopSymmetry:
-    def test_launchd_start_calls_launchctl_bootstrap(self, tmp_path: Path):
-        # bootstrap, not load: the counterpart to stop's bootout, so a
-        # service this backend stopped can be started again without
-        # relying on the legacy load/unload shim (lux-5uc7 F5).
-        #
+    def test_loaded_launchd_start_calls_non_destructive_kickstart(self, tmp_path: Path):
         # start() calls launchctl.run(), not subprocess.run() directly —
         # patch the actual call site in _launchctl, not _backend_launchd's
         # module-level subprocess import (Copilot F1: the wrong-module patch
@@ -497,7 +493,8 @@ class TestBackendStartStopSymmetry:
         with patch("punt_lux._launchctl.subprocess.run") as run:
             run.return_value.returncode = 0
             ok = backend.start()
-        assert run.call_args[0][0][:2] == ["launchctl", "bootstrap"]
+        assert run.call_args[0][0][:2] == ["launchctl", "kickstart"]
+        assert "-k" not in run.call_args[0][0]
         assert ok is True
 
     def test_launchd_stop_calls_launchctl_bootout(self, tmp_path: Path):

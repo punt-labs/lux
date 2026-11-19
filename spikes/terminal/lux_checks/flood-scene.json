@@ -1,0 +1,1 @@
+{"elements": [{"kind": "terminal", "id": "flood", "session": "flood", "command": "/bin/sh -c 'sleep 4; i=0; while [ $i -lt 12 ]; do yes \"the quick brown fox jumps over the lazy dog 0123456789\" | head -c 20000000; i=$((i+1)); done; sleep 3600'"}], "title": "Flood", "frame": {"frame_id": "flood-term", "frame_title": "Flood terminal", "size": [900, 700]}}

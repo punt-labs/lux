@@ -23,17 +23,16 @@ __all__ = ["SystemdBackend"]
 class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for systemd user units."""
 
-    __slots__ = ("_dir", "_spec", "_unit_path")
+    __slots__ = ("_spec", "_unit_path")
 
     _spec: ServiceSpec
     _unit_path: Path
-    _dir: Path
 
     def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
         self._spec = spec
-        self._dir = Path.home() / ".config" / "systemd" / "user"
-        self._unit_path = self._dir / f"{spec.systemd_unit}.service"
+        directory = Path.home() / ".config/systemd/user"
+        self._unit_path = directory / f"{spec.systemd_unit}.service"
         return self
 
     def config_path(self) -> Path:
@@ -67,7 +66,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         so this backend has no equivalent no-op short-circuit. Always
         returns ``False`` (never a no-op).
         """
-        self._dir.mkdir(parents=True, exist_ok=True)
+        self._unit_path.parent.mkdir(parents=True, exist_ok=True)
         write_config_atomic.write(self._unit_path, self._unit_content())
         logger.info("Wrote %s", self._unit_path)
 
@@ -78,10 +77,13 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         logger.info("Enabled and restarted %s.service", unit)
         return False
 
+    def enable_autostart(self) -> bool:
+        return self._run_verb("enable", self._spec.systemd_unit)
+
     def uninstall(self) -> None:
         """Stop, disable, and remove the systemd unit."""
         if self._unit_path.exists():
-            self._disable_now(self._spec.systemd_unit)
+            self._disable_now()
             self._unit_path.unlink()
             subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
             logger.info("Removed %s", self._unit_path)
@@ -93,11 +95,11 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def stop(self) -> bool:
         """Stop the unit; it stays enabled for the next start/boot."""
-        return self._run_verb("stop")
+        return self._run_verb("stop", self._spec.systemd_unit)
 
     def start(self) -> bool:
         """Start the installed unit, symmetric to :meth:`stop`."""
-        return self._run_verb("start")
+        return self._run_verb("start", self._spec.systemd_unit)
 
     def restart(self) -> bool:
         """Atomically restart the unit under systemd.
@@ -108,12 +110,13 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         a signal-based handshake with a pid file the daemon does not itself
         keep current.
         """
-        return self._run_verb("restart")
+        return self._run_verb("restart", self._spec.systemd_unit)
 
-    def _run_verb(self, verb: str) -> bool:
+    @staticmethod
+    def _run_verb(verb: str, unit: str) -> bool:
         """Invoke ``systemctl --user <verb>`` on this service; log on failure."""
         result = subprocess.run(
-            ["systemctl", "--user", verb, self._spec.systemd_unit],
+            ["systemctl", "--user", verb, unit],
             capture_output=True,
             text=True,
             check=False,
@@ -127,11 +130,10 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             )
         return result.returncode == 0
 
-    @staticmethod
-    def _disable_now(unit: str) -> None:
+    def _disable_now(self) -> None:
         """Run ``systemctl --user disable --now <unit>``, tolerating absence."""
         subprocess.run(
-            ["systemctl", "--user", "disable", "--now", unit],
+            ["systemctl", "--user", "disable", "--now", self._spec.systemd_unit],
             capture_output=True,
             text=True,
             check=False,
@@ -145,8 +147,7 @@ class SystemdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def _unit_content(self) -> str:
         """Generate the systemd unit file content for the service."""
-        exec_args = self._spec.resolve_exec_args()
-        exec_start = " ".join(self._escape_arg(a) for a in exec_args)
+        exec_start = " ".join(map(self._escape_arg, self._spec.resolve_exec_args()))
         return textwrap.dedent(f"""\
             [Unit]
             Description={self._spec.systemd_description}
