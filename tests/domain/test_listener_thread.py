@@ -668,6 +668,7 @@ class TestMalformedFrames:
         (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert "pair-1" in record.getMessage()
         assert "malformed frame" in record.getMessage()
+        assert "JSONDecodeError" in caplog.text
         assert "not json" not in caplog.text
 
     def test_the_connection_is_closed_so_a_reconnect_starts_on_a_boundary(

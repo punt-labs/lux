@@ -153,11 +153,11 @@ class DialReader:
                 msg = next(messages, None)
             except ProgrammerError:
                 raise
-            except Exception as exc:  # any decoder failure ends the stream
+            except Exception as e:  # any decoder failure ends the stream
                 logger.error(
                     "Listener closing: display %s sent a malformed frame",
                     generation.endpoint,
-                    exc_info=Exception().with_traceback(exc.__traceback__),
+                    exc_info=(Exception, Exception(type(e).__name__), e.__traceback__),
                 )
                 return "display"
             if msg is None:
