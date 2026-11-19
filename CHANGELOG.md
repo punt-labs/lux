@@ -43,6 +43,9 @@
 
 ### Changed
 
+- Upgrade to FastMCP 4 while keeping luxd's MCP HTTP endpoint stateful:
+  disconnect and idle expiry still clean up the last session for each key.
+
 - **Adopt `punt-oo-ratchet==0.3.0` counting (PL-1141, PL-1188).** Rebaseline
   OO metrics through the audited bulk command: module size counts code only,
   and class counts exclude exceptions, enums and dataclasses. Raise the default

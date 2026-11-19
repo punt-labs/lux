@@ -274,7 +274,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 async def probe() -> None:
     async with (
-        streamable_http_client("http://127.0.0.1:8430/mcp") as (read, write, _),
+        streamable_http_client("http://127.0.0.1:8430/mcp") as (read, write),
         ClientSession(read, write) as session,
     ):
         await session.initialize()

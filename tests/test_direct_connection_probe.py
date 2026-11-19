@@ -47,7 +47,7 @@ def probe() -> ModuleType:
 class _RefusingClient:
     """A transport stand-in whose connection attempt is refused."""
 
-    async def __aenter__(self) -> tuple[None, None, None]:
+    async def __aenter__(self) -> tuple[None, None]:
         raise ConnectionError("connection refused")
 
     async def __aexit__(self, *exc: object) -> bool:
@@ -66,7 +66,7 @@ class _FakeSession:
         return self
 
     async def initialize(self) -> SimpleNamespace:
-        return SimpleNamespace(serverInfo=SimpleNamespace(name="luxd", version="0"))
+        return SimpleNamespace(server_info=SimpleNamespace(name="luxd", version="0"))
 
     async def list_tools(self) -> SimpleNamespace:
         return SimpleNamespace(tools=[])
@@ -81,8 +81,8 @@ def _patch_client(
     """Point the probe's transport and client factories at in-memory fakes."""
 
     @asynccontextmanager
-    async def _streams(url: str) -> AsyncGenerator[tuple[None, None, None]]:
-        yield (None, None, None)
+    async def _streams(url: str) -> AsyncGenerator[tuple[None, None]]:
+        yield (None, None)
 
     @asynccontextmanager
     async def _client(read: object, write: object) -> AsyncGenerator[object]:
@@ -97,9 +97,9 @@ def test_failed_tool_call_exits_nonzero(
     capsys: pytest.CaptureFixture[str],
     probe: ModuleType,
 ) -> None:
-    """An ``isError=True`` list_scenes exits 1 with the payload on stderr."""
+    """An ``is_error=True`` scene_ls exits 1 with the payload on stderr."""
     result = SimpleNamespace(
-        isError=True, content=[TextContent(type="text", text="scene boom")]
+        is_error=True, content=[TextContent(type="text", text="scene boom")]
     )
     _patch_client(monkeypatch, probe, _FakeSession(result))
 
@@ -107,7 +107,7 @@ def test_failed_tool_call_exits_nonzero(
 
     captured = capsys.readouterr()
     assert rc == 1
-    assert "list_scenes failed: scene boom" in captured.err
+    assert "scene_ls failed: scene boom" in captured.err
     assert "direct connection OK" not in captured.out
 
 
@@ -116,9 +116,9 @@ def test_ok_tool_call_exits_zero(
     capsys: pytest.CaptureFixture[str],
     probe: ModuleType,
 ) -> None:
-    """An ``isError=False`` list_scenes prints the transcript and exits 0."""
+    """An ``is_error=False`` scene_ls prints the transcript and exits 0."""
     result = SimpleNamespace(
-        isError=False, content=[TextContent(type="text", text="[]")]
+        is_error=False, content=[TextContent(type="text", text="[]")]
     )
     _patch_client(monkeypatch, probe, _FakeSession(result))
 
