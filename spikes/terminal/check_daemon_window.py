@@ -29,6 +29,7 @@ from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
 from punt_lux.ptyd.snapshot import snapshot_version
 from tests.ptyd.wire_client import WireClient
+from spikes.terminal.proof_signals import ProofSignals
 
 ROOT = Path(__file__).resolve().parents[2]
 capture_script = Path(os.environ["LUX_CAPTURE_SCRIPT"]).resolve()
@@ -128,7 +129,24 @@ with (
         assert r.returncode == 0, (r.stdout, r.stderr)
         return r.stdout
 
-    try:
+    def cleanup():
+        for p in reversed(processes):
+            stop(p)
+        pid = daemon_pid(pty)
+        if pid is not None:
+            os.kill(pid, signal.SIGTERM)
+            end = time.monotonic() + 4
+            while daemon_pid(pty) is not None and time.monotonic() < end:
+                time.sleep(0.05)
+            if daemon_pid(pty) == pid:
+                os.kill(pid, signal.SIGKILL)
+        for log in run.glob("*.log"):
+            text = log.read_text(errors="replace")
+            print(log.name, "tail", text[-1300:], flush=True)
+        assert daemon_pid(pty) is None
+        print("All isolated processes stopped; temp instance removed on exit", flush=True)
+
+    with ProofSignals(cleanup):
         hub = start("luxd-hub", "--port", "0")
         waitfor(lambda: (run / ".punt-labs/lux/hub.port").exists())
         first = start("luxd-display", "--socket", str(display_path))
@@ -265,19 +283,3 @@ with (
         finally:
             c.close()
         print("ACTUAL-WINDOW COLD START / SIGKILL / RESTART PASSED", flush=True)
-    finally:
-        for p in reversed(processes):
-            stop(p)
-        pid = daemon_pid(pty)
-        if pid is not None:
-            os.kill(pid, signal.SIGTERM)
-            end = time.monotonic() + 4
-            while daemon_pid(pty) is not None and time.monotonic() < end:
-                time.sleep(0.05)
-            if daemon_pid(pty) == pid:
-                os.kill(pid, signal.SIGKILL)
-        for log in run.glob("*.log"):
-            text = log.read_text(errors="replace")
-            print(log.name, "tail", text[-1300:], flush=True)
-        assert daemon_pid(pty) is None
-        print("All isolated processes stopped; temp instance removed on exit", flush=True)

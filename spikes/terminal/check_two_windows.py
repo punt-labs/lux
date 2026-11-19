@@ -29,6 +29,7 @@ from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
 from punt_lux.ptyd.snapshot import snapshot_version
 from tests.ptyd.wire_client import WireClient
+from spikes.terminal.proof_signals import ProofSignals
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -191,7 +192,18 @@ class WindowProof:
                     },
                 ],
             }
-            try:
+            def cleanup() -> None:
+                for process in reversed(processes):
+                    WindowProof.stop(process)
+                owner = WindowProof.daemon_pid(pty)
+                if owner is not None:
+                    os.kill(owner, signal.SIGTERM)
+                    WindowProof.wait(lambda: WindowProof.daemon_pid(pty) is None)
+                assert not pty.exists()
+                for log in root.glob("*.log"):
+                    print(log.name, log.read_text(errors="replace")[-600:], file=sys.stderr)
+
+            with ProofSignals(cleanup):
                 displays = []
                 for env in environments:
                     start(env, "luxd-hub", "--port", "0")
@@ -256,16 +268,6 @@ class WindowProof:
                     )
                 finally:
                     client.close()
-            finally:
-                for process in reversed(processes):
-                    WindowProof.stop(process)
-                owner = WindowProof.daemon_pid(pty)
-                if owner is not None:
-                    os.kill(owner, signal.SIGTERM)
-                    WindowProof.wait(lambda: WindowProof.daemon_pid(pty) is None)
-                assert not pty.exists()
-                for log in root.glob("*.log"):
-                    print(log.name, log.read_text(errors="replace")[-600:], file=sys.stderr)
             evidence["cleanup"] = (
                 "owned Displays/Hubs/daemon/program stopped; private instance removed"
             )

@@ -18,20 +18,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Self
 
-from imgui_bundle import imgui
+from imgui_bundle import ImVec2, imgui
 
-from punt_lux.display.terminal.keyboard_events import KeyboardEvents, KeyEncoding
-from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
+from punt_lux.display.terminal.input_events import (
+    KeyboardEvents,
+    KeyEncoding,
+    MouseEvents,
+)
+from punt_lux.terminal.ffi import Terminal, ffi, lib
 
 __all__ = ["Input", "MouseFrame"]
-
-WHEEL_LINES_MAX = 5  # wheel notches forwarded per frame, at most
-
-_MOUSE_BUTTONS = (
-    (imgui.MouseButton_.left, lib.GHOSTTY_MOUSE_BUTTON_LEFT),
-    (imgui.MouseButton_.right, lib.GHOSTTY_MOUSE_BUTTON_RIGHT),
-    (imgui.MouseButton_.middle, lib.GHOSTTY_MOUSE_BUTTON_MIDDLE),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +40,27 @@ class MouseFrame:
     cell_h: float
     cols: int
     rows: int
+    hovered: bool = True
+
+    @classmethod
+    def at_pointer(
+        cls,
+        origin: ImVec2,
+        cell: tuple[float, float],
+        size: tuple[int, int],
+    ) -> Self:
+        mouse = imgui.get_mouse_pos()
+        cols, rows = size
+        cell_w, cell_h = cell
+        return cls(
+            min(max(0, mouse.x - origin.x), cols * cell_w - 1),
+            min(max(0, mouse.y - origin.y), rows * cell_h - 1),
+            cell_w,
+            cell_h,
+            cols,
+            rows,
+            imgui.is_window_hovered(),
+        )
 
 
 class Input:
@@ -52,28 +69,27 @@ class Input:
     _term: Terminal
     _write: Callable[[bytes], None]
     _keys: KeyEncoding
-    _mouse_encoder: Any
+    _mouse: MouseEvents
     _out: Any
     _out_len: Any
-    _buttons_down: int
-    _last_cell: tuple[int, int] | None
 
     def __new__(cls, term: Terminal, write: Callable[[bytes], None]) -> Self:
         self = super().__new__(cls)
         self._term = term
         self._write = write
         self._keys = KeyEncoding()
-        self._mouse_encoder = ffi.new("GhosttyMouseEncoder*")
-        lib.ghostty_mouse_encoder_new(ffi.NULL, self._mouse_encoder)
+        self._mouse = MouseEvents()
         self._out = ffi.new("char[]", 256)
         self._out_len = ffi.new("size_t*")
-        self._buttons_down = 0  # bit per Ghostty button number
-        self._last_cell = None
         return self
 
     def close(self) -> None:
         self._keys.close()
-        lib.ghostty_mouse_encoder_free(self._mouse_encoder[0])
+        self._mouse.close()
+
+    @property
+    def mouse_captured(self) -> bool:
+        return self._mouse.captured
 
     # -- keyboard ----------------------------------------------------------
     def poll_keyboard(self) -> bool:
@@ -107,68 +123,16 @@ class Input:
             self._write(ffi.buffer(out, n[0])[:])
 
     # -- mouse -------------------------------------------------------------
-    def program_wants_mouse(self) -> bool:
-        """Mouse tracking is on and Shift isn't held (Shift selects locally)."""
+    def program_wants_mouse(self, *, hovered: bool = True) -> bool:
+        """Retain captured buttons; new gestures require tracking and hover."""
         tracking = bool(self._term.get("mouse_tracking", "bool"))
-        return tracking and not imgui.get_io().key_shift
+        return self._mouse.captured or (
+            hovered and tracking and not imgui.get_io().key_shift
+        )
 
     def poll_mouse(self, frame: MouseFrame) -> None:
         """Forward this frame's buttons, motion and wheel to the program."""
-        for imgui_button, button in _MOUSE_BUTTONS:
-            if imgui.is_mouse_clicked(imgui_button):
-                self._buttons_down |= 1 << button
-                self._mouse(lib.GHOSTTY_MOUSE_ACTION_PRESS, button, frame)
-            if imgui.is_mouse_released(imgui_button):
-                self._buttons_down &= ~(1 << button)
-                self._mouse(lib.GHOSTTY_MOUSE_ACTION_RELEASE, button, frame)
-        cell = (int(frame.x // frame.cell_w), int(frame.y // frame.cell_h))
-        if cell != self._last_cell:  # motion is reported per cell
-            self._last_cell = cell
-            held = next(
-                (b for _, b in _MOUSE_BUTTONS if self._buttons_down & (1 << b)), 0
-            )
-            self._mouse(lib.GHOSTTY_MOUSE_ACTION_MOTION, held, frame)
-        if wheel := imgui.get_io().mouse_wheel:
-            button = (
-                lib.GHOSTTY_MOUSE_BUTTON_FOUR
-                if wheel > 0
-                else lib.GHOSTTY_MOUSE_BUTTON_FIVE
-            )
-            for _ in range(min(WHEEL_LINES_MAX, max(1, int(abs(wheel))))):
-                self._mouse(lib.GHOSTTY_MOUSE_ACTION_PRESS, button, frame)
-
-    def _mouse(self, action: int, button: int, frame: MouseFrame) -> None:
-        event = ffi.new("GhosttyMouseEvent*")
-        lib.ghostty_mouse_event_new(ffi.NULL, event)
-        try:
-            ev = event[0]
-            lib.ghostty_mouse_event_set_action(ev, action)
-            if button:
-                lib.ghostty_mouse_event_set_button(ev, button)
-            lib.ghostty_mouse_event_set_mods(ev, KeyboardEvents.modifiers())
-            pos = ffi.new("GhosttyMousePosition*")
-            pos.x, pos.y = frame.x, frame.y
-            lib.ghostty_mouse_event_set_position(ev, pos[0])
-            encoder = self._mouse_encoder[0]
-            lib.ghostty_mouse_encoder_setopt_from_terminal(encoder, handle(self._term))
-            size = init_sized("GhosttyMouseEncoderSize")
-            size.screen_width = int(frame.cols * frame.cell_w)
-            size.screen_height = int(frame.rows * frame.cell_h)
-            size.cell_width, size.cell_height = int(frame.cell_w), int(frame.cell_h)
-            lib.ghostty_mouse_encoder_setopt(
-                encoder, lib.GHOSTTY_MOUSE_ENCODER_OPT_SIZE, size
-            )
-            pressed = ffi.new("bool*", self._buttons_down != 0)
-            lib.ghostty_mouse_encoder_setopt(
-                encoder, lib.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, pressed
-            )
-            self._emit(
-                lib.ghostty_mouse_encoder_encode(
-                    encoder, ev, self._out, len(self._out), self._out_len
-                )
-            )
-        finally:
-            lib.ghostty_mouse_event_free(event[0])
+        self._mouse.poll(frame, self._term, self._out, self._out_len, self._emit)
 
     def _emit(self, result: int) -> bool:
         """Send the encoder's output, if any. True if bytes were sent."""

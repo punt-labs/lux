@@ -9,7 +9,7 @@ import pytest
 from imgui_bundle import imgui
 
 from punt_lux.display.terminal.input import Input
-from punt_lux.display.terminal.keyboard_events import KeyboardEvents, lib
+from punt_lux.display.terminal.input_events import KeyboardEvents, lib
 from punt_lux.terminal.ffi import Terminal
 
 
@@ -34,24 +34,22 @@ def test_poll_emits_all_key_actions_without_text_on_release(
 
     with (
         patch(
-            "punt_lux.display.terminal.keyboard_events.KEYMAP",
+            "punt_lux.display.terminal.input_events.KEYMAP",
             {int(imgui.Key.a): lib.GHOSTTY_KEY_A},
         ),
+        patch("punt_lux.display.terminal.input_events.terminal_mods", return_value=0),
         patch(
-            "punt_lux.display.terminal.keyboard_events.terminal_mods", return_value=0
-        ),
-        patch(
-            "punt_lux.display.terminal.keyboard_events.imgui.get_io",
+            "punt_lux.display.terminal.input_events.imgui.get_io",
             return_value=SimpleNamespace(
                 input_queue_characters=[ord("a")] if pressed else []
             ),
         ),
         patch(
-            "punt_lux.display.terminal.keyboard_events.imgui.is_key_pressed",
+            "punt_lux.display.terminal.input_events.imgui.is_key_pressed",
             side_effect=is_pressed,
         ),
         patch(
-            "punt_lux.display.terminal.keyboard_events.imgui.is_key_released",
+            "punt_lux.display.terminal.input_events.imgui.is_key_released",
             return_value=released,
         ),
     ):
@@ -76,12 +74,10 @@ def test_poll_emits_all_key_actions_without_text_on_release(
 def test_empty_key_frame_forwards_ime_text_only_once() -> None:
     emit = Mock(return_value=True)
     with (
-        patch("punt_lux.display.terminal.keyboard_events.KEYMAP", {}),
+        patch("punt_lux.display.terminal.input_events.KEYMAP", {}),
+        patch("punt_lux.display.terminal.input_events.terminal_mods", return_value=0),
         patch(
-            "punt_lux.display.terminal.keyboard_events.terminal_mods", return_value=0
-        ),
-        patch(
-            "punt_lux.display.terminal.keyboard_events.imgui.get_io",
+            "punt_lux.display.terminal.input_events.imgui.get_io",
             return_value=SimpleNamespace(input_queue_characters=[ord("é")]),
         ),
     ):

@@ -63,6 +63,11 @@
 
 ### Fixed
 
+- Terminal mouse releases reach the program after the pointer leaves the grid,
+  including when Shift is pressed during a captured gesture (PL-1174).
+- Terminal GUI proof scripts clean up their detached daemon and sessions on
+  SIGTERM/SIGINT, including timeout termination (PL-1174).
+
 - `lux display start` on macOS handles an already-loaded, cleanly stopped job
   with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
   Unloaded jobs still bootstrap; start does not kill an existing process.

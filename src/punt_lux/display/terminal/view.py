@@ -150,7 +150,8 @@ class TerminalView:
         hovered = imgui.is_window_hovered()
         if focused:
             self._handle_keys()
-        if hovered or self._buffer.selection.dragging:
+        captured = self._buffer.input.mouse_captured
+        if any((hovered, self._buffer.selection.dragging, captured)):
             self._handle_mouse(grid, hovered=hovered)
         self._buffer.state.update()
         self._painter.paint(self._buffer.state, grid, focused=focused)
@@ -194,15 +195,12 @@ class TerminalView:
     # -- mouse ---------------------------------------------------------------
     def _handle_mouse(self, grid: CellGrid, *, hovered: bool) -> None:
         mouse = imgui.get_mouse_pos()
-        if hovered and self._buffer.input.program_wants_mouse():
+        if self._buffer.input.program_wants_mouse(hovered=hovered):
             self._buffer.input.poll_mouse(
-                MouseFrame(
-                    mouse.x - grid.origin.x,
-                    mouse.y - grid.origin.y,
-                    grid.cell_w,
-                    grid.cell_h,
-                    self._sizing.actual[0],
-                    self._sizing.actual[1],
+                MouseFrame.at_pointer(
+                    grid.origin,
+                    (grid.cell_w, grid.cell_h),
+                    self._sizing.actual,
                 )
             )
             return
