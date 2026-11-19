@@ -60,7 +60,7 @@ class _Usage:
         return self
 
     @contextmanager
-    def capture(self, config: TelemetryConfig = _DEFAULT_CONFIG) -> Generator[None]:
+    def open(self, config: TelemetryConfig = _DEFAULT_CONFIG) -> Generator[None]:
         """Own a daemon's telemetry for its lifetime, including bounded shutdown."""
         previous = self._active
         telemetry = open_telemetry("lux", _SCHEMAS, config)
@@ -91,6 +91,6 @@ class _Usage:
 
 
 _usage = _Usage()
-capture_usage = _usage.capture
+capture_usage = _usage.open
 record_operation = _usage.record_operation
 record_first_paint = _usage.record_first_paint

@@ -11,6 +11,7 @@ propagates only after every leg has run.
 from __future__ import annotations
 
 import logging
+from traceback import extract_tb
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub import disconnect_connection
@@ -22,22 +23,19 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.ids import ConnectionId
 
-logger = logging.getLogger(__name__)
-
-__all__ = ["SessionCleanup"]
+_log = logging.getLogger(__name__)
 
 
 @final
 class SessionCleanup:
     """Run a disconnected session's teardown legs in isolation."""
 
-    _connection_id: ConnectionId
     __slots__ = ("_connection_id",)
 
     def __new__(cls, connection_id: ConnectionId) -> Self:
         """Bind cleanup work to the specified connection."""
         self = super().__new__(cls)
-        self._connection_id = connection_id
+        self._connection_id: ConnectionId = connection_id
         return self
 
     def run(self) -> None:
@@ -52,6 +50,7 @@ class SessionCleanup:
         try:
             step()
         except Exception as exc:
-            logger.error("MCP cleanup failed: leg=%s error=%s", leg, type(exc).__name__)
+            site = extract_tb(exc.__traceback__)[-1]
+            _log.error("MCP leg=%s error=%s (%s)", leg, type(exc).__name__, site.name)
             if isinstance(exc, ProgrammerError):
                 raise  # run() lets the other leg go first, then this propagates

@@ -53,6 +53,7 @@ class TestSessionCleanup:
 
         assert disconnected == ["sess-x"]
         assert "leg=menu error=RuntimeError" in caplog.text
+        assert "(drop_session)" in caplog.text
         assert "sess-x" not in caplog.text
         assert "menu teardown exploded" not in caplog.text
 

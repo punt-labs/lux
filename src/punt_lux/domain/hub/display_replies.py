@@ -156,11 +156,9 @@ class DisplayReplies:
                 generation.end("display")
             settler.settle()
             stands = generation.closed_error()
-            return (
-                stands
-                if isinstance(stands, HubRetiredError | UnresponsiveError)
-                else exc
-            )
+            if isinstance(stands, HubRetiredError | UnresponsiveError):
+                return stands
+            return exc
         if isinstance(exc, ReplyOutOfOrderError):
             msg = f"{generation.endpoint} sent a reply nobody was owed"
             won = settler.end_stream("hub")
@@ -169,7 +167,8 @@ class DisplayReplies:
             msg = f"{generation.endpoint} sent a frame that broke its stream"
             won = settler.end_stream("display")
             return ConnectionClosedError(msg) if won else generation.closed_error()
-        logger.error("Inline reply routing failed (%s)", type(exc).__name__)
+        safe_error = Exception(type(exc).__name__).with_traceback(exc.__traceback__)
+        logger.error("Inline reply routing failed", exc_info=safe_error)
         settler.end_stream("hub")
         return exc
 

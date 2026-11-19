@@ -891,7 +891,10 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         assert _is_the_displays_end(pinging.error)
 
     def test_a_reply_the_hub_fails_to_route_inline_is_the_hubs_end_not_the_displays(
-        self, display: Display, monkeypatch: pytest.MonkeyPatch
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         link = _linked(display, listening=False)
         generation = generation_of(link)
@@ -911,6 +914,10 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         assert isinstance(pinging.error, ValueError)
         assert generation.ended == "hub"
         assert deaths_of(link) == ()  # the display is not charged for the Hub's bug
+        assert "Inline reply routing failed" in caplog.text
+        assert "Exception: ValueError" in caplog.text
+        assert "in broken" in caplog.text
+        assert "the Hub's own routing bug" not in caplog.text
 
     def test_an_inline_read_that_finds_the_stream_closed_is_the_displays_end(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

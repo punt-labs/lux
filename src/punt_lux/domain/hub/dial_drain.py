@@ -97,11 +97,11 @@ class DialDrain:
                         return False
         except ProgrammerError:
             raise
-        except Exception as exc:  # any decoder failure ends the stream
+        except Exception as e:  # any decoder failure ends the stream
             logger.error(
                 "Drain of %s stopped: its stream could not be read",
                 generation.endpoint,
-                exc_info=Exception().with_traceback(exc.__traceback__),
+                exc_info=Exception(type(e).__name__).with_traceback(e.__traceback__),
             )
             return False
         return True

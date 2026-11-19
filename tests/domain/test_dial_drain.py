@@ -130,6 +130,7 @@ class TestWhatTheDrainSurvives:
 
         assert routed == []
         assert "could not be read" in caplog.text
+        assert "JSONDecodeError" in caplog.text
         assert "not-j" not in caplog.text
 
 
