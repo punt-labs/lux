@@ -27,9 +27,36 @@ def test_repeated_enable_does_not_restart_an_active_owner() -> None:
     fake = Mock(spec=TerminalService)
     fake.install.return_value = "up to date"
     fake.is_active = True
-    assert TerminalService.enable(cast("TerminalService", fake)) == "up to date"
+    assert (
+        TerminalService.enable(cast("TerminalService", fake))
+        == "luxd-pty already enabled."
+    )
+    fake.install.assert_not_called()
     fake.start.assert_not_called()
     fake.restart.assert_not_called()
+
+
+def test_enable_does_not_start_twice_when_install_activates_the_owner() -> None:
+    fake = Mock(spec=TerminalService)
+    fake.is_active = False
+
+    def install() -> str:
+        fake.is_active = True
+        return "installed"
+
+    fake.install.side_effect = install
+    assert TerminalService.enable(cast("TerminalService", fake)) == "installed"
+    fake.install.assert_called_once_with()
+    fake.start.assert_not_called()
+
+
+def test_enable_propagates_install_failure_without_starting() -> None:
+    fake = Mock(spec=TerminalService)
+    fake.is_active = False
+    fake.install.side_effect = OSError("install failed")
+    with pytest.raises(OSError, match="install failed"):
+        TerminalService.enable(cast("TerminalService", fake))
+    fake.start.assert_not_called()
 
 
 def test_disable_removes_supervisor_registration() -> None:

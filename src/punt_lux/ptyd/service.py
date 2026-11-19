@@ -23,6 +23,8 @@ class TerminalService(ServiceManager):
 
     def enable(self) -> str:
         """Install and start only on the machine whose operator enables it."""
+        if self.is_active:
+            return "luxd-pty already enabled."
         installed = self.install()
         return installed if self.is_active else installed + "\n" + self.start()
 
