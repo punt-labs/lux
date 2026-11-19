@@ -574,7 +574,8 @@ leader.
       with `make check` and run the update targets only once it is clean or
       blessed.
    3. **Baselines match the audit.** Every metric that moved in a baseline
-      file appears as a delta in an appended audit line. A baseline change no
+      file appears as a delta in an appended audit line (`deltas`, or
+      `improved` for coupling-bless improvements). A baseline change no
       audit line accounts for was not written by the tool.
 
    Any failure rejects the commit: the worker's result is returned, not

@@ -12,11 +12,14 @@
 
 ### Changed
 
-- **Restore Lux ratchet policies with `punt-oo-ratchet==0.2.0` (PL-1165).**
+- **Restore Lux ratchet policies with `punt-oo-ratchet==0.2.2` (PL-1165).**
   Configure the broad stateless-value LCOM exemption and the four wiring-hub
   coupling caps of 20. Tighten the affected coupling baselines with an audited
   `PL-1165` rebaseline; OO and suppression scores are unchanged. The restored
   bounded bulk coupling bless is available through `make bless-coupling`.
+  Version 0.2.2 preserves default-mode exemptions while detecting private
+  collection writes and service mutators, and records complete audit data for
+  bulk blesses and justified rebaselines.
 
 - **Ratchet gates use `punt-oo-ratchet==0.1.0` from PyPI (PL-1159).** The
   published CLI replaces the embedded OO, coupling/cohesion and suppression

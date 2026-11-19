@@ -80,7 +80,7 @@ aws = [
 #      are not exposed via PyPI; they exist for the source checkout only.
 [dependency-groups]
 dev = [
-    "punt-oo-ratchet==0.2.0",
+    "punt-oo-ratchet==0.2.2",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
     "pyright>=1.1.400",

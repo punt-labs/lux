@@ -84,7 +84,7 @@ make check
 
 `make check` is authoritative; the `Makefile` is the source of truth for the
 exact chain. `uv sync` installs the pinned dev-only PyPI package
-`punt-oo-ratchet==0.2.0`, which supplies all three ratchets through the
+`punt-oo-ratchet==0.2.2`, which supplies all three ratchets through the
 `oo-ratchet` CLI (no embedded tooling). It runs the OO ratchet (`make check-oo`),
 the coupling ratchet
 (`make check-coupling`), the suppression ratchet (`make check-suppressions`),
