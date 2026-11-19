@@ -8,7 +8,7 @@ from __future__ import annotations
 import ast
 from collections import defaultdict
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Self
 
 
 class LayerContract:
@@ -77,11 +77,13 @@ class LayerContract:
 class RuntimeImports(ast.NodeVisitor):
     """Collect import names without traversing annotation-only branches."""
 
-    def __init__(self, module: str, *, is_package: bool = False) -> None:
+    def __new__(cls, module: str, *, is_package: bool = False) -> Self:
+        self = super().__new__(cls)
         self._package = module.split(".") if is_package else module.split(".")[:-1]
         self._names: set[str] = set()
         self._guards = {"TYPE_CHECKING"}
         self._typing = {"typing"}
+        return self
 
     def collect(self, source: str) -> frozenset[str]:
         tree = ast.parse(source)
@@ -134,9 +136,11 @@ class RuntimeImports(ast.NodeVisitor):
 class LayerReport:
     """Read a source tree and render unique runtime module edges."""
 
-    def __init__(self, src: Path) -> None:
+    def __new__(cls, src: Path) -> Self:
+        self = super().__new__(cls)
         self._src = src
         self._contract = LayerContract()
+        return self
 
     def render(self) -> str:
         modules: dict[str, Path] = {}
