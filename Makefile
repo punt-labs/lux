@@ -83,6 +83,7 @@ update-coupling: ## Update coupling baseline
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
+	-uv run --extra display python tools/layer_contract.py
 	-uv run --extra display mypy src/ tests/
 	-uv run --extra display ruff format --check .
 	-uv run --extra display ruff check --preview --select PLR6301,PLR0913,UP035,UP040,UP007,N,I,SIM,S101 .
