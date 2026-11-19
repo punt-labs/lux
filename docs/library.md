@@ -253,11 +253,12 @@ same way: straight to `luxd`'s HTTP endpoint (`http://127.0.0.1:8430/mcp`), with
 no per-session process in the path. A copy-paste example is in
 [`plugin/.claude-plugin/mcp-http.example.json`](../plugin/.claude-plugin/mcp-http.example.json).
 
-Such a session gets the whole tool surface but owns no menu entries, because it
-holds no connection a click could arrive on. Menu entries belong to the
-session's **applets** — `lux-beads` and the like — which the session-start hook
-launches and which hold their own listener; `callback_register` from the tool
-surface is refused, saying so.
+After identifying, such a session can own agent-menu entries through `menu_set`.
+Items may raise one of its frames; clicks also arrive in its inbox as `lux.menu`
+events, drained with `topic_recv()` without a subscription. This is separate from listener-backed
+callbacks: `callback_register` requires a persistent listen leg and is refused
+for a tool-only MCP session. Applets such as `lux-beads` hold that leg and service
+their own callbacks.
 
 Start `luxd` first (`lux hub install` and start the service, or run `luxd-hub` in a
 terminal), then verify the direct connection end to end:
