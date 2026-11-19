@@ -68,7 +68,7 @@ update-coupling: ## Update coupling baseline
 
 bless-coupling: export override FILES := $(value FILES)
 bless-coupling: export override REASON := $(value REASON)
-bless-coupling: ## Bounded coupling bless (FILES=a.py,b.py REASON="explanation")
+bless-coupling: ## Bounded coupling bless (FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation")
 	uv run --extra display oo-ratchet coupling src/punt_lux/ --rebaseline-files "$$FILES" --reason "$$REASON"
 
 .PHONY: bless-coupling

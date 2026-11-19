@@ -96,7 +96,8 @@ file. After improving OO quality, run `make update-oo` and stage
 Coupling uses Lux's broad stateless-value LCOM exemption and four wiring-hub
 fan-out caps of 20, configured under `[tool.oo-ratchet.coupling]` in
 `pyproject.toml`. Run `make update-coupling` after improvements. For an audited,
-bounded bless, use `make bless-coupling FILES=a.py,b.py REASON="explanation"`;
+bounded bless, pass repository-relative paths:
+`make bless-coupling FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation"`;
 this refuses metrics that exceed both their configured cap and baseline.
 Stage `.oo-coupling-baseline.json` and `.oo-coupling-audit.jsonl` together.
 

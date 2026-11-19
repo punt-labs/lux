@@ -27,8 +27,9 @@ the rest of the system — a change in any dependency can break it.
 Lux uses `punt-oo-ratchet` 0.2.0 with `stateless-values = "any"` to retain
 the broad stateless-value LCOM exemption. Exact-path hub caps live in
 `[tool.oo-ratchet.coupling.caps]`. Run `make update-coupling` after improvements;
-use `make bless-coupling FILES=a.py,b.py REASON="explanation"` for an audited
-bounded bless (`--rebaseline-files ... --reason ...`). Metrics above both
+use repository-relative paths with
+`make bless-coupling FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation"`
+for an audited bounded bless (`--rebaseline-files ... --reason ...`). Metrics above both
 their cap and baseline are refused.
 
 ## PL-CU-2: Circular Imports
