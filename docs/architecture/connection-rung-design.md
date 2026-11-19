@@ -378,17 +378,24 @@ observation breaks "never a client declaration").
 ### Flow into the facts (DES-101 shape)
 
 ```text
-door ──Scope(peer_host)──▶ IdentityOperations.identify ──▶ ClientLifecycle.identify(conn, identity, peer)
-WS   ──peer────────────────────────────────────────────▶ ClientLifecycle.attach(conn, identity, listener, peer)
+door ──Scope.client_host──▶ IdentityOperations.identify ──▶ ClientLifecycle.identify
+WS   ──ClientHost────────────────────────────────────────▶ ClientLifecycle.attach
+                                                               │
+                                      PresenceWrites.record / attach
+                                                               │
+                                      ClientSession.observed_from(ClientHost)
+                                                               ▼
+ClientListing._client(entry) ──▶ HubClient(client_hosts=[...])
                                    │
-                  HubClientRegistry.record / legs.attach (SessionWrite.recorded / attached)
-                                   │   ClientSession.observed_from(peer)
-                                   ▼
-ClientListing._client(entry) ──▶ HubClient(client_hosts=[...], hub_host=...)
-                                   ▼
-ClientIdentityFacts.build() ──▶ ClientDetails(client_hosts, hub_host) ──▶ rows()
-                                   ▼                                           ▼
-                       FrameOwnerFacts (i popup)                  DetailsScene (Details)
+Hub.hostname ───────────────┬───────┴──▶ ClientList(clients, hub_host)
+                           └──────────▶ ClientFacts(client, hub_host)
+                                                 │
+                                   ClientIdentityFacts.build()
+                                                 ▼
+                              ClientDetails(client_hosts, hub_host)
+                                                 │ rows()
+                                ┌────────────────┴────────────────┐
+                      FrameOwnerFacts (i popup)          DetailsScene (Details)
 ```
 
 - The write goes through `ClientLifecycle`, as DES-101 requires.
