@@ -886,6 +886,8 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
             assert pinging.wait()
 
         assert any("malformed frame" in r.getMessage() for r in caplog.records)
+        assert "Traceback (most recent call last):" in caplog.text
+        assert "in _decoded" in caplog.text
         assert "sample" not in caplog.text
         assert pinging.error is not None
         assert _is_the_displays_end(pinging.error)

@@ -185,13 +185,13 @@ class DisplayReplies:
             return next(messages, None)
         except ProgrammerError:
             raise
-        except Exception as exc:
+        except Exception as e:
             logger.error(
-                "Inline read closing: display %s sent a malformed frame (%s)",
+                "Inline read closing: display %s sent a malformed frame",
                 generation.endpoint,
-                type(exc).__name__,
+                exc_info=Exception(type(e).__name__).with_traceback(e.__traceback__),
             )
-            raise _MalformedFrameError(str(exc)) from exc
+            raise _MalformedFrameError(str(e)) from e
 
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
         """Route every message ``chunk`` completes; a raising reply ends the dial.
