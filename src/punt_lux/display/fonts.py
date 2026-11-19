@@ -59,15 +59,15 @@ class FontLoader:
         primary, merge_fonts = self._find()
         if primary is None:
             logger.error("No Unicode font found -- using ImGui default (Latin-only)")
-            return
-        for index, path in enumerate([primary, *merge_fonts]):
-            params = hello_imgui.FontLoadingParams()
-            params.inside_assets = False
-            params.merge_to_last_font = index > 0
-            hello_imgui.load_font(path, _FONT_SIZE, params)
-            logger.info(
-                "Loaded %s font: %s", "primary" if index == 0 else "symbol", path
-            )
+        else:
+            for index, path in enumerate([primary, *merge_fonts]):
+                params = hello_imgui.FontLoadingParams()
+                params.inside_assets = False
+                params.merge_to_last_font = index > 0
+                hello_imgui.load_font(path, _FONT_SIZE, params)
+                logger.info(
+                    "Loaded %s font: %s", "primary" if index == 0 else "symbol", path
+                )
         self._load_terminal_font()
 
     @staticmethod
