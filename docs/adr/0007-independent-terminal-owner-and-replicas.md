@@ -14,8 +14,10 @@
 ## Context
 
 A shell must survive Display restart, crash and upgrade. Display ownership
-cannot satisfy that goal. Putting PTYs in the Hub would merely move the
-failure boundary to Hub restart and mix byte streams into structured UI state.
+cannot satisfy that goal. Owning PTYs in the Hub would merely move the
+failure boundary to Hub restart. Relaying terminal traffic through the Hub
+does not require it to own the PTYs: production uses that relay, while this
+spike's direct Display connection is only its latency baseline.
 
 The bounded task is local terminal lifetime separation, not a merger of Lux,
 Vox or biff, a distributed blackboard, a remote transport or an agent API.
@@ -29,10 +31,11 @@ Exploratory architecture HTML/design notes are not authority for this decision.
   authoritative Ghostty terminals. The default endpoint is per user. Explicit
   short socket paths permit isolated test instances, not multiple owners of
   the same endpoint.
-- Display attaches directly over a Unix socket. It owns replaceable native
-  screen replicas and render/input resources, never the programs. Terminal
-  bytes do not pass through the Hub. The Hub still stores and replicates the
-  element that names the session; its topology is unchanged.
+- In the latency baseline, Display attaches directly over a Unix socket. It owns
+  replaceable native screen replicas and render/input resources, never the
+  programs. Production terminal bytes and input go through the Hub between
+  Display and `luxd-pty`; that relay is not implemented here. The baseline Hub
+  still stores and replicates the element that names the session.
 - The daemon parses output even with no viewers. Only the authoritative parser
   answers automatic program queries; replicas do not duplicate those replies.
 - Named sessions start once. A conflicting explicit command is refused by the
@@ -111,7 +114,7 @@ complete per-user memory budget, soak proof or log-rotation policy.
 - Actual macOS windows demonstrate lazy start and visible restoration after
   Display SIGKILL/restart. PID-selected screenshots and OCR verify the marker
   after Hub replay; PID persistence alone is not repaint proof.
-- Production-replica warm attach median/p95 was 5.013/5.276 ms (10 samples).
+- Direct-path replica warm attach median/p95 was 5.013/5.276 ms (10 samples).
   Cold startup was 1,126.099 ms and includes the pool retry interval.
 - Bounded wire batching improved measured flooded-input p95 from 279.429 to
   70.034 ms. Flooded input remains slower than quiet input. These finite local
@@ -132,8 +135,8 @@ complete per-user memory budget, soak proof or log-rotation policy.
 - **Keep the program in Display:** cannot survive its crash; rejected.
 - **Move it into Hub:** couples program lifetime to Hub and expands scope;
   rejected for this step.
-- **Route bytes through Hub/NATS:** adds another hot path and remote security/
-  bandwidth obligations; deferred, not implemented.
+- **Route bytes through Hub:** required for production; not implemented by this
+  latency baseline. NATS/remote transport remains outside this spike's scope.
 - **Unbounded output queues or dropping bytes without reset:** memory growth or
   invalid replica state; rejected in favor of credit and authoritative repaint.
 - **ANSI repaint as complete persistence:** loses history/continuation and other

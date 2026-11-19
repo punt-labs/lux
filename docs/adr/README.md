@@ -6,6 +6,10 @@ Lux architecture. Lux's settled decisions live in
 [`DESIGN.md`](../../DESIGN.md) as `DES-NNN` entries; if this work is adopted,
 these should become new `DES` entries there.
 
+The direct Display → `luxd-pty` socket records a latency baseline, not the
+production topology. Production terminal traffic goes through the Hub; the
+relay remains unimplemented on this branch.
+
 Evidence is in `spikes/terminal/STEP1.md` through `STEP4-PLAN.md`, with
 actual-window and measured results in `STEP4-LIVE.md` and `STEP4-PERFORMANCE.md`.
 Code spans `src/punt_lux/display/terminal/`, `terminal/`, `ptyd/` and

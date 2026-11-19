@@ -2,9 +2,9 @@
 
 Spike-only (spike/terminal-ghostty). The element is pure placement: it names
 a terminal ``session`` and, optionally, the ``command`` to start in it. The
-bytes never travel through the Hub. The Display holds a native replica;
-``luxd-pty`` owns the PTY and streams a snapshot followed by output bytes.
-``rows``/``cols`` are not on the wire; the grid fits the element's space.
+bytes use a direct latency baseline; production traffic goes via the Hub.
+The Display holds a replica; ``luxd-pty`` owns the PTY and streams snapshots
+and output bytes. ``rows``/``cols`` fit the space and are not on the wire.
 """
 
 from __future__ import annotations

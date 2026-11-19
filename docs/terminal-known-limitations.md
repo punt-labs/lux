@@ -5,6 +5,11 @@ partly. The spike answered the risky question: a libghostty-vt terminal works
 inside the Lux display and feels native ("at least as snappy as kitty"). This
 list covers everything else a shipping terminal needs.
 
+The direct Display → `luxd-pty` connection is a latency baseline, not the
+production design. Production terminal traffic must go through the Hub; that
+relay remains unimplemented. Direct-path measurements below do not establish
+the performance of the production Hub path.
+
 **Priority:** P0 blocks shipping; P1 is expected by users of any good
 terminal; P2 is polish.
 

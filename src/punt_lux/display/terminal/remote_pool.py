@@ -1,4 +1,4 @@
-"""One Display connection and its terminal replicas, with asynchronous attach."""
+"""Direct-path latency baseline; production terminal traffic goes via the Hub."""
 
 from __future__ import annotations
 

@@ -9,6 +9,10 @@
 
 ## Decision
 
+The Display's direct connection to the owner remains a latency baseline only.
+Production terminal traffic goes through the Hub; this launcher work does not
+implement that relay or change the production routing decision.
+
 `lux terminal enable` installs/starts the local launchd/systemd service through
 Lux's existing supervisor backend. `disable` stops held programs and removes
 registration; status is read-only; restart explicitly ends the owner's programs.

@@ -3,6 +3,8 @@
 - **Status:** Superseded for the spike by
   [ADR-0007](0007-independent-terminal-owner-and-replicas.md). The element
   schema/session naming remains; Display-owned process lifetime does not.
+  Direct terminal I/O is a latency baseline only; production traffic goes
+  through the Hub, rather than bypassing it.
 - **Date:** 2026-11-15
 - **Evidence:** `spikes/terminal/STEP3.md`;
   `src/punt_lux/protocol/elements/terminal.py`,
@@ -30,9 +32,11 @@ Lux's rules apply too:
 - **The element only places the terminal.** It carries `id`, `session` (which
   defaults to the `id`), `command` (default: the user's login shell) and
   `height` (0 fills the frame). It is registered like other leaf elements
-  (codec, ABC registry, ImGui renderer). The Hub knows nothing about terminals.
-- **Bytes don't go through the Hub.** Output and keystrokes go directly between
-  the Display and the program, so typing has no extra hops.
+  (codec, ABC registry, ImGui renderer). This spike does not yet relay terminal
+  traffic through the Hub.
+- **Baseline bytes don't go through the Hub.** Output and keystrokes go directly
+  between the Display and the program to measure latency without the Hub hop.
+  Production terminal traffic goes through the Hub.
 - **For the spike, sessions live in the Display process**
   (`TerminalSessions`, keyed by name):
   - The first time an element names a session, the session starts.
@@ -81,8 +85,9 @@ Lux's rules apply too:
 
 ## Alternatives considered
 
-- **Bytes through the Hub, as content updates:** adds hops and latency to every
-  keystroke, and floods the Hub's replication path. Rejected.
+- **Bytes through the Hub, as content updates:** originally rejected for this
+  spike to measure the direct-path latency baseline. Production routing through
+  the Hub is required; its stream transport is not implemented by this spike.
 - **Start the session in the Hub process:** DES-093 permits it, but a Hub
   restart would kill shells. The Vox Rooms notes prefer a separate daemon.
 - **A reader thread per PTY (as imgui_terminal does):** conflicts with DES-002

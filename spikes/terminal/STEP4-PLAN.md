@@ -1,5 +1,9 @@
 # Step 4 plan: `luxd-pty`, PTYs out of the Display
 
+Transport clarification: the direct Display → `luxd-pty` socket described below
+is only a latency baseline for measuring the Hub path. Production terminal
+traffic goes through the Hub; this historical plan does not implement the relay.
+
 Subsequent operator clarification supersedes demand-start policy: selected
 machines run the supervised owner via `lux terminal enable`; the daemon registers
 Terminal and its callback launches the scene. Display never implicitly enables

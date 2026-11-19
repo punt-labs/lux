@@ -3,6 +3,10 @@
 Research and measurements before writing any code. Written 2026-11-17 on
 `spike/terminal-ghostty`. Nothing here is built yet.
 
+Historical proposal, not production routing authority: the direct Display →
+`luxd-pty` connection is a latency baseline only. Production terminal traffic
+goes through the Hub; this document's transport alternatives do not override it.
+
 ## The question
 
 Today (ADR-0006) each terminal's PTY and Ghostty state live inside the Display

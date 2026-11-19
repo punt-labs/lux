@@ -1,7 +1,11 @@
 # Terminal spike artifacts
 
 These files are research/evidence, not the canonical Lux target architecture.
-Production code is under `src/punt_lux/{ptyd,terminal,display/terminal,protocol/pty}`.
+The direct Display → `luxd-pty` socket is a latency baseline only. Production
+terminal traffic goes through the Hub; the relay is not implemented here.
+References to production replicas below mean the branch's packaged replicas,
+not a production transport decision. Older proposals remain historical.
+Packaged code is under `src/punt_lux/{ptyd,terminal,display/terminal,protocol/pty}`.
 Automated behavioral checks are under `tests/ptyd`, `tests/protocol` and `tests/render`.
 No production module imports the experimental harnesses in this directory.
 

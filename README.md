@@ -302,6 +302,11 @@ Python applications drive the Hub through `LuxClient`, a typed async client for 
 
 ## Terminal spike (experimental)
 
+The direct Display → `luxd-pty` Unix socket is a **latency baseline**, not the
+production transport design. Production terminal traffic goes through the Hub
+between the Display and `luxd-pty`. The branch retains the direct path to measure
+the cost of that Hub path; it does not implement the production relay yet.
+
 The spike branch provides a machine-enabled terminal owner, `luxd-pty`.
 After installing this branch with the `terminal` extra, the operator chooses
 which machines run it:
