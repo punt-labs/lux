@@ -424,10 +424,12 @@ where the real handler runs.
     many handlers that bucket holds.
   \item The Hub receives the message in \texttt{HubInteractionDispatch.dispatch},
     resolves the authoritative element by \field{(scene\_id, element\_id)},
-    checks its owner, builds the typed event, and fires the real handler
-    chain once on its own copy.
-  \item If the handler mutated Hub state (for example a dialog dismissed
-    itself), the Hub marks the scene dirty; the replicator re-sends the
+    reads its owner for event attribution, builds the typed event, and fires
+    the real handler chain once on its own copy. An unowned element can still
+    fire after its connection departs; ownership is not an authorization
+    gate on this path.
+  \item After firing a supported event, the Hub marks the scene dirty
+    whether or not the handler changed state; the replicator re-sends the
     whole scene and the Display renders the current tree.
 \end{enumerate}
 
@@ -493,8 +495,9 @@ A write dispatches on the typed \texttt{Update} sum ---
 enforces ownership: a connection cannot mutate or evict another
 connection's elements.  \texttt{AddElement} recurses into composite
 children so a button buried inside a dialog is indexed and later
-click-resolvable.  Re-showing a scene removes the connection's previous
-roots and installs the new ones through the same write path, so ownership,
+click-resolvable. Re-showing a scoped scene removes all its previous roots,
+including roots left unowned by departure, and installs the new ones through
+the same write path, so ownership,
 root observers, and child indexes rebuild in one place.
 
 \subsection{The Element ABC}
@@ -515,9 +518,9 @@ behavior:
     in-flight call.
   \item \textbf{Property-observer surface.}  \texttt{add\_observer},
     \texttt{mark\_removed}, and \texttt{removed} let a parent composite
-    react to a child being removed.  All three removal paths --- an agent
-    \texttt{RemoveElement}, a component self-dismiss, and a connection
-    disconnect --- route through the one \texttt{mark\_removed} method.
+    react to a child being removed. Explicit element removal and component
+    self-dismissal use \texttt{mark\_removed}; connection departure releases
+    ownership without removing the element.
   \item \textbf{Native serialization.}  \texttt{\_\_reduce\_\_} and
     \texttt{\_\_setstate\_\_} let an element cross the Hub-to-Display
     boundary.  Hub-only bookkeeping (the observer closures that reference
@@ -848,14 +851,31 @@ expiry remain separate Hub-owned operations (DES-088).
 
 \subsection{Scenes Survive Their Session}
 
-A scene outlives the connection that created it.  When an MCP session ends
---- the client disconnects, or the SDK reaps it on idle --- the Hub forgets
+A scene outlives the connection that created it. When the last MCP session
+sharing a connection key ends, including SDK idle reaping, the Hub forgets
 that connection as a client and releases its subscriptions and inbox, but
-it leaves the scenes installed. The departure cascade releases ownership
-while retaining content; a later \tool{scene\_clear\_all} or TTL expiry can still
-remove the scenes. Nothing
-is blanked, so no repaint is marked.  A session's death does not erase what
-it drew.
+it leaves the scenes installed. \texttt{ClientLifecycle.depart} releases
+ownership before running the subscription, writer, and inbox cleanup.
+\texttt{HubSceneWriter.clear} selects only elements the caller currently
+owns: a later \tool{scene\_clear\_all} under the departed connection id is a
+successful no-op for those retained, unowned elements, not a cleanup path.
+A named \tool{scene\_clear} instead rejects a scene that holds nothing the
+caller owns (\modpath{operations/scene\_clearing.py}).
+
+Retained content can be removed by an explicit \tool{frame\_remove} from
+that frame's connection namespace, or by expiry of an already-armed frame
+TTL. Both use \texttt{FrameLifecycle} teardown, which drops roots regardless
+of ownership. Re-showing the same scoped scene replaces its retained roots
+through \texttt{HubDisplay.replace\_scene}. A new connection using the same
+local scene or frame label addresses a different namespace, not the old
+content (\modpath{operations/frame\_removal.py},
+\modpath{domain/hub/frame\_lifecycle.py}, and
+\modpath{domain/hub/hub\_display.py}).
+
+Departure does not blank scene content. It can still mark menus and other
+connections' scene titles for replication through \texttt{MenuPresence};
+``retained'' does not mean no replication work is queued. A session's death
+does not erase what it drew.
 
 \subsection{Frame Time-to-Live}
 
