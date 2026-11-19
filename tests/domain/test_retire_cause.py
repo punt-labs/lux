@@ -874,7 +874,7 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         (death,) = deaths_of(link)
         assert death.cause == "display"
 
-    def test_an_inline_decode_failure_logs_the_bad_frame_and_is_the_displays_end(
+    def test_an_inline_decode_failure_omits_frame_content_and_is_the_displays_end(
         self, display: Display, caplog: pytest.LogCaptureFixture
     ) -> None:
         link = _linked(display, listening=False)
@@ -882,16 +882,21 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         display.peer.read(1)
 
         with caplog.at_level(logging.ERROR):
-            display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id
+            display.peer.send_raw(encode_frame({"type": "ack", "private": "sample"}))
             assert pinging.wait()
 
         assert any("malformed frame" in r.getMessage() for r in caplog.records)
-        assert any("ack" in r.getMessage() for r in caplog.records)  # its first bytes
+        assert "Traceback (most recent call last):" in caplog.text
+        assert "in _decoded" in caplog.text
+        assert "sample" not in caplog.text
         assert pinging.error is not None
         assert _is_the_displays_end(pinging.error)
 
     def test_a_reply_the_hub_fails_to_route_inline_is_the_hubs_end_not_the_displays(
-        self, display: Display, monkeypatch: pytest.MonkeyPatch
+        self,
+        display: Display,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         link = _linked(display, listening=False)
         generation = generation_of(link)
@@ -911,6 +916,10 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         assert isinstance(pinging.error, ValueError)
         assert generation.ended == "hub"
         assert deaths_of(link) == ()  # the display is not charged for the Hub's bug
+        assert "Inline reply routing failed" in caplog.text
+        assert "Exception: ValueError" in caplog.text
+        assert "in broken" in caplog.text
+        assert "the Hub's own routing bug" not in caplog.text
 
     def test_an_inline_read_that_finds_the_stream_closed_is_the_displays_end(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

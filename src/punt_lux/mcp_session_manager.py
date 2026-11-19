@@ -129,10 +129,10 @@ class LuxSessionManager:
         key = current_session()
         registry.add(key)
         exit_stack.callback(cls._disconnect, registry, key)
-        logger.info("MCP session connected: session_key=%s", key)
+        logger.info("MCP session connected")
 
     @staticmethod
     def _disconnect(registry: SessionRegistry, key: str) -> None:
         if registry.discard(key):
-            SessionCleanup(ConnectionId(key)).run(key)
-        logger.info("MCP session disconnected: session_key=%s", key)
+            SessionCleanup(ConnectionId(key)).run()
+        logger.info("MCP session disconnected")

@@ -257,6 +257,14 @@ All elements with an `id` accept an optional `tooltip` field (text shown on hove
 
 ## CLI Commands
 
+Lux writes diagnostics to the private rotating file
+`~/.punt-labs/lux/logs/lux.log`. Set `LUX_LOG_LEVEL=DEBUG` for more detail.
+The Hub records allowlisted operation durations and outcomes, and the Display
+records first-paint durations without scene identifiers, separately in
+`~/.punt-labs/lux/telemetry.db`, with 90-day retention and no network export
+by default. Set `LUX_TELEMETRY=off` or `PUNT_TELEMETRY=off` in the daemons'
+environments to disable capture.
+
 Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Scene, frame, menu, session, and callback writes accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Most data commands accept `--json`, `--verbose`, and `--quiet`; service and plugin commands have their own options. Use `lux <noun> <verb> --help` for each command's flags.
 
 | Noun | Verbs |

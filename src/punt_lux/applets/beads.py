@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 from typing import Self, final
 
 import typer
@@ -28,7 +27,7 @@ from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.applets.program import AppletProgram
 from punt_lux.applets.watch import NoSession, SessionWatch
-from punt_lux.log_level import level_from_env
+from punt_lux.logging_config import process_diagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +39,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# What this program is called wherever a session's files are named after it: its
-# console script, its log, and the claim it takes on the session it serves.
+# The console script and the name of its claim on the session it serves.
 _PROGRAM = "lux-beads"
 
 
@@ -103,17 +101,15 @@ def main(
     hook that spawns it always passes one. Its absence means a developer running
     the applet by hand in a terminal, where the terminal is the tie.
     """
-    logging.basicConfig(
-        stream=sys.stderr,
-        level=level_from_env("INFO"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    applet = (
-        BeadsApplet.for_session(session_pid)
-        if session_pid > 0
-        else BeadsApplet.unattended()
-    )
-    asyncio.run(applet.run())
+    with process_diagnostics("worker", "Beads applet"):
+        logger.info("Starting Beads applet (session pid=%d)", session_pid)
+        applet = (
+            BeadsApplet.for_session(session_pid)
+            if session_pid > 0
+            else BeadsApplet.unattended()
+        )
+        asyncio.run(applet.run())
+        logger.info("Beads applet stopped (session pid=%d)", session_pid)
 
 
 if __name__ == "__main__":

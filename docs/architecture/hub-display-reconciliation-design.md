@@ -440,8 +440,7 @@ INFO chatter that dominates the display log at default settings, and
 it survives a raised log threshold (an operator who quiets the log to
 WARNING+ still sees these) that INFO would not. An accidental
 production caller declaring `kind="test"` is therefore visible in
-`/tmp/lux-$USER/display.sock.log` (the display's log file, per this
-repo's Logging convention) without needing to enable DEBUG and
+`~/.punt-labs/lux/logs/lux.log` without needing to enable DEBUG and
 without being drowned out by normal INFO traffic. Tests
 running against a real Display leave an audit trail; anything in
 production leaves a loud one.

@@ -220,18 +220,18 @@ Start with `docs/architecture/target/target.md`. Use
 
 ## Logging
 
-Separate log destinations — the Hub and Display are separate processes:
+The CLI, Hub (including HTTP MCP), Display, terminal daemon, Python hook
+dispatcher, and detached helpers all share the private, rotating
+`~/.punt-labs/lux/logs/lux.log` sink. Filter by logger name to distinguish
+subsystems. Use the entry-point adapter in `logging_config.py`; libraries
+declare module loggers and do not configure sinks. The default durable
+level is INFO; set `LUX_LOG_LEVEL=DEBUG` in a process's environment for
+more detail. Keep diagnostics free of credentials, content and private
+identifiers; final-record redaction is defense in depth.
 
-| Process | Log file | Default level |
-|---------|----------|---------------|
-| luxd-hub (Hub, launchd) | `~/.punt-labs/lux/logs/luxd-stderr.log` | DEBUG — its per-operation timings are meant to be readable |
-| luxd-display | `{socket_path}` with suffix `.sock.log` (default `/tmp/lux-$USER/display.sock.log`, or `$XDG_RUNTIME_DIR/lux/display.sock.log`) | INFO |
-
-On Linux, the Hub service logs to the user systemd journal (`journalctl --user -u luxd-hub`). The Display log follows `DisplayPaths`: an explicit `--socket` or `LUX_SOCKET` overrides the default path.
-
-When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
-
-**One variable, two defaults.** `LUX_LOG_LEVEL` sets the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the Hub and Display are independently supervised services. Set `LUX_LOG_LEVEL` in the service environment to change its logging level, or run `LUX_LOG_LEVEL=DEBUG luxd-display` directly for a foreground diagnostic run.
+Hub operation and Display first-paint durations are separate typed usage telemetry in
+`~/.punt-labs/lux/telemetry.db`, not diagnostic log records.
+`LUX_TELEMETRY=off` or `PUNT_TELEMETRY=off` disables capture.
 
 Do not add ad-hoc debug prints — use the logger at the appropriate level. **Nothing on the per-frame render path may log.** ImGui repaints every element every frame, so one line there is sixty lines per element per second; the `@trace` decorator belongs on event-driven paths (a click, a decode, a send), never on a renderer's `render`. `tests/test_per_frame_tracing.py` enforces this.
 

@@ -45,8 +45,6 @@ _SLOT_RETRY_SECONDS = 0.05
 # How long one wait on the socket runs before the dial is checked for an end that
 # someone else recorded (an end by a writer or the keepalive wakes no one).
 _POLL_SECONDS = 0.1
-# How much of a frame that did not decode is written to the log.
-_HEAD_BYTES = 64
 
 
 class _MalformedFrameError(ValueError):
@@ -158,11 +156,9 @@ class DisplayReplies:
                 generation.end("display")
             settler.settle()
             stands = generation.closed_error()
-            return (
-                stands
-                if isinstance(stands, HubRetiredError | UnresponsiveError)
-                else exc
-            )
+            if isinstance(stands, HubRetiredError | UnresponsiveError):
+                return stands
+            return exc
         if isinstance(exc, ReplyOutOfOrderError):
             msg = f"{generation.endpoint} sent a reply nobody was owed"
             won = settler.end_stream("hub")
@@ -171,9 +167,8 @@ class DisplayReplies:
             msg = f"{generation.endpoint} sent a frame that broke its stream"
             won = settler.end_stream("display")
             return ConnectionClosedError(msg) if won else generation.closed_error()
-        logger.exception(
-            "Inline reply routing failed on %s: %r", generation.endpoint, exc
-        )
+        safe_error = Exception(type(exc).__name__).with_traceback(exc.__traceback__)
+        logger.error("Inline reply routing failed", exc_info=safe_error)
         settler.end_stream("hub")
         return exc
 
@@ -190,13 +185,13 @@ class DisplayReplies:
             return next(messages, None)
         except ProgrammerError:
             raise
-        except Exception as exc:
-            logger.exception(
-                "Inline read closing: display %s sent a malformed frame: %r",
+        except Exception as e:
+            logger.error(
+                "Inline read closing: display %s sent a malformed frame",
                 generation.endpoint,
-                generation.head(_HEAD_BYTES),
+                exc_info=Exception(type(e).__name__).with_traceback(e.__traceback__),
             )
-            raise _MalformedFrameError(str(exc)) from exc
+            raise _MalformedFrameError(str(e)) from e
 
     def _route_inline(self, generation: DialGeneration, chunk: bytes) -> None:
         """Route every message ``chunk`` completes; a raising reply ends the dial.

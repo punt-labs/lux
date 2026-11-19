@@ -2573,8 +2573,9 @@ The Display's socket path resolves in priority order (\modpath{paths.py}):
     within macOS's $\sim$104-character \texttt{AF\_UNIX} path limit).
 \end{enumerate}
 
-\texttt{DisplayPaths} derives PID and log paths by replacing the socket
-suffix with \texttt{.sock.pid} and \texttt{.sock.log}. Its
+\texttt{DisplayPaths} derives the PID path by replacing the socket
+suffix with \texttt{.sock.pid}. The Display writes diagnostics through
+punt-observe to the shared Lux log. Its
 \texttt{ensure()} helper can spawn a detached Display and await readiness,
 but the production \texttt{ClientRegistry} creates its link with
 \texttt{auto\_spawn=False}: the independent Display service supervises it.

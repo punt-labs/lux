@@ -87,11 +87,6 @@ class DisplayPaths:
         return self._socket_path.with_suffix(".sock.pid")
 
     @property
-    def log_path(self) -> Path:
-        """Return the log file path for this socket."""
-        return self._socket_path.with_suffix(".sock.log")
-
-    @property
     def _lock_path(self) -> Path:
         """Return the spawn-lock file path for this socket."""
         return self._socket_path.with_suffix(".sock.lock")
@@ -199,22 +194,26 @@ class DisplayPaths:
         """
         self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._socket_path.parent.chmod(0o700)
-        log_file = self.log_path.open("w")
-        argv = [sys.executable, "-m", "punt_lux", "display", "serve",
+        logger.info("Starting Display subprocess")
+        subprocess.Popen(  # noqa: S603
+            self._display_argv(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
+    def _display_argv(self) -> list[str]:
+        """Run the Display entry point in the current Python environment."""
+        return [sys.executable, "-m", "punt_lux", "display", "serve",
                 "--socket", str(self._socket_path)]  # fmt: skip
-        try:
-            subprocess.Popen(argv, stdout=log_file, stderr=log_file)  # noqa: S603
-        finally:
-            log_file.close()
 
     def _await_ready(self, timeout: float) -> Path:
         """Block until the spawned display completes its handshake, or raise."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self._probe() is SocketLiveness.READY:
+                logger.info("Display subprocess ready")
                 return self._socket_path
             time.sleep(0.1)
         msg = f"Display server failed to start within {timeout}s at {self._socket_path}"
+        logger.warning("Display subprocess did not become ready")
         raise RuntimeError(msg)
 
     # -- cleanup / reap -----------------------------------------------------

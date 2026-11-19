@@ -49,11 +49,13 @@ class TestSessionCleanup:
         )
 
         with caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"):
-            SessionCleanup(ConnectionId("sess-x")).run("sess-x")
+            SessionCleanup(ConnectionId("sess-x")).run()
 
         assert disconnected == ["sess-x"]
-        assert "leg=menu session_key=sess-x" in caplog.text
-        assert "menu teardown exploded" in caplog.text
+        assert "leg=menu error=RuntimeError" in caplog.text
+        assert "(drop_session)" in caplog.text
+        assert "sess-x" not in caplog.text
+        assert "menu teardown exploded" not in caplog.text
 
     def test_failing_disconnect_leg_is_logged_and_swallowed(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -67,10 +69,11 @@ class TestSessionCleanup:
         monkeypatch.setattr("punt_lux.session_cleanup.disconnect_connection", _boom)
 
         with caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"):
-            SessionCleanup(ConnectionId("sess-y")).run("sess-y")  # must not raise
+            SessionCleanup(ConnectionId("sess-y")).run()  # must not raise
 
-        assert "leg=disconnect session_key=sess-y" in caplog.text
-        assert "disconnect cascade exploded" in caplog.text
+        assert "leg=disconnect error=RuntimeError" in caplog.text
+        assert "sess-y" not in caplog.text
+        assert "disconnect cascade exploded" not in caplog.text
 
     def test_a_programmer_error_in_the_menu_leg_still_lets_the_disconnect_run(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -94,10 +97,11 @@ class TestSessionCleanup:
             caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"),
             pytest.raises(ProgrammerError, match="a rule broken"),
         ):
-            SessionCleanup(ConnectionId("sess-p")).run("sess-p")
+            SessionCleanup(ConnectionId("sess-p")).run()
 
         assert disconnected == ["sess-p"]
-        assert "leg=menu session_key=sess-p" in caplog.text
+        assert "leg=menu error=ProgrammerError" in caplog.text
+        assert "sess-p" not in caplog.text
 
     def test_both_legs_run_on_the_happy_path(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -115,7 +119,7 @@ class TestSessionCleanup:
         )
 
         with caplog.at_level(logging.ERROR, logger="punt_lux.session_cleanup"):
-            SessionCleanup(ConnectionId("sess-z")).run("sess-z")
+            SessionCleanup(ConnectionId("sess-z")).run()
 
         assert len(menu.calls) == 1
         assert disconnected == ["sess-z"]

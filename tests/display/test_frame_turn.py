@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, cast
+from unittest.mock import Mock
 
 import pytest
 
@@ -43,8 +43,9 @@ class _Recorder:
     def release_acks(self) -> None:
         self.calls.append("release-acks")
 
-    def swapped(self) -> None:
+    def swapped(self) -> tuple[float, ...]:
         self.calls.append("swapped")
+        return ()
 
     def after_swap(self) -> None:
         self.calls.append("screenshot")
@@ -119,17 +120,20 @@ class TestWhatASwapReleases:
 
 class TestTheFrameTimeline:
     def test_a_scene_received_and_painted_is_timed_at_the_swap(
-        self, caplog: pytest.LogCaptureFixture
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         rec = _Recorder()
         turn = _turn(rec)
 
-        with caplog.at_level(logging.INFO, logger="punt_lux.display.paint_clock"):
-            turn.scene_received("s1")
-            turn.scene_painted("s1")
-            turn.after_swap()
+        record = Mock()
+        monkeypatch.setattr(
+            "punt_lux.display.paint_telemetry.record_first_paint", record
+        )
+        turn.scene_received("s1")
+        turn.scene_painted("s1")
+        turn.after_swap()
 
-        assert [m for m in caplog.messages if m.startswith("paint scene=s1 ")]
+        record.assert_called_once()
 
 
 class TestShuttingDown:

@@ -22,9 +22,6 @@ class TestHubPaths:
     def test_port_path(self, tmp_path: Path):
         assert HubPaths(tmp_path).port_path == tmp_path / "hub.port"
 
-    def test_log_dir(self, tmp_path: Path):
-        assert HubPaths(tmp_path).log_dir == tmp_path / "logs"
-
 
 class TestReadPort:
     def test_returns_none_when_missing(self, tmp_path: Path):

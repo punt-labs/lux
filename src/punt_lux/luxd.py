@@ -12,7 +12,6 @@ import argparse
 import asyncio
 import logging
 import os
-import sys
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
@@ -24,9 +23,8 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from punt_lux.domain.programmer_error import ProgrammerError
-from punt_lux.log_level import level_from_env
+from punt_lux.entry_runtime import DaemonRuntime
 from punt_lux.mcp_transport import McpHttpTransport
-from punt_lux.proctitle import set_process_title
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
 from punt_lux.ws_transport import HubListenTransport
@@ -189,10 +187,8 @@ def serve(
     until authentication and a bind-derived origin policy exist.
     """
     if not LoopbackTransportPolicy().allows_bind_host(host):
-        print(  # noqa: T201 — startup refusal must reach the operator's console
-            f"luxd refuses to bind non-loopback host {host!r}: it is loopback-only "
-            "until authentication lands. Bind 127.0.0.1 or localhost.",
-            file=sys.stderr,
+        logger.warning(
+            "luxd refuses to bind a non-loopback host. Bind 127.0.0.1 or localhost."
         )
         raise SystemExit(2)
 
@@ -257,15 +253,10 @@ def serve(
 
 
 def main() -> None:
-    """Boot luxd — DEBUG floor so launchd's stderr log stays readable."""
-    logging.basicConfig(
-        level=level_from_env("DEBUG"),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    set_process_title("luxd-hub")
+    """Boot the Hub daemon and its HTTP MCP server with shared diagnostics."""
     parser = argparse.ArgumentParser(description="Lux session hub daemon")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")
     parser.add_argument("--port", type=int, default=DEFAULT_HUB_PORT, help="Bind port")
     args = parser.parse_args()
-    serve(host=args.host, port=args.port)
+    with DaemonRuntime("luxd-hub").run():
+        serve(host=args.host, port=args.port)

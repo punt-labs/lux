@@ -611,9 +611,10 @@ class TestForeignMessages:
         assert unpickled == []
         assert rig.routed == []
         assert any(
-            r.levelno == logging.ERROR and "scene" in r.getMessage()
+            r.levelno == logging.ERROR and "malformed frame" in r.getMessage()
             for r in caplog.records
         )
+        assert payload not in caplog.text
 
 
 class TestMalformedFrames:
@@ -655,7 +656,7 @@ class TestMalformedFrames:
         assert until(lambda: not rig.listener.alive)
         assert rig.routed == [PongMessage(ts=1.0)]
 
-    def test_the_failure_is_logged_with_the_display_and_the_frames_first_bytes(
+    def test_the_failure_is_logged_with_the_display_but_not_frame_bytes(
         self, caplog: pytest.LogCaptureFixture, rig: _Rig
     ) -> None:
         with caplog.at_level(logging.ERROR):
@@ -666,7 +667,9 @@ class TestMalformedFrames:
 
         (record,) = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert "pair-1" in record.getMessage()
-        assert "not json" in record.getMessage()
+        assert "malformed frame" in record.getMessage()
+        assert "JSONDecodeError" in caplog.text
+        assert "not json" not in caplog.text
 
     def test_the_connection_is_closed_so_a_reconnect_starts_on_a_boundary(
         self, rig: _Rig

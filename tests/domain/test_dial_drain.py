@@ -129,7 +129,9 @@ class TestWhatTheDrainSurvives:
             routed = _routed_by_a_drain(generation)
 
         assert routed == []
-        assert "could not be read past" in caplog.text
+        assert "could not be read" in caplog.text
+        assert "JSONDecodeError" in caplog.text
+        assert "not-j" not in caplog.text
 
 
 class TestASkewedAckLeavesTheLedgerWhole:

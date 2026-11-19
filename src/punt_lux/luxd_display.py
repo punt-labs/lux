@@ -16,15 +16,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-from pathlib import Path
 from typing import final
 
 from punt_lux.display import RenderLoop
-from punt_lux.log_level import level_from_env
-from punt_lux.paths import DisplayPaths
-from punt_lux.proctitle import set_process_title
+from punt_lux.entry_runtime import DaemonRuntime
 
 __all__ = ["DisplayEntryPoint"]
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -40,18 +39,10 @@ class DisplayEntryPoint:
         ``socket`` is the display's own listen path; ``None`` resolves the
         session default via :class:`DisplayPaths`.
         """
-        log_path = DisplayPaths(Path(socket) if socket else None).log_path
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logging.basicConfig(
-            filename=str(log_path),
-            level=level_from_env("INFO"),
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-            datefmt="%H:%M:%S",
-        )
-
-        set_process_title("luxd-display")
-        RenderLoop(socket, test_auto_click=test_auto_click).run()
+        with DaemonRuntime("luxd-display").run():
+            logger.info("Starting Display")
+            RenderLoop(socket, test_auto_click=test_auto_click).run()
+            logger.info("Display stopped")
 
     @staticmethod
     def main() -> None:

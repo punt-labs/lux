@@ -7,19 +7,21 @@ import sys
 import typer
 
 from punt_lux import __version__
-from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag, run
+from punt_lux.cli._shared import (
+    JsonFlag,
+    OutputFlags,
+    QuietFlag,
+    VerboseFlag,
+    configure_logging,
+    run,
+)
 from punt_lux.cli.registry import PLUGIN_ID, register_subcommands
 from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 
 
-def _print_version() -> None:
-    """Print the CLI version banner."""
-    print(f"lux {__version__}")
-
-
 def _version_callback(value: bool) -> None:
     if value:
-        _print_version()
+        print(f"lux {__version__}")
         raise typer.Exit
 
 
@@ -92,6 +94,7 @@ def cc_session_start() -> None:
     """SessionStart — internal hook dispatcher."""
     from punt_lux.hooks import emit, handle_session_start
 
+    configure_logging("lux", "hook")
     # Skip stdin — this handler needs no payload and the pipe may never close.
     result = handle_session_start()
     emit(result)
@@ -110,12 +113,8 @@ def version(
 ) -> None:
     """Print the version."""
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
-    if quiet:
-        return
-    if json_out:
-        print(f'{{"version": "{__version__}"}}')
-    else:
-        print(f"lux {__version__}")
+    if not quiet:
+        print(f'{{"version": "{__version__}"}}' if json_out else f"lux {__version__}")
 
 
 _PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits a margin above the display leg
@@ -170,20 +169,14 @@ def status(
 
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     dp = DisplayPaths(Path(socket) if socket else None)
-    path = dp.socket_path
-    running = dp.is_running()
-
+    line = dp.running_status_line()
     if not quiet:
-        if running:
-            try:
-                pid = int(dp.pid_path.read_text().strip())
-                print(f"Display running (pid {pid}) at {path}")
-            except (OSError, ValueError):
-                print(f"Display running at {path} (pid unknown)")
-        else:
-            print(f"Display not running at {path}")
-
-    raise typer.Exit(code=0 if running else 1)
+        print(
+            line[:1].upper() + line[1:]
+            if line
+            else f"Display not running at {dp.socket_path}"
+        )
+    raise typer.Exit(code=0 if line else 1)
 
 
 @app.command()
@@ -246,9 +239,14 @@ def doctor(
 
     if not quiet:
         print(_check.render())
-    if _check.failed > 0:
-        raise typer.Exit(code=1)
+    raise typer.Exit(code=int(_check.failed > 0))
+
+
+def _entry() -> None:
+    """Run the Lux CLI with process-owned diagnostics."""
+    configure_logging("lux", "cli")
+    app()
 
 
 if __name__ == "__main__":
-    app()
+    _entry()

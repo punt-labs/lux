@@ -98,8 +98,8 @@ class TestLaunchdPlistContent:
         assert "com.punt-labs.luxd-hub" in content
         assert "KeepAlive" in content
         assert "RunAtLoad" in content
-        assert "luxd-stdout.log" in content
-        assert "luxd-stderr.log" in content
+        assert "StandardOutPath" not in content
+        assert "StandardErrorPath" not in content
 
     def test_contains_program_arguments(self, tmp_path: Path):
         fake_home = tmp_path / "home"
@@ -135,7 +135,8 @@ class TestLaunchdPlistContent:
 
         assert "com.punt-labs.luxd-display" in content
         assert "luxd-display" in content
-        assert "luxd-display-stderr.log" in content
+        assert "StandardOutPath" not in content
+        assert "StandardErrorPath" not in content
 
 
 class TestSystemdUnitContent:

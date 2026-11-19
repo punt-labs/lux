@@ -36,8 +36,6 @@ __all__ = ["DialReader"]
 
 # How long one wait for the display runs before the loop re-checks its stop flag.
 _POLL_SECONDS = 0.1
-# How much of a malformed frame the log shows.
-_HEAD_BYTES = 64
 # How much of a message that a route failed on the log shows.
 _HEAD_REPR = 200
 
@@ -155,11 +153,11 @@ class DialReader:
                 msg = next(messages, None)
             except ProgrammerError:
                 raise
-            except Exception:  # wire boundary: any decoder failure ends the stream
-                logger.exception(
-                    "Listener closing: display %s sent a malformed frame: %r",
+            except Exception as e:  # any decoder failure ends the stream
+                logger.error(
+                    "Listener closing: display %s sent a malformed frame",
                     generation.endpoint,
-                    generation.head(_HEAD_BYTES),
+                    exc_info=(Exception, Exception(type(e).__name__), e.__traceback__),
                 )
                 return "display"
             if msg is None:

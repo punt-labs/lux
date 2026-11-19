@@ -4,6 +4,9 @@
 
 ### Added
 
+- Private rotating Lux diagnostics and separate local Hub operation and
+  Display first-paint timing telemetry, both powered by `punt-observe`.
+
 - Generated Python API reference, with CI checks for public docstrings,
   stale parameter names, and tracker references in Python prose.
 

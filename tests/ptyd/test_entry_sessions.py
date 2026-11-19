@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
 from punt_lux.ptyd.__main__ import PtyEntryPoint
 from punt_lux.ptyd.menu_entry import MenuEntryPoint
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class ReachedStartupError(Exception):
@@ -69,3 +74,32 @@ def test_foreground_process_group_leader_can_show_help() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Lux local terminal-session owner" in result.stdout
+
+
+def test_detached_terminal_daemon_logs_a_run_loop_failure(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from types import SimpleNamespace\n"
+                "from unittest.mock import patch\n"
+                "from punt_lux.ptyd import __main__ as entry\n"
+                "def run():\n"
+                "    raise RuntimeError('private terminal content')\n"
+                "application = SimpleNamespace(run=run, stop=lambda: None)\n"
+                "module = SimpleNamespace(PtyApplication=lambda *a, **k: application)\n"
+                "with patch.object(entry, 'import_module', return_value=module):\n"
+                "    entry.PtyEntryPoint.main()\n"
+            ),
+        ],
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+        check=False,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+    assert result.returncode == 1
+    log = (tmp_path / ".punt-labs/lux/logs/lux.log").read_text()
+    assert "terminal daemon failed: RuntimeError" in log
+    assert "run:5" in log
+    assert "private terminal content" not in log

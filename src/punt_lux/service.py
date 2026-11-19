@@ -121,7 +121,7 @@ class ServiceManager:
         if not self._backend.stop():
             msg = (
                 f"{self._SPEC.display_name} stop failed. See "
-                "~/.punt-labs/lux/logs/ for details."
+                "~/.punt-labs/lux/logs/lux.log for details."
             )
             raise ServiceActionFailedError(msg)
         return f"{self._SPEC.display_name} stopped."
@@ -132,7 +132,7 @@ class ServiceManager:
         if not self._backend.start():
             msg = (
                 f"{self._SPEC.display_name} start failed. See "
-                "~/.punt-labs/lux/logs/ for details."
+                "~/.punt-labs/lux/logs/lux.log for details."
             )
             raise ServiceActionFailedError(msg)
         return f"{self._SPEC.display_name} started."
@@ -143,7 +143,7 @@ class ServiceManager:
         if not self._backend.restart():
             msg = (
                 f"{self._SPEC.display_name} restart failed. See "
-                "~/.punt-labs/lux/logs/ for details."
+                "~/.punt-labs/lux/logs/lux.log for details."
             )
             raise ServiceActionFailedError(msg)
         return f"{self._SPEC.display_name} restarted."
