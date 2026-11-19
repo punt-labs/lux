@@ -12,6 +12,14 @@
 
 ### Changed
 
+- **Ratchet gates use `punt-oo-ratchet==0.1.0` from PyPI (PL-1159).** The
+  published CLI replaces the embedded OO, coupling/cohesion and suppression
+  tools and their tests, preserving merge-base and post-merge CI comparisons.
+  OO and coupling baselines were re-scored through the package's audited
+  rebaseline with source `PL-1159` to account for scoring differences. The
+  suppression snapshot was regenerated with a `PL-1159` audit entry for the
+  package's expanded counting of existing directives.
+
 - **`lux enable` allows each surface broadly with exact `ask` carve-outs
   (PL-1031, punt-kit#471).** It adds `Bash(lux:*)`,
   `mcp__plugin_lux_lux__*` and `Skill(lux:*)` to `permissions.allow`, and

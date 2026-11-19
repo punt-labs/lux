@@ -80,6 +80,7 @@ aws = [
 #      are not exposed via PyPI; they exist for the source checkout only.
 [dependency-groups]
 dev = [
+    "punt-oo-ratchet==0.1.0",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
     "pyright>=1.1.400",
@@ -159,7 +160,6 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
 "tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
-"tests/oo_ratchet/*" = ["S607"]
 "tests/e2e/test_legacy_sweep.py" = ["S101", "S603", "S607"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
@@ -290,30 +290,8 @@ root = "src/punt_lux/tools"
 reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
-# Listed BEFORE the general "tests" environment below: pyright picks the
-# first execution environment whose root prefixes the file being analyzed,
-# so this more specific entry must precede the broader one. Without it,
-# pyright's "tests" root is itself an implicit search path ahead of
-# extraPaths, and the pre-existing tests/tools/ package (a REAL sibling
-# test directory, unrelated to this one) shadows the top-level tools/
-# package -- `tools.oo_ratchet.metrics` resolves to the nonexistent
-# tests/tools/oo_ratchet/metrics.py instead of the real one at the repo
-# root. Runtime pytest and mypy never hit this: both insert the repo root
-# once (via the tests/__init__.py chain) rather than treating `tests/`
-# itself as an additional search root, so only pyright needs the carve-out.
-root = "tests/oo_ratchet"
-extraPaths = ["."]
-reportPrivateUsage = false
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
-reportUnknownMemberType = false
-
-[[tool.pyright.executionEnvironments]]
-# Same carve-out as tests/oo_ratchet above, for the same reason: this
-# package imports the top-level tools/oo_coupling.py, and without an
-# entry listed ahead of the general "tests" root below, the sibling
-# tests/tools/ package shadows the top-level tools/ package.
 root = "tests/oo_coupling"
+# Resolve top-level tools/ before the unrelated tests/tools/ package.
 extraPaths = ["."]
 reportPrivateUsage = false
 reportUnknownVariableType = false

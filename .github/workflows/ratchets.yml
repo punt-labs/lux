@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   # check-oo compares HEAD against a base baseline
-  # (`git show <base>:.oo-baseline.json` -- tools/oo_ratchet/gitio.py
+  # (`git show <base>:.oo-baseline.json` -- oo_ratchet.oo.gitio
   # `resolve_base`/`show_baseline`). Which commit is "the base" differs by
   # trigger, because the two triggers answer different questions:
   #
@@ -37,7 +37,7 @@ jobs:
   #   fork point, not the tip of the last commit -- a regression buried in an
   #   EARLIER commit of a multi-commit PR is still inside `base..HEAD` and
   #   still caught. `make check-oo` with no BASE_REF leaves the tool's own
-  #   default (`GitRepo.resolve_base`, `tools/oo_ratchet/gitio.py`) untouched,
+  #   default (`GitRepo.resolve_base`, `oo_ratchet.oo.gitio`) untouched,
   #   which already computes exactly that merge-base -- so the PR trigger
   #   passes no override at all; there is nothing to widen.
   #
@@ -51,7 +51,7 @@ jobs:
   #   push changed (qodo finding on PR #467, scenario 1). The fix is to
   #   compare against `github.event.before` (the pre-push tip of main)
   #   instead: `make check-oo BASE_REF=<before-sha>` passes
-  #   `--base-ref <before-sha> --require-base` (tools/oo_ratchet/cli.py
+  #   `--base-ref <before-sha> --require-base` (oo_ratchet.oo.cli
   #   already exposes `--base-ref`; only the Makefile plumbing was missing).
   #   `--require-base` makes an unresolvable base a hard failure rather than
   #   a silent bootstrap-pass, matching "genuinely verify main is green."
@@ -128,49 +128,10 @@ jobs:
             make check-oo
           fi
 
-  # check-coupling compares touched files against the IN-TREE
-  # .oo-coupling-baseline.json (not a merge-base blob), so it does not share
-  # check-oo's merge-base-blob gotcha -- but it still needs the full source
-  # tree plus the display extra to score src/punt_lux/, so the setup mirrors
-  # check-oo. Deterministic since the Tarjan/sorted-neighbor fix in #466
-  # (tools/oo_coupling.py `_tarjan_scc`): neighbor iteration is sorted, not
-  # raw set iteration, so PYTHONHASHSEED no longer perturbs SCC
-  # discovery/return order between runs on identical source.
-  #
-  # "Touched files" itself has a push-vs-PR base problem of its own, for a
-  # different reason than check-oo's: tools/oo_coupling.py
-  # `_git_touched_files` defaults to `HEAD~1..HEAD` (the single latest
-  # commit). That default is only correct when there is exactly one commit to
-  # review -- it is wrong on BOTH triggers once more than one commit is in
-  # play:
-  #
-  #   push -- a regression in an earlier commit of a multi-commit push would
-  #   never appear in `HEAD~1..HEAD` and would pass trivially (qodo finding on
-  #   PR #467, scenario 2). `make check-coupling BASE_REF=<before-sha>` passes
-  #   `--base-ref <before-sha>`, so the diff range becomes `before..HEAD` --
-  #   the whole set of commits the push landed.
-  #
-  #   pull_request -- the same hole, one push landing later: `HEAD~1..HEAD`
-  #   only ever sees the PR's LAST commit, so a regression introduced in an
-  #   earlier commit and never re-touched by a later one passes even though
-  #   the PR as a whole regressed (Copilot finding on PR #467, round 2 --
-  #   check-oo's already-correct merge-base default masked this because it
-  #   was assumed check-coupling shared the same fix). The fix mirrors
-  #   check-oo's PR-trigger base exactly: `merge-base(origin/main, HEAD)`, the
-  #   PR's fork point, computed once in this job (`_git_touched_files` has no
-  #   merge-base-aware default of its own the way `GitRepo.resolve_base` does
-  #   for check-oo) and passed the same way as the push case --
-  #   `make check-coupling BASE_REF=<merge-base-sha>`.
-  #
-  # Unlike check-oo this needs no `--require-base`-style hard-fail flag inside
-  # the Python tool: an unresolvable `--base-ref` makes `_git_touched_files`
-  # return `None`, and `check()` already treats that as "score every file in
-  # the target" -- fail toward a broader check, not a silently narrower one,
-  # so the tool's existing no-git fallback already does the safe thing. The
-  # merge-base computation in THIS job's shell step is a different failure
-  # mode -- an unresolvable `origin/main` there is a checkout/fetch problem,
-  # not an absent PR history, so it fails the step loudly (default `bash -e`)
-  # rather than silently falling through to `HEAD~1`.
+  # The package compares coupling against the baseline committed at the base.
+  # PRs use merge-base(origin/main, HEAD); pushes use github.event.before so
+  # the entire push is checked even after origin/main has advanced to HEAD.
+  # Keep the full history and origin/main fetch for both comparison modes.
   check-coupling:
     runs-on: ubuntu-latest
     timeout-minutes: 10
