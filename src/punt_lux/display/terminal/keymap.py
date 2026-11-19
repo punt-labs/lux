@@ -74,11 +74,15 @@ class TerminalModifiers:
         io = imgui.get_io()
         mac = io.config_mac_osx_behaviors
         ctrl, cmd = (io.key_super, io.key_ctrl) if mac else (io.key_ctrl, io.key_super)
-        return (
-            (SHIFT if io.key_shift else 0)
-            | (CTRL if ctrl else 0)
-            | (ALT if io.key_alt else 0)
-            | (SUPER if cmd else 0)
+        return sum(
+            flag
+            for held, flag in (
+                (io.key_shift, SHIFT),
+                (ctrl, CTRL),
+                (io.key_alt, ALT),
+                (cmd, SUPER),
+            )
+            if held
         )
 
 
