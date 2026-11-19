@@ -71,7 +71,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             if self._plist.installed_content() == desired_plist:
                 logger.info("%s already installed and up to date; no-op", label)
                 return True
-            self._self_upgrade_sweep().sweep()
+            LaunchdLegacySweep(
+                replace(self._plist.spec, legacy_launchd_labels=(label,))
+            ).sweep()
             logger.info("Deregistered existing %s before upgrade", label)
 
         self._plist.write(desired_plist)
@@ -82,19 +84,8 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         logger.info("Bootstrapped %s into launchd", label)
         return False
 
-    def _self_upgrade_sweep(self) -> LaunchdLegacySweep:
-        """Return a sweep targeting this service's OWN label.
-
-        Reuses the legacy-sweep primitive against the current label rather
-        than a historical one -- the ordering and verification discipline a
-        stale in-place registration needs is identical either way.
-        """
-        return LaunchdLegacySweep(
-            replace(
-                self._plist.spec,
-                legacy_launchd_labels=(self._plist.spec.launchd_label,),
-            )
-        )
+    def enable_autostart(self) -> bool:
+        return launchctl.run(["launchctl", "enable", self._plist.target], verb="enable")
 
     def uninstall(self) -> None:
         """Boot the job out of launchd (if loaded) and remove the plist."""

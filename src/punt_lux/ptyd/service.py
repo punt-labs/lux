@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from punt_lux.ptyd.enablement import TerminalEnablement
 from punt_lux.service import ServiceManager, ServiceSpec
 
 
@@ -23,10 +24,7 @@ class TerminalService(ServiceManager):
 
     def enable(self) -> str:
         """Install and start only on the machine whose operator enables it."""
-        if self.is_active:
-            return "luxd-pty already enabled."
-        installed = self.install()
-        return installed if self.is_active else installed + "\n" + self.start()
+        return TerminalEnablement(self, self._backend).enable()
 
     def disable(self) -> str:
         """Explicit disable stops held programs and removes supervisor registration."""
