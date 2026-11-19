@@ -8,6 +8,8 @@ Thank you for your interest in contributing to Lux. This guide covers what you n
 
 - Python 3.13+
 - [uv](https://docs.astral.sh/uv/) for dependency management
+- Node.js with `npx` for Markdown linting and pyright
+- Git and Make
 
 ### Setup
 
@@ -213,7 +215,8 @@ For a series of captures at a fixed interval:
 make screenshots SCREENSHOT_INTERVAL=5 SCREENSHOT_COUNT=12
 ```
 
-This writes `lux-screenshot-0001.png`, `lux-screenshot-0002.png`, and so on.
+By default this writes `.tmp/lux-screenshot-0001.png`,
+`.tmp/lux-screenshot-0002.png`, and so on.
 
 ## Code Standards
 

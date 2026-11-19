@@ -230,12 +230,13 @@ Simulated agent          Hub (in-process)                 Display logic (no GPU)
 --------------           ----------------                 ----------------------
 show(group[button,       install in HubDisplay ---push---> hold replica; wrap
       progress]) ------->                                  handlers -> _emit_event
-subscribe(topic) ------> ensure_writer(conn): real inbox
-                                                           inject(button_id,
-inject -----------------------------------------------.    clicked) builds
-                                                      |    RemoteEventHandler-
-                          _hub_interaction_dispatch  <'--- Invocation via
-                          resolve on HubDisplay            _emit_event
+subscribe(topic) ------> ensure_writer(conn, host): inbox
+inject -------------------------------------------------> replica.fire(event)
+                                                           wrapped handler
+                                                           -> _emit_event
+                                                           -> invocation over
+                          HubInteractionDispatch.dispatch <--- InMemoryConnection
+                          resolve on HubDisplay
                           element.fire(event) ONCE
                           handler -> hub.publish(topic)
 recv()/drain_inbox() <--- deliver to real inbox (==1)

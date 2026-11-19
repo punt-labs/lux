@@ -22,89 +22,56 @@ it as background and rationale, not as the primary architecture guide.
 ## System Architecture
 
 ```text
-Claude Code                                          Lux Display (ImGui)
-                                                     ┌──────────────────────┐
-┌───────────────────────┐                            │                      │
-│  LLM (Claude)         │                            │  ImGui Render Loop   │
-│  "show a diagram with │                            │  (60fps)             │
-│   Approve/Deny"       │                            │                      │
-└──────────┬────────────┘                            │  ┌────────────────┐  │
-           │                                         │  │ Scene Renderer │  │
-           │ MCP tool call                           │  │ (dispatch table│  │
-           ▼                                         │  │  JSON → ImGui) │  │
-┌──────────────────────┐    Unix domain socket       │  └───────▲────────┘  │
-│  lux.show(scene)     │    (length-prefixed JSON)   │          │           │
-│  lux.update(patches) ├────────────────────────────►│  FrameReader         │
-│  lux.clear()         │                             │  select() per frame  │
-│                      │◄────────────────────────────┤                      │
-│  receives:           │    interaction events        │  ┌────────────────┐  │
-│  - button clicks     │    window lifecycle          │  │ Texture Cache  │  │
-│  - slider changes    │                             │  │ (GPU upload)   │  │
-│  - text input        │                             │  └────────────────┘  │
-│  - window closed     │                             │                      │
-└──────────────────────┘                             │  ┌────────────────┐  │
-                                                     │  │ Code Runner    │  │
-  MCP Server (punt-lux)                              │  │ (opt-in, user  │  │
-  stdio transport                                    │  │  consent gate) │  │
-  spawned by Claude Code                             │  └────────────────┘  │
-                                                     └──────────────────────┘
-                                                       Persistent process
-                                                       lux display
+Claude Code plugin -- MCP streamable HTTP /mcp --+
+lux CLI / LuxClient library ------ REST --------+--> 127.0.0.1:8430
+lux-beads / other applets -- REST + WS listen ---+         |
+                                                          v
+luxd-hub: MCP / RestSurface -> Operations -> HubDisplay
+                                               |
+                                         HubReplicator
+                                               |
+                                          DisplayLink
+                                               |
+                        Unix socket (length-prefixed JSON)
+                                               v
+luxd-display: SceneReplica -> ImGui render -> user interaction
+                                               |
+                                         wrapped handler
+                                               |
+                              RemoteEventHandlerInvocation
+                                               |
+                      back over Unix socket to luxd-hub
+                                               v
+                   HubInteractionDispatch -> real Hub handler
+                                               |
+                           mark dirty -> replicate scene again
 ```
 
-### Key Interactions
-
-#### 1. Show an Image with Action Buttons
+### Show an Image with Action Buttons
 
 ```text
-LLM            MCP Tool         Socket           Display          User
- │              (lux.show)                        (ImGui)
- │  "show img   │                │                │                │
- │   + buttons" │                │                │                │
- ├─────────────►│  scene JSON    │                │                │
- │              ├───────────────►│                │                │
- │              │                │  render scene  │                │
- │              │                ├───────────────►│  image +       │
- │              │                │                │  buttons       │
- │              │                │   ack          │  visible       │
- │              │                │◄───────────────┤                │
- │              │                │                │  clicks        │
- │              │                │  interaction   │  "Approve"     │
- │              │                │◄───────────────┤◄───────────────┤
- │              │◄───────────────┤                │                │
- │  "user       │                │                │                │
- │   approved"  │                │                │                │
- │◄─────────────┤                │                │                │
+Agent (MCP)          luxd-hub                     luxd-display          User
+    | scene_show        |                            |                  |
+    |------------------>| Operations -> HubDisplay   |                  |
+    |<-- accepted ------|                            |                  |
+    |                   | HubReplicator/DisplayLink  |                  |
+    |                   |--- full scene replica ---->| render image      |
+    |                   |                            | + buttons         |
+    |                   |                            |<---- click -------|
+    |                   |<-- RemoteEventHandlerInvocation --|            |
+    |                   | HubInteractionDispatch     |                  |
+    |                   | fires real handler;        |                  |
+    |                   | publishes app event;       |                  |
+    |                   | marks scene dirty          |                  |
+    |                   |--- re-push full scene ---->|                  |
+    | topic_recv        |                            |                  |
+    |------------------>|                            |                  |
+    |<-- app event -----|                            |                  |
 ```
 
-#### 2. Code-on-Demand (Game in Canvas)
-
-```text
-LLM            MCP Tool         Socket           Display          User
- │              (lux.show)                        (ImGui)
- │  render_fn   │                │                │                │
- │  element     │                │                │                │
- ├─────────────►│  scene with    │                │                │
- │              │  kind:         │                │                │
- │              │  render_fn     │                │                │
- │              ├───────────────►│                │                │
- │              │                │  consent modal │                │
- │              │                ├───────────────►│  "Claude wants │
- │              │                │                │   to run code" │
- │              │                │                │  [Allow] [Deny]│
- │              │                │                │◄───────────────┤
- │              │                │                │  clicks Allow  │
- │              │                │  run render    │                │
- │              │                │  function each │  game running  │
- │              │                │  frame         │  in canvas     │
- │              │                │                │                │
- │              │                │  interaction   │  game_over     │
- │              │                │◄───────────────┤  event         │
- │              │◄───────────────┤                │                │
- │  "game over, │                │                │                │
- │   score: 42" │                │                │                │
- │◄─────────────┤                │                │                │
-```
+The event receipt above assumes the agent subscribed to the handler's topic.
+DES-004 and DES-012 record the historical code-on-demand capability; it is not
+part of the current rendering path.
 
 ---
 

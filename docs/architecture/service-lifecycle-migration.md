@@ -1,7 +1,9 @@
 # Service Lifecycle Migration: A Rename Is a Migration, Not a Hope
 
-**Status:** design, unimplemented. Bead `lux-ehzy`, mission `m-2026-08-21-012`.
-Implementation is a separate mission after operator ratification.
+**Status:** delivered. Bead `lux-ehzy`, design mission `m-2026-08-21-012`.
+Implemented by `_legacy_sweep.py`, `_legacy_sweep_launchd.py`, and
+`_legacy_sweep_systemd.py`, wired into the service backends. Sections below
+retain the pre-migration diagnosis and ratified design.
 
 ## 1. Problem Statement and Repro
 

@@ -11,7 +11,7 @@ If cloned outside the workspace, these rules and configuration will not be prese
 
 **OO Python standards adopted 2026-05-13.** The codebase does not yet fully comply. Every commit must improve OO scores (`make check-oo`), never regress. Do not match existing code patterns that violate the rules — write new code to the standard and improve touched files incrementally.
 
-Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. An ImGui window renders JSON element trees sent by agents over Unix socket IPC.
+Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. Clients submit UI to the Hub over MCP or REST; the Hub replicates element trees to the ImGui Display over Unix socket IPC.
 
 - **Package**: `punt-lux`
 - **Executables**: `lux` (CLI), `luxd-hub` (Hub daemon), `luxd-display` (Display renderer), `lux-beads` (beads applet)
@@ -111,8 +111,9 @@ the newer Hub/Display architecture. Some modules already reflect the new model;
 others are transitional or legacy. Agents must keep that distinction explicit.
 
 - The **target architecture** is documented in `docs/architecture/target/`.
-- The **current implementation** still contains older single-process and
-  transitional paths.
+- The **current implementation** runs the Hub/Display split with all 25 wire
+  element kinds on the Element-ABC path; some target capabilities remain
+  transitional or unwired.
 - The purpose of new work is generally to move the codebase toward the target,
   not to treat every current implementation detail as architecturally blessed.
 
@@ -162,47 +163,48 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 
 ### Key architectural boundary: protocol vs. rendering
 
-The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
+The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `render_loop.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
 This separation means: protocol bugs break agents. Rendering bugs break the display. They overlap only when a new element kind is added (protocol + rendering in a single coordinated change).
 
 ### Three-tier distributed architecture
 
-- **`lux-display`** — ImGui renderer. Receives element objects from the Hub, wraps handlers with `remote_dispatch`, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
-- **`luxd`** — Session hub. Fronts everything through the typed `Operations` facade (`operations/`); stores authoritative state in HubDisplay (scenes, menus, sessions); serves MCP (streamable HTTP) and REST (FastAPI, same port) as thin adapter surfaces; pushes replicas to the display via the HubReplicator; receives and dispatches remote handler invocations from display clicks. The CLI is a third thin client over REST (`LuxRestClient`). The plugin's MCP config connects directly to `http://127.0.0.1:8430/mcp` — no per-session process in the tool path.
+- **`luxd-display`** — ImGui renderer. Receives element objects from the Hub, wraps handlers with `remote_dispatch`, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
+- **`luxd-hub`** — Session hub. Fronts everything through the typed `Operations` facade (`operations/`); stores authoritative scenes in `HubDisplay`, menus in `HubMenuRegistry`, and sessions in `HubClientRegistry`; serves MCP (streamable HTTP) and REST (FastAPI, same port) as thin adapter surfaces; pushes replicas to the display via the HubReplicator; receives and dispatches remote handler invocations from display clicks. The CLI is a third thin client over REST (`LuxClient`). The plugin's MCP config connects directly to `http://127.0.0.1:8430/mcp` — no per-session process in the tool path.
 - **Lux applets** — standalone programs on the library client (REST + the WebSocket listen leg) that own menu entries and service clicks (DES-063). Species: machine-global daemon (vox's music player, in the vox repo), session-bound applet (`lux-beads`, spawned by the plugin's session-start hook, parent-pid watch, dies with the session), on-demand renderer (z-spec). Bundled applets live in `applets/`; each Punt Labs tool ships its own applet in its own repo.
 
 This is the rewrite target, documented in
 `docs/architecture/target/target.md`,
 `docs/architecture/target/topology.md`, and
-`docs/architecture/target/ui-model.md`. The current implementation still
-contains older single-process structure and migration scaffolding.
+`docs/architecture/target/ui-model.md`. The shipped core follows this
+Hub/Display split; the target also describes capabilities beyond the
+current entry-point wiring.
 
-The code-backed sliver that already demonstrates this target is narrower than
-the full system: `HubDisplay`, Hub-scoped pub-sub, and the ABC button/dialog
-path with remote handler wrapping and Hub-side re-dispatch.
+The shipped core includes `HubDisplay`, Hub-scoped pub-sub, and all 25 wire
+element kinds on the ABC path with remote handler wrapping and Hub-side
+re-dispatch.
 
 ### Key packages and modules
 
 | Module | Responsibility |
 |--------|---------------|
-| `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **~1,100 lines, still over the 300-line target; remaining debt from the original `display.py`** |
+| `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **778 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
 | `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |
-| `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
+| `display/texture_cache.py` | Image texture upload with bounded LRU eviction (`TextureLru`) and a coupled data-key memo |
 | `display/idle_screen.py` | Idle splash when no scene is active |
 | `protocol/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
 | `protocol/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
 | `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
-| `rest/` | Typed FastAPI surface on luxd (`RestSurface`, five concern routers, one `OpError`→HTTP table) |
-| `rest_client.py` | `LuxRestClient` — the CLI's typed HTTP client of luxd |
-| `tools/server.py` | FastMCP instance and per-session lifecycle |
+| `rest/` | Typed FastAPI surface on luxd (`RestSurface`, six concern routers, one `OpError`→HTTP table) |
+| `client/facade.py` | `LuxClient` — public library facade; its private REST transport serves the CLI and library |
+| `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `domain/hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
-| `apps/beads.py` | `BeadsBrowser` — beads issue browser app (the board the applet and CLI render) |
+| `apps/beads.py` | `BeadsBrowser` — loads and orders beads issues; `apps/beads_board.py` builds requests and `protocol/compositions/table_composition.py` builds the Hub-side table UI |
 
-25 element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`show_table()`), dashboards (`show_dashboard()`), custom rendering (`draw` element).
+25 wire element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`client.scene.table()`), dashboards (`client.scene.dashboard()`), custom rendering (`draw` element). `SplitPaneElement` is a `GroupElement` refinement with the same JSON kind, not a 26th wire kind.
 
 Start with `docs/architecture/target/target.md`. Use
 `docs/architecture/target/ui-model.md` for the authoritative UI model and
@@ -218,16 +220,18 @@ Start with `docs/architecture/target/target.md`. Use
 
 ## Logging
 
-Two separate log files — luxd and the display are separate processes with separate log destinations:
+Separate log destinations — the Hub and Display are separate processes:
 
 | Process | Log file | Default level |
 |---------|----------|---------------|
-| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | DEBUG — its per-operation timings are meant to be readable |
-| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO |
+| luxd-hub (Hub, launchd) | `~/.punt-labs/lux/logs/luxd-stderr.log` | DEBUG — its per-operation timings are meant to be readable |
+| luxd-display | `{socket_path}` with suffix `.sock.log` (default `/tmp/lux-$USER/display.sock.log`, or `$XDG_RUNTIME_DIR/lux/display.sock.log`) | INFO |
+
+On Linux, the Hub service logs to the user systemd journal (`journalctl --user -u luxd-hub`). The Display log follows `DisplayPaths`: an explicit `--socket` or `LUX_SOCKET` overrides the default path.
 
 When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
 
-**One variable, two defaults.** `LUX_LOG_LEVEL` lowers the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the display is spawned by luxd and inherits its environment, so an exported `LUX_LOG_LEVEL=DEBUG` is only ever the operator asking for DEBUG everywhere. To read the display at DEBUG for one run: `LUX_LOG_LEVEL=DEBUG make restart`.
+**One variable, two defaults.** `LUX_LOG_LEVEL` lowers the floor of whichever process reads it, and each entry point keeps its own default when the variable is unset. Nothing may set it on a child's behalf: the Hub and Display are independently supervised services. Set `LUX_LOG_LEVEL` in the service environment to change its logging level, or run `LUX_LOG_LEVEL=DEBUG luxd-display` directly for a foreground diagnostic run.
 
 Do not add ad-hoc debug prints — use the logger at the appropriate level. **Nothing on the per-frame render path may log.** ImGui repaints every element every frame, so one line there is sixty lines per element per second; the `@trace` decorator belongs on event-driven paths (a click, a decode, a send), never on a renderer's `render`. `tests/test_per_frame_tracing.py` enforces this.
 
@@ -253,7 +257,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display/render_loop.py` (~1,100 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
+**`display/render_loop.py` (778 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
 
 **Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `protocol/messages/*.py` — fix a message codec onto its class when you touch the file.
 

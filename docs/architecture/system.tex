@@ -64,10 +64,10 @@ The system is built from one engine fronted by thin client surfaces.  The
 engine is split into two cooperating processes:
 
 \begin{itemize}
-  \item The \textbf{Hub} (\tool{luxd}) owns the authoritative interface
+  \item The \textbf{Hub} (\tool{luxd-hub}) owns the authoritative interface
     state, runs the real interaction handlers, and coordinates the display.
     It is the single front door: every client talks to the Hub.
-  \item The \textbf{Display} (\tool{lux-display}) holds a full replica of
+  \item The \textbf{Display} (\tool{luxd-display}) holds a full replica of
     the interface and renders it every frame.  It captures user input and
     forwards each interaction back to the Hub.  It never talks to a client
     directly.
@@ -76,8 +76,8 @@ engine is split into two cooperating processes:
 Four client surfaces reach the Hub, and each is thin:
 
 \begin{itemize}
-  \item The \textbf{library} surface is the operations layer itself ---
-    a direct in-process call into the engine.
+  \item The \textbf{library} surface is \texttt{LuxClient} ---
+    a typed REST client of the Hub with a WebSocket listen leg.
   \item The \textbf{MCP} surface is a set of tools an agent calls; it
     speaks streamable HTTP to the Hub.
   \item The \textbf{REST} surface is a typed FastAPI application on the
@@ -86,6 +86,39 @@ Four client surfaces reach the Hub, and each is thin:
   \item The \textbf{CLI} (\tool{lux}) is an HTTP client of the REST
     surface.
 \end{itemize}
+
+\subsection{Current Process and Front Doors}
+
+\begin{lstlisting}
+Claude Code plugin -- MCP HTTP /mcp --+
+lux CLI / LuxClient ------ REST -----+--> 127.0.0.1:8430
+lux-beads / applets -- REST + WS -----+         |
+                                              v
+luxd-hub: MCP / RestSurface -> Operations -> HubDisplay
+                                               |
+                                         HubReplicator
+                                               |
+                                          DisplayLink
+                                               |
+                         Unix socket: framed JSON scenes
+                                               v
+luxd-display: SceneReplica -> ImGui -> wrapped handler
+                                               |
+                          RemoteEventHandlerInvocation
+                                               |
+                              Unix socket back to Hub
+                                               v
+luxd-hub: HubInteractionDispatch -> real handler
+                      -> mark dirty -> replicate scene
+\end{lstlisting}
+
+The applets' WebSocket leg listens for callbacks and topic events;
+REST carries their commands. The Hub's default port is defined in
+\modpath{luxd.py}; \modpath{mcp_transport.py} mounts \texttt{/mcp}.
+The public library facade is \texttt{LuxClient}
+(\modpath{client/facade.py}). Replication and return dispatch live in
+\modpath{domain/hub/replicator.py}, \modpath{domain/hub/display_link.py},
+and \modpath{domain/hub/hub_interaction_dispatch.py}.
 
 \subsection{Current and Target}
 
@@ -99,13 +132,13 @@ target is called out explicitly.
 The code has converged substantially on the target.  The Hub is
 authoritative, the operations layer is the single home of every
 capability, the MCP tools and REST routes are adapters over it, and the
-command-line tool reaches the Hub over REST.  Two areas remain in
-transition:
+command-line tool reaches the Hub over REST. The original design record
+needs these implementation-status distinctions:
 
 \begin{itemize}
-  \item \textbf{Element migration.}  Fifteen of the twenty-five element
+  \item \textbf{Element migration.} All twenty-five wire element
     kinds are on the Element-ABC path (data and behavior on the class);
-    ten kinds are still frozen dataclasses decoded by per-kind codecs.
+    the legacy rendering path has been removed.
     See Section \S\ref{sec:hubdisplay}.
   \item \textbf{The display's own state.}  The Display still owns its
     render loop, its themes and window settings, and its diagnostic ring
@@ -115,9 +148,11 @@ transition:
     \S\ref{sec:addressing} and \S\ref{sec:crosshost} specify a design ---
     ACCEPTED, ratified by the operator 2026-09-05 (DES-089, DES-090) ---
     for a Display aggregating more than one Hub, including Hubs on
-    other machines.  None of it is implemented yet: the code today assumes
-    exactly one Hub connection, though nothing in the transport enforces
-    that.  The full bead map and dependency order are in the companion
+    other machines. The addressing types and multi-Hub replica stores are
+    implemented. Cross-host transport and trust components also exist, but
+    the standard entry points still use the local Unix socket; the sections
+    preserve the accepted transport design, not a claim of CLI wiring.
+    The full bead map and dependency order are in the companion
     increment-of-work document,
     \path{docs/architecture/multi-hub-addressing-work.md}.
 \end{itemize}
@@ -137,7 +172,7 @@ The sibling files provide narrower supporting views:
     control surface an agent uses to inspect live Hub and Display state.
 \end{itemize}
 
-Four formal models hold parts of the system to a checked specification;
+The formal models hold parts of the system to checked specifications;
 they are cross-referenced where each applies and listed together in
 Section \S\ref{sec:formal}.
 
@@ -187,7 +222,9 @@ Operations    & \modpath{operations/}            & The engine's front of
                 classes --- \texttt{SceneOperations},
                 \texttt{QueryOperations}, \texttt{MenuOperations},
                 \texttt{DisplayControlOperations}, \texttt{PubSubOperations},
-                \texttt{ConvenienceOperations}, \texttt{DisplayModeOperations}.
+                \texttt{ConvenienceOperations}, \texttt{DisplayModeOperations},
+                \texttt{IdentityOperations}, \texttt{CallbackOperations},
+                \texttt{FrameRemover}, and \texttt{DisplayLinkOperations}.
                 Each method takes a typed request and returns a typed
                 result or an \texttt{OpError}.  Models live in
                 \modpath{operations/models/}. \\
@@ -200,7 +237,7 @@ Hub domain    & \modpath{domain/hub/}            & The authoritative
                 \texttt{HubMenuRegistry} owns the menu bar;
                 \texttt{HubSceneWriter} applies updates and clears;
                 \texttt{ClientRegistry} owns luxd's one display connection
-                and the D21 dispatch. \\
+                and wires \texttt{HubInteractionDispatch} for D21 dispatch. \\
 Domain (pure) & \modpath{domain/}                & The renderer-free and
                 socket-free element model.  \texttt{element\_abc.py} is
                 the \texttt{Element} ABC (data and behavior);
@@ -219,19 +256,23 @@ Protocol      & \modpath{protocol/}              & The wire contract:
                 \modpath{protocol/elements/}, and the message families in
                 \modpath{protocol/messages/}. \\
 Display       & \modpath{display/}               & The ImGui render loop
-                and coordinator.  \texttt{server.py},
-                \texttt{element\_renderer.py}, \texttt{table\_renderer.py},
-                \texttt{menu\_manager.py}, \texttt{idle\_screen.py}, and
+                and coordinator: \texttt{RenderLoop} in
+                \texttt{render\_loop.py}, per-kind adapters in
+                \texttt{renderers/imgui/}, replicated menus in
+                \texttt{replica/menu\_replica.py}, \texttt{idle\_screen.py}, and
                 \texttt{texture\_cache.py}. \\
 MCP tools     & \modpath{tools/}                 & Thin adapters over the
-                operations facade.  \texttt{tools.py} and
-                \texttt{composite\_tools.py} are display-facing tools;
+                operations facade. \texttt{read\_tools.py},
+                \texttt{write\_tools.py}, \texttt{display\_write\_tools.py}, and
+                \texttt{composite\_tools.py} define the UI tools;
+                \texttt{tools.py} composes the facade and formatters;
                 \texttt{subscribe\_tools.py} are the session pub-sub tools;
                 \texttt{server.py} owns the \texttt{FastMCP} instance. \\
 REST          & \modpath{rest/}                  & The typed FastAPI
                 surface.  \texttt{RestSurface} composes concern routers
                 (\texttt{scenes}, \texttt{menus}, \texttt{display},
-                \texttt{config}); \texttt{status.py} is the one
+                \texttt{display\_link}, \texttt{frame}, \texttt{config});
+                \texttt{status.py} is the one
                 \texttt{OpError}-to-HTTP table. \\
 MCP transport & \modpath{mcp\_transport.py}      & luxd's MCP leg:
                 streamable HTTP mounted at \texttt{/mcp} beside the REST
@@ -239,10 +280,10 @@ MCP transport & \modpath{mcp\_transport.py}      & luxd's MCP leg:
                 identity; \texttt{mcp\_session.py} runs the per-session
                 cleanup cascade; \texttt{session\_cleanup.py} tears down a
                 departed session's Hub state. \\
-CLI transport & \modpath{rest\_client.py}        & \texttt{LuxRestClient}
-                --- the CLI's typed HTTP client of luxd's REST routes.
-                \texttt{rest\_transport.py} is the HTTP transport;
-                \texttt{rest\_loopback.py} is the in-process transport
+Client facade & \modpath{client/facade.py} & \texttt{LuxClient}
+                --- the public library and CLI client.
+                \modpath{client/\_rest\_transport.py} implements REST;
+                \modpath{rest\_loopback.py} is the in-process transport
                 tests use. \\
 Gateway       & \modpath{luxd.py}                & Builds the one FastAPI
                 app on uvicorn, mounts the MCP leg and the REST surface,
@@ -256,8 +297,11 @@ Paths         & \modpath{paths.py}               & \texttt{DisplayPaths}
                 auto-spawn.  \modpath{hub\_paths.py} is the symmetric
                 \texttt{HubPaths} for luxd's port and PID files. \\
 Apps/Beads    & \modpath{apps/beads.py}          & \texttt{BeadsBrowser}
-                --- builds the beads issue table as an element tree.  Pure:
-                it holds no socket. \\
+                --- loads and orders issues; it holds no socket.
+                \texttt{BeadsBoard} in \modpath{apps/beads_board.py}
+                builds requests; \texttt{TableComposition} in
+                \modpath{protocol/compositions/table_composition.py}
+                builds the table UI on the Hub. \\
 Config        & \modpath{config.py}              & \texttt{ConfigManager}
                 --- reads and writes the per-repo display-mode toggle in
                 \texttt{<repo>/.punt-labs/lux.md}. \\
@@ -270,7 +314,7 @@ CLI           & \modpath{\_\_main\_\_.py}        & The Typer app: show,
 
 Every capability the system offers is one method on the
 \texttt{Operations} facade (\modpath{operations/facade.py}).  The facade
-composes seven concern classes, each owning one group of capabilities, and
+composes concern classes, each owning one group of capabilities, and
 delegates each method to the right one.  A caller --- an MCP adapter, a
 REST route, or a test --- holds one object and calls one method.
 
@@ -316,6 +360,8 @@ is the human sentence for logs and messages.
 \texttt{rejected}            & The engine refused the caller's request
   (the caller's fault). \\
 \texttt{invalid\_request}    & The request itself did not type-check. \\
+\texttt{identification\_required} & The caller must declare its identity. \\
+\texttt{push\_required} & The operation requires a push-capable connection. \\
 \texttt{not\_found}          & The named scene or resource does not exist. \\
 \texttt{fault}               & An engine-side failure: a malformed display
   reply, an unreadable config file. \\
@@ -325,10 +371,12 @@ is the human sentence for logs and messages.
 
 The REST surface maps each code to one HTTP status through a single shared
 table (\modpath{rest/status.py}): \texttt{invalid\_request} to 422,
+\texttt{identification\_required} to 401, \texttt{push\_required} to 403,
 \texttt{not\_found} to 404, \texttt{rejected} to 409, \texttt{fault} to
 502, \texttt{display\_unavailable} to 503, and \texttt{timeout} to 504.
 The mapping is a table, not per-route logic, so a new operation inherits it
-for free.  \texttt{LuxRestClient} reads the same table in reverse, so the
+for free. The private REST transport behind \texttt{LuxClient} reads the
+same table in reverse, so the
 CLI observes the same contract from the other end.
 
 \subsection{Data Flow}
@@ -338,10 +386,10 @@ Three data paths connect a client to the Display.
 \subsubsection{Write Path (Client $\to$ Hub $\to$ Display)}
 
 \begin{enumerate}
-  \item A client calls a capability --- the \tool{show} MCP tool, a
+  \item A client calls a capability --- the \tool{scene\_show} MCP tool, a
     \texttt{PUT /scenes/\{id\}} REST call, or \tool{lux show beads}.
   \item The surface builds a plain mapping and calls the request builder,
-    then calls one operation.  For \tool{show} that is
+    then calls one operation.  For \tool{scene\_show} that is
     \texttt{Operations.render}.
   \item The operation validates the request, then installs the scene into
     \texttt{HubDisplay} --- the authoritative store --- under the store
@@ -374,7 +422,7 @@ where the real handler runs.
     \field{value}, \field{ts}, \field{scene\_id}) and sends it to the Hub.
     One interaction produces one message per element/event bucket, however
     many handlers that bucket holds.
-  \item The Hub receives the message in \texttt{ClientRegistry.\_hub\_interaction\_dispatch},
+  \item The Hub receives the message in \texttt{HubInteractionDispatch.dispatch},
     resolves the authoritative element by \field{(scene\_id, element\_id)},
     checks its owner, builds the typed event, and fires the real handler
     chain once on its own copy.
@@ -383,10 +431,9 @@ where the real handler runs.
     whole scene and the Display renders the current tree.
 \end{enumerate}
 
-A \field{frame\_close} action is not an element interaction: the Display
-sends it when the user closes a frame, and the Hub answers by removing that
-frame's scenes so both tiers agree the frame is gone (Section
-\S\ref{sec:frames}).
+Closing a frame is Display-local: \texttt{SceneReplica.close} hides it
+without deleting Hub content or sending an interaction to the Hub
+(Section \S\ref{sec:frames}).
 
 \subsubsection{Update Path (Incremental Patching)}
 
@@ -405,9 +452,7 @@ frame's scenes so both tiers agree the frame is gone (Section
 % ===================================================================
 
 This section describes the Hub-authoritative core and the Element-ABC path
-the migration is converging on.  It is where new element work lands and the
-reference for how the whole system is meant to behave once migration
-completes.
+used by every wire element kind.
 
 The domain code in \modpath{domain/} imports no ImGui, no socket, and no
 JSON.  Adapters wrap it: the Display renders it, and the replicator moves
@@ -438,7 +483,7 @@ collaborators, each with one responsibility:
   TTL deadline, and its teardown --- all under the store lock (Section
   \S\ref{sec:frames}). \\
 \texttt{HubReads}           & The authoritative introspection reads that
-  answer \tool{inspect\_scene} and \tool{list\_scenes}. \\
+  answer \tool{scene\_inspect} and \tool{scene\_ls}. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -454,7 +499,7 @@ root observers, and child indexes rebuild in one place.
 
 \subsection{The Element ABC}
 
-The migrated kinds subclass the \texttt{Element} ABC in
+All wire element kinds subclass the \texttt{Element} ABC in
 \modpath{domain/element\_abc.py}.  The ABC carries data \emph{and}
 behavior:
 
@@ -549,10 +594,11 @@ path.
 \midrule
 \textbf{Element-ABC}  & All twenty-five element kinds.  Every kind decodes,
   mutates, and renders through the Element-ABC path; the pre-migration
-  frozen-dataclass model and its fork were deleted in B7.  Three kinds ---
-  \texttt{group}, \texttt{collapsing\_header}, \texttt{tab\_bar} --- are ABC
+  frozen-dataclass model and its fork were deleted in B7. Five kinds ---
+  \texttt{group}, \texttt{collapsing\_header}, \texttt{tab\_bar},
+  \texttt{modal}, and \texttt{window} --- are ABC
   containers holding ABC children.  \texttt{HubDisplay} authority with
-  ownership and cascade removal, the D21 four-event path, the frame
+  ownership and cascade removal, the D21 six-event path, the frame
   lifecycle, and Agent Subscribe/Publish are all in this column. \\
 \textbf{Display}      & The Display process runs the D21 event path and owns
   rendering, scene tabs, frames, and its own diagnostic buffers --- a
@@ -561,9 +607,8 @@ path.
 \end{tabular}
 \end{center}
 
-The direction is fixed by \texttt{target/target.md}; the pace is set by
-migrating one element family at a time, container plus primitives first
-(the migration plan, DES-041).
+The direction is fixed by \texttt{target/target.md}; DES-041 records the
+completed element migration.
 
 % ===================================================================
 \section{Wire Protocol}
@@ -593,14 +638,14 @@ Hub-internal (Section \S\ref{sec:ipc}).
 
 \subsection{Message Types}
 
-The message layer is split across six families in
+The message layer includes the core families in
 \modpath{protocol/messages/}: \texttt{scene}, \texttt{lifecycle},
 \texttt{menu}, \texttt{introspect}, \texttt{observer}, and
 \texttt{remote\_invocation}.  There is no standalone \texttt{interaction}
 family --- a user interaction travels as \msg{RemoteEventHandlerInvocation}
 from the \texttt{remote\_invocation} module.  A \texttt{MessageRegistry}
 (\modpath{protocol/messages/registry.py}) is the wire dispatch table,
-populated at import time by each family module; a test can build an isolated
+populated by \modpath{protocol/messages/\_wiring.py}; a test can build an isolated
 registry without touching the module default.
 
 \subsubsection{Client $\to$ Display}
@@ -614,17 +659,15 @@ registry without touching the module default.
   \field{elements[]}, \field{title}, \field{layout}, \field{frame\_id},
   \field{frame\_title}, \field{frame\_size}, \field{frame\_flags},
   \field{frame\_layout}. \\
-\msg{UpdateMessage} & Incremental patches.  Fields: \field{scene\_id},
-  \field{patches[]} (each: \field{id}, \field{set}, \field{remove}). \\
-\msg{ClearMessage}  & Remove scenes and reset state. \\
+\msg{HubManifestMessage} & Reconcile the set of scenes owned by this Hub,
+  removing replicas absent from the manifest. \\
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
 \msg{ConnectMessage} & Client identity handshake.  \textbf{Current fields:}
-  \field{name}, \field{kind} (\texttt{"hub"} or \texttt{"test"}).
-  \textbf{Designed, not yet shipped:} a dedicated, required
-  \field{hub\_id} field, populated by every connecting kind including
+  \field{name}, \field{kind} (\texttt{"hub"} or \texttt{"test"}), and required
+  \field{hub\_id}, populated by every connecting kind including
   \texttt{"test"} --- Section \S\ref{sec:addressing}. \\
 \msg{MenuMessage}   & Set the menu bar. \\
-\msg{RegisterMenuMessage} & Register per-connection menu items. \\
+\msg{CallbackMenuMessage} & Replicate callback menu entries. \\
 \msg{ThemeMessage}  & Apply a theme by name. \\
 \msg{QueryRequest}  & A control or introspection request the display
   answers.  Fields: \field{method}, \field{params}. \\
@@ -646,7 +689,8 @@ registry without touching the module default.
 \msg{RemoteEventHandlerInvocation} & A user interaction forwarded to the
   owning Hub: \field{element\_id}, \field{action}, \field{event\_kind}
   (\texttt{button\_clicked}, \texttt{value\_changed},
-  \texttt{header\_toggled}, \texttt{tab\_changed}), \field{value},
+  \texttt{header\_toggled}, \texttt{tab\_changed},
+  \texttt{modal\_closed}, \texttt{row\_selection\_changed}), \field{value},
   \field{ts}, optional \field{scene\_id}. \\
 \msg{ObserverMessage}    & A connection-scoped business event for the Agent
   Subscribe/Publish path: \field{topic} + \field{payload}. \\
@@ -662,12 +706,15 @@ compatibility rather than disconnecting the peer.
 
 \subsection{Element Kinds}
 
-The wire layer exposes twenty-five element kinds plus the non-element
-\texttt{Patch} payload used by \msg{UpdateMessage}.  All twenty-five are on
+The wire layer exposes twenty-five element kinds. All twenty-five are on
 the Element-ABC path (Section \S\ref{sec:hubdisplay}); the pre-migration
 frozen-dataclass model and its \texttt{ElementCodec} dispatch table were
 deleted in B7.  The \texttt{Element} union is assembled in
 \modpath{protocol/elements/\_\_init\_\_.py}.
+
+\texttt{SplitPaneElement} (\modpath{protocol/elements/split_pane.py}) is a
+\texttt{GroupElement} refinement whose JSON codec emits \texttt{kind="group"};
+it is not an additional wire kind.
 
 Every kind serializes two ways.  Its Level-1 form is a plain JSON dict
 through its per-kind codec; its wire form crossing the Hub-to-Display
@@ -729,7 +776,8 @@ codec, which preserves the Hub-side handlers the Display re-wraps.
               ABC. \\
 \midrule
 \texttt{table}     & \elem{table}             & Columns, rows, built-in
-              filters and detail panel.  ABC. \\
+              selection and native scrolling; filters and detail panels
+              are composed sibling elements. ABC. \\
 \bottomrule
 \end{longtable}
 
@@ -793,20 +841,19 @@ scene is framed, so there is no separate unframed removal path.  This is the
 amended contract the legacy display-server model now checks (Section
 \S\ref{sec:formal}).
 
-When the user closes a frame on the Display, the Display sends a
-\field{frame\_close} action.  The Hub removes every scene that frame held
-from \texttt{HubDisplay} and marks each dirty, so the authoritative store
-agrees with the window the user already closed.  The blank the replicator
-then sends is idempotent with that close.
+When the user closes a frame, \texttt{SceneReplica.close} marks its
+Display-local visibility closed and retains its content. The close never
+reaches the Hub. \texttt{Frame.restore} reopens it; content removal and TTL
+expiry remain separate Hub-owned operations (DES-088).
 
 \subsection{Scenes Survive Their Session}
 
 A scene outlives the connection that created it.  When an MCP session ends
 --- the client disconnects, or the SDK reaps it on idle --- the Hub forgets
 that connection as a client and releases its subscriptions and inbox, but
-it leaves the scenes installed.  The scenes stay owned by the departed
-connection id, so a later explicit removal --- a frame close, a
-\tool{clear}, or a TTL expiry --- can still reference the owner.  Nothing
+it leaves the scenes installed. The departure cascade releases ownership
+while retaining content; a later \tool{scene\_clear\_all} or TTL expiry can still
+remove the scenes. Nothing
 is blanked, so no repaint is marked.  A session's death does not erase what
 it drew.
 
@@ -830,7 +877,7 @@ small components implement this, all in \modpath{domain/hub/}:
     the deadlines.  It sleeps until the soonest deadline (capped at a
     one-second idle poll), sweeps the frames now due, and marks their
     scenes dirty so the replicator blanks both tiers --- the same path a
-    manual frame close takes.  It is one more store mutator on the loop,
+    explicit frame removal takes. It is one more store mutator on the loop,
     not a second timer thread.
 \end{itemize}
 
@@ -862,20 +909,22 @@ split out of \texttt{SceneReplica} so each has one job.
 \textbf{Field} & \textbf{Type and Purpose} \\
 \midrule
 \field{frame\_id}       & \texttt{str} --- unique identifier. \\
-\field{title}           & \texttt{str} --- window title bar. \\
+\field{heading} & \texttt{FrameHeading} --- title and owner scope label. \\
 \field{scenes}          & \texttt{dict[str, SceneMessage]} --- the frame's
   scenes, keyed by \field{scene\_id}. \\
 \field{scene\_order}    & \texttt{list[str]} --- tab ordering. \\
 \field{active\_tab}     & \texttt{str | None} --- the visible scene. \\
-\field{minimized}       & \texttt{bool} --- docked to the bottom bar. \\
+\field{visibility} & \texttt{FrameVisibility} --- on screen, docked, or closed;
+  queried through \texttt{is\_on\_screen}, \texttt{is\_docked}, and
+  \texttt{is\_closed}. \\
 \field{cascade\_index}  & \texttt{int} --- stagger offset for initial
   placement. \\
 \field{initial\_size}   & \texttt{tuple[int,int] | None} --- first-use size
   hint. \\
-\field{flags}           & ImGui window flags (\texttt{no\_resize},
+\field{hints.flags}     & ImGui window flags (\texttt{no\_resize},
   \texttt{no\_collapse}, \texttt{no\_title\_bar}, \texttt{no\_background},
   \texttt{no\_scrollbar}, \texttt{auto\_resize}). \\
-\field{layout}          & \texttt{Literal["tab", "stack"]} --- multi-scene
+\field{hints.layout}    & \texttt{Literal["tab", "stack"]} --- multi-scene
   composition mode. \\
 \bottomrule
 \end{tabular}
@@ -901,10 +950,11 @@ restores the frame.
 \begin{quote}
 \small\textit{Design status: DES-089 in \texttt{DESIGN.md}, Status:
 ACCEPTED --- ratified by the operator 2026-09-05.  The addressing model
-below is evaluator-accepted design, not yet implemented; the code today
-runs a single Hub connection to the Display in practice, though nothing in
-the transport enforces that.  The implementation plan and bead map live in
-the companion increment-of-work document,
+below is implemented in \modpath{display/replica/lux_address.py},
+\modpath{display/replica/address_book.py}, and
+\modpath{domain/hub_scoped_store.py}. The listings are abbreviated
+implementation sketches, not complete source copies. The original
+implementation plan and bead map live in the companion historical document,
 \path{docs/architecture/multi-hub-addressing-work.md}.}
 \end{quote}
 
@@ -930,20 +980,13 @@ silently evicted the first's root.  The fix was \texttt{ConnectionScopedId}:
 compose the store key from the writing connection's own id, so collision
 becomes unrepresentable rather than merely checked.
 
-The Display's own storage has the identical shape of bug, one layer up, and
-it is live in the tree today.  \texttt{FrameBook} holds
-\field{\_scene\_to\_frame} and \field{\_scene\_to\_owner} as flat
-dictionaries keyed by the bare Rung-2 scene id string, spanning every
-connection the Display has ever seen.  \texttt{MenuReplica} holds
-\field{\_callback\_menus}, replaced wholesale on every push.  Neither
-carries a dimension for ``which Hub sent this.''  \texttt{ConnectionId} is
-a deterministic hash of a client's self-declared fields, computed
-independently by each Hub process with no cross-Hub coordination --- two
-different Hubs can and eventually will mint the identical
-\texttt{ConnectionId} for two different real clients.  The day a second Hub
-connects, its scene push can silently clobber the first Hub's scene under
-the identical key, by the same mechanism DES-086 already found and fixed
-once.
+Before the addressing implementation, the Display's flat scene and menu
+dictionaries lacked a Hub-of-origin dimension.
+\texttt{ConnectionId} is computed independently by each Hub, so two Hubs
+can mint the same Rung-2 id. Without the Hub dimension, a second Hub's
+push could silently clobber the first Hub's scene. The implemented
+\texttt{HubScopedStore} prevents that collision
+(\modpath{domain/hub_scoped_store.py}).
 
 \subsection{Identity Is a Path}
 
@@ -960,8 +1003,10 @@ it.  That is DES-089's governing phrase.
 
 \subsection{The Three-Rung Ladder}
 
-Three rungs exist.  The first two are already shipped, in two different
-mechanisms that share one shape.  The third does not exist in code today.
+All three rungs are implemented. The Hub namespaces client-owned ids;
+the Display adds the Hub-of-origin dimension through \texttt{LuxAddress}
+and \texttt{AddressBook} (\modpath{display/replica/lux_address.py} and
+\modpath{display/replica/address_book.py}).
 
 \begin{lstlisting}
 Rung 1 -- Producer label            unscoped, freely reused
@@ -972,7 +1017,7 @@ Rung 1 -- Producer label            unscoped, freely reused
 Rung 2 -- Hub-connection scope       unique within ONE Hub's own registry
   ConnectionScopedId / CallbackInvocation: {connection_id}\x1f{local_id}
         |
-        |  namespaced by the Display, across every Hub it holds (this design)
+        |  namespaced by the Display, across every Hub it holds (AddressBook)
         v
 Rung 3 -- Hub-of-origin scope         unique across every Hub the Display holds
   LuxAddress: {hub}\x1f{connection_id}\x1f{local_id}
@@ -991,8 +1036,8 @@ Rung 3 -- Hub-of-origin scope         unique across every Hub the Display holds
   (scenes/frames, DES-086); \texttt{CallbackInvocation} (menu leaves,
   DES-058) \\
 3. Hub-of-origin scope & The Display, over every Hub it holds & Unique
-  across every Hub connection the Display currently holds & Does not exist
-  yet --- this design specifies it \\
+  across every Hub connection the Display currently holds &
+  \texttt{LuxAddress}, \texttt{AddressBook}, \texttt{HubScopedStore} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1093,6 +1138,10 @@ makes one Hub connection distinct from another, and, per the operator's
 cross-host ruling, distinct from a Hub on a different machine, not merely a
 different process on the same one.
 
+The sketch below includes the current lowercase ASCII hostname
+normalization through \texttt{Hostname}; the complete type, including
+\texttt{stub()}, is in \modpath{domain/hub_id.py}.
+
 \begin{lstlisting}
 @final
 @dataclass(frozen=True, slots=True)
@@ -1114,8 +1163,17 @@ class HubId:
     place -- that argument does not carry across a network, which is
     exactly why cross-host needs mTLS (see Cross-Host Transport and
     Trust)."""
-    hostname: str
+    _hostname: str
     pid: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "_hostname", Hostname(self._hostname).value
+        )
+
+    @property
+    def hostname(self) -> str:
+        return self._hostname
 
     @classmethod
     def current(cls) -> Self:
@@ -1155,7 +1213,7 @@ Display-side store for the type-level guarantee the \texttt{Optional}
 declined to make.  The operator's correction: a \texttt{kind="test"}
 connection is a stand-in for a Hub on this leg --- it runs the identical
 accept path, the identical \msg{ReadyMessage}/\msg{ConnectMessage}
-exchange, and the identical eventual \texttt{AddressBook} bookkeeping a
+exchange, and the identical \texttt{AddressBook} bookkeeping a
 real Hub does --- so it should present a \texttt{HubId} exactly as a real
 Hub does, not decline to.  ``This leg'' is the same-host \field{AF\_UNIX}
 leg specifically, the only leg \texttt{kind="test"} is ever sent on;
@@ -1166,7 +1224,8 @@ already builds a real one) satisfies the identical contract.  Once every
 connecting \field{kind} populates \field{hub\_id}, there is no connection
 on the same-host \field{AF\_UNIX} socket that legitimately lacks one, and
 both the \texttt{Optional} and the runtime discriminated check that used
-to stand behind it go away:
+to stand behind it have been removed. The current message is defined in
+\modpath{protocol/messages/connect_message.py}; codecs are omitted here:
 
 \begin{lstlisting}
 @dataclass(frozen=True, slots=True)
@@ -1295,20 +1354,13 @@ again.
 \subsection{Aggregated Storage: \texttt{HubScopedStore}}\label{sec:hubscopedstore}
 
 An aggregated store is an object, not a dictionary passed between
-functions.  \texttt{FrameBook}'s \field{\_scene\_to\_frame} and
-\field{\_scene\_to\_owner}, and \texttt{MenuReplica}'s
-\field{\_callback\_menus}, are today flat \texttt{dict[str, ...]}
-mappings spanning every connection the Display has ever seen --- a
-primitive collection standing in for a domain type, with the keying and
-purge logic living in whichever caller happens to touch the dict rather
-than on the collection itself.  That is exactly what PY-OO-5 (behavior
-lives with its data) and PY-IC-1 (composition over primitives) in
-\path{punt-labs/.claude/rules} forbid, and what \path{punt-kit/standards/oo.md}
-names as the same mistake at the language-agnostic level.
-\textbf{This design specifies the replacement as a class, not a shape
-left to the implementer:} \texttt{HubScopedKey} is the key type, and
-\texttt{HubScopedStore} is the container every aggregator composes in
-place of its bare dict.
+functions. \texttt{HubScopedKey} is the implemented key type
+(\modpath{domain/hub_scoped_key.py}); \texttt{HubScopedStore} owns keying,
+lookup, and per-Hub retirement
+(\modpath{domain/hub_scoped_store.py}). \texttt{FrameBook} composes it
+for frames (\modpath{display/replica/frame_book.py}), replacing the old
+unscoped dictionary discipline. The listing below abbreviates the store's
+public operations.
 
 \begin{lstlisting}
 @final
@@ -1570,8 +1622,10 @@ Hub is a real risk this design closes.
 \small\textit{Design status: DES-090 in \texttt{DESIGN.md}, Status:
 ACCEPTED --- ratified by the operator 2026-09-05.  Companion to
 \S\ref{sec:addressing} (DES-089), which states the five-point contract
-this design satisfies.  Not yet implemented; the bead map and dependency
-order live in \path{docs/architecture/multi-hub-addressing-work.md}.}
+this design satisfies.  The text below preserves the accepted transport design. Components now
+exist in \modpath{trust/}, \modpath{display/cross_host_listener.py}, and
+\modpath{domain/hub/cross_host_connector.py}; standard entry points do not
+wire the network leg. The original bead map and dependency order live in \path{docs/architecture/multi-hub-addressing-work.md}.}
 \end{quote}
 
 Today the Hub-to-Display leg is a single mechanism doing two jobs at once:
@@ -2487,7 +2541,7 @@ is caught at once, while a mention in a docstring or comment is never
 mistaken for use.  A new reach-around cannot slip back in through a module
 an enumerated list would have forgotten.
 
-\subsection{Display Socket Discovery and Auto-Spawn}
+\subsection{Display Socket Discovery and Supervision}
 
 The Display's socket path resolves in priority order (\modpath{paths.py}):
 
@@ -2498,29 +2552,29 @@ The Display's socket path resolves in priority order (\modpath{paths.py}):
     within macOS's $\sim$104-character \texttt{AF\_UNIX} path limit).
 \end{enumerate}
 
-A PID file is written at \texttt{\{socket\_path\}.pid} on startup, and luxd
-verifies liveness via \texttt{os.kill(pid, 0)} before connecting.
-\texttt{DisplayPaths.ensure()} spawns the Display if it is not running,
-detached from the caller's process group, and polls socket existence and
-PID liveness every 100\,ms until ready or a 5\,s timeout.  When a send to
-the Display fails with an \texttt{OSError}, the replicator drops the stale
-client so the next send reconnects.
+\texttt{DisplayPaths} derives PID and log paths by replacing the socket
+suffix with \texttt{.sock.pid} and \texttt{.sock.log}. Its
+\texttt{ensure()} helper can spawn a detached Display and await readiness,
+but the production \texttt{ClientRegistry} creates its link with
+\texttt{auto\_spawn=False}: the independent Display service supervises it.
+The registry owns reconnects and dial retirement; the replicator retries
+through that policy, rather than spawning a Display on a failed send.
 
 \subsection{The Display Render Loop}
 
-The Display runs an ImGui render loop via \texttt{hello\_imgui.run()}.  Each
-frame, the \texttt{RenderLoop.\_on\_frame()} callback runs four
-non-blocking phases: accept new socket connections, poll the connection for
-messages and dispatch each by type, render the active scenes and frames,
-and flush any queued interaction messages back to the Hub.  A frame
-completes in microseconds when idle; \texttt{hello\_imgui.fps\_idling.fps\_idle
-= 30.0} caps the idle rate, and GLFW vsync paces active frames.
+\texttt{RenderLoop.run} configures \texttt{hello\_imgui.RunnerParams} and
+starts \texttt{immapp.run}. The \texttt{show\_gui} callback delegates to
+\texttt{FrameTurn.run} (\modpath{display/frame_turn.py}): accept clients,
+advance an optional cross-host leg, poll clients, render, and flush events.
+The \texttt{after\_swap} callback releases paint acknowledgements and
+pending screenshots. Socket sends share a bounded per-frame budget.
+\texttt{runner\_params.fps\_idling.fps\_idle = 30.0} caps the idle rate.
 
-Table filtering runs in the render loop with zero Hub round-trips.
-\texttt{TableRenderer} draws the search and combo filter controls, applies
-AND logic across active filters (case-insensitive substring for search,
-exact match for combos), resets pagination to page zero on a filter change,
-and renders a two-column detail grid for the selected row.
+\texttt{ImGuiTableRenderer} in
+\modpath{display/renderers/imgui/table.py} paints the grid with native
+scrolling, sorting, and selection. \texttt{TableComposition} builds search,
+combo filters, and the detail panel as ordinary elements; their handlers
+run on the Hub and re-push the changed UI.
 
 % ===================================================================
 \section{Client Surfaces}\label{sec:tools}
@@ -2533,95 +2587,36 @@ construction, and no display round-trips.
 
 \subsection{MCP Tools}
 
-The display-facing tools live in \modpath{tools/tools.py} and
+The display-facing tools live in \modpath{tools/read_tools.py},
+\modpath{tools/write_tools.py}, \modpath{tools/display_write_tools.py}, and
 \modpath{tools/composite\_tools.py}; the session pub-sub tools live in
 \modpath{tools/subscribe\_tools.py}.
 
-\begin{longtable}{lp{8.2cm}}
-\toprule
-\textbf{Tool} & \textbf{Operation and purpose} \\
-\midrule
-\endfirsthead
-\toprule
-\textbf{Tool} & \textbf{Operation and purpose} \\
-\midrule
-\endhead
-\multicolumn{2}{l}{\textbf{Scenes}} \\
-\midrule
-\tool{show}           & \texttt{render} --- install a scene from element
-  dicts. \\
-\tool{show\_table}    & \texttt{render\_table} --- compose a filterable
-  table tree and delegate to \texttt{render}. \\
-\tool{show\_dashboard} & \texttt{render\_dashboard} --- compose a metrics,
-  charts, and table tree and delegate to \texttt{render}. \\
-\tool{update}         & \texttt{update} --- apply patches by element ID. \\
-\tool{clear}          & \texttt{clear} --- remove the caller's scenes. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Menus}} \\
-\midrule
-\tool{set\_menu}      & \texttt{set\_menu} --- replace the Hub-owned menu
-  bar. \\
-\tool{register\_tool} & \texttt{register\_menu\_item} --- add a tool item
-  for the caller's session. \\
-\tool{list\_menus}    & \texttt{list\_menus} --- read the menu bar. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Introspection (Hub-authoritative)}} \\
-\midrule
-\tool{inspect\_scene} & \texttt{inspect\_scene} --- a scene's element tree
-  from the store, with each element's \field{render\_path} (constant
-  \texttt{"abc"}) and \field{resolved\_props}. \\
-\tool{list\_scenes}   & \texttt{list\_scenes} --- every live scene and
-  frame from the store. \\
-\tool{list\_clients}  & \texttt{list\_clients} --- the Hub's sessions and
-  their scopes. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Display facts (proxied)}} \\
-\midrule
-\tool{get\_display\_info} & \texttt{get\_display\_info} --- backend,
-  geometry, FPS, PID, uptime. \\
-\tool{get\_window\_settings} & \texttt{get\_window\_settings} --- opacity,
-  font scale, decoration, idle FPS. \\
-\tool{set\_window\_settings} & \texttt{set\_window\_settings}. \\
-\tool{get\_theme}     & \texttt{get\_theme} --- the active theme and the
-  available themes. \\
-\tool{set\_theme}     & \texttt{set\_theme}. \\
-\tool{set\_frame\_state} & \texttt{set\_frame\_state} --- minimize or
-  restore a frame. \\
-\tool{list\_recent\_events} & \texttt{list\_recent\_events} --- the
-  display's recent interactions. \\
-\tool{list\_errors}   & \texttt{list\_errors} --- the display's recent
-  errors. \\
-\tool{screenshot}     & \texttt{screenshot} --- refuses with
-  \texttt{rejected}: framebuffer capture is unsolved below the message
-  layer (DES-028). \\
-\tool{ping}           & \texttt{ping} --- display liveness probe. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Per-repo config}} \\
-\midrule
-\tool{display\_mode}  & \texttt{read\_display\_mode}. \\
-\tool{set\_display\_mode} & \texttt{write\_display\_mode}. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Session pub-sub}} \\
-\midrule
-\tool{subscribe}      & \texttt{subscribe} --- subscribe the session to a
-  topic in its own scope. \\
-\tool{unsubscribe}    & \texttt{unsubscribe}. \\
-\tool{publish}        & \texttt{publish} --- fan a business event to the
-  session's subscribers. \\
-\tool{recv}           & \texttt{receive} --- take the next session-scoped
-  business event.  This is not the display interaction stream. \\
-\bottomrule
-\end{longtable}
+The registered tool names (decorator \texttt{name=} values, not the Python
+adapter function names) are:
+\begin{itemize}
+  \item \textbf{Scenes:} \tool{scene\_show}, \tool{scene\_table},
+    \tool{scene\_dashboard}, \tool{scene\_update}, \tool{scene\_clear},
+    \tool{scene\_clear\_all}, \tool{scene\_inspect}, \tool{scene\_ls}.
+  \item \textbf{Sessions and callbacks:} \tool{session\_identify},
+    \tool{session\_ls}, \tool{callback\_register}, \tool{callback\_pending}.
+  \item \textbf{Menus and frames:} \tool{menu\_set}, \tool{menu\_ls},
+    \tool{frame\_remove}, \tool{list\_frames}.
+  \item \textbf{Display facts:} \tool{display\_info},
+    \tool{display\_window\_get}, \tool{display\_theme\_get},
+    \tool{display\_state\_get}, \tool{display\_link\_get},
+    \tool{display\_mode\_get}, \tool{display\_screenshot}, \tool{ping},
+    \tool{event\_ls}, \tool{error\_ls}.
+  \item \textbf{Session pub-sub:} \tool{topic\_subscribe},
+    \tool{topic\_unsubscribe}, \tool{topic\_publish}, \tool{topic\_recv}.
+\end{itemize}
 
-An introspection tool reads Hub-authoritative state: \tool{inspect\_scene},
-\tool{list\_scenes}, and \tool{list\_clients} ask the Hub, not the Display.
-A display-fact tool --- a theme, a window setting, a framebuffer, the
-display's own ring buffers --- proxies a read or write over luxd's one
-connection.  The Hub cannot own an ImGui theme or a GPU backend string, so
-those stay display facts; the caller still reaches them the same way,
-through a Hub operation.  Menu state is the deliberate exception: a menu is
-interface the agent submitted, so the Hub owns it and the replicator pushes
-it like any scene.
+Scene introspection reads Hub-authoritative state; optional visibility,
+geometry, and widget facts are proxied from the Display. Display-fact
+operations proxy reads over the Hub's connection. Menus are Hub-owned
+submitted interface state, pushed by the replicator. The screenshot
+operation currently returns \texttt{OpError(rejected)}; the lower-level
+Display capture machinery is not exposed through that operation.
 
 \subsection{REST Routes}
 
@@ -2642,38 +2637,36 @@ the OpenAPI schema from the model, so there is no second schema to maintain.
 \texttt{GET /clients}                & \texttt{list\_clients} & \texttt{ClientList} \\
 \texttt{GET /menus}                  & \texttt{list\_menus}  & \texttt{MenuList} \\
 \texttt{PUT /menus}                  & \texttt{set\_menu}    & \texttt{Ok | OpError} \\
-\texttt{POST /menus/items}           & \texttt{register\_menu\_item} & \texttt{Ok | OpError} \\
+\texttt{POST /menus/callbacks}       & \texttt{register\_callback} & \texttt{Ok | OpError} \\
 \texttt{GET /events}                 & \texttt{list\_recent\_events} & \texttt{RecentEvents} \\
 \texttt{GET /errors}                 & \texttt{list\_errors} & \texttt{RecentErrors} \\
 \texttt{GET /display}                & \texttt{get\_display\_info} & \texttt{DisplayInfo | OpError} \\
-\texttt{GET,PUT /display/theme}      & \texttt{get/set\_theme} & \texttt{ThemeState | OpError} \\
-\texttt{GET,PATCH /display/window}   & \texttt{get/set\_window\_settings} & \texttt{WindowSettings | OpError} \\
-\texttt{PATCH /display/frames/\{id\}} & \texttt{set\_frame\_state} & \texttt{Ok | OpError} \\
+\texttt{GET /display/theme}          & \texttt{get\_theme} & \texttt{ThemeState | OpError} \\
+\texttt{GET /display/window}         & \texttt{get\_window\_settings} & \texttt{WindowSettings | OpError} \\
+\texttt{GET /display/frames}         & \texttt{list\_frames} & \texttt{FrameStates | OpError} \\
+\texttt{POST /display/frames/\{id\}/remove} & \texttt{remove\_frame} & \texttt{Ok | OpError} \\
 \texttt{GET /display/screenshot}     & \texttt{screenshot}   & \texttt{Screenshot | OpError} \\
 \texttt{GET /display/ping}           & \texttt{ping}         & \texttt{Pong | OpError} \\
-\texttt{GET,PUT /display-mode}       & \texttt{read/write\_display\_mode} & \texttt{DisplayModeState | OpError} \\
+\texttt{GET /display-mode}           & \texttt{read\_display\_mode} & \texttt{DisplayModeState | OpError} \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 The \texttt{GET /display/screenshot} route exists but refuses like its tool:
-framebuffer capture is unsolved below the message layer, so \texttt{screenshot}
-returns \texttt{rejected}, which the table maps to HTTP 409 (DES-028).
+the operation deliberately refuses even though lower-level Display capture
+machinery exists. Thus \texttt{screenshot} returns \texttt{rejected}, which the table maps to HTTP 409 (DES-028).
 
-Pub-sub is not on REST.  Publishing is scoped to the publisher's own
-session, and a REST caller shares one anonymous default scope with no
-subscribe route, so a REST publish could return success while being
-structurally unable to reach any subscriber.  The pub-sub operations stay
-MCP-only until a REST caller has a real session identity to subscribe under.
-For the same reason, every REST call today lands in one default Hub scope;
-per-caller REST scoping arrives with the multi-user future.
+REST writes resolve caller identity and scope per request through
+\modpath{rest/identity.py}, rather than sharing one anonymous write scope.
+The companion WebSocket listen leg in \modpath{ws_listen.py} carries
+callbacks and topic events. MCP exposes the subscribe/publish/recv tools.
 
 \subsection{The Command-Line Tool}
 
 The CLI is the third thin client of the one engine.  \tool{lux show beads}
-builds the beads element tree with the pure \texttt{BeadsBrowser} and sends
-it to luxd's REST API through \texttt{LuxRestClient}
-(\modpath{rest\_client.py}); it never touches the display socket.  The
+loads issues with \texttt{BeadsBrowser}, builds a request with
+\texttt{BeadsBoard}, and sends it to luxd's REST API through \texttt{LuxClient}
+(\modpath{client/facade.py}); it never touches the display socket. The
 client locates luxd's port from \texttt{HubPaths}, posts the request model,
 and reads the typed result.  Two outcomes are distinct: luxd being
 unreachable (no port file, a refused connection, a stalled response) raises
@@ -2715,16 +2708,14 @@ blocks an agent-facing call.  This liveness property --- no mutator is ever
 disabled by display I/O --- is one of the invariants the replicator formal
 model checks (Section \S\ref{sec:formal}).
 
-The Display's per-frame cost is a \texttt{select()} on the one connection,
-a buffer drain, the ImGui draw calls (linear in visible element count), and
-an event flush.  Table filtering is $O(R \cdot C)$ per frame in rows and
-columns, fast for tables under $\sim$10{,}000 rows, with pagination
-bounding the rendered rows.
+The Display polls its connections, drains buffers, paints the visible
+widgets, and flushes events. Table filtering runs on the Hub when its
+composed controls change; the Display grid uses native scrolling and sorting.
 
 \subsection{Memory}
 
 \begin{itemize}
-  \item \textbf{Scene storage.}  Scenes are Python dataclass trees in
+  \item \textbf{Scene storage.} Scenes are Element-ABC object trees in
     memory, bounded per message by the 16\,MiB cap; dismissed scenes are
     garbage-collected.
   \item \textbf{Texture cache.}  OpenGL texture IDs are held under an LRU
@@ -2741,11 +2732,12 @@ bounding the rendered rows.
 \subsection{Known Limitations}
 
 \begin{enumerate}
-  \item \textbf{No ImGui ID scoping.}  Widget IDs derive from
-    \field{element\_id} alone, so ImGui internal state can bleed between
-    tabs with colliding IDs.
-  \item \textbf{No screenshot capture.}  Framebuffer capture is unsolved
-    below the message layer, so \tool{screenshot} refuses (DES-028).
+  \item \textbf{Scoped IDs.} Scene submission namespaces scene and frame IDs
+    by connection; Display widget state uses scene-scoped keys. Callers
+    must still supply unique element IDs within each scene.
+  \item \textbf{No screenshot operation.} The public
+    \tool{display\_screenshot} tool still refuses even though the Display
+    has lower-level capture machinery (DES-028).
 \end{enumerate}
 
 % ===================================================================
@@ -2762,8 +2754,9 @@ is its only client, filesystem permissions protect the socket directory
 (user-only, mode \texttt{0700}), and an oversize or malformed frame
 disconnects the peer rather than crashing the Display.
 
-A third boundary is designed but not yet implemented: an opt-in, mutually
-authenticated TLS listener alongside the Unix socket, for the cross-host
+An opt-in, mutually authenticated TLS listener is implemented as a
+transport component in \modpath{display/cross_host_listener.py}, but is
+not wired by the standard Display entry point. It supports the cross-host
 case where a Display aggregates Hubs on other machines.  Section
 \S\ref{sec:crosshost} (DES-090) specifies its threat model, its transport
 choice (TLS 1.3 against a per-user personal CA), and its invariants in
@@ -2772,13 +2765,9 @@ above.
 
 \subsection{Render Function Consent}
 
-A render function is the one element kind that executes arbitrary code, and
-its security model is consent-based, not sandbox-based.  A best-effort AST
-scan flags suspicious imports and dangerous builtins as a UX signal, not a
-boundary; a consent modal shows the full source with any warnings, and the
-user must click Allow to run it; execution is not sandboxed --- the code
-runs in the Display's process.  A render function should be treated as
-user-approved code, equivalent to a script the user chose to run.
+DES-004 and DES-012 record the historical code-on-demand capability and its
+consent model. No current wire element kind accepts a render function;
+that historical execution path is not part of the current rendering API.
 
 \subsection{Protocol Robustness}
 
@@ -2802,8 +2791,9 @@ user-approved code, equivalent to a script the user chose to run.
 \begin{itemize}
   \item The Display runs as a normal Dock app; the Dock icon and Cmd-Tab
     entry aid operational debugging.
-  \item \texttt{setproctitle("Lux")} names the process in \texttt{ps} and
-    \texttt{top}.
+  \item \texttt{set\_process\_title("luxd-display")} in
+    \modpath{luxd_display.py} names the renderer process in
+    \texttt{ps} and \texttt{top}; \tool{luxd-hub} names the Hub.
   \item Font discovery prefers Arial Unicode or Helvetica and merges Apple
     Symbols and STIX Two Math for mathematical glyphs.
   \item Socket paths stay within the $\sim$104-character \texttt{AF\_UNIX}
@@ -2823,11 +2813,11 @@ user-approved code, equivalent to a script the user chose to run.
 \section{Formal Models}\label{sec:formal}
 % ===================================================================
 
-Four Z specifications hold parts of the system to a checked model.  Each is
-type-checked with Spivey's \texttt{fuzz} and model-checked with ProB; the
-first two model concurrency the current code runs, and the third models the
-Display singleton lifecycle.  The fourth is the legacy display-server model,
-which the current display code is still refined against.
+The following four foundational Z specifications are checked with Spivey's
+\texttt{fuzz} and ProB. Additional lifecycle, visibility, namespacing,
+listen, and cross-host models and their coverage audits are indexed in
+\texttt{docs/README.md}. The legacy display-server model is still exercised
+by refinement tests.
 
 \begin{center}
 \begin{tabular}{p{4.3cm}p{9cm}}
@@ -2868,14 +2858,11 @@ cases from its operation schemas.  The legacy model predates multi-scene
 tabs and the Hub/Display split; its abstraction maps multi-scene state to
 the active tab.
 
-\textbf{Pending, not yet built.}  DES-090's cross-host design
-(\S\ref{sec:crosshost}) names two invariants as z-spec-REQUIRED once
-implementation starts --- no content before verification, and at most one
-live connection per \texttt{HubId} --- with the concrete race each model
-must exhibit and exclude, and a fidelity requirement for each.  Neither is
-modeled yet; the design mission's own instruction was to flag, not model,
-ahead of implementation.  Tracked in the increment-of-work document,
-\path{docs/architecture/multi-hub-addressing-work.md}.
+DES-090's no-content-before-verification and one-live-connection-per-Hub
+invariants now have companion models:
+\path{docs/crosshost_connection_lifecycle.tex} and
+\path{docs/crosshost_hubid_preemption.tex}, with fidelity controls and the
+coverage audit \path{docs/crosshost_transport_coverage.md}.
 
 % ===================================================================
 \section{Test Architecture}
@@ -2890,7 +2877,7 @@ The suite is layered; the exact count changes, so this records the shape.
     change without one is unshippable.
   \item \textbf{Operations and surfaces.}  The operations facade over
     fakes, the REST routers via \texttt{TestClient}, the MCP adapters, and
-    the CLI's \texttt{LuxRestClient}.
+    the CLI's \texttt{LuxClient}.
   \item \textbf{Hub domain.}  \texttt{HubDisplay} authority and ownership,
     the D21 dispatch, the frame lifecycle, and the replicator.
   \item \textbf{Guards.}  The display-socket AST guard

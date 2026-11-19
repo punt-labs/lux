@@ -20,7 +20,7 @@ Lux shows tables, charts, forms, and other UI elements in a desktop window on be
 curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/175b81bc/install.sh | sh
 ```
 
-Restart Claude Code to activate the plugin. The Lux window opens when an agent sends visual output.
+Restart Claude Code to activate the plugin. The installer starts the Hub and Display services; agent output appears in the Lux window.
 
 <details>
 <summary>Manual install (if you already have uv)</summary>
@@ -29,6 +29,13 @@ Install the CLI, the Hub, and the window renderer:
 
 ```bash
 uv tool install 'punt-lux[display]'
+```
+
+Register and start the Hub and Display services:
+
+```bash
+lux hub install
+lux display install
 ```
 
 Add the Punt Labs plugin marketplace:
@@ -133,7 +140,7 @@ Use one install method per machine. Homebrew and the `curl | sh` installer put `
 
 ![Beads issue board with filterable table and detail panel](docs/assets/beads-board.png)
 
-*The same table and detail layout works for any tabular data: search, combo filters, pagination, and a detail panel from one `scene_table` call.*
+*The same table and detail layout works for any tabular data: search, combo filters, scrolling, and a detail panel from one `scene_table` call.*
 
 ![Filterable data explorer with detail panel](docs/assets/data-explorer-filtered.png)
 
@@ -218,6 +225,7 @@ Agents use Lux through the MCP tools that `luxd` serves at its streamable-HTTP e
 | `display_mode_get(repo)` | Whether Lux display mode is on or off for a project; pass the project's absolute path. Set it with `lux display mode on --repo <path>` or `off` |
 | `display_state_get()` | Widget and frame state for the scenes you own |
 | `display_link_get()` | Whether a window is connected and, if not, how many scenes the Hub is holding, the current retry delay, and the Hub's host and PID |
+| `display_screenshot()` | Currently unsupported; returns an error rather than an image |
 | `list_frames()` | The window's frames and whether each is on screen, docked, or closed |
 | **Introspection** | |
 | `scene_inspect(scene_id)` | Element tree of a scene you own |
@@ -248,7 +256,7 @@ All elements with an `id` accept an optional `tooltip` field (text shown on hove
 
 ## CLI Commands
 
-Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Commands that change state accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Every command accepts `--json`, `--verbose`, and `--quiet`.
+Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Scene, frame, menu, session, and callback writes accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Most data commands accept `--json`, `--verbose`, and `--quiet`; service and plugin commands have their own options. Use `lux <noun> <verb> --help` for each command's flags.
 
 | Noun | Verbs |
 |---|---|
@@ -256,7 +264,7 @@ Most commands take the form `lux <noun> <verb>` and use the same names as the MC
 | `lux frame` | `remove` |
 | `lux menu` | `ls`, `set` |
 | `lux session` | `ls`, `inspect`, `identify` |
-| `lux display` | `info`, `theme`, `state`, `mode`, `window`, `link` |
+| `lux display` | `info`, `theme`, `state`, `mode`, `window`, `link`, `screenshot` (currently unsupported) |
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |
@@ -298,11 +306,11 @@ Python applications drive the Hub through `LuxClient`, a typed async client for 
 Agent or app
   │ MCP tools, CLI, or Python library (HTTP)
   ▼
-luxd (Hub)
+luxd-hub (Hub)
   │ holds scenes and runs handlers
   │ sends scenes; receives clicks and changes
   ▼
-Lux window (ImGui + OpenGL)
+luxd-display (ImGui + OpenGL)
   │ draws at 60fps
   ▼
 Window on screen
