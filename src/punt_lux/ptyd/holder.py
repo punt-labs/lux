@@ -11,23 +11,24 @@ import contextlib
 import errno
 import fcntl
 import os
-import pty
 import select
 import struct
 import termios
 import time
 from collections.abc import Sequence
-from typing import Never, Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.ptyd.child import ChildLifetime
-from punt_lux.ptyd.environment import user_environment
 from punt_lux.ptyd.input_buffer import InputBuffer
+from punt_lux.ptyd.pty_spawn import PtySpawn
+
+if TYPE_CHECKING:
+    from punt_lux.ptyd.terminal_child import TerminalChild
 
 
 class PtyHolder:
     """Owned PTY resource with bounded, single-threaded IO operations."""
 
-    _child: ChildLifetime
+    _child: TerminalChild
     _fd: int
     _input: InputBuffer
     _reader_open: bool
@@ -51,17 +52,13 @@ class PtyHolder:
         self._closed = False
         self._budget = budget
         self._time_budget_s = time_budget_s
-        env = user_environment()
-        command = list(argv) if argv else [env["SHELL"], "-l"]
-        pid, self._fd = pty.fork()
-        if pid == 0:
-            cls._exec_child(command, env)
-        self._child = ChildLifetime(pid)
+        self._child, self._fd = PtySpawn.start(argv)
         try:
             os.set_blocking(self._fd, False)
             self.resize(cols, rows)
         except BaseException:
             self.close()
+            self._child.finish()
             raise
         return self
 
@@ -113,15 +110,18 @@ class PtyHolder:
                 self._fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0)
             )
 
-    def close(self) -> None:
-        """Release the master exactly once, then stop/reap its child."""
+    def close(self) -> bool:
+        """Release the master once; return true when group cleanup has completed."""
         if not self._closed:
             self._closed = True
             self._reader_open = False
             self._input.clear()
             with contextlib.suppress(OSError):
                 os.close(self._fd)
-        self._child.stop()
+        return self._child.stop()
+
+    def reap(self) -> bool:
+        return self._child.poll()
 
     def _read(self, size: int) -> bytes:
         try:
@@ -165,15 +165,3 @@ class PtyHolder:
     def _check_size(cols: int, rows: int) -> None:
         if not 1 <= cols <= 1024 or not 1 <= rows <= 512:
             raise ValueError("terminal grid is outside the supported bounds")
-
-    @staticmethod
-    def _exec_child(argv: list[str], env: dict[str, str]) -> Never:
-        try:
-            os.execvpe(argv[0], argv, env)  # noqa: S606 -- explicitly requested argv
-        except (OSError, ValueError, TypeError) as error:
-            with contextlib.suppress(OSError):
-                os.write(2, f"exec failed: {error}\n".encode("utf-8", "replace"))
-        finally:
-            # Even an unexpected exception or audit hook must never unwind
-            # into the parent's Python control flow in the forked child.
-            os._exit(127)

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.protocol.elements import element_to_dict
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.terminal import TerminalElement
+from punt_lux.protocol.pty.attach import AttachRequest
+from punt_lux.protocol.pty.control_fields import ControlError
 
 
 def test_terminal_round_trip_keeps_every_public_property() -> None:
@@ -30,3 +34,37 @@ def test_terminal_session_defaults_to_element_id() -> None:
     assert elem.height == 0
     assert elem.tooltip is None
     assert "terminal" in DEFAULT_ABC_REGISTRY.all_kinds
+
+
+@pytest.mark.parametrize("name", ["shell", "a.b_9-z", "x" * 128])
+def test_terminal_and_attach_share_valid_identifiers(name: str) -> None:
+    elem = TerminalElement(id="t", session=name)
+    assert elem.session == AttachRequest(1, name).session
+    assert elem.validate() == ()
+
+
+@pytest.mark.parametrize(
+    "name", ["../x", "bad name", "é", "x" * 129, "a\x00b", "\ud800"]
+)
+def test_terminal_rejects_the_same_invalid_identifiers_as_attach(name: str) -> None:
+    with pytest.raises(ControlError):
+        AttachRequest(1, name)
+    with pytest.raises(ControlError):
+        TerminalElement(id="t", session=name)
+    with pytest.raises(ControlError):
+        TerminalElement.from_dict({"kind": "terminal", "id": "t", "session": name})
+
+
+@pytest.mark.parametrize("id", ["", "../default"])
+def test_terminal_validates_the_default_session(id: str) -> None:
+    with pytest.raises(ControlError):
+        TerminalElement(id=id)
+
+
+def test_validation_rechecks_a_placement_loaded_without_construction() -> None:
+    elem = TerminalElement(id="t")
+    object.__setattr__(elem, "_session", "../legacy")
+    errors = elem.validate()
+    assert len(errors) == 1
+    assert errors[0].element_id == "t"
+    assert "identifier" in errors[0].message

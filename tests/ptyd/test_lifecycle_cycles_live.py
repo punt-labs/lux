@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,12 @@ class LifecycleCycle:
         assert isinstance(
             client.request(KillRequest(100 + index * 2, name)), SuccessReply
         )
+        deadline = time.monotonic() + 5
+        while (
+            LifecycleCycle.sessions(client, 101 + index * 2)
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.005)
         assert LifecycleCycle.sessions(client, 101 + index * 2) == []
         return {"cycle": index, "pid": pid, "exited_before_reattach": exited}
 

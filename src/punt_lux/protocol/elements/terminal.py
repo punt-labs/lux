@@ -1,21 +1,18 @@
-"""TerminalElement — SPIKE: a live terminal leaf backed by libghostty-vt.
+"""SPIKE terminal placement for a daemon-owned session.
 
-Spike-only (spike/terminal-ghostty). The element is pure placement: it names
-a terminal ``session`` and, optionally, the ``command`` to start in it. The
-bytes use a direct latency baseline; production traffic goes via the Hub.
-The Display holds a replica; ``luxd-pty`` owns the PTY and streams snapshots
-and output bytes. ``rows``/``cols`` fit the space and are not on the wire.
+Direct bytes are a latency baseline; production traffic goes via the Hub.
+``luxd-pty`` owns the PTY; the Display holds a replica and fits its grid.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Self, cast
 
-from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.patch_field import PatchField
+from punt_lux.protocol.elements.terminal_placement import TerminalPlacement
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -25,7 +22,7 @@ if TYPE_CHECKING:
 __all__ = ["JsonTerminalDecoder", "JsonTerminalEncoder", "TerminalElement"]
 
 
-class TerminalElement(Element):
+class TerminalElement(TerminalPlacement):
     """A terminal: ``session`` names the PTY; ``command`` starts it (default shell)."""
 
     _id: str
@@ -48,8 +45,7 @@ class TerminalElement(Element):
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
-        self._session = session or id  # a terminal's session defaults to its id
-        self._command = command
+        self._session, self._command = TerminalPlacement.checked(session or id, command)
         self._height = height
         self._tooltip = tooltip
         self._kind = "terminal"

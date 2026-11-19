@@ -41,8 +41,8 @@ class ControlDispatch:
                 peer, request.request_id, {"sessions": self._core.describe()}
             )
         else:
-            self._core.kill(request.session)
             self._bindings.close_session(request.session, "session killed")
+            self._core.kill(request.session)
             StreamPublisher.success(peer, request.request_id, {})
 
     @staticmethod

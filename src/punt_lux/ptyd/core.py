@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.fault import SessionFault
-from punt_lux.ptyd.output import OutputChunk
-from punt_lux.ptyd.process_factory import ProcessCreator, ProcessFactory, ProcessPort
-from punt_lux.ptyd.session import TerminalSession
+from punt_lux.ptyd.process_factory import ProcessCreator, ProcessFactory
+from punt_lux.ptyd.process_retirement import ProcessRetirement
+from punt_lux.ptyd.session_birth import SessionBirth
+
+if TYPE_CHECKING:
+    from punt_lux.ptyd.output import OutputChunk
+    from punt_lux.ptyd.session import TerminalSession
 
 
 class SessionError(RuntimeError):
@@ -19,8 +23,8 @@ class SessionCore:
     """One authoritative map, with explicit session removal and bounded count."""
 
     _sessions: dict[str, TerminalSession]
-    _pending: dict[str, ProcessPort]
-    _factory: ProcessCreator
+    _pending: ProcessRetirement
+    _birth: SessionBirth
     _limit: int
 
     def __new__(
@@ -33,14 +37,14 @@ class SessionCore:
             raise ValueError("session limit must be positive")
         self = super().__new__(cls)
         self._sessions = {}
-        self._pending = {}
-        self._factory = factory
+        self._pending = ProcessRetirement()
+        self._birth = SessionBirth(factory, self._pending)
         self._limit = limit
         return self
 
     def acquire(self, request: AttachRequest) -> TerminalSession:
         """Start once; reattach never respawns an exited or running program."""
-        if request.session in self._pending:
+        if self._pending.contains(request.session):
             raise SessionError("session is waiting for failed-start cleanup")
         existing = self._sessions.get(request.session)
         if existing is not None:
@@ -51,24 +55,12 @@ class SessionCore:
     def _check_command(self, request: AttachRequest) -> None:
         command = self._sessions[request.session].command
         if request.command and request.command != command:
-            raise SessionError("session already exists with another command")
+            raise ValueError("session already exists with another command")
 
     def _start(self, request: AttachRequest) -> TerminalSession:
         if len(self._sessions) + len(self._pending) >= self._limit:
             raise SessionError("terminal session limit reached")
-        process = self._factory(request)
-        self._pending[request.session] = process
-        try:
-            session = TerminalSession(request, process)
-        except BaseException as error:
-            try:
-                self.kill(request.session)
-            except (OSError, RuntimeError) as cleanup:
-                raise BaseExceptionGroup(
-                    "session creation and cleanup failed", [error, cleanup]
-                ) from error
-            raise
-        del self._pending[request.session]
+        session = self._birth.start(request)
         self._sessions[request.session] = session
         return session
 
@@ -81,6 +73,7 @@ class SessionCore:
     def pump(self) -> list[OutputChunk | SessionFault]:
         """Read every session regardless of which viewers are attached."""
         output: list[OutputChunk | SessionFault] = []
+        self._pending.pump()
         for session in self._sessions.values():
             try:
                 chunk = session.pump()
@@ -92,34 +85,33 @@ class SessionCore:
         return output
 
     def resize(self, name: str, cols: int, rows: int) -> None:
-        # Apply the same public boundary as initial attachment, including bool
-        # rejection and bounds, before touching any native state.
+        # Validate the same boundary as initial attachment.
         AttachRequest(1, name, cols=cols, rows=rows)
         self.get(name).resize(cols, rows)
 
     def describe(self) -> list[dict[str, object]]:
-        return [session.describe() for session in self._sessions.values()] + [
-            {"session": name, "pid": process.pid, "cleanup_pending": True}
-            for name, process in self._pending.items()
-        ]
+        return [
+            session.describe() for session in self._sessions.values()
+        ] + self._pending.describe()
 
     def kill(self, name: str) -> None:
-        """Forget a session only after its process has successfully closed."""
-        if name in self._pending:
-            self._pending[name].close()
-            del self._pending[name]
+        """Stop IO now; retain process ownership until pump-driven cleanup finishes."""
+        if self._pending.contains(name):
+            self._pending.stop(name)
             return
         session = self.get(name)
-        session.close()
+        self._pending.add(name, session.close())
         del self._sessions[name]
+        self._pending.stop(name)
 
     def close(self) -> None:
         """Attempt every session; keep failed closures tracked for a retry."""
         failures: list[Exception] = []
-        for name in [*self._sessions, *self._pending]:
+        for name in list(self._sessions):
             try:
                 self.kill(name)
             except (OSError, RuntimeError) as error:
                 failures.append(error)
+        failures.extend(self._pending.close())
         if failures:
             raise ExceptionGroup("terminal session shutdown failed", failures)

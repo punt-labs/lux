@@ -15,7 +15,7 @@ from punt_lux.protocol.pty.session_requests import (
 )
 
 MAX_CONTROL_BYTES = 16 * 1024
-WIRE_VERSION = 2
+WIRE_VERSION = 3
 
 type Request = HelloRequest | AttachRequest | ListRequest | KillRequest
 

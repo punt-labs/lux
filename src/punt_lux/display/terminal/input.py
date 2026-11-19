@@ -20,14 +20,7 @@ from typing import Any, Self
 
 from imgui_bundle import imgui
 
-from punt_lux.display.terminal.keymap import (
-    CTRL,
-    KEYMAP,
-    NO_TEXT_KEYS,
-    SHIFT,
-    SUPER,
-    terminal_mods,
-)
+from punt_lux.display.terminal.keyboard_events import KeyboardEvents, KeyEncoding
 from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
 __all__ = ["Input", "MouseFrame"]
@@ -58,7 +51,7 @@ class Input:
 
     _term: Terminal
     _write: Callable[[bytes], None]
-    _key_encoder: Any
+    _keys: KeyEncoding
     _mouse_encoder: Any
     _out: Any
     _out_len: Any
@@ -69,8 +62,7 @@ class Input:
         self = super().__new__(cls)
         self._term = term
         self._write = write
-        self._key_encoder = ffi.new("GhosttyKeyEncoder*")
-        lib.ghostty_key_encoder_new(ffi.NULL, self._key_encoder)
+        self._keys = KeyEncoding()
         self._mouse_encoder = ffi.new("GhosttyMouseEncoder*")
         lib.ghostty_mouse_encoder_new(ffi.NULL, self._mouse_encoder)
         self._out = ffi.new("char[]", 256)
@@ -80,67 +72,21 @@ class Input:
         return self
 
     def close(self) -> None:
-        lib.ghostty_key_encoder_free(self._key_encoder[0])
+        self._keys.close()
         lib.ghostty_mouse_encoder_free(self._mouse_encoder[0])
 
     # -- keyboard ----------------------------------------------------------
     def poll_keyboard(self) -> bool:
-        """Send this frame's key presses and typed text. True if anything was sent."""
-        mods = terminal_mods()
-        io = imgui.get_io()
-        chars = [chr(c) for c in io.input_queue_characters if c >= 0x20 and c != 0x7F]
-        sent = False
-        for imgui_key, ghostty_key in KEYMAP.items():
-            key = imgui.Key(imgui_key)
-            if not imgui.is_key_pressed(key, repeat=True):
-                continue
-            action = (
-                lib.GHOSTTY_KEY_ACTION_PRESS
-                if imgui.is_key_pressed(key, repeat=False)
-                else lib.GHOSTTY_KEY_ACTION_REPEAT
-            )
-            # A printable key, without Ctrl/Cmd, carries this frame's typed text.
-            text = None
-            if imgui_key not in NO_TEXT_KEYS and chars and not mods & (CTRL | SUPER):
-                text = chars.pop(0)
-            sent |= self.key(ghostty_key, mods, text, action)
-        # Text with no key event of its own: IME commits, Option-composed and
-        # dead-key characters.
-        for ch in chars:
-            sent |= self.key(
-                lib.GHOSTTY_KEY_UNIDENTIFIED,
-                mods & ~SHIFT,
-                ch,
-                lib.GHOSTTY_KEY_ACTION_PRESS,
-            )
-        return sent
+        """Send presses, repeats, releases and committed text from this frame."""
+        return KeyboardEvents.poll(self.key)
 
     def key(self, key: int, mods: int, text: str | None, action: int) -> bool:
         """Encode and send one key event. True if it produced bytes."""
-        event = ffi.new("GhosttyKeyEvent*")
-        lib.ghostty_key_event_new(ffi.NULL, event)
-        try:
-            ev = event[0]
-            lib.ghostty_key_event_set_action(ev, action)
-            lib.ghostty_key_event_set_key(ev, key)
-            lib.ghostty_key_event_set_mods(ev, mods)
-            # Shift that produced the text ('A', '!') is consumed, so the
-            # encoder sends plain text rather than a CSI-u sequence.
-            lib.ghostty_key_event_set_consumed_mods(ev, mods & SHIFT if text else 0)
-            if text:
-                data = text.encode()
-                lib.ghostty_key_event_set_utf8(ev, data, len(data))
-                if len(text) == 1:
-                    lib.ghostty_key_event_set_unshifted_codepoint(ev, ord(text.lower()))
-            encoder = self._key_encoder[0]
-            lib.ghostty_key_encoder_setopt_from_terminal(encoder, handle(self._term))
-            return self._emit(
-                lib.ghostty_key_encoder_encode(
-                    encoder, ev, self._out, len(self._out), self._out_len
-                )
+        return self._emit(
+            self._keys.encode(
+                self._term, (key, mods, text, action), self._out, self._out_len
             )
-        finally:
-            lib.ghostty_key_event_free(event[0])
+        )
 
     # -- paste -------------------------------------------------------------
     def paste(self, text: str) -> None:
@@ -199,7 +145,7 @@ class Input:
             lib.ghostty_mouse_event_set_action(ev, action)
             if button:
                 lib.ghostty_mouse_event_set_button(ev, button)
-            lib.ghostty_mouse_event_set_mods(ev, terminal_mods())
+            lib.ghostty_mouse_event_set_mods(ev, KeyboardEvents.modifiers())
             pos = ffi.new("GhosttyMousePosition*")
             pos.x, pos.y = frame.x, frame.y
             lib.ghostty_mouse_event_set_position(ev, pos[0])

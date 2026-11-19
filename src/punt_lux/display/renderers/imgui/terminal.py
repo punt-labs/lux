@@ -11,11 +11,8 @@ from __future__ import annotations
 
 from typing import final
 
-from imgui_bundle import ImVec2, imgui
-
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.display.terminal.font import TerminalFont
-from punt_lux.display.terminal.remote_sessions import RemoteSessions
+from punt_lux.display.terminal.presenter import TerminalPresenter
 from punt_lux.protocol.elements.terminal import TerminalElement
 
 __all__ = ["ImGuiTerminalRenderer"]
@@ -28,13 +25,4 @@ class ImGuiTerminalRenderer(LeafRenderer[TerminalElement]):
     __slots__ = ()
 
     def _paint_widget(self) -> None:
-        elem = self._elem
-        session = RemoteSessions.get(elem.session, elem.command)
-        font = TerminalFont.font
-        if font is not None:
-            imgui.push_font(font, TerminalFont.size)
-        try:
-            session.render_in_child(f"##terminal-{elem.id}", ImVec2(0, elem.height))
-        finally:
-            if font is not None:
-                imgui.pop_font()
+        TerminalPresenter.paint(self._elem)

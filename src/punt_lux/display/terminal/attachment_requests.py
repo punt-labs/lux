@@ -1,0 +1,97 @@
+"""Hello/attach correlation with bounded backoff for transient operation failures."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable
+from typing import Self
+
+from punt_lux.display.terminal.remote import RemoteSession
+from punt_lux.display.terminal.remote_phase import RemotePhase
+from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
+from punt_lux.protocol.pty.frames import Frame, FrameKind
+from punt_lux.protocol.pty.hello import HelloRequest
+from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
+from punt_lux.ptyd.snapshot import snapshot_version
+
+
+class AttachmentRequests:
+    _send: Callable[[Frame], None]
+    _pending: dict[int, RemoteSession]
+    _retries: dict[str, tuple[RemoteSession, float]]
+    _delays: dict[str, float]
+    _hello_id: int
+    _ready: bool
+
+    def __new__(cls, send: Callable[[Frame], None]) -> Self:
+        self = super().__new__(cls)
+        self._send = send
+        self._pending = {}
+        self._retries = {}
+        self._delays = {}
+        self._hello_id = 0
+        self._ready = False
+        return self
+
+    @property
+    def ready(self) -> bool:
+        return self._ready
+
+    def hello(self, request_id: int) -> None:
+        self._hello_id = request_id
+        request = HelloRequest(request_id, WIRE_VERSION, snapshot_version())
+        self._send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
+
+    def attach(self, request_id: int, session: RemoteSession) -> None:
+        if session.phase in (RemotePhase.FAILED, RemotePhase.CLOSED):
+            return
+        self._pending[request_id] = session
+        request = session.request(request_id)
+        self._send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
+
+    def due(self) -> tuple[RemoteSession, ...]:
+        now = time.monotonic()
+        due = tuple(
+            session for session, deadline in self._retries.values() if now >= deadline
+        )
+        for session in due:
+            del self._retries[session.name]
+        return due
+
+    def receive(self, data: bytes) -> RemoteSession | None:
+        reply = ReplyCodec.decode(data)
+        if reply.request_id == self._hello_id:
+            if isinstance(reply, FailureReply):
+                raise ConnectionError(reply.error)
+            self._ready = True
+            return None
+        session = self._pending.pop(reply.request_id, None)
+        if session is None:
+            raise ValueError("unexpected terminal reply id")
+        if isinstance(reply, FailureReply):
+            self._failed(session, reply)
+            return None
+        self._delays.pop(session.name, None)
+        session.begin(dict(reply.result))
+        return session
+
+    def _failed(self, session: RemoteSession, reply: FailureReply) -> None:
+        if not reply.retryable:
+            session.fail(reply.error)
+            return
+        delay = min(4.0, self._delays.get(session.name, 0.125) * 2)
+        self._delays[session.name] = delay
+        self._retries[session.name] = (session, time.monotonic() + delay)
+        session.disconnected(reply.error)
+
+    def reset(self) -> None:
+        self._ready = False
+        self._pending.clear()
+        self._retries.clear()
+        self._delays.clear()
+
+    def disconnect(self, sessions: tuple[RemoteSession, ...], message: str) -> None:
+        self.reset()
+        for session in sessions:
+            if session.phase not in (RemotePhase.FAILED, RemotePhase.CLOSED):
+                session.disconnected(message)

@@ -7,12 +7,9 @@ import time
 from pathlib import Path
 from typing import Self
 
+from punt_lux.display.terminal.attachment_requests import AttachmentRequests
 from punt_lux.display.terminal.remote import RemoteSession
-from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
-from punt_lux.ptyd.snapshot import snapshot_version
 from punt_lux.terminal.connection import TerminalConnection
 
 
@@ -20,21 +17,19 @@ class RemotePool:
     _path: Path
     _sessions: dict[str, RemoteSession]
     _channels: dict[int, RemoteSession]
-    _pending: dict[int, RemoteSession]
+    _requests: AttachmentRequests
     _connection: TerminalConnection | None
-    _ready: bool
     _next_id: int
-    _hello_id: int
     _retry_at: float
     _last_output_at: float
 
     def __new__(cls, path: Path) -> Self:
         self = super().__new__(cls)
         self._path = path
-        self._sessions, self._channels, self._pending = {}, {}, {}
+        self._sessions, self._channels = {}, {}
+        self._requests = AttachmentRequests(self.send)
         self._connection = None
-        self._ready = False
-        self._next_id, self._hello_id = 1, 0
+        self._next_id = 1
         self._retry_at = self._last_output_at = 0
         return self
 
@@ -57,7 +52,7 @@ class RemotePool:
             return existing
         session = RemoteSession(name, command, self.send)
         self._sessions[name] = session
-        if self._ready:
+        if self._requests.ready:
             self._attach(session)
         return session
 
@@ -68,6 +63,8 @@ class RemotePool:
             self._ensure_connection()
             if self._connection is None:
                 return False
+            for session in self._requests.due():
+                self._attach(session)
             frames = self._connection.pump(budget_s)
             for frame in frames:
                 self._receive(frame)
@@ -89,26 +86,20 @@ class RemotePool:
         if self._connection is not None:
             self._connection.close()
         self._connection = None
-        self._ready = False
+        self._requests.reset()
         for session in self._sessions.values():
             session.close()
         self._sessions.clear()
         self._channels.clear()
-        self._pending.clear()
 
     def _ensure_connection(self) -> None:
         if self._connection is not None or time.monotonic() < self._retry_at:
             return
         self._connection = TerminalConnection(self._path)
-        self._hello_id = self._id()
-        hello = HelloRequest(self._hello_id, WIRE_VERSION, snapshot_version())
-        self.send(Frame(0, FrameKind.DATA, ControlCodec.encode(hello)))
+        self._requests.hello(self._id())
 
     def _attach(self, session: RemoteSession) -> None:
-        request_id = self._id()
-        self._pending[request_id] = session
-        request = session.request(request_id)
-        self.send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
+        self._requests.attach(self._id(), session)
 
     def _receive(self, frame: Frame) -> None:
         if frame.channel == 0:
@@ -122,21 +113,14 @@ class RemotePool:
             self._channels.pop(frame.channel)
 
     def _reply(self, data: bytes) -> None:
-        reply = ReplyCodec.decode(data)
-        if reply.request_id == self._hello_id:
-            if isinstance(reply, FailureReply):
-                raise ConnectionError(reply.error)
-            self._ready = True
+        ready = self._requests.ready
+        pending = self._requests.receive(data)
+        if not ready and self._requests.ready:
             for session in self._sessions.values():
                 self._attach(session)
             return
-        pending = self._pending.pop(reply.request_id, None)
         if pending is None:
-            raise ValueError("unexpected terminal reply id")
-        if isinstance(reply, FailureReply):
-            pending.fail(reply.error)
             return
-        pending.begin(dict(reply.result))
         if pending.channel in self._channels:
             raise ValueError("duplicate terminal channel")
         self._channels[pending.channel] = pending
@@ -150,9 +134,6 @@ class RemotePool:
         if self._connection is not None:
             self._connection.close()
         self._connection = None
-        self._ready = False
+        self._requests.disconnect(tuple(self._sessions.values()), message)
         self._channels.clear()
-        self._pending.clear()
         self._retry_at = time.monotonic() + 1
-        for session in self._sessions.values():
-            session.disconnected(message)

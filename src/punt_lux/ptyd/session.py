@@ -28,8 +28,7 @@ class TerminalSession:
         self._request = request
         self._process = process
         self._term = TerminalIO(tracked_terminal(request.cols, request.rows))
-        # Only the authoritative terminal answers program queries. A Display
-        # replica must not forward a second copy of those automatic replies.
+        # Only the authority answers program queries, never Display replicas.
         self._term.on_reply(process.write)
         self._position = 0
         self._state = SessionState.RUNNING
@@ -104,11 +103,12 @@ class TerminalSession:
             "exit_code": self._process.exit_code,
         }
 
-    def close(self) -> None:
+    def close(self) -> ProcessPort:
         """Called only for explicit session termination or daemon shutdown."""
         self._process.close()
         self._term.close()
         self._state = SessionState.CLOSED
+        return self._process
 
     def _check_usable(self) -> None:
         if self._state in (SessionState.CLOSED, SessionState.FAILED):

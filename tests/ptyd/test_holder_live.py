@@ -36,7 +36,7 @@ class OutputWait:
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             holder.pump()
-            if holder.exit_code is not None:
+            if holder.exit_code is not None and holder.reap():
                 return
             time.sleep(0.005)
         pytest.fail("child did not exit")
@@ -91,7 +91,7 @@ def test_unexpected_exec_exception_cannot_unwind_into_parent(
     def fail(_argv: str, _args: list[str], _env: dict[str, str]) -> Never:
         raise RuntimeError("unexpected exec hook failure")
 
-    monkeypatch.setattr("punt_lux.ptyd.holder.os.execvpe", fail)
+    monkeypatch.setattr("punt_lux.ptyd.pty_spawn.os.execvpe", fail)
     holder = PtyHolder(["unused"])
     try:
         OutputWait.exited(holder)

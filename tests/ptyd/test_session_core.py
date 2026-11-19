@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Never
+from unittest.mock import patch
 
 import pytest
 
@@ -33,6 +34,7 @@ class FakeProcess:
     close_calls: int = 0
     refuse_close: bool = False
     refuse_write: bool = False
+    reaped: bool = True
 
     def pump(self) -> bytes:
         return self.output.pop(0) if self.output else b""
@@ -45,11 +47,13 @@ class FakeProcess:
     def resize(self, cols: int, rows: int) -> None:
         self.sizes.append((cols, rows))
 
-    def close(self) -> None:
-        self.close_calls += 1
+    def close(self) -> bool:
+        if self.alive:
+            self.close_calls += 1
         if self.refuse_close:
             raise OSError("close failed")
         self.alive = False
+        return self.reaped
 
 
 class FakeFactory:
@@ -209,7 +213,7 @@ def test_limit_and_conflicting_command_do_not_start_another_process() -> None:
     core = SessionCore(factory, limit=1)
     try:
         core.acquire(AttachRequest(1, "one", "/bin/sh"))
-        with pytest.raises(SessionError, match="another command"):
+        with pytest.raises(ValueError, match="another command"):
             core.acquire(AttachRequest(2, "one", "/bin/zsh"))
         with pytest.raises(SessionError, match="limit"):
             core.acquire(AttachRequest(3, "two"))
@@ -245,7 +249,7 @@ def test_failed_start_and_cleanup_preserve_the_unclaimed_process(
     def fail(_request: AttachRequest, _process: ProcessPort) -> Never:
         raise MemoryError("terminal construction failed")
 
-    monkeypatch.setattr("punt_lux.ptyd.core.TerminalSession", fail)
+    monkeypatch.setattr("punt_lux.ptyd.session_birth.TerminalSession", fail)
     core = SessionCore(start)
     with pytest.raises(ExceptionGroup) as failure:
         core.acquire(AttachRequest(1, "one"))
@@ -270,3 +274,27 @@ def test_shutdown_attempts_every_session_despite_a_failed_close() -> None:
     assert [entry["session"] for entry in core.describe()] == ["one"]
     factory.created[0].refuse_close = False
     core.close()
+
+
+def test_killing_one_session_does_not_block_another_sessions_pump() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        core.acquire(AttachRequest(1, "dying"))
+        core.acquire(AttachRequest(2, "running"))
+        dying, running = factory.created
+        dying.reaped = False
+        running.output.append(b"still responsive")
+        with patch("time.sleep", side_effect=AssertionError("blocking kill")):
+            core.kill("dying")
+            assert output(core.pump()).data == b"still responsive"
+        assert core.describe()[-1]["cleanup_pending"] is True
+        assert dying.close_calls == 1
+        with pytest.raises(SessionError, match="cleanup"):
+            core.acquire(AttachRequest(3, "dying"))
+        dying.reaped = True
+        assert core.pump() == []
+        assert [item["session"] for item in core.describe()] == ["running"]
+    finally:
+        factory.created[0].reaped = True
+        core.close()
