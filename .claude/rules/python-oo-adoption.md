@@ -44,7 +44,7 @@ every file better than you found it.
 **Statement**: Every Python project depends on the dev-only PyPI package
 [`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/), the canonical
 implementation of the OO, coupling/cohesion, and suppression-count gates.
-Pin the reviewed release with `uv add --dev "punt-oo-ratchet==0.1.0"` and
+Pin the reviewed release with `uv add --dev "punt-oo-ratchet==0.2.2"` and
 commit `pyproject.toml` and `uv.lock`. Do not embed the implementation under
 `tools/`. Existing root baseline and audit filenames remain compatible.
 

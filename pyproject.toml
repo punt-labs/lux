@@ -83,7 +83,7 @@ aws = [
 #      are not exposed via PyPI; they exist for the source checkout only.
 [dependency-groups]
 dev = [
-    "punt-oo-ratchet==0.1.0",
+    "punt-oo-ratchet==0.2.2",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
     "pyright>=1.1.400",
@@ -116,6 +116,15 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "punt_lux"
+
+[tool.oo-ratchet.coupling]
+stateless-values = "any"
+
+[tool.oo-ratchet.coupling.caps]
+"src/punt_lux/operations/facade.py" = { efferent_coupling = 20 }
+"src/punt_lux/domain/hub/replicator_instance.py" = { efferent_coupling = 20 }
+"src/punt_lux/tools/subscribe_tools.py" = { efferent_coupling = 20 }
+"src/punt_lux/hub_composition.py" = { efferent_coupling = 20 }
 
 [tool.ruff]
 line-length = 88
