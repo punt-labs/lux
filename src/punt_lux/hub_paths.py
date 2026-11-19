@@ -1,6 +1,6 @@
 """Hub (luxd) path resolution and liveness, symmetric to DisplayPaths.
 
-Locates luxd's state directory, PID/port files, and log directory, and
+Locates luxd's state directory and PID/port files, and
 reports hub liveness from its PID file. The display-process counterpart
 lives in ``paths.py``.
 """
@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Self, final
 
 logger = logging.getLogger(__name__)
+_PORT_FILE = "hub.port"
+_PID_FILE = "hub.pid"
 
 
 @final
@@ -39,39 +42,34 @@ class HubPaths:
     @property
     def pid_path(self) -> Path:
         """Return the PID file path for luxd."""
-        return self._dir / "hub.pid"
+        return self._dir / _PID_FILE
 
     @property
     def port_path(self) -> Path:
         """Return the port file path for luxd."""
-        return self._dir / "hub.port"
-
-    @property
-    def log_dir(self) -> Path:
-        """Return the log directory for luxd."""
-        return self._dir / "logs"
+        return self._dir / _PORT_FILE
 
     # None return = port file absent/unwritten — genuine absence contract (PY-TS-14).
     def read_port(self) -> int | None:
         """Read the hub port from the port file, or None if not available."""
-        path = self.port_path
-        if not path.exists():
-            return None
+        path = self._dir / _PORT_FILE
         try:
-            return int(path.read_text().strip())
-        except (ValueError, OSError) as exc:
-            logger.warning("Could not read hub port from %s: %s", path, exc)
-            return None
+            with suppress(FileNotFoundError):
+                return int(path.read_text().strip())
+        except (ValueError, OSError):
+            logger.warning("Could not read Hub port file")
+        return None
+
+    def _read_pid(self) -> int:
+        """Read the PID file, returning zero when absent or invalid."""
+        try:
+            return int((self._dir / _PID_FILE).read_text().strip())
+        except (ValueError, OSError):
+            return 0
 
     def is_running(self) -> bool:
         """Return whether luxd is running, per its PID file."""
-        pid_path = self.pid_path
-        if not pid_path.exists():
-            return False
-        try:
-            pid = int(pid_path.read_text().strip())
-        except (ValueError, OSError):
-            return False
+        pid = self._read_pid()
         if pid <= 0:
             return False
         try:

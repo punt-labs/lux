@@ -157,10 +157,10 @@ class AppletLeg:
         self._underway.start(self._runner.clicked(ClickLatency(callback_id)))
 
     @staticmethod
-    def _on_event(topic: str, payload: Mapping[str, object]) -> None:
+    def _on_event(_topic: str, _payload: Mapping[str, object]) -> None:
         """Ignore pub-sub traffic: this leg subscribes to no topics.
 
         The handler is required by the listen client, and a leg that subscribes to
-        nothing should still say what arrived if anything ever does.
+        nothing should still report unexpected traffic without its contents.
         """
-        logger.debug("unsubscribed event on the session leg: %s %s", topic, payload)
+        logger.debug("Unsubscribed event on the session leg")

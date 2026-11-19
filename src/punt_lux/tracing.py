@@ -10,7 +10,7 @@ __all__ = ["trace"]
 
 
 def trace[**P, R](func: Callable[P, R]) -> Callable[P, R]:
-    """Log method name and arguments at DEBUG on entry.
+    """Log the method name at DEBUG on entry, never its arguments.
 
     Uses the caller's module logger so tracing output respects the
     per-module log hierarchy.  Adding or removing ``@trace`` is a
@@ -20,12 +20,7 @@ def trace[**P, R](func: Callable[P, R]) -> Callable[P, R]:
 
     @functools.wraps(func)
     def _wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-        _logger.debug(
-            "%s called args=%s kwargs=%s",
-            func.__qualname__,
-            args,
-            kwargs,
-        )
+        _logger.debug("%s called", func.__qualname__)
         return func(*args, **kwargs)
 
     return _wrapper

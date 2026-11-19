@@ -17,7 +17,6 @@ class TerminalService(ServiceManager):
         systemd_description="Lux terminal owner and menu launcher",
         binary_name="luxd-pty",
         extra_args=(),
-        log_stem="luxd-pty",
         cli_verb="terminal",
         process_name="luxd-pty",
     )

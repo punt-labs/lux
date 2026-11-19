@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from punt_lux.ptyd.entry_runtime import start_terminal_process, wait_for_terminal_owner
 from punt_lux.ptyd.menu_listener import TerminalMenu
-from punt_lux.terminal.process_session import ProcessSession
 
 
 class MenuEntryPoint:
@@ -14,14 +14,14 @@ class MenuEntryPoint:
     async def serve(parent: int) -> None:
         task = asyncio.create_task(TerminalMenu().serve())
         try:
-            await ProcessSession.wait_for_parent(parent)
+            await wait_for_terminal_owner(parent)
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
     @staticmethod
     def main() -> None:
-        ProcessSession.detach()
+        start_terminal_process("worker", "terminal menu helper")
         asyncio.run(MenuEntryPoint.serve(int(sys.argv[1])))
 
 

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
-import logging
 import tempfile
-from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
+
+import pytest
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.paint_clock import PaintClock
 from punt_lux.protocol import FrameReader, SceneMessage, TextElement
 
-if TYPE_CHECKING:
-    import pytest
 
-_PAINT_LOGGER = "punt_lux.display.paint_clock"
+@pytest.fixture
+def record(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    recorder = Mock()
+    monkeypatch.setattr("punt_lux.display.paint_telemetry.record_first_paint", recorder)
+    return recorder
 
 
 class _StepClock:
@@ -58,57 +60,41 @@ def _register(server: RenderLoop, sock: MagicMock) -> None:
     )
 
 
-def test_a_received_scene_is_attested_at_the_swap_that_painted_it(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_received_scene_is_attested_at_the_swap_that_painted_it() -> None:
     clock = PaintClock(_StepClock(0.02))
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        clock.received("beads-lux")
-        clock.painted("beads-lux")
-        clock.swapped()
-    assert caplog.messages == ["paint scene=beads-lux 20 ms"]
+    clock.received("beads-lux")
+    clock.painted("beads-lux")
+    assert clock.swapped() == (20.0,)
 
 
-def test_a_scene_is_attested_once_however_many_passes_follow(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_scene_is_attested_once_however_many_passes_follow() -> None:
     clock = PaintClock(_StepClock(0.01))
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        clock.received("s1")
-        clock.painted("s1")
-        clock.swapped()
-        clock.painted("s1")
-        clock.swapped()
-    assert len(caplog.messages) == 1
+    clock.received("s1")
+    clock.painted("s1")
+    assert len(clock.swapped()) == 1
+    clock.painted("s1")
+    assert clock.swapped() == ()
 
 
-def test_a_pass_that_painted_nothing_new_says_nothing(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_pass_that_painted_nothing_new_says_nothing() -> None:
     clock = PaintClock(_StepClock(0.01))
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        clock.received("hidden-tab")
-        clock.swapped()
-    assert caplog.messages == []
+    clock.received("hidden-tab")
+    assert clock.swapped() == ()
 
 
-def test_a_scene_never_drawn_is_forgotten_rather_than_waiting_forever(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_scene_never_drawn_is_forgotten_rather_than_waiting_forever() -> None:
     step = _StepClock(0.0)
     clock = PaintClock(step)
     clock.received("hidden-tab")
     step.skip(6.0)
     clock.swapped()
     # The stamp is gone: a later paint of the same scene has nothing to report.
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        clock.painted("hidden-tab")
-        clock.swapped()
-    assert caplog.messages == []
+    clock.painted("hidden-tab")
+    assert clock.swapped() == ()
 
 
 def test_the_display_stamps_a_scene_when_it_arrives(
-    caplog: pytest.LogCaptureFixture,
+    record: Mock,
 ) -> None:
     """The receive leg is wired: without it, the paint below would report nothing."""
     server = _server()
@@ -120,15 +106,13 @@ def test_the_display_stamps_a_scene_when_it_arrives(
             id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="f1"
         ),
     )
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        server._turn.scene_painted("s1")
-        server._turn.after_swap()
-    assert len(caplog.messages) == 1
-    assert caplog.messages[0].startswith("paint scene=s1 ")
+    server._turn.scene_painted("s1")
+    server._turn.after_swap()
+    record.assert_called_once()
 
 
 def test_the_display_marks_a_scene_painted_as_it_renders_it(
-    caplog: pytest.LogCaptureFixture,
+    record: Mock,
 ) -> None:
     """The paint leg is wired inside the real render method, not just the clock."""
     server = _server()
@@ -143,8 +127,6 @@ def test_the_display_marks_a_scene_painted_as_it_renders_it(
     frame = server._scenes.frames["f1"]
     # Render an emptied scene: the paint hook runs, the ImGui element paint does not.
     frame.scenes["s1"].elements.clear()
-    with caplog.at_level(logging.INFO, logger=_PAINT_LOGGER):
-        server._render_framed_scene(frame, "s1")
-        server._turn.after_swap()
-    assert len(caplog.messages) == 1
-    assert caplog.messages[0].startswith("paint scene=s1 ")
+    server._render_framed_scene(frame, "s1")
+    server._turn.after_swap()
+    record.assert_called_once()

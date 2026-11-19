@@ -1,56 +1,18 @@
-"""Duration attestation for the Hub's mutating operations.
-
-Every mutation a client asks for — a scene installed, the menu replaced — is
-timed by the process that performs it and logged at INFO with the operation's
-name, what it acted on, and how long it took::
-
-    op render scene=beads-lux 14 ms
-
-The wrapper sits at the facade boundary, so every surface entering through the
-facade — an MCP tool, a REST route, a library call — is attested without
-repeating itself, and a mutation no surface enters through carries it on the
-concern that performs it. Read-only queries are deliberately not timed: they
-are frequent, change nothing a user sees, and would bury the mutations that a
-slow click has to be explained by.
-"""
+"""Record selected Hub operation durations at the shared facade boundary."""
 
 from __future__ import annotations
 
 import functools
-import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.scene_results import SceneShown
+from punt_lux.usage import record_operation
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["OperationSubject", "Timed"]
-
-logger = logging.getLogger(__name__)
-
-
-@final
-class OperationSubject:
-    """What an operation acted on, as its duration line names it.
-
-    A result already carries the identity of what it touched; this reads that
-    identity out for the log rather than asking the caller to repeat it. A
-    result that names nothing in particular — a clear, a menu replacement —
-    reads as ``-`` so the line keeps its columns.
-    """
-
-    __slots__ = ()
-
-    def of(self, result: object) -> str:
-        """Return the log token for ``result``."""
-        if isinstance(result, SceneShown):
-            return f"scene={result.scene_id}"
-        if isinstance(result, OpError):
-            return f"error={result.code}"
-        return "-"
+__all__ = ["Timed"]
 
 
 @final
@@ -72,22 +34,17 @@ class Timed:
         return self
 
     def __call__[**P, R](self, operation: Callable[P, R]) -> Callable[P, R]:
-        """Return ``operation`` wrapped so every call logs how long it took."""
+        """Return ``operation`` wrapped so every call records how long it took."""
 
         @functools.wraps(operation)
         def _timed(*args: P.args, **kwargs: P.kwargs) -> R:
             started = self._clock()
             result = operation(*args, **kwargs)
-            self.attest(result, self._clock() - started)
+            record_operation(
+                self._name,
+                (self._clock() - started) * 1000,
+                failed=isinstance(result, OpError),
+            )
             return result
 
         return _timed
-
-    def attest(self, result: object, elapsed: float) -> None:
-        """Log one line: the operation, what it acted on, and its milliseconds."""
-        logger.info(
-            "op %s %s %d ms",
-            self._name,
-            OperationSubject().of(result),
-            round(elapsed * 1000),
-        )

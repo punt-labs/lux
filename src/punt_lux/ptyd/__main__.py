@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import argparse
-import logging
-import os
 import signal
 from importlib import import_module
-from pathlib import Path
 from types import FrameType
 
-from punt_lux.terminal.process_session import ProcessSession
+from punt_lux.ptyd.entry_runtime import (
+    DaemonOptions,
+    start_terminal_process,
+    terminal_start_failed,
+)
 
 
 class PtyEntryPoint:
@@ -18,21 +19,14 @@ class PtyEntryPoint:
 
     @staticmethod
     def main() -> None:
-        ProcessSession.detach()
+        start_terminal_process("daemon", "terminal daemon")
         parser = argparse.ArgumentParser(description="Lux local terminal-session owner")
-        default = Path.home() / ".punt-labs" / "lux" / "pty" / "luxd-pty.sock"
-        parser.add_argument("--socket", type=Path, default=default)
-        no_menu = os.environ.get("LUX_PTY_NO_MENU") == "1"
-        parser.add_argument("--no-menu", action="store_true", default=no_menu)
-        args = parser.parse_args()
-        logging.basicConfig(level=logging.INFO)
+        options = DaemonOptions.parse(parser)
         try:
             module = import_module("punt_lux.ptyd.application")
-            server = module.PtyApplication(args.socket, menu=not args.no_menu)
+            server = module.PtyApplication(options.socket, menu=options.menu)
         except (ModuleNotFoundError, OSError) as error:
-            missing = isinstance(error, ModuleNotFoundError)
-            hint = "; install punt-lux[terminal]" if missing else ""
-            parser.exit(1, f"luxd-pty: {error}{hint}\n")
+            terminal_start_failed(parser, error)
 
         def stop(_number: int, _frame: FrameType | None) -> None:
             server.stop()

@@ -115,9 +115,7 @@ class SceneCodec:
                 case [str(first), str(second)]:
                     rows.append((first, second))
                 case _:
-                    logger.warning(
-                        "frame_owner_facts contained a malformed entry: %r", entry
-                    )
+                    logger.warning("frame_owner_facts contained a malformed entry")
                     return None
         return tuple(rows)
 
@@ -131,5 +129,5 @@ class SceneCodec:
         if isinstance(raw, str) and raw:
             return raw
         if raw is not None:
-            logger.warning("frame_scope_label must be a non-empty str, got %r", raw)
+            logger.warning("frame_scope_label must be a non-empty str")
         return None

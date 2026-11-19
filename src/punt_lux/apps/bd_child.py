@@ -224,8 +224,7 @@ class BdChild:
             self._process.communicate(timeout=_REAP_SECONDS)
         except subprocess.TimeoutExpired:
             logger.error(
-                "bd's output did not finish after being ended: argv=%s pid=%d",
-                " ".join(self._argv),
+                "bd's output did not finish after being ended: pid=%d",
                 self._process.pid,
             )
             for pipe in (self._process.stdout, self._process.stderr):

@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
-import stat
 import sys
 import time
 from pathlib import Path
 from typing import Self
 
 from punt_lux.terminal.runtime_directory import RuntimeDirectory
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["DaemonLauncher"]
 
 
 class DaemonLauncher:
@@ -36,32 +40,21 @@ class DaemonLauncher:
             return
         self._next_attempt = time.monotonic() + 5
         RuntimeDirectory.prepare(self._path.parent)
-        log = self._open_log()
+        logger.info("Starting terminal daemon subprocess")
+        null = os.open(os.devnull, os.O_RDWR)
         try:
-            null = os.open(os.devnull, os.O_RDONLY)
-            try:
-                actions = [
-                    (os.POSIX_SPAWN_DUP2, null, 0),
-                    (os.POSIX_SPAWN_DUP2, log, 1),
-                    (os.POSIX_SPAWN_DUP2, log, 2),
-                ]
-                argv = [
-                    sys.executable,
-                    "-m",
-                    "punt_lux.ptyd",
-                    "--socket",
-                    str(self._path),
-                ]
-                self._pid = os.posix_spawn(
-                    sys.executable,
-                    argv,
-                    dict(os.environ),
-                    file_actions=actions,
-                )
-            finally:
-                os.close(null)
+            self._pid = os.posix_spawn(
+                sys.executable,
+                self._argv(),
+                dict(os.environ),
+                file_actions=[(os.POSIX_SPAWN_DUP2, null, fd) for fd in range(3)],
+            )
         finally:
-            os.close(log)
+            os.close(null)
+
+    def _argv(self) -> list[str]:
+        """Run the terminal daemon in the current Python environment."""
+        return [sys.executable, "-m", "punt_lux.ptyd", "--socket", str(self._path)]
 
     def poll(self) -> None:
         self._poll()
@@ -75,18 +68,3 @@ class DaemonLauncher:
             pid = self._pid
         if pid:
             self._pid = None
-
-    def _open_log(self) -> int:
-        path = Path(str(self._path) + ".log")
-        fd = os.open(
-            path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600
-        )
-        info = os.fstat(fd)
-        if (
-            info.st_uid != os.getuid()
-            or not stat.S_ISREG(info.st_mode)
-            or info.st_mode & 0o077
-        ):
-            os.close(fd)
-            raise PermissionError("daemon log must be a private regular file")
-        return fd

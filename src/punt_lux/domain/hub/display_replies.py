@@ -45,8 +45,6 @@ _SLOT_RETRY_SECONDS = 0.05
 # How long one wait on the socket runs before the dial is checked for an end that
 # someone else recorded (an end by a writer or the keepalive wakes no one).
 _POLL_SECONDS = 0.1
-# How much of a frame that did not decode is written to the log.
-_HEAD_BYTES = 64
 
 
 class _MalformedFrameError(ValueError):
@@ -171,9 +169,7 @@ class DisplayReplies:
             msg = f"{generation.endpoint} sent a frame that broke its stream"
             won = settler.end_stream("display")
             return ConnectionClosedError(msg) if won else generation.closed_error()
-        logger.exception(
-            "Inline reply routing failed on %s: %r", generation.endpoint, exc
-        )
+        logger.error("Inline reply routing failed (%s)", type(exc).__name__)
         settler.end_stream("hub")
         return exc
 
@@ -191,10 +187,10 @@ class DisplayReplies:
         except ProgrammerError:
             raise
         except Exception as exc:
-            logger.exception(
-                "Inline read closing: display %s sent a malformed frame: %r",
+            logger.error(
+                "Inline read closing: display %s sent a malformed frame (%s)",
                 generation.endpoint,
-                generation.head(_HEAD_BYTES),
+                type(exc).__name__,
             )
             raise _MalformedFrameError(str(exc)) from exc
 

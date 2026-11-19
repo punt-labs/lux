@@ -874,7 +874,7 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         (death,) = deaths_of(link)
         assert death.cause == "display"
 
-    def test_an_inline_decode_failure_logs_the_bad_frame_and_is_the_displays_end(
+    def test_an_inline_decode_failure_omits_frame_content_and_is_the_displays_end(
         self, display: Display, caplog: pytest.LogCaptureFixture
     ) -> None:
         link = _linked(display, listening=False)
@@ -882,11 +882,11 @@ class TestAHubRetireThatLandsBetweenTheCheckAndTheRetire:
         display.peer.read(1)
 
         with caplog.at_level(logging.ERROR):
-            display.peer.send_raw(encode_frame({"type": "ack"}))  # no scene_id
+            display.peer.send_raw(encode_frame({"type": "ack", "private": "sample"}))
             assert pinging.wait()
 
         assert any("malformed frame" in r.getMessage() for r in caplog.records)
-        assert any("ack" in r.getMessage() for r in caplog.records)  # its first bytes
+        assert "sample" not in caplog.text
         assert pinging.error is not None
         assert _is_the_displays_end(pinging.error)
 

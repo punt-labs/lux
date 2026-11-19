@@ -284,7 +284,7 @@ class DialGeneration:
         return self._socket.messages(chunk)
 
     def head(self, count: int) -> bytes:
-        """Preview up to ``count`` unread bytes for a malformed-frame log message."""
+        """Return up to ``count`` unread bytes from this dial's frame buffer."""
         return self._socket.head(count)
 
     def shut(self) -> None:

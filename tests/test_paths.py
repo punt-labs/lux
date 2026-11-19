@@ -206,10 +206,6 @@ class TestProperties:
         dp = DisplayPaths(Path("/tmp/lux/display.sock"))
         assert dp.pid_path == Path("/tmp/lux/display.sock.pid")
 
-    def test_log_path(self) -> None:
-        dp = DisplayPaths(Path("/tmp/lux/display.sock"))
-        assert dp.log_path == Path("/tmp/lux/display.sock.log")
-
 
 class TestIsRunning:
     """Liveness is a socket handshake, not a PID-file lookup."""

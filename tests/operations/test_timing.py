@@ -1,23 +1,42 @@
-"""The facade's duration attestation: one INFO line per mutating operation."""
+"""The facade's typed duration telemetry."""
 
 from __future__ import annotations
 
-import logging
+import sqlite3
+from contextlib import closing
 from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.domain.scope import Scope
-from punt_lux.operations import Cleared, OpError, RenderRequest, SceneShown
+from punt_lux.operations import OpError, RenderRequest, SceneShown
 from punt_lux.operations.display_reply import DisplayReplied
-from punt_lux.operations.timing import OperationSubject, Timed
+from punt_lux.operations.timing import Timed
+from punt_lux.usage import capture_usage
 from tests.rest._fakes import StubPort, make_facade
 
 if TYPE_CHECKING:
-    import pytest
+    from pathlib import Path
 
 _LOCAL = Scope.in_process(ConnectionId("local"))
-_TIMING_LOGGER = "punt_lux.operations.timing"
+
+
+@pytest.fixture
+def database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("PUNT_TELEMETRY", raising=False)
+    monkeypatch.delenv("LUX_TELEMETRY", raising=False)
+    return tmp_path / ".punt-labs" / "lux" / "telemetry.db"
+
+
+def _metrics(database: Path) -> list[tuple[str, int, str, int, float, str]]:
+    with closing(sqlite3.connect(database)) as db:
+        return db.execute(
+            "SELECT name, schema_version, unit, count, sum, attributes "
+            "FROM metric_points"
+        ).fetchall()
 
 
 class _StepClock:
@@ -42,19 +61,27 @@ def _render_request(scene_id: str) -> RenderRequest | OpError:
     )
 
 
-def test_timed_logs_one_line_with_the_elapsed_milliseconds(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_timed_records_elapsed_milliseconds(database: Path) -> None:
     timed = Timed("render", _StepClock(0.025))
 
     @timed
     def _run() -> SceneShown:
         return SceneShown(scene_id="beads-lux")
 
-    with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
+    with capture_usage():
         assert _run().scene_id == "beads-lux"
 
-    assert caplog.messages == ["op render scene=beads-lux 25 ms"]
+    [(name, version, unit, count, elapsed, attributes)] = _metrics(database)
+    assert (name, version, unit, count, elapsed) == (
+        "lux.hub.operation_duration",
+        1,
+        "ms",
+        1,
+        25.0,
+    )
+    assert '"operation": "render"' in attributes
+    assert '"outcome": "ok"' in attributes
+    assert "beads-lux" not in attributes
 
 
 def test_timed_returns_the_operations_own_result() -> None:
@@ -67,48 +94,36 @@ def test_timed_returns_the_operations_own_result() -> None:
     assert _run(21, doubled=True) == 42
 
 
-def test_subject_names_the_scene_and_the_failure() -> None:
-    subject = OperationSubject()
-    assert subject.of(SceneShown(scene_id="s1")) == "scene=s1"
-    assert subject.of(OpError(code="not_found", reason="gone")) == "error=not_found"
-    assert subject.of(Cleared()) == "-"
-
-
-def test_a_render_through_the_facade_is_attested_once(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_render_through_the_facade_is_attested_once(database: Path) -> None:
     facade = make_facade(
         display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
     )
-    with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
+    with capture_usage():
         result = facade.render(_render_request("s1"), scope=_LOCAL)
     assert isinstance(result, SceneShown)
-    lines = [r.message for r in caplog.records if r.name == _TIMING_LOGGER]
-    assert len(lines) == 1
-    assert lines[0].startswith("op render scene=s1 ")
-    assert lines[0].endswith(" ms")
+    [metric] = _metrics(database)
+    assert metric[3] == 1
+    assert "s1" not in metric[-1]
 
 
-def test_a_rejected_render_is_attested_with_its_error_code(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_rejected_render_records_only_the_error_outcome(database: Path) -> None:
     facade = make_facade(
         display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
     )
-    with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
+    with capture_usage():
         request = RenderRequest.parse(
             {"scene_id": "s1", "elements": [{"kind": "no-such-kind", "id": "x"}]}
         )
         facade.render(request, scope=_LOCAL)
-    lines = [r.message for r in caplog.records if r.name == _TIMING_LOGGER]
-    assert len(lines) == 1
-    assert lines[0].startswith("op render error=")
+    [metric] = _metrics(database)
+    assert '"outcome": "error"' in metric[-1]
+    assert "no-such-kind" not in metric[-1]
 
 
-def test_a_read_only_query_is_not_attested(caplog: pytest.LogCaptureFixture) -> None:
+def test_list_scenes_is_not_attested(database: Path) -> None:
     facade = make_facade(
         display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
     )
-    with caplog.at_level(logging.INFO, logger=_TIMING_LOGGER):
+    with capture_usage():
         facade.list_scenes()
-    assert [r for r in caplog.records if r.name == _TIMING_LOGGER] == []
+    assert _metrics(database) == []

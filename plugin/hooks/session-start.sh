@@ -78,8 +78,7 @@ fi
 # second one would take the first's callbacks and the menu entry would flap
 # between them. The applet refuses a second start itself, under a lock on
 # $TMPDIR/lux-beads-$SESSION_WATCH_PID.pid; this check is what saves the
-# pointless spawn. Both files a session's applet leaves behind are named after
-# the session, so the log below and that claim sit together.
+# pointless spawn. The applet writes its own durable diagnostics.
 # Both `ps` calls are allowed to fail — a vanished parent between resolving the
 # pid and querying its comm is a real race, however rare, and under `set -e` an
 # unguarded failure here would abort the whole hook (no menu setup, no applet
@@ -95,13 +94,8 @@ claude) SESSION_WATCH_PID="$_grandparent_pid" ;;
 esac
 
 if command -v lux-beads &>/dev/null; then
-  LUX_APPLET_LOG="${TMPDIR:-/tmp}/lux-beads-$SESSION_WATCH_PID.log"
-  if pgrep -f "lux-beads --session-pid ${SESSION_WATCH_PID}\$" >/dev/null 2>&1; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') session-start: this session is already served; not spawning another applet" >>"$LUX_APPLET_LOG"
-  else
-    # Appended rather than truncated: a spawn that raced past the check must not
-    # take the running applet's log with it.
-    nohup lux-beads --session-pid "$SESSION_WATCH_PID" >>"$LUX_APPLET_LOG" 2>&1 &
+  if ! pgrep -f "lux-beads --session-pid ${SESSION_WATCH_PID}\$" >/dev/null 2>&1; then
+    nohup lux-beads --session-pid "$SESSION_WATCH_PID" </dev/null >/dev/null 2>&1 &
     disown
   fi
 fi

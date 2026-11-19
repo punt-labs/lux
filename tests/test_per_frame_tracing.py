@@ -61,13 +61,15 @@ def test_trace_still_reports_an_event_driven_call(
     """``trace`` is kept, not deleted — one line per event is what it is for."""
 
     @trace
-    def deliver(count: int) -> int:
-        return count
+    def deliver(message: str, *, repeat: int) -> str:
+        return message * repeat
 
     with caplog.at_level(logging.DEBUG):
-        assert deliver(3) == 3
+        assert deliver("private payload", repeat=2) == "private payloadprivate payload"
 
-    assert "deliver called args=(3,)" in caplog.text
+    assert "deliver called" in caplog.text
+    assert "private payload" not in caplog.text
+    assert "repeat" not in caplog.text
 
 
 def test_a_write_to_the_display_is_traced_and_a_read_of_it_is_not() -> None:

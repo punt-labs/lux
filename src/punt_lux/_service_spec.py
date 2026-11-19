@@ -1,6 +1,6 @@
 """ServiceSpec — a service's identity across supervisors and its command line.
 
-Names the launchd label, systemd unit, binary, args, and log stems for one
+Names the launchd label, systemd unit, binary, and args for one
 Lux service; the hub and display each get one.
 """
 
@@ -29,7 +29,6 @@ class ServiceSpec:
     systemd_description: str
     binary_name: str
     extra_args: tuple[str, ...]
-    log_stem: str
     cli_verb: str
     process_name: str
     legacy_launchd_labels: tuple[str, ...] = ()
@@ -43,23 +42,24 @@ class ServiceSpec:
 
     def resolve_exec_args(self) -> list[str]:
         """Return the command line, resolving the stable uv-tool-install symlink."""
-        local_bin = Path.home() / ".local" / "bin" / self.binary_name
+        local_bin = self._installed_binary()
+        logger.info("%s binary: %s (uv tool)", self.display_name, local_bin)
+        return [str(local_bin), *self.extra_args]
+
+    def _installed_binary(self) -> Path:
+        """Find the executable at its stable installation path."""
+        local_bin = self._binary_path
         if not local_bin.exists():
             msg = (
                 f"Cannot find {self.binary_name} binary at {local_bin}. "
                 "Install lux first: uv tool install punt-lux"
             )
             raise RuntimeError(msg)
-        logger.info("%s binary: %s (uv tool)", self.display_name, local_bin)
-        return [str(local_bin), *self.extra_args]
+        return local_bin
 
-    def log_stdout(self, log_dir: Path) -> Path:
-        """Return the stdout log path for this service under ``log_dir``."""
-        return log_dir / f"{self.log_stem}-stdout.log"
-
-    def log_stderr(self, log_dir: Path) -> Path:
-        """Return the stderr log path for this service under ``log_dir``."""
-        return log_dir / f"{self.log_stem}-stderr.log"
+    @property
+    def _binary_path(self) -> Path:
+        return Path.home() / ".local" / "bin" / self.binary_name
 
 
 HUB_SPEC: ServiceSpec = ServiceSpec(
@@ -69,7 +69,6 @@ HUB_SPEC: ServiceSpec = ServiceSpec(
     systemd_description="Lux session hub daemon",
     binary_name="luxd-hub",
     extra_args=("--port", str(DEFAULT_HUB_PORT)),
-    log_stem="luxd",
     cli_verb="hub",
     process_name="luxd-hub",
     legacy_launchd_labels=("com.punt-labs.lux",),
@@ -86,7 +85,6 @@ DISPLAY_SPEC: ServiceSpec = ServiceSpec(
     systemd_description="Lux display window server",
     binary_name="luxd-display",
     extra_args=(),
-    log_stem="luxd-display",
     cli_verb="display",
     process_name="luxd-display",
     restart_on_crash_only=True,

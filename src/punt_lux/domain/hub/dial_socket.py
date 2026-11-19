@@ -197,7 +197,7 @@ class DialSocket:
         return self._frames.iter_typed(DISPLAY_VOCABULARY)
 
     def head(self, count: int) -> bytes:
-        """Preview up to ``count`` unread bytes for a malformed-frame log message."""
+        """Return up to ``count`` unread bytes from the current frame buffer."""
         return self._frames.head(count)
 
     def close(self) -> None:

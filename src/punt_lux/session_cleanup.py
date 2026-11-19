@@ -4,7 +4,7 @@ When an MCP session ends, its Hub-side state must be released: the session's men
 items and the connection disconnect cascade (scenes, subscriptions, writer,
 inbox). Each leg runs arbitrary handler code, so a raise in one must neither skip
 the other nor escape unattributed to the SDK's session runner. This unit brackets
-each leg and logs its failure against the session key; a programmer error
+each leg and logs its failure; a programmer error
 propagates only after every leg has run.
 """
 
@@ -40,20 +40,18 @@ class SessionCleanup:
         self._connection_id = connection_id
         return self
 
-    def run(self, key: str) -> None:
+    def run(self) -> None:
         """Drop the menu items, then always cascade the disconnect, then re-raise."""
         try:
-            self._leg("menu", key, lambda: OPERATIONS.drop_session(self._connection_id))
+            self._leg("menu", lambda: OPERATIONS.drop_session(self._connection_id))
         finally:
-            self._leg(
-                "disconnect", key, lambda: disconnect_connection(self._connection_id)
-            )
+            self._leg("disconnect", lambda: disconnect_connection(self._connection_id))
 
-    def _leg(self, leg: str, key: str, step: Callable[[], None]) -> None:
+    def _leg(self, leg: str, step: Callable[[], None]) -> None:
         """Run one leg, logging its failure; only a programmer error escapes."""
         try:
             step()
         except Exception as exc:
-            logger.exception("MCP teardown failed: leg=%s session_key=%s", leg, key)
+            logger.error("MCP cleanup failed: leg=%s error=%s", leg, type(exc).__name__)
             if isinstance(exc, ProgrammerError):
                 raise  # run() lets the other leg go first, then this propagates

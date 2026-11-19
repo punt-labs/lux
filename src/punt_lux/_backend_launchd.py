@@ -58,10 +58,6 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         daemon from exiting promptly. A changed plist requires a verified stop
         before the new version can load.
         """
-        from punt_lux.hub_paths import HubPaths
-
-        HubPaths().log_dir.mkdir(parents=True, exist_ok=True)
-
         label = self._plist.spec.launchd_label
         desired_plist = self._plist_content()
         if self.is_active():
@@ -136,9 +132,6 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         program_args = "\n".join(
             f"        <string>{_xml_escape(a)}</string>" for a in exec_args
         )
-        log_dir = Path.home() / ".punt-labs" / "lux" / "logs"
-        stdout = self._plist.spec.log_stdout(log_dir)
-        stderr = self._plist.spec.log_stderr(log_dir)
         return textwrap.dedent(f"""\
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -154,10 +147,6 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
                 <key>RunAtLoad</key>
                 <true/>
             {self._keep_alive_block()}
-                <key>StandardOutPath</key>
-                <string>{stdout}</string>
-                <key>StandardErrorPath</key>
-                <string>{stderr}</string>
             </dict>
             </plist>
         """)

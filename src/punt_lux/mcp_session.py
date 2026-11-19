@@ -123,7 +123,7 @@ class SessionScopedServer:
         key = current_session()
         connection_id = ConnectionId(key)
         self._registry.add(key)
-        logger.info("MCP session connected: session_key=%s", key)
+        logger.info("MCP session connected")
         try:
             await self._inner.run(
                 read_stream,
@@ -133,5 +133,5 @@ class SessionScopedServer:
             )
         finally:
             if self._registry.discard(key):
-                SessionCleanup(connection_id).run(key)
-            logger.info("MCP session disconnected: session_key=%s", key)
+                SessionCleanup(connection_id).run()
+            logger.info("MCP session disconnected")

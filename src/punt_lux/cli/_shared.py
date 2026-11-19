@@ -12,25 +12,23 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
-import logging
 import sys
 from typing import TYPE_CHECKING, Annotated, Self, cast, final
 
 import typer
 from pydantic import ValidationError
 
+from punt_lux.cli._connection import connect_client as connect_client
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
-from punt_lux.client.facade import LuxClient
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
+from punt_lux.logging_config import configure_logging as configure_logging
 from punt_lux.operations import Scope
-from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
     from pathlib import Path
 
-    from punt_lux.client._sync_ops import SyncOps
     from punt_lux.commands._result import CommandResult
 
 __all__ = [
@@ -122,9 +120,9 @@ class OutputFlags:
         return self._quiet
 
     def apply_logging(self) -> None:
-        """Raise stderr log verbosity when ``--verbose`` is set."""
+        """Enable diagnostic verbosity when ``--verbose`` is set."""
         if self._verbose:
-            logging.basicConfig(level=logging.DEBUG)
+            configure_logging("lux", "cli", verbose=True)
 
 
 def identity_from_flags(
@@ -241,25 +239,6 @@ def read_json_array(inline: str | None, from_file: Path | None) -> list[object]:
     return cast("list[object]", payload)
 
 
-def connect_client(
-    *, identity: ClientIdentity | None = None, timeout: float = 2.0
-) -> SyncOps:
-    """Connect and return the caller's synchronous ops surface, or exit 1.
-
-    ``identity`` must be the same :class:`ClientIdentity`
-    :func:`identity_from_flags` resolved -- REST stamps its
-    ``X-Lux-Client-*`` headers from it. Omitting ``identity`` falls back to
-    :meth:`LuxClient.connect`'s own ambient resolution.
-    """
-    try:
-        if identity is not None:
-            return LuxClient.for_identity(identity, timeout=timeout).sync
-        return LuxClient.connect(timeout=timeout).sync
-    except HubUnavailableError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from None
-
-
 def run(
     coro: Coroutine[object, object, CommandResult],
     flags: OutputFlags,
@@ -272,15 +251,13 @@ def run(
     """
     flags.apply_logging()
     result = asyncio.run(coro)
+    message = (
+        _json.dumps(result.json_data)
+        if flags.json and result.json_data is not None
+        else result.text
+    )
     if result.error:
-        if flags.json and result.json_data is not None:
-            typer.echo(_json.dumps(result.json_data), err=True)
-        else:
-            typer.echo(result.text, err=True)
+        typer.echo(message, err=True)
         raise typer.Exit(code=result.exit_code)
-    if flags.quiet:
-        return
-    if flags.json and result.json_data is not None:
-        typer.echo(_json.dumps(result.json_data))
-    else:
-        typer.echo(result.text)
+    if not flags.quiet:
+        typer.echo(message)

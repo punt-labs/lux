@@ -1,14 +1,9 @@
 """How long a pushed scene takes to reach the glass.
 
 The Hub attests the time it spends installing a scene; this is the other half,
-measured inside the display process: from the moment a scene message arrives to
-the buffer swap that first put that scene's pixels on screen::
-
-    paint scene=beads-lux 41 ms
-
-Each half is logged by the process that did the work, so a click that felt slow
-can be attributed to one side or the other without either process vouching for
-the other's clock.
+measured inside the Display process: from arrival to the first buffer swap
+that put the scene's pixels on screen. Each process records its own latency
+histogram without storing scene identifiers.
 
 A scene that arrives into a background tab or a minimized frame is never drawn.
 It is forgotten after ``_ABANDON_AFTER`` seconds rather than waiting forever for
@@ -65,14 +60,15 @@ class PaintClock:
         if scene_id in self._arrived:
             self._drawn.add(scene_id)
 
-    def swapped(self) -> None:
-        """Attest every scene the just-swapped pass painted for the first time."""
+    def swapped(self) -> tuple[float, ...]:
+        """Return millisecond durations for scenes first painted in this swap."""
         now = self._clock()
-        for scene_id in self._drawn:
-            elapsed = now - self._arrived.pop(scene_id)
-            logger.info("paint scene=%s %d ms", scene_id, round(elapsed * 1000))
+        durations = tuple(
+            (now - self._arrived.pop(scene_id)) * 1000 for scene_id in self._drawn
+        )
         self._drawn.clear()
         self._abandon_undrawn(now)
+        return durations
 
     def _abandon_undrawn(self, now: float) -> None:
         """Forget scenes that arrived but were never drawn, so the stamps stay few."""
@@ -83,6 +79,4 @@ class PaintClock:
         ]
         for scene_id in undrawn:
             del self._arrived[scene_id]
-            logger.debug(
-                "paint scene=%s not drawn within %.0f s", scene_id, self._ABANDON_AFTER
-            )
+            logger.debug("Forgot a scene not drawn within %.0f s", self._ABANDON_AFTER)

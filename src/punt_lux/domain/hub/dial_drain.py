@@ -97,11 +97,11 @@ class DialDrain:
                         return False
         except ProgrammerError:
             raise
-        except Exception:  # wire boundary: any decoder failure ends the stream
-            logger.exception(
-                "Drain of %s stopped: its stream could not be read past %r",
+        except Exception as exc:  # any decoder failure ends the stream
+            logger.error(
+                "Drain of %s stopped: its stream could not be read",
                 generation.endpoint,
-                generation.head(64),
+                exc_info=Exception().with_traceback(exc.__traceback__),
             )
             return False
         return True

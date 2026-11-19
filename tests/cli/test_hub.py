@@ -66,8 +66,7 @@ class TestHubStart:
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
             mock_cls.for_hub.return_value.start.side_effect = ServiceActionFailedError(
-                "luxd start failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
-                "for details."
+                "luxd start failed. See ~/.punt-labs/lux/logs/lux.log for details."
             )
             result = runner.invoke(app, ["hub", "start"])
         assert result.exit_code == 1
@@ -91,8 +90,7 @@ class TestHubStop:
 
         with patch("punt_lux.cli.hub.ServiceManager") as mock_cls:
             mock_cls.for_hub.return_value.stop.side_effect = ServiceActionFailedError(
-                "luxd stop failed. See ~/.punt-labs/lux/logs/luxd-stderr.log "
-                "for details."
+                "luxd stop failed. See ~/.punt-labs/lux/logs/lux.log for details."
             )
             result = runner.invoke(app, ["hub", "stop"])
         assert result.exit_code == 1

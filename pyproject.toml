@@ -35,6 +35,7 @@ dependencies = [
     "starlette>=1.3.1,<2",
     "fastapi>=0.115.0,<1",
     "uvicorn>=0.34.0",
+    "punt-observe @ git+https://github.com/punt-labs/punt-observe.git@a90872cc20cf688dfd41aeb36c7120e63fc69849",
     # The persistent hub client (LuxHubClient) speaks the WebSocket listen leg;
     # uvicorn already resolves websockets for its own server protocol, so this only
     # makes the client's dependency explicit rather than pulling a new package.
@@ -110,7 +111,7 @@ docs = [
 ]
 
 [project.scripts]
-lux = "punt_lux.__main__:app"
+lux = "punt_lux.__main__:_entry"
 luxd-hub = "punt_lux.luxd:main"
 luxd-display = "punt_lux.luxd_display:DisplayEntryPoint.main"
 luxd-pty = "punt_lux.ptyd.__main__:PtyEntryPoint.main"
@@ -161,6 +162,8 @@ select = [
     "BLE",  # flake8-blind-except
     "T10",  # flake8-debugger
     "T20",  # flake8-print
+    "LOG",  # flake8-logging
+    "G",    # flake8-logging-format
     "A",    # flake8-builtins
     "ERA",  # flake8-eradicate (commented code)
     "PIE",  # flake8-pie
