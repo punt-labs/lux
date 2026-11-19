@@ -15,6 +15,7 @@ the rest of the system — a change in any dependency can break it.
 
 - Pass: module imports from <= 7 internal modules
 - Pass (`__main__.py`): <= 15 (CLI entry points legitimately wire many modules)
+- Pass (four wiring hubs configured in `pyproject.toml`): <= 20
 - Fail: module imports from > 7 internal modules (> 15 for `__main__.py`)
 
 **Tooling**:
@@ -22,6 +23,13 @@ the rest of the system — a change in any dependency can break it.
 - `oo-ratchet coupling` — `efferent_coupling` metric
 - Fix: extract a facade or mediator that the module imports instead of
   importing each dependency directly
+
+Lux uses `punt-oo-ratchet` 0.2.0 with `stateless-values = "any"` to retain
+the broad stateless-value LCOM exemption. Exact-path hub caps live in
+`[tool.oo-ratchet.coupling.caps]`. Run `make update-coupling` after improvements;
+use `make bless-coupling FILES=a.py,b.py REASON="explanation"` for an audited
+bounded bless (`--rebaseline-files ... --reason ...`). Metrics above both
+their cap and baseline are refused.
 
 ## PL-CU-2: Circular Imports
 

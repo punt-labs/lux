@@ -66,6 +66,11 @@ check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-ba
 update-coupling: ## Update coupling baseline
 	uv run --extra display oo-ratchet coupling src/punt_lux/ --update
 
+bless-coupling: ## Bounded coupling bless (FILES=a.py,b.py REASON="explanation")
+	uv run --extra display oo-ratchet coupling src/punt_lux/ --rebaseline-files "$(FILES)" --reason "$(REASON)"
+
+.PHONY: bless-coupling
+
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display oo-ratchet oo src/punt_lux/ --threshold
 	-uv run --extra display python tools/layer_contract.py
