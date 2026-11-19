@@ -11,7 +11,10 @@ class ProcessSession:
     @staticmethod
     def detach() -> None:
         if os.getsid(0) != os.getpid():
-            os.setsid()
+            try:
+                os.setsid()
+            except PermissionError:
+                return
 
     @staticmethod
     async def wait_for_parent(parent: int) -> None:

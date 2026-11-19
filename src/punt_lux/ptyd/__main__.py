@@ -10,14 +10,15 @@ from importlib import import_module
 from pathlib import Path
 from types import FrameType
 
+from punt_lux.terminal.process_session import ProcessSession
+
 
 class PtyEntryPoint:
     """Run the independent owner; Display disconnect never reaches this lifecycle."""
 
     @staticmethod
     def main() -> None:
-        if os.getsid(0) != os.getpid():
-            os.setsid()
+        ProcessSession.detach()
         parser = argparse.ArgumentParser(description="Lux local terminal-session owner")
         default = Path.home() / ".punt-labs" / "lux" / "pty" / "luxd-pty.sock"
         parser.add_argument("--socket", type=Path, default=default)
