@@ -705,7 +705,7 @@ the arithmetic of deleting many one-line, one-parameter members and widening
 ### Predicted regressions after the merge, against HEAD
 
 Every item the tools report as worse than HEAD on the revised prototype, with the
-cap that applies. `check-coupling` caps: efferent 7, public names 15, avg LCOM
+cap that applies. `check-coupling` caps: efferent 10 (since 0.3.0), public names 15, avg LCOM
 0.5; `check-oo` caps: `avg_params` 4.0, `module_size` 300, `avg_complexity` 5.0.
 `top_level_statements` has no cap.
 
@@ -717,7 +717,7 @@ cap that applies. `check-coupling` caps: efferent 7, public names 15, avg LCOM
 | `client_listing.py` | max, avg LCOM | 0.333 to 0.5 | **at** cap (inclusive), within |
 | `identity.py` | max, avg LCOM | 0 to 0.333 | within |
 | `replicator_instance.py` | public names | 4 to 5 | within |
-| `hub_store_factory.py` (new) | efferent, LCOM | 7, 0.5 | **at** both caps; new files are judged by the same `<=`, but there is no margin: one more runtime import fails it. The fallback is the one in the first draft (build registry, cascade and lifecycle in a small `ClientLifecycleFactory`, bringing the builder to 5). |
+| `hub_store_factory.py` (new) | efferent, LCOM | 7, 0.5 | Within the efferent cap of 10 (since 0.3.0), **at** the LCOM cap. The original efferent cap left no margin; its fallback was a small `ClientLifecycleFactory`, bringing the builder to 5. |
 
 `check-oo` as the prototype predicted it (all within cap; the measurement below
 supersedes it): `callback_menu.py` size 81 to 84;
@@ -753,7 +753,8 @@ this change touches against the coupling baseline gives the full list the
 post-commit run will show: that one, plus `identity.py` LCOM 0 to 0.333,
 `client_listing.py` LCOM 0.333 to 0.5 (at the cap), and `replicator_instance.py`
 public names 4 to 5, all within cap; and the new files, none over
-(`hub_store_factory.py` at efferent 7 and LCOM 0.5, both exactly at their caps).
+(`hub_store_factory.py` at efferent 7 and LCOM 0.5, at the then-applicable caps;
+the efferent cap is now 10).
 There is **no over-cap regression**: `scenes.py` stays at LCOM 0.6, `facade.py` at
 0.845, and `queries.py` is untouched. The improvements: `hub_display.py` (efferent
 26 to 21, LCOM 0.636 to 0.593, public names 5 to 4), `callbacks.py` (efferent 4 to

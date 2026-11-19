@@ -44,7 +44,7 @@ every file better than you found it.
 **Statement**: Every Python project depends on the dev-only PyPI package
 [`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/), the canonical
 implementation of the OO, coupling/cohesion, and suppression-count gates.
-Pin the reviewed release with `uv add --dev "punt-oo-ratchet==0.2.2"` and
+Pin the reviewed release with `uv add --dev "punt-oo-ratchet==0.3.0"` and
 commit `pyproject.toml` and `uv.lock`. Do not embed the implementation under
 `tools/`. Existing root baseline and audit filenames remain compatible.
 
@@ -57,8 +57,8 @@ commit `pyproject.toml` and `uv.lock`. Do not embed the implementation under
 | avg_params | <= 4.0 | Parameter bloat (should be an object) |
 | max_complexity | <= 10 | God functions (worst single function) |
 | avg_complexity | <= 5.0 | Sustained complexity (many moderately-complex functions) |
-| module_size | <= 300 | God modules |
-| classes_per_module | <= 3 | Unfocused modules |
+| module_size | <= 300 code lines | God modules (excludes docstrings, comments and blanks) |
+| classes_per_module | <= 3 | Unfocused modules (excludes exceptions, enums, dataclasses, Protocol and TypedDict) |
 | class_to_func_ratio | >= 0.5 | Procedural code disguised as a module |
 | init_violations | == 0 | **init** used instead of **new** |
 | public_attr_violations | == 0 | self.name without underscore |

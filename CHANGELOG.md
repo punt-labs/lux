@@ -37,6 +37,14 @@
 
 ### Changed
 
+- **Adopt `punt-oo-ratchet==0.3.0` counting (PL-1141, PL-1188).** Rebaseline
+  OO metrics through the audited bulk command: module size counts code only,
+  and class counts exclude exceptions, enums and dataclasses. Raise the default
+  efferent-coupling cap to 10 and remove the redundant `replicator_instance.py`
+  override; three wiring hubs retain caps of 20. Merged suppression waivers
+  retire, so later increases require fresh justification. Refresh the stale
+  suppression snapshot from 174 to the unchanged current-tree count of 173.
+
 - **Restore Lux ratchet policies with `punt-oo-ratchet==0.2.2` (PL-1165).**
   Configure the broad stateless-value LCOM exemption and the four wiring-hub
   coupling caps of 20. Tighten the affected coupling baselines with an audited
