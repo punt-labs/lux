@@ -8,6 +8,7 @@ from typing import Self
 
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
+from punt_lux.display.terminal.retry_schedule import RetrySchedule
 from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
@@ -18,8 +19,7 @@ from punt_lux.ptyd.snapshot import snapshot_version
 class AttachmentRequests:
     _send: Callable[[Frame], None]
     _pending: dict[int, RemoteSession]
-    _retries: dict[str, tuple[RemoteSession, float]]
-    _delays: dict[str, float]
+    _schedule: RetrySchedule
     _hello_id: int
     _ready: bool
 
@@ -27,8 +27,7 @@ class AttachmentRequests:
         self = super().__new__(cls)
         self._send = send
         self._pending = {}
-        self._retries = {}
-        self._delays = {}
+        self._schedule = RetrySchedule()
         self._hello_id = 0
         self._ready = False
         return self
@@ -50,13 +49,7 @@ class AttachmentRequests:
         self._send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
 
     def due(self) -> tuple[RemoteSession, ...]:
-        now = time.monotonic()
-        due = tuple(
-            session for session, deadline in self._retries.values() if now >= deadline
-        )
-        for session in due:
-            del self._retries[session.name]
-        return due
+        return self._schedule.due(time.monotonic())
 
     def receive(self, data: bytes) -> RemoteSession | None:
         reply = ReplyCodec.decode(data)
@@ -71,7 +64,7 @@ class AttachmentRequests:
         if isinstance(reply, FailureReply):
             self._failed(session, reply)
             return None
-        self._delays.pop(session.name, None)
+        self._schedule.succeeded(session)
         session.begin(dict(reply.result))
         return session
 
@@ -79,16 +72,13 @@ class AttachmentRequests:
         if not reply.retryable:
             session.fail(reply.error)
             return
-        delay = min(4.0, self._delays.get(session.name, 0.125) * 2)
-        self._delays[session.name] = delay
-        self._retries[session.name] = (session, time.monotonic() + delay)
+        self._schedule.failed(session, time.monotonic())
         session.disconnected(reply.error)
 
     def reset(self) -> None:
         self._ready = False
         self._pending.clear()
-        self._retries.clear()
-        self._delays.clear()
+        self._schedule.clear()
 
     def disconnect(self, sessions: tuple[RemoteSession, ...], message: str) -> None:
         self.reset()
