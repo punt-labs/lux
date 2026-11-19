@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """``TerminalView``: the terminal widget for an ImGui window.
 
 It has the same surface as ``imgui_bundle.imgui_terminal.TerminalView``, so

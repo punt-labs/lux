@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """Draw a ``RenderState`` into the current ImGui window's draw list.
 
 Pure drawing: no input, no terminal mutation. The grid geometry

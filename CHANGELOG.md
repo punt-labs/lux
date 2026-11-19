@@ -37,6 +37,9 @@
 
 ### Changed
 
+- Type the pinned pyghostty native boundary without file-wide Pyright
+  suppressions, including snapshot ownership and encoder/render buffers (PL-1174).
+
 - **Ratchet gates use `punt-oo-ratchet==0.1.0` from PyPI (PL-1159).** The
   published CLI replaces the embedded OO, coupling/cohesion and suppression
   tools and their tests, preserving merge-base and post-merge CI comparisons.

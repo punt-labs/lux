@@ -235,6 +235,7 @@ known-first-party = ["punt_lux"]
 combine-as-imports = true
 
 [tool.mypy]
+mypy_path = "typings"
 python_version = "3.13"
 strict = true
 warn_return_any = true
@@ -273,7 +274,6 @@ module = [
     # only ever assigns the untyped client into the package's own _AcmPcaClient
     # Protocol, so Any-typed boto3 is sufficient without adding boto3-stubs.
     "boto3.*",
-    "pyghostty.*",  # SPIKE: no type stubs; confined to display/terminal/ffi.py
 ]
 ignore_missing_imports = true
 
@@ -283,6 +283,7 @@ warn_unused_ignores = false
 ignore_missing_imports = true
 
 [tool.pyright]
+stubPath = "typings"
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 venvPath = "."

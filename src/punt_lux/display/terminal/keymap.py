@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """ImGui keys and modifiers → Ghostty's key and modifier codes.
 
 The mapping is by physical key; Ghostty's key encoder then turns

@@ -1,4 +1,3 @@
-# pyright: reportMissingModuleSource=false
 """ImGuiTerminalRenderer — SPIKE adapter for ``TerminalElement``.
 
 Paints the element's session in a child window: ``height`` points tall, or

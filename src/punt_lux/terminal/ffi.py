@@ -1,8 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# pyright: reportOptionalSubscript=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """The pyghostty boundary: every use of its private or C-level API lives here.
 
 pyghostty 0.1.4 wraps only part of libghostty-vt in Python (``Terminal``).
@@ -15,11 +10,20 @@ is checked in one place.
 
 from __future__ import annotations
 
-from typing import Any
+import weakref
+from typing import TYPE_CHECKING, Self
 
-from pyghostty import Terminal, __version__ as _pyghostty_version, ffi, lib
+from pyghostty import (
+    Terminal as NativeTerminal,
+    __version__ as _pyghostty_version,
+    ffi,
+    lib,
+)
 from pyghostty._ffi import union_fn  # private: calls that pass a union by value
 from pyghostty.core import init_sized  # sized-struct allocator
+
+if TYPE_CHECKING:
+    from pyghostty._ffi import GhosttySelectionPointer, GhosttyTerminalImpl, Pointer
 
 __all__ = [
     "Terminal",
@@ -50,13 +54,32 @@ _scroll_viewport = union_fn(
 )
 
 
+class Terminal(NativeTerminal):
+    """Own the pinned binding's protected handle and finalizer conventions."""
+
+    @property
+    def native_handle(self) -> Pointer[GhosttyTerminalImpl]:
+        return self._t[0]
+
+    def formatted_selection(self, selection: GhosttySelectionPointer) -> str:
+        return self._format_sel(selection, unwrap=True)
+
+    @classmethod
+    def from_handle(cls, raw: Pointer[Pointer[GhosttyTerminalImpl]]) -> Self:
+        term = cls.__new__(cls)
+        term._t = raw
+        term._unknown_cb = term._reply_cb = term._cb_err = None
+        term._free = weakref.finalize(term, lib.ghostty_terminal_free, raw[0])
+        return term
+
+
 class GhosttyAccess:
     """Adapter for handle access, viewport operations and library identity."""
 
     @staticmethod
-    def handle(term: Terminal) -> Any:
+    def handle(term: Terminal) -> Pointer[GhosttyTerminalImpl]:
         """Return the raw ``GhosttyTerminal`` handle behind a pyghostty Terminal."""
-        return term._t[0]
+        return term.native_handle
 
     @staticmethod
     def scroll_viewport(term: Terminal, tag: int, delta: int = 0) -> None:

@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """One terminal row → text runs and background spans (ADR-0003).
 
 The hot path of the whole renderer. A row of 200 cells could cost 200+ FFI
@@ -25,13 +21,24 @@ Correctness is checked against the straightforward per-cell reader in
 from __future__ import annotations
 
 import itertools
-from typing import Any, Self
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
 
 from punt_lux.display.terminal.cell_layout import CellLayout, cell_layout
 from punt_lux.display.terminal.model import RGB, BgSpan, CellStyle, Row, Run
 from punt_lux.terminal.ffi import ffi, init_sized, lib
+
+if TYPE_CHECKING:
+    from pyghostty._ffi import (
+        GhosttyBufferPointer,
+        GhosttyCellsViewPointer,
+        GhosttyColorRgbPointer,
+        GhosttyRenderStateRowCellsImpl,
+        GhosttyRenderStateRowIteratorImpl,
+        GhosttyStylePointer,
+        Pointer,
+    )
 
 __all__ = ["RowBuilder"]
 
@@ -40,12 +47,12 @@ class RowBuilder:
     """Builds ``Row``\\ s from a render-state row iterator. Reuses its buffers."""
 
     _layout: CellLayout
-    _cells: Any
-    _view: Any
-    _color: Any
-    _style: Any
-    _utf8: Any
-    _utf8_buf: Any
+    _cells: Pointer[Pointer[GhosttyRenderStateRowCellsImpl]]
+    _view: GhosttyCellsViewPointer
+    _color: GhosttyColorRgbPointer
+    _style: GhosttyStylePointer
+    _utf8: Pointer[int]
+    _utf8_buf: GhosttyBufferPointer
     _styles: dict[int, CellStyle]
     _fg: RGB
     _bg: RGB
@@ -69,7 +76,7 @@ class RowBuilder:
     def close(self) -> None:
         lib.ghostty_render_state_row_cells_free(self._cells[0])
 
-    def build(self, row_iterator: Any) -> Row:
+    def build(self, row_iterator: Pointer[GhosttyRenderStateRowIteratorImpl]) -> Row:
         """Build the iterator's current row."""
         lay = self._layout
         lib.ghostty_render_state_row_get(
@@ -149,7 +156,7 @@ class RowBuilder:
             glyph = self._grapheme(start)
             if glyph.strip(" "):
                 runs.append(
-                    self._run(start, glyph, 2 if is_wide else 1, style, is_wide)
+                    self._run(start, glyph, 2 if is_wide else 1, style, wide=is_wide)
                 )
             return
         text = codepoints[start:end].tobytes().decode("utf-32-le").rstrip(" ")
@@ -222,7 +229,7 @@ class RowBuilder:
         self._bg = value
 
     @staticmethod
-    def _run(x: int, text: str, ncells: int, style: CellStyle, wide: bool) -> Run:  # noqa: FBT001
+    def _run(x: int, text: str, ncells: int, style: CellStyle, *, wide: bool) -> Run:
         return Run(
             x, text, ncells, style.fg, style.bold, style.italic, style.underline, wide
         )

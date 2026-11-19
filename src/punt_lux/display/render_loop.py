@@ -1,5 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """The ImGui render loop, with non-blocking Unix socket IPC.
 
 Polls I/O every frame with zero-timeout ``select()`` -- no threads/asyncio.

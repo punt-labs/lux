@@ -1,4 +1,3 @@
-# pyright: reportMissingModuleSource=false
 """Clipboard shortcuts, separate from terminal drawing and sizing."""
 
 from __future__ import annotations

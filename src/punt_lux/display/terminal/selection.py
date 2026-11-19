@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """Text selection, owned by Ghostty.
 
 Ghostty stores the selection as tracked references into the screen, so it
@@ -12,7 +8,7 @@ turns mouse gestures into selection calls; it doesn't track a range itself.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Literal, Self
 
 from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
 
@@ -50,10 +46,10 @@ class Selection:
         self._anchor = None
 
     def select_word(self, at_viewport: Cell) -> None:
-        self._select_unit("Word", lib.ghostty_terminal_select_word, at_viewport)
+        self._select_unit("Word", at_viewport)
 
     def select_line(self, at_viewport: Cell) -> None:
-        self._select_unit("Line", lib.ghostty_terminal_select_line, at_viewport)
+        self._select_unit("Line", at_viewport)
 
     def clear(self) -> None:
         lib.ghostty_terminal_set(
@@ -67,7 +63,7 @@ class Selection:
             handle(self._term), lib.GHOSTTY_TERMINAL_DATA_SELECTION, sel
         ):
             return ""
-        text: str = self._term._format_sel(sel, unwrap=True)
+        text: str = self._term.formatted_selection(sel)
         return text
 
     def _set(self, start: Cell, end: Cell, coords: str) -> None:
@@ -78,11 +74,18 @@ class Selection:
             handle(self._term), lib.GHOSTTY_TERMINAL_OPT_SELECTION, sel
         )
 
-    def _select_unit(self, kind: str, select: object, at: Cell) -> None:
+    def _select_unit(self, kind: Literal["Word", "Line"], at: Cell) -> None:
         sel = init_sized("GhosttySelection")
-        options = init_sized(f"GhosttyTerminalSelect{kind}Options")  # NULL = defaults
-        options.ref = self._term.ref(*at, "viewport")[0]
-        if select(handle(self._term), options, sel) == 0:  # type: ignore[operator]
+        ref = self._term.ref(*at, "viewport")[0]
+        if kind == "Word":
+            word = init_sized("GhosttyTerminalSelectWordOptions")
+            word.ref = ref
+            result = lib.ghostty_terminal_select_word(handle(self._term), word, sel)
+        else:
+            line = init_sized("GhosttyTerminalSelectLineOptions")
+            line.ref = ref
+            result = lib.ghostty_terminal_select_line(handle(self._term), line, sel)
+        if result == 0:
             lib.ghostty_terminal_set(
                 handle(self._term), lib.GHOSTTY_TERMINAL_OPT_SELECTION, sel
             )

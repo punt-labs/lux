@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Self
 
 from imgui_bundle import imgui
 
@@ -15,13 +15,12 @@ from punt_lux.display.terminal.keymap import (
     SUPER,
     terminal_mods,
 )
-from punt_lux.terminal import ffi as ghostty
-from punt_lux.terminal.ffi import Terminal, ffi, handle, lib as ghostty_lib
+from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib as lib
 
 if TYPE_CHECKING:
-    from punt_lux.display.terminal.input import MouseFrame
+    from pyghostty._ffi import GhosttyKeyEncoderImpl, GhosttyMouseEncoderImpl, Pointer
 
-lib = cast("Any", ghostty_lib)  # The generated CFFI key declarations lack stubs.
+    from punt_lux.display.terminal.input import MouseFrame
 
 _MOUSE_BUTTONS = (
     (imgui.MouseButton_.left, lib.GHOSTTY_MOUSE_BUTTON_LEFT),
@@ -82,8 +81,7 @@ class KeyboardEvents:
 
 class KeyEncoding:
     _text: dict[int, str]
-    # Native CFFI handles have no Python stub types.
-    _encoder: Any
+    _encoder: Pointer[Pointer[GhosttyKeyEncoderImpl]]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -100,8 +98,8 @@ class KeyEncoding:
         self,
         term: Terminal,
         stroke: tuple[int, int, str | None, int],
-        out: Any,
-        out_len: Any,
+        out: Pointer[bytes],
+        out_len: Pointer[int],
     ) -> int:
         key, mods, text, action = stroke
         if action == lib.GHOSTTY_KEY_ACTION_RELEASE:
@@ -114,7 +112,7 @@ class KeyEncoding:
         event = ffi.new("GhosttyKeyEvent*")
         lib.ghostty_key_event_new(ffi.NULL, event)
         try:
-            ev = cast("Any", event[0])  # Native GhosttyKeyEvent has no Python stub.
+            ev = event[0]
             lib.ghostty_key_event_set_action(ev, action)
             lib.ghostty_key_event_set_key(ev, key)
             lib.ghostty_key_event_set_mods(ev, mods)
@@ -130,18 +128,15 @@ class KeyEncoding:
                     ev, ord(lower if len(lower) == 1 else unshifted)
                 )
             lib.ghostty_key_encoder_setopt_from_terminal(self._encoder[0], handle(term))
-            return cast(
-                "int",
-                lib.ghostty_key_encoder_encode(
-                    self._encoder[0], ev, out, len(out), out_len
-                ),
+            return lib.ghostty_key_encoder_encode(
+                self._encoder[0], ev, out, len(out), out_len
             )
         finally:
             lib.ghostty_key_event_free(event[0])
 
 
 class MouseEvents:
-    _encoder: Any
+    _encoder: Pointer[Pointer[GhosttyMouseEncoderImpl]]
     _buttons_down: int
     _last_cell: tuple[int, int] | None
 
@@ -164,8 +159,8 @@ class MouseEvents:
         self,
         frame: MouseFrame,
         term: Terminal,
-        out: Any,
-        out_len: Any,
+        out: Pointer[bytes],
+        out_len: Pointer[int],
         emit: Callable[[int], bool],
     ) -> None:
         self._buttons(frame, term, out, out_len, emit)
@@ -202,8 +197,8 @@ class MouseEvents:
         self,
         frame: MouseFrame,
         term: Terminal,
-        out: Any,
-        out_len: Any,
+        out: Pointer[bytes],
+        out_len: Pointer[int],
         emit: Callable[[int], bool],
     ) -> None:
         for imgui_button, button in _MOUSE_BUTTONS:
@@ -240,23 +235,23 @@ class MouseEvents:
         button: int,
         frame: MouseFrame,
         term: Terminal,
-        out: Any,
-        out_len: Any,
+        out: Pointer[bytes],
+        out_len: Pointer[int],
     ) -> int:
         event = ffi.new("GhosttyMouseEvent*")
         lib.ghostty_mouse_event_new(ffi.NULL, event)
         try:
-            ev = cast("Any", event[0])
+            ev = event[0]
             lib.ghostty_mouse_event_set_action(ev, action)
             if button:
                 lib.ghostty_mouse_event_set_button(ev, button)
             lib.ghostty_mouse_event_set_mods(ev, KeyboardEvents.modifiers())
-            pos = cast("Any", ffi.new("GhosttyMousePosition*"))
+            pos = ffi.new("GhosttyMousePosition*")
             pos.x, pos.y = frame.x, frame.y
             lib.ghostty_mouse_event_set_position(ev, pos[0])
             encoder = self._encoder[0]
             lib.ghostty_mouse_encoder_setopt_from_terminal(encoder, handle(term))
-            size = cast("Any", ghostty).init_sized("GhosttyMouseEncoderSize")
+            size = init_sized("GhosttyMouseEncoderSize")
             size.screen_width = int(frame.cols * frame.cell_w)
             size.screen_height = int(frame.rows * frame.cell_h)
             size.cell_width, size.cell_height = int(frame.cell_w), int(frame.cell_h)
@@ -267,9 +262,6 @@ class MouseEvents:
             lib.ghostty_mouse_encoder_setopt(
                 encoder, lib.GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, pressed
             )
-            return cast(
-                "int",
-                lib.ghostty_mouse_encoder_encode(encoder, ev, out, len(out), out_len),
-            )
+            return lib.ghostty_mouse_encoder_encode(encoder, ev, out, len(out), out_len)
         finally:
             lib.ghostty_mouse_event_free(event[0])

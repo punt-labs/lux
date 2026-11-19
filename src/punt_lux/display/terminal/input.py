@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """ImGui keyboard, mouse and paste → bytes for the program (ADR-0004).
 
 The widget never builds escape sequences itself. Ghostty's encoders decide
@@ -16,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import TYPE_CHECKING, Self
 
 from imgui_bundle import ImVec2, imgui
 
@@ -26,6 +22,9 @@ from punt_lux.display.terminal.input_events import (
     MouseEvents,
 )
 from punt_lux.terminal.ffi import Terminal, ffi, lib
+
+if TYPE_CHECKING:
+    from pyghostty._ffi import Pointer
 
 __all__ = ["Input", "MouseFrame"]
 
@@ -70,8 +69,8 @@ class Input:
     _write: Callable[[bytes], None]
     _keys: KeyEncoding
     _mouse: MouseEvents
-    _out: Any
-    _out_len: Any
+    _out: Pointer[bytes]
+    _out_len: Pointer[int]
 
     def __new__(cls, term: Terminal, write: Callable[[bytes], None]) -> Self:
         self = super().__new__(cls)

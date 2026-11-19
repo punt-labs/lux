@@ -1,5 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """Native window, font and addon setup, separate from render-loop lifecycle."""
 
 from __future__ import annotations

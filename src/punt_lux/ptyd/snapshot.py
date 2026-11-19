@@ -1,5 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """Snapshot policy, separate from the native codec and socket transport.
 
 Binary snapshots preserve both screens, history and tracked parser state.

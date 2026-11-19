@@ -1,6 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
 """Snapshot portion of the pyghostty boundary; no socket or daemon policy.
 
 Native allocations belong here, are copied into Python bytes, and are freed
@@ -10,10 +7,12 @@ ownership to the Python wrapper, whose finalizer frees it.
 
 from __future__ import annotations
 
-import weakref
-from typing import Any
+from typing import TYPE_CHECKING
 
 from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
+
+if TYPE_CHECKING:
+    from pyghostty._ffi import GhosttySelectionPointer, Pointer
 
 CONTINUATION_LIMIT = 64 * 1024
 MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024
@@ -71,11 +70,7 @@ class NativeSnapshotCodec:
             )
         finally:
             lib.ghostty_snapshot_decoder_free(decoder[0])
-        term = Terminal.__new__(Terminal)
-        term._t = raw
-        term._unknown_cb = term._reply_cb = term._cb_err = None
-        term._free = weakref.finalize(term, lib.ghostty_terminal_free, raw[0])
-        return term
+        return Terminal.from_handle(raw)
 
     @staticmethod
     def active_screen_vt(term: Terminal) -> bytes:
@@ -135,7 +130,7 @@ class NativeSnapshotCodec:
         ]
 
     @staticmethod
-    def _plain_row(term: Terminal, selection: Any) -> str:
+    def _plain_row(term: Terminal, selection: GhosttySelectionPointer) -> str:
         opts = init_sized("GhosttyTerminalSelectionFormatOptions")
         opts.emit = lib.GHOSTTY_FORMATTER_FORMAT_PLAIN
         opts.unwrap, opts.trim, opts.selection = False, False, selection
@@ -158,13 +153,15 @@ class NativeSnapshotCodec:
         raise SnapshotError("formatted row exceeds the supported size")
 
     @staticmethod
-    def _selection(term: Terminal, y0: int, x1: int, y1: int) -> Any:
+    def _selection(
+        term: Terminal, y0: int, x1: int, y1: int
+    ) -> GhosttySelectionPointer:
         sel = init_sized("GhosttySelection")
         sel.start, sel.end = term.ref(0, y0)[0], term.ref(x1, y1)[0]
         return sel
 
     @staticmethod
-    def _copy_and_free(ptr: Any, size: int) -> bytes:
+    def _copy_and_free(ptr: Pointer[int], size: int) -> bytes:
         try:
             if size > MAX_SNAPSHOT_BYTES:
                 raise SnapshotError("encoded snapshot exceeds the supported size")

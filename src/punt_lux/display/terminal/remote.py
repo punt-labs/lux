@@ -1,4 +1,3 @@
-# pyright: reportMissingModuleSource=false
 """One Display replica of a daemon-owned session; closing it never sends kill."""
 
 from __future__ import annotations

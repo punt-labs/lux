@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """Ghostty's render state, plus a per-row cache of built ``Row``\\ s.
 
 Each frame ``update()`` syncs the render state from the terminal, rebuilds
@@ -13,11 +9,21 @@ An idle terminal therefore costs a few FFI calls per frame (STEP1.md:
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.terminal.model import RGB, Row
 from punt_lux.display.terminal.row_builder import RowBuilder
 from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib
+
+if TYPE_CHECKING:
+    from pyghostty._ffi import (
+        GhosttyRenderStateColorsPointer,
+        GhosttyRenderStateCursorPointer,
+        GhosttyRenderStateImpl,
+        GhosttyRenderStateRowIteratorImpl,
+        GhosttyRenderStateRowSelectionPointer,
+        Pointer,
+    )
 
 __all__ = ["RenderState"]
 
@@ -26,14 +32,14 @@ class RenderState:
     """The rows, colours, cursor and selection to draw for one terminal."""
 
     _term: Terminal
-    _state: Any
-    _rows_it: Any
-    _colors: Any
-    _dirty: Any
-    _row_dirty: Any
-    _row_selection: Any
+    _state: Pointer[Pointer[GhosttyRenderStateImpl]]
+    _rows_it: Pointer[Pointer[GhosttyRenderStateRowIteratorImpl]]
+    _colors: GhosttyRenderStateColorsPointer
+    _dirty: Pointer[int]
+    _row_dirty: Pointer[bool]
+    _row_selection: GhosttyRenderStateRowSelectionPointer
     _builder: RowBuilder
-    _cursor: Any
+    _cursor: GhosttyRenderStateCursorPointer
     _rows: list[Row]
     _selection: dict[int, tuple[int, int]]
     _rebuilt: int
@@ -99,12 +105,14 @@ class RenderState:
         self._rebuilt = rebuilt
         return rebuilt
 
-    def _is_dirty(self, rows_it: Any) -> bool:
+    def _is_dirty(self, rows_it: Pointer[GhosttyRenderStateRowIteratorImpl]) -> bool:
         key = lib.GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY
         lib.ghostty_render_state_row_get(rows_it, key, self._row_dirty)
         return bool(self._row_dirty[0])
 
-    def _record_selection(self, rows_it: Any, y: int) -> None:
+    def _record_selection(
+        self, rows_it: Pointer[GhosttyRenderStateRowIteratorImpl], y: int
+    ) -> None:
         key = lib.GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION
         if lib.ghostty_render_state_row_get(rows_it, key, self._row_selection) == 0:
             self._selection[y] = (
@@ -113,11 +121,11 @@ class RenderState:
             )
 
     @property
-    def cursor(self) -> Any:
+    def cursor(self) -> GhosttyRenderStateCursorPointer:
         return self._cursor
 
     @cursor.setter
-    def cursor(self, value: Any) -> None:
+    def cursor(self, value: GhosttyRenderStateCursorPointer) -> None:
         self._cursor = value
 
     @property
