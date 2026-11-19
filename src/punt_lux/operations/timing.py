@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.models.common import OpError
-from punt_lux.usage import record_operation
+from punt_lux.usage import record_operation as record_usage
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,13 +38,12 @@ class Timed:
 
         @functools.wraps(operation)
         def _timed(*args: P.args, **kwargs: P.kwargs) -> R:
-            started = self._clock()
-            result = operation(*args, **kwargs)
-            record_operation(
-                self._name,
-                (self._clock() - started) * 1000,
-                failed=isinstance(result, OpError),
-            )
-            return result
+            start, failed = self._clock(), True
+            try:
+                result = operation(*args, **kwargs)
+                failed = isinstance(result, OpError)
+                return result
+            finally:
+                record_usage(self._name, (self._clock() - start) * 1000, failed=failed)
 
         return _timed

@@ -19,7 +19,7 @@ import logging
 from typing import final
 
 from punt_lux.display import RenderLoop
-from punt_lux.entry_runtime import daemon_runtime
+from punt_lux.entry_runtime import DaemonRuntime
 
 __all__ = ["DisplayEntryPoint"]
 
@@ -39,7 +39,7 @@ class DisplayEntryPoint:
         ``socket`` is the display's own listen path; ``None`` resolves the
         session default via :class:`DisplayPaths`.
         """
-        with daemon_runtime("luxd-display"):
+        with DaemonRuntime("luxd-display").run():
             logger.info("Starting Display")
             RenderLoop(socket, test_auto_click=test_auto_click).run()
             logger.info("Display stopped")

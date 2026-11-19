@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from punt_lux.domain.programmer_error import ProgrammerError
-from punt_lux.entry_runtime import daemon_runtime
+from punt_lux.entry_runtime import DaemonRuntime
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
@@ -258,5 +258,5 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")
     parser.add_argument("--port", type=int, default=DEFAULT_HUB_PORT, help="Bind port")
     args = parser.parse_args()
-    with daemon_runtime("luxd-hub"):
+    with DaemonRuntime("luxd-hub").run():
         serve(host=args.host, port=args.port)

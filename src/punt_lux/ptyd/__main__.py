@@ -7,11 +7,7 @@ import signal
 from importlib import import_module
 from types import FrameType
 
-from punt_lux.ptyd.entry_runtime import (
-    DaemonOptions,
-    start_terminal_process,
-    terminal_start_failed,
-)
+from punt_lux.ptyd.entry_runtime import DaemonOptions, TerminalRuntime
 
 
 class PtyEntryPoint:
@@ -19,14 +15,14 @@ class PtyEntryPoint:
 
     @staticmethod
     def main() -> None:
-        start_terminal_process("daemon", "terminal daemon")
+        TerminalRuntime.start("daemon", "terminal daemon")
         parser = argparse.ArgumentParser(description="Lux local terminal-session owner")
         options = DaemonOptions.parse(parser)
         try:
             module = import_module("punt_lux.ptyd.application")
             server = module.PtyApplication(options.socket, menu=options.menu)
         except (ModuleNotFoundError, OSError) as error:
-            terminal_start_failed(parser, error)
+            TerminalRuntime.start_failed(parser, error)
 
         def stop(_number: int, _frame: FrameType | None) -> None:
             server.stop()

@@ -18,7 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.display.paint_telemetry import PaintClock, report_swap
+from punt_lux.display.paint_telemetry import PaintClock, PaintTelemetry
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -139,6 +139,6 @@ class FrameTurn:
 
     def after_swap(self) -> None:
         """Flush what a completed buffer swap releases: GL_FRONT has the frame."""
-        report_swap(self._paint_clock)
+        PaintTelemetry.report_swap(self._paint_clock)
         self._sender.release_acks()
         self._queries.after_swap()

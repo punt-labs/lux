@@ -94,6 +94,23 @@ def test_timed_returns_the_operations_own_result() -> None:
     assert _run(21, doubled=True) == 42
 
 
+def test_timed_records_a_raised_operation_as_an_error(database: Path) -> None:
+    error = ValueError("private scene content")
+
+    @Timed("render", _StepClock(0.025))
+    def _run() -> None:
+        raise error
+
+    with capture_usage(), pytest.raises(ValueError) as caught:
+        _run()
+
+    assert caught.value is error
+    [metric] = _metrics(database)
+    assert metric[3:5] == (1, 25.0)
+    assert '"outcome": "error"' in metric[-1]
+    assert "private scene content" not in metric[-1]
+
+
 def test_a_render_through_the_facade_is_attested_once(database: Path) -> None:
     facade = make_facade(
         display_port=StubPort(DisplayReplied({})), factory=HubStoreFactory()
