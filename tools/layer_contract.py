@@ -77,10 +77,15 @@ class LayerContract:
 class RuntimeImports(ast.NodeVisitor):
     """Collect import names without traversing annotation-only branches."""
 
+    _package: list[str]
+    _names: set[str]
+    _guards: set[str]
+    _typing: set[str]
+
     def __new__(cls, module: str, *, is_package: bool = False) -> Self:
         self = super().__new__(cls)
         self._package = module.split(".") if is_package else module.split(".")[:-1]
-        self._names: set[str] = set()
+        self._names = set()
         self._guards = {"TYPE_CHECKING"}
         self._typing = {"typing"}
         return self
@@ -135,6 +140,9 @@ class RuntimeImports(ast.NodeVisitor):
 
 class LayerReport:
     """Read a source tree and render unique runtime module edges."""
+
+    _src: Path
+    _contract: LayerContract
 
     def __new__(cls, src: Path) -> Self:
         self = super().__new__(cls)
