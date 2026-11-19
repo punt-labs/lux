@@ -398,14 +398,18 @@ def test_unpaired_fence_does_not_hide_duplicate_args(
     [
         ("@dataclass", ""),
         ("@dataclass(init=False)", "document constructor arguments on __new__"),
+        ("@final", "document constructor arguments on __new__"),
+        ("@typing.final", "document constructor arguments on __new__"),
     ],
 )
-def test_class_args_account_for_generated_init(
+def test_class_args_require_new_when_no_init_is_generated(
     tmp_path: Path, decorator: str, violation: str
 ) -> None:
     path = tmp_path / "example.py"
     path.write_text(
-        f'''from dataclasses import dataclass
+        f'''import typing
+from dataclasses import dataclass
+from typing import final
 
 {decorator}
 class Reader:

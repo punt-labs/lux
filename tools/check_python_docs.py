@@ -227,6 +227,12 @@ def _uses_only_new(node: ast.ClassDef) -> bool:
     ):
         return False
     for decorator in node.decorator_list:
+        if ast.unparse(decorator) in {
+            "final",
+            "typing.final",
+            "typing_extensions.final",
+        }:
+            continue
         # A decorator may synthesize __init__; require a static opt-out.
         if (
             not isinstance(decorator, ast.Call)
