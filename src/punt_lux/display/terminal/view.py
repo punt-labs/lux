@@ -9,12 +9,8 @@ the two are interchangeable: ``feed(bytes)``, the ``on_input`` and
 ``on_resize`` callbacks, ``render_in_child(id)`` and ``title``. Where the
 bytes come from (a local PTY, a daemon, a replay) is the caller's business.
 
-Per frame, ``render()``:
-
-1. measures the cell from the current font and fits the grid to the space;
-2. routes keyboard input (when focused) and mouse input (when hovered);
-3. syncs the render state, rebuilding only dirty rows;
-4. paints rows, selection and cursor.
+Per frame, ``render()`` fits the grid within the wire's 1024x512-cell limit,
+routes focused/hovered input, rebuilds dirty rows and paints the grid.
 
 Single-threaded by design: ``feed`` and ``render`` must be called from the
 same thread (the Display's render thread). There is no lock.
@@ -50,6 +46,7 @@ from punt_lux.terminal.ffi import (
 __all__ = ["TerminalView"]
 
 MIN_COLS, MIN_ROWS = 10, 3
+MAX_COLS, MAX_ROWS = 1024, 512
 WHEEL_SCROLL_LINES = 3
 
 
@@ -166,7 +163,8 @@ class TerminalView:
         self._render_ms = (time.perf_counter() - started) * 1e3
 
     def _fit(self, cols: int, rows: int) -> None:
-        cols, rows = max(MIN_COLS, cols), max(MIN_ROWS, rows)
+        cols = min(MAX_COLS, max(MIN_COLS, cols))
+        rows = min(MAX_ROWS, max(MIN_ROWS, rows))
         result = self._sizing.fit((cols, rows))
         if result == "local":
             self._buffer.resize(cols, rows)

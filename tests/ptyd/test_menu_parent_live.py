@@ -26,7 +26,7 @@ def test_menu_helper_exits_if_owner_dies_before_or_after_helper_start() -> None:
             "import os,sys,time; "
             "pid=os.posix_spawn(sys.executable,[sys.executable,'-m',"
             "'punt_lux.ptyd.menu_entry',str(os.getpid())],"
-            "dict(os.environ),setsid=True); "
+            "dict(os.environ)); "
             "print(pid,flush=True); time.sleep(30)"
         )
         owner = subprocess.Popen(

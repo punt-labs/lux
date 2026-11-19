@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 __all__ = ["HttpResponse", "HttpTransport", "HubUnavailableError"]
 
 
-class HubUnavailableError(Exception):
+class HubUnavailableError(ConnectionError):
     """luxd could not be reached: no port file, a refused connection, or a stall.
 
     Carries a single actionable sentence the CLI prints before exiting non-zero.

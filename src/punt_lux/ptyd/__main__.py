@@ -16,6 +16,8 @@ class PtyEntryPoint:
 
     @staticmethod
     def main() -> None:
+        if os.getsid(0) != os.getpid():
+            os.setsid()
         parser = argparse.ArgumentParser(description="Lux local terminal-session owner")
         default = Path.home() / ".punt-labs" / "lux" / "pty" / "luxd-pty.sock"
         parser.add_argument("--socket", type=Path, default=default)
@@ -25,14 +27,11 @@ class PtyEntryPoint:
         logging.basicConfig(level=logging.INFO)
         try:
             module = import_module("punt_lux.ptyd.application")
-        except ModuleNotFoundError as error:
-            parser.exit(
-                1, f"luxd-pty: missing {error.name}; install punt-lux[terminal]\n"
-            )
-        try:
             server = module.PtyApplication(args.socket, menu=not args.no_menu)
-        except OSError as error:
-            parser.exit(1, f"luxd-pty: {error}\n")
+        except (ModuleNotFoundError, OSError) as error:
+            missing = isinstance(error, ModuleNotFoundError)
+            hint = "; install punt-lux[terminal]" if missing else ""
+            parser.exit(1, f"luxd-pty: {error}{hint}\n")
 
         def stop(_number: int, _frame: FrameType | None) -> None:
             server.stop()

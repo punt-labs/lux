@@ -47,6 +47,6 @@ def test_helper_is_observed_without_blocking_or_restarting_while_live(
     helper.start()
     helper.poll()
     assert spawn.call_count == 1
-    assert spawn.call_args.kwargs["setsid"] is True
+    assert "setsid" not in spawn.call_args.kwargs
     helper.close()
     child.stop.assert_called_once_with()

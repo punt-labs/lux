@@ -3,32 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import signal
 import sys
 
-from punt_lux.ptyd.menu_clients import TerminalClients
 from punt_lux.ptyd.menu_listener import TerminalMenu
+from punt_lux.terminal.process_session import ProcessSession
 
 
 class MenuEntryPoint:
     @staticmethod
     async def serve(parent: int) -> None:
-        stop = asyncio.Event()
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, stop.set)
-        task = asyncio.create_task(TerminalMenu(TerminalClients()).serve())
+        task = asyncio.create_task(TerminalMenu().serve())
         try:
-            # getppid changes on parent death; no PID-liveness/reuse heuristic.
-            while os.getppid() == parent and not stop.is_set():
-                await asyncio.sleep(0.05)
+            await ProcessSession.wait_for_parent(parent)
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
     @staticmethod
     def main() -> None:
+        ProcessSession.detach()
         asyncio.run(MenuEntryPoint.serve(int(sys.argv[1])))
 
 

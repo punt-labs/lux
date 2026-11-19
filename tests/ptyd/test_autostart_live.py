@@ -93,6 +93,7 @@ def test_crashed_daemon_stale_socket_is_reclaimed() -> None:
             first.poll()
             pid = first.child_pid
             assert pid is not None
+            assert os.getsid(pid) == pid
             os.kill(pid, signal.SIGKILL)
             deadline = time.monotonic() + 3
             while time.monotonic() < deadline and first.child_pid is not None:

@@ -48,7 +48,7 @@ class MenuProcess:
         self._retry_at = time.monotonic() + 5
         argv = [sys.executable, "-m", "punt_lux.ptyd.menu_entry", str(os.getpid())]
         try:
-            pid = os.posix_spawn(sys.executable, argv, dict(os.environ), setsid=True)
+            pid = os.posix_spawn(sys.executable, argv, dict(os.environ))
         except OSError:
             logger.exception("Terminal menu helper could not start; owner stays live")
             return

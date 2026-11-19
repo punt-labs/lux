@@ -2,12 +2,6 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- `lux display start` on macOS handles an already-loaded, cleanly stopped job
-  with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
-  Unloaded jobs still bootstrap; start does not kill an existing process.
-
 ### Added
 
 - Experimental `luxd-pty` foreground terminal-session owner with a headless
@@ -68,6 +62,10 @@
   with a by-id pull.
 
 ### Fixed
+
+- `lux display start` on macOS handles an already-loaded, cleanly stopped job
+  with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
+  Unloaded jobs still bootstrap; start does not kill an existing process.
 
 - **`make screenshot` on macOS no longer reports the Lux window as 100%
   covered.** On macOS 26.6 the Dock and Notification Center each keep a

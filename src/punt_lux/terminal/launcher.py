@@ -57,7 +57,6 @@ class DaemonLauncher:
                     argv,
                     dict(os.environ),
                     file_actions=actions,
-                    setsid=True,
                 )
             finally:
                 os.close(null)

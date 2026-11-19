@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
-from punt_lux._atomic_write import write_config_atomic
 from punt_lux._backends import ServiceBackend
 from punt_lux._launchctl import launchctl
+from punt_lux._launchd_plist import LaunchdPlist
 from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
 from punt_lux._service_errors import ServiceMigrationError
 
@@ -28,38 +28,27 @@ __all__ = ["LaunchdBackend"]
 class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     """Implement ServiceBackend for launchd (plist)."""
 
-    __slots__ = ("_dir", "_plist_path", "_spec")
+    __slots__ = ("_plist",)
 
-    _dir: Path
-    _plist_path: Path
-    _spec: ServiceSpec
+    _plist: LaunchdPlist
 
     def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
-        self._spec = spec
-        # Resolved here, not as a class attribute -- a class body runs once
-        # at import time, binding the real Path.home() forever. Resolving it
-        # per-instance is what makes Path.home() patchable in tests.
-        self._dir = Path.home() / "Library" / "LaunchAgents"
-        self._plist_path = self._dir / f"{spec.launchd_label}.plist"
+        self._plist = LaunchdPlist(spec)
         return self
 
     def config_path(self) -> Path:
         """Return the plist path."""
-        return self._plist_path
+        return self._plist.path
 
     def is_active(self) -> bool:
         """Return whether the luxd launchd service is loaded."""
         result = subprocess.run(
-            ["launchctl", "list", self._spec.launchd_label],
+            ["launchctl", "list", self._plist.spec.launchd_label],
             capture_output=True,
             text=True,
         )
         return result.returncode == 0
-
-    @property
-    def _target(self) -> str:
-        return f"{launchctl.gui_domain()}/{self._spec.launchd_label}"
 
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
@@ -75,27 +64,19 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         from punt_lux.hub_paths import HubPaths
 
         HubPaths().log_dir.mkdir(parents=True, exist_ok=True)
-        self._dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 
-        label = self._spec.launchd_label
+        label = self._plist.spec.launchd_label
         desired_plist = self._plist_content()
         if self.is_active():
-            unchanged = (
-                self._plist_path.exists()
-                and self._plist_path.read_text() == desired_plist
-            )
-            if unchanged:
+            if self._plist.installed_content() == desired_plist:
                 logger.info("%s already installed and up to date; no-op", label)
                 return True
             self._self_upgrade_sweep().sweep()
             logger.info("Deregistered existing %s before upgrade", label)
 
-        write_config_atomic.write(self._plist_path, desired_plist)
-        logger.info("Wrote %s", self._plist_path)
-        if not launchctl.run(
-            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
-            verb="bootstrap",
-        ):
+        self._plist.write(desired_plist)
+        logger.info("Wrote %s", self._plist.path)
+        if not self._bootstrap():
             msg = f"failed to bootstrap {label} into launchd"
             raise ServiceMigrationError(msg)
         logger.info("Bootstrapped %s into launchd", label)
@@ -109,36 +90,38 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         stale in-place registration needs is identical either way.
         """
         return LaunchdLegacySweep(
-            replace(self._spec, legacy_launchd_labels=(self._spec.launchd_label,))
+            replace(
+                self._plist.spec,
+                legacy_launchd_labels=(self._plist.spec.launchd_label,),
+            )
         )
-
-    @property
-    def _installed(self) -> bool:
-        return self._plist_path.exists()
 
     def uninstall(self) -> None:
         """Boot the job out of launchd (if loaded) and remove the plist."""
-        if not self._installed:
-            logger.info("No plist at %s; nothing to uninstall", self._plist_path)
+        if not self._plist.path.exists():
+            logger.info("No plist at %s; nothing to uninstall", self._plist.path)
             return
-        launchctl.run(["launchctl", "bootout", self._target], verb="bootout")
-        self._plist_path.unlink()
-        logger.info("Removed %s", self._plist_path)
+        target = self._plist.target
+        launchctl.run(["launchctl", "bootout", target], verb="bootout")
+        self._plist.path.unlink()
+        logger.info("Removed %s", self._plist.path)
 
     def stop(self) -> bool:
         """Boot out registration (plist stays); missing config is a no-op.
 
         KeepAlive respawns plain SIGTERM; deregistration is the actual stop.
         """
-        if not self._installed:
-            logger.info("No plist found at %s -- nothing to stop", self._plist_path)
+        if not self._plist.path.exists():
+            logger.info("No plist found at %s -- nothing to stop", self._plist.path)
             return True
-        return launchctl.run(["launchctl", "bootout", self._target], verb="bootout")
+        target = self._plist.target
+        return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def restart(self) -> bool:
         """Atomically kill-and-respawn under the same plist — one call, no pid file."""
+        target = self._plist.target
         return launchctl.run(
-            ["launchctl", "kickstart", "-k", self._target],
+            ["launchctl", "kickstart", "-k", target],
             verb="kickstart",
         )
 
@@ -149,23 +132,25 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         A plain kickstart leaves any already-running job alone.
         """
         if self.is_active():  # this backend's existing contract means loaded
-            return launchctl.run(
-                ["launchctl", "kickstart", self._target], verb="kickstart"
-            )
+            target = self._plist.target
+            return launchctl.run(["launchctl", "kickstart", target], verb="kickstart")
+        return self._bootstrap()
+
+    def _bootstrap(self) -> bool:
         return launchctl.run(
-            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist_path)],
+            ["launchctl", "bootstrap", launchctl.gui_domain(), str(self._plist.path)],
             verb="bootstrap",
         )
 
     def _plist_content(self) -> str:
         """Generate the launchd plist XML for the service."""
-        exec_args = self._spec.resolve_exec_args()
+        exec_args = self._plist.spec.resolve_exec_args()
         program_args = "\n".join(
             f"        <string>{_xml_escape(a)}</string>" for a in exec_args
         )
         log_dir = Path.home() / ".punt-labs" / "lux" / "logs"
-        stdout = self._spec.log_stdout(log_dir)
-        stderr = self._spec.log_stderr(log_dir)
+        stdout = self._plist.spec.log_stdout(log_dir)
+        stderr = self._plist.spec.log_stderr(log_dir)
         return textwrap.dedent(f"""\
             <?xml version="1.0" encoding="UTF-8"?>
             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -173,7 +158,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             <plist version="1.0">
             <dict>
                 <key>Label</key>
-                <string>{self._spec.launchd_label}</string>
+                <string>{self._plist.spec.launchd_label}</string>
                 <key>ProgramArguments</key>
                 <array>
             {program_args}
@@ -204,4 +189,4 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             "    </dict>"
         )
         always = "    <key>KeepAlive</key>\n    <true/>"
-        return crash_only if self._spec.restart_on_crash_only else always
+        return crash_only if self._plist.spec.restart_on_crash_only else always

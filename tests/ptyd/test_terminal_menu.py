@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import asyncio
 from typing import cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
+from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.operations import OpError, SceneShown
 from punt_lux.ptyd.lifetime import DaemonLifetime
 from punt_lux.ptyd.menu_clients import TerminalClients
 from punt_lux.ptyd.menu_listener import TerminalMenu
 from punt_lux.ptyd.menu_process import MenuProcess
 from punt_lux.ptyd.menu_projection import TerminalProjection
+from punt_lux.rest_transport import HubUnavailableError
 
 
 class MenuDoubles:
@@ -57,13 +61,37 @@ def test_rejected_click_is_not_republished_on_reconnect() -> None:
     assert client.scene.show.await_count == 1
 
 
-def test_listener_guard_does_not_drop_owner_on_projection_error() -> None:
+@pytest.mark.parametrize(
+    "error", [OSError("Hub absent"), HubUnavailableError("Hub absent")]
+)
+def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) -> None:
     factory, client = MenuDoubles.clients()
-    client.callback.register.side_effect = OSError("Hub absent")
-    client.scene.show.side_effect = OSError("Hub absent")
-    menu = TerminalMenu(factory)
+    client.callback.register.side_effect = error
+    client.scene.show.side_effect = error
+    with patch("punt_lux.ptyd.menu_listener.TerminalClients", return_value=factory):
+        menu = TerminalMenu()
     asyncio.run(menu._connected())
     asyncio.run(menu._clicked("terminal"))
+
+
+@pytest.mark.parametrize("operation", ["connect", "click", "listen"])
+def test_listener_does_not_swallow_programmer_errors(operation: str) -> None:
+    factory, client = MenuDoubles.clients()
+    with patch("punt_lux.ptyd.menu_listener.TerminalClients", return_value=factory):
+        menu = TerminalMenu()
+    error = ProgrammerError("broken invariant")
+    client.callback.register.side_effect = error
+    client.scene.show.side_effect = error
+    with pytest.raises(ProgrammerError, match="broken invariant"):
+        if operation == "connect":
+            asyncio.run(menu._connected())
+        elif operation == "click":
+            asyncio.run(menu._clicked("terminal"))
+        else:
+            listener = Mock()
+            listener.listen = AsyncMock(side_effect=error)
+            with patch.object(factory, "listener", return_value=listener):
+                asyncio.run(menu.serve())
 
 
 def test_menu_lifetime_does_not_idle_out_when_empty() -> None:

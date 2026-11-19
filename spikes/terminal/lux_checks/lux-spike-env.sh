@@ -1,6 +1,6 @@
 # Isolated second Lux for the terminal spike: own HOME (hub state, port file, logs),
 # own display socket, own hub port. The running Lux (pid 45336) is untouched.
-export SPIKE_REPO=~/Coding/punt-labs/lux-terminal-spike
+export SPIKE_REPO="${SPIKE_REPO:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)}"
 export HOME_REAL="$HOME"
 export LUX_SOCKET=/tmp/lux-spike-run/display.sock
 export SPIKE_HUB_PORT=8531

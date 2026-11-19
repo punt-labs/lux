@@ -16,10 +16,10 @@ class TerminalMenu:
     _clients: TerminalClients
     _projection: TerminalProjection
 
-    def __new__(cls, clients: TerminalClients) -> Self:
+    def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._clients = clients
-        self._projection = TerminalProjection(clients)
+        self._clients = TerminalClients()
+        self._projection = TerminalProjection(self._clients)
         return self
 
     async def serve(self) -> None:
@@ -27,7 +27,7 @@ class TerminalMenu:
             try:
                 listener = self._clients.listener(self._clicked, self._connected)
                 await listener.listen()
-            except Exception:
+            except OSError:
                 logger.debug(
                     "Terminal launcher Hub unavailable; retrying", exc_info=True
                 )
@@ -36,13 +36,13 @@ class TerminalMenu:
     async def _clicked(self, callback: str) -> None:
         try:
             await self._projection.clicked(callback)
-        except Exception:
+        except OSError:
             logger.exception("Terminal menu click failed; PTY owner remains live")
 
     async def _connected(self) -> None:
         try:
             await self._projection.connected()
-        except Exception:
+        except OSError:
             logger.exception(
                 "Terminal launcher registration failed; listener remains live"
             )

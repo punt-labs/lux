@@ -1,7 +1,3 @@
-# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
-# pyright: reportUnknownArgumentType=false, reportAttributeAccessIssue=false
-# pyright: reportMissingModuleSource=false, reportPrivateUsage=false
-# (pyghostty is an untyped cffi binding: its ffi/lib members are unknown to pyright.)
 """The terminal's monospace font, with CJK and emoji fallbacks merged in.
 
 A terminal needs a strictly fixed-width font; Lux's UI font (Arial Unicode)
@@ -10,8 +6,7 @@ download. Fallback fonts are merged into the same ImGui font so CJK, Hangul,
 symbols and emoji draw instead of "?" boxes (STEP2.md: the base fonts were
 missing all 24 such characters in the test sample).
 
-Known gaps (spike): the fallback paths are macOS system fonts (Linux would use
-Noto); emoji draw monochrome; wide glyphs are not scaled to exactly 2 cells.
+System fallbacks cover macOS and Linux; wide glyphs are not scaled to 2 cells.
 """
 
 from __future__ import annotations
@@ -20,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import ClassVar
 
+import imgui_bundle
 from imgui_bundle import imgui
 
 __all__ = ["TerminalFont"]
@@ -29,17 +25,19 @@ logger = logging.getLogger(__name__)
 SIZE = 14.0  # px before Lux's font_scale_main
 _FREETYPE_LOAD_COLOR = 1 << 8  # ImGuiFreeTypeLoaderFlags_LoadColor (imgui_freetype.h)
 
-_MONO = Path(
-    str(__import__("imgui_bundle").__path__[0]),
-    "assets",
-    "fonts",
-    "Inconsolata-Medium.ttf",
-)
+_MONO = Path(imgui_bundle.__path__[0]) / "assets/fonts/Inconsolata-Medium.ttf"
 _FALLBACKS: tuple[tuple[str, bool], ...] = (  # (path, colour glyphs)
     ("/System/Library/Fonts/Hiragino Sans GB.ttc", False),  # Chinese, kana
     ("/System/Library/Fonts/AppleSDGothicNeo.ttc", False),  # Hangul
     ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", False),  # symbols
     ("/System/Library/Fonts/Apple Color Emoji.ttc", True),  # emoji
+    ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", False),
+    ("/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf", False),
+    ("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", False),
+    ("/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf", False),
+    ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", False),
+    ("/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf", False),
+    ("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", True),
 )
 
 
