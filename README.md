@@ -298,11 +298,11 @@ Python applications drive the Hub through `LuxClient`, a typed async client for 
 Agent or app
   │ MCP tools, CLI, or Python library (HTTP)
   ▼
-luxd (Hub)
+luxd-hub (Hub)
   │ holds scenes and runs handlers
   │ sends scenes; receives clicks and changes
   ▼
-Lux window (ImGui + OpenGL)
+luxd-display (ImGui + OpenGL)
   │ draws at 60fps
   ▼
 Window on screen
