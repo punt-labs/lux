@@ -29,6 +29,7 @@ _MONO = Path(imgui_bundle.__path__[0]) / "assets/fonts/Inconsolata-Medium.ttf"
 _FALLBACKS: tuple[tuple[str, bool], ...] = (  # (path, colour glyphs)
     ("/System/Library/Fonts/Hiragino Sans GB.ttc", False),  # Chinese, kana
     ("/System/Library/Fonts/AppleSDGothicNeo.ttc", False),  # Hangul
+    ("/System/Library/Fonts/Menlo.ttc", False),  # mono prompt ornaments (U+276F)
     ("/System/Library/Fonts/Supplemental/Arial Unicode.ttf", False),  # symbols
     ("/System/Library/Fonts/Apple Color Emoji.ttc", True),  # emoji
     ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", False),
