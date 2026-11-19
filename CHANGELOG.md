@@ -100,6 +100,9 @@
 
 ### Fixed
 
+- The Hub flushes buffered telemetry during shutdown, including on SIGTERM
+  before the first periodic export.
+
 - Terminal mouse releases reach the program after the pointer leaves the grid,
   including when Shift is pressed during a captured gesture (PL-1174).
 - Terminal GUI proof scripts clean up their detached daemon and sessions on

@@ -9,22 +9,19 @@ Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
-import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from pathlib import Path
 from socket import socket
-from typing import Protocol, Self, final
+from typing import Self, final
 
 import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from punt_lux.domain.programmer_error import ProgrammerError
-from punt_lux.entry_runtime import DaemonRuntime
+from punt_lux.logging_config import process_diagnostics
 from punt_lux.mcp_transport import McpHttpTransport
+from punt_lux.proctitle import set_process_title
 from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
 from punt_lux.ws_transport import HubListenTransport
@@ -122,57 +119,6 @@ class _ServerConfig:
 
 
 # ---------------------------------------------------------------------------
-# Port file helpers
-# ---------------------------------------------------------------------------
-
-
-def _write_port_file(port_path: Path, port: int) -> None:
-    port_path.parent.mkdir(parents=True, exist_ok=True)
-    port_path.write_text(str(port))
-    logger.info("Wrote port file: %s (port %d)", port_path, port)
-
-
-def _remove_port_file(port_path: Path) -> None:
-    try:
-        port_path.unlink(missing_ok=True)
-        logger.info("Removed port file: %s", port_path)
-    except OSError:
-        logger.warning("Could not remove port file: %s", port_path)
-
-
-class _PeriodicSweep(Protocol):
-    """A wait-sweep-repeat background task — ``ExpirySweep`` and ``LeaseReapSweep``."""
-
-    async def run(self) -> None:
-        """Run until cancelled."""
-        ...
-
-
-@asynccontextmanager
-async def _periodic_sweep_running(
-    sweep: _PeriodicSweep, *, name: str
-) -> AsyncGenerator[asyncio.Task[None]]:
-    """Run one periodic sweep for the block, cancelled and awaited on exit.
-
-    A task that died with an exception re-raises it on await; that is logged
-    and swallowed so the caller's own shutdown always continues.
-    """
-    task = asyncio.create_task(sweep.run())
-    try:
-        yield task
-    finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        except ProgrammerError:
-            raise
-        except Exception:
-            logger.exception("%s sweep task failed before shutdown", name)
-
-
-# ---------------------------------------------------------------------------
 # Server entry point
 # ---------------------------------------------------------------------------
 
@@ -192,39 +138,11 @@ def serve(
         )
         raise SystemExit(2)
 
+    from punt_lux.hub_lifespan import HubLifespan
     from punt_lux.hub_paths import HubPaths
 
-    hub_paths = HubPaths()
-    pid_path = hub_paths.pid_path
-    port_path = hub_paths.port_path
-
-    @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # Workers and sweeps start/stop with luxd; imported lazily to keep the
-        # Hub singletons out of module import.
-        from punt_lux.domain.hub import hub_display, hub_lifecycle
-        from punt_lux.domain.hub.display_workers import display_workers
-        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-        from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
-
-        display_workers.start()
-        expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
-        lease_reap = LeaseReapSweep(hub_lifecycle)
-        try:
-            # Both sweeps are cancelled and awaited on exit, before the
-            # replicator stops; the lease reap has no dependency on it, so
-            # the two nest in either order.
-            async with (
-                _periodic_sweep_running(expiry, name="frame-expiry"),
-                _periodic_sweep_running(lease_reap, name="lease-reap"),
-            ):
-                yield
-        finally:
-            display_workers.stop()
-            _remove_port_file(port_path)
-            pid_path.unlink(missing_ok=True)
-
-    app = build_app(lifespan=lifespan)
+    lifespan = HubLifespan(HubPaths())
+    app = build_app(lifespan=lifespan.run)
 
     config = _ServerConfig(app, host, port).config()
     server = uvicorn.Server(config)
@@ -237,10 +155,7 @@ def serve(
         await original_startup(sockets=sockets)
         if server.servers and server.servers[0].sockets:
             actual_port = server.servers[0].sockets[0].getsockname()[1]
-            _write_port_file(port_path, actual_port)
-            pid = os.getpid()
-            pid_path.parent.mkdir(parents=True, exist_ok=True)
-            pid_path.write_text(str(pid))
+            pid = lifespan.record_listening(actual_port)
             logger.info("luxd listening on %s:%d (pid %d)", host, actual_port, pid)
         else:
             logger.error("Server started but no bound sockets; port file not written")
@@ -258,5 +173,6 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")
     parser.add_argument("--port", type=int, default=DEFAULT_HUB_PORT, help="Bind port")
     args = parser.parse_args()
-    with DaemonRuntime("luxd-hub").run():
+    with process_diagnostics("daemon", "luxd-hub"):
+        set_process_title("luxd-hub")
         serve(host=args.host, port=args.port)
