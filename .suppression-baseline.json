@@ -1,11 +1,11 @@
 {
-  "total": 174,
+  "total": 173,
   "by_category": {
-    "noqa": 21,
+    "noqa": 22,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 4,
-    "file_level": 54,
+    "file_level": 52,
     "per_file_ignores": 89
   },
   "by_file": {
@@ -74,10 +74,6 @@
     },
     "src/punt_lux/display/query_dispatcher.py": {
       "noqa": 1,
-      "per_file_ignores": 1
-    },
-    "src/punt_lux/display/render_loop.py": {
-      "file_level": 2,
       "per_file_ignores": 1
     },
     "src/punt_lux/display/renderers/_arrow.py": {
@@ -218,6 +214,9 @@
     "src/punt_lux/protocol/messages/unknown_message.py": {
       "noqa": 1
     },
+    "src/punt_lux/ptyd/pty_spawn.py": {
+      "noqa": 1
+    },
     "src/punt_lux/trust/aws_private_ca_provider.py": {
       "noqa": 1
     },
@@ -246,6 +245,9 @@
       "per_file_ignores": 1
     },
     "src/punt_lux/hooks.py": {
+      "per_file_ignores": 1
+    },
+    "src/punt_lux/display/render_loop.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/display/fonts.py": {
@@ -333,5 +335,5 @@
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-19T03:00:50Z"
+  "updated_at": "2026-11-19T07:33:44Z"
 }

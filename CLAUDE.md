@@ -264,7 +264,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 **MCP tool boilerplate — resolved.** Every tool under `tools/` (`read_tools.py`, `write_tools.py`, `composite_tools.py`, `display_write_tools.py`, `subscribe_tools.py`) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
 **Ratchet tooling:** `uv sync` installs the dev-only PyPI package
-`punt-oo-ratchet==0.2.2`. The `oo-ratchet oo`, `oo-ratchet coupling`, and
+`punt-oo-ratchet==0.3.0`. The `oo-ratchet oo`, `oo-ratchet coupling`, and
 `oo-ratchet suppressions` commands power the Makefile gates; do not embed
 copies under `tools/`. Existing root baselines and audit logs stay committed.
 
