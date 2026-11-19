@@ -37,6 +37,18 @@ If the question is "what does the code approximately do today?", use
   session menus and the `lux-beads` applet work, and the permission rules
   `lux enable` writes.
 
+## Terminal Spike (latency baseline)
+
+- [adr/README.md](./adr/README.md) — experimental terminal decision records,
+  not canonical Lux architecture. The direct Display → `luxd-pty` Unix socket
+  is only a latency baseline for measuring the production Hub path. Production
+  terminal traffic goes through the Hub; the branch does not yet implement
+  that relay.
+- [../spikes/terminal/README.md](../spikes/terminal/README.md) — research,
+  measurements and historical implementation checkpoints for the baseline.
+- [terminal-known-limitations.md](./terminal-known-limitations.md) — terminal
+  product gaps, not a declaration of production readiness.
+
 ## Coding Standard
 
 - [standards/python-oo.md](./standards/python-oo.md)

@@ -1,0 +1,37 @@
+{
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "python": "3.14.0",
+  "pyghostty": "0.1.4",
+  "scope": "production RemotePool, native replicas, local Unix socket; no GUI rendering",
+  "cold_start_ms": 1134.981,
+  "warm_reattach": {
+    "samples": 10,
+    "median_ms": 5.086,
+    "p95_ms": 5.294,
+    "max_ms": 5.294
+  },
+  "input_to_response_without_burst": {
+    "samples": 10,
+    "median_ms": 4.874,
+    "p95_ms": 6.461,
+    "max_ms": 6.461
+  },
+  "finite_burst": {
+    "payload_bytes": 8388480,
+    "elapsed_ms": 2317.416,
+    "input_to_response_during_burst": {
+      "samples": 19,
+      "median_ms": 93.943,
+      "p95_ms": 279.429,
+      "max_ms": 279.429
+    },
+    "pool_pump_during_burst": {
+      "samples": 1268,
+      "median_ms": 0.057,
+      "p95_ms": 0.145,
+      "max_ms": 0.849
+    },
+    "replica_bytes_received": 4299516
+  },
+  "cleanup": "owned daemon stopped; programs reaped; private instance removed"
+}

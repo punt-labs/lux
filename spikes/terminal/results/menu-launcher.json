@@ -1,0 +1,18 @@
+{
+  "program_pid": 71367,
+  "owner_pid": 71362,
+  "display_pid": 71361,
+  "hub_pids": [
+    71360,
+    71411
+  ],
+  "screenshots": [
+    "/private/tmp/lux-menu-launched.png",
+    "/private/tmp/lux-menu-restored.png"
+  ],
+  "registration_before_shell": true,
+  "repeated_launch_same_pid": true,
+  "hub_restart_registration_and_scene_restore": true,
+  "scope": "production router driven below OS pixel hit-test; real window/OCR output",
+  "cleanup": "owned Hub/Display/daemon/menu-helper/shell stopped; private instance removed"
+}

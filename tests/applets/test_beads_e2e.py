@@ -34,6 +34,7 @@ import anyio
 import pytest
 import uvicorn
 
+from punt_lux.domain.hub.hub_store_factory import hub_display
 from punt_lux.domain.hub.replicator_instance import hub_callback_router
 from punt_lux.domain.hub.session_callback import CallbackInvocation
 from punt_lux.luxd import build_app
@@ -44,6 +45,7 @@ pytestmark = pytest.mark.integration
 @contextmanager
 def _running_luxd() -> Generator[int]:
     """Serve the assembled app on an ephemeral loopback port; yield the port."""
+    scenes_before = set(hub_display.live_scene_ids())
     config = uvicorn.Config(build_app(), host="127.0.0.1", port=0, log_level="warning")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=lambda: anyio.run(server.serve), daemon=True)
@@ -59,6 +61,9 @@ def _running_luxd() -> Generator[int]:
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+        for scene in set(hub_display.live_scene_ids()) - scenes_before:
+            frame = hub_display.frames.presentation_for(scene).frame_id
+            hub_display.frames.remove_frame(frame)
 
 
 @contextmanager

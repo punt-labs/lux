@@ -1,0 +1,16 @@
+{
+  "payload_bytes": 5255040,
+  "quiet_hub_display_ping": {
+    "median_ms": 59.021,
+    "p95_ms": 62.573,
+    "max_ms": 64.925,
+    "samples": 20
+  },
+  "finite_burst_hub_display_ping": {
+    "median_ms": 14.928,
+    "p95_ms": 15.906,
+    "max_ms": 19.817,
+    "samples": 20
+  },
+  "scope": "actual GUI ping via Hub REST; not keyboard-to-pixel latency"
+}

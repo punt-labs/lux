@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
-from punt_lux.domain.hub import client_registry, hub, hub_lifecycle
+from punt_lux.domain.hub import client_registry, hub, hub_display, hub_lifecycle
 from punt_lux.domain.hub.inbox import drop_session
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.scope import Scope
 
 from .agent import SimulatedAgent
 from .rig import InProcessLoop, SyncReplicator
@@ -30,11 +31,13 @@ class LoopHarness:
 
     _rig: InProcessLoop
     _created: list[ConnectionId]
+    _scenes_before: frozenset[SceneId]
 
     def __new__(cls, rig: InProcessLoop) -> Self:
         self = super().__new__(cls)
         self._rig = rig
         self._created = []
+        self._scenes_before = frozenset(hub_display.live_scene_ids())
         return self
 
     @property
@@ -49,6 +52,11 @@ class LoopHarness:
 
     def teardown(self) -> None:
         """Run the disconnect cascade for each connection, then close the rig."""
+        for scene in set(hub_display.live_scene_ids()) - self._scenes_before:
+            hub_display.replace_scene(
+                Scope.in_process(ConnectionId("e2e-teardown")), scene, []
+            )
+            hub_display.frames.forget(scene)
         for connection_id in self._created:
             hub.on_disconnect(connection_id)
             hub_lifecycle.depart(connection_id)

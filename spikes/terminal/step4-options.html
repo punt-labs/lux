@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>luxd-pty: two designs</title>
+<style>
+  :root {
+    --bg: #1e1f22; --panel: #2b2d30; --ink: #dfe1e5; --dim: #9da0a6;
+    --display: #4a90d9; --hub: #e5a84b; --pty: #5cb870; --agent: #c678dd;
+    --shell: #8a8f98; --bad: #e06c75; --line: #6b6f78;
+  }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 32px 40px 80px; }
+  h1 { font-weight: 600; font-size: 26px; margin: 0 0 6px; }
+  h2 { font-weight: 600; font-size: 20px; margin: 48px 0 8px; }
+  h3 { font-weight: 600; font-size: 16px; margin: 24px 0 6px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+  p.lead { color: var(--dim); max-width: 70ch; margin: 0 0 24px; }
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; margin: 12px 0 28px; font-size: 13px; color: var(--dim); }
+  .legend span::before { content: ""; display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
+  .l-display::before { background: var(--display); } .l-hub::before { background: var(--hub); }
+  .l-pty::before { background: var(--pty); } .l-agent::before { background: var(--agent); } .l-shell::before { background: var(--shell); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  .card { background: var(--panel); border-radius: 10px; padding: 18px 20px 22px; }
+  .card h2 { margin-top: 0; }
+  .card .tag { font-size: 12px; color: var(--dim); margin-bottom: 10px; }
+  svg { width: 100%; height: auto; display: block; background: #232528; border-radius: 8px; }
+  svg text { font: 12px -apple-system, "Helvetica Neue", Arial, sans-serif; fill: var(--ink); }
+  svg text.t { font-size: 13px; font-weight: 600; }
+  svg text.s { font-size: 11px; fill: var(--dim); }
+  svg text.lbl { font-size: 11px; fill: var(--dim); }
+  .box-display { fill: #1f3a57; stroke: var(--display); stroke-width: 1.5; }
+  .box-hub { fill: #4a3a1c; stroke: var(--hub); stroke-width: 1.5; }
+  .box-pty { fill: #1f3f28; stroke: var(--pty); stroke-width: 1.5; }
+  .box-agent { fill: #3b2545; stroke: var(--agent); stroke-width: 1.5; }
+  .box-shell { fill: #2f3238; stroke: var(--shell); stroke-width: 1.2; }
+  .box-inner { fill: none; stroke: var(--line); stroke-dasharray: 3 3; }
+  .w { stroke: var(--line); stroke-width: 1.5; fill: none; }
+  .w-stream { stroke: var(--display); stroke-width: 2.5; fill: none; }
+  .w-sock { stroke: var(--pty); stroke-width: 2.5; fill: none; }
+  .w-client { stroke: var(--agent); stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  .w-mesh { stroke: var(--hub); stroke-width: 2; fill: none; stroke-dasharray: 8 5; }
+  .w-bad { stroke: var(--bad); stroke-width: 2; fill: none; stroke-dasharray: 2 4; }
+  .host { fill: none; stroke: #3a3d43; stroke-width: 1; stroke-dasharray: 6 4; rx: 8; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 10px; }
+  th, td { text-align: left; padding: 7px 10px; vertical-align: top; border-bottom: 1px solid #3a3d43; }
+  th { color: var(--dim); font-weight: 600; }
+  td:first-child { color: var(--dim); white-space: nowrap; }
+  .good { color: var(--pty); } .warn { color: var(--hub); } .risk { color: var(--bad); }
+  .note { font-size: 13px; color: var(--dim); margin-top: 10px; }
+  ul { margin: 6px 0 0 18px; padding: 0; } li { margin: 3px 0; }
+  .pick { border-left: 4px solid var(--pty); padding-left: 16px; margin-top: 36px; }
+</style>
+</head>
+<body>
+
+<h1>luxd-pty: the two designs worth choosing between</h1>
+<p class="lead">
+Both keep the shells alive without a Display, keep terminal bytes off the Hub-to-Hub links,
+and let agents read screens headless. They differ in one thing: <b>how the daemon is wired to the Hub.</b>
+</p>
+<div class="legend">
+  <span class="l-display">Display (optional viewer)</span>
+  <span class="l-hub">Hub (luxd)</span>
+  <span class="l-pty">luxd-pty</span>
+  <span class="l-agent">Agent / app</span>
+  <span class="l-shell">Shell process</span>
+</div>
+
+<h2>The shared picture: what both designs agree on</h2>
+<svg viewBox="0 0 1100 390" xmlns="http://www.w3.org/2000/svg" aria-label="Shared architecture">
+  <!-- hosts -->
+  <rect class="host" x="20" y="90" width="500" height="280"/>
+  <text class="lbl" x="32" y="110">host A</text>
+  <rect class="host" x="580" y="90" width="500" height="280"/>
+  <text class="lbl" x="592" y="110">host B</text>
+
+  <!-- display -->
+  <rect class="box-display" x="420" y="12" width="260" height="56" rx="8"/>
+  <text class="t" x="550" y="35" text-anchor="middle">Display</text>
+  <text class="s" x="550" y="54" text-anchor="middle">optional: attach, detach, attach again. Aggregates all Hubs (DES-089).</text>
+
+  <!-- hubs -->
+  <rect class="box-hub" x="150" y="130" width="240" height="90" rx="8"/>
+  <text class="t" x="270" y="152" text-anchor="middle">Hub A</text>
+  <text class="s" x="270" y="172" text-anchor="middle">scenes · leases · identity</text>
+  <text class="s" x="270" y="188" text-anchor="middle">blackboard regions · history log</text>
+  <text class="s" x="270" y="204" text-anchor="middle">home of term-1, region R1</text>
+
+  <rect class="box-hub" x="710" y="130" width="240" height="90" rx="8"/>
+  <text class="t" x="830" y="152" text-anchor="middle">Hub B</text>
+  <text class="s" x="830" y="172" text-anchor="middle">scenes · leases · identity</text>
+  <text class="s" x="830" y="188" text-anchor="middle">blackboard regions · history log</text>
+  <text class="s" x="830" y="204" text-anchor="middle">home of term-2, region R2</text>
+
+  <!-- display to hubs -->
+  <path class="w-stream" d="M470 68 L300 130"/>
+  <path class="w-stream" d="M630 68 L800 130"/>
+  <text class="lbl" x="330" y="92">mTLS: scenes + terminal streams</text>
+  <text class="lbl" x="640" y="92" text-anchor="start">mTLS: scenes + terminal streams</text>
+
+  <!-- mesh -->
+  <path class="w-mesh" d="M390 175 L710 175"/>
+  <text class="lbl" x="550" y="165" text-anchor="middle">Hub ↔ Hub mTLS: blackboard + logs only</text>
+  <text class="lbl" x="550" y="196" text-anchor="middle" style="fill:#e06c75">never terminal bytes</text>
+
+  <!-- pty daemons -->
+  <rect class="box-pty" x="40" y="260" width="220" height="92" rx="8"/>
+  <text class="t" x="150" y="282" text-anchor="middle">luxd-pty A</text>
+  <text class="s" x="150" y="300" text-anchor="middle">Holder: PTYs, read, write, tail</text>
+  <text class="s" x="150" y="316" text-anchor="middle">Core: Ghostty per session, snapshots</text>
+  <text class="s" x="150" y="332" text-anchor="middle">screens always current, Display or not</text>
+
+  <rect class="box-pty" x="840" y="260" width="220" height="92" rx="8"/>
+  <text class="t" x="950" y="282" text-anchor="middle">luxd-pty B</text>
+  <text class="s" x="950" y="300" text-anchor="middle">Holder: PTYs, read, write, tail</text>
+  <text class="s" x="950" y="316" text-anchor="middle">Core: Ghostty per session, snapshots</text>
+  <text class="s" x="950" y="332" text-anchor="middle">screens always current, Display or not</text>
+
+  <!-- agents -->
+  <rect class="box-agent" x="300" y="270" width="200" height="70" rx="8"/>
+  <text class="t" x="400" y="292" text-anchor="middle">agent a</text>
+  <text class="s" x="400" y="310" text-anchor="middle">reads term-1's screen (headless)</text>
+  <text class="s" x="400" y="326" text-anchor="middle">writes region R1</text>
+
+  <rect class="box-agent" x="600" y="270" width="200" height="70" rx="8"/>
+  <text class="t" x="700" y="292" text-anchor="middle">agent b</text>
+  <text class="s" x="700" y="310" text-anchor="middle">starts term-2, sends keys</text>
+  <text class="s" x="700" y="326" text-anchor="middle">writes region R2</text>
+
+  <!-- agents to hubs -->
+  <path class="w-client" d="M400 270 L300 220"/>
+  <path class="w-client" d="M700 270 L800 220"/>
+  <text class="lbl" x="318" y="250">MCP</text>
+  <text class="lbl" x="768" y="250">MCP</text>
+
+  <!-- the question -->
+  <path class="w" d="M150 260 L220 220" stroke-dasharray="3 3"/>
+  <path class="w" d="M950 260 L880 220" stroke-dasharray="3 3"/>
+  <text class="t" x="165" y="246" style="fill:#e5a84b">?</text>
+  <text class="t" x="928" y="246" style="fill:#e5a84b">?</text>
+  <text class="s" x="550" y="380" text-anchor="middle">The question mark is the only difference between the two designs.</text>
+</svg>
+
+<h2>The two options</h2>
+<div class="two">
+
+<div class="card">
+  <h2>Option 1: a sidecar service</h2>
+  <div class="tag">The Hub owns a private socket to its daemon. herdr's and tmux's shape.</div>
+  <svg viewBox="0 0 520 470" xmlns="http://www.w3.org/2000/svg" aria-label="Option 1 sidecar">
+    <rect class="host" x="14" y="118" width="492" height="340"/>
+    <text class="lbl" x="26" y="138">host A</text>
+
+    <rect class="box-display" x="150" y="14" width="220" height="50" rx="8"/>
+    <text class="t" x="260" y="35" text-anchor="middle">Display</text>
+    <text class="s" x="260" y="52" text-anchor="middle">Ghostty replica · painter · keys</text>
+
+    <path class="w-stream" d="M260 64 L260 150"/>
+    <text class="lbl" x="270" y="92">mTLS</text>
+    <text class="lbl" x="270" y="108">scenes + NEW stream channel</text>
+    <text class="lbl" x="270" y="124">(bytes down, keys up, credit)</text>
+
+    <rect class="box-hub" x="110" y="150" width="300" height="104" rx="8"/>
+    <text class="t" x="260" y="172" text-anchor="middle">Hub A</text>
+    <text class="s" x="260" y="192" text-anchor="middle">scenes · leases · principal broker</text>
+    <rect class="box-inner" x="130" y="204" width="260" height="40" rx="5"/>
+    <text class="s" x="260" y="221" text-anchor="middle">stream relay: copies frames fd→fd,</text>
+    <text class="s" x="260" y="236" text-anchor="middle">no parsing · forwards credit end to end</text>
+
+    <path class="w-sock" d="M260 254 L260 310"/>
+    <text class="lbl" x="270" y="276">Unix socket, 0700 dir,</text>
+    <text class="lbl" x="270" y="292">peer-uid checked · PTY protocol</text>
+
+    <rect class="box-pty" x="60" y="310" width="400" height="96" rx="8"/>
+    <text class="t" x="260" y="332" text-anchor="middle">luxd-pty A  (one per Hub, started by the Hub's supervisor)</text>
+    <rect class="box-inner" x="78" y="342" width="175" height="54" rx="5"/>
+    <text class="s" x="165" y="360" text-anchor="middle">Core</text>
+    <text class="s" x="165" y="374" text-anchor="middle">Ghostty per session · snapshots</text>
+    <text class="s" x="165" y="388" text-anchor="middle">PTY protocol server · policy</text>
+    <rect class="box-inner" x="268" y="342" width="175" height="54" rx="5"/>
+    <text class="s" x="355" y="360" text-anchor="middle">Holder</text>
+    <text class="s" x="355" y="374" text-anchor="middle">spawn · read · write · resize</text>
+    <text class="s" x="355" y="388" text-anchor="middle">reap · 1 MB tail</text>
+
+    <path class="w" d="M355 406 L355 428"/>
+    <rect class="box-shell" x="300" y="428" width="110" height="24" rx="5"/>
+    <text x="355" y="445" text-anchor="middle">zsh / claude</text>
+
+    <rect class="box-agent" x="20" y="180" width="70" height="44" rx="8"/>
+    <text class="t" x="55" y="206" text-anchor="middle">agent</text>
+    <path class="w-client" d="M90 202 L110 202"/>
+    <text class="lbl" x="20" y="240">MCP tools:</text>
+    <text class="lbl" x="20" y="254">session.create</text>
+    <text class="lbl" x="20" y="268">read · wait · send</text>
+    <text class="lbl" x="20" y="282">(Hub forwards</text>
+    <text class="lbl" x="20" y="296">over the socket)</text>
+  </svg>
+  <h3>Wires</h3>
+  <ul>
+    <li><b>Two protocols.</b> A new PTY protocol on the socket (JSON control + binary attach frames), and a new stream channel on Hub↔Display. The Hub translates between them.</li>
+    <li>The daemon has <b>one client</b>, its Hub. It never sees identity; the Hub attaches the principal to each request.</li>
+    <li>Agent tools are Hub tools that forward over the socket.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Option 2: a Hub client that publishes streams</h2>
+  <div class="tag">The daemon connects to the Hub like any applet (DES-063). The stream becomes a general Hub primitive.</div>
+  <svg viewBox="0 0 520 470" xmlns="http://www.w3.org/2000/svg" aria-label="Option 2 client">
+    <rect class="host" x="14" y="118" width="492" height="340"/>
+    <text class="lbl" x="26" y="138">host A</text>
+
+    <rect class="box-display" x="150" y="14" width="220" height="50" rx="8"/>
+    <text class="t" x="260" y="35" text-anchor="middle">Display</text>
+    <text class="s" x="260" y="52" text-anchor="middle">Ghostty replica · painter · keys</text>
+
+    <path class="w-stream" d="M260 64 L260 150"/>
+    <text class="lbl" x="270" y="92">mTLS</text>
+    <text class="lbl" x="270" y="108">scenes + NEW stream channel</text>
+    <text class="lbl" x="270" y="124">(subscribe to stream S)</text>
+
+    <rect class="box-hub" x="110" y="150" width="300" height="104" rx="8"/>
+    <text class="t" x="260" y="172" text-anchor="middle">Hub A</text>
+    <text class="s" x="260" y="192" text-anchor="middle">scenes · leases · identity · tools</text>
+    <rect class="box-inner" x="130" y="204" width="260" height="40" rx="5"/>
+    <text class="s" x="260" y="221" text-anchor="middle">stream store: a client publishes stream S,</text>
+    <text class="s" x="260" y="236" text-anchor="middle">subscribers get snapshot + tail · credit</text>
+
+    <path class="w-client" d="M260 254 L260 310" style="stroke-width:2.5"/>
+    <text class="lbl" x="270" y="276">the SAME client transport</text>
+    <text class="lbl" x="270" y="292">agents use: identity, lease, scenes, tools</text>
+
+    <rect class="box-pty" x="60" y="310" width="400" height="96" rx="8"/>
+    <text class="t" x="260" y="332" text-anchor="middle">luxd-pty A  (a long-lived client; owns its scenes + streams)</text>
+    <rect class="box-inner" x="78" y="342" width="175" height="54" rx="5"/>
+    <text class="s" x="165" y="360" text-anchor="middle">Core</text>
+    <text class="s" x="165" y="374" text-anchor="middle">Ghostty per session · snapshots</text>
+    <text class="s" x="165" y="388" text-anchor="middle">publishes stream per session</text>
+    <rect class="box-inner" x="268" y="342" width="175" height="54" rx="5"/>
+    <text class="s" x="355" y="360" text-anchor="middle">Holder</text>
+    <text class="s" x="355" y="374" text-anchor="middle">spawn · read · write · resize</text>
+    <text class="s" x="355" y="388" text-anchor="middle">reap · 1 MB tail</text>
+
+    <path class="w" d="M355 406 L355 428"/>
+    <rect class="box-shell" x="300" y="428" width="110" height="24" rx="5"/>
+    <text x="355" y="445" text-anchor="middle">zsh / claude</text>
+
+    <rect class="box-agent" x="20" y="180" width="70" height="44" rx="8"/>
+    <text class="t" x="55" y="206" text-anchor="middle">agent</text>
+    <path class="w-client" d="M90 202 L110 202"/>
+    <text class="lbl" x="20" y="240">MCP tools:</text>
+    <text class="lbl" x="20" y="254">exposed BY luxd-pty</text>
+    <text class="lbl" x="20" y="268">through the Hub's</text>
+    <text class="lbl" x="20" y="282">client surface</text>
+    <text class="lbl" x="20" y="296">(DES-087)</text>
+  </svg>
+  <h3>Wires</h3>
+  <ul>
+    <li><b>One protocol.</b> The Hub's client protocol gains a stream primitive; the daemon and the Display both use it. No PTY-specific protocol.</li>
+    <li>The daemon <b>has an identity and a lease</b>. Its sessions are its scenes; a dropped lease is the ownership rule, as for applets.</li>
+    <li>Keystrokes travel as stream bytes to the owning client, not as interaction events.</li>
+  </ul>
+</div>
+</div>
+
+
+<h2>What a keystroke and a reconnect look like in each</h2>
+<svg viewBox="0 0 1100 300" xmlns="http://www.w3.org/2000/svg" aria-label="Paths">
+  <text class="t" x="20" y="28">Option 1 · keystroke</text>
+  <rect class="box-display" x="20" y="40" width="90" height="34" rx="6"/><text x="65" y="62" text-anchor="middle">Display</text>
+  <path class="w-stream" d="M110 57 L170 57"/><text class="lbl" x="118" y="50">stream</text>
+  <rect class="box-hub" x="170" y="40" width="120" height="34" rx="6"/><text x="230" y="62" text-anchor="middle">Hub: relay</text>
+  <path class="w-sock" d="M290 57 L350 57"/><text class="lbl" x="296" y="50">socket</text>
+  <rect class="box-pty" x="350" y="40" width="130" height="34" rx="6"/><text x="415" y="62" text-anchor="middle">Core: policy</text>
+  <path class="w" d="M480 57 L520 57"/>
+  <rect class="box-pty" x="520" y="40" width="80" height="34" rx="6"/><text x="560" y="62" text-anchor="middle">Holder</text>
+  <path class="w" d="M600 57 L640 57"/>
+  <rect class="box-shell" x="640" y="40" width="60" height="34" rx="6"/><text x="670" y="62" text-anchor="middle">zsh</text>
+  <text class="s" x="720" y="62">3 hops · ~6 µs each locally · two protocols crossed</text>
+
+  <text class="t" x="20" y="118">Option 2 · keystroke</text>
+  <rect class="box-display" x="20" y="130" width="90" height="34" rx="6"/><text x="65" y="152" text-anchor="middle">Display</text>
+  <path class="w-stream" d="M110 147 L170 147"/><text class="lbl" x="118" y="140">stream</text>
+  <rect class="box-hub" x="170" y="130" width="120" height="34" rx="6"/><text x="230" y="152" text-anchor="middle">Hub: route</text>
+  <path class="w-client" d="M290 147 L350 147" style="stroke-width:2.5"/><text class="lbl" x="296" y="140">stream</text>
+  <rect class="box-pty" x="350" y="130" width="130" height="34" rx="6"/><text x="415" y="152" text-anchor="middle">Core: policy</text>
+  <path class="w" d="M480 147 L520 147"/>
+  <rect class="box-pty" x="520" y="130" width="80" height="34" rx="6"/><text x="560" y="152" text-anchor="middle">Holder</text>
+  <path class="w" d="M600 147 L640 147"/>
+  <rect class="box-shell" x="640" y="130" width="60" height="34" rx="6"/><text x="670" y="152" text-anchor="middle">zsh</text>
+  <text class="s" x="720" y="152">3 hops · same latency · one protocol end to end</text>
+
+  <text class="t" x="20" y="212">Both · Display attaches (first time or after a restart)</text>
+  <rect class="box-display" x="20" y="224" width="90" height="34" rx="6"/><text x="65" y="246" text-anchor="middle">Display</text>
+  <path class="w-stream" d="M170 241 L110 241"/>
+  <rect class="box-hub" x="170" y="224" width="120" height="34" rx="6"/><text x="230" y="246" text-anchor="middle">Hub</text>
+  <path class="w-stream" d="M350 241 L290 241"/>
+  <rect class="box-pty" x="350" y="224" width="250" height="34" rx="6"/><text x="475" y="246" text-anchor="middle">Core: snapshot (0.2–0.4 ms) then live bytes</text>
+  <text class="s" x="620" y="246">44–110 KB · one or two frames · lag &gt; 4 MiB ⇒ fresh snapshot</text>
+  <text class="s" x="20" y="285">Measured on the spike machine: 200×60 screen, 2,000 lines of history, pyghostty 0.1.4. Unix socket round trip 6 µs median, 12 µs p99.</text>
+</svg>
+
+<h2>Side by side</h2>
+<table>
+  <tr><th></th><th>Option 1 · sidecar service</th><th>Option 2 · Hub client</th></tr>
+  <tr><td>New protocols</td><td class="warn">Two: PTY protocol on the socket, stream channel on Hub↔Display</td><td class="good">One: a stream primitive in the client protocol, used by both ends</td></tr>
+  <tr><td>Hub changes</td><td>Stream channel to the Display, a relay, a socket client, tool forwarding</td><td>Stream primitive (publish, subscribe, snapshot + tail, credit), keystrokes as stream bytes to the owner</td></tr>
+  <tr><td>Identity &amp; policy</td><td class="warn">The daemon has no identity; the Hub stamps a principal on each request. Policy split across two processes.</td><td class="good">The daemon is a client with an identity and a lease. Policy is "which client may call which tool on which session", the model the Hub already has.</td></tr>
+  <tr><td>Session ownership</td><td class="warn">New rules to write (attached / kept / leased)</td><td class="good">Falls out of leases (DES-094): the daemon owns its scenes; agent-created sessions can be leased to the agent</td></tr>
+  <tr><td>Lifecycle</td><td>Started by the Hub's supervisor; private socket to find and permission-check</td><td>Started by the Hub's supervisor; connects like any client, no socket of its own</td></tr>
+  <tr><td>Throughput risk</td><td class="risk">The Hub relays every byte between two protocols</td><td class="risk">The Hub forwards every byte on one protocol. Same risk, one translation fewer.</td></tr>
+  <tr><td>Other process hosts later (tmux bridge, remote adapter)</td><td class="warn">Each needs the Hub to speak the PTY protocol to it</td><td class="good">Each is another client publishing streams; Hub and Display unchanged</td></tr>
+  <tr><td>Reuse elsewhere</td><td>The relay is terminal-specific</td><td class="good">Transcripts and blackboard history need the same stream primitive (room synthesis §3)</td></tr>
+  <tr><td>Proven elsewhere</td><td class="good">herdr holder/core, tmux, WezTerm mux server</td><td>No direct precedent; applets (DES-063) are the nearest thing in Lux</td></tr>
+  <tr><td>Blast radius of a daemon bug</td><td class="good">Contained: the Hub only speaks a narrow protocol to it</td><td class="warn">A misbehaving client on the general transport; the Hub's existing client isolation has to hold</td></tr>
+  <tr><td>Time to first headless proof</td><td class="good">Shorter: socket + JSON, no Hub changes needed for an agent to read a screen</td><td class="warn">Longer: the stream primitive in the Hub comes first</td></tr>
+</table>
+
+<div class="pick">
+  <h2>Recommendation: Option 2, built in Option 1's order</h2>
+  <p>
+    Option 2 is the better end state. It adds one primitive Lux needs anyway, puts the daemon under the
+    identity and lease rules every other client already follows, and makes the Hub and Display indifferent to
+    where terminals come from. Option 1 is faster to a first demo but leaves two protocols and a split policy
+    to maintain.
+  </p>
+  <p>
+    The risk in Option 2 is that the Hub-side stream primitive is designed around one consumer. So build
+    the daemon first <b>standing alone</b>, exactly as Option 1's steps 1–3 would: snapshot recipe with tests,
+    a process that owns PTYs and Ghostty, a direct connection for the Display, measured throughput and
+    reconnect. That code is identical in both options. Then, with real numbers, design the stream primitive
+    and connect the daemon as a client. If the primitive turns out to be hard or slow, Option 1 is the fallback
+    and nothing built so far is wasted.
+  </p>
+  <h3>What decides it at the gate</h3>
+  <ul>
+    <li>Can the Hub forward a terminal stream at several times the spike's 30–45 MB/s without hurting scene replication? If not, the forwarder is the piece to make native, in either option.</li>
+    <li>Does a stream-publishing client fit the Hub's client model without special cases? If it needs more than two, that's a signal for Option 1.</li>
+  </ul>
+</div>
+
+<p class="note">Sources: herdr-core (holder/core, attach stream, security.md), tmux (server, control mode, socket rules), WezTerm (mux server), Lux DES-002 / 004 / 063 / 087 / 089 / 090 / 093 / 094, Vox Rooms notes 02 and 03. Measurements in <code>STEP4-DESIGN.md</code>.</p>
+
+</body>
+</html>

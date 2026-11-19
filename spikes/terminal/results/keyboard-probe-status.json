@@ -1,0 +1,15 @@
+{
+  "status": "incomplete",
+  "platform": "macOS",
+  "table_rows": 1000,
+  "table_columns": 6,
+  "rendered_setup": "PID-selected screenshot/OCR verifies KEYBOARD_READY and TABLE 1000 ROWS",
+  "permission_preflight": {"screen_capture": true, "post_event_access": true},
+  "input_route": "Quartz events targeted to owned Display PID; no system-wide keyboard fallback",
+  "warm_key_response": "not observed before bounded deadline",
+  "finite_burst_and_key_samples": "not reached",
+  "keyboard_to_pixel_latency": "not measured",
+  "attribution": "driver/focus versus product input issue unresolved",
+  "cleanup": "owned program/daemon/Display/Hub stopped; private instance removed",
+  "production_code_changed": false
+}

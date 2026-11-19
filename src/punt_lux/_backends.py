@@ -32,17 +32,18 @@ def pgrep_pid(process_name: str) -> int | None:
         text=True,
         check=False,
     )
-    lines = result.stdout.strip().splitlines()
-    if not lines:
-        return None
     try:
-        return int(lines[0])
-    except ValueError:
+        return int(result.stdout.strip().splitlines()[0])
+    except (ValueError, IndexError):
         return None
 
 
 class ServiceBackend(ABC):
     """Platform-specific daemon lifecycle strategy."""
+
+    @abstractmethod
+    def enable_autostart(self) -> bool:
+        """Enable login startup without changing the running daemon."""
 
     @abstractmethod
     def install(self) -> bool:

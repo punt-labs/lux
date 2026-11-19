@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from punt_lux.protocol.elements import _strip_none
+from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.messages.pickled_element_codec import PickledElementCodec
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ class SceneCodec:
         Pickling preserves the Hub-side handlers the Display re-wraps for remote
         dispatch — every kind is an Element-ABC instance carrying them.
         """
-        return _strip_none(
+        return strip_none(
             {
                 "type": msg.type,
                 "id": msg.id,

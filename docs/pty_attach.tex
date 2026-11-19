@@ -1,0 +1,141 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Terminal attach: snapshot cut, ordered tail and detach}
+\maketitle
+
+This model specifies one live terminal and several viewers. A snapshot
+captures an output sequence; output can arrive while it is transferred.
+Completing the snapshot must not pretend those later bytes were applied.
+Disconnect removes a viewer, not the terminal process. Explicit process
+termination, socket authentication and native parser fidelity are outside
+this model. They need separate tests and lifecycle modelling.
+
+\begin{zed}
+[VIEW]
+\end{zed}
+\begin{zed}
+PHASE ::= detached | pending | live
+\end{zed}
+\begin{zed}
+PROCESS ::= running | stopped
+\end{zed}
+
+Structural bounds are part of state; the safety claims below are not.
+This permits a deliberately broken operation to reach a violating state.
+Three output positions and two viewers exercise attach/output interleavings.
+Credit units stand for frames, not physical byte sizes.
+
+\begin{schema}{SessionStream}
+position : 0 \upto 3 \\
+program : PROCESS \\
+phase : VIEW \fun PHASE \\
+cut : VIEW \fun (0 \upto 3) \\
+applied : VIEW \fun (0 \upto 3) \\
+seen : VIEW \fun \power (1 \upto 3) \\
+credit : VIEW \fun (0 \upto 2)
+\where
+\forall v : VIEW @ cut(v) \leq position \land applied(v) \leq position
+\end{schema}
+
+\begin{schema}{Init}
+SessionStream'
+\where
+position' = 0 \\
+program' = running \\
+phase' = \{v : VIEW @ v \mapsto detached\} \\
+cut' = \{v : VIEW @ v \mapsto 0\} \\
+applied' = \{v : VIEW @ v \mapsto 0\} \\
+seen' = \{v : VIEW @ v \mapsto \emptyset\} \\
+credit' = \{v : VIEW @ v \mapsto 0\}
+\end{schema}
+
+\begin{schema}{CaptureSnapshot}
+\Delta SessionStream \\
+v? : VIEW
+\where
+phase(v?) = detached \\
+phase' = phase \oplus \{v? \mapsto pending\} \\
+cut' = cut \oplus \{v? \mapsto position\} \\
+applied' = applied \oplus \{v? \mapsto 0\} \\
+seen' = seen \oplus \{v? \mapsto \emptyset\} \\
+credit' = credit \oplus \{v? \mapsto 2\} \\
+position' = position \land program' = program
+\end{schema}
+
+\begin{schema}{ReadOutput}
+\Delta SessionStream
+\where
+program = running \land position < 3 \\
+position' = position + 1 \\
+program' = program \land phase' = phase \land cut' = cut \\
+applied' = applied \land seen' = seen \land credit' = credit
+\end{schema}
+
+\begin{schema}{CompleteSnapshot}
+\Delta SessionStream \\
+v? : VIEW
+\where
+phase(v?) = pending \\
+phase' = phase \oplus \{v? \mapsto live\} \\
+applied' = applied \oplus \{v? \mapsto cut(v?)\} \\
+seen' = seen \oplus \{v? \mapsto (1 \upto cut(v?))\} \\
+position' = position \land program' = program \land cut' = cut \\
+credit' = credit
+\end{schema}
+
+\begin{schema}{DeliverTail}
+\Delta SessionStream \\
+v? : VIEW
+\where
+phase(v?) = live \land applied(v?) < position \land credit(v?) > 0 \\
+applied' = applied \oplus \{v? \mapsto (applied(v?) + 1)\} \\
+seen' = seen \oplus \{v? \mapsto (seen(v?) \cup \{applied(v?) + 1\})\} \\
+credit' = credit \oplus \{v? \mapsto (credit(v?) - 1)\} \\
+position' = position \land program' = program \land phase' = phase \\
+cut' = cut
+\end{schema}
+
+\begin{schema}{ReturnCredit}
+\Delta SessionStream \\
+v? : VIEW
+\where
+phase(v?) = live \land credit(v?) < 2 \\
+credit' = credit \oplus \{v? \mapsto (credit(v?) + 1)\} \\
+position' = position \land program' = program \land phase' = phase \\
+cut' = cut \land applied' = applied \land seen' = seen
+\end{schema}
+
+\begin{schema}{Disconnect}
+\Delta SessionStream \\
+v? : VIEW
+\where
+phase(v?) \neq detached \\
+phase' = phase \oplus \{v? \mapsto detached\} \\
+cut' = cut \oplus \{v? \mapsto 0\} \\
+applied' = applied \oplus \{v? \mapsto 0\} \\
+seen' = seen \oplus \{v? \mapsto \emptyset\} \\
+credit' = credit \oplus \{v? \mapsto 0\} \\
+position' = position \land program' = program
+\end{schema}
+
+\begin{schema}{Idle}
+\Xi SessionStream
+\end{schema}
+
+Safety claims to check, rather than assume:
+\begin{itemize}
+\item Every live viewer has exactly the output prefix it claims to have
+      applied: $seen(v) = 1 \upto applied(v)$.
+\item No viewer receives tail bytes before its snapshot completes.
+\item Disconnect never changes the terminal process from running to stopped.
+\end{itemize}
+
+Fidelity mutations: replace $cut(v?)$ by $position$ in the applied counter of
+CompleteSnapshot, or replace $program'=program$ by $program'=stopped$ in
+Disconnect. The first loses output received during snapshot transfer; the
+second reproduces the old in-Display process lifetime. Each must produce a
+counterexample. An idle transition represents an event loop waiting for IO;
+deadlock-freedom with Idle is not a proof of eventual network delivery.
+
+\end{document}
