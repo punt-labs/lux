@@ -202,6 +202,7 @@ An element that declares `"publish": ["my.topic"]` publishes each user action on
 ## MCP Tools
 
 Agents use Lux through the MCP tools that `luxd` serves at its streamable-HTTP endpoint, `http://127.0.0.1:8430/mcp`. The plugin connects Claude Code to that endpoint.
+Clients use the stateful MCP `initialize` handshake; clients that support automatic protocol negotiation can fall back to it from modern discovery.
 
 | Tool | What it does |
 |------|-------------|

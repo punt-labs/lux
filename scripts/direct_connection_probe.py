@@ -27,22 +27,24 @@ from punt_lux.hub_paths import HubPaths
 async def _probe(url: str) -> int:
     print(f"connecting: {url}")
     async with (
-        streamable_http_client(url) as (read, write, _),
+        streamable_http_client(url) as (read, write),
         ClientSession(read, write) as session,
     ):
         info = await session.initialize()
-        print(f"initialized: server={info.serverInfo.name} v{info.serverInfo.version}")
+        print(
+            f"initialized: server={info.server_info.name} v{info.server_info.version}"
+        )
 
         tools = await session.list_tools()
         print(f"tools: {len(tools.tools)} available")
 
-        scenes = await session.call_tool("list_scenes", {})
+        scenes = await session.call_tool("scene_ls", {})
         block = scenes.content[0] if scenes.content else None
         payload = block.text if isinstance(block, TextContent) else "<non-text>"
-        if scenes.isError:
-            print(f"list_scenes failed: {payload}", file=sys.stderr)
+        if scenes.is_error:
+            print(f"scene_ls failed: {payload}", file=sys.stderr)
             return 1
-        print(f"list_scenes: isError=False content={payload}")
+        print(f"scene_ls: is_error=False content={payload}")
 
     print("direct connection OK")
     return 0

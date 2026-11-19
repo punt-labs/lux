@@ -7,52 +7,41 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-import anyio
-from mcp.shared.message import SessionMessage
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 import punt_lux.tools.server as server_module
-from punt_lux.client_host import UNOBSERVED
-from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.mcp_transport import McpHttpTransport
-from punt_lux.tools.server import bind_session, unbind_session
 
 if TYPE_CHECKING:
     import pytest
 
 
 def _run_session_to_completion() -> None:
-    """Drive a real MCP session with its read stream already closed.
+    """Exercise the production lifespan, handshake, and connection cleanup."""
+    transport = McpHttpTransport()
 
-    ``SessionScopedServer.run`` is what luxd's transport hands the SDK session
-    manager per session. Passing a receive stream whose send end is closed makes
-    the wrapped ``server.run`` return at once, so the whole startup path runs —
-    the session identity, the FastMCP lifespan enter/exit, and the disconnect
-    cascade — without a live client. A config read anywhere in that path, not
-    just inside the lifespan, is therefore caught.
-    """
-
-    async def _run() -> None:
-        send_read, recv_read = anyio.create_memory_object_stream[
-            SessionMessage | Exception
-        ](0)
-        send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](0)
-        await send_read.aclose()
-        scoped = SessionScopedServer(
-            McpHttpTransport._fastmcp_server(), SessionRegistry()
+    app = FastAPI(lifespan=lambda _: transport.lifespan())
+    transport.mount(app)
+    with TestClient(app, base_url="http://127.0.0.1:8430") as client:
+        response = client.post(
+            "/mcp?session_key=test",
+            headers={"Accept": "application/json, text/event-stream"},
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LATEST_HANDSHAKE_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "config-test", "version": "0"},
+                },
+            },
         )
-        token = bind_session("test", UNOBSERVED)
-        try:
-            with anyio.fail_after(5):
-                async with McpHttpTransport._fastmcp_lifespan()():
-                    await scoped.run(
-                        recv_read,
-                        send_write,
-                        scoped.create_initialization_options(),
-                    )
-        finally:
-            unbind_session(token)
-
-    anyio.run(_run)
+        response.raise_for_status()
+        assert transport.session_count == 1
+    assert transport.session_count == 0
 
 
 class TestSessionStartup:

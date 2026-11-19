@@ -11,8 +11,9 @@ from punt_lux.session_key import SessionKey
 from punt_lux.tools.server import bind_session, unbind_session
 
 if TYPE_CHECKING:
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     from starlette.types import Receive, Scope, Send
+
+    from punt_lux.mcp_session_manager import LuxSessionManager
 
 __all__ = ["McpAsgiApp"]
 
@@ -27,10 +28,10 @@ class McpAsgiApp:
     the cleanup cascade.
     """
 
-    _manager: StreamableHTTPSessionManager
+    _manager: LuxSessionManager
     __slots__ = ("_manager",)
 
-    def __new__(cls, manager: StreamableHTTPSessionManager) -> Self:
+    def __new__(cls, manager: LuxSessionManager) -> Self:
         """Bind the streamable-HTTP MCP manager to its ASGI endpoint."""
         self = super().__new__(cls)
         self._manager = manager

@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, cast
+from contextlib import AsyncExitStack
+from typing import cast
 
 import anyio
 import pytest
-from mcp.shared.message import SessionMessage
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import disconnect_connection
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.ids import ConnectionId, Topic
-from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
+from punt_lux.mcp_session import SessionRegistry
+from punt_lux.mcp_session_manager import LuxSessionManager
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.tools.server import bind_session, unbind_session
-
-if TYPE_CHECKING:
-    from mcp.server.lowlevel import Server as MCPServer
 
 
 class TestSessionRegistry:
@@ -73,21 +71,11 @@ class TestSessionRegistry:
         assert registry.count == 0
 
 
-class _RaisingInner:
-    """A wrapped MCP server whose session loop dies mid-session."""
-
-    async def run(self, *args: object, **kwargs: object) -> None:
-        raise RuntimeError("inner run exploded")
-
-    def create_initialization_options(self) -> object:
-        return object()
-
-
 class TestUncleanDisconnect:
     def test_inner_run_raise_still_runs_full_cleanup(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An inner run() that raises still discards and runs both cleanup legs.
+        """A failed connection still discards and runs both cleanup legs.
 
         This is the kill-mid-session path: the SDK session loop dies, but the
         registry entry must drop and the disconnect cascade must run, so a
@@ -108,48 +96,31 @@ class TestUncleanDisconnect:
         )
 
         registry = SessionRegistry()
-        scoped = SessionScopedServer(
-            cast("MCPServer[object, object]", _RaisingInner()), registry
-        )
 
         async def _drive() -> None:
-            _send_read, recv_read = anyio.create_memory_object_stream[
-                SessionMessage | Exception
-            ](0)
-            send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
-                0
-            )
             token = bind_session("unclean", UNOBSERVED)
             try:
-                await scoped.run(
-                    recv_read, send_write, scoped.create_initialization_options()
-                )
+                async with AsyncExitStack() as connection:
+                    LuxSessionManager._track_connection(registry, connection)
+                    raise RuntimeError("connection failed")
             finally:
                 unbind_session(token)
 
-        with pytest.raises(RuntimeError, match="inner run exploded"):
+        with pytest.raises(RuntimeError, match="connection failed"):
             anyio.run(_drive)
 
         assert registry.count == 0
         assert legs == ["menu", "disconnect"]
 
 
-class _GatedInner:
-    """A wrapped MCP server whose session loop blocks until its gate is set."""
-
-    _gate: anyio.Event
-    __slots__ = ("_gate",)
-
-    def __new__(cls, gate: anyio.Event) -> Self:
-        self = super().__new__(cls)
-        self._gate = gate
-        return self
-
-    async def run(self, *args: object, **kwargs: object) -> None:
-        await self._gate.wait()
-
-    def create_initialization_options(self) -> object:
-        return object()
+def _open_connection(registry: SessionRegistry, key: str) -> AsyncExitStack:
+    connection = AsyncExitStack()
+    token = bind_session(key, UNOBSERVED)
+    try:
+        LuxSessionManager._track_connection(registry, connection)
+    finally:
+        unbind_session(token)
+    return connection
 
 
 class TestSharedKeyCleanup:
@@ -180,42 +151,13 @@ class TestSharedKeyCleanup:
 
         registry = SessionRegistry()
 
-        async def _session(server: SessionScopedServer) -> None:
-            _send_read, recv_read = anyio.create_memory_object_stream[
-                SessionMessage | Exception
-            ](0)
-            send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
-                0
-            )
-            token = bind_session("sess-a", UNOBSERVED)
-            try:
-                await server.run(
-                    recv_read, send_write, server.create_initialization_options()
-                )
-            finally:
-                unbind_session(token)
-
         async def _drive() -> None:
-            gate_first = anyio.Event()
-            gate_last = anyio.Event()
-            first = SessionScopedServer(
-                cast("MCPServer[object, object]", _GatedInner(gate_first)), registry
-            )
-            last = SessionScopedServer(
-                cast("MCPServer[object, object]", _GatedInner(gate_last)), registry
-            )
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(_session, first)
-                tg.start_soon(_session, last)
-                while registry.count < 2:  # both sessions registered and blocked
-                    await anyio.sleep(0)
+            async with _open_connection(registry, "sess-a"):
+                async with _open_connection(registry, "sess-a"):
+                    assert registry.count == 2
+                    assert legs == []
+                assert registry.count == 1
                 assert legs == []
-                gate_first.set()  # first same-key session leaves
-                while registry.count > 1:
-                    await anyio.sleep(0)
-                assert registry.count == 1  # peer still counted
-                assert legs == []  # peer's Hub state untouched
-                gate_last.set()  # last same-key session leaves
 
         anyio.run(_drive)
 
@@ -272,43 +214,14 @@ class TestSharedKeyDisconnectPreservesSubscriptions:
             )
             return client.writer_bound, client.subscribed_topics
 
-        async def _session(server: SessionScopedServer) -> None:
-            _send_read, recv_read = anyio.create_memory_object_stream[
-                SessionMessage | Exception
-            ](0)
-            send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](
-                0
-            )
-            token = bind_session("sess-shared", UNOBSERVED)
-            try:
-                await server.run(
-                    recv_read, send_write, server.create_initialization_options()
-                )
-            finally:
-                unbind_session(token)
-
         async def _drive() -> None:
-            gate_first = anyio.Event()
-            gate_last = anyio.Event()
-            first = SessionScopedServer(
-                cast("MCPServer[object, object]", _GatedInner(gate_first)), registry
-            )
-            last = SessionScopedServer(
-                cast("MCPServer[object, object]", _GatedInner(gate_last)), registry
-            )
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(_session, first)
-                tg.start_soon(_session, last)
-                while registry.count < 2:
-                    await anyio.sleep(0)
-                gate_first.set()  # first same-key session leaves
-                while registry.count > 1:
-                    await anyio.sleep(0)
+            async with _open_connection(registry, "sess-shared"):
+                async with _open_connection(registry, "sess-shared"):
+                    assert registry.count == 2
                 # The survivor's subscription and writer must still be live.
                 writer_bound, topics = _reads()
                 assert writer_bound is True
                 assert topics == ["work.saved"]
-                gate_last.set()  # last same-key session leaves
 
         anyio.run(_drive)
 

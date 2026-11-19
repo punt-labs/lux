@@ -21,7 +21,7 @@ dependencies = [
     "typer>=0.15.0,<1",
     "rich>=15,<16",
     # Floor past the fastmcp GHSA fixed in 3.4.10 (vox Dependabot alert #60).
-    "fastmcp>=3.4.10,<4",
+    "fastmcp>=4.2.0,<5",
     # fastmcp-slim 3.4.10 still admits authlib 1.9.0; floor past the critical
     # advisory fixed in 1.9.1 (vox Dependabot alert #61).
     "authlib>=1.9.1",
@@ -30,7 +30,8 @@ dependencies = [
     # validation, HTTP session principal verification, cross-client task access);
     # no WS-server ceiling any more, so the cap is just the next-next major
     # (fastmcp governs the effective upper bound).
-    "mcp>=1.28.1,<3",
+    "mcp>=2.3.0,<3",
+    "mcp-types>=2.3.0,<3",
     "pydantic>=2.0.0,<3",
     "starlette>=1.3.1,<2",
     "fastapi>=0.115.0,<1",
@@ -83,6 +84,7 @@ aws = [
 #      are not exposed via PyPI; they exist for the source checkout only.
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "punt-oo-ratchet==0.3.0",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
