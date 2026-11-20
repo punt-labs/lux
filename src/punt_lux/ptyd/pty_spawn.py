@@ -25,7 +25,7 @@ class PtySpawn:
     @staticmethod
     def _exec(argv: list[str], env: dict[str, str]) -> Never:
         try:
-            PtySpawn._enter_home(env.get("HOME"))
+            PtySpawn._enter_home(env)
             os.execvpe(argv[0], argv, env)  # noqa: S606 -- explicitly requested argv
         except (OSError, ValueError, TypeError) as error:
             PtySpawn._warn(f"exec failed: {error}")
@@ -33,13 +33,16 @@ class PtySpawn:
             os._exit(127)
 
     @staticmethod
-    def _enter_home(home: str | None) -> None:
+    def _enter_home(env: dict[str, str]) -> None:
         """Start the shell in the user's home, not luxd-pty's cwd.
 
-        launchd services start at /, so without this the shell opens there. A
-        missing or unusable HOME is reported to the terminal and the shell
-        starts in the inherited cwd rather than failing to launch at all.
+        launchd services start at /, so without this the shell opens there. On
+        success the child's ``PWD`` is updated to match, so a directly launched
+        command reads the real directory rather than the daemon's inherited
+        one. A missing or unusable HOME is reported to the terminal and the
+        shell starts in the inherited cwd rather than failing to launch at all.
         """
+        home = env.get("HOME")
         if home is None:
             PtySpawn._warn("HOME not set; starting shell in inherited cwd")
             return
@@ -47,6 +50,8 @@ class PtySpawn:
             os.chdir(home)
         except OSError as error:
             PtySpawn._warn(f"cd to HOME failed, starting in inherited cwd: {error}")
+        else:
+            env["PWD"] = home
 
     @staticmethod
     def _warn(message: str) -> None:
