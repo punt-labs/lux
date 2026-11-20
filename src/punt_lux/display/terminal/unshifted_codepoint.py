@@ -10,9 +10,28 @@ from punt_lux.display.terminal.keymap import KEYMAP
 
 __all__ = ["UnshiftedCodepoint"]
 
-_PHYSICAL: Final[dict[int, int]] = {
-    KEYMAP[int(imgui.Key.a) + i]: ord("a") + i for i in range(26)
-} | {KEYMAP[int(imgui.Key._0) + i]: ord("0") + i for i in range(10)}
+# Punctuation keys whose control chords carry a C0 byte: Ctrl-[ (ESC),
+# Ctrl-\ (FS/SIGQUIT), Ctrl-] (GS), and the rest the encoder maps from the
+# unshifted codepoint exactly as it does for letters.
+_PUNCTUATION: Final[tuple[tuple[imgui.Key, str], ...]] = (
+    (imgui.Key.minus, "-"),
+    (imgui.Key.equal, "="),
+    (imgui.Key.comma, ","),
+    (imgui.Key.period, "."),
+    (imgui.Key.slash, "/"),
+    (imgui.Key.semicolon, ";"),
+    (imgui.Key.apostrophe, "'"),
+    (imgui.Key.grave_accent, "`"),
+    (imgui.Key.backslash, "\\"),
+    (imgui.Key.left_bracket, "["),
+    (imgui.Key.right_bracket, "]"),
+)
+
+_PHYSICAL: Final[dict[int, int]] = (
+    {KEYMAP[int(imgui.Key.a) + i]: ord("a") + i for i in range(26)}
+    | {KEYMAP[int(imgui.Key._0) + i]: ord("0") + i for i in range(10)}
+    | {KEYMAP[int(key)]: ord(char) for key, char in _PUNCTUATION}
+)
 
 
 class UnshiftedCodepoint:

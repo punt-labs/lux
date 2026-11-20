@@ -136,6 +136,14 @@ def test_control_chord_without_text_encodes_c0_byte(
         ("GHOSTTY_KEY_E", b"\x1b[>1u", b"\x1b[101;5u"),
         ("GHOSTTY_KEY_K", b"\x1b[>3u", b"\x1b[107;5u"),
         ("GHOSTTY_KEY_DIGIT_1", b"\x1b[>1u", b"\x1b[49;5u"),
+        # Punctuation chords need the physical-key codepoint too, else the
+        # encoder has no key identity: Ctrl-[ (91), Ctrl-\ (92), Ctrl-] (93).
+        ("GHOSTTY_KEY_BRACKET_LEFT", b"\x1b[>1u", b"\x1b[91;5u"),
+        ("GHOSTTY_KEY_BACKSLASH", b"\x1b[>1u", b"\x1b[92;5u"),
+        ("GHOSTTY_KEY_BRACKET_RIGHT", b"\x1b[>1u", b"\x1b[93;5u"),
+        ("GHOSTTY_KEY_MINUS", b"\x1b[>1u", b"\x1b[45;5u"),
+        ("GHOSTTY_KEY_SEMICOLON", b"\x1b[>1u", b"\x1b[59;5u"),
+        ("GHOSTTY_KEY_SLASH", b"\x1b[>1u", b"\x1b[47;5u"),
     ],
 )
 def test_control_chord_without_text_under_kitty_protocol(

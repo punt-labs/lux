@@ -20,6 +20,7 @@ class TerminalPresenter:
     def paint(elem: TerminalElement) -> None:
         try:
             session = RemoteSessions.get(elem.session, elem.command)
+            session.mark_shown()  # this frame paints it: keep the loop awake
             TerminalPresenter._render(elem, session)
         except ControlError as error:
             imgui.text_wrapped(f"Terminal unavailable: {error}")

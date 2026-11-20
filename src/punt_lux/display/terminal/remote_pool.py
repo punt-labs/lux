@@ -50,7 +50,8 @@ class RemotePool:
 
     @property
     def _has_live_session(self) -> bool:
-        return any(s.is_live for s in self._sessions.values())
+        now = time.monotonic()
+        return any(s.pins_frame_rate(now) for s in self._sessions.values())
 
     def get(self, name: str, command: str) -> RemoteSession:
         if (existing := self._sessions.get(name)) is not None:
