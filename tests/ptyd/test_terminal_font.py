@@ -9,6 +9,20 @@ import pytest
 
 from punt_lux.display.terminal import font
 
+_MENLO = "/System/Library/Fonts/Menlo.ttc"  # mono cover for U+276F prompt ornament
+_ARIAL = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
+
+
+def test_menlo_precedes_proportional_arial_for_mono_ornaments() -> None:
+    """Menlo supplies the monospace prompt ornament (U+276F) absent from the
+
+    base fonts, and must merge before the proportional Arial Unicode so its
+    fixed-width glyph wins the fallback race.
+    """
+    paths = [path for path, _color in font._FALLBACKS]
+    assert _MENLO in paths, "Menlo fallback dropped; U+276F renders as tofu"
+    assert paths.index(_MENLO) < paths.index(_ARIAL)
+
 
 @pytest.mark.parametrize("fallbacks", [False, True])
 def test_terminal_font_merges_only_existing_linux_fallbacks(fallbacks: bool) -> None:

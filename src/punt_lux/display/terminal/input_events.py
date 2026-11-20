@@ -15,6 +15,7 @@ from punt_lux.display.terminal.keymap import (
     SUPER,
     terminal_mods,
 )
+from punt_lux.display.terminal.unshifted_codepoint import UnshiftedCodepoint
 from punt_lux.terminal.ffi import Terminal, ffi, handle, init_sized, lib as lib
 
 if TYPE_CHECKING:
@@ -122,11 +123,8 @@ class KeyEncoding:
             if text:
                 data = text.encode()
                 lib.ghostty_key_event_set_utf8(ev, data, len(data))
-            if len(unshifted) == 1:
-                lower = unshifted.lower()
-                lib.ghostty_key_event_set_unshifted_codepoint(
-                    ev, ord(lower if len(lower) == 1 else unshifted)
-                )
+            if codepoint := UnshiftedCodepoint.of(key, unshifted):
+                lib.ghostty_key_event_set_unshifted_codepoint(ev, codepoint)
             lib.ghostty_key_encoder_setopt_from_terminal(self._encoder[0], handle(term))
             return lib.ghostty_key_encoder_encode(
                 self._encoder[0], ev, out, len(out), out_len

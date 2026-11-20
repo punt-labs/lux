@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 from collections.abc import Callable
 from typing import Self, cast
 
@@ -26,7 +27,12 @@ class RemoteSession:
     _status: str
     _channel: int
     _transfer: SnapshotTransfer
-    _bytes_in: int
+    _shown_at: float
+
+    # A session counts as on-screen only while its element keeps painting: the
+    # presenter marks it shown every frame it renders, so one not marked within
+    # this window is hidden and must not pin the loop at full frame rate.
+    _SHOWN_GRACE_S = 0.5
 
     def __new__(cls, name: str, command: str, send: Callable[[Frame], None]) -> Self:
         AttachRequest(1, name, command)  # apply the daemon's public boundary locally
@@ -37,9 +43,14 @@ class RemoteSession:
         self._view.on_resize = self.resize
         self._phase = RemotePhase.CONNECTING
         self._status = "connecting to luxd-pty"
-        self._channel = self._bytes_in = 0
+        self._channel = 0
         self._transfer = SnapshotTransfer(name)
+        self._shown_at = 0.0
         return self
+
+    def mark_shown(self) -> None:
+        """Record that the element painted this session, for the idling gate."""
+        self._shown_at = time.monotonic()
 
     @property
     def name(self) -> str:
@@ -50,16 +61,21 @@ class RemoteSession:
         return self._view
 
     @property
-    def bytes_in(self) -> int:
-        return self._bytes_in
-
-    @property
     def channel(self) -> int:
         return self._channel
 
     @property
     def phase(self) -> RemotePhase:
         return self._phase
+
+    @property
+    def is_live(self) -> bool:
+        """Whether daemon output may arrive on any frame."""
+        return self._phase in (RemotePhase.SNAPSHOT, RemotePhase.READY)
+
+    def pins_frame_rate(self, now: float) -> bool:
+        """Whether this session must keep the loop awake: live and on screen."""
+        return self.is_live and now - self._shown_at < self._SHOWN_GRACE_S
 
     @property
     def status(self) -> str:
@@ -83,7 +99,6 @@ class RemoteSession:
             if self._phase is not RemotePhase.READY:
                 raise ValueError("live bytes preceded snapshot completion")
             self._view.feed(frame.payload)
-            self._bytes_in += len(frame.payload)
             self._acknowledge(len(frame.payload))
         elif frame.kind is FrameKind.CLOSE:
             self._notice(frame.payload)

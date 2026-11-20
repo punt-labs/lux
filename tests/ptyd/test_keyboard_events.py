@@ -100,3 +100,63 @@ def test_kitty_event_reporting_receives_release_bytes() -> None:
     finally:
         encoder.close()
         term.close()
+
+
+@pytest.mark.parametrize(
+    "key_name,mods,expected",
+    [
+        ("GHOSTTY_KEY_A", 2, b"\x01"),
+        ("GHOSTTY_KEY_E", 2, b"\x05"),
+        ("GHOSTTY_KEY_K", 2, b"\x0b"),
+        ("GHOSTTY_KEY_U", 2, b"\x15"),
+        ("GHOSTTY_KEY_W", 2, b"\x17"),
+        ("GHOSTTY_KEY_A", 0, b"a"),
+    ],
+)
+def test_control_chord_without_text_encodes_c0_byte(
+    key_name: str, mods: int, expected: bytes
+) -> None:
+    term = Terminal(20, 4)
+    sent: list[bytes] = []
+    encoder = Input(term, sent.append)
+    text = "a" if expected == b"a" else None
+    try:
+        key = getattr(lib, key_name)
+        assert encoder.key(key, mods, text, lib.GHOSTTY_KEY_ACTION_PRESS)
+        assert sent == [expected]
+    finally:
+        encoder.close()
+        term.close()
+
+
+@pytest.mark.parametrize(
+    "key_name,flags,expected",
+    [
+        ("GHOSTTY_KEY_A", b"\x1b[>1u", b"\x1b[97;5u"),
+        ("GHOSTTY_KEY_E", b"\x1b[>1u", b"\x1b[101;5u"),
+        ("GHOSTTY_KEY_K", b"\x1b[>3u", b"\x1b[107;5u"),
+        ("GHOSTTY_KEY_DIGIT_1", b"\x1b[>1u", b"\x1b[49;5u"),
+        # Punctuation chords need the physical-key codepoint too, else the
+        # encoder has no key identity: Ctrl-[ (91), Ctrl-\ (92), Ctrl-] (93).
+        ("GHOSTTY_KEY_BRACKET_LEFT", b"\x1b[>1u", b"\x1b[91;5u"),
+        ("GHOSTTY_KEY_BACKSLASH", b"\x1b[>1u", b"\x1b[92;5u"),
+        ("GHOSTTY_KEY_BRACKET_RIGHT", b"\x1b[>1u", b"\x1b[93;5u"),
+        ("GHOSTTY_KEY_MINUS", b"\x1b[>1u", b"\x1b[45;5u"),
+        ("GHOSTTY_KEY_SEMICOLON", b"\x1b[>1u", b"\x1b[59;5u"),
+        ("GHOSTTY_KEY_SLASH", b"\x1b[>1u", b"\x1b[47;5u"),
+    ],
+)
+def test_control_chord_without_text_under_kitty_protocol(
+    key_name: str, flags: bytes, expected: bytes
+) -> None:
+    term = Terminal(20, 4)
+    sent: list[bytes] = []
+    encoder = Input(term, sent.append)
+    try:
+        term.feed(flags)
+        key = getattr(lib, key_name)
+        assert encoder.key(key, 2, None, lib.GHOSTTY_KEY_ACTION_PRESS)
+        assert sent == [expected]
+    finally:
+        encoder.close()
+        term.close()
