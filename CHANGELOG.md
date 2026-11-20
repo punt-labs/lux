@@ -43,6 +43,9 @@
 
 ### Changed
 
+- Depend on the published `punt-observe` 0.1.0 from PyPI instead of a Git
+  revision, restoring compatibility with Lux's PyPI release workflow.
+
 - Upgrade to FastMCP 4 while keeping luxd's MCP HTTP endpoint stateful:
   disconnect and idle expiry still clean up the last session for each key.
 
