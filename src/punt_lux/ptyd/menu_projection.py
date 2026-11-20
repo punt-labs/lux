@@ -22,8 +22,16 @@ class TerminalProjection:
         return self
 
     async def connected(self) -> None:
-        """Register fresh after every handshake; do not start an unsolicited shell."""
-        result = await self._clients.client().callback.register("terminal", "Terminal")
+        """Register fresh after every handshake; do not start an unsolicited shell.
+
+        The entry is registered with the terminal frame's id, so a repeat click
+        on a frame the user closed is reopened by the display itself rather than
+        routed here as a scene.show that no-ops against the still-installed
+        scene. Without the frame id the Clients-menu entry launches only once.
+        """
+        result = await self._clients.client().callback.register(
+            "terminal", "Terminal", frame_id="terminal"
+        )
         if isinstance(result, OpError):
             logger.warning("Terminal menu registration refused: %s", result.reason)
         if self._opened:

@@ -33,8 +33,23 @@ def test_registration_without_click_does_not_publish_a_shell_scene() -> None:
     factory, client = MenuDoubles.clients()
     projection = TerminalProjection(factory)
     asyncio.run(projection.connected())
-    client.callback.register.assert_awaited_once_with("terminal", "Terminal")
+    client.callback.register.assert_awaited_once_with(
+        "terminal", "Terminal", frame_id="terminal"
+    )
     client.scene.show.assert_not_awaited()
+
+
+def test_registration_carries_the_frame_id_so_a_closed_frame_reopens() -> None:
+    """The Clients-menu entry must register with the frame id, or a repeat click
+
+    after the user closes the terminal no-ops against the still-installed scene
+    and the terminal launches only once.
+    """
+    factory, client = MenuDoubles.clients()
+    projection = TerminalProjection(factory)
+    asyncio.run(projection.connected())
+    _args, kwargs = client.callback.register.await_args
+    assert kwargs.get("frame_id") == "terminal"
 
 
 def test_click_and_reconnect_reuse_one_terminal_session() -> None:
