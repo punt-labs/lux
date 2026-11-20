@@ -6,7 +6,7 @@ from typing import Self
 
 from punt_lux.protocol.pty.control_fields import ControlFields
 from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import restore_binary, snapshot_version
+from punt_lux.ptyd.snapshot import snapshot_version
 from punt_lux.terminal.ffi import Terminal
 
 
@@ -52,7 +52,7 @@ class SnapshotTransfer:
         if len(self._data) < self._size:
             return None
         checkpoint = SessionSnapshot.from_dict(self._metadata, bytes(self._data))
-        native = restore_binary(checkpoint.data)
+        native = checkpoint.restore()
         self._data.clear()
         return native
 

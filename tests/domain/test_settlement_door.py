@@ -170,7 +170,7 @@ class TestTheDoorIsTheSlot:
             and where
             not in {
                 "ptyd/control_dispatch.py:ControlDispatch._attach",
-                "ptyd/stream_output.py:StreamPublisher._flush",
+                "ptyd/stream_output.py:StreamPublisher._checkpoint",
                 "ptyd/stream_output.py:StreamPublisher.resize",
             }
         }

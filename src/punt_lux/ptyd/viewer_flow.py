@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from collections import deque
 from typing import Self
 
@@ -23,7 +22,6 @@ class ViewerFlow:
     _lag: int
     _lag_limit: int
     _repaint: bool
-    _retry_at: float
     _close: bytes | None
     _close_sent: bool
     _wanted_size: tuple[int, int]
@@ -40,7 +38,6 @@ class ViewerFlow:
         self._tail_offset = self._lag = 0
         self._lag_limit = lag_limit
         self._repaint = False
-        self._retry_at = 0.0
         self._close = None
         self._close_sent = False
         self._wanted_size = self._actual_size = (80, 24)
@@ -71,11 +68,7 @@ class ViewerFlow:
             self._repaint
             and self._snapshot_offset == len(self._snapshot)
             and self._credit.available > 0
-            and time.monotonic() >= self._retry_at
         )
-
-    def defer_repaint(self) -> None:
-        self._retry_at = time.monotonic() + 0.1
 
     def prepare(
         self,
@@ -94,8 +87,7 @@ class ViewerFlow:
         )
         self._start = None if initial else json.dumps(metadata).encode()
         self._snapshot, self._snapshot_offset = checkpoint.data, 0
-        self._tail.clear()
-        self._tail_offset = self._lag = 0
+        self._drop_tail()
         self._repaint = False
         if description["ended"]:
             self.finish("exited", description["exit_code"])
@@ -104,8 +96,7 @@ class ViewerFlow:
         if self._repaint or self._close_sent:
             return
         if self._lag + len(data) > self._lag_limit:
-            self._tail.clear()
-            self._tail_offset = self._lag = 0
+            self._drop_tail()
             self._repaint = True
         elif data:
             self._tail.append(data)
@@ -119,8 +110,7 @@ class ViewerFlow:
             self._start = None
             self._snapshot = b""
             self._snapshot_offset = 0
-            self._tail.clear()
-            self._tail_offset = self._lag = 0
+            self._drop_tail()
             self._repaint = False
         self._close = json.dumps({"reason": reason, "exit_code": exit_code}).encode()
 
@@ -161,6 +151,10 @@ class ViewerFlow:
             self._tail.popleft()
             self._tail_offset = 0
         return FrameKind.DATA, data
+
+    def _drop_tail(self) -> None:
+        self._tail.clear()
+        self._tail_offset = self._lag = 0
 
     def _done(self) -> bool:
         return (

@@ -39,6 +39,7 @@ _RESET = (
     b"\x1b[?2004l\x1b[?1l\x1b[?66l\x1b[?2031l\x1b[?2048l"
     b"\x1b[=0;1u\x1b[?1049l\x1b[?1047l\x1b[?47l\x1b[H\x1b[2J"
 )
+_ENTER_ALTERNATE = b"\x1b[?1049h\x1b[!p"
 _STRIP_FROM_SCREEN = (b"\x1b[?2026h", b"\x1b[?47h", b"\x1b[?1047h", b"\x1b[?1049h")
 
 
@@ -59,14 +60,23 @@ class VtSnapshot:
 
     def encode(self) -> bytes:
         """Repaint both grids, modes and title, without copying history."""
-        return self._primary() + self._screen() + self._title()
+        primary = _RESET
+        if self._term.get("active_screen", "uint8_t"):
+            hidden = restore_binary(encode_binary(self._term))
+            hidden.feed(b"\x18\x1b[?1049l")
+            primary = self.paint(hidden) + _ENTER_ALTERNATE
+        return primary + self._screen() + self._title()
 
-    def _primary(self) -> bytes:
-        if not self._term.get("active_screen", "uint8_t"):
-            return _RESET
-        primary = restore_binary(encode_binary(self._term))
-        primary.feed(b"\x18\x1b[?1049l")
-        return self.paint(primary) + b"\x1b[?1049h\x1b[!p"
+    def encode_visible(self) -> bytes:
+        """Repaint the active screen and title without the binary codec.
+
+        The hidden primary grid is not carried, so this works when continuation
+        tracking is exhausted and ``encode_binary`` would raise.
+        """
+        entry = b""
+        if self._term.get("active_screen", "uint8_t"):
+            entry = _ENTER_ALTERNATE
+        return _RESET + entry + self._screen() + self._title()
 
     def _screen(self) -> bytes:
         screen = active_screen_vt(self._term)

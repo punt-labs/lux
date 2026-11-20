@@ -9,7 +9,8 @@ from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
 from punt_lux.ptyd.session_lifecycle import SessionLifecycle
 from punt_lux.ptyd.session_state import SessionState
-from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
+from punt_lux.ptyd.snapshot import snapshot_version, tracked_terminal
+from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 from punt_lux.terminal.ffi_terminal import TerminalIO
 
 _ENDED_NOTICE = b"\r\n\x1b[?2026l\x1b[2m[process exited]\x1b[0m"
@@ -72,13 +73,19 @@ class TerminalSession:
                 self._position += len(data)
         return OutputChunk(self.name, start, data)
 
-    def capture(self) -> SessionSnapshot:
-        """Capture bytes and the cut atomically in this single-threaded core."""
+    def capture(
+        self, encoding: SnapshotEncoding = SnapshotEncoding.BINARY
+    ) -> SessionSnapshot:
+        """Capture bytes and the cut atomically in this single-threaded core.
+
+        BINARY raises ``SnapshotError`` mid-sequence once continuation tracking
+        is exhausted; VT repaints the visible screen and always succeeds.
+        """
         self._check_usable()
-        data = encode_binary(self._term.native)
+        data = encoding.serialize(self._term.native)
         cols, rows = self._term.size
         return SessionSnapshot(
-            self.name, self._position, cols, rows, snapshot_version(), data
+            self.name, self._position, cols, rows, snapshot_version(), data, encoding
         )
 
     def write(self, data: bytes) -> None:

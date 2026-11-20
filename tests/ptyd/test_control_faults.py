@@ -112,7 +112,6 @@ def test_kill_cleanup_failure_finishes_repaint_before_publishing_other_sessions(
     peer.mark_ready()
     bindings = ViewerBindings()
     binding = bindings.add(peer, "dying", 80, 24)
-    binding.flow.defer_repaint()
     try:
         ControlInput(core, bindings).receive(
             peer, Frame(0, FrameKind.DATA, ControlCodec.encode(KillRequest(3, "dying")))
