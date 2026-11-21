@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 import os
 import signal
 import time
 from typing import Self
 
+from punt_lux.ptyd.leader_status import LeaderStatus
+
+logger = logging.getLogger(__name__)
+
 
 class TerminalChild:
     _pid: int
     _deadline: float | None  # None until group shutdown starts.
-    _exit_code: int | None  # None until waitid/waitpid observes exit.
-    _reaped: bool
+    _status: LeaderStatus
 
     def __new__(cls, pid: int) -> Self:
         if type(pid) is not int or pid <= 0:
@@ -21,8 +24,7 @@ class TerminalChild:
         self = super().__new__(cls)
         self._pid = pid
         self._deadline = None
-        self._exit_code = None
-        self._reaped = False
+        self._status = LeaderStatus(pid)
         return self
 
     @property
@@ -31,41 +33,27 @@ class TerminalChild:
 
     @property
     def reaped(self) -> bool:
-        return self._reaped
+        return self._status.reaped
 
     @property
     def exit_code(self) -> int | None:
-        return self._exit_code
+        return self._status.exit_code
 
     def stop(self, grace_s: float = 0.3) -> bool:
-        if not self._reaped and self._deadline is None:
+        if not self._status.reaped and self._deadline is None:
             self._signal(signal.SIGHUP)
             self._deadline = time.monotonic() + grace_s
         return self.poll()
 
     def poll(self) -> bool:
-        if self._reaped:
+        if self._status.reaped:
             return True
         if self._deadline is None:
-            status = os.waitid(
-                os.P_PID, self._pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
-            )
-            if status is None:
-                return False
-            self._exit_code = (
-                status.si_status
-                if status.si_code == os.CLD_EXITED
-                else -status.si_status
-            )
-            return self.stop()
+            return self._status.exited() and self.stop()
         if time.monotonic() < self._deadline:
             return False
         self._signal(signal.SIGKILL)
-        pid, status_code = os.waitpid(self._pid, os.WNOHANG)
-        if pid:
-            self._exit_code = os.waitstatus_to_exitcode(status_code)
-            self._reaped = True
-        return self._reaped
+        return self._status.reap()
 
     def finish(self) -> None:
         """Bounded cleanup only for construction failure, before ownership transfers."""
@@ -77,5 +65,20 @@ class TerminalChild:
             time.sleep(0.01)
 
     def _signal(self, sig: signal.Signals) -> None:
-        with contextlib.suppress(ProcessLookupError):
+        try:
             os.killpg(self._pid, sig)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            # macOS refuses killpg once the leader is an unreaped zombie. That
+            # is all that is checked: a live member under another euid is not
+            # ruled out, so each tolerated refusal is logged.
+            if not self._status.exited():
+                raise
+            logger.warning(
+                "terminal child %d: killpg(%s) refused with EPERM after the "
+                "leader exited (exit code %s); group members may remain",
+                self._pid,
+                sig.name,
+                self._status.exit_code,
+            )

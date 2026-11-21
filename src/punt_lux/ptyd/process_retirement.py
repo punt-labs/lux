@@ -49,8 +49,9 @@ class ProcessRetirement:
             try:
                 self.stop(name)
             except OSError as error:
+                if name not in self._errors:
+                    logger.exception("Terminal cleanup still pending for %s", name)
                 self._errors[name] = error
-                logger.exception("Terminal cleanup still pending for %s", name)
 
     def close(self) -> list[Exception]:
         failures: list[Exception] = []

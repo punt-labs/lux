@@ -43,14 +43,23 @@ class SessionCore:
         return self
 
     def acquire(self, request: AttachRequest) -> TerminalSession:
-        """Start once; reattach never respawns an exited or running program."""
+        """Reattach to a running shell; respawn a fresh one once it has exited.
+
+        A reconnect to a live program reuses its session so output and scrollback
+        survive the viewer's absence. An *exited* session has no shell to reattach
+        to, so the next attach retires the dead one and starts a new shell — the
+        terminal is never stuck on a dead process with no way back to a prompt.
+        """
         if self._pending.contains(request.session):
             raise SessionError("session is waiting for failed-start cleanup")
         existing = self._sessions.get(request.session)
-        if existing is not None:
-            self._check_command(request)
-            return existing
-        return self._start(request)
+        if existing is None:
+            return self._start(request)
+        if existing.ended:
+            self.kill(request.session)  # retire the dead shell, then spawn fresh
+            return self._start(request)
+        self._check_command(request)
+        return existing
 
     def _check_command(self, request: AttachRequest) -> None:
         command = self._sessions[request.session].command
@@ -84,10 +93,11 @@ class SessionCore:
                 output.append(chunk)
         return output
 
-    def resize(self, name: str, cols: int, rows: int) -> None:
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        """Resize a session; return whether its size changed."""
         # Validate the same boundary as initial attachment.
         AttachRequest(1, name, cols=cols, rows=rows)
-        self.get(name).resize(cols, rows)
+        return self.get(name).resize(cols, rows)
 
     def describe(self) -> list[dict[str, object]]:
         return [
