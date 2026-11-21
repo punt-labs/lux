@@ -13,6 +13,7 @@ from typing import Self
 
 from punt_lux.terminal.ffi import Terminal, snapshot_version, terminal_title
 from punt_lux.terminal.ffi_snapshot import (
+    ContinuationExhaustedError,
     SnapshotError,
     active_screen_vt,
     encode_binary,
@@ -22,6 +23,7 @@ from punt_lux.terminal.ffi_snapshot import (
 )
 
 __all__ = [
+    "ContinuationExhaustedError",
     "SnapshotError",
     "VtSnapshot",
     "encode_binary",

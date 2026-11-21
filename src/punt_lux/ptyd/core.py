@@ -93,10 +93,11 @@ class SessionCore:
                 output.append(chunk)
         return output
 
-    def resize(self, name: str, cols: int, rows: int) -> None:
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        """Resize a session; return whether its size changed."""
         # Validate the same boundary as initial attachment.
         AttachRequest(1, name, cols=cols, rows=rows)
-        self.get(name).resize(cols, rows)
+        return self.get(name).resize(cols, rows)
 
     def describe(self) -> list[dict[str, object]]:
         return [

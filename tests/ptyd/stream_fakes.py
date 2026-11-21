@@ -6,8 +6,9 @@ from typing import Self
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.frames import Frame
+from punt_lux.ptyd.core import SessionError
 from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
-from punt_lux.ptyd.snapshot import SnapshotError
+from punt_lux.ptyd.snapshot import ContinuationExhaustedError, SnapshotError
 from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 
 IDLE: dict[str, object] = {"ended": False, "exit_code": None}
@@ -45,23 +46,30 @@ class RecordingPeer:
 
 
 class MidSequenceSession:
-    """A session that is perpetually mid-escape.
+    """A session whose checkpoint is perpetually mid-escape.
 
-    ``binary_fails`` makes the binary cut raise, as it does once continuation
-    tracking is exhausted. ``visible_fails`` also makes the visible repaint
-    raise, as it does when the formatted screen exceeds the snapshot limit.
+    By default the visible-screen repaint succeeds, as it does in the daemon
+    once the binary cut fails. ``checkpoint_error`` makes the checkpoint raise
+    instead: ``SnapshotError`` when not even the visible screen can be cut,
+    ``RuntimeError`` when the session is closed or failed.
     """
 
     _name: str
     _pos: int
-    _visible_fails: bool
+    _checkpoint_error: Exception | None
+    _checkpoint_calls: int
 
-    def __new__(cls, name: str, *, visible_fails: bool = False) -> Self:
+    def __new__(cls, name: str, *, checkpoint_error: Exception | None = None) -> Self:
         self = super().__new__(cls)
         self._name = name
         self._pos = 0
-        self._visible_fails = visible_fails
+        self._checkpoint_error = checkpoint_error
+        self._checkpoint_calls = 0
         return self
+
+    @property
+    def checkpoint_calls(self) -> int:
+        return self._checkpoint_calls
 
     @property
     def name(self) -> str:
@@ -74,10 +82,14 @@ class MidSequenceSession:
     def capture(
         self, encoding: SnapshotEncoding = SnapshotEncoding.BINARY
     ) -> SessionSnapshot:
+        error = self._checkpoint_error
         if encoding is SnapshotEncoding.BINARY:
-            raise SnapshotError("continuation tracking exhausted mid-sequence")
-        if self._visible_fails:
-            raise SnapshotError("formatted screen exceeds the supported size")
+            if error is not None and not isinstance(error, SnapshotError):
+                raise error
+            raise ContinuationExhaustedError("mid-sequence")
+        self._checkpoint_calls += 1
+        if error is not None:
+            raise error
         return SessionSnapshot(
             self._name, self._pos, 80, 24, "test", b"screen", SnapshotEncoding.VT
         )
@@ -95,26 +107,37 @@ class QueuedCore:
     """A core whose pump hands out exactly the chunks a test enqueued."""
 
     _sessions: dict[str, MidSequenceSession]
+    _sizes: dict[str, tuple[int, int]]
     _queued: list[OutputChunk]
 
     def __new__(cls, *sessions: MidSequenceSession) -> Self:
         self = super().__new__(cls)
         self._sessions = {session.name: session for session in sessions}
+        self._sizes = {session.name: (80, 24) for session in sessions}
         self._queued = []
         return self
 
     def enqueue(self, name: str, data: bytes) -> None:
         self._queued.append(self._sessions[name].emit(data))
 
+    def drop(self, name: str) -> None:
+        """Remove a session whose output is still queued, as a kill would."""
+        del self._sessions[name]
+
     def pump(self) -> list[OutputChunk]:
         drained, self._queued = self._queued, []
         return drained
 
     def get(self, name: str) -> MidSequenceSession:
-        return self._sessions[name]
+        try:
+            return self._sessions[name]
+        except KeyError:
+            raise SessionError(f"unknown terminal session {name}") from None
 
     def acquire(self, request: AttachRequest) -> MidSequenceSession:
         return self._sessions[request.session]
 
-    def resize(self, _name: str, _cols: int, _rows: int) -> None:
-        """The fake session has a fixed size."""
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        changed = self._sizes[name] != (cols, rows)
+        self._sizes[name] = (cols, rows)
+        return changed

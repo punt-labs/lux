@@ -82,6 +82,10 @@ class TerminalSession:
         is exhausted. VT repaints the visible screen and works in any parser
         state, but raises ``SnapshotError`` if the formatted screen exceeds the
         snapshot size limit.
+
+        Raises:
+            RuntimeError: The session is closed or failed.
+            SnapshotError: The cut cannot be made in this encoding.
         """
         self._check_usable()
         data = encoding.serialize(self._term.native)
@@ -95,11 +99,15 @@ class TerminalSession:
         if self._lifecycle.state is SessionState.RUNNING:
             self._process.write(data)
 
-    def resize(self, cols: int, rows: int) -> None:
+    def resize(self, cols: int, rows: int) -> bool:
+        """Resize to ``cols`` x ``rows``; return whether the size changed."""
         self._check_usable()
+        if self._term.size == (cols, rows):
+            return False
         with self._lifecycle:
             self._process.resize(cols, rows)
             self._term.resize(cols, rows)
+        return True
 
     def describe(self) -> dict[str, object]:
         return {

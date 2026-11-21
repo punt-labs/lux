@@ -22,6 +22,10 @@ class SnapshotError(RuntimeError):
     """A snapshot operation failed or exceeded its resource limit."""
 
 
+class ContinuationExhaustedError(SnapshotError):
+    """No binary cut exists: the parser is mid-sequence beyond what is tracked."""
+
+
 class NativeSnapshotCodec:
     """Native snapshot codec with explicit allocation and terminal ownership."""
 
@@ -48,6 +52,7 @@ class NativeSnapshotCodec:
         NativeSnapshotCodec._check(
             lib.ghostty_snapshot_encode_alloc(handle(term), ffi.NULL, out, size),
             "snapshot encode (continuation tracking required outside ground state)",
+            ContinuationExhaustedError,
         )
         return NativeSnapshotCodec._copy_and_free(out[0], size[0])
 
@@ -170,9 +175,13 @@ class NativeSnapshotCodec:
             lib.ghostty_free(ffi.NULL, ptr, size)
 
     @staticmethod
-    def _check(result: int, operation: str) -> None:
+    def _check(
+        result: int,
+        operation: str,
+        error: type[SnapshotError] = SnapshotError,
+    ) -> None:
         if result:
-            raise SnapshotError(f"{operation} failed: Ghostty result {result}")
+            raise error(f"{operation} failed: Ghostty result {result}")
 
 
 tracked_terminal = NativeSnapshotCodec.tracked_terminal

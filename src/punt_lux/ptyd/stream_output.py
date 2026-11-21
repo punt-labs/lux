@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+import logging
+from typing import Self
 
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec, SuccessReply
@@ -11,11 +12,10 @@ from punt_lux.ptyd.fault import SessionFault
 from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.peer import Peer
 from punt_lux.ptyd.snapshot import SnapshotError
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
+from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.viewers import Binding, ViewerBindings
 
-if TYPE_CHECKING:
-    from punt_lux.ptyd.session import TerminalSession
+logger = logging.getLogger(__name__)
 
 
 class StreamPublisher:
@@ -37,12 +37,9 @@ class StreamPublisher:
         self._bindings.detach(peer)
 
     def resize(self, name: str, cols: int, rows: int) -> None:
-        viewers = self._bindings.session(name)
-        if viewers and viewers[0].flow.actual_size == (cols, rows):
-            return
-        self._core.resize(name, cols, rows)
-        for binding in viewers:
-            binding.flow.request_repaint()
+        if self._core.resize(name, cols, rows):
+            for binding in self._bindings.session(name):
+                binding.flow.request_repaint()
 
     def _record(self, event: OutputChunk | SessionFault) -> None:
         for binding in self._bindings.session(event.session):
@@ -57,7 +54,7 @@ class StreamPublisher:
     def _flush(self, binding: Binding) -> None:
         try:
             if binding.flow.wants_repaint:
-                self._repaint(binding, self._core.get(binding.session))
+                StreamPublisher._repaint(binding, self._core)
             for frame in binding.flow.drain():
                 binding.peer.queue(frame)
         except (BufferError, ConnectionError):
@@ -65,32 +62,24 @@ class StreamPublisher:
             binding.peer.close()
 
     @staticmethod
-    def _repaint(binding: Binding, session: TerminalSession) -> None:
+    def _repaint(binding: Binding, core: SessionCore) -> None:
+        """Resync one viewer; its failure never reaches the daemon loop."""
         try:
-            binding.flow.prepare(
-                StreamPublisher.checkpoint(session), session.describe()
-            )
-        except SnapshotError:
-            # Not even the visible screen can be cut (it exceeds the snapshot
-            # limit). Only this viewer waits; its repaint stays armed for the
-            # next pump and the loop keeps serving every other session.
-            return
-
-    @staticmethod
-    def checkpoint(session: TerminalSession) -> SessionSnapshot:
-        """Cut a binary snapshot, or repaint the visible screen if none exists.
-
-        A program that never reaches parser ground state (a long unterminated
-        OSC from tmux, say) exhausts continuation tracking, so waiting for a
-        binary cut would starve a viewer for as long as output flows.
-
-        Raises:
-            SnapshotError: Even the visible screen exceeds the snapshot limit.
-        """
-        try:
-            return session.capture()
-        except SnapshotError:
-            return session.capture(SnapshotEncoding.VT)
+            session = core.get(binding.session)
+            binding.flow.prepare(SnapshotCut(session).cut(), session.describe())
+        except SnapshotError as error:
+            # Not even the visible screen can be cut. Retry a few pumps, then
+            # close this viewer so its client is not left on a frozen screen.
+            if binding.repaints.record(
+                binding.session, error, binding.flow.actual_size
+            ):
+                binding.flow.finish(f"terminal repaint failed: {error}")
+        except RuntimeError as error:
+            # Session closed, failed or removed: only this viewer is finished.
+            logger.warning("terminal %s: repaint abandoned: %s", binding.session, error)
+            binding.flow.finish(str(error))
+        else:
+            binding.repaints.clear()
 
     @staticmethod
     def success(peer: Peer, request_id: int, result: dict[str, object]) -> None:

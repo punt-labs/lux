@@ -9,7 +9,7 @@ ground state, which a continuously flooding program never reaches.
 from __future__ import annotations
 
 import json
-from typing import Self, cast
+from typing import cast
 
 import pytest
 
@@ -28,37 +28,18 @@ from punt_lux.ptyd.snapshot import (
     screen_rows,
     tracked_terminal,
 )
+from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 from punt_lux.ptyd.stream_output import StreamPublisher
 from punt_lux.ptyd.viewers import ViewerBindings
 from punt_lux.terminal.ffi import Terminal, terminal_title
+from tests.ptyd.stream_fakes import RecordingPeer
 from tests.ptyd.test_session_core import FakeFactory
 
 ESC = "\x1b"
 CSI = ESC + "["
 # Longer than the 64 KiB continuation limit, and never terminated.
 EXHAUSTING_OSC = ESC + "]2;" + "x" * 70_000
-
-
-class _RecordingPeer:
-    """A viewer connection that records queued frames instead of writing a socket."""
-
-    _frames: list[Frame]
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._frames = []
-        return self
-
-    @property
-    def frames(self) -> tuple[Frame, ...]:
-        return tuple(self._frames)
-
-    def queue(self, frame: Frame) -> None:
-        self._frames.append(frame)
-
-    def close(self) -> None:
-        """Detaching never closes the daemon terminal."""
 
 
 def _visible_round_trip(term: Terminal) -> Terminal:
@@ -115,12 +96,12 @@ def test_unknown_snapshot_format_is_rejected() -> None:
         SessionSnapshot.from_dict(metadata, b"x")
 
 
-def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, _RecordingPeer]:
+def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, RecordingPeer]:
     session = core.acquire(AttachRequest(1, "shell", cols=20, rows=4))
-    peer = _RecordingPeer()
+    peer = RecordingPeer()
     bindings = ViewerBindings()
     binding = bindings.add(peer, "shell", 20, 4)  # type: ignore[arg-type]  # fake peer
-    StreamPublisher.attach(binding, 1, session.capture(), session.describe())
+    StreamPublisher.attach(binding, 1, SnapshotCut(session).cut(), session.describe())
     # The initial reply goes through the control channel, not the frame list.
     binding.flow.drain()
     return StreamPublisher(core, bindings), peer
