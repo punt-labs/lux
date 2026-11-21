@@ -103,6 +103,9 @@
 
 ### Fixed
 
+- HTTP MCP sessions can inspect and clear their own scenes by local ID even
+  when the client connects without a `session_key` query parameter.
+
 - Lux diagnostics now record a failed or successful CLI command (including a
   ping with luxd down), each Hub scene operation's outcome from any surface,
   and the terminal daemon's idle or normal stop, without scene contents.

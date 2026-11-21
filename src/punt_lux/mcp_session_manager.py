@@ -6,7 +6,6 @@ import logging
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, ClassVar, Self, final
 
-from mcp.server.connection import Connection
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.shared.exceptions import MCPError
 from mcp.types import UNSUPPORTED_PROTOCOL_VERSION
@@ -14,6 +13,7 @@ from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.mcp_session import SessionRegistry
+from punt_lux.mcp_session_scope import McpSessionScope
 from punt_lux.session_cleanup import SessionCleanup
 from punt_lux.tools.server import current_session
 
@@ -84,7 +84,7 @@ class LuxSessionManager:
     async def scope_session(
         cls, ctx: ServerRequestContext[object], call_next: CallNext
     ) -> HandlerResult:
-        """Register an initialized HTTP session for the life of its connection.
+        """Preserve the initializing request's Hub scope for the connection's life.
 
         Args:
             ctx: The SDK request context.
@@ -100,27 +100,23 @@ class LuxSessionManager:
         if registry is None:  # The same low-level server also serves stdio.
             return await call_next(ctx)
 
-        connection = cls._sdk_connection(ctx)
-        if connection.session_id is None:
+        session = cls._stateful_session(ctx)
+        result = await session.dispatch(ctx, call_next)
+        if ctx.method == "initialize" and not session.initialize_accepted:
+            cls._track_connection(registry, session.exit_stack)
+        return result
+
+    @staticmethod
+    def _stateful_session(ctx: ServerRequestContext[object]) -> McpSessionScope:
+        session = McpSessionScope(ctx)
+        if not session.stateful:
             # Sessionless requests cannot own state that survives an exchange.
             raise MCPError(
                 code=UNSUPPORTED_PROTOCOL_VERSION,
                 message="Lux HTTP requires a stateful MCP session",
                 data={"supported": sorted(HANDSHAKE_PROTOCOL_VERSIONS)},
             )
-        result = await call_next(ctx)
-        if ctx.method == "initialize" and not connection.initialize_accepted:
-            cls._track_connection(registry, connection.exit_stack)
-        return result
-
-    @staticmethod
-    def _sdk_connection(ctx: ServerRequestContext[object]) -> Connection:
-        # SDK 2.3 gives middleware no public connection accessor.
-        connection = getattr(ctx.session, "_connection", None)
-        if not isinstance(connection, Connection):
-            msg = "MCP SDK no longer exposes the connection used for Lux cleanup"
-            raise RuntimeError(msg)
-        return connection
+        return session
 
     @classmethod
     def _track_connection(

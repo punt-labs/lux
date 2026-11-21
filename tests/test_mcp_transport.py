@@ -251,6 +251,51 @@ def _tool_text(result: CallToolResult) -> str:
     return block.text if isinstance(block, TextContent) else ""
 
 
+def test_identified_session_can_inspect_and_clear_its_scene() -> None:
+    """A session without a query key uses one Hub scope for all its calls."""
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with (
+            streamable_http_client(url) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            identified = await session.call_tool(
+                "session_identify", {"kind": "mcp-session", "name": "scene-roundtrip"}
+            )
+            assert _tool_text(identified) == "identified:scene-roundtrip"
+            shown = await session.call_tool(
+                "scene_show",
+                {
+                    "scene_id": "roundtrip",
+                    "elements": [{"kind": "text", "id": "label", "content": "Hello"}],
+                },
+            )
+            assert _tool_text(shown) == "shown:roundtrip"
+            listed = await session.call_tool("scene_ls", {})
+            scenes = json.loads(_tool_text(listed))["scenes"]
+            (scene,) = [scene for scene in scenes if scene["local_id"] == "roundtrip"]
+            assert scene["owners"][0]["identity"]["name"] == "scene-roundtrip"
+
+            args = {"scene_id": scene["local_id"]}
+            inspected = await session.call_tool("scene_inspect", args)
+            detail = json.loads(_tool_text(inspected))
+            assert detail["kind"] == "ok", detail
+            assert detail["scene_id"] == "roundtrip"
+            assert detail["elements"][0]["resolved_props"]["content"] == "Hello"
+            cleared = await session.call_tool("scene_clear", args)
+            assert _tool_text(cleared) == "cleared"
+            listed = await session.call_tool("scene_ls", {})
+            assert not any(
+                entry["local_id"] == "roundtrip"
+                for entry in json.loads(_tool_text(listed))["scenes"]
+            )
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
 def test_two_concurrent_sessions_are_isolated() -> None:
     """Two live sessions keep separate identity, inboxes, and lifecycles.
 

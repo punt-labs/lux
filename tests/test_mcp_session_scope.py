@@ -1,4 +1,4 @@
-"""Tests for the MCP SDK boundary in the Lux HTTP session manager."""
+"""Tests for Lux's session-scope boundary with the MCP SDK."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from mcp.server.context import ServerRequestContext
 from mcp.server.session import ServerSession
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
-from punt_lux.mcp_session_manager import LuxSessionManager
+from punt_lux.mcp_session_scope import McpSessionScope
 
 
 def test_missing_sdk_connection_fails_closed() -> None:
@@ -20,4 +20,4 @@ def test_missing_sdk_connection_fails_closed() -> None:
     )
 
     with pytest.raises(RuntimeError, match="no longer exposes the connection"):
-        LuxSessionManager._sdk_connection(ctx)
+        McpSessionScope(ctx)
