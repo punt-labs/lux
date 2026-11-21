@@ -103,6 +103,10 @@
 
 ### Fixed
 
+- Lux diagnostics now record a failed or successful CLI command (including a
+  ping with luxd down), each Hub scene operation's outcome from any surface,
+  and the terminal daemon's idle or normal stop, without scene contents.
+
 - The Hub flushes buffered telemetry during shutdown, including on SIGTERM
   before the first periodic export.
 

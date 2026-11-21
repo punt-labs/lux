@@ -144,3 +144,44 @@ def test_list_scenes_is_not_attested(database: Path) -> None:
     with capture_usage():
         facade.list_scenes()
     assert _metrics(database) == []
+
+
+def test_timed_logs_a_success_without_request_content(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    @Timed("render", _StepClock(0.025))
+    def _run() -> SceneShown:
+        return SceneShown(scene_id="private-scene")
+
+    with caplog.at_level("INFO", logger="punt_lux.operations.timing"):
+        _run()
+
+    assert caplog.messages == ["Hub operation render succeeded (25.0 ms)"]
+
+
+def test_timed_logs_a_rejection_by_its_code_not_its_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    @Timed("update", _StepClock(0.0))
+    def _run() -> OpError:
+        return OpError(code="not_found", reason="private-scene is unknown")
+
+    with caplog.at_level("INFO", logger="punt_lux.operations.timing"):
+        _run()
+
+    assert caplog.messages == ["Hub operation update failed: not_found (0.0 ms)"]
+    assert caplog.records[0].levelname == "INFO"
+
+
+def test_timed_logs_a_raised_operation(caplog: pytest.LogCaptureFixture) -> None:
+    @Timed("clear", _StepClock(0.0))
+    def _run() -> None:
+        raise ValueError("private scene content")
+
+    with (
+        caplog.at_level("INFO", logger="punt_lux.operations.timing"),
+        pytest.raises(ValueError),
+    ):
+        _run()
+
+    assert caplog.messages == ["Hub operation clear failed: raised (0.0 ms)"]

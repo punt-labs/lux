@@ -47,6 +47,7 @@ class TerminalRuntime:
         with process_diagnostics(role, name):
             logger.info("Starting %s", name)
             yield ProcessSession.detach()
+            logger.info("Stopped %s", name)
 
     @staticmethod
     def start_failed(parser: ArgumentParser, error: Exception) -> NoReturn:
