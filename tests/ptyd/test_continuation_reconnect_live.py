@@ -1,4 +1,4 @@
-"""A temporarily unencodable parser state must not freeze a reconnect forever."""
+"""A reconnect mid-escape-sequence attaches via the visible repaint."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from tests.ptyd.wire_client import WireClient
 pytestmark = pytest.mark.integration
 
 
-def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
+def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_program(
     daemon: Path,
 ) -> None:
     code = (
@@ -63,16 +63,18 @@ def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
     pool = RemotePool(daemon)
     try:
         session = pool.get("continuation", command)
-        observed_wait = False
+        was_disconnected = False
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
             pool.pump()
-            observed_wait |= session.phase is RemotePhase.DISCONNECTED
-            if session.phase is RemotePhase.READY:
-                assert observed_wait, (
-                    "test did not exercise unavailable initial snapshot"
-                )
-                assert "GROUND_READY" in session.view.term.text()
+            was_disconnected |= session.phase is RemotePhase.DISCONNECTED
+            if (
+                session.phase is RemotePhase.READY
+                and "GROUND_READY" in session.view.term.text()
+            ):
+                # The binary cut is unavailable mid-sequence, so the daemon
+                # repaints the visible screen: no refused attach, no reconnect.
+                assert not was_disconnected, "attach mid-sequence was refused"
                 status_client = WireClient(daemon)
                 try:
                     status_client.request(
@@ -87,6 +89,6 @@ def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
                     status_client.close()
                 return
             time.sleep(0.005)
-        pytest.fail(f"reconnect stayed {session.status} after parser recovery")
+        pytest.fail(f"reconnect stayed {session.status} mid-sequence")
     finally:
         pool.close()
