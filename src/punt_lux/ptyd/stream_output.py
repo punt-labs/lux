@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Self
 
 from punt_lux.protocol.pty.frames import Frame, FrameKind
@@ -11,7 +12,10 @@ from punt_lux.ptyd.fault import SessionFault
 from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.peer import Peer
 from punt_lux.ptyd.snapshot import SnapshotError
+from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.viewers import Binding, ViewerBindings
+
+logger = logging.getLogger(__name__)
 
 
 class StreamPublisher:
@@ -33,14 +37,9 @@ class StreamPublisher:
         self._bindings.detach(peer)
 
     def resize(self, name: str, cols: int, rows: int) -> None:
-        viewers = self._bindings.session(name)
-        if viewers and viewers[0].flow.actual_size == (cols, rows):
-            return
-        session = self._core.get(name)
-        self._core.resize(name, cols, rows)
-        snapshot = session.capture()
-        for binding in self._bindings.session(name):
-            binding.flow.prepare(snapshot, session.describe())
+        if self._core.resize(name, cols, rows):
+            for binding in self._bindings.session(name):
+                binding.flow.request_repaint()
 
     def _record(self, event: OutputChunk | SessionFault) -> None:
         for binding in self._bindings.session(event.session):
@@ -55,18 +54,32 @@ class StreamPublisher:
     def _flush(self, binding: Binding) -> None:
         try:
             if binding.flow.wants_repaint:
-                session = self._core.get(binding.session)
-                binding.flow.prepare(session.capture(), session.describe())
+                StreamPublisher._repaint(binding, self._core)
             for frame in binding.flow.drain():
                 binding.peer.queue(frame)
-        except SnapshotError:
-            # Continuation tracking can be exhausted mid-sequence. Leave only
-            # this viewer waiting; the core keeps parsing until ground state.
-            binding.flow.defer_repaint()
-            return
         except (BufferError, ConnectionError):
             self.detach(binding.peer)
             binding.peer.close()
+
+    @staticmethod
+    def _repaint(binding: Binding, core: SessionCore) -> None:
+        """Resync one viewer; its failure never reaches the daemon loop."""
+        try:
+            session = core.get(binding.session)
+            binding.flow.prepare(SnapshotCut(session).cut(), session.describe())
+        except SnapshotError as error:
+            # Not even the visible screen can be cut. Retry a few pumps, then
+            # close this viewer so its client is not left on a frozen screen.
+            if binding.repaints.record(
+                binding.session, error, binding.flow.actual_size
+            ):
+                binding.flow.finish(f"terminal repaint failed: {error}")
+        except RuntimeError as error:
+            # Session closed, failed or removed: only this viewer is finished.
+            logger.warning("terminal %s: repaint abandoned: %s", binding.session, error)
+            binding.flow.finish(str(error))
+        else:
+            binding.repaints.clear()
 
     @staticmethod
     def success(peer: Peer, request_id: int, result: dict[str, object]) -> None:

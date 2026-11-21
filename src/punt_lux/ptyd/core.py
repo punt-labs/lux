@@ -47,10 +47,10 @@ class SessionCore:
         if self._pending.contains(request.session):
             raise SessionError("session is waiting for failed-start cleanup")
         existing = self._sessions.get(request.session)
-        if existing is not None:
-            self._check_command(request)
-            return existing
-        return self._start(request)
+        if existing is None:
+            return self._start(request)
+        self._check_command(request)
+        return existing
 
     def _check_command(self, request: AttachRequest) -> None:
         command = self._sessions[request.session].command
@@ -84,10 +84,11 @@ class SessionCore:
                 output.append(chunk)
         return output
 
-    def resize(self, name: str, cols: int, rows: int) -> None:
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        """Resize a session; return whether its size changed."""
         # Validate the same boundary as initial attachment.
         AttachRequest(1, name, cols=cols, rows=rows)
-        self.get(name).resize(cols, rows)
+        return self.get(name).resize(cols, rows)
 
     def describe(self) -> list[dict[str, object]]:
         return [

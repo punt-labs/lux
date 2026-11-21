@@ -9,7 +9,8 @@ from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
 from punt_lux.ptyd.session_lifecycle import SessionLifecycle
 from punt_lux.ptyd.session_state import SessionState
-from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
+from punt_lux.ptyd.snapshot import snapshot_version, tracked_terminal
+from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 from punt_lux.terminal.ffi_terminal import TerminalIO
 
 _ENDED_NOTICE = b"\r\n\x1b[?2026l\x1b[2m[process exited]\x1b[0m"
@@ -72,13 +73,25 @@ class TerminalSession:
                 self._position += len(data)
         return OutputChunk(self.name, start, data)
 
-    def capture(self) -> SessionSnapshot:
-        """Capture bytes and the cut atomically in this single-threaded core."""
+    def capture(
+        self, encoding: SnapshotEncoding = SnapshotEncoding.BINARY
+    ) -> SessionSnapshot:
+        """Capture bytes and the cut atomically in this single-threaded core.
+
+        BINARY raises ``SnapshotError`` mid-sequence once continuation tracking
+        is exhausted. VT repaints the visible screen and works in any parser
+        state, but raises ``SnapshotError`` if the formatted screen exceeds the
+        snapshot size limit.
+
+        Raises:
+            RuntimeError: The session is closed or failed.
+            SnapshotError: The cut cannot be made in this encoding.
+        """
         self._check_usable()
-        data = encode_binary(self._term.native)
+        data = encoding.serialize(self._term.native)
         cols, rows = self._term.size
         return SessionSnapshot(
-            self.name, self._position, cols, rows, snapshot_version(), data
+            self.name, self._position, cols, rows, snapshot_version(), data, encoding
         )
 
     def write(self, data: bytes) -> None:
@@ -86,11 +99,15 @@ class TerminalSession:
         if self._lifecycle.state is SessionState.RUNNING:
             self._process.write(data)
 
-    def resize(self, cols: int, rows: int) -> None:
+    def resize(self, cols: int, rows: int) -> bool:
+        """Resize to ``cols`` x ``rows``; return whether the size changed."""
         self._check_usable()
+        if self._term.size == (cols, rows):
+            return False
         with self._lifecycle:
             self._process.resize(cols, rows)
             self._term.resize(cols, rows)
+        return True
 
     def describe(self) -> dict[str, object]:
         return {

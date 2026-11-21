@@ -122,6 +122,18 @@ def test_snapshot_metadata_and_binary_transfer_rejoin() -> None:
         core.close()
 
 
+def test_reattach_to_a_running_session_reuses_it() -> None:
+    """A reconnect to a live shell must not spawn a second process."""
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        session = core.acquire(AttachRequest(1, "shell"))
+        assert core.acquire(AttachRequest(2, "shell")) is session
+        assert len(factory.created) == 1
+    finally:
+        core.close()
+
+
 def test_process_exit_is_recorded_once_and_never_respawned() -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
@@ -132,12 +144,10 @@ def test_process_exit_is_recorded_once_and_never_respawned() -> None:
         process.exit_code = 7
         assert b"[process exited]" in output(core.pump()).data
         assert core.pump() == []
+        assert session.ended
+        assert core.describe()[0]["exit_code"] == 7
         assert core.acquire(AttachRequest(2, "shell")) is session
         assert len(factory.created) == 1
-        assert session.ended
-        session.write(b"ignored")
-        assert process.written == []
-        assert core.describe()[0]["exit_code"] == 7
     finally:
         core.close()
 

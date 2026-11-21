@@ -15,8 +15,8 @@ pytest.importorskip("pyghostty", reason="snapshot tests need the display extra")
 from punt_lux.display.terminal.render_state import RenderState
 from punt_lux.ptyd.snapshot import (
     SnapshotError,
+    VtSnapshot,
     encode_binary,
-    paint_vt,
     restore_binary,
     screen_rows,
     snapshot_version,
@@ -114,7 +114,7 @@ def test_vt_repaint_round_trips(name: str) -> None:
     src = _terminal(cols=20, rows=4)
     src.feed(STATES[name])
     dst = _terminal(cols=20, rows=4)
-    dst.feed(paint_vt(src))
+    dst.feed(VtSnapshot(src).encode_visible())
     assert _observe(dst) == _observe(src)
 
 
@@ -129,7 +129,7 @@ def test_vt_repaint_lands_the_last_row_after_a_scroll() -> None:
     src.feed("L0\r\nL1\r\nL2\r\nL3\r\nL4\r\n")
     assert screen_rows(src) == ["L3", "L4", ""]
     dst = _terminal(cols=10, rows=3)
-    dst.feed(paint_vt(src))
+    dst.feed(VtSnapshot(src).encode_visible())
     assert screen_rows(dst) == ["L3", "L4", ""]
     assert dst.cursor == src.cursor == (0, 2)
 
@@ -141,7 +141,7 @@ def test_vt_repaint_turns_off_modes_the_viewer_had_on() -> None:
     dst = _terminal()
     dst.feed(CSI + "?1000h" + CSI + "?2004h" + CSI + "?1049h")
     assert dst.mode(1000) and dst.mode(2004)
-    dst.feed(paint_vt(src))
+    dst.feed(VtSnapshot(src).encode_visible())
     assert not dst.mode(1000)
     assert not dst.mode(2004)
     assert not dst.get("active_screen", "uint8_t")
@@ -152,7 +152,7 @@ def test_vt_repaint_never_leaves_synchronized_output_on() -> None:
     src.feed(CSI + "?2026h" + "frame in progress")
     assert src.mode(2026)
     dst = _terminal()
-    dst.feed(paint_vt(src))
+    dst.feed(VtSnapshot(src).encode_visible())
     assert not dst.mode(2026)
     assert screen_rows(dst)[0].startswith("frame in")
 
@@ -171,11 +171,21 @@ def test_binary_snapshot_carries_a_partial_escape_sequence() -> None:
 def test_alternate_screen_return_preserves_primary() -> None:
     src = _terminal(cols=20, rows=4)
     src.feed(STATES["alternate screen"])
-    dst = _terminal(cols=20, rows=4)
-    dst.feed(paint_vt(src))
+    dst = restore_binary(encode_binary(src))
     src.feed(CSI + "?1049l")
     dst.feed(CSI + "?1049l")
     assert _observe(dst) == _observe(src)
+
+
+def test_visible_repaint_does_not_carry_the_hidden_primary_screen() -> None:
+    """The documented limit of the fallback: only the visible grid is repainted."""
+    src = _terminal(cols=20, rows=4)
+    src.feed(STATES["alternate screen"])
+    dst = _terminal(cols=20, rows=4)
+    dst.feed(VtSnapshot(src).encode_visible())
+    assert screen_rows(dst) == screen_rows(src)
+    dst.feed(CSI + "?1049l")
+    assert screen_rows(dst) == ["", "", "", ""]
 
 
 def test_untracked_partial_sequence_is_rejected() -> None:
@@ -217,5 +227,5 @@ def test_large_screen_and_history_round_trip() -> None:
     restored = restore_binary(encode_binary(src))
     assert restored.contents() == src.contents()
     dst = tracked_terminal(cols=200, rows=60)
-    dst.feed(paint_vt(src))
+    dst.feed(VtSnapshot(src).encode_visible())
     assert screen_rows(dst) == screen_rows(src)

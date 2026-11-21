@@ -1,4 +1,4 @@
-"""A temporarily unencodable parser state must not freeze a reconnect forever."""
+"""A reconnect mid-escape-sequence attaches via the visible repaint."""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import ListRequest
-from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.ptyd.snapshot import screen_rows, snapshot_version
 from tests.ptyd.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
 
 
-def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
+def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_program(
     daemon: Path,
 ) -> None:
     code = (
@@ -63,16 +63,18 @@ def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
     pool = RemotePool(daemon)
     try:
         session = pool.get("continuation", command)
-        observed_wait = False
+        was_disconnected = False
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
             pool.pump()
-            observed_wait |= session.phase is RemotePhase.DISCONNECTED
-            if session.phase is RemotePhase.READY:
-                assert observed_wait, (
-                    "test did not exercise unavailable initial snapshot"
-                )
-                assert "GROUND_READY" in session.view.term.text()
+            was_disconnected |= session.phase is RemotePhase.DISCONNECTED
+            if (
+                session.phase is RemotePhase.READY
+                and "GROUND_READY" in session.view.term.text()
+            ):
+                # The binary cut is unavailable mid-sequence, so the daemon
+                # repaints the visible screen: no refused attach, no reconnect.
+                assert not was_disconnected, "attach mid-sequence was refused"
                 status_client = WireClient(daemon)
                 try:
                     status_client.request(
@@ -83,10 +85,21 @@ def test_reconnect_recovers_after_parser_continuation_returns_to_ground(
                     sessions = reply.result["sessions"]
                     assert isinstance(sessions, list)
                     assert sessions[0]["pid"] == original_pid
+                    # Raw output resumed only from a binary cut at ground: the
+                    # replica's screen equals the daemon's own, which a fresh
+                    # attach at ground reads back.
+                    attach = status_client.request(
+                        AttachRequest(3, "continuation", command)
+                    )
+                    assert isinstance(attach, SuccessReply)
+                    assert attach.result["format"] == "binary"
+                    _, daemon_cut = status_client.snapshot(dict(attach.result))
+                    daemon_screen = screen_rows(daemon_cut.restore())
+                    assert screen_rows(session.view.term) == daemon_screen
                 finally:
                     status_client.close()
                 return
             time.sleep(0.005)
-        pytest.fail(f"reconnect stayed {session.status} after parser recovery")
+        pytest.fail(f"reconnect stayed {session.status} mid-sequence")
     finally:
         pool.close()

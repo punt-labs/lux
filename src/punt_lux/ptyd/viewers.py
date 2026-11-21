@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Self
 
 from punt_lux.ptyd.peer import Peer
+from punt_lux.ptyd.repaint_failures import RepaintFailures
 from punt_lux.ptyd.viewer_flow import ViewerFlow
 
 
@@ -15,6 +16,7 @@ class Binding:
     channel: int
     session: str
     flow: ViewerFlow
+    repaints: RepaintFailures = field(default_factory=RepaintFailures)
 
 
 class ViewerBindings:
