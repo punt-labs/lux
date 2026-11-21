@@ -202,3 +202,18 @@ def test_echild_while_checking_exit_counts_as_reaped(
         child.stop()
         assert child.poll()
     assert "already reaped" in caplog.text
+
+
+def test_eperm_from_a_leader_that_is_still_exiting_is_tolerated() -> None:
+    """macOS refuses killpg a moment before waitid can report the exit."""
+    status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
+    with (
+        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch(
+            "punt_lux.ptyd.leader_status.os.waitid",
+            side_effect=[None, None, status],
+        ),
+    ):
+        child = TerminalChild(123)
+        child.stop()
+        assert child.exit_code == 0

@@ -12,6 +12,9 @@ from punt_lux.ptyd.leader_status import LeaderStatus
 
 logger = logging.getLogger(__name__)
 
+# How long a refused group signal may wait for the leader's exit to show.
+_EXIT_VISIBLE_S = 0.1
+
 
 class TerminalChild:
     _pid: int
@@ -73,7 +76,7 @@ class TerminalChild:
             # macOS refuses killpg once the leader is an unreaped zombie. That
             # is all that is checked: a live member under another euid is not
             # ruled out, so each tolerated refusal is logged.
-            if not self._status.exited():
+            if not self._status.exited_within(_EXIT_VISIBLE_S):
                 raise
             logger.warning(
                 "terminal child %d: killpg(%s) refused with EPERM after the "
