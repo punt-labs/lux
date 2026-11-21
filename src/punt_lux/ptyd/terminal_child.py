@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import os
 import signal
 import time
@@ -47,17 +46,7 @@ class TerminalChild:
         if self._reaped:
             return True
         if self._deadline is None:
-            status = os.waitid(
-                os.P_PID, self._pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
-            )
-            if status is None:
-                return False
-            self._exit_code = (
-                status.si_status
-                if status.si_code == os.CLD_EXITED
-                else -status.si_status
-            )
-            return self.stop()
+            return self._peek_exit() and self.stop()
         if time.monotonic() < self._deadline:
             return False
         self._signal(signal.SIGKILL)
@@ -66,6 +55,15 @@ class TerminalChild:
             self._exit_code = os.waitstatus_to_exitcode(status_code)
             self._reaped = True
         return self._reaped
+
+    def _peek_exit(self) -> bool:
+        """Record the exit without reaping, so the group stays signallable."""
+        status = os.waitid(os.P_PID, self._pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if status is None:
+            return False
+        code = status.si_status
+        self._exit_code = code if status.si_code == os.CLD_EXITED else -code
+        return True
 
     def finish(self) -> None:
         """Bounded cleanup only for construction failure, before ownership transfers."""
@@ -77,5 +75,18 @@ class TerminalChild:
             time.sleep(0.01)
 
     def _signal(self, sig: signal.Signals) -> None:
-        with contextlib.suppress(ProcessLookupError):
+        try:
             os.killpg(self._pid, sig)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            if not self._exited():
+                raise
+
+    def _exited(self) -> bool:
+        """Whether the leader has exited, asking the kernel if not yet recorded.
+
+        macOS refuses killpg with EPERM once the group leader is an unreaped
+        zombie and no live member remains; that refusal is expected only then.
+        """
+        return self._exit_code is not None or self._peek_exit()

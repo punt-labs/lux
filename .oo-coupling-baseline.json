@@ -6023,8 +6023,8 @@
     "efferent_coupling": 0.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.393,
-    "avg_lcom": 0.393
+    "max_lcom": 0.4,
+    "avg_lcom": 0.4
   },
   "src/punt_lux/ptyd/viewer_flow.py": {
     "efferent_coupling": 3.0,

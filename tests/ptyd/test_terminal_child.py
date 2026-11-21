@@ -86,9 +86,55 @@ def test_missing_group_still_reaps_owned_child() -> None:
         assert child.poll()
 
 
-def test_permission_errors_are_not_hidden() -> None:
+def test_exited_leader_is_reaped_when_macos_refuses_the_group_signal() -> None:
+    """macOS answers killpg with EPERM once the group leader is an unreaped zombie.
+
+    The shell exited (`exit`), so the group has no live member to signal; the
+    zombie must still be reaped rather than leaving cleanup pending forever.
+    """
+    status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
+    with (
+        patch(
+            "punt_lux.ptyd.terminal_child.time.monotonic", return_value=10.0
+        ) as clock,
+        patch("punt_lux.ptyd.terminal_child.os.waitid", return_value=status),
+        patch("punt_lux.ptyd.terminal_child.os.waitpid", return_value=(123, 0)),
+        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+    ):
+        child = TerminalChild(123)
+        assert not child.poll()
+        clock.return_value = 10.31
+        assert child.poll()
+        assert child.exit_code == 0
+
+
+def test_close_reaps_an_exited_shell_even_when_its_exit_was_not_yet_seen() -> None:
+    """Retirement calls stop() first, before any poll has recorded the exit.
+
+    The leader is already a zombie, so macOS refuses the group signal with
+    EPERM. stop() must ask the kernel whether the leader exited rather than
+    trust its cached state, then reap it.
+    """
+    status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
+    with (
+        patch(
+            "punt_lux.ptyd.terminal_child.time.monotonic", return_value=10.0
+        ) as clock,
+        patch("punt_lux.ptyd.terminal_child.os.waitid", return_value=status),
+        patch("punt_lux.ptyd.terminal_child.os.waitpid", return_value=(123, 0)),
+        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+    ):
+        child = TerminalChild(123)
+        assert not child.stop()
+        clock.return_value = 10.31
+        assert child.poll()
+        assert child.reaped
+
+
+def test_permission_errors_are_not_hidden_while_the_leader_is_alive() -> None:
     with (
         patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch("punt_lux.ptyd.terminal_child.os.waitid", return_value=None),
         pytest.raises(PermissionError),
     ):
         TerminalChild(123).stop()
