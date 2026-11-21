@@ -20,7 +20,7 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import ListRequest
-from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.ptyd.snapshot import screen_rows, snapshot_version
 from tests.ptyd.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
@@ -85,6 +85,17 @@ def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_pro
                     sessions = reply.result["sessions"]
                     assert isinstance(sessions, list)
                     assert sessions[0]["pid"] == original_pid
+                    # Raw output resumed only from a binary cut at ground: the
+                    # replica's screen equals the daemon's own, which a fresh
+                    # attach at ground reads back.
+                    attach = status_client.request(
+                        AttachRequest(3, "continuation", command)
+                    )
+                    assert isinstance(attach, SuccessReply)
+                    assert attach.result["format"] == "binary"
+                    _, daemon_cut = status_client.snapshot(dict(attach.result))
+                    daemon_screen = screen_rows(daemon_cut.restore())
+                    assert screen_rows(session.view.term) == daemon_screen
                 finally:
                     status_client.close()
                 return

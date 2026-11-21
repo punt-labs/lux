@@ -92,6 +92,11 @@ def _applet(
     if path_first is not None:
         path = f"{path_first}{os.pathsep}{path}"
     (home / ".punt-labs" / "lux").mkdir(parents=True)
+    # The applet's ``bd`` children can outlive the test and write scratch files
+    # (a workstation's ``bd`` keeps a circuit-breaker file under TMPDIR). Keep
+    # them out of the guarded per-test TMPDIR, which is removed when the test ends.
+    scratch = home / "tmp"
+    scratch.mkdir()
     (home / ".punt-labs" / "lux" / "hub.port").write_text(str(port))
     proc = subprocess.Popen(
         [
@@ -104,7 +109,7 @@ def _applet(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        env={**os.environ, "HOME": str(home), "PATH": path},
+        env={**os.environ, "HOME": str(home), "PATH": path, "TMPDIR": str(scratch)},
     )
     try:
         yield proc
