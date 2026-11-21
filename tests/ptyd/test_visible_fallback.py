@@ -165,3 +165,36 @@ def test_lagged_viewer_at_ground_state_still_gets_the_binary_snapshot() -> None:
             replica.close()
     finally:
         core.close()
+
+
+def test_viewer_repainted_mid_sequence_matches_the_daemon_after_the_sequence_ends() -> (
+    None
+):
+    """A visible repaint taken inside an unterminated OSC is screen-only.
+
+    The replica's parser starts at ground, so raw output resumed from the
+    repaint would draw the rest of the OSC payload as text. The screen must
+    instead converge on the daemon's once the sequence ends.
+    """
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        publisher, peer = _attached_viewer(core)
+        output = factory.created[0].output
+        output.extend([b"hello", EXHAUSTING_OSC.encode(), b"y" * (5 * 1024 * 1024)])
+        for _ in range(3):
+            publisher.pump()
+        # The sequence ends, then ordinary text follows.
+        output.extend([b"PAYLOAD-TAIL" + ESC.encode() + b"\\", b"\r\nafter text"])
+        for _ in range(6):
+            publisher.pump()
+        expected = screen_rows(core.get("shell")._term.native)
+        starts = [f for f in peer.frames if f.kind is FrameKind.SNAPSHOT_START]
+        replica = _replicate(peer.frames[peer.frames.index(starts[-1]) :])
+        try:
+            assert screen_rows(replica.view.term) == expected
+            assert "PAYLOAD-TAIL" not in replica.view.term.text()
+        finally:
+            replica.close()
+    finally:
+        core.close()

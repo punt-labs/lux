@@ -69,7 +69,9 @@ def test_lagged_viewer_is_not_starved_by_a_program_that_never_settles() -> None:
         publisher.pump()
 
     assert FrameKind.SNAPSHOT_START in [frame.kind for frame in peer.frames]
-    assert not binding.flow.wants_repaint
+    # The repaint is screen-only, so the viewer stays armed for the next cut
+    # rather than resuming raw output from a position its parser cannot use.
+    assert binding.flow.wants_repaint
 
 
 def test_a_stuck_viewer_is_closed_with_a_reason_while_others_continue(

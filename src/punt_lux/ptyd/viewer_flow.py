@@ -93,7 +93,10 @@ class ViewerFlow:
         self._start = None if initial else json.dumps(metadata).encode()
         self._snapshot, self._snapshot_offset = checkpoint.data, 0
         self._drop_tail()
-        self._repaint = False
+        # A screen-only repaint is not a checkpoint: drop raw output and cut
+        # again until a binary checkpoint at ground can be taken. An ended
+        # session produces no more output, so its last repaint is final.
+        self._repaint = not (checkpoint.is_checkpoint or description["ended"])
         if description["ended"]:
             self.finish("exited", description["exit_code"])
 

@@ -36,6 +36,16 @@ class SessionSnapshot:
     data: bytes
     encoding: SnapshotEncoding = SnapshotEncoding.BINARY
 
+    @property
+    def is_checkpoint(self) -> bool:
+        """Whether raw output may resume from ``position``.
+
+        A visible-screen repaint can be cut inside an unterminated escape
+        sequence; the replica's parser starts at ground, so resuming raw bytes
+        from it would draw the rest of the sequence as text.
+        """
+        return self.encoding is SnapshotEncoding.BINARY
+
     def restore(self) -> Terminal:
         """Become a terminal, however this snapshot was encoded."""
         return self.encoding.restore(self.data, self.cols, self.rows)
