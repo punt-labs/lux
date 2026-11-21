@@ -66,7 +66,9 @@ class PeerBook:
                 self._drop(peer)
 
     def expired(self, sessions: int) -> bool:
-        return self._idle.expired(len(self._peers), sessions)
+        if idle := self._idle.expired(len(self._peers), sessions):
+            logger.info("Terminal daemon idle with no clients or sessions; stopping")
+        return idle
 
     def close(self) -> None:
         for peer in list(self._peers.values()):

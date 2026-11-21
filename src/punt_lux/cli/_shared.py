@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import asyncio
 import json as _json
+import logging
 import sys
 from typing import TYPE_CHECKING, Annotated, Self, cast, final
 
 import typer
 from pydantic import ValidationError
 
-from punt_lux.cli._connection import connect_client as connect_client
+from punt_lux.cli._connection import command_path, connect_client as connect_client
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.cli_identity import CliIdentity
 from punt_lux.domain.hub.client_identity import ClientIdentity, ClientKind
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from punt_lux.commands._result import CommandResult
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AgentFlag",
@@ -257,7 +260,9 @@ def run(
         else result.text
     )
     if result.error:
+        logger.info("CLI %s failed: %s", command_path(), result.failure_code)
         typer.echo(message, err=True)
         raise typer.Exit(code=result.exit_code)
+    logger.info("CLI %s succeeded", command_path())
     if not flags.quiet:
         typer.echo(message)

@@ -39,3 +39,9 @@ class CommandResult:
     json_data: dict[str, object] | None = None
     error: bool = False
     exit_code: int = 0
+
+    @property
+    def failure_code(self) -> str:
+        """Name a failure by its machine-readable code, never its reason."""
+        code = (self.json_data or {}).get("code")
+        return code if isinstance(code, str) else f"exit {self.exit_code}"
