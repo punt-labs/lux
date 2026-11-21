@@ -204,16 +204,21 @@ def test_echild_while_checking_exit_counts_as_reaped(
     assert "already reaped" in caplog.text
 
 
-def test_eperm_from_a_leader_that_is_still_exiting_is_tolerated() -> None:
-    """macOS refuses killpg a moment before waitid can report the exit."""
-    status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
-    with (
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
-        patch(
-            "punt_lux.ptyd.leader_status.os.waitid",
-            side_effect=[None, None, status],
-        ),
-    ):
-        child = TerminalChild(123)
+def test_stop_after_the_master_closes_never_raises_on_a_real_shell() -> None:
+    """Closing the PTY master hangs the shell up; the group signal races its exit.
+
+    macOS answers killpg with EPERM in the milliseconds between the kernel
+    killing the leader and waitid reporting it. No mocks: real fork, real PTY.
+    """
+    from punt_lux.ptyd.pty_spawn import PtySpawn
+
+    for _ in range(60):
+        child, fd = PtySpawn.start(["/bin/cat"])
+        time.sleep(0.02)
+        os.close(fd)  # what PtyHolder.close() does before stop()
         child.stop()
-        assert child.exit_code == 0
+        deadline = time.monotonic() + 3
+        while not child.poll():
+            assert time.monotonic() < deadline
+            time.sleep(0.005)
+        assert child.reaped

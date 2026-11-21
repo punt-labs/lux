@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from typing import Self
 
 logger = logging.getLogger(__name__)
@@ -46,19 +45,6 @@ class LeaderStatus:
             return False
         code = status.si_status
         self._exit_code = code if status.si_code == os.CLD_EXITED else -code
-        return True
-
-    def exited_within(self, seconds: float) -> bool:
-        """Wait up to ``seconds`` for the exit to become observable.
-
-        The kernel can refuse a group signal (EPERM) a moment before waitid
-        reports the exit of a leader that is still being torn down.
-        """
-        deadline = time.monotonic() + seconds
-        while not self.exited():
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(0.002)
         return True
 
     def reap(self) -> bool:

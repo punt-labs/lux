@@ -76,7 +76,7 @@ class TerminalChild:
             # macOS refuses killpg once the leader is an unreaped zombie. That
             # is all that is checked: a live member under another euid is not
             # ruled out, so each tolerated refusal is logged.
-            if not self._status.exited_within(_EXIT_VISIBLE_S):
+            if not self._exit_becomes_visible():
                 raise
             logger.warning(
                 "terminal child %d: killpg(%s) refused with EPERM after the "
@@ -85,3 +85,16 @@ class TerminalChild:
                 sig.name,
                 self._status.exit_code,
             )
+
+    def _exit_becomes_visible(self) -> bool:
+        """Wait briefly for a dying leader's exit to show to waitid.
+
+        The kernel refuses a group signal (EPERM) a few milliseconds before
+        waitid reports the exit of a leader it is tearing down.
+        """
+        deadline = time.monotonic() + _EXIT_VISIBLE_S
+        while not self._status.exited():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.002)
+        return True
