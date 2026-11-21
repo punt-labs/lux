@@ -43,20 +43,11 @@ class SessionCore:
         return self
 
     def acquire(self, request: AttachRequest) -> TerminalSession:
-        """Reattach to a running shell; respawn a fresh one once it has exited.
-
-        A reconnect to a live program reuses its session so output and scrollback
-        survive the viewer's absence. An *exited* session has no shell to reattach
-        to, so the next attach retires the dead one and starts a new shell — the
-        terminal is never stuck on a dead process with no way back to a prompt.
-        """
+        """Start once; reattach never respawns an exited or running program."""
         if self._pending.contains(request.session):
             raise SessionError("session is waiting for failed-start cleanup")
         existing = self._sessions.get(request.session)
         if existing is None:
-            return self._start(request)
-        if existing.ended:
-            self.kill(request.session)  # retire the dead shell, then spawn fresh
             return self._start(request)
         self._check_command(request)
         return existing

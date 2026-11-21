@@ -134,13 +134,7 @@ def test_reattach_to_a_running_session_reuses_it() -> None:
         core.close()
 
 
-def test_exit_is_recorded_once_then_reattach_spawns_a_fresh_shell() -> None:
-    """Typing `exit` ends the shell; the next attach must start a new one.
-
-    The daemon retains the exited session only until the exit is reported.
-    A fresh attach to the same name then gets a live shell, so the terminal
-    is never stuck showing a dead process with no way back to a prompt.
-    """
+def test_process_exit_is_recorded_once_and_never_respawned() -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
     try:
@@ -152,37 +146,8 @@ def test_exit_is_recorded_once_then_reattach_spawns_a_fresh_shell() -> None:
         assert core.pump() == []
         assert session.ended
         assert core.describe()[0]["exit_code"] == 7
-
-        fresh = core.acquire(AttachRequest(2, "shell"))
-        assert fresh is not session
-        assert not fresh.ended
-        assert len(factory.created) == 2
-    finally:
-        core.close()
-
-
-def test_reattach_after_exit_is_stable_while_the_dead_shell_is_still_reaping() -> None:
-    """A slow-reaping predecessor must not block the fresh shell or later frames.
-
-    The display re-attaches every rendered frame. If the exited process has not
-    finished reaping, the fresh session must still spawn, and the next frame's
-    attach must reuse that fresh session rather than raise on the retiring one.
-    """
-    factory = FakeFactory()
-    core = SessionCore(factory)
-    try:
-        session = core.acquire(AttachRequest(1, "shell"))
-        process = factory.created[0]
-        process.alive = False
-        process.exit_code = 0
-        process.reaped = False  # close() returns False: lingers in retirement
-        assert b"[process exited]" in output(core.pump()).data
-        core.pump()
-
-        fresh = core.acquire(AttachRequest(2, "shell"))
-        assert fresh is not session
-        assert core.acquire(AttachRequest(3, "shell")) is fresh
-        assert len(factory.created) == 2
+        assert core.acquire(AttachRequest(2, "shell")) is session
+        assert len(factory.created) == 1
     finally:
         core.close()
 
