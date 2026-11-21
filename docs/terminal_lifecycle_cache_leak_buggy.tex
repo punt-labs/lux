@@ -1,0 +1,424 @@
+%
+% terminal_lifecycle_cache_leak_buggy.tex
+%
+% A Z specification of the lux terminal session lifecycle across the
+% three processes that touch it: luxd-pty (owns shells), the terminal
+% helper (the luxd-pty client that owns the Hub scenes and frames) and
+% the Display (holds one replica per scene element).
+%
+% Design record: docs/architecture/terminal-lifecycle.md
+% Source of record (today's code the buggy variants mirror):
+%   src/punt_lux/ptyd/core.py              SessionCore.acquire
+%   src/punt_lux/display/terminal/remote_pool.py   RemotePool.get
+%   src/punt_lux/display/terminal/attachment_requests.py
+%
+% Type-check:  fuzz -t docs/terminal_lifecycle_cache_leak_buggy.tex
+% Model-check (see Section "Verification"):
+%   probcli docs/terminal_lifecycle_cache_leak_buggy.tex -model_check -p DEFAULT_SETSIZE 2
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{The lux Terminal Session Lifecycle: a Z Specification}
+\author{Formal model of exit, resume and restart}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+A terminal session is born in the daemon, shown by the helper as a Hub
+scene (whose frame dies with it), and painted by a Display replica.
+Three defects recurred in one week because no one document said who
+removes what, and when.  The user-visible form of all three: a frame
+that is on screen but can never attach again.
+
+This model makes removal an obligation.  Every visible frame is either
+attachable, or the helper has been told and owes its removal.
+
+\section{Basic Types}
+
+\begin{zed}
+  [NAME, SHELL]
+\end{zed}
+
+\texttt{NAME} is the session \emph{id} on one host (the design's daemon-assigned, never-reused id; labels are not modelled).  \texttt{SHELL} is the
+identity of one spawned program: the daemon's generation number.  A name
+may be reused by a later shell; a shell identity is never reused while
+anything still refers to it.
+
+\begin{zed}
+  DSTATE ::= running | exited \\
+  RPHASE ::= ready | gone \\
+  SYNC ::= synced | unsynced
+\end{zed}
+
+\texttt{exited} is the daemon's draining state: the program has ended
+and the viewers are being told.  \texttt{gone} is a replica that ended
+(exited or failed to attach).  \texttt{unsynced} means the helper may
+hold scenes or have missed events that no longer match the daemon.
+
+\section{State}
+
+\begin{schema}{Sys}
+  daemon : NAME \pfun SHELL \\
+  dstate : NAME \pfun DSTATE \\
+  scene : NAME \pfun SHELL \\
+  replica : (NAME \cross SHELL) \pfun RPHASE \\
+  bound : (NAME \cross SHELL) \pfun SHELL \\
+  createdEv, endedEv : NAME \rel SHELL \\
+  used : \power NAME \\
+  sync : SYNC
+\where
+  \dom dstate = \dom daemon \\
+  daemon \in NAME \pinj SHELL \\
+  \dom bound = \dom replica
+\end{schema}
+
+\texttt{daemon} is the single authoritative map from a name to its live
+shell on this host; being a function it gives at most one shell per
+name, and being injective at most one name per shell.  \texttt{scene}
+is what the Hub shows: the element's name and the shell it expects.
+\texttt{replica} is the Display's cache, keyed by name \emph{and} shell.
+\texttt{bound} records which shell a replica's stream actually comes
+from.  \texttt{createdEv} and \texttt{endedEv} are daemon notices in
+flight to the helper.
+
+\begin{schema}{Init}
+  Sys'
+\where
+  daemon' = \emptyset \\
+  dstate' = \emptyset \\
+  scene' = \emptyset \\
+  replica' = \emptyset \\
+  bound' = \emptyset \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  used' = \emptyset \\
+  sync' = synced
+\end{schema}
+
+\section{Daemon Operations}
+
+\begin{schema}{DaemonNew}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  n? \notin \dom daemon \\
+  s? \notin \ran daemon \cup \ran scene \cup \ran createdEv \cup
+    \ran endedEv \cup \ran (\dom replica) \\
+  daemon' = daemon \cup \{ n? \mapsto s? \} \\
+  dstate' = dstate \cup \{ n? \mapsto running \} \\
+  createdEv' = createdEv \cup \{ (n? , s?) \} \\
+  used' = used \cup \{ n? \} \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+Creation always announces itself, so the helper shows a scene whoever
+asked: the menu, the CLI, another client.
+
+\begin{schema}{ShellExit}
+  \Delta Sys \\
+  n? : NAME
+\where
+  used' = used \\
+  n? \in \dom daemon \\
+  dstate~n? = running \\
+  dstate' = dstate \oplus \{ n? \mapsto exited \} \\
+  endedEv' = endedEv \cup \{ (n? , daemon~n?) \} \\
+  daemon' = daemon \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  sync' = sync
+\end{schema}
+
+Exit and an explicit kill are the same transition: the program ends and
+the daemon announces it.
+
+\begin{schema}{DaemonRemove}
+  \Delta Sys \\
+  n? : NAME
+\where
+  used' = used \\
+  n? \in \dom daemon \\
+  dstate~n? = exited \\
+  (n? , daemon~n?) \in \dom replica \implies
+    replica (n? , daemon~n?) \neq ready \\
+  daemon' = \{ n? \} \ndres daemon \\
+  dstate' = \{ n? \} \ndres dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+The session is removed only once no viewer is still being served from
+it: every attached replica has been told.
+
+\begin{schema}{DaemonRestart}
+  \Delta Sys
+\where
+  used' = used \\
+  daemon' = \emptyset \\
+  dstate' = \emptyset \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = unsynced \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound
+\end{schema}
+
+A daemon restart ends every program; persistence across it is a
+non-goal.  The helper is the daemon's child and restarts with it.
+
+\section{Helper Operations}
+
+\begin{schema}{HelperCreated}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  used' = used \\
+  (n? , s?) \in createdEv \\
+  n? \in \dom daemon \\
+  daemon~n? = s? \\
+  dstate~n? = running \\
+  scene' = scene \oplus \{ n? \mapsto s? \} \\
+  createdEv' = createdEv \setminus \{ (n? , s?) \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+\begin{schema}{HelperCreatedStale}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  used' = used \\
+  (n? , s?) \in createdEv \\
+  \lnot (n? \in \dom daemon \land daemon~n? = s?
+    \land dstate~n? = running) \\
+  createdEv' = createdEv \setminus \{ (n? , s?) \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+A creation notice that arrives after its shell has already ended is
+dropped; the ended notice handles the rest.
+
+\begin{schema}{HelperEnded}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  used' = used \\
+  (n? , s?) \in endedEv \\
+  endedEv' = endedEv \setminus \{ (n? , s?) \} \\
+  (n? \in \dom scene \land scene~n? = s?) \implies
+    scene' = \{ n? \} \ndres scene \\
+  \lnot (n? \in \dom scene \land scene~n? = s?) \implies
+    scene' = scene \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  createdEv' = createdEv \\
+  sync' = sync \\
+  replica' = replica \\
+  bound' = bound
+\end{schema}
+
+The helper clears the scene only if it still names the ended shell, so
+a late notice never removes a newer terminal that reuses the name.
+
+\begin{schema}{HelperLoseEvents}
+  \Delta Sys
+\where
+  used' = used \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = unsynced \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound
+\end{schema}
+
+The helper crashes or its watch connection drops.  Notices in flight are
+lost; the next step must reconcile.
+
+\begin{schema}{HelperSync}
+  \Delta Sys
+\where
+  used' = used \\
+  sync = unsynced \\
+  scene' = \{ n : NAME | n \in \dom daemon \land dstate~n = running
+    @ n \mapsto daemon~n \} \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = synced \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  replica' = replica \\
+  bound' = bound
+\end{schema}
+
+Reconciliation replaces the helper's scenes with exactly the running
+sessions the daemon lists.
+
+\section{Display Operations}
+
+\begin{schema}{ReplicaAttach}
+  \Delta Sys \\
+  n? : NAME
+\where
+  used' = used \\
+  n? \in \dom scene \\
+  (n? , scene~n?) \notin \dom replica \\
+  n? \in \dom daemon \\
+  daemon~n? = scene~n? \\
+  replica' = replica \cup \{ (n? , scene~n?) \mapsto ready \} \\
+  bound' = bound \cup \{ (n? , scene~n?) \mapsto daemon~n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+Resume names the shell the scene expects and attaches only to that one.
+
+\begin{schema}{ReplicaRefused}
+  \Delta Sys \\
+  n? : NAME
+\where
+  used' = used \\
+  n? \in \dom scene \\
+  (n? , scene~n?) \notin \dom replica \\
+  \lnot (n? \in \dom daemon \land daemon~n? = scene~n?) \\
+  replica' = replica \cup \{ (n? , scene~n?) \mapsto gone \} \\
+  bound' = bound \cup \{ (n? , scene~n?) \mapsto scene~n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+\begin{schema}{ReplicaEnds}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  used' = used \\
+  (n? , s?) \in \dom replica \\
+  replica (n? , s?) = ready \\
+  \lnot (n? \in \dom daemon \land daemon~n? = s? \land dstate~n? = running) \\
+  replica' = replica \oplus \{ (n? , s?) \mapsto gone \} \\
+  bound' = bound \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+The replica learns of the end from the stream's close notice or from the
+lost connection.
+
+
+
+A replica no scene element names is dropped.  Today's pool never does
+this.
+
+\section{Invariants}
+\label{sec:inv}
+
+None is placed in \texttt{Sys}: a predicate there would disable the very
+transition that breaks it.  Each is checked as an unreachable goal.
+
+\paragraph{I1 --- visible implies attachable or being removed.}
+Every scene names a running shell on the daemon, or a removal notice for
+it is in flight, or the helper is known to be out of sync:
+\[
+  \forall n : \dom scene @ sync = unsynced \lor
+    (n \in \dom daemon \land daemon~n = scene~n \land dstate~n = running)
+    \lor (n , scene~n) \in endedEv
+\]
+
+\paragraph{I2 --- resume never swaps.}
+Every replica streams from the shell it names:
+\[
+  \forall k : \dom bound @ bound~k = \mathrm{second}~k
+\]
+
+\paragraph{I3 --- one live shell per name.}
+Holds by construction (\texttt{daemon} is an injective function), and is
+checked as: no two names share a shell.
+
+\paragraph{I4 --- replicas learn of a lost session (transient, not a safety property).}
+ProB found a state with a \texttt{ready} replica of a name the daemon
+no longer holds: it arises only after \texttt{DaemonRestart}, before
+\texttt{ReplicaEnds} fires.  It is a legitimate transient, so it is
+\emph{not} an invariant.  What must hold is that \texttt{DaemonRemove}
+(the exit path) never leaves one behind, which its guard enforces, and
+that \texttt{ReplicaEnds} stays enabled in that state (no deadlock).
+
+\paragraph{I6 --- no stale replica shadows a live scene.}
+The Display caches one replica per session.  A scene that names a running
+shell must not coexist with a replica of the same name for a different
+shell, because that cached replica would be served instead (today's
+immortal \texttt{RemotePool} cache, keyed by name):
+\[
+  \forall n : \dom scene @ \lnot (n \in \dom daemon \land
+    daemon~n = scene~n \land dstate~n = running \land
+    \exists s : SHELL @ (n , s) \in \dom replica \land s \neq scene~n)
+\]
+Ids are never reused, so in the intact design this is unreachable; the
+\texttt{used} set models that guarantee.
+
+\paragraph{I5 --- deadlock freedom.}
+Some operation is always enabled.
+
+\section{Verification}
+\label{sec:verify}
+
+\begin{verbatim}
+  fuzz -t docs/terminal_lifecycle_cache_leak_buggy.tex
+  probcli docs/terminal_lifecycle_cache_leak_buggy.tex -model_check -p DEFAULT_SETSIZE 2
+  # I1 .. I4: each goal must report "not found"
+\end{verbatim}
+
+\section{Fidelity}
+
+Two buggy variants of this file exist beside it:
+\texttt{terminal\_lifecycle\_exit\_leak\_buggy.tex} drops the ended
+notice and the removal (today: exit leaves a frame that can never attach
+again), and \texttt{terminal\_lifecycle\_swap\_buggy.tex} lets a resume
+attach by name alone (the exit-respawn swap).  Each must make a goal
+reachable that the intact model cannot reach.
+
+\end{document}
