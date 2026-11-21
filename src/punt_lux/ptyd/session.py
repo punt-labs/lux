@@ -79,7 +79,9 @@ class TerminalSession:
         """Capture bytes and the cut atomically in this single-threaded core.
 
         BINARY raises ``SnapshotError`` mid-sequence once continuation tracking
-        is exhausted; VT repaints the visible screen and always succeeds.
+        is exhausted. VT repaints the visible screen and works in any parser
+        state, but raises ``SnapshotError`` if the formatted screen exceeds the
+        snapshot size limit.
         """
         self._check_usable()
         data = encoding.serialize(self._term.native)

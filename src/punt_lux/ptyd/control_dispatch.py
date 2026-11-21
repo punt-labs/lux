@@ -62,7 +62,7 @@ class ControlDispatch:
         if not self._bindings.session(request.session):
             self._core.resize(request.session, request.cols, request.rows)
         try:
-            snapshot = session.capture()
+            snapshot = StreamPublisher.checkpoint(session)
         except _snapshots.SnapshotError:
             peer.close()  # retry negotiation after parser ground; keep program alive
             return

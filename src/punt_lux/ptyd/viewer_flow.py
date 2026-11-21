@@ -70,6 +70,11 @@ class ViewerFlow:
             and self._credit.available > 0
         )
 
+    def request_repaint(self) -> None:
+        """Drop the unsent backlog and ask the publisher for a fresh snapshot."""
+        self._drop_tail()
+        self._repaint = True
+
     def prepare(
         self,
         checkpoint: SessionSnapshot,
@@ -96,8 +101,7 @@ class ViewerFlow:
         if self._repaint or self._close_sent:
             return
         if self._lag + len(data) > self._lag_limit:
-            self._drop_tail()
-            self._repaint = True
+            self.request_repaint()
         elif data:
             self._tail.append(data)
             self._lag += len(data)

@@ -40,11 +40,9 @@ class StreamPublisher:
         viewers = self._bindings.session(name)
         if viewers and viewers[0].flow.actual_size == (cols, rows):
             return
-        session = self._core.get(name)
         self._core.resize(name, cols, rows)
-        snapshot = self._checkpoint(session)
-        for binding in self._bindings.session(name):
-            binding.flow.prepare(snapshot, session.describe())
+        for binding in viewers:
+            binding.flow.request_repaint()
 
     def _record(self, event: OutputChunk | SessionFault) -> None:
         for binding in self._bindings.session(event.session):
@@ -59,8 +57,7 @@ class StreamPublisher:
     def _flush(self, binding: Binding) -> None:
         try:
             if binding.flow.wants_repaint:
-                session = self._core.get(binding.session)
-                binding.flow.prepare(self._checkpoint(session), session.describe())
+                self._repaint(binding, self._core.get(binding.session))
             for frame in binding.flow.drain():
                 binding.peer.queue(frame)
         except (BufferError, ConnectionError):
@@ -68,12 +65,27 @@ class StreamPublisher:
             binding.peer.close()
 
     @staticmethod
-    def _checkpoint(session: TerminalSession) -> SessionSnapshot:
-        """Prefer the full binary cut; repaint the visible screen if it cannot be cut.
+    def _repaint(binding: Binding, session: TerminalSession) -> None:
+        try:
+            binding.flow.prepare(
+                StreamPublisher.checkpoint(session), session.describe()
+            )
+        except SnapshotError:
+            # Not even the visible screen can be cut (it exceeds the snapshot
+            # limit). Only this viewer waits; its repaint stays armed for the
+            # next pump and the loop keeps serving every other session.
+            return
+
+    @staticmethod
+    def checkpoint(session: TerminalSession) -> SessionSnapshot:
+        """Cut a binary snapshot, or repaint the visible screen if none exists.
 
         A program that never reaches parser ground state (a long unterminated
         OSC from tmux, say) exhausts continuation tracking, so waiting for a
-        binary cut would starve a lagged viewer for as long as output flows.
+        binary cut would starve a viewer for as long as output flows.
+
+        Raises:
+            SnapshotError: Even the visible screen exceeds the snapshot limit.
         """
         try:
             return session.capture()
