@@ -31,7 +31,7 @@ from punt_lux.ptyd.snapshot import (
 from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 from punt_lux.ptyd.stream_output import StreamPublisher
-from punt_lux.ptyd.viewers import ViewerBindings
+from punt_lux.ptyd.viewers import Binding, ViewerBindings
 from punt_lux.terminal.ffi import Terminal, terminal_title
 from tests.ptyd.stream_fakes import RecordingPeer
 from tests.ptyd.test_session_core import FakeFactory
@@ -97,6 +97,13 @@ def test_unknown_snapshot_format_is_rejected() -> None:
 
 
 def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, RecordingPeer]:
+    publisher, peer, _ = _attached_binding(core)
+    return publisher, peer
+
+
+def _attached_binding(
+    core: SessionCore,
+) -> tuple[StreamPublisher, RecordingPeer, Binding]:
     session = core.acquire(AttachRequest(1, "shell", cols=20, rows=4))
     peer = RecordingPeer()
     bindings = ViewerBindings()
@@ -104,7 +111,7 @@ def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, RecordingPeer]
     StreamPublisher.attach(binding, 1, SnapshotCut(session).cut(), session.describe())
     # The initial reply goes through the control channel, not the frame list.
     binding.flow.drain()
-    return StreamPublisher(core, bindings), peer
+    return StreamPublisher(core, bindings), peer, binding
 
 
 def _replicate(frames: tuple[Frame, ...]) -> RemoteSession:
@@ -194,6 +201,71 @@ def test_viewer_repainted_mid_sequence_matches_the_daemon_after_the_sequence_end
         try:
             assert screen_rows(replica.view.term) == expected
             assert "PAYLOAD-TAIL" not in replica.view.term.text()
+        finally:
+            replica.close()
+    finally:
+        core.close()
+
+
+def _start_formats(peer: RecordingPeer) -> list[str]:
+    return [
+        cast("dict[str, str]", json.loads(frame.payload))["format"]
+        for frame in peer.frames
+        if frame.kind is FrameKind.SNAPSHOT_START
+    ]
+
+
+def _pump_acknowledging(
+    publisher: StreamPublisher, binding: Binding, rounds: int
+) -> None:
+    """Pump, returning the viewer's credit each round as a live Display does."""
+    for _ in range(rounds):
+        publisher.pump()
+        if binding.flow.inflight:
+            binding.flow.acknowledge(binding.flow.inflight)
+
+
+def test_a_viewer_stuck_mid_sequence_keeps_getting_bounded_screen_repaints() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        publisher, peer, binding = _attached_binding(core)
+        output = factory.created[0].output
+        output.extend([b"hello", EXHAUSTING_OSC.encode(), b"y" * (5 * 1024 * 1024)])
+        _pump_acknowledging(publisher, binding, 3)
+        for _ in range(10):
+            output.append(b"z" * 1024)
+            _pump_acknowledging(publisher, binding, 1)
+        formats = _start_formats(peer)
+        assert len(formats) > 1
+        assert set(formats) == {"vt"}
+        kinds = [frame.kind for frame in peer.frames]
+        after_first_repaint = kinds[kinds.index(FrameKind.SNAPSHOT_START) :]
+        assert FrameKind.DATA not in after_first_repaint
+    finally:
+        core.close()
+
+
+def test_a_screen_only_viewer_recovers_to_raw_output_once_a_binary_cut_exists() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        publisher, peer, binding = _attached_binding(core)
+        output = factory.created[0].output
+        output.extend([b"hello", EXHAUSTING_OSC.encode(), b"y" * (5 * 1024 * 1024)])
+        _pump_acknowledging(publisher, binding, 3)
+        assert _start_formats(peer)[-1] == "vt"
+        output.append(ESC.encode() + b"\\" + b"\r\nback at ground")
+        _pump_acknowledging(publisher, binding, 6)
+        assert _start_formats(peer)[-1] == "binary"
+        output.append(b"\r\nlater text")
+        _pump_acknowledging(publisher, binding, 3)
+        starts = [f for f in peer.frames if f.kind is FrameKind.SNAPSHOT_START]
+        replica = _replicate(peer.frames[peer.frames.index(starts[-1]) :])
+        try:
+            text = replica.view.term.text()
+            assert "back at ground" in text
+            assert "later text" in text
         finally:
             replica.close()
     finally:
