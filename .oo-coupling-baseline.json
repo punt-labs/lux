@@ -6044,8 +6044,8 @@
     "efferent_coupling": 1.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.286,
-    "avg_lcom": 0.286
+    "max_lcom": 0.278,
+    "avg_lcom": 0.278
   },
   "src/punt_lux/ptyd/viewer_flow.py": {
     "efferent_coupling": 3.0,
