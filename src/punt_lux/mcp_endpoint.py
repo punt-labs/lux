@@ -1,4 +1,4 @@
-"""The ``/mcp`` request endpoint: resolve the session identity, then serve."""
+"""The ``/mcp`` request endpoint: resolve the request's contact, then serve."""
 
 from __future__ import annotations
 
@@ -20,12 +20,11 @@ __all__ = ["McpAsgiApp"]
 
 @final
 class McpAsgiApp:
-    """The ``/mcp`` endpoint: resolve the session identity, then serve the request.
+    """The ``/mcp`` endpoint: resolve the request's contact, then serve.
 
-    A ``?session_key=`` value becomes the session's :class:`ConnectionId`, bound to
-    the calling context before the manager spawns the session's task, so the copied
-    task context carries it -- and the socket peer observed here -- to the tools and
-    the cleanup cascade.
+    Bind the proposed ``?session_key=`` (or a generated handle) and observed
+    socket peer to the request context. The manager retains the contact from
+    initialization for subsequent tool calls and cleanup.
     """
 
     _manager: LuxSessionManager

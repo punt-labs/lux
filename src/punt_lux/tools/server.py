@@ -2,8 +2,8 @@
 
 The ``mcp`` FastMCP instance is the tool registry; ``_session_key`` carries the
 calling session's identity so each tool resolves its Hub scope. luxd's transport
-leg (:mod:`punt_lux.mcp_transport`) sets ``_session_key`` per session before the
-session's task is spawned; absent that binding it stays at the default.
+leg (:mod:`punt_lux.mcp_transport`) binds the initialized session's key for
+each call; absent that binding it stays at the default.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ mcp = FastMCP(
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
-# The host the transport observed when the session's task was spawned. Unobserved
+# The host the transport observed at session initialization. Unobserved
 # on stdio and in-process calls, which have no peer; the row then reads "unknown".
 _client_host: ContextVar[ClientHost] = ContextVar("client_host", default=UNOBSERVED)
 
@@ -60,10 +60,8 @@ _client_host: ContextVar[ClientHost] = ContextVar("client_host", default=UNOBSER
 def bind_session(session_key: str, client_host: ClientHost) -> SessionBinding:
     """Bind the calling context to an MCP session; return the binding to release.
 
-    luxd's transport leg binds a session before the SDK spawns its task, so the
-    copied task context carries the identity -- and the peer observed at connect
-    -- to every tool and the cleanup cascade. The returned binding releases both
-    via :func:`unbind_session`.
+    The transport carries the identity and observed peer to every tool.
+    Release both together with :func:`unbind_session`.
     """
     return SessionBinding(_session_key.set(session_key), _client_host.set(client_host))
 
