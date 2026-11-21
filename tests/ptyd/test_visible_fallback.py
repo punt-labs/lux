@@ -270,3 +270,25 @@ def test_a_screen_only_viewer_recovers_to_raw_output_once_a_binary_cut_exists() 
             replica.close()
     finally:
         core.close()
+
+
+def test_an_idle_screen_only_viewer_is_not_repainted_until_the_program_moves() -> None:
+    """An identical repaint replaces the Display's buffer and wipes its selection."""
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        publisher, peer, binding = _attached_binding(core)
+        output = factory.created[0].output
+        output.extend([b"hello", EXHAUSTING_OSC.encode(), b"y" * (5 * 1024 * 1024)])
+        _pump_acknowledging(publisher, binding, 3)
+        settled = len(_start_formats(peer))
+        assert _start_formats(peer)[-1] == "vt"
+
+        _pump_acknowledging(publisher, binding, 12)
+        assert len(_start_formats(peer)) == settled
+
+        output.append(b"z")
+        _pump_acknowledging(publisher, binding, 3)
+        assert len(_start_formats(peer)) == settled + 1
+    finally:
+        core.close()

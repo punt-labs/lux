@@ -22,6 +22,7 @@ class ViewerFlow:
     _lag: int
     _lag_limit: int
     _repaint: bool
+    _screen_only: bool
     _close: bytes | None
     _close_sent: bool
     _wanted_size: tuple[int, int]
@@ -38,6 +39,7 @@ class ViewerFlow:
         self._tail_offset = self._lag = 0
         self._lag_limit = lag_limit
         self._repaint = False
+        self._screen_only = False
         self._close = None
         self._close_sent = False
         self._wanted_size = self._actual_size = (80, 24)
@@ -93,14 +95,22 @@ class ViewerFlow:
         self._start = None if initial else json.dumps(metadata).encode()
         self._snapshot, self._snapshot_offset = checkpoint.data, 0
         self._drop_tail()
-        # A screen-only repaint is not a checkpoint: drop raw output and cut
-        # again until a binary checkpoint at ground can be taken. An ended
+        # A screen-only repaint is not a checkpoint: raw output stays
+        # suppressed until a binary checkpoint at ground can be cut. The next
+        # cut waits for a reason (see ``append``): an identical repaint would
+        # replace the Display's buffer and wipe its selection. An ended
         # session produces no more output, so its last repaint is final.
-        self._repaint = not (checkpoint.is_checkpoint or description["ended"])
+        self._screen_only = not (checkpoint.is_checkpoint or description["ended"])
+        self._repaint = False
         if description["ended"]:
             self.finish("exited", description["exit_code"])
 
     def append(self, data: bytes) -> None:
+        if self._screen_only:
+            # The program moved while the viewer has only a screen repaint:
+            # the screen is stale, so schedule one cut (not one per pump).
+            self._repaint = self._repaint or bool(data)
+            return
         if self._repaint or self._close_sent:
             return
         if self._lag + len(data) > self._lag_limit:
@@ -119,6 +129,7 @@ class ViewerFlow:
             self._snapshot_offset = 0
             self._drop_tail()
             self._repaint = False
+            self._screen_only = False
         self._close = json.dumps({"reason": reason, "exit_code": exit_code}).encode()
 
     def drain(self) -> list[Frame]:

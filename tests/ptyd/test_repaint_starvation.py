@@ -59,7 +59,7 @@ def test_lagged_viewer_is_not_starved_by_a_program_that_never_settles() -> None:
     session = MidSequenceSession("tmux")
     core = QueuedCore(session)
     bindings = ViewerBindings()
-    peer, binding = _attached(bindings, "tmux")
+    peer, _ = _attached(bindings, "tmux")
     publisher = _publisher(core, bindings)
 
     core.enqueue("tmux", OVERFLOW)
@@ -68,10 +68,14 @@ def test_lagged_viewer_is_not_starved_by_a_program_that_never_settles() -> None:
         core.enqueue("tmux", PARTIAL_CSI)
         publisher.pump()
 
-    assert FrameKind.SNAPSHOT_START in [frame.kind for frame in peer.frames]
-    # The repaint is screen-only, so the viewer stays armed for the next cut
+    starts = [f for f in peer.frames if f.kind is FrameKind.SNAPSHOT_START]
+    assert starts
+    # The program keeps moving, so the screen-only viewer keeps being repainted
     # rather than resuming raw output from a position its parser cannot use.
-    assert binding.flow.wants_repaint
+    assert len(starts) > 1
+    assert FrameKind.DATA not in [
+        f.kind for f in peer.frames[peer.frames.index(starts[0]) :]
+    ]
 
 
 def test_a_stuck_viewer_is_closed_with_a_reason_while_others_continue(
