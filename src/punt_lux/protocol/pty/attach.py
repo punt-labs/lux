@@ -1,4 +1,4 @@
-"""Attach to a named terminal, creating it only on first use."""
+"""Resume a viewer on an existing terminal session."""
 
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from punt_lux.protocol.pty.control_fields import ControlFields
 
 @dataclass(frozen=True, slots=True)
 class AttachRequest:
-    """Initial size is in cells; command is an argv-like string, not shell code."""
+    """Resume a viewer on the running session with this id; never spawn one.
+
+    The contract is resume-only: an unknown id is refused, and sessions are
+    created by ``NewRequest``. Size is in cells; ``command`` is an argv-like
+    string, not shell code.
+    """
 
     request_id: int
     session: str

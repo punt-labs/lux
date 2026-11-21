@@ -206,6 +206,7 @@ parallel worktrees.
 `AttachRequest` keeps its shape; its meaning becomes resume-only.
 
 **Daemon unit.**
+
 - `ptyd/core.py`: `acquire` is deleted. In its place `create(NewRequest)` and
   `attach(id)`. The respawn branch goes.
 - New `ptyd/session_ids.py`: `SessionIds` (boot value plus counter, produces
@@ -223,6 +224,7 @@ parallel worktrees.
   returns it.
 
 **Helper unit.**
+
 - New `ptyd/daemon_client.py`: `DaemonClient` (new, list, kill, watch over
   `TerminalConnection`).
 - New `ptyd/session_watch.py`: `SessionWatch` (watch loop, reconnect, reconcile).
@@ -237,6 +239,7 @@ parallel worktrees.
 - `ptyd/menu_listener.py`: wires the watch.
 
 **Display unit.**
+
 - `display/terminal/remote_pool.py`: `release(name)`; terminal-phase replicas
   are not resurrected.
 - `display/terminal/remote_sessions.py`: facade for `release`.
@@ -246,6 +249,7 @@ parallel worktrees.
   clear, frame dispose and replace.
 
 **Tests (written first; each fails on today's code).**
+
 - `tests/ptyd/test_core_lifecycle.py`: new, resume, unknown id refused, exit
   removes after `CLOSE`, label unique, id never reused, limit.
 - `tests/ptyd/test_session_watchers.py`: events, overflow drops the watcher.

@@ -1,23 +1,29 @@
-"""Version-one JSON control messages carried by channel-zero DATA frames."""
+"""JSON control requests and session events carried by channel-zero DATA frames."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping
-from typing import ClassVar, Protocol, Self, cast, runtime_checkable
+from typing import ClassVar, Protocol, Self, runtime_checkable
 
 from punt_lux.protocol.pty.attach import AttachRequest as AttachRequest
 from punt_lux.protocol.pty.control_fields import ControlError
+from punt_lux.protocol.pty.control_json import ControlJson
 from punt_lux.protocol.pty.hello import HelloRequest as HelloRequest
+from punt_lux.protocol.pty.new_request import NewRequest as NewRequest
+from punt_lux.protocol.pty.session_events import (
+    SessionEvent as SessionEvent,
+    WatchRequest as WatchRequest,
+)
 from punt_lux.protocol.pty.session_requests import (
     KillRequest as KillRequest,
     ListRequest as ListRequest,
 )
 
-MAX_CONTROL_BYTES = 16 * 1024
-WIRE_VERSION = 3
+WIRE_VERSION = 4
 
-type Request = HelloRequest | AttachRequest | ListRequest | KillRequest
+type Request = (
+    HelloRequest | AttachRequest | ListRequest | KillRequest | NewRequest | WatchRequest
+)
 
 
 @runtime_checkable
@@ -34,58 +40,29 @@ class ControlRequest(Protocol):
 
 
 class ControlCodec:
-    """Bounded UTF-8 JSON codec with a closed operation registry."""
+    """Requests on channel zero, discriminated by ``op`` from a closed registry.
+
+    Session events share the frame but carry ``event`` instead of ``op``, so
+    this decoder refuses them (see ``SessionEvent.decode``).
+    """
 
     _DECODERS: ClassVar[dict[str, Callable[[Mapping[str, object]], Request]]] = {
         "hello": HelloRequest.from_dict,
         "attach": AttachRequest.from_dict,
         "list": ListRequest.from_dict,
         "kill": KillRequest.from_dict,
+        "new": NewRequest.from_dict,
+        "watch": WatchRequest.from_dict,
     }
 
     @classmethod
     def encode(cls, request: ControlRequest) -> bytes:
-        data = json.dumps(
-            request.to_dict(),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        cls._check_size(data)
-        return data
+        return ControlJson.dump(request.to_dict())
 
     @classmethod
     def decode(cls, data: bytes) -> Request:
-        cls._check_size(data)
-        try:
-            raw: object = json.loads(
-                data.decode("utf-8"),
-                object_pairs_hook=cls._object,
-                parse_constant=cls._reject_constant,
-            )
-        except (UnicodeError, ValueError) as error:
-            raise ControlError(f"invalid control JSON: {error}") from error
-        if not isinstance(raw, dict):
-            raise ControlError("control message must be an object")
-        fields = cast("dict[str, object]", raw)
+        fields = ControlJson.parse(data)
         operation = fields.get("op")
         if not isinstance(operation, str) or operation not in cls._DECODERS:
             raise ControlError("unknown control operation")
         return cls._DECODERS[operation](fields)
-
-    @staticmethod
-    def _check_size(data: bytes) -> None:
-        if not data or len(data) > MAX_CONTROL_BYTES:
-            raise ControlError("control payload is empty or exceeds its size limit")
-
-    @staticmethod
-    def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        """Reject duplicate keys rather than silently choosing one authority."""
-        result = dict(pairs)
-        if len(result) != len(pairs):
-            raise ControlError("duplicate control field")
-        return result
-
-    @staticmethod
-    def _reject_constant(value: str) -> object:
-        raise ControlError(f"non-finite number {value}")
