@@ -95,14 +95,7 @@ esac
 
 log_applet_event() {
   if command -v lux &>/dev/null; then
-    (
-      lux hook applet-event "$@" </dev/null >/dev/null 2>&1 &
-      log_pid=$!
-      (sleep 5; kill "$log_pid" 2>/dev/null || true) &
-      watchdog_pid=$!
-      wait "$log_pid" || true
-      kill "$watchdog_pid" 2>/dev/null || true
-    ) </dev/null >/dev/null 2>&1 &
+    lux hook applet-event "$@" </dev/null >/dev/null 2>&1 &
     disown
   fi
 }
