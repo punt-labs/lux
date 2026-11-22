@@ -21,14 +21,14 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux._backends import pgrep_pid
-from punt_lux._service_spec import HUB_SPEC, ServiceSpec
-from punt_lux.hub_paths import HubPaths
+from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.service import (
     HubServiceManager,
     ServiceActionFailedError,
     ServiceNotInstalledError,
 )
+from punt_lux.service._backends import pgrep_pid
+from punt_lux.service._service_spec import HUB_SPEC, ServiceSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -1,4 +1,4 @@
-"""Tests for the HubPaths class in punt_lux.hub_paths."""
+"""Tests for the HubPaths class in punt_lux.kernel.hub_paths."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from punt_lux.hub_paths import HubPaths
+from punt_lux.kernel.hub_paths import HubPaths
 
 
 class TestHubPaths:
@@ -58,6 +58,6 @@ class TestIsRunning:
         paths = HubPaths(tmp_path)
         for corrupt in ("0", "-1"):
             pid_file.write_text(corrupt)
-            with patch("punt_lux.hub_paths.os.kill") as kill:
+            with patch("punt_lux.kernel.hub_paths.os.kill") as kill:
                 assert paths.is_running() is False
             kill.assert_not_called()

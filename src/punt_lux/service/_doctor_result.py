@@ -5,16 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux._binary_sweep import BinarySweepReport
-from punt_lux._legacy_sweep import LegacySweepReport
-from punt_lux._port_guard import PortGuardResult
-from punt_lux._service_errors import PortConflictError, ServiceMigrationError
+from punt_lux.service._binary_sweep import BinarySweepReport
+from punt_lux.service._legacy_sweep import LegacySweepReport
+from punt_lux.service._port_guard import PortGuardResult
+from punt_lux.service._service_errors import PortConflictError, ServiceMigrationError
 
 if TYPE_CHECKING:
-    from punt_lux._binary_sweep import BinarySweep
-    from punt_lux._legacy_sweep import LegacySweep
-    from punt_lux._port_guard import PortGuard
-    from punt_lux._service_spec import ServiceSpec
+    from punt_lux.service._binary_sweep import BinarySweep
+    from punt_lux.service._legacy_sweep import LegacySweep
+    from punt_lux.service._port_guard import PortGuard
+    from punt_lux.service._service_spec import ServiceSpec
 
 __all__ = ["DoctorCheckers", "DoctorResult"]
 

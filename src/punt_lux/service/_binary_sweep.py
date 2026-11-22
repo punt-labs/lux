@@ -5,11 +5,11 @@ A ``[project.scripts]`` rename leaves the old shim behind in
 under the new name -- ``uv`` only reconciles entrypoints it currently
 declares, so it has no reason to remove a file it no longer manages
 (``docs/architecture/binary-rename-migration.md``). This is a sibling of
-:class:`~punt_lux._legacy_sweep.LegacySweep`, not a subtype: a disk shim has
+:class:`~punt_lux.service._legacy_sweep.LegacySweep`, not a subtype: a disk shim has
 no registration/config split to order around, and its central hazard is
 identity (is this file even ours?), not sequencing -- see
 ``docs/architecture/binary-rename-migration.md`` §2.1.
-:class:`~punt_lux._binary_sweep_disk.DiskBinaryLegacySweep` satisfies this
+:class:`~punt_lux.service._binary_sweep_disk.DiskBinaryLegacySweep` satisfies this
 ``Protocol`` structurally; see ``punt-kit/standards/oo.md`` "Families share
 by protocol, not base class."
 """
@@ -95,7 +95,7 @@ class BinarySweep(Protocol):
 
         Attempts every name to completion -- never short-circuits on the
         first failure -- then raises
-        :class:`~punt_lux._service_errors.ServiceMigrationError` once,
+        :class:`~punt_lux.service._service_errors.ServiceMigrationError` once,
         carrying the complete report, if any name is still not clean. A
         refusal (ownership could not be verified) is fatal, the same as an
         outright removal failure -- never a silent skip.

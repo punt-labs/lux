@@ -22,20 +22,16 @@ class LayerContract:
     """Classify current modules against the planned package dependency graph."""
 
     _prefixes: ClassVar[dict[str, str]] = {
-        "kernel": "tracing bounded_send send_timeout write_progress progress_clock "
-        "polled_event connection_timing socket_owner client_host connection_identity "
+        "kernel": "kernel tracing bounded_send send_timeout write_progress "
+        "progress_clock polled_event connection_timing socket_owner client_host "
+        "connection_identity "
         "paths log_level proctitle repo_root runtime logging_config usage "
         "credentials socket_writer wire_queue",
         "wire": "domain protocol operations.models",
         "trust": "trust",
-        "service": "service _backend_* _backends _platform_dispatch _launchctl "
-        "_legacy_sweep* _binary_sweep* _shim_ownership _atomic_write _port_guard "
-        "_service_* _doctor_result doctor_* hub_restart display_restart hooks "
-        "claude_permissions permission_rules display_enablement config "
-        "_launchd_plist entry_runtime applet_event session_start",
+        "service": "service",
         "client": "client hub_client rest_transport rest_http_call rest_loopback "
-        "rest_reply rest_error_body identity_headers header_value cli_identity "
-        "hub_paths",
+        "rest_reply rest_error_body identity_headers header_value cli_identity",
         "hub": "domain.hub operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
         "transport_policy hub_composition hub_lifespan mcp_session_manager "

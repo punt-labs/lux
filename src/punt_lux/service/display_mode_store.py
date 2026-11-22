@@ -13,9 +13,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self, final
 
-from punt_lux.config import ConfigManager
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.config import DisplayModeState
+from punt_lux.service.config import ConfigManager
 
 __all__ = ["DisplayModeStore"]
 

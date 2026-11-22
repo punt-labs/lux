@@ -1,7 +1,7 @@
 """The permission rules ``lux enable`` grants in a repo's ``.claude/settings.json``.
 
 Pure data, kept apart from the settings-file mechanics in
-:mod:`punt_lux.claude_permissions`.
+:mod:`punt_lux.service.claude_permissions`.
 """
 
 from __future__ import annotations

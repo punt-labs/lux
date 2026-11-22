@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     import pytest
 
-from punt_lux.doctor_checks import EnvironmentChecks
+from punt_lux.service.doctor_checks import EnvironmentChecks
 
 _OK = "✓"
 _FAIL = "✗"
@@ -101,7 +101,9 @@ class _Report:
 
 
 def test_present_fonts_are_reported_by_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _every_path_is_a_file)
+    monkeypatch.setattr(
+        "punt_lux.service.doctor_checks.Path.is_file", _every_path_is_a_file
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
@@ -114,7 +116,9 @@ def test_missing_fonts_name_the_consequence_without_failing_the_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No font on the box is a degraded render, not a broken installation."""
-    monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
+    monkeypatch.setattr(
+        "punt_lux.service.doctor_checks.Path.is_file", _no_path_is_a_file
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
@@ -126,8 +130,10 @@ def test_missing_fonts_name_the_consequence_without_failing_the_run(
 def test_linux_names_the_package_that_provides_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.platform.system", _linux)
-    monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.platform.system", _linux)
+    monkeypatch.setattr(
+        "punt_lux.service.doctor_checks.Path.is_file", _no_path_is_a_file
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
@@ -138,8 +144,10 @@ def test_linux_names_the_package_that_provides_them(
 def test_macos_offers_no_advice_because_it_ships_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.platform.system", _darwin)
-    monkeypatch.setattr("punt_lux.doctor_checks.Path.is_file", _no_path_is_a_file)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.platform.system", _darwin)
+    monkeypatch.setattr(
+        "punt_lux.service.doctor_checks.Path.is_file", _no_path_is_a_file
+    )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).fonts()
 
@@ -149,7 +157,7 @@ def test_macos_offers_no_advice_because_it_ships_them(
 def test_without_the_claude_cli_the_plugin_is_not_asked_about(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _no_claude)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.shutil.which", _no_claude)
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()
 
@@ -159,9 +167,9 @@ def test_without_the_claude_cli_the_plugin_is_not_asked_about(
 
 
 def test_an_installed_plugin_is_reported_by_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.shutil.which", _claude_at_bin)
     monkeypatch.setattr(
-        "punt_lux.doctor_checks.subprocess.run", _plugin_list(f"{_PLUGIN_ID}\n")
+        "punt_lux.service.doctor_checks.subprocess.run", _plugin_list(f"{_PLUGIN_ID}\n")
     )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()
@@ -179,9 +187,9 @@ def test_a_claude_cli_that_never_answers_does_not_hang_doctor(
     sends the reader to reinstall a plugin that may be perfectly fine — so no
     answer is its own outcome with its own line.
     """
-    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.shutil.which", _claude_at_bin)
     monkeypatch.setattr(
-        "punt_lux.doctor_checks.subprocess.run", _plugin_list_never_answers
+        "punt_lux.service.doctor_checks.subprocess.run", _plugin_list_never_answers
     )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()
@@ -204,8 +212,8 @@ def test_the_plugin_list_is_run_under_a_time_bound(
             args=["claude"], returncode=0, stdout="", stderr=""
         )
 
-    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
-    monkeypatch.setattr("punt_lux.doctor_checks.subprocess.run", _run)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.subprocess.run", _run)
     EnvironmentChecks(_Report(), _PLUGIN_ID).plugin()
 
     bound = seen.get("timeout")
@@ -216,9 +224,10 @@ def test_the_plugin_list_is_run_under_a_time_bound(
 def test_an_absent_plugin_names_the_command_that_installs_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.doctor_checks.shutil.which", _claude_at_bin)
+    monkeypatch.setattr("punt_lux.service.doctor_checks.shutil.which", _claude_at_bin)
     monkeypatch.setattr(
-        "punt_lux.doctor_checks.subprocess.run", _plugin_list("other@elsewhere\n")
+        "punt_lux.service.doctor_checks.subprocess.run",
+        _plugin_list("other@elsewhere\n"),
     )
     report = _Report()
     EnvironmentChecks(report, _PLUGIN_ID).plugin()

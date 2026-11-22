@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from punt_lux.hub_restart import HubRestart, HubRestartError
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
+from punt_lux.service.hub_restart import HubRestart, HubRestartError
 
 
 def _pid_series(*values: int | None) -> Iterator[int | None]:
@@ -51,8 +51,11 @@ class TestHubRestartSuccess:
         series = _pid_series(12345, 99999)
 
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.hub_restart.pgrep_pid", side_effect=_fake_pgrep(series)),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
+            patch(
+                "punt_lux.service.hub_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
+            ),
         ):
             result = HubRestart(manager=manager, paths=_paths_stub()).run()
 
@@ -71,8 +74,11 @@ class TestHubRestartSuccess:
         series = _pid_series(None, 42)
 
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.hub_restart.pgrep_pid", side_effect=_fake_pgrep(series)),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
+            patch(
+                "punt_lux.service.hub_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
+            ),
         ):
             result = HubRestart(manager=manager, paths=_paths_stub()).run()
 
@@ -95,9 +101,9 @@ class TestHubRestartSuccess:
         paths.read_port.return_value = 8430
 
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.hub_restart.pgrep_pid",
+                "punt_lux.service.hub_restart.pgrep_pid",
                 side_effect=_fake_pgrep(pgrep_series),
             ),
         ):
@@ -114,8 +120,11 @@ class TestHubRestartSuccess:
         series = _pid_series(12345, 12345, 99999)
 
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.hub_restart.pgrep_pid", side_effect=_fake_pgrep(series)),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
+            patch(
+                "punt_lux.service.hub_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
+            ),
         ):
             result = HubRestart(manager=manager, paths=_paths_stub()).run()
 
@@ -143,9 +152,9 @@ class TestHubRestartFailure:
         manager = MagicMock()
         manager.restart.return_value = "luxd restarted."
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.hub_restart._WAIT_SECONDS", 0.01),
-            patch("punt_lux.hub_restart.pgrep_pid", return_value=12345),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.hub_restart._WAIT_SECONDS", 0.01),
+            patch("punt_lux.service.hub_restart.pgrep_pid", return_value=12345),
             pytest.raises(HubRestartError, match="did not come back"),
         ):
             HubRestart(manager=manager, paths=_paths_stub()).run()
@@ -162,10 +171,11 @@ class TestHubRestartFailure:
         paths = MagicMock()
         paths.is_running.return_value = False  # bind never completes
         with (
-            patch("punt_lux.hub_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.hub_restart._WAIT_SECONDS", 0.01),
+            patch("punt_lux.service.hub_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.hub_restart._WAIT_SECONDS", 0.01),
             patch(
-                "punt_lux.hub_restart.pgrep_pid", side_effect=_pid_after(12345, 99999)
+                "punt_lux.service.hub_restart.pgrep_pid",
+                side_effect=_pid_after(12345, 99999),
             ),
             pytest.raises(HubRestartError, match="did not come back"),
         ):

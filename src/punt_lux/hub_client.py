@@ -30,8 +30,8 @@ from typing import TYPE_CHECKING, Self, final
 import websockets
 
 from punt_lux.domain.programmer_error import ProgrammerError
-from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
+from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     EventFrame,

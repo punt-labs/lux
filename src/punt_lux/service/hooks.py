@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sys
 
-from punt_lux.session_start import SessionStartDecisions
+from punt_lux.service.session_start import SessionStartDecisions
 
 # What a session is told at start when the display is on. The Beads entry it owns
 # is no longer anything the agent does: this session's applet registers it on

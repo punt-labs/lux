@@ -19,7 +19,7 @@ def test_daemon_runtime_records_failure_and_flushes_usage(tmp_path: Path) -> Non
             sys.executable,
             "-c",
             (
-                "from punt_lux.entry_runtime import DaemonRuntime\n"
+                "from punt_lux.service.entry_runtime import DaemonRuntime\n"
                 "from punt_lux.usage import record_first_paint\n"
                 "with DaemonRuntime('test-daemon').run():\n"
                 "    record_first_paint(100)\n"

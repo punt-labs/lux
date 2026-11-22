@@ -1,7 +1,7 @@
 {
-  "total": 173,
+  "total": 172,
   "by_category": {
-    "noqa": 22,
+    "noqa": 21,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 4,
@@ -13,14 +13,6 @@
       "noqa": 1,
       "pyright_ignore": 2,
       "per_file_ignores": 3
-    },
-    "src/punt_lux/_backend_launchd.py": {
-      "pylint_disable": 1,
-      "per_file_ignores": 3
-    },
-    "src/punt_lux/_backend_systemd.py": {
-      "pylint_disable": 1,
-      "per_file_ignores": 2
     },
     "src/punt_lux/apps/_beads_payload.py": {
       "type_ignore": 1
@@ -194,9 +186,6 @@
       "type_ignore": 1,
       "file_level": 1
     },
-    "src/punt_lux/doctor_checks.py": {
-      "noqa": 1
-    },
     "src/punt_lux/domain/handlers/remote_dispatch.py": {
       "noqa": 1
     },
@@ -204,7 +193,6 @@
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
-      "noqa": 1,
       "type_ignore": 1,
       "per_file_ignores": 1
     },
@@ -215,6 +203,17 @@
       "noqa": 1
     },
     "src/punt_lux/ptyd/pty_spawn.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/service/_backend_launchd.py": {
+      "pylint_disable": 1,
+      "per_file_ignores": 3
+    },
+    "src/punt_lux/service/_backend_systemd.py": {
+      "pylint_disable": 1,
+      "per_file_ignores": 2
+    },
+    "src/punt_lux/service/doctor_checks.py": {
       "noqa": 1
     },
     "src/punt_lux/trust/aws_private_ca_provider.py": {
@@ -241,10 +240,10 @@
     "src/punt_lux/runtime.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/config.py": {
+    "src/punt_lux/service/config.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/hooks.py": {
+    "src/punt_lux/service/hooks.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/display/render_loop.py": {
@@ -286,25 +285,25 @@
     "src/punt_lux/protocol/elements/*.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/service.py": {
+    "src/punt_lux/service/__init__.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/_backends.py": {
+    "src/punt_lux/service/_backends.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/_launchctl.py": {
+    "src/punt_lux/service/_launchctl.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/_port_guard.py": {
+    "src/punt_lux/service/_port_guard.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/_legacy_sweep_launchd.py": {
+    "src/punt_lux/service/_legacy_sweep_launchd.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/_legacy_sweep_systemd.py": {
+    "src/punt_lux/service/_legacy_sweep_systemd.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/_shim_ownership.py": {
+    "src/punt_lux/service/_shim_ownership.py": {
       "per_file_ignores": 2
     },
     "tests/e2e/test_binary_sweep.py": {
@@ -335,5 +334,5 @@
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-19T07:33:44Z"
+  "updated_at": "2026-11-22T19:49:55Z"
 }

@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal, Protocol, Self, final, runtime_checkable
 
-from punt_lux.doctor_report import FAIL, OK, OPTIONAL
+from punt_lux.service.doctor_report import FAIL, OK, OPTIONAL
 
 __all__ = ["CheckReporter", "EnvironmentChecks"]
 

@@ -8,8 +8,8 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux._atomic_write import write_config_atomic
-from punt_lux._backends import ServiceBackend, has_linger
+from punt_lux.service._atomic_write import write_config_atomic
+from punt_lux.service._backends import ServiceBackend, has_linger
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec

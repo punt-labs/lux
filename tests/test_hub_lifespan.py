@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from punt_lux.hub_paths import HubPaths
+from punt_lux.kernel.hub_paths import HubPaths
 
 if TYPE_CHECKING:
     from pathlib import Path

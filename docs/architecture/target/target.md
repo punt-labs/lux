@@ -243,6 +243,13 @@ Every package lives under the one `punt_lux` namespace.
 
 ### Layer rules
 
+The first package move installs lifecycle code under `punt_lux.service`, with
+the service managers exported from its `__init__.py`. Private implementation
+modules retain their leading underscores. `HubPaths` and the default Hub port
+live in `punt_lux.kernel`, independent of either the Hub or client SDK.
+Project display-mode file I/O belongs to `service.display_mode_store`; the
+Typer-facing enable/disable orchestration belongs to `cli.display_enablement`.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in

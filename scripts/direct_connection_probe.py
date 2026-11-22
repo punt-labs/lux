@@ -21,7 +21,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
 
-from punt_lux.hub_paths import HubPaths
+from punt_lux.kernel.hub_paths import HubPaths
 
 
 async def _probe(url: str) -> int:

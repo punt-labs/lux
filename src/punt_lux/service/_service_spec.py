@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
-from punt_lux.luxd import DEFAULT_HUB_PORT
+from punt_lux.kernel.hub_defaults import DEFAULT_HUB_PORT
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Self, cast, final
 
-from punt_lux.permission_rules import LUX_RULES
+from punt_lux.service.permission_rules import LUX_RULES
 
 __all__ = ["PermissionChange", "ProjectPermissions"]
 

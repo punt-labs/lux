@@ -1,4 +1,4 @@
-"""Tests for punt_lux._binary_sweep_disk -- disk binary shim cleanup."""
+"""Tests for punt_lux.service._binary_sweep_disk -- disk binary shim cleanup."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux._service_errors import ServiceMigrationError
 from punt_lux.service import HUB_SPEC
+from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
+from punt_lux.service._service_errors import ServiceMigrationError
 
 _SPEC = replace(HUB_SPEC, legacy_binary_names=("luxd",))
 
@@ -57,10 +57,11 @@ class TestDiskBinarySweepPositive:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_tool_dir_result(tmp_path / "uv-tools"),
             ),
         ):
@@ -85,10 +86,11 @@ class TestDiskBinarySweepRefusesUnverifiedTarget:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_tool_dir_result(tmp_path / "uv-tools"),
             ),
         ):
@@ -99,10 +101,11 @@ class TestDiskBinarySweepRefusesUnverifiedTarget:
         assert foreign.exists()
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_tool_dir_result(tmp_path / "uv-tools"),
             ),
         ):
@@ -121,10 +124,11 @@ class TestDiskBinarySweepSiblingPackageRegression:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_tool_dir_result(tmp_path / "uv-tools"),
             ),
         ):
@@ -136,10 +140,11 @@ class TestDiskBinarySweepSiblingPackageRegression:
         assert link.is_symlink()
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_tool_dir_result(tmp_path / "uv-tools"),
             ),
         ):
@@ -154,9 +159,10 @@ class TestDiskBinarySweepIdempotency:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
-            patch("punt_lux._shim_ownership.subprocess.run") as run,
+            patch("punt_lux.service._shim_ownership.subprocess.run") as run,
         ):
             sweep = DiskBinaryLegacySweep(_SPEC)
             report = sweep.sweep()
@@ -176,10 +182,11 @@ class TestDiskBinarySweepUvAbsent:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 side_effect=FileNotFoundError,
             ),
         ):
@@ -209,10 +216,11 @@ class TestDiskBinarySweepUvToolDirEmptyStdout:
 
         with (
             patch(
-                "punt_lux._binary_sweep_disk.Path.home", return_value=tmp_path / "home"
+                "punt_lux.service._binary_sweep_disk.Path.home",
+                return_value=tmp_path / "home",
             ),
             patch(
-                "punt_lux._shim_ownership.subprocess.run",
+                "punt_lux.service._shim_ownership.subprocess.run",
                 return_value=_EmptyResult(),
             ),
         ):

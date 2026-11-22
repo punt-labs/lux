@@ -138,7 +138,7 @@ def test_reports_missing_port_file(
     def _no_port(self: object) -> None:
         return None
 
-    monkeypatch.setattr("punt_lux.hub_paths.HubPaths.read_port", _no_port)
+    monkeypatch.setattr("punt_lux.kernel.hub_paths.HubPaths.read_port", _no_port)
 
     rc = probe.main()
 
@@ -159,7 +159,7 @@ def test_reports_unreachable_luxd(
     def _refuse(url: str) -> _RefusingClient:
         return _RefusingClient()
 
-    monkeypatch.setattr("punt_lux.hub_paths.HubPaths.read_port", _port)
+    monkeypatch.setattr("punt_lux.kernel.hub_paths.HubPaths.read_port", _port)
     monkeypatch.setattr(probe, "streamable_http_client", _refuse)
 
     rc = probe.main()

@@ -1,6 +1,6 @@
 """ShimOwnership -- verify a disk shim resolves inside a package's uv tool dir.
 
-Split out of :mod:`~punt_lux._binary_sweep_disk` (composition, not
+Split out of :mod:`~punt_lux.service._binary_sweep_disk` (composition, not
 inheritance -- PY-IC-1): resolving ``uv tool dir`` and following a shim to
 its real target is a self-contained concern with its own lazy-cache state,
 independent of the sweep/diagnose orchestration that owns it.
@@ -61,7 +61,7 @@ class ShimOwnership:
 
         Absence of ``uv`` on ``PATH`` means "cannot verify," which means
         "do not remove" -- the same fail-closed posture
-        :meth:`~punt_lux._port_guard.PortGuard.guard` takes for a missing
+        :meth:`~punt_lux.service._port_guard.PortGuard.guard` takes for a missing
         ``lsof``.
         """
         try:

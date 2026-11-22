@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from punt_lux.applet_event import AppletEvent, AppletRecords
+from punt_lux.service.applet_event import AppletEvent, AppletRecords
 
 
 @pytest.mark.parametrize(

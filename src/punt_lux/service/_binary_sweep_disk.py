@@ -4,7 +4,7 @@ No platform split: unlike launchd/systemd, ``uv tool install``'s shim layout
 (``~/.local/bin/<name>`` -> ``<uv tool dir>/<package>/bin/<name>``) is uv's own
 behavior on both macOS and Linux, so this is the one and only implementation --
 composed directly by :class:`~punt_lux.service.ServiceManager`, never routed
-through :func:`~punt_lux._platform_dispatch.platform_classes`
+through :func:`~punt_lux.service._platform_dispatch.platform_classes`
 (``docs/architecture/binary-rename-migration.md`` §2.2).
 """
 
@@ -14,10 +14,10 @@ import logging
 from pathlib import Path
 from typing import Self, final
 
-from punt_lux._binary_sweep import BinarySweepReport, DiskBinaryOutcome
-from punt_lux._service_errors import ServiceMigrationError
-from punt_lux._service_spec import ServiceSpec
-from punt_lux._shim_ownership import ShimOwnership
+from punt_lux.service._binary_sweep import BinarySweepReport, DiskBinaryOutcome
+from punt_lux.service._service_errors import ServiceMigrationError
+from punt_lux.service._service_spec import ServiceSpec
+from punt_lux.service._shim_ownership import ShimOwnership
 
 logger = logging.getLogger(__name__)
 

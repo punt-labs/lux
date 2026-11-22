@@ -6,20 +6,20 @@ import logging
 import os
 from typing import ClassVar, Self, final
 
-from punt_lux._backends import ServiceBackend
-from punt_lux._binary_sweep import BinarySweep
-from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux._doctor_result import DoctorCheckers, DoctorResult
-from punt_lux._legacy_sweep import LegacySweep
-from punt_lux._platform_dispatch import detect_platform, platform_classes
-from punt_lux._port_guard import PortGuard
-from punt_lux._service_errors import (
+from punt_lux.service._backends import ServiceBackend
+from punt_lux.service._binary_sweep import BinarySweep
+from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
+from punt_lux.service._doctor_result import DoctorCheckers, DoctorResult
+from punt_lux.service._legacy_sweep import LegacySweep
+from punt_lux.service._platform_dispatch import detect_platform, platform_classes
+from punt_lux.service._port_guard import PortGuard
+from punt_lux.service._service_errors import (
     PortConflictError,
     ServiceActionFailedError,
     ServiceMigrationError,
     ServiceNotInstalledError,
 )
-from punt_lux._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
+from punt_lux.service._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
 
 logger = logging.getLogger(__name__)
 

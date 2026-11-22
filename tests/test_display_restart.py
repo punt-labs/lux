@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from punt_lux.display_restart import DisplayRestart, DisplayRestartError
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
+from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
 
 
 def _pid_series(*values: int | None) -> Iterator[int | None]:
@@ -52,9 +52,10 @@ class TestDisplayRestartSuccess:
         series = _pid_series(500, 501)
 
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.display_restart.pgrep_pid", side_effect=_fake_pgrep(series)
+                "punt_lux.service.display_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
             ),
         ):
             result = DisplayRestart(
@@ -72,9 +73,10 @@ class TestDisplayRestartSuccess:
         series = _pid_series(None, 77)
 
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.display_restart.pgrep_pid", side_effect=_fake_pgrep(series)
+                "punt_lux.service.display_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
             ),
         ):
             result = DisplayRestart(
@@ -98,9 +100,9 @@ class TestDisplayRestartSuccess:
         paths.socket_path = "/tmp/lux-test/display.sock"
 
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.display_restart.pgrep_pid",
+                "punt_lux.service.display_restart.pgrep_pid",
                 side_effect=_fake_pgrep(pgrep_series),
             ),
         ):
@@ -128,9 +130,9 @@ class TestDisplayRestartSuccess:
         paths.socket_path = "/tmp/lux-test/display.sock"
 
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.display_restart.pgrep_pid",
+                "punt_lux.service.display_restart.pgrep_pid",
                 side_effect=_fake_pgrep(pgrep_series),
             ),
         ):
@@ -144,9 +146,10 @@ class TestDisplayRestartSuccess:
         series = _pid_series(500, 500, 501)
 
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.display_restart.pgrep_pid", side_effect=_fake_pgrep(series)
+                "punt_lux.service.display_restart.pgrep_pid",
+                side_effect=_fake_pgrep(series),
             ),
         ):
             result = DisplayRestart(
@@ -177,9 +180,9 @@ class TestDisplayRestartFailure:
         manager = MagicMock()
         manager.restart.return_value = "display restarted."
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.display_restart._WAIT_SECONDS", 0.01),
-            patch("punt_lux.display_restart.pgrep_pid", return_value=500),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
+            patch("punt_lux.service.display_restart.pgrep_pid", return_value=500),
             pytest.raises(DisplayRestartError, match="did not come back"),
         ):
             DisplayRestart(manager=manager, paths=_paths_stub()).run()
@@ -193,10 +196,10 @@ class TestDisplayRestartFailure:
         manager.restart.return_value = "display restarted."
         paths = _paths_stub(is_running=False)
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.display_restart._WAIT_SECONDS", 0.01),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
             patch(
-                "punt_lux.display_restart.pgrep_pid",
+                "punt_lux.service.display_restart.pgrep_pid",
                 side_effect=_pid_after(500, 501),
             ),
             pytest.raises(DisplayRestartError, match="did not come back"),
@@ -211,10 +214,10 @@ class TestDisplayRestartFailure:
         manager.restart.return_value = "display restarted."
         paths = _paths_stub(is_running=True, peer_pid=500)  # always the old pid
         with (
-            patch("punt_lux.display_restart._POLL_SECONDS", 0.001),
-            patch("punt_lux.display_restart._WAIT_SECONDS", 0.01),
+            patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
+            patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
             patch(
-                "punt_lux.display_restart.pgrep_pid",
+                "punt_lux.service.display_restart.pgrep_pid",
                 side_effect=_pid_after(500, 501),
             ),
             pytest.raises(DisplayRestartError, match="did not come back"),

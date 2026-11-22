@@ -20,14 +20,14 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux._backends import pgrep_pid
-from punt_lux._service_spec import DISPLAY_SPEC, ServiceSpec
 from punt_lux.paths import DisplayPaths
 from punt_lux.service import (
     DisplayServiceManager,
     ServiceActionFailedError,
     ServiceNotInstalledError,
 )
+from punt_lux.service._backends import pgrep_pid
+from punt_lux.service._service_spec import DISPLAY_SPEC, ServiceSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

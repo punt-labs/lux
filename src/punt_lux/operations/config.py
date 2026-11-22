@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.operations.display_mode_store import DisplayModeStore
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.config import DisplayModeRequest, DisplayModeState
+from punt_lux.service.display_mode_store import DisplayModeStore
 
 __all__ = ["DisplayModeOperations"]
 

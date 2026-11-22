@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
-from punt_lux._backends import ServiceBackend
-from punt_lux._launchctl import launchctl
-from punt_lux._launchd_plist import LaunchdPlist
-from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux._service_errors import ServiceMigrationError
+from punt_lux.service._backends import ServiceBackend
+from punt_lux.service._launchctl import launchctl
+from punt_lux.service._launchd_plist import LaunchdPlist
+from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux.service._service_errors import ServiceMigrationError
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec

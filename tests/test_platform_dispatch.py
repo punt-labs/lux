@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux._backend_launchd import LaunchdBackend
-from punt_lux._backend_systemd import SystemdBackend
-from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux._legacy_sweep_systemd import SystemdLegacySweep
-from punt_lux._platform_dispatch import platform_classes
+from punt_lux.service._backend_launchd import LaunchdBackend
+from punt_lux.service._backend_systemd import SystemdBackend
+from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux.service._legacy_sweep_systemd import SystemdLegacySweep
+from punt_lux.service._platform_dispatch import platform_classes
 
 
 def test_macos_resolves_launchd_classes() -> None:

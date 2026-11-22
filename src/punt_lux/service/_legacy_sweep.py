@@ -68,7 +68,7 @@ class LegacySweep(Protocol):
 
         Attempts every identifier to completion -- never short-circuits on
         the first failure -- then raises
-        :class:`~punt_lux._service_errors.ServiceMigrationError` once,
+        :class:`~punt_lux.service._service_errors.ServiceMigrationError` once,
         carrying the complete report, if any identifier is still not clean.
         """
         ...

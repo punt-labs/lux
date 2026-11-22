@@ -1,4 +1,4 @@
-"""Tests for punt_lux.config — YAML frontmatter config read/write."""
+"""Tests for punt_lux.service.config — YAML frontmatter config read/write."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.config import (
+from punt_lux.service.config import (
     ConfigManager,
     LuxConfig,
 )

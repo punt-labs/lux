@@ -739,7 +739,7 @@ Lux has MCP tools (`show`, `update`, `clear`, `ping`, `recv`, `set_menu`, `set_t
 |---------|-------------|
 | `lux hook session-start` | First-run setup (deploy commands, auto-allow tools) |
 
-Shell scripts are thin gates. Business logic lives in `src/punt_lux/hooks.py` as testable pure functions.
+Shell scripts are thin gates. Business logic lives in `src/punt_lux/service/hooks.py` as testable pure functions.
 
 ### Slash Commands (Plugin Projection)
 
@@ -776,7 +776,7 @@ The display server runs independently — `lux on` implies starting/stopping the
 **Topic:** How the Stop hook forces a visual summary before session end
 
 > **Superseded:** No `stop` hook is present in the shipped code. `hooks/`
-> contains only `session-start.sh` and `suppress-output.sh`; `hooks.py` has no
+> contains only `session-start.sh` and `suppress-output.sh`; `service/hooks.py` has no
 > `handle_stop`; `hook_app` in `__main__.py` registers only `session-start`.
 > This ADR's subsystem — the decision-block, the re-entry guard, the
 > `handle_stop()` call path below — never shipped as described or was removed
@@ -820,11 +820,11 @@ Stop hook fires
 Claude Code Stop event
   → hooks/stop.sh (thin gate: check .lux/config.md)
   → lux hook stop (CLI dispatcher)
-  → hooks.py:handle_stop() (pure function)
+  → service/hooks.py:handle_stop() (pure function)
   → returns decision JSON
 ```
 
-The shell script reads config to check if notify is enabled. If not, exits immediately (no Python startup cost). If enabled, delegates to `lux hook stop` which calls `hooks.py:handle_stop()`.
+The shell script reads config to check if notify is enabled. If not, exits immediately (no Python startup cost). If enabled, delegates to `lux hook stop` which calls `service/hooks.py:handle_stop()`.
 
 ### Re-entry Guard
 
@@ -871,7 +871,7 @@ Signals accumulate in `.lux/signals.json` (or equivalent state file) during the 
 Claude Code PostToolUse Bash event
   → hooks/post-bash.sh (thin gate: check .lux enabled)
   → lux hook post-bash (CLI dispatcher, reads stdin)
-  → hooks.py:handle_post_bash(data) (pure classifier)
+  → service/hooks.py:handle_post_bash(data) (pure classifier)
   → appends signal to state file
 ```
 
@@ -895,7 +895,7 @@ Signals are stored in `.lux/signals.json` as a simple array of `{type, timestamp
 > `display` key — not `.lux/config.md` with a `notify` key. It is read/written
 > via the `display_mode` / `set_display_mode` MCP tools, which now require an
 > absolute `repo` argument (lux-r929); `luxd` holds no display-config state.
-> There is no `lux notify` CLI or `signals.json`. See `src/punt_lux/config.py`.
+> There is no `lux notify` CLI or `signals.json`. See `src/punt_lux/service/config.py`.
 
 ### Context
 
@@ -1880,13 +1880,13 @@ DES-022 D2 established that "the display shouldn't know what a Beads Explorer is
 
 ### Containment Rules
 
-1. **`apps/` modules import only `DisplayClient` and `protocol` types.** No imports from `display.py`, `hooks.py`, `tools.py`, or other Lux internals. The dependency rule: host modules (`tools.py`, `hooks.py`, `show.py`) import from `apps/`; `apps/` modules import only from `display_client` and `protocol` — never from host modules.
+1. **`apps/` modules import only `DisplayClient` and `protocol` types.** No imports from `display.py`, `service/hooks.py`, `tools.py`, or other Lux internals. The dependency rule: host modules (`tools.py`, `service/hooks.py`, `show.py`) import from `apps/`; `apps/` modules import only from `display_client` and `protocol` — never from host modules.
 
 2. **Pure data functions are testable without a display.** `load_beads()` and `build_beads_payload()` are pure functions that read files and return dicts. They can be tested, extracted, or replaced without touching the renderer.
 
-3. **Wiring lives in the host, not the app.** The MCP server (`tools.py`) registers the menu item and callback. The hook dispatcher (`hooks.py`) triggers refreshes. The CLI (`show.py`) exposes the command. The app module itself has no knowledge of menus, hooks, or CLI — it just builds content and sends it to a `DisplayClient`.
+3. **Wiring lives in the host, not the app.** The MCP server (`tools.py`) registers the menu item and callback. The hook dispatcher (`service/hooks.py`) triggers refreshes. The CLI (`show.py`) exposes the command. The app module itself has no knowledge of menus, hooks, or CLI — it just builds content and sends it to a `DisplayClient`.
 
-4. **Each app is extractable.** `apps/beads.py` is designed to move to the `punt-beads` repo as an optional Lux integration. When that happens, Lux removes `apps/beads.py` and the wiring in `tools.py`/`hooks.py`/`show.py`. The beads team owns their applet; Lux provides the rendering surface.
+4. **Each app is extractable.** `apps/beads.py` is designed to move to the `punt-beads` repo as an optional Lux integration. When that happens, Lux removes `apps/beads.py` and the wiring in `tools.py`/`service/hooks.py`/`show.py`. The beads team owns their applet; Lux provides the rendering surface.
 
 ### Current Structure
 
@@ -1896,7 +1896,7 @@ src/punt_lux/
 │   ├── __init__.py
 │   └── beads.py          ← guest: data loading + table layout
 ├── tools.py              ← host: menu registration + callback wiring
-├── hooks.py              ← host: PostToolUse Bash → auto-refresh
+├── service/hooks.py              ← host: PostToolUse Bash → auto-refresh
 ├── show.py               ← host: CLI `lux show beads`
 └── display.py            ← renderer: knows nothing about beads
 ```
@@ -1906,7 +1906,7 @@ src/punt_lux/
 | Layer | What the host provides | What the app provides |
 |-------|----------------------|---------------------|
 | Menu | `declare_menu_item` + `on_event` callback in `tools.py` | Click handler calls `render_*()` |
-| Hook | PostToolUse matcher in `hooks.json` + dispatcher in `hooks.py` | Nothing — refresh is the host's concern |
+| Hook | PostToolUse matcher in `hooks.json` + dispatcher in `service/hooks.py` | Nothing — refresh is the host's concern |
 | CLI | `show_app.command()` in `show.py` | `load_*()` + `build_*_payload()` |
 | Display | Frame rendering (DES-022) | Nothing — the display is generic |
 
@@ -5173,7 +5173,7 @@ menu rendering (a special case for one session — ruled out).
 grep for `bd` and push a `lux show beads` refresh — predated this design and
 is now redundant: the session's own applet owns and services its Beads menu
 entry directly. Removed along with `handle_post_bash`/`read_hook_input` in
-`hooks.py` and the `lux hook post-bash` CLI dispatcher.
+`service/hooks.py` and the `lux hook post-bash` CLI dispatcher.
 
 ## DES-059: One Menu, Two Projections — the Menu Bar and the World Menu Are Identical
 

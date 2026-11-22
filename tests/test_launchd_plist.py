@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux._launchd_plist import LaunchdPlist
 from punt_lux.service import HUB_SPEC
+from punt_lux.service._launchd_plist import LaunchdPlist
 
 
 def test_plist_missing_write_and_read(tmp_path: Path) -> None:
@@ -23,7 +23,8 @@ def test_plist_missing_write_and_read(tmp_path: Path) -> None:
     assert plist.installed_content() == "<plist/>"
     assert plist.spec is HUB_SPEC
     with patch(
-        "punt_lux._launchctl.LaunchctlSubsystem.gui_domain", return_value="gui/42"
+        "punt_lux.service._launchctl.LaunchctlSubsystem.gui_domain",
+        return_value="gui/42",
     ):
         assert plist.target == f"gui/42/{HUB_SPEC.launchd_label}"
 

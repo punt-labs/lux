@@ -5,17 +5,17 @@ from __future__ import annotations
 import platform
 from typing import TYPE_CHECKING, NamedTuple
 
-from punt_lux._backend_launchd import LaunchdBackend
-from punt_lux._backend_systemd import SystemdBackend
-from punt_lux._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux._legacy_sweep_systemd import SystemdLegacySweep
+from punt_lux.service._backend_launchd import LaunchdBackend
+from punt_lux.service._backend_systemd import SystemdBackend
+from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux.service._legacy_sweep_systemd import SystemdLegacySweep
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux._backends import ServiceBackend
-    from punt_lux._legacy_sweep import LegacySweep
-    from punt_lux._service_spec import ServiceSpec
+    from punt_lux.service._backends import ServiceBackend
+    from punt_lux.service._legacy_sweep import LegacySweep
+    from punt_lux.service._service_spec import ServiceSpec
 
 __all__ = ["PlatformClasses", "detect_platform", "platform_classes"]
 

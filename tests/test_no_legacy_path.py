@@ -31,7 +31,7 @@ _FORBIDDEN_SOURCE_PATTERNS = (
     # The six deleted Legacy*Element classes, named precisely rather than by
     # the bare "class Legacy" prefix -- "legacy" is also the correct English
     # word for the unrelated service-lifecycle domain (LegacySweep and kin,
-    # src/punt_lux/_legacy_sweep.py: curing pre-rename launchd/systemd
+    # src/punt_lux/service/_legacy_sweep.py: curing pre-rename launchd/systemd
     # registrations), and a bare-prefix match would forbid that legitimate
     # reuse along with the real element-migration regression it exists to
     # catch.

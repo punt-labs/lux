@@ -1,13 +1,13 @@
 # Service Lifecycle Migration: A Rename Is a Migration, Not a Hope
 
 **Status:** delivered. Bead `lux-ehzy`, design mission `m-2026-08-21-012`.
-Implemented by `_legacy_sweep.py`, `_legacy_sweep_launchd.py`, and
-`_legacy_sweep_systemd.py`, wired into the service backends. Sections below
+Implemented by `service/_legacy_sweep.py`, `service/_legacy_sweep_launchd.py`, and
+`service/_legacy_sweep_systemd.py`, wired into the service backends. Sections below
 retain the pre-migration diagnosis and ratified design.
 
 ## 1. Problem Statement and Repro
 
-`LaunchdBackend._remove_legacy_plists` (`src/punt_lux/_backend_launchd.py:187-204`)
+`LaunchdBackend._remove_legacy_plists` (`src/punt_lux/service/_backend_launchd.py:187-204`)
 cleans up the pre-`lux-5uc7` `com.punt-labs.lux` LaunchAgent when a hub install
 runs under the renamed `com.punt-labs.luxd-hub` label. The cleanup call, line
 201:
@@ -20,11 +20,11 @@ legacy.unlink(missing_ok=True)
 `unload -w` is the **legacy** launchd API — the pre-`bootstrap`/`bootout`
 subsystem addressed by plist path rather than by domain target
 (`gui/<uid>/<label>`). Every other verb this backend issues —
-`stop` (`_backend_launchd.py:105-118`, `bootout`), `start`
-(`_backend_launchd.py:135-147`, `bootstrap`), `restart`
-(`_backend_launchd.py:120-133`, `kickstart -k`) — already uses the modern
+`stop` (`service/_backend_launchd.py:105-118`, `bootout`), `start`
+(`service/_backend_launchd.py:135-147`, `bootstrap`), `restart`
+(`service/_backend_launchd.py:120-133`, `kickstart -k`) — already uses the modern
 domain-based subsystem. Only `_remove_legacy_plists` and the self-upgrade path
-inside `install()` (`_backend_launchd.py:66-80`, `unload -w`/`load -w`,
+inside `install()` (`service/_backend_launchd.py:66-80`, `unload -w`/`load -w`,
 discussed in §5 alternative 6) still speak the legacy dialect.
 
 **Why `unload -w` fails silently on a `bootstrap`-loaded service:** the two
@@ -33,7 +33,7 @@ launchd subsystems do not fully interoperate. A job registered via
 which expects to have loaded the job itself via the matching legacy `load`
 call. When the domains mismatch, `unload -w <plist>` returns exit code 0
 (no error) while the job stays registered in launchd's in-memory job table.
-`launchctl.run` (`src/punt_lux/_launchctl.py:28-38`) only logs a warning on
+`launchctl.run` (`src/punt_lux/service/_launchctl.py:28-38`) only logs a warning on
 **non-zero** exit — a zero exit here is indistinguishable from a real
 success, so nothing fires. Line 202 then unconditionally unlinks the plist
 file: the file that was the *only* on-disk evidence the LaunchAgent ever
@@ -66,7 +66,7 @@ verify the cure, and abort loud if it cannot.
 ### 2.1 Shape: a `LegacySweep` family, composed by `ServiceManager` — not a method on `ServiceBackend`
 
 Two abstract methods could have been added to `ServiceBackend`
-(`_backends.py:44-89`): `sweep_legacy() -> LegacySweepReport` and
+(`service/_backends.py:44-89`): `sweep_legacy() -> LegacySweepReport` and
 `is_clean() -> bool`. §5.1 explains why this was rejected. The adopted shape
 is a standalone class family:
 
@@ -81,7 +81,7 @@ SystemdLegacySweep(spec: ServiceSpec)     # @final, __slots__
 
 Each concrete class reads its target identifiers from `ServiceSpec` (§2.2),
 never from a hardcoded string comparison. `ServiceManager.__new__`
-(`service.py:63-73`) already dispatches `LaunchdBackend`/`SystemdBackend` by
+(`service/__init__.py:63-73`) already dispatches `LaunchdBackend`/`SystemdBackend` by
 platform; it gains a second dispatch alongside it:
 
 ```python
@@ -101,7 +101,7 @@ implementation to inherit).
 
 ### 2.2 `ServiceSpec` gains the legacy identity as data
 
-`ServiceSpec` (`_service_spec.py:22-35`) is a frozen dataclass; it already
+`ServiceSpec` (`service/_service_spec.py:22-35`) is a frozen dataclass; it already
 carries `launchd_label` and `systemd_unit` as this service's *current*
 platform identity. It gains two more fields for its *historical* identity:
 
@@ -120,11 +120,11 @@ leaves all three at their empty/`None` defaults — the sweep and the port
 guard both no-op naturally on an empty tuple or a `None` port, with no
 `if spec.launchd_label != "com.punt-labs.luxd-hub": return` string
 special-case anywhere (§5.2 rejects that shape, which is what
-`_backend_launchd.py:196` does today).
+`service/_backend_launchd.py:196` does today).
 
 A future rename train (the disk-binary rename `luxd` → `luxd-hub` the
 operator has already flagged as separate scope) adds one label to one
-tuple in `_service_spec.py`. No sweep class, no backend, and no call site
+tuple in `service/_service_spec.py`. No sweep class, no backend, and no call site
 changes.
 
 ### 2.3 `LegacySweepReport` — a value type, not a bare bool
@@ -198,7 +198,7 @@ running `sweep()` on an already-clean machine issues zero `launchctl`/
 ## 4. Failure Semantics
 
 Every failure in the legacy-cure path is **fatal** — no `|| warn`, no
-"proceeding with load" fallthrough (the shape at `_backend_launchd.py:76-80`
+"proceeding with load" fallthrough (the shape at `service/_backend_launchd.py:76-80`
 today, discussed as its own finding in §5.6). Concretely:
 
 **Identifier-loop semantics.** `sweep()` iterates every identifier in
@@ -248,7 +248,7 @@ discover the next one after fixing it by hand.
 
 Once every identifier has been attempted, `sweep()` checks
 `report.all_clean`; if `False`, it raises `ServiceMigrationError` (new
-exception, `_service_errors.py`) exactly once, carrying the complete
+exception, `service/_service_errors.py`) exactly once, carrying the complete
 `LegacySweepReport.describe()` — every failed identifier's repair line, not
 just the first. `ServiceManager.install()` propagates `ServiceMigrationError`
 uncaught — `install()` aborts, `lux hub install` exits non-zero, and the
@@ -299,7 +299,7 @@ class PortGuardResult:
 `check()` shells out to `lsof -nP -iTCP:<port> -sTCP:LISTEN -t` (present by
 default on macOS and on most Linux distributions; absent on some minimal
 containers). If no pid holds the port, `status="free"`. If the holding pid
-equals `pgrep_pid(spec.process_name)` (`_backends.py:20-41`, already
+equals `pgrep_pid(spec.process_name)` (`service/_backends.py:20-41`, already
 platform-agnostic and already used elsewhere in this module), `status="ours"`.
 If a different pid holds it, `status="foreign"` with that pid recorded. If
 `lsof` itself is not on `PATH` (`FileNotFoundError`), `check()` logs a
@@ -341,7 +341,7 @@ corrupting anything, and `sweep()` never gates on that exit code directly
 — it gates only on the post-deregister `is_clean()` re-check (§4 step 3),
 which both racers evaluate independently against the real, converged
 launchd/systemd state. Config-file deletion uses `unlink(missing_ok=True)`
-(the same pattern already in use at `_backend_launchd.py:97,202` for the
+(the same pattern already in use at `service/_backend_launchd.py:97,202` for the
 non-racing case) specifically so that the racer who loses the delete race
 — because the other one already removed the file — gets a silent no-op
 rather than a `FileNotFoundError` crash. The one real hazard is a TOCTOU
@@ -385,7 +385,7 @@ is precisely the optimism the operator's ruling forbids.
 
 Considered hardcoding the legacy label/unit name as a class-level constant
 inside `LaunchdLegacySweep`/`SystemdLegacySweep`, mirroring how
-`_backend_launchd.py:196` today special-cases
+`service/_backend_launchd.py:196` today special-cases
 `if self._spec.launchd_label != "com.punt-labs.luxd-hub": return`. Rejected
 in favor of the `ServiceSpec` fields in §2.2, because:
 
@@ -396,7 +396,7 @@ in favor of the `ServiceSpec` fields in §2.2, because:
 - A string-equality special case inside the sweep class is exactly the kind
   of hardcoded backend logic PY-IC-7 (Open-Closed) flags: adding the next
   legacy label means editing sweep-class logic. A tuple field means editing
-  one line of data in `_service_spec.py`, with `DISPLAY_SPEC`'s empty tuple
+  one line of data in `service/_service_spec.py`, with `DISPLAY_SPEC`'s empty tuple
   requiring no special case at all — it is data that happens to be empty,
   not a branch that happens to `return`.
 - It generalizes for free to the disk-binary rename train the operator has
@@ -407,8 +407,8 @@ in favor of the `ServiceSpec` fields in §2.2, because:
 Considered telling operators to simply re-run `lux hub install` to repair a
 broken state, since `install()` already runs the sweep unconditionally.
 Rejected: `install()` also rewrites the plist/unit file and reloads/restarts
-the *current* service (`_backend_launchd.py:82-88`,
-`_backend_systemd.py:56-63`) — more mutation than a repair-only operation
+the *current* service (`service/_backend_launchd.py:82-88`,
+`service/_backend_systemd.py:56-63`) — more mutation than a repair-only operation
 needs, and it offers no read-only mode. An operator diagnosing "is my
 machine clean" before deciding to act needs a query that touches nothing;
 `install()` cannot be that query. §6 adopts a dedicated `doctor` command
@@ -419,7 +419,7 @@ path, different entry points, per the mission's explicit constraint.
 ### 5.4 `sweep()`/`is_clean()` as methods on `ServiceBackend` vs. a separate class
 
 Considered adding `sweep_legacy()` and `is_clean()` directly to the existing
-`ServiceBackend` ABC (`_backends.py:44-89`) alongside `install`/`uninstall`/
+`ServiceBackend` ABC (`service/_backends.py:44-89`) alongside `install`/`uninstall`/
 `stop`/`start`/`restart`. Rejected on cohesion grounds (PL-CO-1/PL-CO-2): a
 `ServiceBackend`'s five lifecycle methods all read `self._spec.launchd_label`
 (or `.systemd_unit`) and `self._plist_path` (or `._unit_path`) — one cluster
@@ -443,11 +443,11 @@ unattended.
 
 ### 5.6 REQUIRED implementation scope: `install()`'s own upgrade path still uses `unload -w`/`load -w`
 
-`LaunchdBackend.install()` (`_backend_launchd.py:66-88`) unloads and
+`LaunchdBackend.install()` (`service/_backend_launchd.py:66-88`) unloads and
 reloads the **current** label — not a legacy one — using the same legacy
 `unload -w`/`load -w` pair this design replaces for the legacy-cleanup path,
 and it explicitly tolerates a non-zero unload with a warning-and-continue
-(`_backend_launchd.py:76-80`) before proceeding to `load -w` anyway. This is
+(`service/_backend_launchd.py:76-80`) before proceeding to `load -w` anyway. This is
 the identical anti-pattern (legacy API, silent-swallow-on-failure) applied
 to the service's *own* label during an in-place binary-path upgrade, rather
 than to a renamed predecessor. It did not cause the operator's 2026-08-21
@@ -457,17 +457,17 @@ whether — the next in-place upgrade hits the identical silent no-op.
 
 This is not an optional cleanup deferred to the leader's judgment. It is a
 **hard acceptance criterion of the implementation mission**:
-`_backend_launchd.py:66-88` must be rewritten to use `bootout` + `is_clean()`
+`service/_backend_launchd.py:66-88` must be rewritten to use `bootout` + `is_clean()`
 verification, fatal on failure, no continue-on-failure fallthrough — the
 exact primitive and the exact discipline §2-§4 define, applied to the
 current label as a one-identifier sweep against itself rather than to a
 historical one. The primitive already does what this call site needs;
-shipping `LegacySweep` while leaving `_backend_launchd.py:66-88` on the
+shipping `LegacySweep` while leaving `service/_backend_launchd.py:66-88` on the
 legacy API is shipping half the fix for one instance of the bug class and
 leaving the other instance live in the same file, in the same method,
 nine lines away. The implementation mission's write-set includes both
 call sites; its acceptance criteria include a test proving
-`_backend_launchd.py:66-88` no longer issues `launchctl unload` or
+`service/_backend_launchd.py:66-88` no longer issues `launchctl unload` or
 `launchctl load`, mirroring §7.2's verb-assertion test for the
 legacy-cleanup path.
 
@@ -666,8 +666,8 @@ whose output states unambiguously whether the cure succeeded.
 ## Related Documents
 
 - Bead `lux-ehzy` — the incident and its immediate fix scope.
-- `src/punt_lux/service.py`, `_backend_launchd.py`, `_backend_systemd.py`,
-  `_backends.py`, `_service_spec.py`, `_launchctl.py` — the current
+- `src/punt_lux/service/__init__.py`, `service/_backend_launchd.py`, `service/_backend_systemd.py`,
+  `service/_backends.py`, `service/_service_spec.py`, `service/_launchctl.py` — the current
   implementation this design extends.
 - `docs/architecture/target/target.md` — unrelated to this design; service
   lifecycle is outside the Hub/Display protocol boundary.

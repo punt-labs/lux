@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import final
 
-from punt_lux.config import ConfigManager
+from punt_lux.service.config import ConfigManager
 
 logger = logging.getLogger(__name__)
 

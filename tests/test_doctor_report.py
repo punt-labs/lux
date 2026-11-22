@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
+from punt_lux.service.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 
 if TYPE_CHECKING:
     import pytest

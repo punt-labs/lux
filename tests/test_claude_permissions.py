@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.claude_permissions import PermissionChange, ProjectPermissions
-from punt_lux.permission_rules import LUX_RULES
+from punt_lux.service.claude_permissions import PermissionChange, ProjectPermissions
+from punt_lux.service.permission_rules import LUX_RULES
 
 _ALLOW = LUX_RULES["allow"]
 _ASK = LUX_RULES["ask"]

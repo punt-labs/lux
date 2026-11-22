@@ -589,15 +589,15 @@ service infrastructure — never the Hub — brings the display back:
    `KeepAlive=true` would otherwise have launchd respawn the job on the
    `SIGTERM` `stop` sends; `bootout` deregisters the job from the domain
    entirely, so there is nothing left to respawn it
-   (`_backend_launchd.py:132-145`'s own docstring states this). No change
+   (`service/_backend_launchd.py:132-145`'s own docstring states this). No change
    needed.
 2. **The user closing the OS window**, without going through `lux display
    stop` — the job stays *loaded* (bootstrapped), and only the process
    exits. Whether that exit is auto-resurrected depends entirely on the
    supervisor's restart policy, and the two platforms disagree today:
-   - Linux: `_backend_systemd.py:157` sets `Restart=on-failure` — a clean
+   - Linux: `service/_backend_systemd.py:157` sets `Restart=on-failure` — a clean
      exit (`rc=0`) is **not** auto-restarted. Already correct.
-   - macOS: `_backend_launchd.py:199-200` sets bare `<key>KeepAlive</key><true/>`.
+   - macOS: `service/_backend_launchd.py:199-200` sets bare `<key>KeepAlive</key><true/>`.
      launchd's documented semantics for the bare-boolean form restart the
      job on **any** exit, including a clean one — closing the window would
      be immediately resurrected by launchd itself, one layer below
@@ -632,7 +632,7 @@ field:
 <true/>
 ```
 
-`_backend_systemd.py` needs no change — `Restart=on-failure` already
+`service/_backend_systemd.py` needs no change — `Restart=on-failure` already
 applies identically to both specs today and is already correct for both;
 only launchd has the asymmetry. This must be verified against real launchd
 behavior during implementation (the exact interaction between
@@ -893,14 +893,14 @@ specific file this design read.
 8. **New** MCP tool `display_link_get` (read-only, no arguments) and CLI
    verb `lux display link`, mirroring the existing `display_mode_get`/
    `lux display mode` read shape.
-9. **Modify** `src/punt_lux/_service_spec.py` — add
+9. **Modify** `src/punt_lux/service/_service_spec.py` — add
    `restart_on_crash_only: bool = False` to `ServiceSpec`; set
    `restart_on_crash_only=True` on `DISPLAY_SPEC` only (§7). `HUB_SPEC` is
    not touched.
-10. **Modify** `src/punt_lux/_backend_launchd.py` — `_plist_content()`
+10. **Modify** `src/punt_lux/service/_backend_launchd.py` — `_plist_content()`
     branches on `spec.restart_on_crash_only` to emit the dict form
     (`SuccessfulExit: false`) or the existing bare `<true/>` (§7). No
-    change to `_backend_systemd.py` — already correct for both specs.
+    change to `service/_backend_systemd.py` — already correct for both specs.
 11. **Tests**:
     - `DisplayLinkage.classify` — a pure-function truth table (4 branches,
       no fakes).
@@ -936,7 +936,7 @@ specific file this design read.
       assert the return is a `ConnectedLinkState` with no
       `retry_delay_seconds` field at all (not merely `None`). Neither case
       requires a display fixture.
-    - `_backend_launchd.py` — a unit test asserting the two `KeepAlive`
+    - `service/_backend_launchd.py` — a unit test asserting the two `KeepAlive`
       renderings (`restart_on_crash_only=True` → dict form;
       `restart_on_crash_only=False` → bare `<true/>`), and a fidelity check
       that `HUB_SPEC`'s rendered plist is byte-identical before and after
@@ -1106,5 +1106,5 @@ mandatory z-spec still applies.
   extends.
 - `src/punt_lux/domain/hub/clients.py`, `replicator.py`, `recovery.py`,
   `respawn_backoff.py`, `liveness.py`, `hub_display.py`,
-  `_backend_launchd.py`, `_backend_systemd.py`, `_service_spec.py` — the
+  `service/_backend_launchd.py`, `service/_backend_systemd.py`, `service/_service_spec.py` — the
   current implementation this design extends.

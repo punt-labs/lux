@@ -13,7 +13,7 @@ runner = CliRunner()
 
 class TestHubStatus:
     def test_status_reports_not_running_with_no_pid_file(self) -> None:
-        with patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False):
+        with patch("punt_lux.kernel.hub_paths.HubPaths.is_running", return_value=False):
             result = runner.invoke(app, ["hub", "status"])
         assert result.exit_code == 1
         assert "not running" in result.output
@@ -22,7 +22,7 @@ class TestHubStatus:
 class TestHubStart:
     def test_start_resumes_a_stopped_installed_service(self) -> None:
         with (
-            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.kernel.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
             mock_cls.for_hub.return_value.start.return_value = "luxd started."
@@ -35,7 +35,7 @@ class TestHubStart:
         from punt_lux.service import ServiceNotInstalledError
 
         with (
-            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.kernel.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
             mock_cls.for_hub.return_value.start.side_effect = ServiceNotInstalledError(
@@ -47,8 +47,8 @@ class TestHubStart:
 
     def test_start_reports_already_running_without_calling_the_backend(self) -> None:
         with (
-            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=True),
-            patch("punt_lux.hub_paths.HubPaths.read_port", return_value=8430),
+            patch("punt_lux.kernel.hub_paths.HubPaths.is_running", return_value=True),
+            patch("punt_lux.kernel.hub_paths.HubPaths.read_port", return_value=8430),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
             result = runner.invoke(app, ["hub", "start"])
@@ -62,7 +62,7 @@ class TestHubStart:
         from punt_lux.service import ServiceActionFailedError
 
         with (
-            patch("punt_lux.hub_paths.HubPaths.is_running", return_value=False),
+            patch("punt_lux.kernel.hub_paths.HubPaths.is_running", return_value=False),
             patch("punt_lux.cli.hub.ServiceManager") as mock_cls,
         ):
             mock_cls.for_hub.return_value.start.side_effect = ServiceActionFailedError(
@@ -110,7 +110,7 @@ class TestHubRestart:
         mock_cls.return_value.run.assert_called_once()
 
     def test_restart_reports_supervisor_failure(self) -> None:
-        from punt_lux.hub_restart import HubRestartError
+        from punt_lux.service.hub_restart import HubRestartError
 
         with patch("punt_lux.cli.hub.HubRestart") as mock_cls:
             mock_cls.return_value.run.side_effect = HubRestartError(
