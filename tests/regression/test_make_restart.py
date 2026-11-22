@@ -54,8 +54,8 @@ def test_make_restart_restarts_pty_and_surfaces_failure(
     installed: bool,
     running: bool,
     pty_exit_code: int,
-    before: int | None,
-    after: int | None,
+    before: int | None,  # Simulates a missing prior peer credential.
+    after: int | None,  # Simulates no readable replacement peer.
     node_change: str,
     error: str,
 ) -> None:

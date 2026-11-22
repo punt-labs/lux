@@ -17,6 +17,7 @@ _WAIT_SECONDS = 30.0
 _POLL_SECONDS = 0.5
 
 
+# The socket node can be absent between daemon instances.
 def _socket_identity(path: Path) -> tuple[int, int] | None:
     try:
         info = path.lstat()
@@ -27,13 +28,13 @@ def _socket_identity(path: Path) -> tuple[int, int] | None:
 
 def _await_replacement(
     owner: SocketOwner,
-    before: int | None,
+    before: int | None,  # No prior peer credential was readable.
     path: Path,
-    previous_socket: tuple[int, int] | None,
+    previous_socket: tuple[int, int] | None,  # No node existed before restart.
 ) -> bool:
     deadline = time.monotonic() + _WAIT_SECONDS
-    pid: int | None = None
-    candidate: tuple[int, int] | None = None
+    pid: int | None = None  # No peer credential observed on the last poll.
+    candidate: tuple[int, int] | None = None  # No node sampled on the last poll.
     while time.monotonic() < deadline:
         if before is not None:
             pid = owner.pid()
