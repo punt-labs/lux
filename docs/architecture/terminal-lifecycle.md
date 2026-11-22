@@ -83,11 +83,16 @@ existing `failed` and `closed` states are internal cleanup states and stay.)
 | watch lost | helper's watch socket drops or overflows | helper | Re-dial; reconcile (below). | None. |
 | daemon restart | supervisor | daemon, helper | All shells end. New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`); the old helper's scenes lapse with its lease (30 s), and the new helper's sync replaces them. |
 
-**Reconcile (`HelperSync`).** On every connect of the watch socket, and after
-every overflow, the helper lists the daemon's sessions and installs exactly the
-scenes for the running ones, clearing any of its own scenes that name an id not
-listed. Events are a latency optimization; the list is the authority. This is
-why a lost event cannot strand a frame.
+**Reconcile (`HelperList`, then `HelperSync`).** On every connect of the watch
+socket, and after every overflow, the helper connects the watch before listing
+the daemon's sessions. It buffers events while acquiring and applying the list.
+`HelperList` records a snapshot of the running sessions; creations and exits
+can occur before `HelperSync` applies it. Application adds buffered creations
+and removes buffered exits from that snapshot, releasing replicas whose scenes
+are gone or changed. An exit wins over a creation for the same id. The list is
+the authority at acquisition, not a live read at application; buffered events
+bring it up to date. Watch loss invalidates a pending snapshot and requires
+another reconcile. This is why a lost event cannot strand a frame.
 
 **The watch.** A new control request `watch` turns a connection into an event
 subscriber. The daemon queues `created` and `ended` events per watcher with a
@@ -275,7 +280,8 @@ and a second-daemon test.
 ## 8. Formal model
 
 [`docs/terminal_lifecycle.tex`](../terminal_lifecycle.tex). Reproduce every
-result with `.tmp/verify_terminal_model.sh` from the repo root (it runs
+result with `scripts/verify_terminal_model.sh` from the repo root (it runs fuzz
+on all four files, then
 `probcli FILE -model_check -nodead -p DEFAULT_SETSIZE 2 -goal '<predicate>'`;
 a plain `-model_check` passes on the buggy variants too, because they violate
 safety goals, not deadlock-freedom).
@@ -283,7 +289,13 @@ safety goals, not deadlock-freedom).
 The model has a `replica` map (the Display's cache, keyed by name and shell)
 and a `used` set (names ever issued). `HelperEnded` and `HelperSync` release
 every replica whose scene is gone or changed; `DropReplica` is the same
-release on its own. The intact model has 1722 states and no deadlock.
+release on its own. `listed` holds the acquired snapshot and `sync=listing`
+marks the interval before buffered-event replay. Individual helper event
+handlers wait until replay completes; daemon operations remain enabled.
+`ReplicaAttach` requires a running shell, and `ReplicaRefused` covers exited
+shells as well as absent or mismatched ids. `HelperLoseEvents` cannot fire
+when the watch is already lost and both event sets are empty.
+The intact model has 3482 states at set size 2 and no deadlock.
 
 Goals, each an unreachable bad state in the intact model:
 
@@ -302,16 +314,16 @@ Goals, each an unreachable bad state in the intact model:
 | `terminal_lifecycle_exit_leak_buggy.tex` | Helper clears scene on `ended` | I1 |
 | `terminal_lifecycle_swap_buggy.tex` | Resume checks the shell, and the never-reuse guard | I2 and I6 |
 
-Results from the last run: intact model, I1/I2/I3/I6 not found over all 1722
+Results from the last run: intact model, I1/I2/I3/I6 not found over all 3482
 states. Cache-leak I6 found; exit-leak I1 found; swap I2 and I6 found.
 Deadlock check clean on all four files. State counts to the goal vary with
 search order.
 
-Cache-leak trace (`-show_trace`), the user's defect: `DaemonNew(n,s2)`,
-`HelperCreated`, `ReplicaAttach`, `HelperLoseEvents`, `ShellExit`,
-`ReplicaEnds` (replica now `gone`), `HelperSync` (scene cleared, replica
-kept), `DaemonRestart`, `DaemonNew(n,s1)` on the same name, `HelperSync`
-(scene returns for the new shell). The scene names a running shell and the
+Cache-leak counterexample from ProB: `DaemonNew(n,s2)`,
+`DaemonNew(m,s1)`, `HelperCreated(n,s2)`, `DaemonRestart`,
+`DaemonNew(n,s1)`, `ReplicaRefused(n)` (the old scene expects s2),
+`HelperList`, `HelperSync` (scene returns for the new shell, replica kept).
+The scene names a running shell and the
 cached replica of the dead one is still keyed to the name, so the Display
 shows the dead screen and never re-attaches. Today the name is the constant
 `luxd-pty-terminal`, so every second terminal reproduces it without a restart.

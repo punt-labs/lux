@@ -14,7 +14,7 @@
 %
 % Type-check:  fuzz -t docs/terminal_lifecycle.tex
 % Model-check (see Section "Verification"):
-%   probcli docs/terminal_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2
+%   scripts/verify_terminal_model.sh
 %
 \documentclass[a4paper,10pt,fleqn]{article}
 \usepackage[margin=1in]{geometry}
@@ -52,13 +52,15 @@ anything still refers to it.
 \begin{zed}
   DSTATE ::= running | exited \\
   RPHASE ::= ready | gone \\
-  SYNC ::= synced | unsynced
+  SYNC ::= synced | unsynced | listing
 \end{zed}
 
 \texttt{exited} is the daemon's draining state: the program has ended
 and the viewers are being told.  \texttt{gone} is a replica that ended
 (exited or failed to attach).  \texttt{unsynced} means the helper may
 hold scenes or have missed events that no longer match the daemon.
+\texttt{listing} is also out of sync: a list snapshot has been acquired
+but its buffered events have not yet been replayed.
 
 \section{State}
 
@@ -66,6 +68,7 @@ hold scenes or have missed events that no longer match the daemon.
   daemon : NAME \pfun SHELL \\
   dstate : NAME \pfun DSTATE \\
   scene : NAME \pfun SHELL \\
+  listed : NAME \pfun SHELL \\
   replica : (NAME \cross SHELL) \pfun RPHASE \\
   bound : (NAME \cross SHELL) \pfun SHELL \\
   createdEv, endedEv : NAME \rel SHELL \\
@@ -84,11 +87,13 @@ is what the Hub shows: the element's name and the shell it expects.
 \texttt{replica} is the Display's cache, keyed by name \emph{and} shell.
 \texttt{bound} records which shell a replica's stream actually comes
 from.  \texttt{createdEv} and \texttt{endedEv} are daemon notices in
-flight to the helper.
+flight to the helper. \texttt{listed} is the running-session snapshot
+recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
 
 \begin{schema}{Init}
   Sys'
 \where
+  listed' = \emptyset \\
   daemon' = \emptyset \\
   dstate' = \emptyset \\
   scene' = \emptyset \\
@@ -107,10 +112,11 @@ flight to the helper.
   n? : NAME \\
   s? : SHELL
 \where
+  listed' = listed \\
   n? \notin \dom daemon \\
   n? \notin used \\
   s? \notin \ran daemon \cup \ran scene \cup \ran createdEv \cup
-    \ran endedEv \cup \ran (\dom replica) \\
+    \ran endedEv \cup \ran listed \cup \ran (\dom replica) \\
   daemon' = daemon \cup \{ n? \mapsto s? \} \\
   dstate' = dstate \cup \{ n? \mapsto running \} \\
   createdEv' = createdEv \cup \{ (n? , s?) \} \\
@@ -129,6 +135,7 @@ asked: the menu, the CLI, another client.
   \Delta Sys \\
   n? : NAME
 \where
+  listed' = listed \\
   used' = used \\
   n? \in \dom daemon \\
   dstate~n? = running \\
@@ -149,6 +156,7 @@ the daemon announces it.
   \Delta Sys \\
   n? : NAME
 \where
+  listed' = listed \\
   used' = used \\
   n? \in \dom daemon \\
   dstate~n? = exited \\
@@ -170,6 +178,7 @@ it: every attached replica has been told.
 \begin{schema}{DaemonRestart}
   \Delta Sys
 \where
+  listed' = \emptyset \\
   used' = used \\
   daemon' = \emptyset \\
   dstate' = \emptyset \\
@@ -191,6 +200,8 @@ non-goal.  The helper is the daemon's child and restarts with it.
   n? : NAME \\
   s? : SHELL
 \where
+  sync = synced \\
+  listed' = listed \\
   used' = used \\
   (n? , s?) \in createdEv \\
   n? \in \dom daemon \\
@@ -211,6 +222,8 @@ non-goal.  The helper is the daemon's child and restarts with it.
   n? : NAME \\
   s? : SHELL
 \where
+  sync = synced \\
+  listed' = listed \\
   used' = used \\
   (n? , s?) \in createdEv \\
   \lnot (n? \in \dom daemon \land daemon~n? = s?
@@ -233,6 +246,8 @@ dropped; the ended notice handles the rest.
   n? : NAME \\
   s? : SHELL
 \where
+  sync = synced \\
+  listed' = listed \\
   used' = used \\
   (n? , s?) \in endedEv \\
   endedEv' = endedEv \setminus \{ (n? , s?) \} \\
@@ -256,6 +271,8 @@ a late notice never removes a newer terminal that reuses the name.
 \begin{schema}{HelperLoseEvents}
   \Delta Sys
 \where
+  sync \neq unsynced \lor createdEv \neq \emptyset \lor endedEv \neq \emptyset \\
+  listed' = \emptyset \\
   used' = used \\
   createdEv' = \emptyset \\
   endedEv' = \emptyset \\
@@ -268,15 +285,36 @@ a late notice never removes a newer terminal that reuses the name.
 \end{schema}
 
 The helper crashes or its watch connection drops.  Notices in flight are
-lost; the next step must reconcile.
+lost; any pending list is invalidated and the next step must reconcile.
+The guard excludes a lost-watch no-op when both notice sets are empty.
+
+\begin{schema}{HelperList}
+  \Delta Sys
+\where
+  sync = unsynced \\
+  listed' = \{ n : NAME | n \in \dom daemon \land dstate~n = running
+    @ n \mapsto daemon~n \} \\
+  sync' = listing \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used
+\end{schema}
+
+The watch is connected before the list is acquired. Notices remain buffered
+while the list response is pending; daemon operations can interleave.
 
 \begin{schema}{HelperSync}
   \Delta Sys
 \where
+  listed' = \emptyset \\
   used' = used \\
-  sync = unsynced \\
-  scene' = \{ n : NAME | n \in \dom daemon \land dstate~n = running
-    @ n \mapsto daemon~n \} \\
+  sync = listing \\
+  scene' = (listed \cup createdEv) \setminus endedEv \\
   createdEv' = \emptyset \\
   endedEv' = \emptyset \\
   sync' = synced \\
@@ -288,8 +326,9 @@ lost; the next step must reconcile.
     \quad~ \land n \in \dom scene' \land scene'~n = s @ (n , s) \mapsto bound (n , s) \}
 \end{schema}
 
-Reconciliation replaces the helper's scenes with exactly the running
-sessions the daemon lists.
+Reconciliation applies the recorded list plus buffered creations, then
+removes buffered exits. It never reads the current daemon map. An exit wins
+over a creation for the same shell; ids are never reused in the intact model.
 
 \section{Display Operations}
 
@@ -297,11 +336,13 @@ sessions the daemon lists.
   \Delta Sys \\
   n? : NAME
 \where
+  listed' = listed \\
   used' = used \\
   n? \in \dom scene \\
   (n? , scene~n?) \notin \dom replica \\
   n? \in \dom daemon \\
   daemon~n? = scene~n? \\
+  dstate~n? = running \\
   replica' = replica \cup \{ (n? , scene~n?) \mapsto ready \} \\
   bound' = bound \cup \{ (n? , scene~n?) \mapsto daemon~n? \} \\
   daemon' = daemon \\
@@ -318,10 +359,12 @@ Resume names the shell the scene expects and attaches only to that one.
   \Delta Sys \\
   n? : NAME
 \where
+  listed' = listed \\
   used' = used \\
   n? \in \dom scene \\
   (n? , scene~n?) \notin \dom replica \\
-  \lnot (n? \in \dom daemon \land daemon~n? = scene~n?) \\
+  \lnot (n? \in \dom daemon \land daemon~n? = scene~n? \\
+    \quad~ \land dstate~n? = running) \\
   replica' = replica \cup \{ (n? , scene~n?) \mapsto gone \} \\
   bound' = bound \cup \{ (n? , scene~n?) \mapsto scene~n? \} \\
   daemon' = daemon \\
@@ -337,6 +380,7 @@ Resume names the shell the scene expects and attaches only to that one.
   n? : NAME \\
   s? : SHELL
 \where
+  listed' = listed \\
   used' = used \\
   (n? , s?) \in \dom replica \\
   replica (n? , s?) = ready \\
@@ -359,6 +403,7 @@ lost connection.
   n? : NAME \\
   s? : SHELL
 \where
+  listed' = listed \\
   used' = used \\
   (n? , s?) \in \dom replica \\
   \lnot (n? \in \dom scene \land scene~n? = s?) \\
@@ -385,7 +430,7 @@ transition that breaks it.  Each is checked as an unreachable goal.
 Every scene names a running shell on the daemon, or a removal notice for
 it is in flight, or the helper is known to be out of sync:
 \[
-  \forall n : \dom scene @ sync = unsynced \lor
+  \forall n : \dom scene @ sync \neq synced \lor
     (n \in \dom daemon \land daemon~n = scene~n \land dstate~n = running)
     \lor (n , scene~n) \in endedEv
 \]
@@ -428,15 +473,13 @@ Some operation is always enabled.
 \label{sec:verify}
 
 \begin{verbatim}
-  fuzz -t docs/terminal_lifecycle.tex
-  probcli docs/terminal_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2
-  # I1 .. I4: each goal must report "not found"
+  scripts/verify_terminal_model.sh
 \end{verbatim}
 
 \section{Fidelity}
 
 Three buggy variants sit beside this file; each must make a goal reachable
-that the intact model cannot reach (see \texttt{.tmp/verify\_terminal\_model.sh}
+that the intact model cannot reach (see \texttt{scripts/verify\_terminal\_model.sh}
 in the repository for the exact commands).
 \begin{itemize}
   \item \texttt{terminal\_lifecycle\_cache\_leak\_buggy.tex}: names may be
