@@ -8100,3 +8100,251 @@ client surface, not an admin one).
 **Impacts on other ADRs.** DES-055 (one code path) is extended: `commands/`
 sits between `Operations` and the four adapters. DES-057, DES-058, DES-063,
 DES-067 and DES-086 are preserved verbatim.
+
+## DES-103: Three Navigation Views Over One Menu Model, Minimize and End Instead of Close
+
+**Status:** PROPOSED (operator design conversation 2026-11-21; awaiting
+ratification). Interactive mockup: `docs/architecture/navigation-mockup.html`.
+Amends DES-064, DES-067 and DES-088. Revises the multiple-terminals lifecycle
+design (PL-1214, PL-1217). Builds on DES-056, DES-059, DES-065, DES-089,
+DES-090, DES-093 and DES-100.
+
+**Problem.** Three things the user does need three different ways to find a
+window. While coding, the repository matters. With a terminal, the machine the
+shell runs on matters, or only the program (`claude`), with the machine not
+mattering at all. Wanting a window back needs only its title. The menu today
+offers one grouping, built for agent sessions, and makes terminals fit it:
+`luxd-pty` declares itself `kind=app, name="luxd-pty"`, so a terminal daemon
+appears as a client called `luxd-pty`, with no machine anywhere.
+
+Two further problems surfaced in the same discussion.
+
+- **The Clients menu splits a repository by session, and its name describes
+  the plumbing.** `MenuGroupKey` groups
+  applets by repository plus the Claude Code session pid in the applet's name,
+  and DES-064 numbers colliding submenus, so two sessions in one repository
+  read `lux` and `lux (2)`. That split existed to tell two sessions' windows
+  apart. DES-100 now puts the session in every frame title (`lux (2) :: Vox`)
+  and the frame's info popup names its connection, so the menu no longer has
+  to. And "Clients", DES-064's X11 word for the roster of connected programs,
+  names what lux is built from rather than what a person goes there to find.
+- **"Closed" is a third visibility state that costs more than it gives.**
+  DES-088 made `CLOSED` a visibility beside `ON_SCREEN` and `DOCKED`. It
+  differs from `DOCKED` only in having no dock pill. That one difference
+  needs its own Windows-menu section, a guard in `set_frame_state` against a
+  client reopening a frame the user shut, a dock-bar exclusion and a ProB
+  model; the three states reach about 20 source and 20 test files. Meanwhile
+  no frame control ends content: the × only hides. A terminal needs a control
+  that ends the shell.
+
+**Decision.**
+
+1. **One menu model, three views.** The menu stays one model with two
+   projections (DES-059, menu bar and World menu). Its top level carries three
+   fixed views over the same items, each grouped by a different fact:
+
+   ```text
+   Projects    by repository, items inside        (coding)
+   Terminals   by the machine the shell runs on   (terminals)
+               New ▸ launcher ▸ machine
+   Windows     every open frame, flat, by title    (getting a window back)
+   ```
+
+   The views are fixed, not user-configured: one model, three groupings, no
+   per-user layout state. The menu bar reads
+   **Lux · Projects · Terminals · Windows · Help**: Lux is the application
+   menu (about, theme, quit) and Help carries the version, both unchanged.
+
+   *Naming.* `Clients` is renamed `Projects`, because the menu now groups by
+   repository and the name should say what is in it. `Clients` was DES-064's
+   X11 word for the roster of connected programs; it names the plumbing, not
+   what a person navigates to. herdr's equivalent level is a workspace, one
+   per project; Omarchy's is apps; tmux's is sessions, which in lux already
+   means a Claude Code session. `Terminals` is kept over `Shells`, which a
+   launcher running `top` would contradict, and over `Machines`, which would
+   make the machine the subject of the menu. `Windows` is kept over `Frames`,
+   lux's internal word. In the views below, "Projects" is the menu DES-064
+   called Clients.
+
+2. **Projects groups by repository only.** Every connection that declares a
+   repository contributes to the one submenu named for that repository's
+   directory, whichever session it belongs to. Two items in one submenu that
+   would carry the same label are numbered as items (`Beads`, `Beads (2)`);
+   a single session's items stay plain. A connection with no repository
+   (`voxd`) keeps a submenu named for itself. Terminal daemons do not appear
+   in Projects. DES-064's collision numbering moves from submenu names to item
+   labels.
+
+3. **Terminals groups by the shell's machine.** Each machine with a
+   `luxd-pty` contributes its terminals. While one machine is connected the
+   list is flat, with no machine level; with two or more, each machine is a
+   submenu. A terminal is labelled by its name inside its machine. **New**
+   lists the launchers (decision 9) the connected machines offer, the built-in
+   shell first. A launcher only one machine offers starts there directly;
+   otherwise its submenu lists the machines that offer it, and only those.
+
+4. **Every client declares the host it runs on.** `ClientIdentity` gains a
+   host field, set by the client, so the Terminals view groups by where the
+   shell runs rather than by which Hub relayed it. A client and its Hub may
+   be on different machines (DES-089, DES-090); the Hub rung in addressing
+   stays the Hub's, unchanged.
+
+5. **Terminal names follow the running program.** A terminal is named
+   `machine :: program`, and a second one with the same name on that machine
+   gets `(2)`. Until renamed, the name follows the foreground program. A name
+   the user gives sticks; an empty name returns to automatic. Names are
+   unique per machine. Rename is `lux term rename`. Run inside a terminal,
+   every `lux term` command defaults to that terminal: `luxd-pty` puts the
+   session id in each shell's environment as `LUX_TERM_SESSION`, so
+   `lux term rename "deploy"` renames the terminal it is typed in. An
+   in-window rename gesture (tmux-style Ctrl-B , or editing the title) is
+   added only if it proves feasible; the CLI is the required path.
+
+6. **– and × replace close.** Every frame has **–**: it minimizes the frame to
+   the dock bar with all state kept, and a pill, the Windows menu or the
+   frame's menu entry brings it back unchanged. **×** appears only on a frame
+   whose owner can end its content, and ends that content after a confirm; on
+   a terminal it ends the shell, and the window goes as on `exit`. A frame
+   whose owner cannot end its content shows only –. `CLOSED` is removed from
+   `FrameVisibility`, leaving `ON_SCREEN` and `DOCKED`; the Windows-menu
+   closed section, the `set_frame_state` closed-frame guard and the dock-bar
+   exclusion go with it. A client declares that a frame's content can be ended
+   by registering an end handler for it; the Display routes × to that handler
+   through the existing remote-dispatch path (D21) and shows × only when one
+   exists.
+
+7. **A minimized entry is greyed, not relabelled.** In every view a minimized
+   frame's entry is shown greyed. Its label is not changed (no "(hidden)").
+   Implementation of the greying is deferred.
+
+8. **Multi-machine terminals travel over the Hub link.** Each machine's
+   `luxd-pty` attaches to that machine's own `luxd`, and that `luxd` reaches
+   the Display as one Hub (DES-089), over DES-090's trusted transport when the
+   machines differ. The Display never dials a remote `luxd-pty` socket. This
+   replaces the host-to-socket map in the multiple-terminals design's third
+   increment, which would have been a second cross-host link outside DES-090's
+   trust model.
+
+9. **Launchers: a terminal can start any command.** Starting a shell is the
+   main feature; starting a terminal that runs a given command (`claude`,
+   `pi`, `top`, `tail -f build.log`) is the add-on. A **launcher** is a named
+   entry New offers, with four fields: `name` (the menu label and the
+   terminal's default name), `command` (a full command line; empty means the
+   user's login shell), an optional `cwd` (default: home) and an optional
+   `hosts` (default: every machine running `luxd-pty`). The built-in shell is
+   the launcher with an empty command.
+
+   Launchers come from two places and form one list per machine:
+
+   - **The machine's own config file**, `~/.punt-labs/lux/terminals.toml`, one
+     `[[launcher]]` table per entry. `luxd-pty` reads it at start and when it
+     changes, and registers its entries with its Hub, so each machine offers
+     what it can run. On first start `luxd-pty` writes a file holding only the
+     shell, so the place to add one is evident.
+   - **Runtime registration**, by an agent or a person: the MCP tool
+     `term_launcher_add` and the CLI `lux term launcher add` (with `ls` and
+     `remove`), addressed to one machine. A runtime launcher is held in that
+     machine's `luxd-pty` memory and lasts until it restarts;
+     `lux term launcher add --save` writes it to the config file instead.
+
+   Two rules bound this, because a launcher starts a process on a machine:
+
+   - **A click carries a launcher's name, never its command.** The Display and
+     the Hub forward the name; only the machine's own `luxd-pty` resolves it to
+     a command and runs it, as that machine's user. A forged or replayed click
+     can start only what that machine already lists. This keeps DES-090's
+     trust boundary and the existing rule that no MCP tool writes into a
+     shell.
+   - **Agent registration is off unless the machine allows it.** Runtime
+     launchers from an agent's MCP session are refused unless that machine's
+     config file sets `allow_agent_launchers = true`. Registering a launcher
+     is letting an agent run a command on that machine, which is the
+     machine owner's decision, made in that machine's file.
+
+10. **A person's gesture takes focus; an agent's never does.** A frame opened
+    or raised by the user — a menu item, a dock pill, a Windows-menu entry,
+    a New terminal — comes to the front and takes keyboard focus, so the user
+    can type into what they just asked for. A frame that appears through an
+    agent route — an MCP `show()`, a scene push, an agent-started terminal, an
+    applet's own reload — is placed without taking focus or raising itself
+    over the window the user is in. The rule is user versus agent, decided by
+    the path the frame arrived on, not by what the frame contains. It extends
+    DES-065, which already denies agent pushes the window and focus, to the
+    frames DES-103 adds: a terminal started from Terminals ▸ New is focused
+    with its cursor ready; one an agent starts is not.
+
+**Alternatives rejected.**
+
+- *A host level at the top of Projects.* It suits terminals and nothing else:
+  coding is by repository, and a host level would deepen every submenu once a
+  second machine connects.
+- *User-configurable grouping.* One model with per-user layouts is harder to
+  learn and to test than three fixed views, and nothing asks for it.
+- *Keeping the session level under a repository.* The frame title and info
+  popup now carry the session; the menu level duplicates them.
+- *Keeping `CLOSED` and adding a separate kill control.* Leaves three states
+  where two serve, and a third control on every frame.
+- *A × on every frame that hides when nothing can be ended.* Makes × mean two
+  different things.
+- *The Display dialling each machine's `luxd-pty` directly.* A second
+  cross-host link with its own trust story and per-Display socket
+  configuration, when the Hub link already exists for exactly this.
+- *An all-machines Terminals table as the primary surface.* The Terminals
+  view lists every terminal already; a table is not needed to reach one.
+- *Launchers configured on the Display or the Hub.* Neither knows what a
+  machine can run, and either would put a command line on the wire, so a
+  click could carry any command to any machine.
+- *Agent-registered launchers persisted by default.* An agent's session would
+  then be able to change a machine's standing configuration with no person
+  having written it.
+- *Keeping the name `Clients`.* Accurate to the architecture, but it names the
+  roster rather than what is in it. *Apps* (Omarchy) hides the grouping by
+  repository; *Workspaces* (herdr) and *Sessions* (tmux) each already mean
+  something else in lux.
+- *Focus by content kind* (terminals always focus, panels never). The same
+  terminal can be started by a person or by an agent; only the path says
+  which.
+
+**Impacts on other ADRs.**
+
+- **DES-064 (Clients Menu)** — AMENDED. The menu is renamed `Projects`.
+  Collision numbering applies to item labels inside a repository's submenu,
+  not to submenu names.
+- **DES-067 (Menu Grouping by Repo, Session)** — AMENDED. The grouping key for
+  repository-declared connections is the repository alone; the session pid no
+  longer groups.
+- **DES-088 (Closed Is a Visibility)** — AMENDED. `CLOSED` is removed;
+  visibility is `ON_SCREEN` or `DOCKED`. Its core rule stands: a content event
+  never writes visibility, and a visibility event never writes content.
+- **DES-059 (One MenuModel, Two Projections)** — CONFIRMED. The three views
+  are top-level entries of the one model.
+- **DES-065 (User-Controlled Window Visibility)** — CONFIRMED and extended:
+  decision 10 states its focus rule for every frame, terminals included.
+- **DES-089, DES-090 (Addressing, Cross-Host Transport)** — CONFIRMED. The Hub
+  rung is unchanged; the client's own host is a new identity fact, not a rung.
+- **DES-100 (Connection Rung Always Shown)** — CONFIRMED, and relied on: frame
+  titles carry the session the menu no longer shows.
+
+**Consequences.**
+
+- `ClientIdentity` gains a host field: a wire change every client observes,
+  needing the cross-repo coordination window with vox and z-spec.
+- The end handler is a new per-frame client capability on the wire.
+- Removing `CLOSED` changes `frame-visibility-lifecycle.tex`; the model is
+  re-run with two states and the dock-state guard it carried for `CLOSED`
+  removed, and the regression replay for the reopen bug is retired with the
+  state that made it possible.
+- The multiple-terminals work (PL-1214) is re-planned against this decision:
+  increment 1 (many terminals on one machine) keeps its daemon and Display
+  units; its helper registers into Terminals, not Projects.
+- Renaming the menu changes user-facing labels, docs and the inventory
+  paths agents read from `menu_ls` (`["Clients", "lux"]` becomes
+  `["Projects", "lux"]`).
+- A frame request carries whether it came from a user gesture, so the
+  Display applies decision 10 without guessing from content.
+- `NewRequest` names a launcher rather than carrying a command line, and
+  `luxd-pty` gains a config file and a launcher registry. The terminal
+  element's existing `command` field, which lets a scene start any command,
+  is reconciled against decision 9's rule that a click carries a name: the
+  terminal design that implements this states which path keeps it.
+- `luxd-pty` exports `LUX_TERM_SESSION` into every shell it starts.

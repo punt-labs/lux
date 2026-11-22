@@ -1,0 +1,514 @@
+<meta charset="utf-8">
+<title>Lux Terminal Menus</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: brief, view switches, one simulated Lux display with a menu bar and dock bar, then a log with CLI equivalents and the rules. Deliberately dark: it imitates the ImGui display. */
+:root {
+  --page: #0e1117;
+  --ink: #e4e7ee;
+  --muted: #8d95a6;
+  --faint: #5d6474;
+  --rule: #262b36;
+  --desk: #161a22;
+  --win: #1a1d24;
+  --win-edge: #353b48;
+  --title: #22304a;
+  --title-active: #2b4a7c;
+  --accent: #4a9af5;
+  --hover: rgba(74, 154, 245, 0.32);
+  --proposed: #d9a441;
+  --danger: #d86a6a;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+body { background: var(--page); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+h1 { font-size: 1.6rem; font-weight: 600; margin: 0; text-wrap: balance; }
+h2 { font-size: 0.85rem; font-weight: 600; margin: 0 0 8px; color: var(--muted); letter-spacing: .05em; text-transform: uppercase; }
+.brief { color: var(--muted); max-width: 74ch; margin: 6px 0 0; }
+.brief b { color: var(--ink); font-weight: 500; }
+.tag { font: 600 10px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--proposed); border: 1px solid var(--proposed); border-radius: 3px; padding: 3px 4px 2px; }
+
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+fieldset { margin: 0; border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px 12px; min-width: 0; display: grid; gap: 6px; }
+legend { padding: 0 6px; font-weight: 600; font-size: 13px; }
+fieldset label { display: flex; gap: 8px; align-items: baseline; font-size: 14px; cursor: pointer; }
+fieldset label small { color: var(--muted); display: block; font-size: 12.5px; }
+input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
+
+.stage { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+#screen { position: relative; width: 1120px; height: 680px; background: var(--desk); background-image: radial-gradient(circle at 1px 1px, #232835 1px, transparent 0); background-size: 22px 22px; font: 13px/1.45 var(--mono); overflow: hidden; cursor: default; user-select: none; }
+.hint { position: absolute; left: 16px; bottom: 44px; color: var(--muted); font-size: 12px; pointer-events: none; }
+
+.mbar { position: absolute; left: 0; right: 0; top: 0; height: 26px; background: #1f232c; border-bottom: 1px solid var(--win-edge); display: flex; align-items: center; z-index: 950; padding-left: 6px; }
+.mbar button { font: 13px var(--sans); color: var(--ink); background: transparent; border: 0; padding: 0 10px; height: 26px; cursor: pointer; }
+.mbar button.on, .mbar button:hover { background: var(--hover); }
+
+.dock { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: #12151c; border-top: 1px solid var(--win-edge); display: flex; align-items: center; gap: 6px; padding: 0 10px; z-index: 900; }
+.dock .lbl { color: var(--faint); font-size: 11px; margin-right: 4px; }
+.pill { font: 12px var(--mono); color: var(--ink); background: #222836; border: 1px solid var(--win-edge); border-radius: 12px; padding: 2px 10px; cursor: pointer; white-space: nowrap; }
+.pill:hover, .pill:focus-visible { background: var(--hover); outline: none; }
+
+.win { position: absolute; background: var(--win); border: 1px solid var(--win-edge); box-shadow: 0 6px 18px rgba(0,0,0,.35); display: flex; flex-direction: column; }
+.win .bar { height: 24px; background: var(--title); display: flex; align-items: center; gap: 4px; padding: 0 4px 0 9px; cursor: move; flex: none; }
+.win.top .bar { background: var(--title-active); }
+.win.focused { outline: 2px solid var(--accent); outline-offset: -1px; }
+.win.focused .cursor { animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .win.focused .cursor { animation: none; } }
+.win .bar > span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { width: 20px; height: 18px; border: 0; background: transparent; color: var(--ink); font: 14px/1 var(--mono); cursor: pointer; border-radius: 2px; flex: none; }
+.btn:hover, .btn:focus-visible { background: var(--hover); outline: none; }
+.btn.kill:hover, .btn.kill:focus-visible { background: var(--danger); color: #fff; }
+.term .body { padding: 8px 10px; white-space: pre; color: #cfd6e2; flex: 1; overflow: hidden; }
+.foot { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding: 0 8px 8px; }
+.confirm { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: #2a1f22; border-top: 1px solid var(--danger); }
+.confirm span { flex: 1; }
+.chip { font: 12px var(--mono); color: var(--ink); background: #262c38; border: 1px solid var(--win-edge); border-radius: 3px; padding: 3px 8px; cursor: pointer; }
+.chip:hover, .chip:focus-visible { background: var(--hover); outline: none; }
+.chip.danger { border-color: var(--danger); color: #ffd9d9; }
+.cursor { background: #cfd6e2; color: var(--win); }
+.panel .body { padding: 10px 12px; display: grid; gap: 4px; flex: 1; font-family: var(--sans); font-size: 13px; color: var(--muted); }
+.panel .body b { color: var(--ink); font-weight: 500; }
+
+.menu { position: absolute; z-index: 1000; min-width: 210px; background: #1c1f27; border: 1px solid var(--win-edge); box-shadow: 0 8px 20px rgba(0,0,0,.45); padding: 4px 0; display: flex; flex-direction: column; }
+.mi { display: flex; align-items: center; gap: 10px; min-height: 24px; padding: 0 8px 0 12px; border: 0; background: transparent; color: var(--ink); font: 13px var(--mono); text-align: left; cursor: pointer; white-space: nowrap; }
+.mi .l { flex: 1; }
+.mi .r { color: var(--muted); }
+.mi .host { color: var(--faint); font-size: 11.5px; }
+.mi.on, .mi:hover, .mi:focus-visible { background: var(--hover); outline: none; }
+.mi.dim .l { color: var(--faint); }
+.mi.inert { cursor: default; }
+.mi.inert:hover { background: transparent; }
+.sep { height: 1px; background: var(--win-edge); margin: 4px 0; }
+.grp { padding: 4px 12px 2px; color: var(--faint); font-size: 11px; letter-spacing: .04em; }
+.addp .body { padding: 10px 12px; display: grid; gap: 7px; font-family: var(--sans); font-size: 13px; }
+.frow { display: flex; gap: 10px; align-items: center; }
+.frow > span:first-child { width: 72px; color: var(--muted); flex: none; }
+.frow.end { justify-content: flex-end; }
+.chk { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+input.edit { min-width: 0; font: 13px var(--mono); background: #0e1117; color: var(--ink); border: 1px solid var(--win-edge); border-radius: 2px; padding: 2px 5px; }
+select { font: 12px var(--mono); background: #262c38; color: var(--ink); border: 1px solid var(--win-edge); border-radius: 3px; padding: 2px 4px; }
+pre.toml { margin: 4px 0 0; padding: 8px 10px; background: #0e1117; border: 1px solid var(--rule); border-radius: 3px; font: 12px/1.5 var(--mono); color: #b9c2d3; white-space: pre-wrap; max-height: 210px; overflow: auto; }
+
+.log { font: 13px var(--mono); background: #12161d; border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px; min-height: 44px; display: grid; gap: 6px; }
+.log .e { display: grid; gap: 1px; color: var(--muted); }
+.log .e:first-child { color: var(--ink); }
+.log .cli { color: var(--accent); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 28px; margin: 0; }
+.rules div { min-width: 0; }
+.rules dt { font-weight: 600; }
+.rules dd { margin: 2px 0 0; color: var(--muted); }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Three ways to find a window</h1>
+    <p class="brief">One menu model, three views, on a menu bar that reads <b>Lux · Projects · Terminals · Windows · Help</b>. <b>Projects</b> groups by repository only: two lux sessions share one <b>lux</b> submenu, and a second Beads becomes <b>Beads (2)</b>. The session is in the window title and the <b>i</b> button, not the menu. <b>Terminals</b> groups by the machine the shell runs on. Its <b>New</b> lists <b>launchers</b>: Shell first, then the named commands each machine lists in its own <b>terminals.toml</b>. It asks which machine only when more than one offers the launcher. <b>Add launcher…</b> shows how an agent or you adds one, and the rule that agents need the machine's permission. <b>Windows</b> lists every open window. Use the menu bar, or click the desktop for the same menus. Switch between one machine and three to see the host level appear and disappear.</p>
+  </header>
+
+  <section class="controls" aria-label="Scenario">
+    <fieldset>
+      <legend>Machines connected</legend>
+      <label><input type="radio" name="hosts" id="hosts-one" value="one"> <span>One machine<small>Only local-mac: no host level anywhere</small></span></label>
+      <label><input type="radio" name="hosts" id="hosts-three" value="three" checked> <span>Three machines<small>local-mac, pembroke, ci-box</small></span></label>
+    </fieldset>
+    <fieldset>
+      <legend>Launchers</legend>
+      <label><input type="checkbox" id="claude-everywhere"> <span>claude launcher on every machine<small>Off: only local-mac and pembroke list it in their file</small></span></label>
+    </fieldset>
+    <fieldset>
+      <legend>Focus: user versus agent</legend>
+      <div style="font-size:13.5px;color:var(--muted)">A menu click brings its window to the front with focus. An agent's window arrives behind yours and never takes focus.</div>
+      <button class="chip" id="agent-start" type="button" style="justify-self:start">Simulate an agent opening a terminal</button>
+    </fieldset>
+  </section>
+
+  <div class="stage"><div id="screen" role="application" aria-label="Simulated Lux display"></div></div>
+
+  <section>
+    <h2>What just happened</h2>
+    <div class="log" id="log" aria-live="polite"></div>
+  </section>
+
+  <section>
+    <h2>The rules</h2>
+    <dl class="rules">
+      <div><dt>Projects</dt><dd>By repository only. Two sessions in one repository share its submenu; repeated item names get (2). A client with no repository (voxd) keeps its own submenu. No terminals.</dd></div>
+      <div><dt>Terminals</dt><dd>By the machine the shell runs on. With one machine the list is flat. New lists launchers, then the machine if more than one offers it.</dd></div>
+      <div><dt>Launchers</dt><dd>A name and a command, in each machine's ~/.punt-labs/lux/terminals.toml, or added at runtime with lux term launcher add / the term_launcher_add MCP tool. A click carries only the name; that machine's luxd-pty runs the command. Agents need allow_agent_launchers = true.</dd></div>
+      <div><dt>Rename</dt><dd>lux term rename "name". Typed inside a terminal, it renames that terminal: the shell knows its own session.</dd></div>
+      <div><dt>Focus</dt><dd>A window you open from a menu, pill or Windows entry takes focus (blue outline, blinking cursor). One an agent opens appears behind yours and never takes focus.</dd></div>
+      <div><dt>Windows</dt><dd>Every open window, flat, by its full title. Minimized ones are greyed.</dd></div>
+      <div><dt>Titles</dt><dd>machine :: program on a terminal. The machine is dropped while only one is connected.</dd></div>
+      <div><dt>– and ×</dt><dd>– minimizes to the dock on every window. × ends the content, only where the owner can.</dd></div>
+    </dl>
+  </section>
+</div>
+
+<script>
+const screen = document.getElementById('screen');
+const logEl = document.getElementById('log');
+const ALL_HOSTS = ['local-mac', 'pembroke', 'ci-box'];
+const opts = { hosts: 'three', claudeEverywhere: false };
+const LAUNCHERS = {
+  'local-mac': [{ name: 'claude', command: 'claude' }, { name: 'pi', command: 'pi' }],
+  'pembroke': [{ name: 'claude', command: 'claude' }, { name: 'top', command: 'top' }],
+  'ci-box': [{ name: 'build log', command: 'tail -f ~/build.log' }],
+};
+const SHELL = { name: 'Shell', command: '' };
+const agentAllowed = { 'local-mac': true, 'pembroke': false, 'ci-box': false };
+const runtimeAdded = [];
+let z = 10, seq = 0;
+const terms = [];
+const panels = [
+  { kind: 'panel', id: 'p1', repo: 'lux', session: 'lux', app: 'Beads', host: 'local-mac', x: 760, y: 340, z: ++z, docked: false },
+  { kind: 'panel', id: 'p2', repo: 'lux', session: 'lux', app: 'Vox', host: 'local-mac', x: 800, y: 440, z: ++z, docked: true },
+  { kind: 'panel', id: 'p4', repo: 'lux', session: 'lux (2)', app: 'Beads', host: 'local-mac', x: 780, y: 230, z: ++z, docked: false },
+  { kind: 'panel', id: 'p5', repo: 'txt2tex', session: 'txt2tex', app: 'Beads', host: 'local-mac', x: 820, y: 520, z: ++z, docked: true },
+  { kind: 'panel', id: 'p3', repo: null, session: 'voxd', app: 'Music', host: 'local-mac', x: 740, y: 60, z: ++z, docked: false },
+];
+const menu = { open: false, x: 0, y: 0, path: [], from: null };
+const addPanel = { open: false, x: 300, y: 90, z: 0, host: 'local-mac', who: 'agent', name: 'deploy log', command: 'tail -f /var/log/deploy.log', save: false };
+const entries = [];
+
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') e.className = v;
+    else if (k === 'style') Object.assign(e.style, v);
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) {
+    if (c == null || c === false) continue;
+    e.append(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return e;
+}
+function log(msg, cli) {
+  entries.unshift({ msg, cli });
+  entries.length = Math.min(entries.length, 5);
+  logEl.replaceChildren(...entries.map(en => h('div', { class: 'e' }, h('div', {}, en.msg), en.cli ? h('div', { class: 'cli' }, '$ ' + en.cli) : null)));
+}
+
+const liveHosts = () => opts.hosts === 'one' ? ['local-mac'] : ALL_HOSTS;
+const multiHost = () => liveHosts().length > 1;
+function launchersOn(hn) {
+  const list = [...LAUNCHERS[hn]];
+  if (opts.claudeEverywhere && !list.some(l => l.name === 'claude')) list.unshift({ name: 'claude', command: 'claude' });
+  return [SHELL, ...list, ...runtimeAdded.filter(r => r.host === hn).map(r => ({ ...r, runtime: true }))];
+}
+function launcherNames() {
+  const names = [];
+  for (const hn of liveHosts()) for (const l of launchersOn(hn)) if (!names.includes(l.name)) names.push(l.name);
+  return names;
+}
+const hostsFor = name => liveHosts().filter(hn => launchersOn(hn).some(l => l.name === name));
+const commandOf = (name, hn) => launchersOn(hn).find(l => l.name === name).command;
+const visibleTerms = () => terms.filter(t => liveHosts().includes(t.host));
+function addTerm(host, prog, x, y, docked = false) {
+  const t = { kind: 'term', id: ++seq, host, prog, x, y, z: ++z, docked, confirm: false };
+  terms.push(t);
+  return t;
+}
+function tname(t) {
+  const same = terms.filter(o => o.host === t.host && o.prog === t.prog);
+  const i = same.indexOf(t);
+  return i > 0 ? `${t.prog} (${i + 1})` : t.prog;
+}
+const termTitle = t => multiHost() ? `${t.host} :: ${tname(t)}` : tname(t);
+const panelTitle = p => `${p.session} :: ${p.app}`;
+const title = w => w.kind === 'term' ? termTitle(w) : panelTitle(w);
+const ref = s => `'${s}'`;
+const user = hn => hn === 'ci-box' ? 'ci' : 'jfreeman';
+
+function screenText(t) {
+  const p = `${user(t.host)}@${t.host} ~ % `;
+  if (t.prog === 'claude') return `${p}claude\n\n> tidy up the flaky test\n\n  Reading tests/test_query.py…\n\n❯ `;
+  if (t.prog === 'tail' || t.prog === 'build log') return `${p}tail -f ~/build.log\n[21:40:12] test 9436 passed\n`;
+  if (t.prog === 'top') return `Processes: 612 total, 3 running\nLoad Avg: 1.92, 2.10, 2.05\nPID    COMMAND   %CPU\n4021   luxd      3.1`;
+  if (t.prog === 'zsh') return p;
+  return `${p}${t.command || t.prog}\n`;
+}
+let focused = null;
+function start(name, hn, by = 'user') {
+  const n = visibleTerms().filter(t => !t.docked).length;
+  const command = commandOf(name, hn);
+  const prog = name === 'Shell' ? 'zsh' : name;
+  const t = addTerm(hn, prog, 240 + (n % 6) * 34, 70 + (n % 6) * 30);
+  t.command = command;
+  const where = multiHost() ? ` on ${hn}` : '';
+  if (by === 'agent') {
+    const fz = focused && terms.includes(focused) && !focused.docked ? focused.z : Math.max(0, ...[...panels, ...visibleTerms()].filter(w => w !== t && !w.docked).map(w => w.z));
+    t.z = fz - 0.5;
+    log(`An agent started ${name}${where}. Its window appeared behind the one you are in and did not take focus: agent routes never steal focus.`, `term_new (MCP) ${ref(name)}${multiHost() ? ' --host ' + hn : ''}`);
+    return;
+  }
+  focused = t;
+  log(`You started the ${name} launcher${where}: it came to the front with keyboard focus, cursor ready. ${hn}'s luxd-pty ran ${command ? '`' + command + '`' : 'the login shell'}; the click carried only the name.`,
+    `lux term new ${name === 'Shell' ? '' : ref(name) + ' '}${multiHost() ? '--host ' + hn : ''}`.trim());
+}
+function agentStart() {
+  const hn = liveHosts()[liveHosts().length - 1];
+  start('Shell', hn, 'agent');
+  render();
+}
+const NAMES = ['deploy', 'review', 'scratch', 'logs'];
+function renameHere(t) {
+  const before = termTitle(t);
+  const next = NAMES.find(n => !terms.some(o => o.host === t.host && o.prog === n)) || 'renamed';
+  t.prog = next;
+  log(`Typed inside ${before}: the shell's LUX_TERM_SESSION told lux which terminal this is, so no name was needed. It is now ${termTitle(t)}.`, `lux term rename ${ref(next)}`);
+  render();
+}
+function endTerm(t, how) {
+  const ti = termTitle(t);
+  terms.splice(terms.indexOf(t), 1);
+  log(`${ti} ended (${how}). Its window, dock pill and menu entry are gone.`, `lux term kill ${ref(ti)}`);
+}
+function raise(w) { w.docked = false; w.z = ++z; focused = w; log(`${title(w)} brought to the front with focus: you asked for it.`, w.kind === 'term' ? `lux term open ${ref(termTitle(w))}` : null); }
+function minimize(w) { w.docked = true; log(`${title(w)} minimized to the dock.`); }
+
+function newItems() {
+  const items = launcherNames().map(name => {
+    const hs = hostsFor(name);
+    if (hs.length === 1) return { label: name, note: multiHost() ? hs[0] : null, act: () => start(name, hs[0]) };
+    return { label: name, sub: () => hs.map(hn => ({ label: hn, act: () => start(name, hn) })) };
+  });
+  items.splice(1, 0, { sep: true });
+  return [...items, { sep: true }, { label: 'Add launcher…', act: () => { addPanel.open = true; addPanel.z = ++z; } }];
+}
+function termEntry(t) { return { label: multiHost() ? tname(t) : tname(t), dim: t.docked, act: () => raise(t) }; }
+function terminalsMenu() {
+  const items = [{ label: 'New', sub: newItems }, { sep: true }];
+  const vt = visibleTerms();
+  if (!vt.length) return [...items, { label: 'No terminals', dim: true, inert: true }];
+  if (!multiHost()) return [...items, ...vt.map(termEntry)];
+  for (const hn of liveHosts()) {
+    const list = vt.filter(t => t.host === hn);
+    items.push({ label: hn, count: list.length, sub: () => list.length ? list.map(termEntry) : [{ label: 'No terminals', dim: true, inert: true }] });
+  }
+  return items;
+}
+function itemLabel(p, list) {
+  const same = list.filter(o => o.app === p.app);
+  const i = same.indexOf(p);
+  return i > 0 ? `${p.app} (${i + 1})` : p.app;
+}
+function clientsMenu() {
+  const groups = [...new Set(panels.map(p => p.repo ?? p.session))];
+  return groups.map(g => ({ label: g, sub: () => {
+    const list = panels.filter(p => (p.repo ?? p.session) === g);
+    return list.map(p => ({ label: itemLabel(p, list), note: p.session, dim: p.docked, act: () => raise(p) }));
+  } }));
+}
+function windowsMenu() {
+  const all = [...panels, ...visibleTerms()];
+  return all.map(w => ({ label: title(w), dim: w.docked, act: () => raise(w) }));
+}
+const TOP = { Projects: clientsMenu, Terminals: terminalsMenu, Windows: windowsMenu };
+function rootItems() {
+  if (menu.from) return TOP[menu.from]();
+  return [
+    { label: 'Projects', sub: clientsMenu },
+    { label: 'Terminals', sub: terminalsMenu, tag: true },
+    { label: 'Windows', sub: windowsMenu },
+    { sep: true },
+    { label: 'Theme', sub: () => [{ label: 'Dark', act: () => log('Theme is unchanged by this design.') }] },
+  ];
+}
+
+function renderMenu() {
+  const cols = [rootItems()];
+  for (const p of menu.path) {
+    const it = cols[cols.length - 1].find(i => i.label === p && i.sub);
+    if (!it) break;
+    cols.push(it.sub());
+  }
+  let left = menu.x, top = menu.y;
+  cols.forEach((items, d) => {
+    const col = h('div', { class: 'menu', role: 'menu', style: { left: left + 'px', top: top + 'px' } });
+    for (const it of items) {
+      if (it.sep) { col.append(h('div', { class: 'sep' })); continue; }
+      const b = h('button', { class: 'mi' + (it.dim ? ' dim' : '') + (it.inert ? ' inert' : ''), role: 'menuitem', title: it.dim ? 'Minimized' : '' }, h('span', { class: 'l' }, it.label));
+      if (it.count != null) b.append(h('span', { class: 'host' }, String(it.count)));
+      if (it.note) b.append(h('span', { class: 'host' }, it.note));
+      if (it.sub) b.append(h('span', { class: 'r' }, '▸'));
+      else if (it.tag) b.append(h('span', { class: 'tag' }, 'new'));
+      if (it.tag && it.sub) b.insertBefore(h('span', { class: 'tag' }, 'new'), b.lastChild);
+      if (menu.path[d] === it.label && it.sub) b.classList.add('on');
+      const enter = () => {
+        const next = it.sub ? menu.path.slice(0, d).concat(it.label) : menu.path.slice(0, d);
+        if (next.join('|') !== menu.path.join('|')) { menu.path = next; render(); }
+      };
+      b.addEventListener('mouseenter', enter);
+      b.addEventListener('click', e => {
+        e.stopPropagation();
+        if (it.sub) { enter(); return; }
+        if (it.inert) return;
+        menu.open = false; menu.from = null; it.act(); render();
+      });
+      col.append(b);
+    }
+    screen.append(col);
+    const on = col.querySelector('.mi.on');
+    if (on) { top += on.offsetTop - 4; left += col.offsetWidth - 2; }
+  });
+}
+
+function minBtn(w) { return h('button', { class: 'btn', 'aria-label': 'Minimize', title: 'Minimize to the dock (state kept)', onclick: e => { e.stopPropagation(); minimize(w); render(); } }, '–'); }
+function termWin(t) {
+  const kids = [h('div', { class: 'bar' }, h('span', {}, termTitle(t)), minBtn(t),
+    h('button', { class: 'btn kill', 'aria-label': 'End this terminal', title: 'End the shell', onclick: e => { e.stopPropagation(); t.confirm = true; render(); } }, '×')),
+    h('div', { class: 'body' }, screenText(t), h('span', { class: 'cursor' }, ' '))];
+  if (t.confirm) kids.push(h('div', { class: 'confirm' }, h('span', {}, `End ${tname(t)}? Its output is lost.`),
+    h('button', { class: 'chip danger', onclick: () => { endTerm(t, '× on the window'); render(); } }, 'End shell'),
+    h('button', { class: 'chip', onclick: () => { t.confirm = false; render(); } }, 'Cancel')));
+  kids.push(h('div', { class: 'foot' },
+    h('button', { class: 'chip', title: 'Simulates typing lux term rename inside this terminal', onclick: () => renameHere(t) }, 'lux term rename …'),
+    h('button', { class: 'chip', onclick: () => { endTerm(t, 'you typed exit'); render(); } }, 'type exit')));
+  const node = h('div', { class: 'win term' }, ...kids);
+  node.style.width = '360px'; node.style.height = t.confirm ? '200px' : '172px';
+  return node;
+}
+function panelWin(p) {
+  const info = h('button', { class: 'btn', 'aria-label': 'Connection info', title: 'Connection info',
+    onclick: e => { e.stopPropagation(); log(`${panelTitle(p)} — session ${p.session}${p.repo ? `, repository ${p.repo}` : ''}, on ${p.host}. The i popup is where the connection lives, so the menu does not need a session level.`); } }, 'i');
+  const node = h('div', { class: 'win panel' }, h('div', { class: 'bar' }, h('span', {}, panelTitle(p)), info, minBtn(p)),
+    h('div', { class: 'body' }, h('div', {}, h('b', {}, p.app), p.repo ? ` from the ${p.repo} repository` : ' — machine-wide, no repository'), h('div', {}, 'No ×: its owner offers no way to end it.')));
+  node.style.width = '300px'; node.style.height = '110px';
+  return node;
+}
+function tomlFor(hn) {
+  const lines = [`# ${hn}: ~/.punt-labs/lux/terminals.toml`, `allow_agent_launchers = ${agentAllowed[hn]}`, ''];
+  const saved = [...LAUNCHERS[hn], ...runtimeAdded.filter(r => r.host === hn && r.saved)];
+  for (const l of saved) lines.push('[[launcher]]', `name = "${l.name}"`, `command = "${l.command}"`, '');
+  const mem = runtimeAdded.filter(r => r.host === hn && !r.saved);
+  if (mem.length) lines.push(`# in memory until luxd-pty restarts: ${mem.map(r => r.name).join(', ')}`);
+  return lines.join('\n');
+}
+function addLauncher() {
+  const a = addPanel, hn = a.host;
+  const cli = `lux term launcher add ${ref(a.name)} ${ref(a.command)} --host ${hn}${a.save ? ' --save' : ''}`;
+  if (a.who === 'agent' && !agentAllowed[hn]) {
+    log(`Refused: ${hn} does not allow agent launchers. Its owner sets allow_agent_launchers = true in ${hn}'s terminals.toml to allow it.`, a.save ? null : 'term_launcher_add (MCP) → refused');
+    return;
+  }
+  if (launchersOn(hn).some(l => l.name === a.name)) { log(`${hn} already has a launcher named "${a.name}".`); return; }
+  runtimeAdded.push({ host: hn, name: a.name, command: a.command, saved: a.save });
+  log(`${a.who === 'agent' ? 'An agent' : 'You'} added "${a.name}" on ${hn}${a.save ? ', saved to its terminals.toml' : ', in memory until luxd-pty restarts'}. It is now in Terminals ▸ New.`, a.who === 'agent' ? `term_launcher_add (MCP)   ≡   ${cli}` : cli);
+}
+function addPanelWin() {
+  const a = addPanel;
+  const field = (id, label, value, set) => {
+    const i = h('input', { id, class: 'edit', style: { flex: '1' }, 'aria-label': label });
+    i.value = value;
+    i.addEventListener('input', () => set(i.value));
+    i.addEventListener('pointerdown', e => e.stopPropagation());
+    i.addEventListener('keydown', e => e.stopPropagation());
+    return h('label', { class: 'frow' }, h('span', {}, label), i);
+  };
+  const hostSel = h('select', { id: 'add-host', 'aria-label': 'Machine' }, ...liveHosts().map(hn => { const o = h('option', {}, hn); if (hn === a.host) o.selected = true; return o; }));
+  hostSel.addEventListener('change', () => { a.host = hostSel.value; render(); });
+  const whoSel = h('select', { id: 'add-who', 'aria-label': 'Added by' }, ...['agent', 'person'].map(w => { const o = h('option', { value: w }, w === 'agent' ? 'an agent (MCP)' : 'you (CLI)'); if (w === a.who) o.selected = true; return o; }));
+  whoSel.addEventListener('change', () => { a.who = whoSel.value; render(); });
+  const save = h('input', { type: 'checkbox', id: 'add-save' }); save.checked = a.save;
+  save.addEventListener('change', () => { a.save = save.checked; render(); });
+  const node = h('div', { class: 'win addp' },
+    h('div', { class: 'bar' }, h('span', {}, 'Add launcher'), h('button', { class: 'btn', 'aria-label': 'Done', onclick: e => { e.stopPropagation(); a.open = false; render(); } }, '–')),
+    h('div', { class: 'body' },
+      h('label', { class: 'frow' }, h('span', {}, 'Machine'), hostSel),
+      h('label', { class: 'frow' }, h('span', {}, 'Added by'), whoSel),
+      field('add-name', 'Name', a.name, v => { a.name = v; }),
+      field('add-command', 'Command', a.command, v => { a.command = v; }),
+      h('label', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, save, ' save to the machine\'s file (--save)')),
+      h('div', { class: 'frow end' }, h('button', { class: 'chip', onclick: () => { addLauncher(); render(); } }, 'Add')),
+      h('pre', { class: 'toml' }, tomlFor(a.host))));
+  node.style.width = '460px';
+  return node;
+}
+function renderDock() {
+  const docked = [...panels, ...visibleTerms()].filter(w => w.docked);
+  const dock = h('div', { class: 'dock' }, h('span', { class: 'lbl' }, docked.length ? 'Dock' : 'Dock · empty'));
+  for (const w of docked) dock.append(h('button', { class: 'pill', onclick: e => { e.stopPropagation(); raise(w); render(); } }, title(w)));
+  screen.append(dock);
+}
+function renderBar() {
+  const bar = h('div', { class: 'mbar' });
+  for (const name of ['Lux', 'Projects', 'Terminals', 'Windows', 'Help']) {
+    const b = h('button', { class: menu.open && menu.from === name ? 'on' : '' }, name);
+    if (TOP[name]) b.addEventListener('click', e => {
+      e.stopPropagation();
+      const r = screen.getBoundingClientRect(), br = b.getBoundingClientRect();
+      if (menu.open && menu.from === name) { menu.open = false; menu.from = null; }
+      else Object.assign(menu, { open: true, from: name, path: [], x: br.left - r.left, y: 26 });
+      render();
+    });
+    bar.append(b);
+  }
+  screen.append(bar);
+}
+function drag(node, w) {
+  const bar = node.querySelector('.bar');
+  bar.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    const sx = e.clientX - w.x, sy = e.clientY - w.y;
+    bar.setPointerCapture(e.pointerId);
+    const mv = ev => { w.x = Math.max(0, Math.min(1000, ev.clientX - sx)); w.y = Math.max(28, Math.min(600, ev.clientY - sy)); node.style.left = w.x + 'px'; node.style.top = w.y + 'px'; };
+    const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); };
+    bar.addEventListener('pointermove', mv); bar.addEventListener('pointerup', up);
+  });
+}
+function render() {
+  screen.replaceChildren(h('div', { class: 'hint' }, 'Menu bar above, or click the desktop · drag windows by their title bar'));
+  if (!liveHosts().includes(addPanel.host)) addPanel.host = 'local-mac';
+  const wins = [...panels, ...visibleTerms()].filter(w => !w.docked);
+  if (addPanel.open) wins.push(Object.assign(addPanel, { kind: 'add' }));
+  wins.sort((a, b) => a.z - b.z);
+  const topZ = wins.length ? wins[wins.length - 1].z : 0;
+  for (const w of wins) {
+    const node = w.kind === 'term' ? termWin(w) : w.kind === 'add' ? addPanelWin() : panelWin(w);
+    node.style.left = w.x + 'px'; node.style.top = w.y + 'px'; node.style.zIndex = w.z;
+    if (w.z === topZ) node.classList.add('top');
+    if (w === focused) node.classList.add('focused');
+    node.addEventListener('pointerdown', e => { if (e.button === 0 && (w.z !== topZ || menu.open)) { w.z = ++z; menu.open = false; menu.from = null; queueMicrotask(render); } });
+    drag(node, w);
+    screen.append(node);
+  }
+  renderBar();
+  renderDock();
+  if (menu.open) renderMenu();
+}
+
+screen.addEventListener('click', e => {
+  if (e.target !== screen && !e.target.classList.contains('hint')) return;
+  const r = screen.getBoundingClientRect();
+  if (menu.open) { menu.open = false; menu.from = null; }
+  else Object.assign(menu, { open: true, from: null, x: Math.min(e.clientX - r.left, 440), y: Math.min(e.clientY - r.top, 400), path: [] });
+  render();
+});
+document.querySelectorAll('input[name=hosts]').forEach(r => r.addEventListener('change', () => {
+  opts.hosts = r.value;
+  log(r.value === 'one' ? 'One machine: Terminals is a flat list and titles drop the machine name.' : 'Three machines: Terminals groups by machine and titles start with the machine.');
+  Object.assign(menu, { open: true, from: 'Terminals', path: [], x: 120, y: 26 });
+  render();
+}));
+document.getElementById('claude-everywhere').addEventListener('change', e => {
+  opts.claudeEverywhere = e.target.checked;
+  log(e.target.checked ? 'Every machine now lists a claude launcher, so Terminals ▸ New ▸ claude asks which one.' : 'Only local-mac and pembroke list claude; ci-box is not offered for it.');
+  Object.assign(menu, { open: true, from: 'Terminals', path: ['New'], x: 120, y: 26 });
+  render();
+});
+document.getElementById('agent-start').addEventListener('click', () => { menu.open = false; menu.from = null; agentStart(); });
+
+addTerm('local-mac', 'zsh', 30, 60);
+focused = addTerm('pembroke', 'claude', 30, 270);
+addTerm('pembroke', 'zsh', 400, 400, false);
+addTerm('ci-box', 'tail', 420, 160, true);
+Object.assign(menu, { open: true, from: 'Terminals', path: ['New'], x: 120, y: 26 });
+log('Terminals ▸ New lists launchers: Shell, then claude, pi, top and build log from the machines\' files. claude asks which machine; pi, top and build log start on the one machine that lists them.');
+render();
+</script>
