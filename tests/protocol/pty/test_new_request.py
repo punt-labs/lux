@@ -7,7 +7,7 @@ import json
 import pytest
 
 from punt_lux.protocol.pty.control import ControlCodec, ControlRequest
-from punt_lux.protocol.pty.control_fields import ControlError
+from punt_lux.protocol.pty.control_fields import ControlError, ControlFields
 from punt_lux.protocol.pty.new_request import NewRequest
 
 
@@ -89,8 +89,6 @@ def test_construction_validates() -> None:
 def test_decoding_validates_each_field_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from punt_lux.protocol.pty.control_fields import ControlFields
-
     calls: list[str] = []
     original = ControlFields.shape
 

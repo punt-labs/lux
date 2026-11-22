@@ -10,19 +10,23 @@ from punt_lux.protocol.pty.menu_name import MenuName
 
 
 @dataclass(frozen=True, slots=True)
-class SessionLabel(MenuName):
+class SessionLabel:
     """A validated label.
 
     An empty label means "pick a default" in a request and is refused in an
     event, where the session already has a name.
     """
 
+    text: str
     FIELD: ClassVar[str] = "label"
+
+    def __post_init__(self) -> None:
+        MenuName(self.text, self.FIELD)
 
     @classmethod
     def requested(cls, fields: ControlFields) -> SessionLabel:
         """Read the ``label`` field of a request; empty is allowed."""
-        return cls(fields.text(cls.FIELD, cls.MAX_LENGTH))
+        return cls(fields.text(cls.FIELD, MenuName.MAX_LENGTH))
 
     @classmethod
     def assigned(cls, fields: ControlFields) -> SessionLabel:

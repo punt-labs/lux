@@ -10,7 +10,7 @@ from punt_lux.protocol.pty.menu_name import MenuName
 
 
 @dataclass(frozen=True, slots=True)
-class LauncherName(MenuName):
+class LauncherName:
     """A validated launcher name.
 
     The daemon resolves the name against its own launcher list, so a request
@@ -18,9 +18,13 @@ class LauncherName(MenuName):
     built-in launcher, the user's login shell.
     """
 
+    text: str
     FIELD: ClassVar[str] = "launcher"
+
+    def __post_init__(self) -> None:
+        MenuName(self.text, self.FIELD)
 
     @classmethod
     def requested(cls, fields: ControlFields) -> LauncherName:
         """Read the ``launcher`` field of a request; empty is the login shell."""
-        return cls(fields.text(cls.FIELD, cls.MAX_LENGTH))
+        return cls(fields.text(cls.FIELD, MenuName.MAX_LENGTH))

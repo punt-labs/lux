@@ -12,7 +12,7 @@ from punt_lux.protocol.pty.session_label import SessionLabel
 
 @pytest.mark.parametrize("text", ["", "work", "Büro ☕", "x" * 64])
 def test_menu_name_accepts(text: str) -> None:
-    assert MenuName(text).text == text
+    assert MenuName(text, "name").text == text
 
 
 @pytest.mark.parametrize(
@@ -20,14 +20,14 @@ def test_menu_name_accepts(text: str) -> None:
 )
 def test_menu_name_refuses(text: str) -> None:
     with pytest.raises(ControlError, match="name"):
-        MenuName(text)
+        MenuName(text, "name")
 
 
 @pytest.mark.parametrize(
     ("kind", "field"), [(SessionLabel, "label"), (LauncherName, "launcher")]
 )
 def test_each_kind_names_its_own_field_in_a_refusal(
-    kind: type[MenuName], field: str
+    kind: type[SessionLabel | LauncherName], field: str
 ) -> None:
     with pytest.raises(ControlError, match=f"^{field} "):
         kind("x" * 65)
