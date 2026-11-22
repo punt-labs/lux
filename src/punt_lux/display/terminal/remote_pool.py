@@ -23,6 +23,8 @@ class RemotePool:
     _path: Path
     _sessions: dict[str, RemoteSession]
     _channels: dict[int, RemoteSession]
+    _released: set[int]
+    _flush_owed: bool
     _requests: AttachmentRequests
     _connection: TerminalConnection | None
     _ids: count[int]
@@ -33,6 +35,7 @@ class RemotePool:
         self = super().__new__(cls)
         self._path = path
         self._sessions, self._channels = {}, {}
+        self._released, self._flush_owed = set(), False
         self._requests = AttachmentRequests(self.send)
         self._connection = None
         self._ids = count(1)
@@ -69,11 +72,12 @@ class RemotePool:
     def retain_only(self, names: Collection[str]) -> None:
         """Release every replica whose element no longer names it."""
         for name in [n for n in self._sessions if n not in names]:
-            self._release(self._sessions.pop(name))
+            self._drop(self._sessions.pop(name))
 
     def pump(self, budget_s: float = 0.003) -> bool:
-        if not self._sessions:
+        if not self._sessions and not self._flush_owed:
             return False
+        self._flush_owed = False
         try:
             self._ensure_connection()
             if self._connection is None:
@@ -104,14 +108,22 @@ class RemotePool:
             session.close()
         self._sessions.clear()
         self._channels.clear()
+        self._released.clear()
 
-    def _release(self, session: RemoteSession) -> None:
-        """Close one replica and tell the daemon to drop its viewer binding."""
+    def _drop(self, session: RemoteSession) -> None:
+        """Close one replica and tell the daemon to drop its viewer binding.
+
+        The daemon may already have frames in flight for the channel, so it
+        is remembered as released and its late frames are ignored. The CLOSE
+        is owed a flush even when no replica is left to keep ``pump`` running.
+        """
         if (channel := session.channel) in self._channels:
             self.send(Frame(channel, FrameKind.CLOSE, b""))
             del self._channels[channel]
+            self._released.add(channel)
         self._requests.forget(session)
         session.close()
+        self._flush_owed = True
 
     def _attach(self, session: RemoteSession) -> None:
         self._requests.attach(next(self._ids), session)
@@ -127,7 +139,11 @@ class RemotePool:
             self._reply(frame.payload)
             return
         if (session := self._channels.get(frame.channel)) is None:
-            raise ValueError("unexpected terminal channel")
+            if frame.channel not in self._released:
+                raise ValueError("unexpected terminal channel")
+            if frame.kind is FrameKind.CLOSE:
+                self._released.discard(frame.channel)
+            return
         session.receive(frame)
         if frame.kind is FrameKind.CLOSE:
             self._channels.pop(frame.channel)
@@ -152,4 +168,5 @@ class RemotePool:
         self._drop_connection()
         self._requests.disconnect(tuple(self._sessions.values()), message)
         self._channels.clear()
+        self._released.clear()
         self._retry_at = time.monotonic() + 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -19,11 +20,19 @@ _HUB = HubId.stub()
 class Held:
     """Records the latest set of terminal sessions the replica still names."""
 
-    def __init__(self) -> None:
-        self.names: frozenset[str] = frozenset({"<never reported>"})
+    _names: frozenset[str]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._names = frozenset({"<never reported>"})
+        return self
 
     def __call__(self, names: frozenset[str]) -> None:
-        self.names = names
+        self._names = names
+
+    @property
+    def names(self) -> frozenset[str]:
+        return self._names
 
 
 def _scene(scene_id: str, *sessions: str) -> SceneMessage:
@@ -104,3 +113,22 @@ def test_cache_leak_trace_name_reuse_gets_fresh_replica() -> None:
     live = pool.get("n", "")
     assert live is not dead
     assert live.phase is RemotePhase.CONNECTING
+
+
+def test_moving_a_scene_to_another_frame_keeps_its_session() -> None:
+    reports: list[frozenset[str]] = []
+
+    def record(names: frozenset[str]) -> None:
+        reports.append(names)
+
+    moving = SceneReplica(on_scene_replaced=lambda _ids: None, on_terminals_held=record)
+    moving.handle_framed_scene(_scene("s1", "t1"), 1)
+    reports.clear()
+    moved = SceneMessage(
+        id="s1",
+        elements=[TerminalElement(id="t1-el", session="t1")],
+        frame_id="elsewhere",
+    )
+    moving.handle_framed_scene(moved, 1)
+    assert all("t1" in names for names in reports)
+    assert reports

@@ -44,6 +44,7 @@ class SceneReplica:
     _owner_facts: OwnerFactsStore
     _departure: SceneDeparture
     _on_terminals_held: _OnTerminalsHeldFn
+    _settling: int
 
     def __new__(
         cls,
@@ -58,6 +59,7 @@ class SceneReplica:
         self._owner_facts = OwnerFactsStore()
         self._departure = SceneDeparture(self._book, self._owner_facts, self)
         self._on_terminals_held = on_terminals_held
+        self._settling = 0
         return self
 
     @property
@@ -165,7 +167,11 @@ class SceneReplica:
         self._owner_facts.adopt(
             HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
         )
-        self._departure.from_other_frame(frame, key)
+        self._settling += 1
+        try:
+            self._departure.from_other_frame(frame, key)
+        finally:
+            self._settling -= 1
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -237,8 +243,12 @@ class SceneReplica:
         Every way an element leaves -- scene dismissal, frame disposal, clear
         and scene replacement -- ends here, so a terminal replica is released
         exactly when no element names it. A merely closed (hidden) frame keeps
-        its scenes and therefore its replicas.
+        its scenes and therefore its replicas. A move into another frame
+        reports once, after the destination holds the scene, so the replica
+        survives the move.
         """
+        if self._settling:
+            return
         walk = SceneTreeWalk()
         held: set[str] = set()
         for scene in self._book.framed_scenes():

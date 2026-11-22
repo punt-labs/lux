@@ -12,13 +12,14 @@ from punt_lux.display.terminal.retry_schedule import RetrySchedule
 from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
+from punt_lux.protocol.pty.replies import FailureReply, Reply, ReplyCodec, SuccessReply
 from punt_lux.terminal.snapshot import snapshot_version
 
 
 class AttachmentRequests:
     _send: Callable[[Frame], None]
     _pending: dict[int, RemoteSession]
+    _cancelled: set[int]
     _schedule: RetrySchedule
     _hello_id: int
     _ready: bool
@@ -27,6 +28,7 @@ class AttachmentRequests:
         self = super().__new__(cls)
         self._send = send
         self._pending = {}
+        self._cancelled = set()
         self._schedule = RetrySchedule()
         self._hello_id = 0
         self._ready = False
@@ -58,6 +60,10 @@ class AttachmentRequests:
                 raise ConnectionError(reply.error)
             self._ready = True
             return None
+        if reply.request_id in self._cancelled:
+            self._cancelled.discard(reply.request_id)
+            self._close_late_attach(reply)
+            return None
         session = self._pending.pop(reply.request_id, None)
         if session is None:
             raise ValueError("unexpected terminal reply id")
@@ -75,14 +81,28 @@ class AttachmentRequests:
         self._schedule.failed(session, time.monotonic())
         session.disconnected(reply.error)
 
+    def _close_late_attach(self, reply: Reply) -> None:
+        """A released replica's attach succeeded anyway: drop the daemon's viewer."""
+        if isinstance(reply, SuccessReply):
+            channel = reply.result.get("channel")
+            if type(channel) is int and channel > 0:
+                self._send(Frame(channel, FrameKind.CLOSE, b""))
+
     def forget(self, session: RemoteSession) -> None:
-        """Drop every pending request and retry held for a released replica."""
-        self._pending = {i: s for i, s in self._pending.items() if s is not session}
+        """Cancel every pending request and retry held for a released replica.
+
+        A cancelled request's reply may still arrive; ``receive`` recognizes it
+        instead of treating it as a protocol error.
+        """
+        cancelled = {i for i, s in self._pending.items() if s is session}
+        self._cancelled |= cancelled
+        self._pending = {i: s for i, s in self._pending.items() if i not in cancelled}
         self._schedule.discard(session)
 
     def reset(self) -> None:
         self._ready = False
         self._pending.clear()
+        self._cancelled.clear()
         self._schedule.clear()
 
     def disconnect(self, sessions: tuple[RemoteSession, ...], message: str) -> None:
