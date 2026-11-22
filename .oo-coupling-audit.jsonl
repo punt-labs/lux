@@ -265,3 +265,4 @@
 {"ts":"2026-11-21T20:31:58Z","commit":"0300847a","source":null,"files_scored":945,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-21T20:46:04Z","commit":"0300847a","source":null,"files_scored":945,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-21T21:58:56Z","commit":"448b5362","source":null,"files_scored":945,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-22T06:53:27Z","commit":"d814832","source":null,"files_scored":949,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{},"removed":["src/punt_lux/ptyd/credentials.py","src/punt_lux/ptyd/output.py","src/punt_lux/ptyd/snapshot.py","src/punt_lux/ptyd/snapshot_encoding.py","src/punt_lux/ptyd/socket_writer.py","src/punt_lux/ptyd/wire_queue.py"]}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from itertools import islice
 from typing import Self
 
 
@@ -36,9 +37,7 @@ class WireQueue:
         if len(first) == 64 * 1024 or len(self._chunks) == 1:
             return first
         data = bytearray(first)
-        chunks = iter(self._chunks)
-        next(chunks)
-        for chunk in chunks:
+        for chunk in islice(self._chunks, 1, None):
             remaining = 64 * 1024 - len(data)
             if not remaining:
                 break
