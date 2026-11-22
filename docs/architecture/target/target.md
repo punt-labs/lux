@@ -80,6 +80,11 @@ interaction messages may cross the boundary. ImGui calls, renderer invocations,
 and pixel operations do not. The Display receives replicated UI state and then
 renders locally.
 
+As Lux grows into a platform, more processes join these two legs: resource
+daemons such as luxd-pty, more peripherals, and peered Hubs. They follow the
+same rule and reach each other through a Hub. See
+[Platform Packages](#platform-packages).
+
 ## Roles
 
 ```text
@@ -196,6 +201,87 @@ The default replication rule is simple:
 
 This is simpler, easier to inspect, and easier to reason about than a
 distributed incremental diff protocol.
+
+## Platform Packages
+
+Lux is becoming a family of processes that share one set of packages, not one
+process. This section records the package names and layer rules agreed before
+any more code moves. They are targets: today the code still ships as one
+distribution, and `make check-layers` reports where it breaks these rules.
+
+### Process roles
+
+| Role | Responsibility | Examples |
+|---|---|---|
+| Hub | Authority: UI state, routing, handlers, app pub-sub, front doors | luxd; a user may run several, anywhere |
+| Peripheral | Device-local replica: renders state, returns input | the Display; an audio peripheral later |
+| Resource daemon | Owns durable resources independently of clients and peripherals | luxd-pty (persistent shells); may run anywhere |
+| Spoke | Publishes UI or state and receives events through a Hub | MCP agents, the `lux` CLI, applets such as lux-beads, external projects |
+| Hub peering | Shares state between Hubs | reserved; see [Mesh](#mesh-reserved) |
+
+Processes share contracts and the public client SDK, never each other's
+internals. No daemon imports another daemon.
+
+### Packages
+
+Every package lives under the one `punt_lux` namespace.
+
+| Package | Namespace | Holds |
+|---|---|---|
+| lux-kernel | `punt_lux.kernel` | Primitives with no Lux dependencies: paths, logging and usage adapters, peer credentials, bounded socket writers and queues |
+| lux-wire | `punt_lux.wire` | Pure contracts: the UI model (elements, kinds, handlers), Hub-to-Display replica messages and codec, public request and result types, terminal stream frames; `facts/` and `mesh/` reserved |
+| lux-trust | `punt_lux.trust` | CA, enrollment, peer identity |
+| lux-service | `punt_lux.service` | Daemon lifecycle shared by every daemon: install, backends, sweeps, doctor, endpoints and process ownership |
+| lux-client | `punt_lux.client` | The spoke SDK: REST and listen legs, applet helpers, the Hub-carried terminal stream transport |
+| lux-terminal | `punt_lux.terminal` | Headless VT behind libghostty and the shared output and snapshot policy; no daemon code |
+| lux-hub | `punt_lux.hub` | The Hub: authoritative store, handlers, links, operations, commands, front doors; `mesh/` reserved |
+| lux-display | `punt_lux.display` | The Display peripheral: window, replica, menus, ImGui renderers, terminal view |
+| lux-pty | `punt_lux.pty` | luxd-pty: sessions, processes, viewers, stream server |
+| lux-cli | `punt_lux.cli` | The `lux` command, built on the client SDK and service lifecycle |
+| applets | `punt_lux.applets` | Bundled spokes such as lux-beads, built on the client SDK |
+| punt-lux | — | Meta-distribution: the default single-machine install under the existing PyPI name |
+
+### Layer rules
+
+A package may import only from itself and the packages listed for it.
+`tools/layer_contract.py` holds the same table and `make check-layers`
+reports, without failing, every import that breaks it.
+
+| Package | May import |
+|---|---|
+| kernel | nothing else in Lux |
+| wire, trust | kernel |
+| service, client | kernel, wire, trust |
+| terminal | kernel, wire |
+| hub | kernel, wire, trust, service |
+| display | kernel, wire, trust, service, terminal |
+| pty | kernel, wire, trust, service, client, terminal |
+| applets | kernel, wire, trust, service, client |
+| cli | kernel, wire, trust, service, client, applets |
+
+Display and pty may both use terminal's headless VT, but never each other.
+
+### Terminal streams go through the Hub
+
+Terminal output, snapshots, input and resize travel Display → Hub → luxd-pty
+and back, like any other UI state and interaction. Today the Display opens a
+direct local socket to luxd-pty instead. That direct link is the latency
+baseline the Hub path is measured against, not the target.
+
+### Mesh (reserved)
+
+Hubs will sometimes share state, for example a blackboard. Only the package
+slots are reserved; there is no protocol or conflict-handling design yet.
+
+- `wire/facts`: a log of tuples with a current-state query on top.
+- `wire/mesh` and `hub/mesh`: Hub peering messages and the Hub side of peering.
+
+### Packaging and other repositories
+
+- Lux keeps the `uv_build` backend and ships one distribution for now. The
+  packages above become separate distributions in a uv workspace later.
+- vox stays in its own repository and consumes the shared Lux packages
+  (wire, service, client) instead of carrying its own copies.
 
 ## Current Demonstrated Slice
 
