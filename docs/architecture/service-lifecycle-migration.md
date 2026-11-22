@@ -49,7 +49,7 @@ port. `lux hub restart` appeared broken; it was working correctly against
 the new label, and the new process was dying on every single invocation.
 
 **Why the existing tests didn't catch this:** `TestLegacyPlistCleanup` and
-`TestSystemdLegacyUnitCleanup` (`tests/test_service.py:284-371`) patch
+`TestSystemdLegacyUnitCleanup` (`tests/service/test_service.py:284-371`) patch
 `subprocess.run` to unconditionally return `returncode = 0` regardless of
 which command was issued. They assert the plist file is deleted — which it
 was, even under the buggy code — and never assert *which* launchctl verb ran
@@ -553,7 +553,7 @@ drift.
 ### 7.1 Why the current fixtures are insufficient
 
 `TestLegacyPlistCleanup` and `TestSystemdLegacyUnitCleanup`
-(`tests/test_service.py:284-371`) patch `subprocess.run` to return
+(`tests/service/test_service.py:284-371`) patch `subprocess.run` to return
 `returncode = 0` unconditionally and assert only that the plist/unit file is
 gone afterward. They would pass identically against the buggy `unload -w`
 code and the fixed `bootout` code — they never inspect *which* command ran,
@@ -564,7 +564,7 @@ leave.
 
 ### 7.2 Unit-level regression tests (tier 1, `make test`, mocked)
 
-Two new tests in `tests/test_service.py`, alongside the existing
+Two new tests in `tests/service/test_service.py`, alongside the existing
 `TestLegacyPlistCleanup`/`TestSystemdLegacyUnitCleanup` classes:
 
 - **Verb assertion.** Patch `launchctl.run` (the actual call site, per the

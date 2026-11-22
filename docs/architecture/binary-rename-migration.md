@@ -686,8 +686,8 @@ case, matching `_sweep_one` step 1's `exists() or is_symlink()` check,
 
 ### 8.1 Unit-level (tier 1, `make test`, real filesystem in `tmp_path`, no real `uv`)
 
-New `tests/test_binary_sweep.py`, structured after
-`tests/test_service.py`'s `TestLegacyPlistCleanup` class
+New `tests/service/test_binary_sweep.py`, structured after
+`tests/service/test_service.py`'s `TestLegacyPlistCleanup` class
 (`service-lifecycle-migration.md` §7.2's pattern):
 
 - **Fixture setup, mirroring §1's real layout exactly** — a fake

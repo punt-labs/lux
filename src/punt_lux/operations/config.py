@@ -10,9 +10,8 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.config import DisplayModeRequest, DisplayModeState
-from punt_lux.service.display_mode_store import DisplayModeStore
+from punt_lux.operations.models import DisplayModeRequest, DisplayModeState, OpError
+from punt_lux.service import display_mode_store
 
 __all__ = ["DisplayModeOperations"]
 
@@ -31,4 +30,4 @@ class DisplayModeOperations:
         repo_error = DisplayModeRequest.check_repo(repo)
         if repo_error is not None:
             return repo_error
-        return DisplayModeStore(repo).read()
+        return display_mode_store.DisplayModeStore(repo).read()

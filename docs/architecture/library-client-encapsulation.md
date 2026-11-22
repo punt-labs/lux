@@ -36,7 +36,7 @@ The bead names three leaks. All three are confirmed:
    miss the second one.
 3. **Typed into every applet signature.** Confirmed by grep across
    `src/punt_lux/applets/`: `runner.py:84`, `applet_board.py:29,78`,
-   `service/__init__.py:22,51,61` (the `AppletService` Protocol itself —
+   `applets/service.py:22,51,61` (the `AppletService` Protocol itself —
    `acknowledge`/`service` both take `client: LuxRestClient`),
    `beads_service.py:33,97,107`, `serviced_click.py:39,55,65,100,105`,
    `board_channel.py:24,35,38`, `board_work.py:19,28,34`, `board_load.py:31,54,92`,
@@ -218,7 +218,7 @@ base class to put it on. `applets/service.py:1-14`'s module docstring is
 explicit: *"An applet satisfies this by having the methods, not by inheriting
 anything: the leg holds whatever it was handed and calls it."* `AppletService`
 is declared `@runtime_checkable class AppletService(Protocol)`
-(`service/__init__.py:28`) — this is the family-by-protocol shape `oo.md` names
+(`applets/service.py:28`) — this is the family-by-protocol shape `oo.md` names
 ("Families share by protocol, not base class") and `punt-kit/standards/oo.md`
 restates verbatim. Introducing a base class solely to carry a `.run()` bridge
 method would (i) contradict this already-established, already-documented
@@ -566,7 +566,7 @@ identity-resolution responsibility `ServiceRunner`/`AppletLeg` already own
 (`_identity: ClientIdentity`, set once from `AppletIdentity.for_session()` at
 construction, `runner.py:42,47-53`) into every applet author's code, and
 because `AppletService` is explicitly a thin Protocol with **no** construction
-responsibility of its own (§4.2's citation of `service/__init__.py:1-14`) — its methods
+responsibility of its own (§4.2's citation of `applets/service.py:1-14`) — its methods
 receive collaborators, they do not build them. Keeping construction at the leg
 level (`ServiceRunner`/`AppletLeg`) matches the existing division: the leg
 owns connection lifecycle, the service owns what a click does with a

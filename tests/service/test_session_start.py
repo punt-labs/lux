@@ -37,7 +37,7 @@ def test_shell_records_decisions_without_standard_streams(
         f"#!/bin/sh\nexit { {'running': 0, 'probe-error': 2}.get(scenario, 1) }\n"
     )
     probe.chmod(0o700)
-    script = Path(__file__).resolve().parent.parent / "plugin/hooks/session-start.sh"
+    script = Path(__file__).resolve().parents[2] / "plugin/hooks/session-start.sh"
     env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:/usr/bin:/bin"}
     if scenario == "spawn-error":
         env["BASH_FUNC_kill%%"] = "() { return 1;\n}"
@@ -91,7 +91,7 @@ def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> Non
     probe = bin_dir / "pgrep"
     probe.write_text("#!/bin/sh\nexit 1\n")
     probe.chmod(0o700)
-    script = Path(__file__).resolve().parent.parent / "plugin/hooks/session-start.sh"
+    script = Path(__file__).resolve().parents[2] / "plugin/hooks/session-start.sh"
     result = subprocess.run(
         ["/bin/bash", str(script)],
         capture_output=True,
