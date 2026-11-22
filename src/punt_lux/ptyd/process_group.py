@@ -1,4 +1,4 @@
-"""The process group a terminal leader heads, signalled until it is empty."""
+"""The process group a terminal leader heads, signalled during shutdown."""
 
 from __future__ import annotations
 
@@ -17,39 +17,36 @@ _EXIT_VISIBLE_S = 0.1
 
 
 class ProcessGroup:
-    """Send group signals until the kernel shows no member is left to receive them."""
+    """Send each shutdown signal to the group; tolerate the refusals exit causes."""
 
     _pgid: int
     _leader: LeaderStatus
-    _gone: bool
 
     def __new__(cls, pgid: int, leader: LeaderStatus) -> Self:
         self = super().__new__(cls)
         self._pgid = pgid
         self._leader = leader
-        self._gone = False
         return self
 
     def signal(self, sig: signal.Signals) -> None:
-        """Signal every member, or do nothing once the group is known empty.
+        """Signal every member of the group.
+
+        A missing group and a refusal after the leader exited are routine and
+        never stop a later signal: neither proves no member remains.
 
         Raises:
             PermissionError: the kernel refused the signal while the leader
                 was still running.
         """
-        if self._gone:
-            return
         try:
             os.killpg(self._pgid, sig)
         except ProcessLookupError:
-            self._gone = True
+            return
         except PermissionError:
-            # macOS refuses killpg once the leader is an unreaped zombie and no
-            # member this process may signal remains. A later signal would be
-            # refused the same way, so the group is not signalled again.
+            # macOS refuses killpg once the leader is an unreaped zombie, even
+            # with no member left to receive it.
             if not self._leader_exit_visible():
                 raise
-            self._gone = True
             logger.debug(
                 "process group %d: killpg(%s) refused with EPERM after the "
                 "leader exited (exit code %s)",

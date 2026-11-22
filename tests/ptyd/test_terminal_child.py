@@ -190,13 +190,13 @@ def test_a_tolerated_eperm_is_logged_at_debug(
     assert "EPERM" in caplog.text
 
 
-def test_a_normal_shell_exit_signals_the_empty_group_once_and_warns_nothing(
+def test_a_normal_shell_exit_sends_both_signals_and_warns_nothing(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """After `exit`, macOS refuses the group signal: the group has no member left.
+    """After `exit`, macOS refuses both group signals; that refusal is routine.
 
-    The refusal proves there is nothing to SIGKILL after the grace period, so
-    the child sends no second signal and a routine exit adds no warning.
+    SIGKILL is still sent after the grace period, because a refusal does not
+    prove the group is empty, but a routine exit adds no warning.
     """
     status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
     with (
@@ -214,7 +214,10 @@ def test_a_normal_shell_exit_signals_the_empty_group_once_and_warns_nothing(
         child.stop()
         clock.return_value = 10.31
         assert child.poll()
-    killpg.assert_called_once_with(123, signal.SIGHUP)
+    assert [c.args[1] for c in killpg.call_args_list] == [
+        signal.SIGHUP,
+        signal.SIGKILL,
+    ]
     assert caplog.records == []
 
 
@@ -245,11 +248,18 @@ def test_stop_after_the_master_closes_never_raises_on_a_real_shell() -> None:
 
     for _ in range(60):
         child, fd = PtySpawn.start(["/bin/cat"])
-        time.sleep(0.02)
-        os.close(fd)  # what PtyHolder.close() does before stop()
-        child.stop()
-        deadline = time.monotonic() + 3
-        while not child.poll():
-            assert time.monotonic() < deadline
-            time.sleep(0.005)
-        assert child.reaped
+        try:
+            time.sleep(0.02)
+            os.close(fd)  # what PtyHolder.close() does before stop()
+            fd = -1
+            child.stop()
+            deadline = time.monotonic() + 3
+            while not child.poll():
+                assert time.monotonic() < deadline
+                time.sleep(0.005)
+            assert child.reaped
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            if not child.reaped:
+                child.finish()
