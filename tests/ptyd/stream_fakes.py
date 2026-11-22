@@ -7,9 +7,9 @@ from typing import Self
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.frames import Frame
 from punt_lux.ptyd.core import SessionError
-from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
-from punt_lux.ptyd.snapshot import ContinuationExhaustedError, SnapshotError
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
+from punt_lux.terminal.output import OutputChunk, SessionSnapshot
+from punt_lux.terminal.snapshot import ContinuationExhaustedError, SnapshotError
+from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
 
 IDLE: dict[str, object] = {"ended": False, "exit_code": None}
 

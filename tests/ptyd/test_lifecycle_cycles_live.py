@@ -18,7 +18,7 @@ from punt_lux.protocol.pty.control import WIRE_VERSION
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
-from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.terminal.snapshot import snapshot_version
 from tests.ptyd.test_remote_live import PoolWait
 from tests.ptyd.wire_client import WireClient
 

@@ -8,7 +8,7 @@ from typing import Self
 
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.ptyd.credit import CreditWindow
-from punt_lux.ptyd.output import SessionSnapshot
+from punt_lux.terminal.output import SessionSnapshot
 
 
 class ViewerFlow:

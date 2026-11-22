@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
 from punt_lux.ptyd.session_lifecycle import SessionLifecycle
 from punt_lux.ptyd.session_state import SessionState
-from punt_lux.ptyd.snapshot import snapshot_version, tracked_terminal
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
 from punt_lux.terminal.ffi_terminal import TerminalIO
+from punt_lux.terminal.output import OutputChunk, SessionSnapshot
+from punt_lux.terminal.snapshot import snapshot_version, tracked_terminal
+from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
 
 _ENDED_NOTICE = b"\r\n\x1b[?2026l\x1b[2m[process exited]\x1b[0m"
 

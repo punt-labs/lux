@@ -8,8 +8,8 @@ import pytest
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.output import OutputChunk
 from punt_lux.terminal.ffi_terminal import TerminalIO
+from punt_lux.terminal.output import OutputChunk
 from tests.ptyd.test_session_core import FakeFactory
 
 

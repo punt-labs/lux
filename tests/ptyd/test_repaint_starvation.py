@@ -19,10 +19,10 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec, SuccessReply
 from punt_lux.ptyd.control_dispatch import ControlDispatch
 from punt_lux.ptyd.control_failures import ControlFailures
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import SnapshotError
 from punt_lux.ptyd.stream_output import StreamPublisher
 from punt_lux.ptyd.viewers import Binding, ViewerBindings
+from punt_lux.terminal.output import SessionSnapshot
+from punt_lux.terminal.snapshot import SnapshotError
 from tests.ptyd.stream_fakes import IDLE, MidSequenceSession, QueuedCore, RecordingPeer
 
 OVERFLOW = b"x" * (8 * 1024 * 1024)

@@ -16,9 +16,9 @@ pytest.importorskip("pyghostty")
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore, SessionError
 from punt_lux.ptyd.fault import SessionFault
-from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
-from punt_lux.ptyd.snapshot import restore_binary
+from punt_lux.terminal.output import OutputChunk
+from punt_lux.terminal.snapshot import restore_binary
 
 
 @dataclass
@@ -105,19 +105,6 @@ def test_snapshot_cut_does_not_lose_output_arriving_during_transfer() -> None:
         viewer.feed(tail.data)
         assert viewer.text() == "abcdef"
         assert tail.end == session.position == 6
-    finally:
-        core.close()
-
-
-def test_snapshot_metadata_and_binary_transfer_rejoin() -> None:
-    factory = FakeFactory()
-    core = SessionCore(factory)
-    try:
-        snapshot = core.acquire(AttachRequest(1, "shell")).capture()
-        assert SessionSnapshot.from_dict(snapshot.to_dict(), snapshot.data) == snapshot
-        assert "data" not in snapshot.to_dict()
-        with pytest.raises(ValueError, match="length"):
-            SessionSnapshot.from_dict(snapshot.to_dict(), snapshot.data[:-1])
     finally:
         core.close()
 

@@ -11,7 +11,7 @@ from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.protocol.pty.frames import Frame
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec, SuccessReply
-from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
+from punt_lux.terminal.snapshot import encode_binary, snapshot_version, tracked_terminal
 
 
 def test_transient_failure_retries_with_capped_backoff_and_then_attaches() -> None:

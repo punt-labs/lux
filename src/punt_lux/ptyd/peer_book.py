@@ -6,7 +6,7 @@ import logging
 import socket
 from typing import Self
 
-from punt_lux.ptyd.credentials import PeerCredentials
+from punt_lux.credentials import PeerCredentials
 from punt_lux.ptyd.dispatch import SessionDispatch
 from punt_lux.ptyd.lifetime import DaemonLifetime
 from punt_lux.ptyd.peer import Peer

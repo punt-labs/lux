@@ -11,8 +11,8 @@ from punt_lux.ptyd.process_retirement import ProcessRetirement
 from punt_lux.ptyd.session_birth import SessionBirth
 
 if TYPE_CHECKING:
-    from punt_lux.ptyd.output import OutputChunk
     from punt_lux.ptyd.session import TerminalSession
+    from punt_lux.terminal.output import OutputChunk
 
 
 class SessionError(RuntimeError):

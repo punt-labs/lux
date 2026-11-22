@@ -13,7 +13,8 @@ import pytest
 pytest.importorskip("pyghostty", reason="snapshot tests need the display extra")
 
 from punt_lux.display.terminal.render_state import RenderState
-from punt_lux.ptyd.snapshot import (
+from punt_lux.terminal.ffi import Terminal, terminal_title
+from punt_lux.terminal.snapshot import (
     SnapshotError,
     VtSnapshot,
     encode_binary,
@@ -22,7 +23,6 @@ from punt_lux.ptyd.snapshot import (
     snapshot_version,
     tracked_terminal,
 )
-from punt_lux.terminal.ffi import Terminal, terminal_title
 
 ESC = "\x1b"
 CSI = ESC + "["

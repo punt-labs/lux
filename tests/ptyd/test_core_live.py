@@ -13,8 +13,8 @@ pytest.importorskip("pyghostty")
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.output import OutputChunk
-from punt_lux.ptyd.snapshot import restore_binary
+from punt_lux.terminal.output import OutputChunk
+from punt_lux.terminal.snapshot import restore_binary
 
 pytestmark = pytest.mark.integration
 
