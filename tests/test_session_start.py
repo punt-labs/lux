@@ -19,6 +19,7 @@ import pytest
         ("running", "skipped: already running"),
         ("probe-error", "failed: process probe error"),
         ("launch", "launched: spawned"),
+        ("spawn-error", "failed: spawn error"),
     ],
 )
 def test_shell_records_decisions_without_standard_streams(
@@ -37,13 +38,16 @@ def test_shell_records_decisions_without_standard_streams(
     )
     probe.chmod(0o700)
     script = Path(__file__).resolve().parent.parent / "plugin/hooks/session-start.sh"
+    env = {**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    if scenario == "spawn-error":
+        env["BASH_FUNC_kill%%"] = "() { return 1;\n}"
     result = subprocess.run(
         ["/bin/bash", str(script)],
         input='{"hook_event_name":"SessionStart","session_id":"private-session"}',
         text=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        env={**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:/usr/bin:/bin"},
+        env=env,
         check=False,
     )
     assert result.returncode == 0
@@ -53,12 +57,15 @@ def test_shell_records_decisions_without_standard_streams(
     while time.monotonic() < deadline:
         log = path.read_text() if path.exists() else ""
         if f"SessionStart applet {message}" in log and (
-            scenario != "launch" or "launch intent: spawning" in log
+            scenario not in ("launch", "spawn-error")
+            or "launch intent: spawning" in log
         ):
             break
         time.sleep(0.01)
     assert f"SessionStart applet {message}" in log
-    assert ("launch intent: spawning" in log) == (scenario == "launch")
+    assert ("launch intent: spawning" in log) == (scenario in ("launch", "spawn-error"))
+    if scenario in ("launch", "spawn-error"):
+        assert log.index("launch intent: spawning") < log.index(message)
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert str(tmp_path) not in log
     assert "private-session" not in log
