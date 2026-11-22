@@ -290,7 +290,7 @@ class TestLayerRatchet:
         assert LayerRatchet(source, tmp_path).run() == 1
 
     @pytest.mark.parametrize(
-        "mode", ["grew", "shrank", "unchanged", "absent", "invalid"]
+        "mode", ["grew", "shrank", "unchanged", "absent", "invalid", "deleted"]
     )
     @pytest.mark.parametrize("explicit", [True, False])
     def test_compares_baseline_with_git_base(
@@ -310,7 +310,7 @@ class TestLayerRatchet:
             baseline.write_text(
                 "{"
                 if mode == "invalid"
-                else json.dumps([] if mode == "grew" else [edge])
+                else json.dumps([] if mode in {"grew", "deleted"} else [edge])
             )
             subprocess.run([git, "add", baseline.name], cwd=tmp_path, check=True)
         subprocess.run(
@@ -338,12 +338,18 @@ class TestLayerRatchet:
         baseline.write_text(json.dumps([] if mode == "shrank" else [edge]))
         if mode == "shrank":
             (source / "punt_lux" / "tracing.py").write_text("")
-        result = LayerRatchet(source, baseline).run(base_ref="HEAD" if explicit else "")
-        assert result == (1 if mode in {"grew", "invalid"} else 0)
+        if mode == "deleted":
+            baseline.unlink()
+        result = LayerRatchet(source, baseline).run(
+            base_ref="HEAD" if explicit else "", update=mode == "deleted"
+        )
+        assert result == (1 if mode in {"grew", "invalid", "deleted"} else 0)
         output = capsys.readouterr().out
-        if mode == "grew":
+        if mode in {"grew", "deleted"}:
             assert "layer baseline grew vs" in output
             assert edge in output
+        if mode == "deleted":
+            assert not baseline.exists()
         if mode == "absent":
             assert "skipping baseline growth check" in output
 

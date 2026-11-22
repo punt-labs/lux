@@ -261,6 +261,7 @@ class LayerRatchet:
                 print("\n".join(f"  {edge}" for edge in sorted(new)))
                 return 1
             if update:
+                store.check(self._report.violations, base_ref)
                 self._baseline.write_text(
                     json.dumps(sorted(self._report.violations), indent=2) + "\n",
                     encoding="utf-8",
