@@ -14,15 +14,21 @@ class CancelledAttaches:
 
     The daemon may answer an attach after the Display released the replica.
     That reply is expected, not a protocol error; when it succeeded, the
-    daemon bound a viewer on a channel nobody will read, so it is closed.
+    daemon bound a viewer on a channel nobody will read, so it is closed and
+    reported released: the daemon's snapshot and output for it may already be
+    in flight behind the reply.
     """
 
     _send: Callable[[Frame], None]
+    _released: Callable[[int], None]
     _ids: set[int]
 
-    def __new__(cls, send: Callable[[Frame], None]) -> Self:
+    def __new__(
+        cls, send: Callable[[Frame], None], released: Callable[[int], None]
+    ) -> Self:
         self = super().__new__(cls)
         self._send = send
+        self._released = released
         self._ids = set()
         return self
 
@@ -38,6 +44,7 @@ class CancelledAttaches:
             channel = reply.result.get("channel")
             if type(channel) is int and channel > 0:
                 self._send(Frame(channel, FrameKind.CLOSE, b""))
+                self._released(channel)
         return True
 
     def clear(self) -> None:

@@ -25,11 +25,13 @@ class AttachmentRequests:
     _hello_id: int
     _ready: bool
 
-    def __new__(cls, send: Callable[[Frame], None]) -> Self:
+    def __new__(
+        cls, send: Callable[[Frame], None], released: Callable[[int], None]
+    ) -> Self:
         self = super().__new__(cls)
         self._send = send
         self._pending = {}
-        self._cancelled = CancelledAttaches(send)
+        self._cancelled = CancelledAttaches(send, released)
         self._schedule = RetrySchedule()
         self._hello_id = 0
         self._ready = False

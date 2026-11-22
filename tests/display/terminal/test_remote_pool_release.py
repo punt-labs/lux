@@ -122,3 +122,21 @@ def test_releasing_the_last_terminal_still_flushes_its_close() -> None:
     pool.pump()
     assert Frame(7, FrameKind.CLOSE, b"") in connection.queued
     assert connection.pumps == 1
+
+
+def test_data_behind_a_late_attach_reply_spares_other_terminals() -> None:
+    pool = _pool()
+    pool._connection = _FakeConnection()  # type: ignore[assignment]
+    pool._requests._ready = True
+    pool.get("gone", "")
+    request_id = next(iter(pool._requests._pending))
+    live = pool.get("live", "")
+    live._channel = 8
+    pool._channels[8] = live
+    pool.retain_only({"live"})
+    reply = ReplyCodec.encode(SuccessReply(request_id, {"channel": 9}))
+    pool._receive(Frame(0, FrameKind.DATA, reply))
+    pool._receive(Frame(9, FrameKind.SNAPSHOT, b""))
+    pool._receive(Frame(9, FrameKind.DATA, b""))
+    assert pool._channels.get(8) is live
+    assert live.phase is not RemotePhase.DISCONNECTED

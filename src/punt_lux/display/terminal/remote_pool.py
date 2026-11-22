@@ -36,7 +36,7 @@ class RemotePool:
         self._path = path
         self._sessions, self._channels = {}, {}
         self._released, self._flush_owed = set(), False
-        self._requests = AttachmentRequests(self.send)
+        self._requests = AttachmentRequests(self.send, self._released.add)
         self._connection = None
         self._ids = count(1)
         self._retry_at = self._last_output_at = 0
