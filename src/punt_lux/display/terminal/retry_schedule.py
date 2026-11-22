@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Self
 
 from punt_lux.display.terminal.remote import RemoteSession
@@ -22,15 +23,28 @@ class RetrySchedule:
         self._delays[session.name] = delay
         self._retries[session.name] = (session, now + delay)
 
-    def due(self, now: float) -> tuple[RemoteSession, ...]:
+    def hold(self, session: RemoteSession) -> None:
+        """Offer ``session`` again as soon as nothing blocks its name."""
+        self._retries[session.name] = (session, 0.0)
+
+    def due(
+        self, now: float, blocked: Callable[[str], bool]
+    ) -> tuple[RemoteSession, ...]:
+        """Take every retry whose deadline has passed and whose name is free."""
         due = tuple(
-            session for session, deadline in self._retries.values() if now >= deadline
+            session
+            for session, deadline in self._retries.values()
+            if now >= deadline and not blocked(session.name)
         )
         for session in due:
             del self._retries[session.name]
         return due
 
     def succeeded(self, session: RemoteSession) -> None:
+        self._delays.pop(session.name, None)
+
+    def discard(self, session: RemoteSession) -> None:
+        self._retries.pop(session.name, None)
         self._delays.pop(session.name, None)
 
     def clear(self) -> None:

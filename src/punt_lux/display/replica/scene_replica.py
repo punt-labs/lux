@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Self
 
 from punt_lux.display.replica._wiring import (
@@ -15,11 +15,16 @@ from punt_lux.display.replica._wiring import (
     WidgetStateStore,
     WireScalar,
 )
+from punt_lux.display.replica.element_walk import SceneTreeWalk
 from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
 from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import SceneMessage
 
 __all__ = ["OnSceneReplacedFn", "SceneReplica"]
+
+# Receives the session names the replica's scenes still hold, after every
+# change; a replica built without terminal replicas settles nothing.
+type _OnTerminalsHeldFn = Callable[[frozenset[str]], None]
 
 # handle_framed_scene's own-Hub default; stands in for the many existing
 # callers with no real Hub connection -- production resolves the real HubId.
@@ -38,11 +43,14 @@ class SceneReplica:
     _stale: StaleIds
     _owner_facts: OwnerFactsStore
     _departure: SceneDeparture
+    _on_terminals_held: _OnTerminalsHeldFn
+    _settling: int
 
     def __new__(
         cls,
         *,
         on_scene_replaced: OnSceneReplacedFn,
+        on_terminals_held: _OnTerminalsHeldFn = lambda _names: None,
     ) -> Self:
         self = super().__new__(cls)
         self._book = FrameBook()
@@ -50,6 +58,8 @@ class SceneReplica:
         self._stale = StaleIds(self._book, on_scene_replaced)
         self._owner_facts = OwnerFactsStore()
         self._departure = SceneDeparture(self._book, self._owner_facts, self)
+        self._on_terminals_held = on_terminals_held
+        self._settling = 0
         return self
 
     @property
@@ -157,7 +167,11 @@ class SceneReplica:
         self._owner_facts.adopt(
             HubScopedKey(frame.hub, frame.frame_id), msg.frame_owner_facts
         )
-        self._departure.from_other_frame(frame, key)
+        self._settling += 1
+        try:
+            self._departure.from_other_frame(frame, key)
+        finally:
+            self._settling -= 1
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -166,6 +180,7 @@ class SceneReplica:
         else:
             self._replace_scene_state(key, msg, old_scene)
         self._book.record_owner(key, owner_fd)
+        self._settle_terminals()
 
     def _admit_new_scene(self, frame: Frame, key: HubScopedKey) -> None:
         """Place a scene the frame did not hold; active tab only for its first."""
@@ -191,6 +206,7 @@ class SceneReplica:
         self._book.forget_scene_from(scene_id, frame.frame_id, frame.hub)
         if frame.active_tab == scene_id:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
+        self._settle_terminals()
         return not frame.scenes
 
     def close(self, frame_id: str) -> list[str]:
@@ -210,13 +226,34 @@ class SceneReplica:
         for scene_id in frame.scene_order:
             self._widget_state.discard(HubScopedKey(frame.hub, scene_id))
         self._book.forget_scenes_of_frame(frame_id, frame.hub)
-        return self._stale.notify(removed_ids)
+        stale = self._stale.notify(removed_ids)
+        self._settle_terminals()
+        return stale
 
     def clear_all(self) -> None:
         """Remove all scenes, frames, and associated state."""
         self._book.clear()
         self._widget_state.clear()
         self._owner_facts.clear()
+        self._settle_terminals()
+
+    def _settle_terminals(self) -> None:
+        """Report the terminal sessions the scenes still name.
+
+        Every way an element leaves -- scene dismissal, frame disposal, clear
+        and scene replacement -- ends here, so a terminal replica is released
+        exactly when no element names it. A merely closed (hidden) frame keeps
+        its scenes and therefore its replicas. A move into another frame
+        reports once, after the destination holds the scene, so the replica
+        survives the move.
+        """
+        if self._settling:
+            return
+        walk = SceneTreeWalk()
+        held: set[str] = set()
+        for scene in self._book.framed_scenes():
+            held |= walk.terminal_sessions(scene.elements)
+        self._on_terminals_held(frozenset(held))
 
     def dispose_all_frames(self) -> None:
         """Throw out every frame by its own Hub, notifying stale ids per frame."""

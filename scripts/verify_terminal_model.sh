@@ -30,6 +30,9 @@ I6='#n.(n:dom(scene) & n:dom(daemon) & daemon(n)=scene(n) & dstate(n)=running & 
 I7='sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))'
 I8='#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))'
 
+R1='collateral/={}'
+R2='health=failed'
+
 fail() {
   echo "FAIL: $1" >&2
   cat "$2" >&2
@@ -37,9 +40,9 @@ fail() {
 }
 
 check_model() {
-  local model="$1" label="$2" expected="$3" goal="${4:-}"
+  local model="$1" label="$2" expected="$3" goal="${4:-}" size="${5:-2}"
   local log="$LOG_DIR/${model%.tex}-$label.log"
-  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE 2)
+  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE "$size")
   if [[ -n "$goal" ]]; then
     args+=(-nodead -goal "$goal")
   fi
@@ -89,4 +92,71 @@ for model in "${models[@]}"; do
   fi
   check_model "$model" I5-deadlock 'not found'
 done
+release_models=(
+  terminal_release.tex
+  terminal_release_channel_buggy.tex
+  terminal_release_attach_buggy.tex
+  terminal_release_late_reply_buggy.tex
+)
+for model in "${release_models[@]}"; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+  echo "PASS: $model fuzz"
+done
+check_model terminal_release.tex R1 'not found' "$R1"
+check_model terminal_release.tex R2 'not found' "$R2"
+for model in terminal_release_channel_buggy.tex terminal_release_attach_buggy.tex \
+  terminal_release_late_reply_buggy.tex; do
+  check_model "$model" R1 found "$R1"
+  check_model "$model" R2 found "$R2"
+done
+for model in "${release_models[@]}"; do
+  check_model "$model" R3-deadlock 'not found'
+done
+reopen_models=(
+  terminal_reopen.tex
+  terminal_reopen_committed_buggy.tex
+  terminal_reopen_closeidle_buggy.tex
+  terminal_reopen_defer_buggy.tex
+  terminal_reopen_retry_buggy.tex
+)
+for model in "${reopen_models[@]}"; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+  echo "PASS: $model fuzz"
+done
+FF='failedCh/={}'
+OO='conn=linked & ran(dview)/\{asked,live,ended}={} & owed=settled & #c.(c:dom(dbound) & (c|->aclose)/:ran(sent) & (c|->aclose)/:ran(wq))'
+CC='collateral/={}'
+check_model terminal_reopen.tex F 'not found' "$FF" 3
+check_model terminal_reopen.tex O 'not found' "$OO" 3
+check_model terminal_reopen.tex C 'not found' "$CC" 3
+check_model terminal_reopen.tex D-deadlock 'not found' "" 3
+check_model terminal_reopen_committed_buggy.tex F found "$FF" 3
+check_model terminal_reopen_committed_buggy.tex O found "$OO" 3
+check_model terminal_reopen_closeidle_buggy.tex F found "$FF" 3
+check_model terminal_reopen_defer_buggy.tex O found "$OO" 3
+check_model terminal_reopen_retry_buggy.tex O found "$OO" 3
+
+# P: a deferred attach's request is eventually sent, not just un-held (liveness).
+PP='G({CH1 : deferred & nameOf(CH1) /: ran(dom(dview |> {cancelled}) <| nameOf)} => F{(CH1|->areq) : ran(wq) \/ ran(sent) or CH1 : dom(dbound) or CH1 /: dom(dview)})'
+check_ltl() {
+  local model="$1" formula="$2" expected="$3"
+  local log="$LOG_DIR/${model%.tex}-P.log"
+  "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 3 -ltlformula "$formula" >"$log" 2>&1 || true
+  if [[ "$expected" == holds ]]; then
+    grep -q '^LTL Formula TRUE' "$log" || fail "$model P: expected the progress property to hold" "$log"
+  else
+    grep -q 'Counterexample found' "$log" || fail "$model P: expected a counterexample" "$log"
+  fi
+  echo "PASS: $model P $expected"
+}
+for model in terminal_reopen.tex terminal_reopen_nosend_buggy.tex terminal_reopen_drop_buggy.tex; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+done
+FAIR='WF(SendDeferred) & WF(Flush)'
+check_ltl terminal_reopen.tex "$FAIR => $PP" holds
+check_ltl terminal_reopen_nosend_buggy.tex "$PP" violated
+check_ltl terminal_reopen_drop_buggy.tex "$FAIR => $PP" violated
 echo "PASS: all terminal lifecycle checks"

@@ -1,0 +1,902 @@
+%
+% terminal_reopen.tex
+%
+% Releasing and reopening terminal replicas on the one connection the
+% Display holds to luxd-pty.  It extends terminal_release.tex with the
+% attach request queue, the daemon's one-viewer-per-session rule, and the
+% idle pump, so that two further orderings can be stated:
+%   - a name reopened before the reply to its cancelled attach arrives;
+%   - the last replica released with an attach still unsent.
+%
+% Design record: docs/architecture/terminal-lifecycle.md section 8
+% Source of record:
+%   src/punt_lux/display/terminal/remote_pool.py
+%   src/punt_lux/display/terminal/attachment_requests.py
+%   src/punt_lux/display/terminal/cancelled_attaches.py
+%   src/punt_lux/ptyd/viewers.py   ViewerBindings.add
+%   src/punt_lux/ptyd/operation_failure.py
+%
+% Type-check:  fuzz -t docs/terminal_reopen.tex
+% Model-check: scripts/verify_terminal_model.sh (needs DEFAULT_SETSIZE 3)
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Reopening and Last Release on a Shared Terminal Connection}
+\author{Formal model of cancelled attaches and the idle pump}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+The recommended design: the idle connection is closed when the last replica is released, and a replica reopened while a cancelled attach for its name is unanswered holds its attach back until that reply is read.
+
+\section{Basic Types}
+
+\begin{zed}
+  [CH] \\
+  NAME ::= nameA | nameB \\
+  CONN ::= linked | severed \\
+  VIEW ::= asked | live | ended | cancelled | released \\
+  FK ::= reply | fail | data | close \\
+  WK ::= areq | aclose \\
+  FLAG ::= owing | settled
+\end{zed}
+
+\texttt{CH} is a request id, which is also the channel the daemon opens for
+it.  \texttt{NAME} is a session name.  A frame the daemon sends is a
+success \texttt{reply}, a non-retryable \texttt{fail}, stream \texttt{data}
+or the stream \texttt{close}.  A frame the Display writes is an attach
+request \texttt{areq} or a channel \texttt{aclose}.  \texttt{owing} is the
+Display's flush debt after a release.
+
+\section{State}
+
+\begin{schema}{Sys}
+  conn : CONN \\
+  dview : CH \pfun VIEW \\
+  nameOf : CH \pfun NAME \\
+  shadowed, deferred, failedCh, usedCh, collateral, dfin : \power CH \\
+  inflight : \seq (CH \cross FK) \\
+  wq, sent : \seq (CH \cross WK) \\
+  dbound : CH \pfun NAME \\
+  owed : FLAG
+\where
+  \#~inflight \leq 3 \\
+  \#~wq \leq 3 \\
+  \#~sent \leq 3 \\
+  dfin \subseteq \dom dbound
+\end{schema}
+
+\texttt{wq} is the Display's write queue, not yet flushed; \texttt{sent} is
+on the wire to the daemon; \texttt{inflight} is on the wire to the Display.
+\texttt{dbound} is the daemon's viewer bindings, one per channel, each for a
+session name; the daemon refuses a second binding for a name on the peer.
+\texttt{failedCh} are replicas that received a non-retryable rejection.
+\texttt{collateral} is a history variable: unreleased replicas dropped by an
+error caused by another channel.  \texttt{shadowed} and \texttt{deferred} are
+used only by the variants that need them.
+
+\begin{schema}{Init}
+  Sys'
+\where
+  conn' = linked \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = \emptyset \\
+  usedCh' = \emptyset \\
+  collateral' = \emptyset \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\section{Operations}
+
+The Display reads and flushes only while some replica is asked or live, or
+while it owes a flush after a release (the pump's guard).
+
+\begin{schema}{ReplicaAskNow}
+  \Delta Sys \\
+  c? : CH \\
+  n? : NAME \\
+\where
+  conn = linked \\
+  c? \notin usedCh \\
+  \#~wq \leq 3 \\
+  n? \notin \ran (\dom (dview \rres \{ asked , live , ended \}) \dres nameOf) \\
+  n? \notin \ran ((\dom (dview \rres \{ cancelled \})) \dres nameOf) \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto asked \} \\
+  nameOf' = nameOf \cup \{ c? \mapsto n? \} \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \cup \{ c? \} \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \cat \langle (c? , areq) \rangle \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReplicaAskDeferred}
+  \Delta Sys \\
+  c? : CH \\
+  n? : NAME \\
+\where
+  conn = linked \\
+  c? \notin usedCh \\
+  \#~wq \leq 3 \\
+  n? \notin \ran (\dom (dview \rres \{ asked , live , ended \}) \dres nameOf) \\
+  n? \in \ran ((\dom (dview \rres \{ cancelled \})) \dres nameOf) \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto asked \} \\
+  nameOf' = nameOf \cup \{ c? \mapsto n? \} \\
+  shadowed' = shadowed \\
+  deferred' = deferred \cup \{ c? \} \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \cup \{ c? \} \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+A replica reopened while a cancelled attach for its name is unanswered is created, but its attach is held back.
+
+\begin{schema}{SendDeferred}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  c? \in deferred \\
+  nameOf~c? \notin \ran ((\dom (dview \rres \{ cancelled \})) \dres nameOf) \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \setminus \{ c? \} \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \cat \langle (c? , areq) \rangle \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReleaseLive}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = live \\
+  c? \in \dom dview \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} \neq \emptyset \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto released \} \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \cat \langle (c? , aclose) \rangle \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owing
+\end{schema}
+
+\begin{schema}{ReleaseLiveLastSevers}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = live \\
+  c? \in \dom dview \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} = \emptyset \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{ReleaseEnded}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = ended \\
+  c? \in \dom dview \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} \neq \emptyset \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = \{ c? \} \ndres dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owing
+\end{schema}
+
+\begin{schema}{ReleaseEndedLastSevers}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = ended \\
+  c? \in \dom dview \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} = \emptyset \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{ReleaseAsked}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = asked \\
+  c? \in \dom dview \\
+  c? \notin deferred \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} \neq \emptyset \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto cancelled \} \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owing
+\end{schema}
+
+\begin{schema}{ReleaseAskedLastSevers}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = asked \\
+  c? \in \dom dview \\
+  c? \notin deferred \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} = \emptyset \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{ReleaseDeferred}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = asked \\
+  c? \in \dom dview \\
+  c? \in deferred \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} \neq \emptyset \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = \{ c? \} \ndres dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \setminus \{ c? \} \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owing
+\end{schema}
+
+\begin{schema}{ReleaseDeferredLastSevers}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  dview~c? = asked \\
+  c? \in \dom dview \\
+  c? \in deferred \\
+  (\ran (\{ c? \} \ndres dview)) \cap \{ asked , live , ended \} = \emptyset \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{Flush}
+  \Delta Sys \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  wq \neq \langle \rangle \\
+  \#~sent < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = tail~wq \\
+  sent' = sent \cat \langle head~wq \rangle \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{FinalPump}
+  \Delta Sys \\
+\where
+  conn = linked \\
+  \lnot ((\ran dview) \cap \{ asked , live , ended \} \neq \emptyset) \\
+  owed = owing \\
+  \#~sent + \#~wq \leq 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = \langle \rangle \\
+  sent' = sent \cat wq \\
+  dbound' = dbound \\
+  owed' = settled
+\end{schema}
+
+The cleanup pump after the last release flushes what is queued, reads nothing more, and clears the flush debt.
+
+\begin{schema}{DaemonAttach}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  sent \neq \langle \rangle \\
+  head~sent = (c? , areq) \\
+  nameOf~c? \notin \ran dbound \\
+  \#~inflight < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \cat \langle (c? , reply) \rangle \\
+  wq' = wq \\
+  sent' = tail~sent \\
+  dbound' = dbound \cup \{ c? \mapsto nameOf~c? \} \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{DaemonRejectDuplicate}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  sent \neq \langle \rangle \\
+  head~sent = (c? , areq) \\
+  nameOf~c? \in \ran dbound \\
+  \#~inflight < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \cat \langle (c? , fail) \rangle \\
+  wq' = wq \\
+  sent' = tail~sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+The daemon allows one viewer per session on a peer; a second attach is rejected, non-retryably.
+
+\begin{schema}{DaemonReadsClose}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  sent \neq \langle \rangle \\
+  head~sent = (c? , aclose) \\
+  c? \in \dom dbound \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \setminus \{ c? \} \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = tail~sent \\
+  dbound' = \{ c? \} \ndres dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{DaemonRejectsClose}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  sent \neq \langle \rangle \\
+  head~sent = (c? , aclose) \\
+  c? \notin \dom dbound \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \cup \dom (dview \rres \{ asked , live , ended \}) \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{DaemonSendsData}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  c? \in \dom dbound \setminus dfin \\
+  \#~inflight < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \cat \langle (c? , data) \rangle \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{DaemonSendsClose}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  c? \in \dom dbound \setminus dfin \\
+  \#~inflight < 3 \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \cup \{ c? \} \\
+  inflight' = inflight \cat \langle (c? , close) \rangle \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveReply}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , reply) \\
+  c? \in \dom dview \\
+  dview~c? = asked \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto live \} \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveFail}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , fail) \\
+  c? \in \dom dview \\
+  dview~c? = asked \\
+  conn' = conn \\
+  dview' = \{ c? \} \ndres dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \cup \{ c? \} \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+A non-retryable rejection leaves the replica failed for good.
+
+\begin{schema}{ReceiveData}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , data) \\
+  c? \in \dom dview \\
+  dview~c? = live \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveClose}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , close) \\
+  c? \in \dom dview \\
+  dview~c? = live \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto ended \} \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \cat \langle (c? , aclose) \rangle \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owing
+\end{schema}
+
+A live replica that reads the daemon's close answers with its own close, which frees the daemon's binding, and stays in the pool as \texttt{ended} until its element goes.
+
+\begin{schema}{ReceiveLateReply}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , reply) \\
+  c? \in \dom dview \\
+  dview~c? = cancelled \\
+  \#~wq < 3 \\
+  conn' = conn \\
+  dview' = dview \oplus \{ c? \mapsto released \} \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \cat \langle (c? , aclose) \rangle \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+A late success is consumed; the channel the daemon opened is closed and remembered as released.
+
+\begin{schema}{ReceiveLateFail}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , fail) \\
+  c? \in \dom dview \\
+  dview~c? = cancelled \\
+  conn' = conn \\
+  dview' = \{ c? \} \ndres dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveLateData}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , data) \\
+  c? \in \dom dview \\
+  dview~c? = released \\
+  conn' = conn \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveLateClose}
+  \Delta Sys \\
+  c? : CH \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , close) \\
+  c? \in \dom dview \\
+  dview~c? = released \\
+  conn' = conn \\
+  dview' = \{ c? \} \ndres dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = tail~inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+\begin{schema}{ReceiveUnplaceable}
+  \Delta Sys \\
+  c? : CH \\
+  k? : FK \\
+\where
+  conn = linked \\
+  (\ran dview) \cap \{ asked , live , ended \} \neq \emptyset \lor owed = owing \\
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , k?) \\
+  \lnot ((k? \in \{ reply , fail \} \land c? \in \dom dview \land dview~c? \in \{ asked , cancelled \}) \lor (k? \in \{ data , close \} \land c? \in \dom dview \land dview~c? \in \{ live , released \})) \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \cup (\dom (dview \rres \{ asked , live , ended \}) \setminus \{ c? \}) \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+A frame the Display can neither place nor excuse drops the connection and every unreleased replica with it.
+
+\begin{schema}{Disconnect}
+  \Delta Sys \\
+\where
+  conn = linked \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  nameOf' = \emptyset \\
+  shadowed' = \emptyset \\
+  deferred' = \emptyset \\
+  failedCh' = failedCh \\
+  usedCh' = \emptyset \\
+  collateral' = collateral \\
+  dfin' = \emptyset \\
+  inflight' = \langle \rangle \\
+  wq' = \langle \rangle \\
+  sent' = \langle \rangle \\
+  dbound' = \emptyset \\
+  owed' = settled
+\end{schema}
+
+\begin{schema}{Reconnect}
+  \Delta Sys \\
+\where
+  conn = severed \\
+  conn' = linked \\
+  dview' = dview \\
+  nameOf' = nameOf \\
+  shadowed' = shadowed \\
+  deferred' = deferred \\
+  failedCh' = failedCh \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  dfin' = dfin \\
+  inflight' = inflight \\
+  wq' = wq \\
+  sent' = sent \\
+  dbound' = dbound \\
+  owed' = owed
+\end{schema}
+
+
+\section{Goals}
+
+\paragraph{F --- no stuck replica.}  \texttt{failedCh} $\neq \emptyset$ is bad:
+every attach in this model could succeed, so a failure is a reopened
+terminal stuck for good.
+
+\paragraph{O --- no orphan viewer after quiescence.}  No replica is asked or
+live, no flush is owed, yet the daemon still holds a binding for which no
+\texttt{aclose} is queued or sent.
+
+\paragraph{C --- no collateral.}  \texttt{collateral} $\neq \emptyset$.
+
+\paragraph{P --- a deferred attach is eventually sent.}  A replica held
+behind a cancelled attach must have its attach request actually sent once
+nothing blocks its name: leaving the held state is not enough, since the
+request could be dropped on the way.  Because \texttt{Disconnect} and
+\texttt{Reconnect} keep some transition enabled in every state, deadlock
+freedom cannot detect a lost attach, so this is a liveness property checked
+in LTL under weak fairness for \texttt{SendDeferred} and \texttt{Flush}:
+\[
+  \mathbf{WF}(\mathit{SendDeferred}) \land \mathbf{WF}(\mathit{Flush})
+  \Rightarrow
+  \mathbf{G}\,(c \in deferred \land nameOf~c \notin blocked
+    \Rightarrow \mathbf{F}\,(\mathit{areq}_c \in wq \cup sent
+      \lor c \in \dom dbound \lor c \notin \dom dview))
+\]
+where $blocked$ is the names with a cancelled attach outstanding.  The
+variant without \texttt{SendDeferred} (\texttt{nosend}) and the variant whose
+\texttt{SendDeferred} releases the attach without queuing it
+(\texttt{drop}) both violate it.
+
+\paragraph{D --- deadlock freedom.}
+
+\section{Fidelity}
+
+Variants beside this file: \texttt{terminal\_reopen\_nosend\_buggy.tex} (deferral without \texttt{SendDeferred}; violates P), \texttt{terminal\_reopen\_drop\_buggy.tex} (\texttt{SendDeferred} drops the attach; violates P), \texttt{terminal\_reopen\_committed\_buggy.tex} (neither measure), \texttt{terminal\_reopen\_closeidle\_buggy.tex} (only closing the idle connection), \texttt{terminal\_reopen\_defer\_buggy.tex} (only deferral) and \texttt{terminal\_reopen\_retry\_buggy.tex} (only retrying a duplicate rejection).
+
+\end{document}

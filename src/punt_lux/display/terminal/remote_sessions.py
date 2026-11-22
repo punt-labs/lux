@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import TYPE_CHECKING, ClassVar
 
 from punt_lux.display.terminal.remote import RemoteSession
@@ -17,6 +18,11 @@ class RemoteSessions:
     @classmethod
     def get(cls, name: str, command: str) -> RemoteSession:
         return cls._pool.get(name, command)
+
+    @classmethod
+    def retain_only(cls, names: Collection[str]) -> None:
+        """Release every replica whose terminal element has left the scenes."""
+        cls._pool.retain_only(names)
 
     @classmethod
     def pump_frame(cls) -> IdlingDecision:

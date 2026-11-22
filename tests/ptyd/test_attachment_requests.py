@@ -16,7 +16,7 @@ from punt_lux.terminal.snapshot import encode_binary, snapshot_version, tracked_
 
 def test_transient_failure_retries_with_capped_backoff_and_then_attaches() -> None:
     sent: list[Frame] = []
-    requests = AttachmentRequests(sent.append)
+    requests = AttachmentRequests(sent.append, lambda _channel: None)
     session = RemoteSession("shell", "", sent.append)
     try:
         requests.hello(1)
@@ -82,7 +82,7 @@ def test_transient_failure_retries_with_capped_backoff_and_then_attaches() -> No
 
 def test_invalid_request_remains_failed_across_reconnection() -> None:
     sent: list[Frame] = []
-    requests = AttachmentRequests(sent.append)
+    requests = AttachmentRequests(sent.append, lambda _channel: None)
     session = RemoteSession("shell", "", sent.append)
     try:
         requests.attach(1, session)
@@ -98,7 +98,7 @@ def test_invalid_request_remains_failed_across_reconnection() -> None:
 
 
 def test_empty_queue_and_uncorrelated_reply() -> None:
-    requests = AttachmentRequests(lambda _frame: None)
+    requests = AttachmentRequests(lambda _frame: None, lambda _channel: None)
     assert requests.due() == ()
     with pytest.raises(ValueError, match="unexpected"):
         requests.receive(ReplyCodec.encode(FailureReply(99, "unexpected")))

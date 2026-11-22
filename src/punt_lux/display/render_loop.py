@@ -106,11 +106,11 @@ class RenderLoop:
         cross_host_listener: CrossHostPump | None = None,
     ) -> Self:
         self = super().__new__(cls)
-        paths = DisplayPaths(Path(socket_path) if socket_path else None)
-        self._socket_path = paths.socket_path
-        self._display_paths = paths
+        self._display_paths = DisplayPaths(Path(socket_path) if socket_path else None)
+        self._socket_path = self._display_paths.socket_path
         self._scenes = SceneReplica(
             on_scene_replaced=self._drain_stale_events,
+            on_terminals_held=TerminalActivity.retain,
         )
         # Inline import (like the factory wiring below) keeps this off efferent.
         from punt_lux.display.replica.address_rendering import AddressRendering
