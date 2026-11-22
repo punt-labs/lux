@@ -132,6 +132,13 @@
     "max_lcom": 0.333,
     "avg_lcom": 0.333
   },
+  "src/punt_lux/applet_event.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/applets/__init__.py": {
     "efferent_coupling": 7.0,
     "public_names": 7.0,
@@ -464,6 +471,13 @@
   "src/punt_lux/cli/__init__.py": {
     "efferent_coupling": 0.0,
     "public_names": 0.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/cli/_connection.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -1478,6 +1492,13 @@
   },
   "src/punt_lux/display/paint_clock.py": {
     "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/display/paint_telemetry.py": {
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3968,8 +3989,22 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/entry_runtime.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/header_value.py": {
     "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/hook_cli.py": {
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -3995,6 +4030,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/hub_lifespan.py": {
+    "efferent_coupling": 7.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.4,
+    "avg_lcom": 0.4
   },
   "src/punt_lux/hub_paths.py": {
     "efferent_coupling": 0.0,
@@ -4024,6 +4066,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/logging_config.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 4.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/luxd.py": {
     "efferent_coupling": 7.0,
     "public_names": 5.0,
@@ -4048,6 +4097,20 @@
   "src/punt_lux/mcp_session.py": {
     "efferent_coupling": 3.0,
     "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/mcp_session_manager.py": {
+    "efferent_coupling": 5.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.167,
+    "avg_lcom": 0.167
+  },
+  "src/punt_lux/mcp_session_scope.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -5872,6 +5935,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/ptyd/entry_runtime.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/ptyd/environment.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
@@ -6243,6 +6313,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/session_start.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/socket_owner.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -6268,8 +6345,8 @@
     "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.1,
-    "avg_lcom": 0.1
+    "max_lcom": 0.067,
+    "avg_lcom": 0.067
   },
   "src/punt_lux/terminal/daemon_claim.py": {
     "efferent_coupling": 2.0,
@@ -6578,6 +6655,13 @@
     "circular_imports": 0.0,
     "max_lcom": 0.667,
     "avg_lcom": 0.667
+  },
+  "src/punt_lux/usage.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/wire_queue.py": {
     "efferent_coupling": 0.0,
