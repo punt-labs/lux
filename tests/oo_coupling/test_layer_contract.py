@@ -1,12 +1,18 @@
-"""Future-package contract classification and runtime-only reporting."""
+"""Future-package contract classification and runtime-edge ratchet."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from tools.layer_contract import LayerContract, LayerReport, RuntimeImports
+from tools.layer_contract import (
+    LayerContract,
+    LayerRatchet,
+    LayerReport,
+    RuntimeImports,
+)
 
 
 class TestLayerContract:
@@ -189,3 +195,94 @@ class TestLayerReport:
         report = LayerReport(tmp_path).render()
         assert "Unreadable modules: 1" in report
         assert "1 unassigned, 1 read errors" in report
+
+
+class TestLayerRatchet:
+    @pytest.fixture
+    def source(self, tmp_path: Path) -> Path:
+        package = tmp_path / "src" / "punt_lux"
+        package.mkdir(parents=True)
+        (package / "tracing.py").write_text("import punt_lux.cli\n")
+        (package / "cli.py").write_text("")
+        return package.parent
+
+    def test_new_violation_fails(
+        self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[]\n")
+        assert LayerRatchet(source, baseline).run() == 1
+        output = capsys.readouterr().out
+        assert "New layer violations: 1" in output
+        assert "punt_lux.tracing → punt_lux.cli" in output
+
+    def test_baseline_violation_passes(
+        self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
+        assert LayerRatchet(source, baseline).run() == 0
+        assert "Layer ratchet passed: 1 known violations" in capsys.readouterr().out
+
+    def test_stale_entry_fails_and_update_shrinks(
+        self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
+        (source / "punt_lux" / "tracing.py").write_text("")
+        ratchet = LayerRatchet(source, baseline)
+        assert ratchet.run() == 1
+        output = capsys.readouterr().out
+        assert "Stale layer baseline entries (removable): 1" in output
+        assert "punt_lux.tracing → punt_lux.cli" in output
+        assert "make update-layers" in output
+        assert ratchet.run(update=True) == 0
+        assert json.loads(baseline.read_text()) == []
+        assert ratchet.run() == 0
+
+    def test_update_cannot_accept_new_violations(
+        self, source: Path, tmp_path: Path
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[]\n")
+        assert LayerRatchet(source, baseline).run(update=True) == 1
+        assert baseline.read_text() == "[]\n"
+
+    def test_missing_baseline_requires_explicit_bootstrap(
+        self, source: Path, tmp_path: Path
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        ratchet = LayerRatchet(source, baseline)
+        assert ratchet.run() == 1
+        assert ratchet.run(update=True) == 0
+        assert json.loads(baseline.read_text()) == ["punt_lux.tracing → punt_lux.cli"]
+        assert ratchet.run() == 0
+
+    @pytest.mark.parametrize("raw", ["{", "{}", "[1]", "null"])
+    def test_invalid_baseline_fails(
+        self, source: Path, tmp_path: Path, raw: str
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(raw)
+        assert LayerRatchet(source, baseline).run() == 1
+        assert LayerRatchet(source, baseline).run(update=True) == 1
+        assert baseline.read_text() == raw
+
+    def test_unreadable_source_prevents_check_and_update(
+        self, source: Path, tmp_path: Path
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[]\n")
+        (source / "punt_lux" / "tracing.py").write_text("import ???")
+        ratchet = LayerRatchet(source, baseline)
+        assert ratchet.run() == 1
+        assert ratchet.run(update=True) == 1
+        assert baseline.read_text() == "[]\n"
+
+    def test_empty_tree_and_baseline_pass(self, tmp_path: Path) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text("[]\n")
+        assert LayerRatchet(tmp_path, baseline).run() == 0
+
+    def test_unreadable_baseline_fails(self, source: Path, tmp_path: Path) -> None:
+        assert LayerRatchet(source, tmp_path).run() == 1
