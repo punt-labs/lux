@@ -64,6 +64,7 @@ def test_shell_records_decisions_without_standard_streams(
     assert "private-session" not in log
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("logger_state", ["missing", "failing", "stalled"])
 def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> None:
     bin_dir = tmp_path / "bin"
