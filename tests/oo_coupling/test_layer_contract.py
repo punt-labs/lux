@@ -1,5 +1,7 @@
 """Future-package contract classification and runtime-only reporting."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,24 @@ class TestLayerContract:
             ("punt_lux.__main__", "cli"),
             ("punt_lux.apps.clock", "applets"),
             ("punt_lux.trust.identity", "trust"),
+            ("punt_lux.ptyd", "pty"),
+            ("punt_lux.ptyd.service", "pty"),
+            ("punt_lux.terminal", "terminal"),
+            ("punt_lux.terminal.connection", "terminal"),
+            ("punt_lux.protocol.pty.frames", "wire"),
+            ("punt_lux.display.terminal.remote_pool", "display"),
+            ("punt_lux._launchd_plist", "service"),
+            ("punt_lux.entry_runtime", "service"),
+            ("punt_lux.hub_lifespan", "hub"),
+            ("punt_lux.mcp_session_manager", "hub"),
+            ("punt_lux.mcp_session_scope", "hub"),
+            ("punt_lux.logging_config", "kernel"),
+            ("punt_lux.usage", "kernel"),
+            ("punt_lux.applet_event", "service"),
+            ("punt_lux.hook_cli", "cli"),
+            ("punt_lux.session_start", "service"),
+            ("punt_lux.terminalish", "unassigned"),
+            ("punt_lux.ptydish", "unassigned"),
             ("punt_lux.clientish", "unassigned"),
             ("other.domain", "unassigned"),
             ("", "unassigned"),
@@ -47,12 +67,39 @@ class TestLayerContract:
             ("hub", "root", False),
             ("unassigned", "hub", False),
             ("hub", "unassigned", False),
+            ("display", "terminal", False),
+            ("display", "pty", True),
+            ("terminal", "pty", True),
+            ("terminal", "kernel", False),
+            ("terminal", "wire", False),
+            ("terminal", "trust", True),
+            ("terminal", "service", True),
+            ("terminal", "client", True),
+            ("terminal", "hub", True),
+            ("terminal", "display", True),
+            ("terminal", "terminal", False),
+            ("pty", "pty", False),
+            ("pty", "kernel", False),
+            ("pty", "wire", False),
+            ("pty", "trust", False),
+            ("pty", "service", False),
+            ("pty", "client", False),
+            ("pty", "terminal", False),
+            ("pty", "display", True),
+            ("pty", "hub", True),
         ],
     )
     def test_reports_only_disallowed_known_layers(
         self, source: str, target: str, violation: bool
     ) -> None:
         assert LayerContract().breaks_rule(source, target) is violation
+
+    @pytest.mark.parametrize("source", ["hub", "cli", "applets", "client", "service"])
+    @pytest.mark.parametrize("target", ["terminal", "pty"])
+    def test_existing_layers_cannot_import_terminal_or_pty(
+        self, source: str, target: str
+    ) -> None:
+        assert LayerContract().breaks_rule(source, target)
 
 
 class TestRuntimeImports:
@@ -86,6 +133,25 @@ class TestRuntimeImports:
 
 
 class TestLayerReport:
+    def test_reports_daemon_boundaries_but_allows_headless_terminal(
+        self, tmp_path: Path
+    ) -> None:
+        package = tmp_path / "punt_lux"
+        package.mkdir()
+        (package / "display.py").write_text(
+            "import punt_lux.terminal\nimport punt_lux.ptyd\n"
+        )
+        (package / "terminal.py").write_text("import punt_lux.ptyd\n")
+        (package / "ptyd.py").write_text("import punt_lux.terminal\n")
+        (package / "cli.py").write_text("import punt_lux.ptyd\n")
+        report = LayerReport(tmp_path).render()
+        assert "display → pty: 1" in report
+        assert "terminal → pty: 1" in report
+        assert "cli → pty: 1" in report
+        assert "display → terminal:" not in report
+        assert "pty → terminal:" not in report
+        assert "3 violations in 3 groups, 0 unassigned, 0 read errors" in report
+
     def test_groups_unique_edges_and_reports_unassigned(self, tmp_path: Path) -> None:
         package = tmp_path / "punt_lux"
         package.mkdir()
