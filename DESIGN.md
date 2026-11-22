@@ -8103,8 +8103,9 @@ DES-067 and DES-086 are preserved verbatim.
 
 ## DES-103: Three Navigation Views Over One Menu Model, Minimize and End Instead of Close
 
-**Status:** PROPOSED (operator design conversation 2026-11-21; awaiting
-ratification). Interactive mockup: `docs/architecture/navigation-mockup.html`.
+**Status:** SETTLED (operator ratification 2026-11-21, after a design
+conversation the same day). Interactive mockup:
+`docs/architecture/navigation-mockup.html`.
 Amends DES-064, DES-067 and DES-088. Revises the multiple-terminals lifecycle
 design (PL-1214, PL-1217). Builds on DES-056, DES-059, DES-065, DES-089,
 DES-090, DES-093 and DES-100.
