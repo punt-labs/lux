@@ -27,17 +27,18 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import SessionCallback
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.mcp_endpoint import McpAsgiApp
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.protocol.elements.text import TextElement
 from punt_lux.tools.server import (
     bind_session,
     current_client_host,
     current_session,
     unbind_session,
 )
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
 from punt_lux.ws_transport import HubListenTransport
 
 if TYPE_CHECKING:

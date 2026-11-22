@@ -8,7 +8,7 @@ import pytest
 
 from punt_lux.client.frame_deps import FrameAccessorDeps
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Ok, Scope
 
 _IDENTITY = ClientIdentity(kind="cli", name="frame-deps-test")

@@ -28,7 +28,7 @@ from punt_lux.display.evictions import Evictions
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 __all__ = ["DEFAULT_MAX_AGE", "DEFAULT_MAX_COUNT", "PendingInteractions"]
 

@@ -18,10 +18,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.protocol.elements import ButtonElement
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.elements import ButtonElement
+from punt_lux.wire.model.ids import ElementId, SceneId, Topic
+from punt_lux.wire.model.interaction import ButtonClicked
+from punt_lux.wire.model.messages.observer import ObserverMessage
 from tests.hub_harness import IsolatedHub
 
 if TYPE_CHECKING:

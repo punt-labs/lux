@@ -19,17 +19,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.element_checkpoint import ElementCheckpoint
 from punt_lux.domain.hub.transaction_errors import (
     JudgeReusedError,
     WriteDuringRollbackError,
 )
+from punt_lux.wire.model.element_checkpoint import ElementCheckpoint
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from punt_lux.domain.element_abc import Element
-    from punt_lux.domain.handler_writes import WriteJudge
+    from punt_lux.wire.model.element_abc import Element
+    from punt_lux.wire.model.handler_writes import WriteJudge
 
 __all__ = ["BatchJudge"]
 

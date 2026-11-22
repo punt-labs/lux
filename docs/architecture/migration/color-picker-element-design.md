@@ -6,11 +6,11 @@
 non-atomic mutable kinds (`input_text`, `slider`, **`color_picker`**).
 **Exemplars:** the shipped `input_text` and `slider` migrations — their ABC
 elements
-([`input_text.py`](../../../src/punt_lux/protocol/elements/input_text.py),
-[`slider.py`](../../../src/punt_lux/protocol/elements/slider.py)), their OO
+([`input_text.py`](../../../src/punt_lux/wire/model/elements/input_text.py),
+[`slider.py`](../../../src/punt_lux/wire/model/elements/slider.py)), their OO
 codecs
-([`input_text_codec.py`](../../../src/punt_lux/protocol/elements/input_text_codec.py),
-[`slider_codec.py`](../../../src/punt_lux/protocol/elements/slider_codec.py)),
+([`input_text_codec.py`](../../../src/punt_lux/wire/model/elements/input_text_codec.py),
+[`slider_codec.py`](../../../src/punt_lux/wire/model/elements/slider_codec.py)),
 their commit-on-idle arbiters
 ([`input_text_selection.py`](../../../src/punt_lux/display/renderers/imgui/input_text_selection.py),
 [`slider_selection.py`](../../../src/punt_lux/display/renderers/imgui/slider_selection.py)),
@@ -173,14 +173,14 @@ cited at the line each exemplar's entry sits on today.
 ### A.1 `ColorPickerElement` on the Element ABC
 
 Replace the legacy frozen dataclass at
-[`color_picker.py`](../../../src/punt_lux/protocol/elements/color_picker.py) with
+[`color_picker.py`](../../../src/punt_lux/wire/model/elements/color_picker.py) with
 an `Element` ABC subclass, mirroring
-[`slider.py`](../../../src/punt_lux/protocol/elements/slider.py) and
-[`input_text.py`](../../../src/punt_lux/protocol/elements/input_text.py) line for
+[`slider.py`](../../../src/punt_lux/wire/model/elements/slider.py) and
+[`input_text.py`](../../../src/punt_lux/wire/model/elements/input_text.py) line for
 line:
 
 - Keyword-only `__new__` with the `RAISING_FACTORY` / `NO_EMIT` sentinels from
-  [`abc_di_defaults`](../../../src/punt_lux/protocol/elements/abc_di_defaults.py)
+  [`abc_di_defaults`](../../../src/punt_lux/wire/model/elements/abc_di_defaults.py)
   (`slider.py:64`), `super().__new__(cls, renderer_factory=…, emit=…)`.
 - `_kind: Literal["color_picker"]` set in `__new__` (`slider.py:84`); `kind`
   property returns it.
@@ -210,7 +210,7 @@ line:
 - Read-only `@property` accessors for every field (PY-EN-2), plus
   `action -> Literal["changed"]` (`slider.py:130`).
 - `_set_<field>` setters for the patch path, using
-  [`PatchField`](../../../src/punt_lux/protocol/elements/patch_field.py):
+  [`PatchField`](../../../src/punt_lux/wire/model/elements/patch_field.py):
   `_set_value` / `_set_label` via `.as_str`, `_set_alpha` / `_set_picker` via
   `.as_bool`, `_set_tooltip` via `.as_optional_str`. Unlike `slider`, whose
   numeric setters feed a whole-element range re-check in an `apply_patch`
@@ -225,7 +225,7 @@ line:
   from `slider.py:180`. This is the whole of the D21 wiring; the inverted wrap
   seam ([DES-041] Decision 5, shipped) needs no `isinstance` branch.
 - `to_dict` / `from_dict` delegators to the codec (§A.2), keeping the structural
-  `domain.element.Element` Protocol satisfied (`slider.py:260`).
+  `wire.model.element.Element` Protocol satisfied (`slider.py:260`).
 - `validate()` (§A.7) and `resolved_props()` (the Level-5 introspection surface,
   `slider.py:287`) returning `value` / `alpha` / `picker` / `tooltip`.
 - `widget_value()` returning `self._value` (the hex string SceneManager mirrors
@@ -237,7 +237,7 @@ A new module `color_picker_codec.py` holding `JsonColorPickerDecoder` +
 `JsonColorPickerEncoder` as **classes with methods** — never module-level
 `_color_picker_to_dict` / `_color_picker_from_dict` functions (PY-OO-5,
 PY-OO-7). This is the pattern
-[`slider_codec.py`](../../../src/punt_lux/protocol/elements/slider_codec.py)
+[`slider_codec.py`](../../../src/punt_lux/wire/model/elements/slider_codec.py)
 establishes and the one the CLAUDE.md "protocol codec functions" debt note
 demands new work follow. The legacy `ColorPickerElement.to_dict` /`.from_dict`
 (`color_picker.py:32`, `:45`) are the procedural pattern being retired.
@@ -245,7 +245,7 @@ demands new work follow. The legacy `ColorPickerElement.to_dict` /`.from_dict`
 - **`JsonColorPickerDecoder`** — constructed once per tier with that tier's
   `renderer_factory` + `emit` + `HandlerDecoder` (`slider_codec.py:81`). Its
   `decode` validates the boundary through
-  [`ElementWireContext.for_kind("color_picker")`](../../../src/punt_lux/protocol/elements/element_wire.py)
+  [`ElementWireContext.for_kind("color_picker")`](../../../src/punt_lux/wire/model/elements/element_wire.py)
   (`require_str("id")`, `optional_str("value")`, `optional_bool("alpha"/"picker")`,
   `optional_nullable_str("tooltip")`), constructs the element, **installs the
   built-in `_UpdateValueHandler`** via `add_handler(ValueChanged, …)`, then
@@ -263,7 +263,7 @@ demands new work follow. The legacy `ColorPickerElement.to_dict` /`.from_dict`
   the tooltip-absent case** (the corpus case); it now also carries a present
   tooltip (§A.6).
 - A `build_standalone_color_picker_handler_decoder` builder (mirroring
-  [`build_standalone_slider_handler_decoder`](../../../src/punt_lux/protocol/standalone_slider_handler.py))
+  [`build_standalone_slider_handler_decoder`](../../../src/punt_lux/wire/model/standalone_slider_handler.py))
   so `ColorPickerElement.from_dict` can decode a handler-less picker with a
   `RaisingPublishSink`, exactly as `slider.py:271` does.
 
@@ -274,7 +274,7 @@ the line `slider`'s entry sits on today:
 
 1. **`element_factory.py`** — the inbound dispatcher:
    - add `"color_picker"` to `_ABC_KINDS`
-     ([`element_factory.py:75`](../../../src/punt_lux/protocol/element_factory.py));
+     ([`element_factory.py:75`](../../../src/punt_lux/wire/model/element_factory.py));
    - add `ColorPickerElement` to `_ABC_LEAF_TYPES` (`element_factory.py:81`);
    - add a `"color_picker": JsonColorPickerDecoder(…).decode` entry to the
      `_decoders` dict (`element_factory.py:162`), wiring
@@ -284,16 +284,16 @@ the line `slider`'s entry sits on today:
      codec path fails loud instead of routing wrong.
 2. **`encoder_factory.py`** — add
    `(ColorPickerElement, JsonColorPickerEncoder().encode)` to `_DISPATCH`
-   ([`encoder_factory.py:43`](../../../src/punt_lux/protocol/encoder_factory.py)).
-3. **`protocol/elements/__init__.py`** — add `ColorPickerElement` to the
+   ([`encoder_factory.py:43`](../../../src/punt_lux/wire/model/encoder_factory.py)).
+3. **`wire/model/elements/__init__.py`** — add `ColorPickerElement` to the
    ABC-encode `isinstance` union in `_element_to_dict` so its per-kind encoder
    owns tooltip emission (the checkbox/input_text lesson — an omission here
    double-appends or drops the tooltip). `ColorPickerElement` is already in the
    `Element` union
-   ([`__init__.py:135`](../../../src/punt_lux/protocol/elements/__init__.py)) and
+   ([`__init__.py:135`](../../../src/punt_lux/wire/model/elements/__init__.py)) and
    `__all__` (`__init__.py:84`); those stay.
 4. **`container_abc_gate.py`** — add `"color_picker"` to `_MIGRATED_ABC_KINDS`
-   ([`container_abc_gate.py:24`](../../../src/punt_lux/protocol/elements/container_abc_gate.py))
+   ([`container_abc_gate.py:24`](../../../src/punt_lux/wire/model/elements/container_abc_gate.py))
    so an all-ABC `group` / `collapsing_header` / `tab_bar` containing a picker
    forks onto the ABC path rather than the whole subtree falling legacy. Do this
    **only** as part of this migration — the module's own comment
@@ -315,7 +315,7 @@ commit; no two live paths for one kind):
 
 - Remove the `register("color_picker", ColorPickerElement, …)` block from
   `InputsRegistry.apply`
-  ([`inputs.py:51`](../../../src/punt_lux/protocol/elements/inputs.py)).
+  ([`inputs.py:51`](../../../src/punt_lux/wire/model/elements/inputs.py)).
 - Remove the `(ColorPickerElement, "_color_picker_renderer")` dispatch entry, the
   `_color_picker_renderer` field / construction, and the re-thread entry from
   `ElementRenderer`
@@ -376,7 +376,7 @@ delete `_color.py` in this PR.
 tooltip activation). `color_picker` makes **only the tooltip one**:
 
 - **(No union widening.)** `ValueChanged.value` is `bool | int | float | str`
-  today ([`interaction.py:78`](../../../src/punt_lux/domain/interaction.py)). A
+  today ([`interaction.py:78`](../../../src/punt_lux/wire/model/interaction.py)). A
   color commit carries a **hex `str`**, already covered by the existing `str`
   arm (the arm `input_text` uses). No annotation change; refresh only the
   PY-TS-14 justification comment (`interaction.py:76`) to note color→str

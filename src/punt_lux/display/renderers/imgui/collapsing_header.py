@@ -23,12 +23,12 @@ from typing import TYPE_CHECKING, Self, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.header_open_arbiter import HeaderOpenArbiter
-from punt_lux.domain.container_interaction import HeaderToggled
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.container_interaction import HeaderToggled
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+    from punt_lux.wire.model.elements.collapsing_header import CollapsingHeaderElement
 
 __all__ = ["ImGuiCollapsingHeaderRenderer"]
 

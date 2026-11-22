@@ -12,7 +12,7 @@ from typing import final
 
 from punt_lux.display.renderers.checkbox_renderer import CheckboxRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
 
 __all__ = ["ImGuiCheckboxRenderer"]
 

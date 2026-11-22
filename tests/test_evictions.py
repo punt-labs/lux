@@ -8,7 +8,7 @@ of honouring it is in ``test_interaction_delivery``.
 from __future__ import annotations
 
 from punt_lux.display.evictions import Evictions
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 
 def _event(

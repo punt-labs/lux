@@ -11,7 +11,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.spinner_renderer import SpinnerRenderer
-from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.wire.model.elements.spinner import SpinnerElement
 
 __all__ = ["ImGuiSpinnerRenderer"]
 

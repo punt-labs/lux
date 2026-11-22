@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from punt_lux.display.menus import MenuBar, MenuModel, MenuSurface, WorldPanel
 from punt_lux.display.replica.frame_visibility import FrameVisibility
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 from .menu_doubles import (
     SEPARATOR,

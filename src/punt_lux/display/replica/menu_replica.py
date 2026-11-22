@@ -12,7 +12,7 @@ from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.own_menus import OwnMenus as OwnMenus  # reexport
 from punt_lux.display.replica.menu_surfaces import MenuSurfaces
 from punt_lux.display.replica.replicated_menus import ReplicatedMenus
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.display.menus.wire import WireMenu
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.replica.menu_stats import MenuStats
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 __all__ = ["MenuReplica"]
 

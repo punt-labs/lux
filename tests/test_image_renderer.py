@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.display.renderers.image_renderer import ImageRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.wire.model.elements.image import ImageElement
 
 if TYPE_CHECKING:
     import pytest

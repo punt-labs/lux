@@ -11,7 +11,7 @@ from typing import final
 
 from punt_lux.display.renderers.button_renderer import ButtonRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.wire.model.elements.button import ButtonElement
 
 __all__ = ["ImGuiButtonRenderer"]
 

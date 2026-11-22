@@ -17,20 +17,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.composite import Composite
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.ids import ElementId
+from punt_lux.wire.model.composite import Composite
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.ids import ElementId
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.owner import Owner
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.root_registry import RootRegistry
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.element import Element as WireElement
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["SubtreeInstaller"]
 

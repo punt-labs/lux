@@ -15,7 +15,7 @@ from punt_lux.domain.hub.display_replies import DisplayReplies
 from punt_lux.domain.hub.display_requests import DisplayRequests
 from punt_lux.domain.hub.display_writer import WriteSeat
 from punt_lux.domain.hub.request_exchange import RequestExchange
-from punt_lux.protocol import HubManifestMessage
+from punt_lux.wire.model import HubManifestMessage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

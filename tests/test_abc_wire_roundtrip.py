@@ -2,7 +2,7 @@
 
 Two real boundaries, no stubs:
 
-- The native-pickle scene wire (``protocol/messages/scene.py`` —
+- The native-pickle scene wire (``wire/model/messages/scene.py`` —
   ``SceneMessage.to_dict`` / ``SceneMessage.from_dict``): build ->
   ``message_to_dict`` -> assert ``_pickled`` ->
   ``message_from_dict`` -> compare-equal, for all four kinds including a dialog
@@ -21,19 +21,19 @@ from dataclasses import replace
 
 import pytest
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol import SceneMessage, recv_message, send_message
-from punt_lux.protocol.elements import (
+from punt_lux.wire.model import SceneMessage, recv_message, send_message
+from punt_lux.wire.model.elements import (
     ButtonElement,
     CheckboxElement,
     DialogElement,
     Element,
     TextElement,
 )
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ValueChanged
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from tests.hub_harness import IsolatedHub
 
 # -- native-pickle scene roundtrip for all four exemplars -------------------

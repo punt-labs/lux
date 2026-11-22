@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.display.menus.frame_info_button import FrameInfoButton
 from punt_lux.display.menus.open_popup import OpenFrame
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 from tests.menu_doubles import FakeImGui, Vec2, make_frame
 
 if TYPE_CHECKING:

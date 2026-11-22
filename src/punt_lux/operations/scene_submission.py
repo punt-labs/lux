@@ -17,14 +17,14 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.ids import SceneId
+from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.domain.element import Element as DomainElement
     from punt_lux.domain.hub.scene_presentation import ScenePresentation
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.element import Element as DomainElement
 
 __all__ = ["SceneSubmission"]
 

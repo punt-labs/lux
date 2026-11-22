@@ -32,8 +32,8 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
 )
 from punt_lux.display.renderers.slider_renderer import SliderRenderer
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.wire.model.elements.slider import SliderElement
+from punt_lux.wire.model.interaction import ValueChanged
 
 if TYPE_CHECKING:
     import pytest

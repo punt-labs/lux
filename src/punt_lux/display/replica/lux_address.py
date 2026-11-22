@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from itertools import compress
 from typing import final
 
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 __all__ = ["LuxAddress", "Rung"]
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from punt_lux.display.auto_click import AutoClicker
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ButtonElement,
     CheckboxElement,
     ColorPickerElement,
@@ -17,7 +17,7 @@ from punt_lux.protocol import (
     SliderElement,
     TextElement,
 )
-from punt_lux.protocol.elements import Element
+from punt_lux.wire.model.elements import Element
 
 
 def _emitted(*elems: Element) -> list[RemoteEventHandlerInvocation]:

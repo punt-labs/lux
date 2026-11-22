@@ -5,9 +5,9 @@
 **Kind:** `slider` — interactive value input, element #2 of the three
 non-atomic mutable kinds (`input_text`, **`slider`**, `color_picker`).
 **Exemplar:** the just-shipped `input_text` migration — its ABC element
-([`input_text.py`](../../../src/punt_lux/protocol/elements/input_text.py)),
+([`input_text.py`](../../../src/punt_lux/wire/model/elements/input_text.py)),
 its OO codec
-([`input_text_codec.py`](../../../src/punt_lux/protocol/elements/input_text_codec.py)),
+([`input_text_codec.py`](../../../src/punt_lux/wire/model/elements/input_text_codec.py)),
 its commit-on-idle arbiter
 ([`input_text_selection.py`](../../../src/punt_lux/display/renderers/imgui/input_text_selection.py)),
 its renderer
@@ -102,14 +102,14 @@ Follow `input_text` exactly. The concrete surface, class by class.
 ### 2.1 `SliderElement` on the Element ABC
 
 Replace the legacy frozen dataclass at
-[`slider.py`](../../../src/punt_lux/protocol/elements/slider.py) with an
+[`slider.py`](../../../src/punt_lux/wire/model/elements/slider.py) with an
 `Element` ABC subclass
-([`element_abc.py:49`](../../../src/punt_lux/domain/element_abc.py)), mirroring
-[`input_text.py`](../../../src/punt_lux/protocol/elements/input_text.py) and
+([`element_abc.py:49`](../../../src/punt_lux/wire/model/element_abc.py)), mirroring
+[`input_text.py`](../../../src/punt_lux/wire/model/elements/input_text.py) and
 `checkbox.py` (the interactive-leaf exemplar) line for line:
 
 - Keyword-only `__new__` with the `RAISING_FACTORY` / `NO_EMIT` sentinels from
-  [`abc_di_defaults`](../../../src/punt_lux/protocol/elements/abc_di_defaults.py)
+  [`abc_di_defaults`](../../../src/punt_lux/wire/model/elements/abc_di_defaults.py)
   (`input_text.py:58`). `super().__new__(cls, renderer_factory=…, emit=…)`.
 - `_kind: Literal["slider"]` set in `__new__` (`input_text.py:75`); `kind`
   property returns it.
@@ -132,12 +132,12 @@ Replace the legacy frozen dataclass at
 - Read-only `@property` accessors for every field (PY-EN-2), plus
   `action -> Literal["changed"]` (`input_text.py:106`).
 - `_set_<field>` setters for the patch path, using
-  [`PatchField`](../../../src/punt_lux/protocol/elements/patch_field.py):
+  [`PatchField`](../../../src/punt_lux/wire/model/elements/patch_field.py):
   `_set_value` / `_set_min` / `_set_max` via `.as_number` (returns `float`),
   `_set_format` / `_set_label` via `.as_str`, `_set_integer` via `.as_bool`,
   `_set_tooltip` via `.as_optional_str`. The numeric setters **only coerce** —
   they do **not** range-raise per setter. Unlike `ProgressElement._set_fraction`
-  ([`progress.py:96`](../../../src/punt_lux/protocol/elements/progress.py)),
+  ([`progress.py:96`](../../../src/punt_lux/wire/model/elements/progress.py)),
   which can range-check in place because `progress` has no mutable bounds, a
   slider's `min`/`max` are patchable: a per-setter raise would wrongly reject a
   valid combined patch (e.g. `{value: 150, max: 200}` applied value-first against
@@ -148,11 +148,11 @@ Replace the legacy frozen dataclass at
   `(RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)` — verbatim
   from `input_text.py:133` / `checkbox.py:117`. This is the whole of the D21
   wiring: the inverted wrap seam
-  ([`remote_dispatch_spec.py`](../../../src/punt_lux/domain/remote_dispatch_spec.py),
+  ([`remote_dispatch_spec.py`](../../../src/punt_lux/wire/model/remote_dispatch_spec.py),
   Decision (e), already shipped) needs no `isinstance` branch added — the kind
   just declares its spec.
 - `to_dict` / `from_dict` delegators to the codec (§2.2), keeping the structural
-  `domain.element.Element` Protocol satisfied (`input_text.py:139`).
+  `wire.model.element.Element` Protocol satisfied (`input_text.py:139`).
 - `validate()` (§5) and `resolved_props()` (the Level-5 introspection surface,
   `input_text.py:163`) returning `value` / `min` / `max` / `format` / `integer`
   / `tooltip`.
@@ -163,14 +163,14 @@ A new module `slider_codec.py` holding `JsonSliderDecoder` +
 `JsonSliderEncoder` as **classes with methods** — never module-level
 `_slider_to_dict` / `_slider_from_dict` functions (PY-OO-5, PY-OO-7). This is
 the pattern
-[`input_text_codec.py`](../../../src/punt_lux/protocol/elements/input_text_codec.py)
+[`input_text_codec.py`](../../../src/punt_lux/wire/model/elements/input_text_codec.py)
 establishes and the one the CLAUDE.md "protocol codec functions" debt note
 demands new work follow:
 
 - **`JsonSliderDecoder`** — constructed once per tier with that tier's
   `renderer_factory` + `emit` + `HandlerDecoder` (`input_text_codec.py:64`).
   Its `decode` validates the boundary through
-  [`ElementWireContext.for_kind("slider")`](../../../src/punt_lux/protocol/elements/element_wire.py)
+  [`ElementWireContext.for_kind("slider")`](../../../src/punt_lux/wire/model/elements/element_wire.py)
   (`require_str("id")`, `optional_number("value"/"min"/"max")`,
   `optional_str("format")`, `optional_bool("integer")`), constructs the element,
   **installs the built-in `_UpdateValueHandler`** (below) via
@@ -184,11 +184,11 @@ demands new work follow:
 - **`JsonSliderEncoder`** — stateless (`__slots__ = ()`), emitting `kind` / `id`
   / `label` / `value` / `min` / `max` / `format`, `integer` only when `True`, and
   `tooltip` only when present. It matches the legacy `SliderElement.to_dict`
-  ([`slider.py:32`](../../../src/punt_lux/protocol/elements/slider.py))
+  ([`slider.py:32`](../../../src/punt_lux/wire/model/elements/slider.py))
   byte-for-byte **only in the tooltip-absent case** (the corpus case); it now
   also carries a present tooltip (§2.5b).
 - A `build_standalone_slider_handler_decoder` builder (mirroring
-  [`standalone_input_text_handler`](../../../src/punt_lux/protocol/standalone_input_text_handler.py))
+  [`standalone_input_text_handler`](../../../src/punt_lux/wire/model/standalone_input_text_handler.py))
   so `SliderElement.from_dict` can decode a handler-less slider with a
   `RaisingPublishSink`, exactly as `input_text.py:151` does.
 
@@ -199,7 +199,7 @@ at the line the `input_text` entry sits on today:
 
 1. **`element_factory.py`** — the inbound dispatcher:
    - add `"slider"` to `_ABC_KINDS`
-     ([`element_factory.py:70`](../../../src/punt_lux/protocol/element_factory.py));
+     ([`element_factory.py:70`](../../../src/punt_lux/wire/model/element_factory.py));
    - add `SliderElement` to `_ABC_LEAF_TYPES` (`element_factory.py:76`);
    - add a `"slider": JsonSliderDecoder(…).decode` entry to the `_decoders` dict
      (`element_factory.py:148`), wiring
@@ -209,16 +209,16 @@ at the line the `input_text` entry sits on today:
      codec path fails loud instead of routing wrong.
 2. **`encoder_factory.py`** — add `(SliderElement, JsonSliderEncoder().encode)`
    to `_DISPATCH`
-   ([`encoder_factory.py:41`](../../../src/punt_lux/protocol/encoder_factory.py)).
-3. **`protocol/elements/__init__.py`** — add `SliderElement` to the ABC-encode
+   ([`encoder_factory.py:41`](../../../src/punt_lux/wire/model/encoder_factory.py)).
+3. **`wire/model/elements/__init__.py`** — add `SliderElement` to the ABC-encode
    `isinstance` union in `_element_to_dict`
-   ([`__init__.py:184`](../../../src/punt_lux/protocol/elements/__init__.py)) so
+   ([`__init__.py:184`](../../../src/punt_lux/wire/model/elements/__init__.py)) so
    its per-kind encoder owns tooltip emission (the checkbox/input_text lesson in
    the audit §2a — an omission here double-appends or drops the tooltip).
    `SliderElement` is already in the `Element` union (`__init__.py:129`) and
    `__all__`; those stay.
 4. **`container_abc_gate.py`** — add `"slider"` to `_MIGRATED_ABC_KINDS`
-   ([`container_abc_gate.py:24`](../../../src/punt_lux/protocol/elements/container_abc_gate.py))
+   ([`container_abc_gate.py:24`](../../../src/punt_lux/wire/model/elements/container_abc_gate.py))
    so an all-ABC `group` / `collapsing_header` / `tab_bar` containing a slider
    forks onto the ABC path rather than the whole subtree falling legacy. Do this
    **only** as part of this migration — the module's own comment states a kind
@@ -239,7 +239,7 @@ commit; no two live paths for one kind):
 
 - Remove the `register("slider", SliderElement, …)` line from
   `InputsRegistry.apply`
-  ([`inputs.py:44`](../../../src/punt_lux/protocol/elements/inputs.py)).
+  ([`inputs.py:44`](../../../src/punt_lux/wire/model/elements/inputs.py)).
 - Remove the `(SliderElement, "_slider_renderer")` dispatch entry and the
   `_slider_renderer` `WidgetState` re-thread entry from `ElementRenderer`
   ([`element_renderer.py:162`, `:176`](../../../src/punt_lux/display/element_renderer.py)),
@@ -256,7 +256,7 @@ CHANGELOG.
 
 **(a) The `ValueChanged` payload union.** `ValueChanged.value` is typed
 `bool | str` today
-([`interaction.py:78`](../../../src/punt_lux/domain/interaction.py)) — a checkbox
+([`interaction.py:78`](../../../src/punt_lux/wire/model/interaction.py)) — a checkbox
 carries `bool`, an input_text edit carries `str`. A slider commit carries a
 `float`, so the union widens to `bool | int | float | str` (the `int` covers
 the `slider_int` variant; `float` the default). Update the annotation on both
@@ -475,7 +475,7 @@ Per [`element-contract.md`](../../target/element-contract.md) §"Validation
 Contract" and the "validation rides with migration" rule, `slider` gains its
 component-appropriate `validate()` as part of this migration.
 `ProgressElement.validate()`
-([`progress.py:123`](../../../src/punt_lux/protocol/elements/progress.py)) is the
+([`progress.py:123`](../../../src/punt_lux/wire/model/elements/progress.py)) is the
 numeric-leaf exemplar. The checks, each returning a `ValidationError(self._id,
 self._kind, message)`:
 

@@ -15,7 +15,7 @@ from typing import Self
 
 from imgui_bundle import imgui
 
-from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.wire.model.elements.markdown import MarkdownElement
 
 __all__ = ["MarkdownRenderer"]
 

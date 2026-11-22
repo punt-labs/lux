@@ -26,25 +26,25 @@ from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.draw import ImGuiDrawRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.domain.validation_walk import ElementTreeValidator
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import DrawElement, GroupElement
-from punt_lux.protocol.elements.draw_commands_line import Line
-from punt_lux.protocol.elements.draw_commands_shape import Rect
-from punt_lux.protocol.elements.draw_values import Color, Point2
-from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tools import show
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements import DrawElement, GroupElement
+from punt_lux.wire.model.elements.draw_commands_line import Line
+from punt_lux.wire.model.elements.draw_commands_shape import Rect
+from punt_lux.wire.model.elements.draw_values import Color, Point2
+from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.validation_walk import ElementTreeValidator
 
 from .geometry_doubles import EXPECTED_RECT, FakeGeomImgui, GeomFactory
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.protocol import QueryResponse
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import QueryResponse
+    from punt_lux.wire.model.elements import Element
 
 _CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
 

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.display.display_log import DisplayLog
 from punt_lux.display.scene_reports import SceneReports
-from punt_lux.domain.programmer_error import ProgrammerError
-from punt_lux.protocol import QueryResponse
+from punt_lux.kernel.programmer_error import ProgrammerError
+from punt_lux.wire.model import QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.display.display_log import ErrorSeverity

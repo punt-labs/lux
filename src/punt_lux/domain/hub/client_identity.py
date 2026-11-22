@@ -31,7 +31,7 @@ from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.applet_name_format import APPLET_NAME_RE
 
 if TYPE_CHECKING:
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["ClientIdentity", "ClientKind"]
 

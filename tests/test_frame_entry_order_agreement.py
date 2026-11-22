@@ -17,8 +17,8 @@ from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )
-from punt_lux.domain.ids import SceneId
-from punt_lux.protocol import Element, SceneMessage, TextElement
+from punt_lux.wire.model import Element, SceneMessage, TextElement
+from punt_lux.wire.model.ids import SceneId
 
 type _Step = tuple[Literal["show", "blank"], str, str]
 

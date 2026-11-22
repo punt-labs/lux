@@ -59,18 +59,18 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.tools.server import _session_key
+from punt_lux.wire.model import (
     AckMessage,
     PongMessage,
     QueryResponse,
 )
-from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.tools.server import _session_key
+from punt_lux.wire.model.messages.observer import ObserverMessage
 from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:

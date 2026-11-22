@@ -19,14 +19,14 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import BoundedSend
-from punt_lux.protocol import AckMessage, encode_message
+from punt_lux.wire.model import AckMessage, encode_message
 
 if TYPE_CHECKING:
     import socket
 
     from punt_lux.display.client_host_port import ClientHost
-    from punt_lux.protocol import RemoteEventHandlerInvocation
-    from punt_lux.protocol.messages import Message
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
+    from punt_lux.wire.model.messages import Message
 
 __all__ = ["ClientSender"]
 

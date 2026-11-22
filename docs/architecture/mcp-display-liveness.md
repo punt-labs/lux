@@ -258,10 +258,10 @@ already had — resending a whole scene is idempotent — and it removes the cas
 where a scene that was already clean before the crash stays missing forever.
 
 A stuck display still answers new connection attempts, so `is_running()`
-(`paths.py:139`) reports it as alive (`_probe` returns `ACCEPTING`,
-`paths.py:129`). Simply reconnecting would just connect back to the same stuck
+(`service/display_paths.py:139`) reports it as alive (`_probe` returns `ACCEPTING`,
+`service/display_paths.py:129`). Simply reconnecting would just connect back to the same stuck
 process. That is why we kill it first. To find which process to kill, we ask the
-socket who owns it — its peer credential (`paths.py:238`) — and kill that.
+socket who owns it — its peer credential (`service/display_paths.py:238`) — and kill that.
 Killing the stuck process and starting a fresh one is what we mean by *reap and
 respawn*.
 

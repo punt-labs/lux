@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["CallbackListener", "LiveSessions"]
 

@@ -20,7 +20,7 @@ from punt_lux.domain.hub.details_renderer import NoDetailsRenderer
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.details_renderer import ClientDetailsRenderer
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["DetailsBinding"]
 

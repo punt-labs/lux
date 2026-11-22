@@ -20,16 +20,16 @@ from typing import (
     final,
 )
 
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handler_writes import HandlerWrites
 from punt_lux.domain.hub.write_result import WriteRejected
-from punt_lux.domain.nesting_cap import NestingCap
-from punt_lux.domain.validation import ValidationReport
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.handler_writes import HandlerWrites
+from punt_lux.wire.model.nesting_cap import NestingCap
+from punt_lux.wire.model.validation import ValidationReport
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.element import Element as WireElement
+    from punt_lux.wire.model.element import Element as WireElement
 
 __all__ = ["AbcFieldRealization", "FieldRealization"]
 

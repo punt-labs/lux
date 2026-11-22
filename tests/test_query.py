@@ -12,8 +12,8 @@ from typing import Any
 import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.wire.model import (
     AckMessage,
     QueryRequest,
     QueryResponse,
@@ -25,7 +25,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 from tests.link_access import shown
 
 # ---------------------------------------------------------------------------

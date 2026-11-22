@@ -18,10 +18,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
-from punt_lux.domain.element_abc import Element as ABCElement
-from punt_lux.domain.validation_walk import HasChildElements
-from punt_lux.protocol import Element
-from punt_lux.protocol.elements.terminal import TerminalElement
+from punt_lux.wire.model import Element
+from punt_lux.wire.model.element_abc import Element as ABCElement
+from punt_lux.wire.model.elements.terminal import TerminalElement
+from punt_lux.wire.model.validation_walk import HasChildElements
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

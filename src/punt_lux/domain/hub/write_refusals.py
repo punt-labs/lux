@@ -1,8 +1,8 @@
 """Refusals by the judge: a write the Hub will not make, whichever door it came by.
 
-Both are :class:`~punt_lux.domain.handler_writes.WriteRefusedError`, which an observer
-fan-out lets through after the other observers have run, so the transaction that woke
-the observer rolls back and the agent is told why:
+Both are :class:`~punt_lux.wire.model.handler_writes.WriteRefusedError`, which an
+observer fan-out lets through after the other observers have run, so the
+transaction that woke the observer rolls back and the agent is told why:
 
 - :class:`NestingExceededError` -- a write that would nest an element's wire form past
   the cap.
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.handler_writes import WriteRefusedError
+from punt_lux.wire.model.handler_writes import WriteRefusedError
 
 __all__ = ["NestingExceededError", "UnheldTargetError"]
 

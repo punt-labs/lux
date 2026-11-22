@@ -163,7 +163,14 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 
 ### Key architectural boundary: protocol vs. rendering
 
-The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `render_loop.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
+Shared domain values, elements, messages, and framing now live in
+`punt_lux.wire.model`. Only `domain.hub` and `protocol.pty` remain at their old
+locations. The model facade's `Element` is the wire union; `ElementProtocol` is
+the structural interface from `wire.model.element`. `ConnectionId` and
+`ProgrammerError` live in kernel; protocol-aware display socket/process
+lifecycle belongs to `service.display_paths`. No old-path alias modules exist.
+
+The **JSON protocol** (the `wire/model/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `render_loop.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
 This separation means: protocol bugs break agents. Rendering bugs break the display. They overlap only when a new element kind is added (protocol + rendering in a single coordinated change).
 
@@ -195,8 +202,8 @@ re-dispatch.
 | `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |
 | `display/texture_cache.py` | Image texture upload with bounded LRU eviction (`TextureLru`) and a coupled data-key memo |
 | `display/idle_screen.py` | Idle splash when no scene is active |
-| `protocol/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
-| `protocol/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
+| `wire/model/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
+| `wire/model/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
 | `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, six concern routers, one `OpError`→HTTP table) |
 | `client/facade.py` | `LuxClient` — public library facade; its private REST transport serves the CLI and library |
@@ -204,7 +211,7 @@ re-dispatch.
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `domain/hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
-| `apps/beads.py` | `BeadsBrowser` — loads and orders beads issues; `apps/beads_board.py` builds requests and `protocol/compositions/table_composition.py` builds the Hub-side table UI |
+| `apps/beads.py` | `BeadsBrowser` — loads and orders beads issues; `apps/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
 
 25 wire element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`client.scene.table()`), dashboards (`client.scene.dashboard()`), custom rendering (`draw` element). `SplitPaneElement` is a `GroupElement` refinement with the same JSON kind, not a 26th wire kind.
 
@@ -243,7 +250,7 @@ Do not add ad-hoc debug prints — use the logger at the appropriate level. **No
 
 Default Python — procedural functions operating on dataclasses, `| None` everywhere, `str` fields with comments listing valid values — fails this project's quality bar. The rules in `.claude/rules/python-*.md` exist precisely to fix that bias and they are NOT load-bearing unless the agent (or the mission author writing a YAML) explicitly cites them. The user has had to repeat OO 101 across multiple sessions while agents shipped procedural code. Stop.
 
-**Five rules, cited verbatim in every mission YAML for protocol/data work:**
+**Five rules, cited verbatim in every mission YAML for wire/model/data work:**
 
 1. **Classes own data AND behavior** (PY-OO-5). A dataclass with module-level `_<kind>_to_dict(m)` / `_<kind>_from_dict(d)` functions IS procedural code in dataclass clothing. The functions become `to_dict(self)` instance methods and `from_dict(cls, d)` `@classmethod`s. If you find yourself writing a function that takes a dataclass parameter, reads multiple fields, and returns a derivation — that function belongs ON the class.
 
@@ -255,13 +262,13 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 5. **Reduce `| None` types.** Each Optional is a place the type system gave up. Per-field, ask: is this really "absent", or is it a discriminated state? `color: str | None = None` (meaning "renderer default") → `color: str = "#FFFFFF"`. `error: str | None = None` on a response → discriminated `OkResponse` vs `ErrorResponse`. `path | data` validated one-or-the-other → discriminated `PathImage` vs `DataImage`. Genuinely-optional attributes (e.g., `tooltip`) stay.
 
-**Mission YAMLs for protocol/data work open with the rules in scope, citing IDs and showing one BEFORE/AFTER example.** Sub-agents inherit the training-data bias toward procedural Python unless the prompt is explicit; explicit means cite-and-show. Don't dispatch a sub-agent on protocol/data work without these in the YAML's first 20 lines.
+**Mission YAMLs for wire/model/data work open with the rules in scope, citing IDs and showing one BEFORE/AFTER example.** Sub-agents inherit the training-data bias toward procedural Python unless the prompt is explicit; explicit means cite-and-show. Don't dispatch a sub-agent on wire/model/data work without these in the YAML's first 20 lines.
 
 ### Module-size constraints
 
 **`display/render_loop.py` (778 lines, `RenderLoop`, formerly `display/server.py`/`DisplayServer`) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `render_loop.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
 
-**Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `protocol/messages/*.py` — fix a message codec onto its class when you touch the file.
+**Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `wire/model/messages/*.py` — fix a message codec onto its class when you touch the file.
 
 **MCP tool boilerplate — resolved.** Every tool under `tools/` (`read_tools.py`, `write_tools.py`, `composite_tools.py`, `display_write_tools.py`, `subscribe_tools.py`) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
@@ -390,7 +397,7 @@ The COO must not read implementation files before writing the design spec. "Add 
 
 ### Why these pairings
 
-Lux spans two domains that require distinct expertise: (1) **visual/UX** — element design, layout, theming, composability — owned by `edt` (information design) and `dna` (interaction design), with `kpz` for GPU/performance; (2) **protocol/infrastructure** — JSON element types, Unix-socket IPC, scene management, MCP tool surface — owned by `rmh`/`gvr` for Python, `mdm` for CLI, `djb` for IPC trust boundary. The protocol is the contract between these domains — changes to it require a worker from one domain and an evaluator from the other.
+Lux spans two domains that require distinct expertise: (1) **visual/UX** — element design, layout, theming, composability — owned by `edt` (information design) and `dna` (interaction design), with `kpz` for GPU/performance; (2) **wire/model/infrastructure** — JSON element types, Unix-socket IPC, scene management, MCP tool surface — owned by `rmh`/`gvr` for Python, `mdm` for CLI, `djb` for IPC trust boundary. The protocol is the contract between these domains — changes to it require a worker from one domain and an evaluator from the other.
 
 | Task type | Worker | Evaluator |
 |-----------|--------|-----------|
@@ -451,9 +458,9 @@ PR review follows punt-kit/standards/pr-review.md: local review (qodo review + s
 Two lux-specific operational facts the loops rely on:
 
 - **`make restart` is the only correct way to pick up code changes** — it
-  rebuilds, installs, and restarts BOTH luxd AND the display. `launchctl
-  kickstart` and `lux ensure-hub --restart` restart only luxd and leave the
-  display running stale code.
+  rebuilds, installs, and restarts the Hub, Display, and running terminal
+  daemon. Restarting `luxd-pty` ends the terminal sessions it owns.
+  Use `make reload` for Hub-only changes.
 - **Docs-only changes have no entry point to run**; markdownlint plus a
   read-through is their verification at the demo gate.
 

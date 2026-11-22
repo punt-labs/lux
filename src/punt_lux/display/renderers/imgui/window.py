@@ -19,7 +19,7 @@ from imgui_bundle import imgui
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.window import WindowElement
+    from punt_lux.wire.model.elements.window import WindowElement
 
 __all__ = ["ImGuiWindowRenderer"]
 

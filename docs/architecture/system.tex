@@ -238,7 +238,7 @@ Hub domain    & \modpath{domain/hub/}            & The authoritative
                 \texttt{HubSceneWriter} applies updates and clears;
                 \texttt{ClientRegistry} owns luxd's one display connection
                 and wires \texttt{HubInteractionDispatch} for D21 dispatch. \\
-Domain (pure) & \modpath{domain/}                & The renderer-free and
+Domain (pure) & \modpath{wire/model/}                & The renderer-free and
                 socket-free element model.  \texttt{element\_abc.py} is
                 the \texttt{Element} ABC (data and behavior);
                 \texttt{interaction.py} and \texttt{container\_interaction.py}
@@ -250,11 +250,11 @@ Replica       & \modpath{display/replica/}       & The Display's scene
                 and the scene-to-frame and scene-to-owner maps;
                 \texttt{frame.py} is the \texttt{Frame} window;
                 \texttt{MenuReplica} owns the replicated menu state. \\
-Protocol      & \modpath{protocol/}              & The wire contract:
+Protocol      & \modpath{wire/model/}              & The wire contract:
                 length-prefixed JSON framing, the \texttt{FrameReader}
                 streaming buffer, the twenty-five element kinds in
-                \modpath{protocol/elements/}, and the message families in
-                \modpath{protocol/messages/}. \\
+                \modpath{wire/model/elements/}, and the message families in
+                \modpath{wire/model/messages/}. \\
 Display       & \modpath{display/}               & The ImGui render loop
                 and coordinator: \texttt{RenderLoop} in
                 \texttt{render\_loop.py}, per-kind adapters in
@@ -292,7 +292,7 @@ Display client & \modpath{domain/hub/display\_link.py}    & \texttt{DisplayLink}
                 --- the Unix-socket client of the Display.  Constructed in
                 exactly one place, \modpath{domain/hub/clients.py}, and an
                 AST guard enforces that (Section \S\ref{sec:ipc}). \\
-Paths         & \modpath{paths.py}               & \texttt{DisplayPaths}
+Paths         & \modpath{service/display\_paths.py} & \texttt{DisplayPaths}
                 --- display socket discovery, PID lifecycle, and
                 auto-spawn.  \modpath{hub\_paths.py} is the symmetric
                 \texttt{HubPaths} for luxd's port and PID files. \\
@@ -300,7 +300,7 @@ Apps/Beads    & \modpath{apps/beads.py}          & \texttt{BeadsBrowser}
                 --- loads and orders issues; it holds no socket.
                 \texttt{BeadsBoard} in \modpath{apps/beads_board.py}
                 builds requests; \texttt{TableComposition} in
-                \modpath{protocol/compositions/table_composition.py}
+                \modpath{wire/model/compositions/table_composition.py}
                 builds the table UI on the Hub. \\
 Config        & \modpath{service/config.py}              & \texttt{ConfigManager}
                 --- reads and writes the per-repo display-mode toggle in
@@ -456,9 +456,18 @@ without deleting Hub content or sending an interaction to the Hub
 This section describes the Hub-authoritative core and the Element-ABC path
 used by every wire element kind.
 
-The domain code in \modpath{domain/} imports no ImGui, no socket, and no
-JSON.  Adapters wrap it: the Display renders it, and the replicator moves
-its serialized elements over the wire.
+Shared domain values, element objects, messages, and framing live together in
+\modpath{wire/model/}, independently of ImGui. The structural element contract
+is exported as \texttt{ElementProtocol}, distinct from the wire
+\texttt{Element} union. Adapters wrap these models: the Display renders them,
+and the replicator moves serialized elements over the wire. The remaining
+\modpath{domain/hub/} and \modpath{protocol/pty/} packages await their own moves.
+\texttt{ConnectionId} and \texttt{ProgrammerError} live in \modpath{kernel/};
+\texttt{LeaseTerm} is a shared wire value. Display socket/process lifecycle,
+including protocol-aware readiness checks, belongs to
+\modpath{service/display\_paths.py}. There are no old-import alias modules;
+only the pickle decoder remaps legacy shared-model module names from an older
+Hub. Each move must shrink the layer baseline through real dependency fixes.
 
 \subsection{HubDisplay: the Authoritative Store}
 
@@ -503,7 +512,7 @@ root observers, and child indexes rebuild in one place.
 \subsection{The Element ABC}
 
 All wire element kinds subclass the \texttt{Element} ABC in
-\modpath{domain/element\_abc.py}.  The ABC carries data \emph{and}
+\modpath{wire/model/element\_abc.py}.  The ABC carries data \emph{and}
 behavior:
 
 \begin{itemize}
@@ -565,8 +574,8 @@ Four event kinds cross this boundary today:
 \end{center}
 
 \texttt{ButtonClicked} and \texttt{ValueChanged} are in
-\modpath{domain/interaction.py}; \texttt{HeaderToggled} and
-\texttt{TabChanged} are in \modpath{domain/container\_interaction.py}.  The
+\modpath{wire/model/interaction.py}; \texttt{HeaderToggled} and
+\texttt{TabChanged} are in \modpath{wire/model/container\_interaction.py}.  The
 Hub builds the typed event from the wire kind and value, denying by default
 when the value has the wrong shape.  Grouping is per element/event bucket:
 a button with three handlers still produces one remote message, and the Hub
@@ -629,7 +638,7 @@ Every message is a length-prefixed JSON frame:
 \end{lstlisting}
 
 Maximum payload size is 16\,MiB ($2^{24}$ bytes).  The
-\texttt{FrameReader} (in \modpath{protocol/\_\_init\_\_.py}) accumulates
+\texttt{FrameReader} (in \modpath{wire/model/\_\_init\_\_.py}) accumulates
 partial reads into a byte buffer and yields complete frames via
 \texttt{drain()} (raw dicts) or \texttt{drain\_typed()} (Message
 dataclasses).  An oversize frame raises \texttt{ValueError}, which the
@@ -642,13 +651,13 @@ Hub-internal (Section \S\ref{sec:ipc}).
 \subsection{Message Types}
 
 The message layer includes the core families in
-\modpath{protocol/messages/}: \texttt{scene}, \texttt{lifecycle},
+\modpath{wire/model/messages/}: \texttt{scene}, \texttt{lifecycle},
 \texttt{menu}, \texttt{introspect}, \texttt{observer}, and
 \texttt{remote\_invocation}.  There is no standalone \texttt{interaction}
 family --- a user interaction travels as \msg{RemoteEventHandlerInvocation}
 from the \texttt{remote\_invocation} module.  A \texttt{MessageRegistry}
-(\modpath{protocol/messages/registry.py}) is the wire dispatch table,
-populated by \modpath{protocol/messages/\_wiring.py}; a test can build an isolated
+(\modpath{wire/model/messages/registry.py}) is the wire dispatch table,
+populated by \modpath{wire/model/messages/\_wiring.py}; a test can build an isolated
 registry without touching the module default.
 
 \subsubsection{Client $\to$ Display}
@@ -713,9 +722,9 @@ The wire layer exposes twenty-five element kinds. All twenty-five are on
 the Element-ABC path (Section \S\ref{sec:hubdisplay}); the pre-migration
 frozen-dataclass model and its \texttt{ElementCodec} dispatch table were
 deleted in B7.  The \texttt{Element} union is assembled in
-\modpath{protocol/elements/\_\_init\_\_.py}.
+\modpath{wire/model/elements/\_\_init\_\_.py}.
 
-\texttt{SplitPaneElement} (\modpath{protocol/elements/split_pane.py}) is a
+\texttt{SplitPaneElement} (\modpath{wire/model/elements/split_pane.py}) is a
 \texttt{GroupElement} refinement whose JSON codec emits \texttt{kind="group"};
 it is not an additional wire kind.
 
@@ -972,7 +981,7 @@ restores the frame.
 ACCEPTED --- ratified by the operator 2026-09-05.  The addressing model
 below is implemented in \modpath{display/replica/lux_address.py},
 \modpath{display/replica/address_book.py}, and
-\modpath{domain/hub_scoped_store.py}. The listings are abbreviated
+\modpath{wire/model/hub_scoped_store.py}. The listings are abbreviated
 implementation sketches, not complete source copies. The original
 implementation plan and bead map live in the companion historical document,
 \path{docs/architecture/multi-hub-addressing-work.md}.}
@@ -1006,7 +1015,7 @@ dictionaries lacked a Hub-of-origin dimension.
 can mint the same Rung-2 id. Without the Hub dimension, a second Hub's
 push could silently clobber the first Hub's scene. The implemented
 \texttt{HubScopedStore} prevents that collision
-(\modpath{domain/hub_scoped_store.py}).
+(\modpath{wire/model/hub_scoped_store.py}).
 
 \subsection{Identity Is a Path}
 
@@ -1160,7 +1169,7 @@ different process on the same one.
 
 The sketch below includes the current lowercase ASCII hostname
 normalization through \texttt{Hostname}; the complete type, including
-\texttt{stub()}, is in \modpath{domain/hub_id.py}.
+\texttt{stub()}, is in \modpath{wire/model/hub_id.py}.
 
 \begin{lstlisting}
 @final
@@ -1245,7 +1254,7 @@ connecting \field{kind} populates \field{hub\_id}, there is no connection
 on the same-host \field{AF\_UNIX} socket that legitimately lacks one, and
 both the \texttt{Optional} and the runtime discriminated check that used
 to stand behind it have been removed. The current message is defined in
-\modpath{protocol/messages/connect_message.py}; codecs are omitted here:
+\modpath{wire/model/messages/connect_message.py}; codecs are omitted here:
 
 \begin{lstlisting}
 @dataclass(frozen=True, slots=True)
@@ -1375,9 +1384,9 @@ again.
 
 An aggregated store is an object, not a dictionary passed between
 functions. \texttt{HubScopedKey} is the implemented key type
-(\modpath{domain/hub_scoped_key.py}); \texttt{HubScopedStore} owns keying,
+(\modpath{wire/model/hub_scoped_key.py}); \texttt{HubScopedStore} owns keying,
 lookup, and per-Hub retirement
-(\modpath{domain/hub_scoped_store.py}). \texttt{FrameBook} composes it
+(\modpath{wire/model/hub_scoped_store.py}). \texttt{FrameBook} composes it
 for frames (\modpath{display/replica/frame_book.py}), replacing the old
 unscoped dictionary discipline. The listing below abbreviates the store's
 public operations.
@@ -2552,7 +2561,7 @@ constructed in exactly one place: \texttt{ClientRegistry} in
 its reconnect policy.
 
 An AST guard enforces this
-(\path{tests/domain/test_display_socket_internal.py}).  The guard parses
+(\path{tests/wire/model/test_display_socket_internal.py}).  The guard parses
 every module in the package and fails if any module outside the allowed set
 --- \modpath{domain/hub/display\_link.py} and \modpath{domain/hub/clients.py} ---
 imports or references \texttt{DisplayLink}.  Detection is by parse tree,
@@ -2564,7 +2573,8 @@ an enumerated list would have forgotten.
 
 \subsection{Display Socket Discovery and Supervision}
 
-The Display's socket path resolves in priority order (\modpath{paths.py}):
+The Display's socket path resolves in priority order
+(\modpath{service/display\_paths.py}):
 
 \begin{enumerate}
   \item \texttt{\$LUX\_SOCKET}.

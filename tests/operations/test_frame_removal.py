@@ -7,13 +7,14 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.id_separator import ID_SEPARATOR
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Ok, OpError, RenderRequest, Scope
 from punt_lux.operations.facade import Operations
 from punt_lux.operations.frame_removal import FrameRemover
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.ids import SceneId
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope.in_process(_CONNECTION)

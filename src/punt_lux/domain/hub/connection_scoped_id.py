@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self, final
 
-from punt_lux.domain.id_separator import ID_SEPARATOR
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 __all__ = ["ConnectionScopedId"]
 

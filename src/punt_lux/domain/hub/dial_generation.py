@@ -29,8 +29,8 @@ from punt_lux.domain.hub.connection_closed import (
 from punt_lux.domain.hub.dial_socket import DialSocket
 from punt_lux.domain.hub.generation_ref import GenerationRef
 from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.protocol import PingMessage, encode_message
 from punt_lux.tracing import trace
+from punt_lux.wire.model import PingMessage, encode_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.pending import Pending
     from punt_lux.domain.hub.settlement import Settlement
-    from punt_lux.protocol import (
+    from punt_lux.wire.model import (
         AckMessage,
         Message,
         PongMessage,

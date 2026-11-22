@@ -7,7 +7,7 @@ it felt fast, on a machine that was overloaded at the time.**
 
 | Piece | Where |
 |---|---|
-| `terminal` element type: `id`, `session` (defaults to `id`), `command` (default: login shell), `height` (0 = fill) | `src/punt_lux/protocol/elements/terminal.py`, registered in `abc_leaf_kinds.py`, `abc_kind_names.py`, `elements/__init__.py` |
+| `terminal` element type: `id`, `session` (defaults to `id`), `command` (default: login shell), `height` (0 = fill) | `src/punt_lux/wire/model/elements/terminal.py`, registered in `abc_leaf_kinds.py`, `abc_kind_names.py`, `elements/__init__.py` |
 | ImGui renderer, using the step 2 widget | `src/punt_lux/display/renderers/imgui/terminal.py`, added to `factory.py` |
 | Widget code (rows, fast rows, input, view) | `src/punt_lux/display/terminal/` (copied from `spikes/terminal/`) |
 | Shell sessions owned by the Display: stand-in for `luxd-pty` | `src/punt_lux/display/terminal/sessions.py` |

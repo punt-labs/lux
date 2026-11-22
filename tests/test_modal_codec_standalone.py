@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements import ModalElement
-from punt_lux.protocol.elements.modal_codec import JsonModalDecoder
+from punt_lux.wire.model.elements import ModalElement
+from punt_lux.wire.model.elements.modal_codec import JsonModalDecoder
 
 
 def test_the_standalone_decoder_builds_the_modal_it_was_given_the_class_of() -> None:

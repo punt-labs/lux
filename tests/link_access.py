@@ -16,7 +16,7 @@ from punt_lux.domain.hub.display_connection import DisplayConnection
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.replicator_ports import DeathQueuePort
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from tests.domain.display_double import until
+from tests.wire.model.display_double import until
 
 if TYPE_CHECKING:
     import socket
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.display_writer import DisplayWriter
     from punt_lux.domain.hub.reader_slot import ReaderSlot
     from punt_lux.domain.hub.suspect_book import SuspectBook
-    from punt_lux.protocol import Element, Message
+    from punt_lux.wire.model import Element, Message
 
 __all__ = [
     "bare_connection",

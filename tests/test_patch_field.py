@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.patch_field import PatchField
+from punt_lux.wire.model.elements.patch_field import PatchField
 
 
 def test_as_str_returns_the_value() -> None:
@@ -84,7 +84,7 @@ def test_the_four_exemplars_no_longer_define_local_coercers() -> None:
     import ast
     from pathlib import Path
 
-    from punt_lux.protocol import elements
+    from punt_lux.wire.model import elements
 
     elements_dir = Path(elements.__file__).parent
     for kind in ("text", "button", "checkbox", "dialog"):

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Literal, Self, final
 
-from punt_lux.domain.ids import ElementId
+from punt_lux.wire.model.ids import ElementId
 
 __all__ = ["ImmutableFieldError", "MalformedPatchError"]
 

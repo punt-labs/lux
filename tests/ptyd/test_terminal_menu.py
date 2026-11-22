@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.operations import OpError, SceneShown
 from punt_lux.ptyd.lifetime import DaemonLifetime
 from punt_lux.ptyd.menu_clients import TerminalClients

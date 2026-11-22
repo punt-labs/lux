@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.paths import DisplayPaths
+from punt_lux.service.display_paths import DisplayPaths
 
 runner = CliRunner()
 

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         WriteSeatPort,
     )
     from punt_lux.domain.hub.scene_snapshot import SceneReader
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["BatchSendError", "BatchSender"]
 

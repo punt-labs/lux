@@ -16,8 +16,9 @@ import pytest
 
 from punt_lux.domain.hub import client_registry, hub, hub_display, hub_lifecycle
 from punt_lux.domain.hub.inbox import drop_session
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
 
 from .agent import SimulatedAgent
 from .rig import InProcessLoop, SyncReplicator

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.display_dialer import DisplayDialer
     from punt_lux.domain.hub.event_port import EventPort
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 logger = logging.getLogger(__name__)
 

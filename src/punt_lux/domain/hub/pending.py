@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 __all__ = ["Pending"]
 

@@ -7,9 +7,9 @@ from urllib.parse import quote
 from punt_lux.connection_identity import connection_for
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.id_separator import ID_SEPARATOR
-from punt_lux.domain.ids import SceneId
 from punt_lux.operations.display_reply import DisplayReplied
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.ids import SceneId
 
 from ._fakes import DEFAULT_CONNECTION, StubPort, make_client
 

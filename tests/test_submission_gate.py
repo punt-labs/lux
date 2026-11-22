@@ -7,9 +7,9 @@ tree that may be installed.
 
 from __future__ import annotations
 
-from punt_lux.domain.ids import SceneId
-from punt_lux.domain.submission_gate import SubmissionGate
-from punt_lux.protocol.elements import GroupElement, ProgressElement, TextElement
+from punt_lux.wire.model.elements import GroupElement, ProgressElement, TextElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.submission_gate import SubmissionGate
 
 _SCENE = SceneId("submission-gate-scene")
 

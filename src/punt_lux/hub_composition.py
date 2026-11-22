@@ -35,7 +35,7 @@ from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.paths import DisplayPaths
+from punt_lux.service.display_paths import DisplayPaths
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort

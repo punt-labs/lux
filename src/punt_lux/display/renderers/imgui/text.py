@@ -11,7 +11,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.text_renderer import TextRenderer
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.elements.text import TextElement
 
 __all__ = ["ImGuiTextRenderer"]
 

@@ -2,7 +2,7 @@
 
 Locates luxd's state directory and PID/port files, and
 reports hub liveness from its PID file. The display-process counterpart
-lives in ``paths.py``.
+lives in ``service/display_paths.py``.
 """
 
 from __future__ import annotations

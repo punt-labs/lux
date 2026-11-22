@@ -24,20 +24,20 @@ from typing import TYPE_CHECKING
 from punt_lux.display.cross_host_listener import CrossHostListener
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
-from punt_lux.protocol import (
+from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model import (
     ReadyMessage,
     SceneMessage,
     TextElement,
     recv_message,
     send_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
-from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.protocol.messages import Message
+    from punt_lux.wire.model.messages import Message
 
 # ---------------------------------------------------------------------------
 # Helpers -- shared with test_cross_host_listener.py's mTLS setup

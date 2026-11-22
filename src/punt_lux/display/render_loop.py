@@ -39,8 +39,9 @@ from punt_lux.display.terminal.activity import TerminalActivity
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.tracing import trace
+from punt_lux.wire.model import (
     CallbackMenuMessage,
     ConnectMessage,
     HubManifestMessage,
@@ -49,15 +50,14 @@ from punt_lux.protocol import (
     SceneMessage,
     ThemeMessage,
 )
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.tracing import trace
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.cross_host_pump import CrossHostPump
     from punt_lux.display.replica.address_rendering import AddressRendering
-    from punt_lux.domain.identity import HubId
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
+    from punt_lux.wire.model.identity import HubId
 
 logger = logging.getLogger(__name__)
 
@@ -176,11 +176,11 @@ class RenderLoop:
         # business publish, so a container decoded through it fails loud
         # (RaisingRendererFactory + RaisingPublishSink), never running locally.
         from punt_lux.display.replica.emit import NoOpEmit
-        from punt_lux.protocol.element_factory import JsonElementFactory
-        from punt_lux.protocol.elements.container_dispatch import (
+        from punt_lux.wire.model.element_factory import JsonElementFactory
+        from punt_lux.wire.model.elements.container_dispatch import (
             dispatch as _container_dispatch,
         )
-        from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+        from punt_lux.wire.model.raising_publish_sink import RaisingPublishSink
 
         self._luxd_factory = JsonElementFactory(
             renderer_factory=RaisingRendererFactory(),

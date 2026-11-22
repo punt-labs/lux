@@ -11,14 +11,14 @@ from typing import Any, cast
 
 import pytest
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.selection_interaction import RowSelectionChanged
-from punt_lux.domain.validation_walk import ElementTreeValidator
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements.table import TableElement
-from punt_lux.protocol.elements.table_flags import TableFlags
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.messages.scene import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements.table import TableElement
+from punt_lux.wire.model.elements.table_flags import TableFlags
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.messages.scene import SceneMessage
+from punt_lux.wire.model.selection_interaction import RowSelectionChanged
+from punt_lux.wire.model.validation_walk import ElementTreeValidator
 
 
 def _decode(wire: dict[str, Any]) -> object:

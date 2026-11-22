@@ -1,7 +1,7 @@
 # Element-Factory Decomposition: an ABC-kind registry
 
 **Status:** design proposal (feeds a DESIGN.md ADR).
-**Scope:** `src/punt_lux/protocol/element_factory.py` and the enumerations
+**Scope:** `src/punt_lux/wire/model/element_factory.py` and the enumerations
 that shadow it. Behavior-preserving refactor — no protocol change.
 
 ## Abstract
@@ -57,7 +57,7 @@ hand in six places, which must be kept in sync manually:
 | 3 | `element_factory.py:149` `__new__` decoders dict | kind → decoder ctor |
 | 4 | `element_factory.py:334` `_decode_legacy` union | all ABC classes |
 | 5 | `encoder_factory.py:47` `_DISPATCH` | class → encoder |
-| 6 | `protocol/elements/__init__.py:179` `_element_to_dict` union | all ABC classes |
+| 6 | `wire/model/elements/__init__.py:179` `_element_to_dict` union | all ABC classes |
 
 Two more enumerate the same fact as strings for the container gate
 (`container_abc_gate.py:24` `_MIGRATED_ABC_KINDS`, `:42` `_CONTAINER_KINDS`).
@@ -258,22 +258,22 @@ no edit.
 
 | Module | Classes | Responsibility |
 |--------|---------|----------------|
-| `protocol/elements/abc_kind_names.py` | `AbcKindNames` | Import-light kind-string sets + membership methods. The gate's only dependency. |
-| `protocol/elements/abc_kind_spec.py` | `TierBinding`, `AbcKindSpec` | DI value object + the runtime-checkable spec Protocol (PY-IC-9 types module). |
-| `protocol/elements/abc_kind_specs.py` | `LeafKindSpec`, `DialogKindSpec`, `ContainerKindSpec` | The three construction-shape implementers (≤3 per PY-OO-2). |
-| `protocol/elements/abc_registry.py` | `AbcElementRegistry` | Single source of truth; decoder-build and encoder-dispatch views. |
-| `protocol/elements/abc_kind_table.py` | `DefaultAbcKinds` | Imports every migrated kind's element/decoder/encoder/handler-builder; builds the populated registry; runs the `AbcKindNames` cross-check. **This is the one file a future migration edits.** |
+| `wire/model/elements/abc_kind_names.py` | `AbcKindNames` | Import-light kind-string sets + membership methods. The gate's only dependency. |
+| `wire/model/elements/abc_kind_spec.py` | `TierBinding`, `AbcKindSpec` | DI value object + the runtime-checkable spec Protocol (PY-IC-9 types module). |
+| `wire/model/elements/abc_kind_specs.py` | `LeafKindSpec`, `DialogKindSpec`, `ContainerKindSpec` | The three construction-shape implementers (≤3 per PY-OO-2). |
+| `wire/model/elements/abc_registry.py` | `AbcElementRegistry` | Single source of truth; decoder-build and encoder-dispatch views. |
+| `wire/model/elements/abc_kind_table.py` | `DefaultAbcKinds` | Imports every migrated kind's element/decoder/encoder/handler-builder; builds the populated registry; runs the `AbcKindNames` cross-check. **This is the one file a future migration edits.** |
 
 ### Modify
 
 | File | Change |
 |------|--------|
-| `protocol/element_factory.py` | Delete per-kind imports, `_ABC_KINDS`, `_ABC_LEAF_TYPES`, the `__new__` decoders dict, `canonicalize_button_sugar`, and the `_decode_legacy` union. Drive dispatch off the injected `registry`. Target ~130 lines. |
-| `protocol/encoder_factory.py` | `JsonEncoderFactory.encode` delegates to `registry.encoder_dispatch()`; drop the per-kind imports and the `_DISPATCH` literal. Public name/class preserved (tests and `__init__` import it). |
-| `protocol/elements/container_abc_gate.py` | Replace `_MIGRATED_ABC_KINDS` / `_CONTAINER_KINDS` with `AbcKindNames` references. Stays import-light; `is_all_abc` classmethod surface unchanged (many tests + container codecs depend on it). |
-| `protocol/elements/button_codec.py` | Absorb the button-sugar canonicalizer; `JsonButtonDecoder.decode` self-canonicalizes. |
-| `protocol/elements/dialog_codec.py` | Re-point `_canonicalize_button_sugar` (`:125`) to the button codec's new home. |
-| `protocol/elements/__init__.py` | `_element_to_dict` isinstance union (`:179`) → `registry.abc_types`. Construct the module-level default registry (beside `_to_dict_codec`). |
+| `wire/model/element_factory.py` | Delete per-kind imports, `_ABC_KINDS`, `_ABC_LEAF_TYPES`, the `__new__` decoders dict, `canonicalize_button_sugar`, and the `_decode_legacy` union. Drive dispatch off the injected `registry`. Target ~130 lines. |
+| `wire/model/encoder_factory.py` | `JsonEncoderFactory.encode` delegates to `registry.encoder_dispatch()`; drop the per-kind imports and the `_DISPATCH` literal. Public name/class preserved (tests and `__init__` import it). |
+| `wire/model/elements/container_abc_gate.py` | Replace `_MIGRATED_ABC_KINDS` / `_CONTAINER_KINDS` with `AbcKindNames` references. Stays import-light; `is_all_abc` classmethod surface unchanged (many tests + container codecs depend on it). |
+| `wire/model/elements/button_codec.py` | Absorb the button-sugar canonicalizer; `JsonButtonDecoder.decode` self-canonicalizes. |
+| `wire/model/elements/dialog_codec.py` | Re-point `_canonicalize_button_sugar` (`:125`) to the button codec's new home. |
+| `wire/model/elements/__init__.py` | `_element_to_dict` isinstance union (`:179`) → `registry.abc_types`. Construct the module-level default registry (beside `_to_dict_codec`). |
 
 ### Unchanged (verify, do not edit)
 
@@ -288,8 +288,8 @@ because the new `registry` parameter defaults. Confirm no edit is needed.
 
 ```python
 # element_factory.py — imports
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.elements.text_codec import JsonTextDecoder
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.elements.text_codec import JsonTextDecoder
 # element_factory.py:87   _ABC_KINDS
     "text",
 # element_factory.py:104  _ABC_LEAF_TYPES

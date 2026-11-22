@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
-from punt_lux.protocol import ConnectMessage, SceneMessage, TextElement
+from punt_lux.wire.model import ConnectMessage, SceneMessage, TextElement
 
 if TYPE_CHECKING:
     import socket

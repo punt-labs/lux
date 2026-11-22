@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from punt_lux.domain.hub import hub_clients
 from punt_lux.domain.hub.details_instance import hub_client_details
-from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_composition import HubComposition
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.ports import HubPorts
 

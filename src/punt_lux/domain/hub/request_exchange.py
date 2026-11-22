@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.display_replies import DisplayReplies
     from punt_lux.domain.hub.pending import Pending
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 __all__ = ["RequestExchange", "RequestKind"]
 

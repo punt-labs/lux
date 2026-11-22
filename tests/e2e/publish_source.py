@@ -33,15 +33,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.hub.hub_factory import HubPublishSink
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 
 from .target_handlers import PublishingHandler
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.element_abc import Element as AbcElement
-    from punt_lux.domain.event_protocol import Event
+    from punt_lux.wire.model.element_abc import Element as AbcElement
+    from punt_lux.wire.model.event_protocol import Event
 
 __all__ = ["PayloadPublish", "PublishSource", "WirePublish"]
 

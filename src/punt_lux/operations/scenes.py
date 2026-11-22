@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.domain.hub.write_result import WriteRejected
-from punt_lux.domain.ids import SceneId, Topic
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared, SceneShown
@@ -33,16 +32,17 @@ from punt_lux.operations.scene_clearing import SceneClearer
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.wire_tree import WireTreeDecoder
+from punt_lux.wire.model.ids import SceneId, Topic
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.scope import Scope
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scene_deps import SceneOperationsDeps
+    from punt_lux.wire.model.scope import Scope
 
 __all__ = ["SceneOperations"]
 

@@ -4,7 +4,7 @@ its keyed store, tested on their own."""
 from __future__ import annotations
 
 from punt_lux.display.replica.owner_facts_cache import OwnerFactsCache, OwnerFactsStore
-from punt_lux.domain.identity import HubId, HubScopedKey
+from punt_lux.wire.model.identity import HubId, HubScopedKey
 
 _ROWS = (("Client", "lux"), ("Kind", "agent"))
 _OTHER_ROWS = (("Client", "lux"),)

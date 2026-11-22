@@ -137,8 +137,8 @@ any language.
 **Size of a rewrite:**
 
 - Source: about 80,000 lines of Python in 830 files (about 44,500 lines of
-  code once docstrings, comments and blanks are removed): `domain/` 21k,
-  `protocol/` 18k, `display/` 16k, `operations/` 5.6k.
+  code once docstrings, comments and blanks are removed): `wire/model/` 21k,
+  `wire/model/` 18k, `display/` 16k, `operations/` 5.6k.
 - Tests: about 137,000 lines.
 - Language-neutral assets that carry over: the JSON protocol, about 121 specs
   (`.tex` files), the decision log and the end-to-end scenarios.

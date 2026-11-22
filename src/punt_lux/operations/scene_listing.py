@@ -29,9 +29,9 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.hub.scene_presentation import ScenePresentation
-    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
     from punt_lux.operations.models.inspect_scope import InspectScope
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["SceneListing"]
 

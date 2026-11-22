@@ -6,12 +6,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub import hub
 from punt_lux.domain.hub.hub_factory import HubPublishSink, hub_element_factory
 from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
-from punt_lux.domain.ids import ConnectionId, Topic
-from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.handlers.publish_sink import PublishSink
+from punt_lux.wire.model.ids import Topic
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

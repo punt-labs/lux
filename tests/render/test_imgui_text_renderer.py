@@ -22,7 +22,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.elements.text import TextElement
 
 if TYPE_CHECKING:
     import pytest

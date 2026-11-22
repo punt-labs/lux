@@ -15,7 +15,7 @@ from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.menus import MenuModel
 from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.replica.frame_visibility import FrameVisibility
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 from tests.menu_doubles import (
     SEPARATOR,
     FakeChrome,
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from punt_lux.display.menus.wire import WireMenu
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 
 def _labels(menus: Sequence[WireMenu]) -> tuple[str, ...]:

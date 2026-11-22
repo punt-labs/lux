@@ -36,9 +36,9 @@ from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.named_sessions import NamedSessions
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.domain.identity import HubId
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.protocol import SceneMessage, TextElement
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model import SceneMessage, TextElement
+from punt_lux.wire.model.identity import HubId
 from tests.menu_doubles import FakeImGui, ignore
 
 _BAR: dict[str, Any] = {

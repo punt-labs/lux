@@ -24,19 +24,20 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.element import Element as WireElement
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handlers.publish_sink import PublishSink
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import RemoveElement
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
-from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.protocol.renderers import RaisingRendererFactory
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.element import Element as WireElement
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.elements.dialog import DialogElement
+from punt_lux.wire.model.elements.dialog_codec import JsonDialogDecoder
+from punt_lux.wire.model.handlers.publish_sink import PublishSink
+from punt_lux.wire.model.ids import ElementId, SceneId, Topic
+from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.renderers import RaisingRendererFactory
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import RemoveElement
 from tests.hub_harness import IsolatedHub
 
 if TYPE_CHECKING:

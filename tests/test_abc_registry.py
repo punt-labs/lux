@@ -14,25 +14,25 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from punt_lux.protocol.elements.abc_kind_codec import KindCodec
-from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
-from punt_lux.protocol.elements.abc_kind_specs import (
+from punt_lux.wire.model.elements.abc_kind_codec import KindCodec
+from punt_lux.wire.model.elements.abc_kind_names import AbcKindNames
+from punt_lux.wire.model.elements.abc_kind_specs import (
     ContainerKindSpec,
     DialogKindSpec,
 )
-from punt_lux.protocol.elements.abc_kind_table import (
+from punt_lux.wire.model.elements.abc_kind_table import (
     DEFAULT_ABC_REGISTRY,
 )
-from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
-from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
-from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
+from punt_lux.wire.model.elements.abc_kind_verify import AbcKindVerifier
+from punt_lux.wire.model.elements.abc_leaf_spec import LeafKindSpec
+from punt_lux.wire.model.elements.abc_registry import AbcElementRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.handlers.publish_sink import PublishSink
-    from punt_lux.protocol.elements.abc_kind_spec import AbcKindSpec
-    from punt_lux.protocol.handler_decoder import HandlerDecoder
+    from punt_lux.wire.model.elements.abc_kind_spec import AbcKindSpec
+    from punt_lux.wire.model.handler_decoder import HandlerDecoder
+    from punt_lux.wire.model.handlers.publish_sink import PublishSink
 
 
 def _no_encode(_elem: object) -> dict[str, object]:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.identity import HubScopedKey
+from punt_lux.wire.model.identity import HubScopedKey
 
 if TYPE_CHECKING:
     from punt_lux.display.replica.frame import Frame

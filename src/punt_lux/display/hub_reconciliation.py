@@ -13,15 +13,15 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.cross_host_verification import CrossHostVerification
-from punt_lux.domain.identity import HubId, HubIdToken
 from punt_lux.socket_owner import SocketOwner
+from punt_lux.wire.model.identity import HubId, HubIdToken
 
 if TYPE_CHECKING:
     from punt_lux.display.display_log import ErrorRecorder
     from punt_lux.display.identity_guard import IdentityGuard
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
-    from punt_lux.protocol import ConnectMessage, HubManifestMessage
+    from punt_lux.wire.model import ConnectMessage, HubManifestMessage
 
 logger = logging.getLogger(__name__)
 

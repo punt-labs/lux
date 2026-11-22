@@ -12,7 +12,7 @@ import math
 
 import pytest
 
-from punt_lux.protocol.elements.rgba_color import RgbaColor
+from punt_lux.wire.model.elements.rgba_color import RgbaColor
 
 
 class TestFromHex:

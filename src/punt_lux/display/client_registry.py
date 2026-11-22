@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.domain.hub_id import HubId
-from punt_lux.protocol import FrameReader
+from punt_lux.wire.model import FrameReader
+from punt_lux.wire.model.hub_id import HubId
 
 if TYPE_CHECKING:
     import socket

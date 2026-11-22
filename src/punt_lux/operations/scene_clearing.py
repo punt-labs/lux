@@ -16,16 +16,16 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
-from punt_lux.domain.ids import SceneId
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import Cleared
+from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.domain.scope import Scope
+    from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.ports import DirtyMarker
+    from punt_lux.wire.model.scope import Scope
 
 __all__ = ["SceneClearer"]
 

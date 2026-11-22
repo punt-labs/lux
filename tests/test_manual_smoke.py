@@ -14,7 +14,7 @@ from types import ModuleType
 
 import pytest
 
-from punt_lux.protocol.elements import (
+from punt_lux.wire.model.elements import (
     ButtonElement,
     CollapsingHeaderElement,
     DialogElement,
@@ -27,7 +27,7 @@ from punt_lux.protocol.elements import (
     TreeElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.wire.model.elements.tree_node import TreeNode
 
 
 @pytest.fixture(scope="module")

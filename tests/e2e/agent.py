@@ -20,34 +20,35 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.container_interaction import (
+from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer, next_event
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.container_interaction import (
     HeaderToggled,
     ModalClosed,
     TabChanged,
 )
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.hub import hub, hub_display
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer, next_event
-from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.interaction import ButtonClicked, ValueChanged
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.selection_interaction import RowSelectionChanged
-from punt_lux.domain.update import AddElement, SetProperty
-from punt_lux.domain.validation_walk import ElementTreeValidator
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
-from punt_lux.protocol.elements.color_picker import ColorPickerElement
-from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.elements.input_number import InputNumberElement
-from punt_lux.protocol.elements.input_text import InputTextElement
-from punt_lux.protocol.elements.modal import ModalElement
-from punt_lux.protocol.elements.radio import RadioElement
-from punt_lux.protocol.elements.selectable import SelectableElement
-from punt_lux.protocol.elements.slider import SliderElement
-from punt_lux.protocol.elements.tab_bar import TabBarElement
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.wire.model.elements.color_picker import ColorPickerElement
+from punt_lux.wire.model.elements.combo import ComboElement
+from punt_lux.wire.model.elements.input_number import InputNumberElement
+from punt_lux.wire.model.elements.input_text import InputTextElement
+from punt_lux.wire.model.elements.modal import ModalElement
+from punt_lux.wire.model.elements.radio import RadioElement
+from punt_lux.wire.model.elements.selectable import SelectableElement
+from punt_lux.wire.model.elements.slider import SliderElement
+from punt_lux.wire.model.elements.tab_bar import TabBarElement
+from punt_lux.wire.model.elements.table import TableElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId, Topic
+from punt_lux.wire.model.interaction import ButtonClicked, ValueChanged
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.selection_interaction import RowSelectionChanged
+from punt_lux.wire.model.update import AddElement, SetProperty
+from punt_lux.wire.model.validation_walk import ElementTreeValidator
 
 from .scenario import (
     COLOR_COMMIT_VALUE,
@@ -62,10 +63,10 @@ from .target_handlers import RecordingClickHandler
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from punt_lux.domain.element import Element as DomainElement
-    from punt_lux.domain.event_protocol import Event
-    from punt_lux.protocol.messages.observer import ObserverMessage
-    from punt_lux.protocol.messages.remote_invocation import (
+    from punt_lux.wire.model.element import Element as DomainElement
+    from punt_lux.wire.model.event_protocol import Event
+    from punt_lux.wire.model.messages.observer import ObserverMessage
+    from punt_lux.wire.model.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
 

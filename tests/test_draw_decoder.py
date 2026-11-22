@@ -6,22 +6,22 @@ from collections.abc import Mapping
 
 import pytest
 
-from punt_lux.protocol.elements.draw_bounds import Radius
-from punt_lux.protocol.elements.draw_command_kind import (
+from punt_lux.wire.model.elements.draw_bounds import Radius
+from punt_lux.wire.model.elements.draw_command_kind import (
     DrawCommand,
     DrawCommandKind,
 )
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
-from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
-from punt_lux.protocol.elements.draw_commands_shape import (
+from punt_lux.wire.model.elements.draw_commands_curve import BezierCubic
+from punt_lux.wire.model.elements.draw_commands_line import Line, Polyline
+from punt_lux.wire.model.elements.draw_commands_shape import (
     Circle,
     Rect,
     Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextGlyph
-from punt_lux.protocol.elements.draw_decoder import DrawCommandDecoder
-from punt_lux.protocol.elements.draw_values import Point2
-from punt_lux.protocol.elements.draw_wire import WireContext
+from punt_lux.wire.model.elements.draw_commands_text import TextGlyph
+from punt_lux.wire.model.elements.draw_decoder import DrawCommandDecoder
+from punt_lux.wire.model.elements.draw_values import Point2
+from punt_lux.wire.model.elements.draw_wire import WireContext
 
 
 def _decode(wire: Mapping[str, object], *, index: int = 0) -> DrawCommand:

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.element import Element as WireElement
-from punt_lux.domain.element_identity import ElementIdentity, HasId
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.wire.model.element import Element as WireElement
+from punt_lux.wire.model.element_identity import ElementIdentity, HasId
+from punt_lux.wire.model.ids import ElementId, SceneId
 
 __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
 
@@ -263,6 +263,6 @@ class ElementIndex:
         ``element_abc``; the isinstance narrows the store's wire-element union to
         the ABC type that carries the ``removed`` flag.
         """
-        from punt_lux.domain.element_abc import Element as ElementABC
+        from punt_lux.wire.model.element_abc import Element as ElementABC
 
         return isinstance(elem, ElementABC) and elem.removed

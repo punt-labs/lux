@@ -10,7 +10,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.separator_renderer import SeparatorRenderer
-from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.wire.model.elements.separator import SeparatorElement
 
 __all__ = ["ImGuiSeparatorRenderer"]
 

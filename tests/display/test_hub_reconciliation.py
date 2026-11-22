@@ -17,14 +17,14 @@ from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.replica import SceneReplica
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
-from punt_lux.domain.identity import HubId
-from punt_lux.protocol import (
+from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model import (
     ConnectMessage,
     HubManifestMessage,
     SceneMessage,
     TextElement,
 )
-from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model.identity import HubId
 
 _HUB_A = HubId("hub-a.invalid", 1)
 _HUB_B = HubId("hub-b.invalid", 2)

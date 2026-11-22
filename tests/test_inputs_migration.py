@@ -24,27 +24,29 @@ from pathlib import Path
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain import ElementId, SceneId
-from punt_lux.domain.element import Element
-from punt_lux.domain.event_protocol import Event as DomainEvent
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.ids import ClientId, ConnectionId
-from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import AddElement
-from punt_lux.protocol import (
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model import (
     ButtonElement,
     CheckboxElement,
     ColorPickerElement,
     ComboElement,
+    ElementId,
     InputNumberElement,
     InputTextElement,
     RadioElement,
+    SceneId,
     SelectableElement,
     SliderElement,
     element_to_dict,
 )
-from punt_lux.protocol.agent_factory import agent_element_factory
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.element import Element
+from punt_lux.wire.model.event_protocol import Event as DomainEvent
+from punt_lux.wire.model.ids import ClientId
+from punt_lux.wire.model.interaction import ButtonClicked
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
 from tests.hub_harness import IsolatedHub
 
 # -- Element Protocol conformance ------------------------------------------
@@ -134,7 +136,7 @@ def test_checkbox_encode_via_encoder_factory_does_not_raise() -> None:
     single encode path. This asserts it directly — if any edit regresses,
     the encoder factory raises here.
     """
-    from punt_lux.protocol.encoder_factory import JsonEncoderFactory
+    from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
 
     payload = JsonEncoderFactory().encode(
         CheckboxElement(id="c1", label="Bold", value=True)
@@ -293,7 +295,7 @@ def test_inputs_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     function whose name matches the deleted codec helper pattern.  This is
     the migration's structural promise: codec lives on the class.
     """
-    from punt_lux.protocol import elements
+    from punt_lux.wire.model import elements
 
     elements_dir = Path(elements.__file__).parent
     kinds = (

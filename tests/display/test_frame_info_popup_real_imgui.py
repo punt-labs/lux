@@ -20,7 +20,7 @@ import pytest
 from imgui_bundle import imgui
 
 from punt_lux.display import RenderLoop
-from punt_lux.protocol import SceneMessage, TextElement
+from punt_lux.wire.model import SceneMessage, TextElement
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

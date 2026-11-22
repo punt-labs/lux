@@ -29,8 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Self
 
-from punt_lux.protocol.geometry import Rect
-from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
+from punt_lux.wire.model.geometry import Rect
+from punt_lux.wire.model.painted_geometry import ElementGeometry, FrameGeometry
 
 __all__ = ["ElementRef", "GeometryRecorder", "GeometrySnapshot"]
 

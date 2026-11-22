@@ -10,7 +10,7 @@ import pytest
 
 from punt_lux.display.client_queries import ClientQueries
 from punt_lux.display.window_settings import WindowSettings
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,

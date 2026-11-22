@@ -9,7 +9,7 @@ report a comparable Z-order) are provable headless, without a live display.
 from __future__ import annotations
 
 from punt_lux.display.geometry import ElementRef, GeometryRecorder, GeometrySnapshot
-from punt_lux.protocol.geometry import Rect
+from punt_lux.wire.model.geometry import Rect
 
 
 def _rect(x: float = 0.0, y: float = 0.0, w: float = 10.0, h: float = 10.0) -> Rect:

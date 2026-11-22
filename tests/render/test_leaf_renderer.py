@@ -38,9 +38,9 @@ from punt_lux.display.renderers.imgui.split_pane import ImGuiSplitPaneRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.elements.tree import TreeElement
-from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.elements.tree import TreeElement
+from punt_lux.wire.model.elements.tree_node import TreeNode
 
 if TYPE_CHECKING:
     from collections.abc import Generator

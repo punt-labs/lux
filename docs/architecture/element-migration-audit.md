@@ -27,8 +27,8 @@
 > vestigial-mirror machinery reappearing.
 
 **Status:** class-level migration complete — historical audit and design record.
-**Scope:** the 25 element kinds in `src/punt_lux/protocol/elements/`, all now on
-the Element ABC (`src/punt_lux/domain/element_abc.py`) and the `HubDisplay`/`apply`
+**Scope:** the 25 element kinds in `src/punt_lux/wire/model/elements/`, all now on
+the Element ABC (`src/punt_lux/wire/model/element_abc.py`) and the `HubDisplay`/`apply`
 path; the legacy `SceneManager` + dual-write path they moved off is deleted. The
 separate, non-authoritative Display-tier mirror (`DomainPump`) that predated this
 migration has also since been deleted.
@@ -44,7 +44,7 @@ child-bead structure the work followed.
 ## 1. What "the ABC contract" actually is
 
 The behavioral contract every migrated kind must satisfy is defined by
-`domain.element_abc.Element` (`element_abc.py:49`). Concretely:
+`wire.model.element_abc.Element` (`element_abc.py:49`). Concretely:
 
 - **`id`** — abstract read-only property (`element_abc.py:100`). The only
   abstract member; everything else is inherited.
@@ -71,7 +71,7 @@ The behavioral contract every migrated kind must satisfy is defined by
   `__new__`), drops `_observers` (Hub-side closures that can't cross the wire),
   preserves handlers so the Display can wrap them.
 
-The `domain.element.Element` **Protocol** (structural, `to_dict`/`from_dict`/
+The `wire.model.element.Element` **Protocol** (structural, `to_dict`/`from_dict`/
 `kind`/`id`) is a *separate* contract that the frozen wire dataclasses still
 satisfy. Both names coexist. A migrated kind satisfies **both**: it subclasses
 the ABC *and* keeps `to_dict`/`from_dict` delegators so the structural Protocol
@@ -422,7 +422,7 @@ prerequisites and should be sequenced first.
 
 **Epic:** `Migrate all element kinds onto the distributed Element-ABC / Hub-Display path`
 Scope: move the 21 legacy dataclass kinds from the `SceneManager` + dual-write
-`DomainPump` path onto `domain.element_abc.Element` + `HubDisplay`/`apply`,
+`DomainPump` path onto `wire.model.element_abc.Element` + `HubDisplay`/`apply`,
 retiring the legacy render dispatch when the last kind crosses. Blocks on
 operator ratification of Decisions (a)–(e).
 

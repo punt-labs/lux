@@ -18,7 +18,7 @@ from punt_lux.display.renderers.imgui.split_ratio_store import SplitRatioStore
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.split_pane import SplitPaneElement
+    from punt_lux.wire.model.elements.split_pane import SplitPaneElement
 
 __all__ = ["ImGuiSplitPaneRenderer"]
 

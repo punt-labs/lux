@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.renderers import checkbox_renderer
 from punt_lux.display.renderers.checkbox_renderer import CheckboxRenderer
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.interaction import ValueChanged
 
 if TYPE_CHECKING:
     import pytest
