@@ -16,7 +16,7 @@ from punt_lux.cli._shared import (
     run,
 )
 from punt_lux.cli.registry import PLUGIN_ID, register_subcommands
-from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
+from punt_lux.hook_cli import HookCommands
 
 
 def _version_callback(value: bool) -> None:
@@ -49,6 +49,7 @@ def _main(  # pyright: ignore[reportUnusedFunction]
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 register_subcommands(app)
+HookCommands.register(hook_app)
 
 
 # Product commands
@@ -86,18 +87,10 @@ def disable(
     DisplayEnablement(flags).apply(on=False)
 
 
-# Hook dispatcher (internal)
-
-
 @hook_app.command("session-start")
 def cc_session_start() -> None:
     """SessionStart — internal hook dispatcher."""
-    from punt_lux.hooks import emit, handle_session_start
-
-    configure_logging("lux", "hook")
-    # Skip stdin — this handler needs no payload and the pipe may never close.
-    result = handle_session_start()
-    emit(result)
+    HookCommands.session_start()
 
 
 # Admin commands
@@ -193,6 +186,7 @@ def doctor(
     from pathlib import Path
 
     from punt_lux.doctor_checks import EnvironmentChecks
+    from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
     from punt_lux.paths import DisplayPaths
 
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
