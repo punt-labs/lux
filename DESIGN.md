@@ -8250,12 +8250,16 @@ Two further problems surfaced in the same discussion.
 
    Two rules bound this, because a launcher starts a process on a machine:
 
-   - **A click carries a launcher's name, never its command.** The Display and
-     the Hub forward the name; only the machine's own `luxd-pty` resolves it to
-     a command and runs it, as that machine's user. A forged or replayed click
-     can start only what that machine already lists. This keeps DES-090's
-     trust boundary and the existing rule that no MCP tool writes into a
-     shell.
+   - **No request on any route carries a command line; only a launcher's
+     name.** This holds for every way a terminal starts: a menu click, the
+     `lux term new` CLI, an MCP tool, and a scene that contains a terminal
+     element. The Display and the Hub forward the name; only the machine's own
+     `luxd-pty` resolves it to a command and runs it, as that machine's user.
+     A forged or replayed request can start only what that machine already
+     lists. The terminal element's `command` field is replaced by a
+     `launcher` field naming one, so a scene push — an agent route — can start
+     only a listed launcher, exactly as a click can. This keeps DES-090's trust
+     boundary and the existing rule that no MCP tool writes into a shell.
    - **Runtime registration is off unless the machine allows it.**
      Registering a launcher is letting whoever registered it run a command on
      that machine, which is the machine owner's decision, made in that
@@ -8364,7 +8368,7 @@ Two further problems surfaced in the same discussion.
   Display applies decision 10 without guessing from content.
 - `NewRequest` names a launcher rather than carrying a command line, and
   `luxd-pty` gains a config file and a launcher registry. The terminal
-  element's existing `command` field, which lets a scene start any command,
-  is reconciled against decision 9's rule that a click carries a name: the
-  terminal design that implements this states which path keeps it.
+  element's `command` field is replaced by `launcher` (a breaking change to
+  the element's wire form; there is no shim). This closes the gap PL-1179
+  records, where any scene could start any program as the daemon user.
 - `luxd-pty` exports `LUX_TERM_SESSION` into every shell it starts.

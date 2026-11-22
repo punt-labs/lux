@@ -214,10 +214,11 @@ function addTerm(host, prog, x, y, docked = false) {
   terms.push(t);
   return t;
 }
+const tbase = t => t.label ?? t.prog;
 function tname(t) {
-  const same = terms.filter(o => o.host === t.host && o.prog === t.prog);
+  const same = terms.filter(o => o.host === t.host && tbase(o) === tbase(t));
   const i = same.indexOf(t);
-  return i > 0 ? `${t.prog} (${i + 1})` : t.prog;
+  return i > 0 ? `${tbase(t)} (${i + 1})` : tbase(t);
 }
 const termTitle = t => multiHost() ? `${t.host} :: ${tname(t)}` : tname(t);
 const panelTitle = p => `${p.session} :: ${p.app}`;
@@ -259,9 +260,9 @@ function agentStart() {
 const NAMES = ['deploy', 'review', 'scratch', 'logs'];
 function renameHere(t) {
   const before = termTitle(t);
-  const next = NAMES.find(n => !terms.some(o => o.host === t.host && o.prog === n)) || 'renamed';
-  t.prog = next;
-  log(`Typed inside ${before}: the shell's LUX_TERM_SESSION told lux which terminal this is, so no name was needed. It is now ${termTitle(t)}.`, `lux term rename ${ref(next)}`);
+  const next = NAMES.find(n => !terms.some(o => o.host === t.host && tbase(o) === n)) || 'renamed';
+  t.label = next;
+  log(`Typed inside ${before}: the shell's LUX_TERM_SESSION told lux which terminal this is, so no name was needed. It is now ${termTitle(t)}; ${t.prog} keeps running, and the name no longer follows the program.`, `lux term rename ${ref(next)}`);
   render();
 }
 function endTerm(t, how) {
@@ -328,9 +329,10 @@ function renderMenu() {
     if (!it) break;
     cols.push(it.sub());
   }
-  let left = menu.x, top = menu.y;
+  const W = screen.clientWidth, H = screen.clientHeight - 34;
+  let left = menu.x, top = menu.y, prevLeft = null, prevWidth = 0;
   cols.forEach((items, d) => {
-    const col = h('div', { class: 'menu', role: 'menu', style: { left: left + 'px', top: top + 'px' } });
+    const col = h('div', { class: 'menu', role: 'menu', style: { left: left + 'px', top: top + 'px', maxHeight: (H - 30) + 'px', overflowY: 'auto' } });
     for (const it of items) {
       if (it.sep) { col.append(h('div', { class: 'sep' })); continue; }
       const b = h('button', { class: 'mi' + (it.dim ? ' dim' : '') + (it.inert ? ' inert' : ''), role: 'menuitem', title: it.dim ? 'Minimized' : '' }, h('span', { class: 'l' }, it.label));
@@ -354,8 +356,21 @@ function renderMenu() {
       col.append(b);
     }
     screen.append(col);
+    // Keep each column inside the desktop: flip a submenu to the left of its
+    // parent when it would overflow the right edge, and lift it when it would
+    // run past the dock.
+    const width = col.offsetWidth;
+    if (left + width > W) {
+      left = prevLeft !== null ? Math.max(0, prevLeft - width + 2) : Math.max(0, W - width);
+      col.style.left = left + 'px';
+    }
+    if (top + col.offsetHeight > H) {
+      top = Math.max(28, H - col.offsetHeight);
+      col.style.top = top + 'px';
+    }
+    prevLeft = left; prevWidth = width;
     const on = col.querySelector('.mi.on');
-    if (on) { top += on.offsetTop - 4; left += col.offsetWidth - 2; }
+    if (on) { top += on.offsetTop - 4; left += width - 2; }
   });
 }
 
@@ -456,7 +471,9 @@ function drag(node, w) {
     if (e.button !== 0 || e.target.closest('button')) return;
     const sx = e.clientX - w.x, sy = e.clientY - w.y;
     bar.setPointerCapture(e.pointerId);
-    const mv = ev => { w.x = Math.max(0, Math.min(1000, ev.clientX - sx)); w.y = Math.max(28, Math.min(600, ev.clientY - sy)); node.style.left = w.x + 'px'; node.style.top = w.y + 'px'; };
+    const maxX = Math.max(0, screen.clientWidth - node.offsetWidth);
+    const maxY = Math.max(28, screen.clientHeight - 34 - node.offsetHeight);
+    const mv = ev => { w.x = Math.max(0, Math.min(maxX, ev.clientX - sx)); w.y = Math.max(28, Math.min(maxY, ev.clientY - sy)); node.style.left = w.x + 'px'; node.style.top = w.y + 'px'; };
     const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); };
     bar.addEventListener('pointermove', mv); bar.addEventListener('pointerup', up);
   });
@@ -475,9 +492,14 @@ function render() {
     if (w === focused) node.classList.add('focused');
     node.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
-      const changed = w.z !== topZ || menu.open || focused !== w;
+      // Activate in place: re-rendering here would detach the pressed button
+      // and the dragged title bar before the click or drag completes.
+      w.z = ++z;
+      node.style.zIndex = w.z;
       focused = w;
-      if (changed) { w.z = ++z; menu.open = false; menu.from = null; queueMicrotask(render); }
+      for (const other of screen.querySelectorAll('.win')) other.classList.remove('top', 'focused');
+      node.classList.add('top', 'focused');
+      if (menu.open) { menu.open = false; menu.from = null; for (const m of screen.querySelectorAll('.menu')) m.remove(); }
     });
     drag(node, w);
     screen.append(node);
