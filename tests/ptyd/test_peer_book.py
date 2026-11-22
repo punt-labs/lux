@@ -8,11 +8,15 @@ import tempfile
 from pathlib import Path
 from typing import Self, cast
 
+import pytest
+
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.ptyd.dispatch import SessionDispatch
 from punt_lux.ptyd.peer import Peer
 from punt_lux.ptyd.peer_book import PeerBook
 from punt_lux.ptyd.viewers import ViewerBindings
+
+pytestmark = pytest.mark.integration
 
 
 class _BindingDispatch:
