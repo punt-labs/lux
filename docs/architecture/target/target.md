@@ -250,6 +250,11 @@ reports every runtime import edge that breaks it. The checked-in
 `make check-layers` (also run by `make check` and CI). Stale entries fail too:
 after removing violations, run `make update-layers` and commit the shrinking
 baseline. The update target refuses to add new violations to an existing baseline.
+The check also rejects baseline additions relative to `BASE_REF` (by default,
+the merge base with `origin/main`, when available), so adding an import and its
+baseline entry together cannot bypass the gate. A base without the baseline file
+skips only this growth comparison, allowing the initial baseline to land. CI uses
+the PR merge base or the pre-push commit on main, with full git history.
 
 | Package | May import |
 |---|---|

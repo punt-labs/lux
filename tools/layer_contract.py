@@ -2,6 +2,7 @@
 
 Known runtime edges live in .layer-baseline.json. New edges fail the check;
 removed edges fail until `make update-layers` shrinks the baseline.
+Baseline additions also fail against --base-ref (default: origin/main merge base).
 """
 
 from __future__ import annotations
@@ -9,9 +10,12 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import ClassVar, Self
+
+from tools.layer_baseline import LayerBaseline
 
 
 class LayerContract:
@@ -237,7 +241,7 @@ class LayerRatchet:
         self._baseline = baseline
         return self
 
-    def run(self, *, update: bool = False) -> int:
+    def run(self, *, update: bool = False, base_ref: str = "") -> int:
         print(self._report.render())
         if self._report.has_errors:
             print(
@@ -245,9 +249,11 @@ class LayerRatchet:
             )
             return 1
         try:
-            baseline = self._read() if self._baseline.exists() else frozenset[str]()
+            store = LayerBaseline(self._baseline)
+            baseline = store.read() if self._baseline.exists() else frozenset[str]()
             if not self._baseline.exists() and not update:
                 raise ValueError("missing layer baseline; run make update-layers")
+            store.check(baseline, base_ref)
             new = self._report.violations - baseline
             stale = baseline - self._report.violations
             if new and (not update or self._baseline.exists()):
@@ -266,26 +272,23 @@ class LayerRatchet:
                 print("\n".join(f"  {edge}" for edge in sorted(stale)))
                 print("Run make update-layers and commit the shrinking baseline.")
                 return 1
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
             print(f"Layer ratchet FAILED: {error}")
             return 1
         print(f"Layer ratchet passed: {len(baseline)} known violations")
         return 0
 
-    def _read(self) -> frozenset[str]:
-        raw: object = json.loads(self._baseline.read_text(encoding="utf-8"))
-        if not isinstance(raw, list) or not all(isinstance(edge, str) for edge in raw):
-            raise ValueError("layer baseline must be a JSON array of edge strings")
-        return frozenset(raw)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--update", action="store_true", help="Shrink the baseline")
+    parser.add_argument(
+        "--base-ref", default="", help="Reject baseline additions vs this git ref"
+    )
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     raise SystemExit(
         LayerRatchet(root / "src", root / ".layer-baseline.json").run(
-            update=args.update
+            update=args.update, base_ref=args.base_ref
         )
     )

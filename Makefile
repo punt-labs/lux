@@ -79,10 +79,10 @@ check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside its
 	bash scripts/check-plugin-surface.sh
 
 check-layers: ## Layer ratchet — reject new violations and stale baseline entries
-	uv run --extra display python tools/layer_contract.py
+	uv run --extra display python -m tools.layer_contract $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
 update-layers: ## Shrink the layer baseline after removing violating import edges
-	uv run --extra display python tools/layer_contract.py --update
+	uv run --extra display python -m tools.layer_contract --update $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
 .PHONY: check-layers update-layers
 

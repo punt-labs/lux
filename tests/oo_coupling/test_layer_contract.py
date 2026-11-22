@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -286,3 +288,69 @@ class TestLayerRatchet:
 
     def test_unreadable_baseline_fails(self, source: Path, tmp_path: Path) -> None:
         assert LayerRatchet(source, tmp_path).run() == 1
+
+    @pytest.mark.parametrize(
+        "mode", ["grew", "shrank", "unchanged", "absent", "invalid"]
+    )
+    @pytest.mark.parametrize("explicit", [True, False])
+    def test_compares_baseline_with_git_base(
+        self,
+        source: Path,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        mode: str,
+        explicit: bool,
+    ) -> None:
+        edge = "punt_lux.tracing → punt_lux.cli"
+        baseline = tmp_path / "baseline.json"
+        git = shutil.which("git")
+        assert git is not None
+        subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
+        if mode != "absent":
+            baseline.write_text(
+                "{"
+                if mode == "invalid"
+                else json.dumps([] if mode == "grew" else [edge])
+            )
+            subprocess.run([git, "add", baseline.name], cwd=tmp_path, check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Layer Test",
+                "-c",
+                "user.email=layer@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "base",
+                "--allow-empty",
+            ],
+            cwd=tmp_path,
+            check=True,
+        )
+        subprocess.run(
+            [git, "update-ref", "refs/remotes/origin/main", "HEAD"],
+            cwd=tmp_path,
+            check=True,
+        )
+        baseline.write_text(json.dumps([] if mode == "shrank" else [edge]))
+        if mode == "shrank":
+            (source / "punt_lux" / "tracing.py").write_text("")
+        result = LayerRatchet(source, baseline).run(base_ref="HEAD" if explicit else "")
+        assert result == (1 if mode in {"grew", "invalid"} else 0)
+        output = capsys.readouterr().out
+        if mode == "grew":
+            assert "layer baseline grew vs" in output
+            assert edge in output
+        if mode == "absent":
+            assert "skipping baseline growth check" in output
+
+    def test_invalid_explicit_git_ref_fails(
+        self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        baseline = tmp_path / "baseline.json"
+        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
+        assert LayerRatchet(source, baseline).run(base_ref="missing-ref") == 1
+        assert "Layer ratchet FAILED" in capsys.readouterr().out
