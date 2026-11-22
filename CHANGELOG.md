@@ -4,6 +4,12 @@
 
 ### Added
 
+- Report-only design ratchet: `make design-shadow` compares against
+  `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
+  verdict to the job summary even after a gate fails. Explicit architecture
+  layers cover every current module. Full diagnostics include a non-failing
+  design scan; neither report gates `make check` or CI.
+
 - Named-terminal lifecycle design and protocol types `NewRequest`,
   `WatchRequest`, `SessionEvent` and `SessionLabel`, with the tracked
   `scripts/verify_terminal_model.sh` formal verification gate. Wire version
@@ -50,6 +56,9 @@
   `make screenshots` target captures at a fixed interval.
 
 ### Changed
+
+- Upgrade the quality-gate dev dependency to `punt-oo-ratchet==0.4.0`, retaining
+  existing policies and baselines.
 
 - Depend on the published `punt-observe` 0.1.0 from PyPI instead of a Git
   revision, restoring compatibility with Lux's PyPI release workflow.

@@ -50,6 +50,13 @@ type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/
 	npx pyright src/ tests/
 
+DESIGN_BASE ?= origin/main
+
+.PHONY: design-shadow
+
+design-shadow: ## Report advisory design changes; never part of check
+	uv run --extra display oo-ratchet design src/punt_lux --shadow-check "$(DESIGN_BASE)"
+
 check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
 
 # CI compares PRs with their merge base and pushes to main with the pre-push
@@ -92,6 +99,7 @@ bless-coupling: ## Bounded coupling bless (FILES=src/punt_lux/a.py,src/punt_lux/
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display oo-ratchet oo src/punt_lux/ --threshold
+	-uv run --extra display oo-ratchet design src/punt_lux/
 	-uv run --extra display python tools/layer_contract.py
 	-uv run --extra display mypy src/ tests/
 	-uv run --extra display ruff format --check .

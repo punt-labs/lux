@@ -24,7 +24,7 @@ the rest of the system — a change in any dependency can break it.
 - Fix: extract a facade or mediator that the module imports instead of
   importing each dependency directly
 
-Lux uses `punt-oo-ratchet` 0.3.0 with `stateless-values = "any"` to retain
+Lux uses `punt-oo-ratchet` 0.4.0 with `stateless-values = "any"` to retain
 the broad stateless-value LCOM exemption. Exact-path hub caps live in
 `[tool.oo-ratchet.coupling.caps]`. Run `make update-coupling` after improvements;
 use repository-relative paths with
