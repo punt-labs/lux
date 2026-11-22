@@ -8174,11 +8174,14 @@ Two further problems surfaced in the same discussion.
    a single session's items stay plain. A connection with no repository
    (`voxd`) keeps a submenu named for itself. Terminal daemons do not appear
    in Projects. DES-064's collision numbering moves from submenu names to item
-   labels for one repository's sessions. The submenu key is the repository's
-   full declared path, not its directory name: two different repositories
-   whose directories share a name (`~/work/lux` and `~/forks/lux`) are two
-   submenus, and those keep DES-064's submenu numbering (`lux`, `lux (2)`).
-   Only the same repository's several sessions merge.
+   labels for one repository's sessions. The submenu key is the client's
+   host (decision 4) plus the repository's full declared path, not its
+   directory name. Two different repositories whose directories share a
+   name (`~/work/lux` and `~/forks/lux`), or the same path checked out on
+   two machines, are separate submenus. Those keep DES-064's submenu
+   numbering (`lux`, `lux (2)`), and a submenu shows its machine once a
+   second machine is connected, by DES-089's Hub-rung rule. Only one
+   checkout's several sessions merge.
 
 3. **Terminals groups by the shell's machine.** Each machine with a
    `luxd-pty` contributes its terminals. While one machine is connected the

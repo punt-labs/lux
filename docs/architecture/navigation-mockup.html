@@ -245,7 +245,7 @@ function start(name, hn, by = 'user') {
   if (by === 'agent') {
     // Slot the agent's window directly under the one the user is in, using
     // whole numbers: CSS z-index rejects fractions.
-    const shown = [...panels, ...visibleTerms()].filter(w => w !== t && !w.docked);
+    const shown = [...panels, ...visibleTerms(), ...(addPanel.open ? [addPanel] : [])].filter(w => w !== t && !w.docked);
     const top = focused && shown.includes(focused) ? focused : shown.reduce((a, b) => (b.z > a.z ? b : a), shown[0]);
     if (top) {
       for (const w of shown) if (w.z >= top.z) w.z += 1;
@@ -422,6 +422,7 @@ function addLauncher() {
   const a = addPanel, hn = a.host;
   const cli = `lux term launcher add ${ref(a.name)} ${ref(a.command)} --host ${hn}`;
   const call = a.who === 'agent' ? `term_launcher_add (MCP)   ≡   ${cli}` : cli;
+  addPanel.printed = null;
   if (!agentAllowed[hn]) {
     log(`Refused: ${hn} does not allow runtime launchers, whoever asks and by whatever route, MCP or CLI. Its owner sets allow_runtime_launchers = true in ${hn}'s terminals.toml, or adds the launcher to that file directly.`, `${call}   → refused`);
     return;
@@ -442,7 +443,7 @@ function addPanelWin() {
     return h('label', { class: 'frow' }, h('span', {}, label), i);
   };
   const hostSel = h('select', { id: 'add-host', 'aria-label': 'Machine' }, ...liveHosts().map(hn => { const o = h('option', {}, hn); if (hn === a.host) o.selected = true; return o; }));
-  hostSel.addEventListener('change', () => { a.host = hostSel.value; render(); });
+  hostSel.addEventListener('change', () => { a.host = hostSel.value; a.printed = null; render(); });
   const whoSel = h('select', { id: 'add-who', 'aria-label': 'Added by' }, ...['agent', 'person'].map(w => { const o = h('option', { value: w }, w === 'agent' ? 'an agent (MCP or CLI)' : 'you'); if (w === a.who) o.selected = true; return o; }));
   whoSel.addEventListener('change', () => { a.who = whoSel.value; render(); });
   const node = h('div', { class: 'win addp' },
@@ -455,7 +456,7 @@ function addPanelWin() {
       h('div', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, 'Runtime only. To keep it, a person adds it to the file below.')),
       h('div', { class: 'frow end' }, h('button', { class: 'chip', onclick: () => { addLauncher(); render(); } }, 'Add')),
       a.printed ? h('div', { class: 'frow' }, h('span', {}, 'Printed'), h('span', { class: 'chk' }, 'lux term launcher add prints this; paste it into the file:')) : null,
-      a.printed ? h('pre', { class: 'toml', id: 'printed-toml' }, a.printed) : null,
+      a.printed ? h('pre', { class: 'toml', id: 'printed-toml', style: { userSelect: 'text' } }, a.printed) : null,
       h('pre', { class: 'toml' }, tomlFor(a.host))));
   node.style.width = '460px';
   return node;
