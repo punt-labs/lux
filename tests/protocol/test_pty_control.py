@@ -9,6 +9,7 @@ import pytest
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.control import (
+    WIRE_VERSION,
     ControlCodec,
     ControlRequest,
     Request,
@@ -20,6 +21,10 @@ from punt_lux.protocol.pty.new_request import NewRequest
 from punt_lux.protocol.pty.session_events import SessionEvent, WatchRequest
 from punt_lux.protocol.pty.session_label import SessionLabel
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+
+
+def test_wire_version_stays_compatible_with_running_daemon() -> None:
+    assert WIRE_VERSION == 3
 
 
 @pytest.mark.parametrize(
