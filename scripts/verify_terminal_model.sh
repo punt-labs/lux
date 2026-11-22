@@ -137,4 +137,24 @@ check_model terminal_reopen_committed_buggy.tex O found "$OO" 3
 check_model terminal_reopen_closeidle_buggy.tex F found "$FF" 3
 check_model terminal_reopen_defer_buggy.tex O found "$OO" 3
 check_model terminal_reopen_retry_buggy.tex O found "$OO" 3
+
+# P: a deferred attach is eventually sent (liveness; deadlock freedom cannot see it).
+PP='G({CH1 : deferred & nameOf(CH1) /: ran(dom(dview |> {cancelled}) <| nameOf)} => F{CH1 /: deferred})'
+check_ltl() {
+  local model="$1" formula="$2" expected="$3"
+  local log="$LOG_DIR/${model%.tex}-P.log"
+  "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 3 -ltlformula "$formula" >"$log" 2>&1 || true
+  if [[ "$expected" == holds ]]; then
+    grep -q '^LTL Formula TRUE' "$log" || fail "$model P: expected the progress property to hold" "$log"
+  else
+    grep -q 'Counterexample found' "$log" || fail "$model P: expected a counterexample" "$log"
+  fi
+  echo "PASS: $model P $expected"
+}
+for model in terminal_reopen.tex terminal_reopen_nosend_buggy.tex; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+done
+check_ltl terminal_reopen.tex "WF(SendDeferred) => $PP" holds
+check_ltl terminal_reopen_nosend_buggy.tex "$PP" violated
 echo "PASS: all terminal lifecycle checks"
