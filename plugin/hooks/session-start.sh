@@ -95,7 +95,12 @@ esac
 
 log_applet_event() {
   if command -v lux &>/dev/null; then
-    lux hook applet-event "$@" </dev/null >/dev/null 2>&1 &
+    (
+      if [[ "$1" == launched || "$1" == spawn-error ]]; then
+        lux hook applet-event intent || true
+      fi
+      lux hook applet-event "$@" || true
+    ) </dev/null >/dev/null 2>&1 &
     disown
   fi
 }
@@ -109,7 +114,6 @@ else
   if [[ "$probe_status" != 1 ]]; then
     log_applet_event probe-error
   else
-    log_applet_event intent
     nohup lux-beads --session-pid "$SESSION_WATCH_PID" </dev/null >/dev/null 2>&1 &
     child_pid=$!
     disown
