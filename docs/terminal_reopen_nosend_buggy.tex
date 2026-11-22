@@ -855,23 +855,28 @@ live, no flush is owed, yet the daemon still holds a binding for which no
 \paragraph{C --- no collateral.}  \texttt{collateral} $\neq \emptyset$.
 
 \paragraph{P --- a deferred attach is eventually sent.}  A replica held
-behind a cancelled attach must be sent once nothing blocks its name.
-Because \texttt{Disconnect} and \texttt{Reconnect} keep some transition
-enabled in every state, deadlock freedom cannot detect an attach that is
-never sent, so this is checked as a liveness property in LTL, under weak
-fairness for \texttt{SendDeferred}:
+behind a cancelled attach must have its attach request actually sent once
+nothing blocks its name: leaving the held state is not enough, since the
+request could be dropped on the way.  Because \texttt{Disconnect} and
+\texttt{Reconnect} keep some transition enabled in every state, deadlock
+freedom cannot detect a lost attach, so this is a liveness property checked
+in LTL under weak fairness for \texttt{SendDeferred} and \texttt{Flush}:
 \[
-  \mathbf{WF}(\mathit{SendDeferred}) \Rightarrow
+  \mathbf{WF}(\mathit{SendDeferred}) \land \mathbf{WF}(\mathit{Flush})
+  \Rightarrow
   \mathbf{G}\,(c \in deferred \land nameOf~c \notin blocked
-    \Rightarrow \mathbf{F}\, c \notin deferred)
+    \Rightarrow \mathbf{F}\,(\mathit{areq}_c \in wq \cup sent
+      \lor c \in \dom dbound \lor c \notin \dom dview))
 \]
 where $blocked$ is the names with a cancelled attach outstanding.  The
-variant without \texttt{SendDeferred} violates it.
+variant without \texttt{SendDeferred} (\texttt{nosend}) and the variant whose
+\texttt{SendDeferred} releases the attach without queuing it
+(\texttt{drop}) both violate it.
 
 \paragraph{D --- deadlock freedom.}
 
 \section{Fidelity}
 
-Variants beside this file: \texttt{terminal\_reopen\_nosend\_buggy.tex} (deferral without \texttt{SendDeferred}; reaches P), \texttt{terminal\_reopen\_committed\_buggy.tex} (neither measure), \texttt{terminal\_reopen\_closeidle\_buggy.tex} (only closing the idle connection), \texttt{terminal\_reopen\_defer\_buggy.tex} (only deferral) and \texttt{terminal\_reopen\_retry\_buggy.tex} (only retrying a duplicate rejection).
+Variants beside this file: \texttt{terminal\_reopen\_nosend\_buggy.tex} (deferral without \texttt{SendDeferred}; violates P), \texttt{terminal\_reopen\_drop\_buggy.tex} (\texttt{SendDeferred} drops the attach; violates P), \texttt{terminal\_reopen\_committed\_buggy.tex} (neither measure), \texttt{terminal\_reopen\_closeidle\_buggy.tex} (only closing the idle connection), \texttt{terminal\_reopen\_defer\_buggy.tex} (only deferral) and \texttt{terminal\_reopen\_retry\_buggy.tex} (only retrying a duplicate rejection).
 
 \end{document}

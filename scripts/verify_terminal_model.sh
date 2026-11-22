@@ -138,8 +138,8 @@ check_model terminal_reopen_closeidle_buggy.tex F found "$FF" 3
 check_model terminal_reopen_defer_buggy.tex O found "$OO" 3
 check_model terminal_reopen_retry_buggy.tex O found "$OO" 3
 
-# P: a deferred attach is eventually sent (liveness; deadlock freedom cannot see it).
-PP='G({CH1 : deferred & nameOf(CH1) /: ran(dom(dview |> {cancelled}) <| nameOf)} => F{CH1 /: deferred})'
+# P: a deferred attach's request is eventually sent, not just un-held (liveness).
+PP='G({CH1 : deferred & nameOf(CH1) /: ran(dom(dview |> {cancelled}) <| nameOf)} => F{(CH1|->areq) : ran(wq) \/ ran(sent) or CH1 : dom(dbound) or CH1 /: dom(dview)})'
 check_ltl() {
   local model="$1" formula="$2" expected="$3"
   local log="$LOG_DIR/${model%.tex}-P.log"
@@ -151,10 +151,12 @@ check_ltl() {
   fi
   echo "PASS: $model P $expected"
 }
-for model in terminal_reopen.tex terminal_reopen_nosend_buggy.tex; do
+for model in terminal_reopen.tex terminal_reopen_nosend_buggy.tex terminal_reopen_drop_buggy.tex; do
   log="$LOG_DIR/${model%.tex}-fuzz.log"
   "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
 done
-check_ltl terminal_reopen.tex "WF(SendDeferred) => $PP" holds
+FAIR='WF(SendDeferred) & WF(Flush)'
+check_ltl terminal_reopen.tex "$FAIR => $PP" holds
 check_ltl terminal_reopen_nosend_buggy.tex "$PP" violated
+check_ltl terminal_reopen_drop_buggy.tex "$FAIR => $PP" violated
 echo "PASS: all terminal lifecycle checks"
