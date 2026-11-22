@@ -19,7 +19,7 @@ from punt_lux.protocol.pty.session_requests import (
     ListRequest as ListRequest,
 )
 
-# Defer v4 to the new/watch daemon unit: Display upgrades must work with running luxd-pty.
+# Defer v4 to the new/watch daemon unit: Display upgrades must work with live luxd-pty.
 WIRE_VERSION = 3
 
 type Request = (
