@@ -123,10 +123,10 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-restart: install ## Install + restart luxd AND display through the service supervisor (picks up code changes)
+restart: install ## Install + restart Hub, Display, and a running luxd-pty (ends its terminal sessions)
 	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
 	@lux display restart || { echo "error: 'lux display restart' failed — see output above" >&2; exit 1; }
-	@echo "luxd + luxd-display restarted through the service supervisor"
+	@uv run --locked --extra display python scripts/restart_terminal.py || { echo "error: luxd-pty restart step failed — see output above" >&2; exit 1; }
 
 reload: install ## Install + restart luxd only (display keeps running)
 	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
