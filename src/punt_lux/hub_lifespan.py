@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-    from punt_lux.hub_paths import HubPaths
+    from punt_lux.kernel.hub_paths import HubPaths
 
 logger = logging.getLogger(__name__)
 

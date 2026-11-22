@@ -188,6 +188,8 @@ re-dispatch.
 
 | Module | Responsibility |
 |--------|---------------|
+| `service/` | Shared install and daemon lifecycle: supervisor backends, migration sweeps, service managers, project config, permissions, hook decisions and diagnostics |
+| `kernel/hub_paths.py`, `kernel/hub_defaults.py` | Process-independent Hub metadata paths, liveness checks and default port, shared by lifecycle and transport clients |
 | `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **778 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
 | `display/replica/` | The Display's replica of what the Hub sent: `SceneReplica` (scene state, frame composition), `FrameBook`, `WidgetStateStore`, `MenuReplica` (the replicated menu state both menu surfaces render) |

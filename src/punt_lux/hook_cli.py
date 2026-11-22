@@ -6,9 +6,9 @@ from typing import final
 
 import typer
 
-from punt_lux.applet_event import AppletEvent, AppletRecords
-from punt_lux.hooks import emit, handle_session_start
 from punt_lux.logging_config import configure_logging
+from punt_lux.service.applet_event import AppletEvent, AppletRecords
+from punt_lux.service.hooks import emit, handle_session_start
 
 
 @final

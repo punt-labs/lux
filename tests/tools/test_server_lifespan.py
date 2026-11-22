@@ -50,8 +50,8 @@ class TestSessionStartup:
     def test_reads_no_display_config(self) -> None:
         """Startup resolves and reads no config file, even when one exists."""
         with (
-            patch("punt_lux.config.ConfigManager.read") as read,
-            patch("punt_lux.config.resolve_config_path") as resolve,
+            patch("punt_lux.service.config.ConfigManager.read") as read,
+            patch("punt_lux.service.config.resolve_config_path") as resolve,
         ):
             _run_session_to_completion()
 
@@ -69,8 +69,8 @@ class TestSessionStartup:
         """With cwd=/ (the launchd case) startup neither reads nor connects."""
         monkeypatch.chdir(Path("/"))
         with (
-            patch("punt_lux.config.ConfigManager.read") as read,
-            patch("punt_lux.config.resolve_config_path") as resolve,
+            patch("punt_lux.service.config.ConfigManager.read") as read,
+            patch("punt_lux.service.config.resolve_config_path") as resolve,
             patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
@@ -86,7 +86,7 @@ class TestSessionStartup:
         monkeypatch.chdir(tmp_path)
         assert not (tmp_path / ".punt-labs" / "lux.md").exists()
         with (
-            patch("punt_lux.config.ConfigManager.read") as read,
+            patch("punt_lux.service.config.ConfigManager.read") as read,
             patch("punt_lux.domain.hub.clients.client_registry.asks") as connect,
         ):
             _run_session_to_completion()
@@ -102,8 +102,8 @@ class TestServerImport:
         """A module-level config read would fire before per-test spies exist."""
         try:
             with (
-                patch("punt_lux.config.ConfigManager.read") as read,
-                patch("punt_lux.config.resolve_config_path") as resolve,
+                patch("punt_lux.service.config.ConfigManager.read") as read,
+                patch("punt_lux.service.config.resolve_config_path") as resolve,
             ):
                 importlib.reload(server_module)
                 read.assert_not_called()

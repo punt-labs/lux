@@ -39,7 +39,7 @@ def test_full_report_includes_non_gating_design_scan() -> None:
         ("punt_lux.operations", "application"),
         ("punt_lux.operations.models.common", "domain"),
         ("punt_lux.display.render_loop", "adapters"),
-        ("punt_lux._backends", "adapters"),
+        ("punt_lux.service._backends", "adapters"),
         ("punt_lux.bounded_send", "adapters"),
         ("punt_lux.cli_identity", "adapters"),
         ("punt_lux.log_level", "adapters"),

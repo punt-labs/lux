@@ -1,14 +1,14 @@
 # Binary Rename Migration: Curing a Stale `~/.local/bin` Shim
 
 **Status:** historical record. Design shipped in PR #383 (lux-j169); the
-implementation lives in `_binary_sweep.py`, `_binary_sweep_disk.py`,
-`_shim_ownership.py`, and the current `_service_spec.py`. Sections below
+implementation lives in `service/_binary_sweep.py`, `service/_binary_sweep_disk.py`,
+`service/_shim_ownership.py`, and the current `service/_service_spec.py`. Sections below
 describe the state of the tree *before* the rename shipped — read as the
 motivating snapshot, not as the current codebase.
 
 This document extends `docs/architecture/service-lifecycle-migration.md`
-(bead `lux-ehzy`, implemented in `_legacy_sweep.py` /
-`_legacy_sweep_launchd.py` / `_legacy_sweep_systemd.py`) to a second
+(bead `lux-ehzy`, implemented in `service/_legacy_sweep.py` /
+`service/_legacy_sweep_launchd.py` / `service/_legacy_sweep_systemd.py`) to a second
 rename-train subject: the disk binary a `uv tool install` writes into
 `~/.local/bin`, as distinct from the launchd/systemd registration the
 `LegacySweep` family already cures. Sections below cite the shipped
@@ -26,13 +26,13 @@ luxd = "punt_lux.luxd:main"
 lux-beads = "punt_lux.applets.beads:app"
 ```
 
-`HUB_SPEC` (`_service_spec.py:69-82`) already renamed the *process* to
+`HUB_SPEC` (`service/_service_spec.py:69-82`) already renamed the *process* to
 `luxd-hub` (`process_name="luxd-hub"`, set via `setproctitle` — see
 `pyproject.toml:38-42`'s comment) and the *supervisor identity* to
 `com.punt-labs.luxd-hub` / `luxd-hub` (`launchd_label`, `systemd_unit`).
-`binary_name` still reads `"luxd"` (`_service_spec.py:74`) — the disk
+`binary_name` still reads `"luxd"` (`service/_service_spec.py:74`) — the disk
 artifact never followed the rename. `resolve_exec_args()`
-(`_service_spec.py:42-58`) resolves `~/.local/bin/luxd`, and every `uv tool
+(`service/_service_spec.py:42-58`) resolves `~/.local/bin/luxd`, and every `uv tool
 install` reports:
 
 ```text
@@ -78,7 +78,7 @@ Three facts this design relies on, all verified above rather than assumed:
 1. **`~/.local/bin/luxd` is a real symlink** (`lrwxr-xr-x`, `@` suffix,
    `readlink -f` resolves it) — one hop, `~/.local/bin/luxd →
    ~/.local/share/uv/tools/punt-lux/bin/luxd`. The comment at
-   `_service_spec.py:45` ("the uv-tool install symlink") is accurate for
+   `service/_service_spec.py:45` ("the uv-tool install symlink") is accurate for
    the current uv version on this platform.
 2. **The target under `.../tools/punt-lux/bin/` is itself a regular file**
    — a small generated Python launcher with a shebang pointing at the
@@ -122,7 +122,7 @@ confirming the artifact is genuinely ours to remove (§6).
 ### 2.1 Decision: a distinct sibling primitive, not a `LegacySweep` subtype
 
 The mission asks this directly: extend `LegacySweep`
-(`_legacy_sweep.py:62-88`) to a `DiskBinaryLegacySweep`, or propose
+(`service/_legacy_sweep.py:62-88`) to a `DiskBinaryLegacySweep`, or propose
 something else. **This design proposes a distinct but parallel family** —
 `BinarySweep` (Protocol) and `DiskBinaryLegacySweep` (`@final`
 implementation) — built on the same shape `LegacySweep` established
@@ -138,10 +138,10 @@ failure: a launchd/systemd *registration* can outlive its *config file* —
 after the plist is deleted, because `unload`/`load` and
 `bootstrap`/`bootout` are two different subsystems that don't fully
 interoperate. That is why `LegacyServiceOutcome`
-(`_legacy_sweep.py:20-30`) carries **two** separate booleans —
+(`service/_legacy_sweep.py:20-30`) carries **two** separate booleans —
 `deregistered` and `config_removed` — and why `sweep()`'s cure order is
 strict: deregister, re-verify, *only then* delete the file
-(`_legacy_sweep_launchd.py:77-92`, comment at lines 79-82). A disk symlink
+(`service/_legacy_sweep_launchd.py:77-92`, comment at lines 79-82). A disk symlink
 has no such split. There is no daemon holding a "registration" for
 `~/.local/bin/luxd` independent of the directory entry itself —
 `Path.exists()` is the entire state, with no second subsystem to query
@@ -156,7 +156,7 @@ hub doctor` render today (`service-lifecycle-migration.md` §6, §2.3).
 **2. The actual hazard for a disk binary is identity, not ordering** — and
 `LegacySweep` has no field for it. Deleting the wrong `launchctl` label is
 not a live risk: `spec.legacy_launchd_labels`
-(`_service_spec.py:36`) names labels *this codebase itself registered*
+(`service/_service_spec.py:36`) names labels *this codebase itself registered*
 under `com.punt-labs.*` — there is no ambiguity about who owns
 `com.punt-labs.lux`. `~/.local/bin/luxd` carries no such built-in
 namespace. Any operator could have a **hand-installed script** named
@@ -189,15 +189,15 @@ what was found and done* differs.
 ### 2.2 No platform dispatch — one class, not two
 
 `LegacySweep` needed `LaunchdLegacySweep`/`SystemdLegacySweep`
-(`_platform_dispatch.py:46-53`) because launchd and systemd are genuinely
+(`service/_platform_dispatch.py:46-53`) because launchd and systemd are genuinely
 different subsystems with different commands. `~/.local/bin` and `uv tool
 install`'s layout are **not** platform-specific — `uv tool dir` resolves
 to `~/.local/share/uv/tools` (XDG-style default) on both macOS and Linux,
 and the shim format (a symlink from `~/.local/bin/<name>` into
 `<tool_dir>/<package>/bin/<name>`) is uv's own behavior, independent of
 the host OS. `DiskBinaryLegacySweep` is therefore a single `@final` class
-with no macOS/Linux split, and `_platform_dispatch.py`'s
-`PlatformClasses` NamedTuple (`_platform_dispatch.py:39-43`) is
+with no macOS/Linux split, and `service/_platform_dispatch.py`'s
+`PlatformClasses` NamedTuple (`service/_platform_dispatch.py:39-43`) is
 **unaffected** — this primitive is composed directly in
 `ServiceManager.__new__`, not routed through `platform_classes()`.
 
@@ -283,10 +283,10 @@ class DiskBinaryLegacySweep:
         """True iff `path` ultimately resolves under this package's tool dir."""
 ```
 
-New module: `src/punt_lux/_binary_sweep.py` (value types + Protocol,
-mirroring `_legacy_sweep.py`'s role) and
-`src/punt_lux/_binary_sweep_disk.py` (the concrete class, mirroring
-`_legacy_sweep_launchd.py`'s role as the one-and-only implementation —
+New module: `src/punt_lux/service/_binary_sweep.py` (value types + Protocol,
+mirroring `service/_legacy_sweep.py`'s role) and
+`src/punt_lux/service/_binary_sweep_disk.py` (the concrete class, mirroring
+`service/_legacy_sweep_launchd.py`'s role as the one-and-only implementation —
 named `_disk` rather than `_launchd`/`_systemd` because there is exactly
 one implementation, not a platform pair; a `_platform`-suffixed name would
 imply a sibling that will never exist).
@@ -362,7 +362,7 @@ assumed:
 This is a read-only, side-effect-free check — safe to call from
 `diagnose()`/`is_clean()` with zero mutation, the same non-mutating
 guarantee `LegacySweep.diagnose()` provides
-(`_legacy_sweep_launchd.py:37-42`).
+(`service/_legacy_sweep_launchd.py:37-42`).
 
 ## 3. `ServiceSpec` Gains the Legacy Binary Names as Data
 
@@ -383,7 +383,7 @@ class ServiceSpec:
     def resolve_exec_args(self) -> list[str]:
         # binary_name changes from "luxd" to "luxd-hub" -- a plain data
         # edit, not part of this design; resolve_exec_args()'s logic
-        # (_service_spec.py:42-58) is unaffected.
+        # (service/_service_spec.py:42-58) is unaffected.
         ...
 ```
 
@@ -393,18 +393,18 @@ scope — not a design decision, a data edit). `DISPLAY_SPEC` leaves the
 field at its empty-tuple default: its `binary_name="lux"` was never
 renamed, so `DiskBinaryLegacySweep(DISPLAY_SPEC)` iterates zero names and
 `sweep()`/`is_clean()` are no-ops by construction, exactly like
-`LegacySweep` on `DISPLAY_SPEC` today (`_service_spec.py:85-95`, empty
+`LegacySweep` on `DISPLAY_SPEC` today (`service/_service_spec.py:85-95`, empty
 `legacy_launchd_labels`/`legacy_systemd_units`).
 
 A future rename train — the mission's own framing, "the same class of
 stale-state-on-rename hazard" — adds one name to one tuple in
-`_service_spec.py`. No new sweep class, no new call site.
+`service/_service_spec.py`. No new sweep class, no new call site.
 
 ## 4. Invocation Point
 
 ### 4.1 Composition: unconditional, not platform-dispatched
 
-`ServiceManager.__new__` (`service.py:60-72`) currently composes
+`ServiceManager.__new__` (`service/__init__.py:60-72`) currently composes
 `_backend` and `_legacy_sweep` via `platform_classes(detect_platform())`
 and `_port_guard` directly (`PortGuard(cls._SPEC)`, no platform lookup —
 `PortGuard` is already platform-uniform per
@@ -510,7 +510,7 @@ corrupting anything:
 - **`unlink(missing_ok=True)` makes a losing racer's removal step a
   no-op, not a crash.** The same pattern already established for both
   `LegacySweep` implementations
-  (`_legacy_sweep_launchd.py:84`/`_legacy_sweep_systemd.py:92`,
+  (`service/_legacy_sweep_launchd.py:84`/`service/_legacy_sweep_systemd.py:92`,
   `service-lifecycle-migration.md` §4.1) and reused here in §5 step 4: if
   Racer A's `unlink()` wins the race, Racer B's subsequent `unlink()`
   call against the now-already-gone path raises nothing —
@@ -537,7 +537,7 @@ applied to the different outcome shape:
 - **`sweep()` iterates every name in `spec.legacy_binary_names` to
   completion** — no short-circuit on the first failure, matching
   `LegacySweep._sweep_one` per-identifier independence
-  (`_legacy_sweep_launchd.py:46-53`). Every `DiskBinaryOutcome` is
+  (`service/_legacy_sweep_launchd.py:46-53`). Every `DiskBinaryOutcome` is
   appended to the accumulating `BinarySweepReport` regardless of outcome.
 - **Per name, `_sweep_one`:**
   1. `path = self._bin_dir / name`. If `not path.exists() and not
@@ -562,16 +562,16 @@ applied to the different outcome shape:
      attempt; record `verified_clean` from that re-check, not from the
      unlink call completing without raising — the same distrust-the-first-
      signal discipline `LegacySweep` applies to `bootout`'s exit code
-     (`_legacy_sweep_launchd.py:78-83`: a call reporting success is not
+     (`service/_legacy_sweep_launchd.py:78-83`: a call reporting success is not
      proof; re-verify against the real state).
 - **`sweep()` raises `ServiceMigrationError` once**, after every name has
   been attempted, if `not report.all_clean` — reusing the existing
-  exception type from `_service_errors.py:21-27` rather than introducing a
+  exception type from `service/_service_errors.py:21-27` rather than introducing a
   parallel one, because the caller-facing contract ("a rename train left
   the machine dirty; here is the full report") is identical even though
   the report's internal shape differs. `ServiceManager.install()`
   propagates it uncaught, exactly as it does today for the legacy-label
-  sweep (`service.py:86`, no `except` around either call).
+  sweep (`service/__init__.py:86`, no `except` around either call).
 
 **A refusal (`ownership_verified=False`) is fatal, not a warning.** Bead
 `lux-j169`'s design constraint list states "fatal on failure" and the
@@ -619,8 +619,8 @@ argument, stated plainly:
 
 ```bash
 uv run python -c "
-from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux._service_spec import HUB_SPEC
+from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
+from punt_lux.service._service_spec import HUB_SPEC
 report = DiskBinaryLegacySweep(HUB_SPEC).diagnose()
 print(report.describe() or 'clean')
 "
@@ -628,14 +628,14 @@ print(report.describe() or 'clean')
 
 **From the CLI, read-only** — extends the existing `lux hub doctor`
 surface (`cli/hub.py:82-98`) rather than adding a new command:
-`ServiceManager.doctor()`/`doctor_fix()` (`service.py:159-165`) already
+`ServiceManager.doctor()`/`doctor_fix()` (`service/__init__.py:159-165`) already
 call `DoctorResult.diagnose`/`DoctorResult.repair`
-(`_doctor_result.py:34-82`), which take `legacy_sweep` and `port_guard` as
+(`service/_doctor_result.py:34-82`), which take `legacy_sweep` and `port_guard` as
 parameters. Both gain a third parameter, `binary_sweep: BinarySweep`, and
 `DoctorResult` gains a `binary: BinarySweepReport` field alongside
 `legacy: LegacySweepReport` and a `_binary_lines()` render method beside
-`_legacy_lines()`/`_port_lines()` (`_doctor_result.py:104-125`). `is_clean`
-(`_doctor_result.py:84-87`) extends to `self.legacy.all_clean and
+`_legacy_lines()`/`_port_lines()` (`service/_doctor_result.py:104-125`). `is_clean`
+(`service/_doctor_result.py:84-87`) extends to `self.legacy.all_clean and
 self.binary.all_clean and self.port.status in _CLEAN_PORT_STATUSES`.
 
 ```bash
@@ -686,8 +686,8 @@ case, matching `_sweep_one` step 1's `exists() or is_symlink()` check,
 
 ### 8.1 Unit-level (tier 1, `make test`, real filesystem in `tmp_path`, no real `uv`)
 
-New `tests/test_binary_sweep.py`, structured after
-`tests/test_service.py`'s `TestLegacyPlistCleanup` class
+New `tests/service/test_binary_sweep.py`, structured after
+`tests/service/test_service.py`'s `TestLegacyPlistCleanup` class
 (`service-lifecycle-migration.md` §7.2's pattern):
 
 - **Fixture setup, mirroring §1's real layout exactly** — a fake
@@ -904,8 +904,8 @@ exact failure mode the mission's evaluator brief names explicitly
   migration-path reasoning) are each cited above.
 - Bead `lux-ehzy` — the launchd/systemd incident and its fix scope.
 - Bead `lux-j169` — this design's scope.
-- `src/punt_lux/_service_spec.py`, `_legacy_sweep.py`,
-  `_legacy_sweep_launchd.py`, `_legacy_sweep_systemd.py`,
-  `_platform_dispatch.py`, `_doctor_result.py`, `_service_errors.py`,
-  `service.py`, `cli/hub.py`, `pyproject.toml`, `install.sh` — the current
+- `src/punt_lux/service/_service_spec.py`, `service/_legacy_sweep.py`,
+  `service/_legacy_sweep_launchd.py`, `service/_legacy_sweep_systemd.py`,
+  `service/_platform_dispatch.py`, `service/_doctor_result.py`, `service/_service_errors.py`,
+  `service/__init__.py`, `cli/hub.py`, `pyproject.toml`, `install.sh` — the current
   implementation this design extends or touches.

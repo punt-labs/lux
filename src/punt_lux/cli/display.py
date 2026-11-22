@@ -20,6 +20,7 @@ from punt_lux.cli._shared import (
     run,
     scope_for,
 )
+from punt_lux.cli.display_enablement import DisplayEnablement
 from punt_lux.commands import (
     CommandResult,
     Ctx,
@@ -35,7 +36,6 @@ from punt_lux.commands import (
     display_window_get,
 )
 from punt_lux.commands.display_state_get import display_state_get
-from punt_lux.display_enablement import DisplayEnablement
 
 if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
