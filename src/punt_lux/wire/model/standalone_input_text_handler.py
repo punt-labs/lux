@@ -1,0 +1,52 @@
+"""Standalone ``HandlerDecoder[ValueChanged]`` builder for InputTextElement.
+
+Mirrors the shared value-change handler pattern in ``value_change_handlers.py``:
+an input_text without a parent composite model has no verb vocabulary, so the
+explicit factory registry contains only ``noop``. The built-in state-sync
+handler (``_UpdateTextHandler``) is installed separately by
+``JsonInputTextDecoder`` before any wire-declared handlers are decoded. The
+decorator registry binds to whatever ``PublishSink`` the caller supplies.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, final
+
+from punt_lux.wire.model.event_protocol import Handler
+from punt_lux.wire.model.handler_decoder import FactoryRegistry, HandlerDecoder
+from punt_lux.wire.model.handlers import DecoratorRegistry
+from punt_lux.wire.model.interaction import ValueChanged
+
+if TYPE_CHECKING:
+    from punt_lux.wire.model.handlers.publish_sink import PublishSink
+
+__all__ = ["build_standalone_input_text_handler_decoder"]
+
+
+@final
+class _NoopValueHandler:
+    """Serializable no-op handler for ``ValueChanged``."""
+
+    def __call__(self, _event: ValueChanged) -> None:
+        return None
+
+
+def build_standalone_input_text_handler_decoder(
+    sink: PublishSink,
+) -> HandlerDecoder[ValueChanged]:
+    """Return the ``HandlerDecoder`` for a standalone InputTextElement.
+
+    Registers only the ``noop`` factory — a do-nothing handler for when the
+    sole side effect is a decorator like ``publish``. The built-in state-sync
+    handler is installed directly by ``JsonInputTextDecoder`` so every decoded
+    input keeps its text value mirrored even when the wire JSON declares none.
+    """
+    factories: FactoryRegistry[ValueChanged] = FactoryRegistry()
+
+    def _build_noop(_params: Mapping[str, object]) -> Handler[ValueChanged]:
+        return _NoopValueHandler()
+
+    factories.register("noop", _build_noop)
+    decorators = DecoratorRegistry(sink=sink)
+    return HandlerDecoder(factories=factories, decorators=decorators)

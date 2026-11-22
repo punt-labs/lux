@@ -66,7 +66,7 @@ not complete.** No PR, merge or canonical architecture adoption is authorized.
    retention and many-terminal/application rendering soak. Short cycles do not
    close these gaps.
 3. Broader macOS suite when authorized; Linux credentials/PTY/spawn/packaging/fonts.
-4. Independent protocol/native-lifetime/security review and shipping policy,
+4. Independent wire/model/native-lifetime/security review and shipping policy,
    including shell authority, consent, session namespace and resource diagnostics.
 5. Reconcile with current main only if authorized, without changing quality gates
    or touching normal services. Adopted spike ADRs require canonical DES decisions.

@@ -7,9 +7,9 @@ from typing import Self
 
 from imgui_bundle import imgui
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ValueChanged
 
 __all__ = ["CheckboxRenderer"]
 

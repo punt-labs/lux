@@ -22,7 +22,7 @@ import ast
 from pathlib import Path
 from typing import Self, final, get_args
 
-from punt_lux.protocol.messages import DisplayMessage
+from punt_lux.wire.model.messages import DisplayMessage
 from tests.class_references import ClassReferences, aliased_constructions
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
@@ -359,15 +359,15 @@ class TestTheGuardFailsOnAPlantedViolation:
     def test_an_aliased_reply_built_and_dropped(self) -> None:
         for planted in (
             (
-                "from punt_lux.protocol import PongMessage as P\n"
+                "from punt_lux.wire.model import PongMessage as P\n"
                 "def handle(self, sock, msg):\n    P(ts=msg.ts)\n"
             ),
             (
-                "import punt_lux.protocol as proto\nC = proto.PongMessage\n"
+                "import punt_lux.wire.model as proto\nC = proto.PongMessage\n"
                 "def handle(self, sock, msg):\n    C(ts=msg.ts)\n"
             ),
             (
-                "import punt_lux.protocol as proto\n"
+                "import punt_lux.wire.model as proto\n"
                 "def handle(self, sock, msg):\n    proto.PongMessage(ts=msg.ts)\n"
             ),
         ):
@@ -375,7 +375,7 @@ class TestTheGuardFailsOnAPlantedViolation:
 
     def test_an_aliased_reply_that_lands_is_clean(self) -> None:
         planted = (
-            "from punt_lux.protocol import PongMessage as P\n"
+            "from punt_lux.wire.model import PongMessage as P\n"
             "def handle(self, sock, msg):\n"
             "    self._socket_listener.reply_to_client(sock, P(ts=msg.ts))\n"
         )
@@ -386,7 +386,7 @@ class TestTheGuardFailsOnAPlantedViolation:
         planted = {
             _EVENT_SENDER: "def f():\n    pass\n",
             "x": (
-                "from punt_lux.protocol import PongMessage as P\n"
+                "from punt_lux.wire.model import PongMessage as P\n"
                 "def f():\n    P(ts=1)\n"
             ),
         }
@@ -441,7 +441,7 @@ class TestTheGuardFailsOnAPlantedViolation:
         self,
     ) -> None:
         planted = (
-            "from punt_lux.protocol import PongMessage as P\n"
+            "from punt_lux.wire.model import PongMessage as P\n"
             "def make(ts):\n    return P(ts=ts)\n"
             "def handle(self, sock, msg):\n    make(msg.ts)\n"
         )

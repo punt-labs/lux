@@ -18,13 +18,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.protocol import CallbackMenuMessage, MenuMessage
+from punt_lux.wire.model import CallbackMenuMessage, MenuMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.dial_ref import DialRef
     from punt_lux.domain.hub.request_exchange import RequestExchange
-    from punt_lux.protocol import SceneMessage
+    from punt_lux.wire.model import SceneMessage
 
 __all__ = ["DisplayWriter", "WriteSeat"]
 

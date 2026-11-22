@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.dial_death import DialDeath
     from punt_lux.domain.hub.dial_ref import DialRef
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = [
     "CallbackMenuReader",

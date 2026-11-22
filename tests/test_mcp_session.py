@@ -12,11 +12,12 @@ from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub import disconnect_connection
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.ids import ConnectionId, Topic
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.mcp_session import SessionRegistry
 from punt_lux.mcp_session_manager import LuxSessionManager
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.tools.server import bind_session, unbind_session
+from punt_lux.wire.model.ids import Topic
 
 
 class TestSessionRegistry:

@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.nesting_cap import NestingCap
 from punt_lux.operations.models.common import OpError
+from punt_lux.wire.model.nesting_cap import NestingCap
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.domain.element import Element as DomainElement
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.ports import ElementFactoryFor
+    from punt_lux.wire.model.element import Element as DomainElement
 
 __all__ = ["WireTreeDecoder"]
 

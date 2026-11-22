@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.display.replica.widget_state import WidgetState
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+    from punt_lux.wire.model.elements.collapsing_header import CollapsingHeaderElement
 
 __all__ = ["HeaderOpenArbiter"]
 

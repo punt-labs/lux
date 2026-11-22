@@ -6,10 +6,10 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.ids import ConnectionId, Topic
+from punt_lux.wire.model import ConnectionId, Topic
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.messages.observer import ObserverMessage
+    from punt_lux.wire.model.messages.observer import ObserverMessage
 
 __all__ = ["Handler", "SubscriptionRegistry"]
 

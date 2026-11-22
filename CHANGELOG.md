@@ -57,6 +57,24 @@
 
 ### Changed
 
+- Hub↔Display handshake version is now `0.2` for the `wire.model` pickle
+  namespace. The Hub rejects an older or unversioned Display before sending
+  scenes, closes the connection, and logs an actionable error: restart
+  `luxd-display` with `make restart` or `lux service restart`.
+
+- **Breaking Python import changes:** shared `punt_lux.domain.*` and
+  `punt_lux.protocol.*` models now live under `punt_lux.wire.model.*`, keeping
+  their relative module paths. `punt_lux.domain.hub.*` and
+  `punt_lux.protocol.pty.*` remain in place. `LeaseTerm` moves from
+  `punt_lux.domain.hub.lease_term` to `punt_lux.wire.model.lease_term`,
+  `ProgrammerError` moves to `punt_lux.kernel.programmer_error`,
+  `ConnectionId` moves to `punt_lux.kernel.connection_id`, and display
+  socket/process lifecycle moves from `punt_lux.paths` to
+  `punt_lux.service.display_paths`. The merged model facade exports the wire
+  `Element` union and the structural `ElementProtocol`. There are no
+  compatibility aliases; callers must update their imports. Old Hub-pickled
+  element module names are remapped during Display decoding.
+
 - **Breaking Python import changes:** `punt_lux.service` is now a package
   rather than a module, with its existing public service-manager exports at
   the package root. Root-level install and lifecycle modules now live under
@@ -642,7 +660,7 @@
   logged, never registered — on any mismatch; a same-host (`AF_UNIX`)
   connection is untouched (`isinstance` structurally excludes a plain
   `socket.socket`). `HubId.hostname` is now canonicalized to ASCII-lowercase
-  at construction (`domain/hub_id.py`) so the wire token, the
+  at construction (`wire/model/hub_id.py`) so the wire token, the
   registration/preemption key, and this gate's own compare can never
   disagree about whether two differently-cased hostnames name the same Hub
   — closing an identity/preemption bypass where a peer could otherwise
@@ -1642,7 +1660,7 @@
   `DisplayLink`.** It is the Hub's socket client of the display, not
   Display-tier code, despite the old name and location — moving it closes the
   one Display→Hub import in the tree. The unrelated agent-side wire-decode
-  factory the same file held moved to `protocol/agent_factory.py`.
+  factory the same file held moved to `wire/model/agent_factory.py`.
 - **`QueryDispatcher` is `QueryRouter`; `SocketServer` is `SocketListener`.**
   Both now live under `display/` with their callers. No bare `*Dispatcher` or
   `*Server` names a job.
@@ -1671,7 +1689,7 @@ old paths or class names directly (outside this package) needs updating.
 
 ### Removed
 
-- **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
+- **`punt_lux.wire.model.display.Display`.** The display-tier scene mirror had no
   production caller left once `DomainPump` went, and it carried a second
   implementation of ownership, dismissed-ancestor, and click validation beside
   the Hub's. `HubDisplay` is the one store and `HubInteractionDispatch` the one
@@ -2829,7 +2847,7 @@ describe what shipped, framed as increments.
   workspace path explicitly. (lux-r929)
 - **Internal decomposition (ongoing, not complete)** — the original
   `display.py` (4,208 lines) was split into `display/`, `scene/`, `tools/`, and
-  `protocol/` packages; `protocol.py`, `messages.py`, and `elements.py` became
+  `wire/model/` packages; `protocol.py`, `messages.py`, and `elements.py` became
   sub-packages; `MessageRegistry` and `ElementCodec` registries replaced
   if/elif dispatch. `display/server.py` (~1,400 lines) and
   `display/element_renderer.py` (~1,100 lines) are still above the 300-line

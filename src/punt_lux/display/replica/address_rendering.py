@@ -15,11 +15,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.replica.address_book import AddressBook
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 if TYPE_CHECKING:
     from punt_lux.display.replica.frame import Frame
-    from punt_lux.domain.hub_id import HubId
+    from punt_lux.wire.model.hub_id import HubId
 
 __all__ = ["AddressRendering"]
 

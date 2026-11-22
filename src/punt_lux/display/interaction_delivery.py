@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from punt_lux.display.evictions import Evictions
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.socket_server import SocketListener
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 __all__ = ["InteractionDelivery"]
 

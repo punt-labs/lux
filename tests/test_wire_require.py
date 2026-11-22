@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.wire_require import WireRequire
+from punt_lux.wire.model.elements.wire_require import WireRequire
 
 
 class TestList:

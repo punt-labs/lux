@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.selection_wire import SelectionWire
+from punt_lux.wire.model.elements.selection_wire import SelectionWire
 
 
 class TestDecodeMode:

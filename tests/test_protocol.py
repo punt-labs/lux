@@ -1,4 +1,4 @@
-"""Tests for punt_lux.protocol — message types, serialization, framing."""
+"""Tests for punt_lux.wire.model — message types, serialization, framing."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     AckMessage,
     ButtonElement,
     CallbackMenuMessage,
@@ -56,10 +56,10 @@ from punt_lux.protocol import (
     message_from_dict,
     message_to_dict,
 )
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements.plot_series import PlotSeries
-from punt_lux.protocol.elements.tree_node import TreeNode
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements.plot_series import PlotSeries
+from punt_lux.wire.model.elements.tree_node import TreeNode
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Element construction
@@ -339,7 +339,7 @@ class TestMessages:
 
     def test_ready_message(self):
         msg = ReadyMessage()
-        assert msg.version == "0.1"
+        assert msg.version == "0.2"
         assert msg.capabilities == []
 
     def test_ack_message(self):
@@ -1603,7 +1603,7 @@ class TestMessageRegistry:
 
     def test_isolated_registry_roundtrip(self) -> None:
         """Create a fresh registry, register one type, round-trip it."""
-        from punt_lux.protocol.messages import MessageRegistry
+        from punt_lux.wire.model.messages import MessageRegistry
 
         def _ping_ser(m: PingMessage) -> dict[str, Any]:
             return {"type": "ping", "ts": m.ts}
@@ -1620,7 +1620,7 @@ class TestMessageRegistry:
 
     def test_duplicate_registration_raises(self) -> None:
         """Registering the same type string twice is a ValueError."""
-        from punt_lux.protocol.messages import MessageRegistry
+        from punt_lux.wire.model.messages import MessageRegistry
 
         def _ser(m: PingMessage) -> dict[str, Any]:
             return {}
@@ -1635,7 +1635,7 @@ class TestMessageRegistry:
 
     def test_unknown_type_returns_unknown_message(self) -> None:
         """Unregistered type strings produce UnknownMessage."""
-        from punt_lux.protocol.messages import MessageRegistry
+        from punt_lux.wire.model.messages import MessageRegistry
 
         reg = MessageRegistry()
         msg = reg.from_dict({"type": "future_type", "x": 1})
@@ -1644,7 +1644,7 @@ class TestMessageRegistry:
 
     def test_missing_type_field_raises(self) -> None:
         """Missing or invalid 'type' field raises ValueError."""
-        from punt_lux.protocol.messages import MessageRegistry
+        from punt_lux.wire.model.messages import MessageRegistry
 
         reg = MessageRegistry()
         with pytest.raises(ValueError, match="missing or invalid"):
@@ -1652,7 +1652,7 @@ class TestMessageRegistry:
 
     def test_unhashable_type_raises_valueerror(self) -> None:
         """Unhashable type values (list, dict) raise ValueError, not TypeError."""
-        from punt_lux.protocol.messages import MessageRegistry
+        from punt_lux.wire.model.messages import MessageRegistry
 
         reg = MessageRegistry()
         with pytest.raises(ValueError, match="missing or invalid"):
@@ -1662,7 +1662,7 @@ class TestMessageRegistry:
 
     def test_registry_completeness(self) -> None:
         """Every non-unknown message type is registered on the default registry."""
-        from punt_lux.protocol.messages._wiring import _registry
+        from punt_lux.wire.model.messages._wiring import _registry
 
         expected_types = {
             "scene",

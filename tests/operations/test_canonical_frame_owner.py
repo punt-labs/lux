@@ -20,16 +20,17 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
-from punt_lux.protocol import Element, SceneMessage
-from punt_lux.protocol.elements.text import TextElement
-from tests.domain.test_hub_replicator import _FakeSender, _replicator
+from punt_lux.wire.model import Element, SceneMessage
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
+from tests.wire.model.test_hub_replicator import _FakeSender, _replicator
 
 if TYPE_CHECKING:
     from collections.abc import Callable

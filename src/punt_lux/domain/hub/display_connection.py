@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.death_queue import DeathQueue
     from punt_lux.domain.hub.display_dialer import DisplayDialer
-    from punt_lux.protocol import ReadyMessage
+    from punt_lux.wire.model import ReadyMessage
 
 __all__ = ["DisplayConnection"]
 

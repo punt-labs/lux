@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from punt_lux.display.replica.frame_book import FrameBook
     from punt_lux.display.replica.frame_disposer import FrameDisposer
     from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
-    from punt_lux.domain.identity import HubScopedKey
-    from punt_lux.protocol import SceneMessage
+    from punt_lux.wire.model import SceneMessage
+    from punt_lux.wire.model.identity import HubScopedKey
 
 __all__ = ["SceneDeparture"]
 

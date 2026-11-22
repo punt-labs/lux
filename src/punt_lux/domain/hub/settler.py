@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 __all__ = ["Settler"]
 

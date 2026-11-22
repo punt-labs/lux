@@ -33,7 +33,7 @@ from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = [
     "ATTRIBUTION_THRESHOLD",

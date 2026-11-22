@@ -25,7 +25,7 @@ Element renderers build ImGui IDs by joining the agent's label and the element i
 | `display/render_loop.py:666` | tab label `f"{label}##{scene_id}"` |
 | `display/render_loop.py:689` | collapsing header `f"{label}##{scene_id}"` |
 
-ImGui hides everything from the first `##` onward. If the label contains `###`, the ID is computed only from that point. Nothing in `protocol/` escapes `#` (a grep for `##`, `200B` and `zwsp` found nothing).
+ImGui hides everything from the first `##` onward. If the label contains `###`, the ID is computed only from that point. Nothing in `wire/model/` escapes `#` (a grep for `##`, `200B` and `zwsp` found nothing).
 
 - **Effect:** a checkbox labelled `"Fix ##42"` would display `"Fix "`. IDs stay unique because the element id is still appended. The damage is lost visible text, not a click on the wrong widget.
 - **Already solved for menus:** `display/menus/hidden_id.py` (`MenuHiddenId`) puts a zero-width space after every `#`. Its docstring cites the `lux-whb9` lesson: guard the whole constructed ID in one place. The element renderers do not use it.
@@ -42,7 +42,7 @@ ImGui hides everything from the first `##` onward. If the label contains `###`, 
 - ImGui state stored under the ID would reset on each resend. That includes plot zoom and pan, and tree open/closed state.
 - A freed address can be reused by a different element, which risks an ID collision.
 
-**Correction.** The wire path can't reach this fallback, so it is not a state-loss bug. `plot_codec.py:63` and `tree_codec.py:55` decode the id with `ctx.require_id(raw)`. `require_id` (`protocol/elements/element_wire.py:69`) rejects an empty id for every kind except `separator`. The fallback can run only for an element constructed directly in Python. Fix: delete it, or raise on an empty id.
+**Correction.** The wire path can't reach this fallback, so it is not a state-loss bug. `plot_codec.py:63` and `tree_codec.py:55` decode the id with `ctx.require_id(raw)`. `require_id` (`wire/model/elements/element_wire.py:69`) rejects an empty id for every kind except `separator`. The fallback can run only for an element constructed directly in Python. Fix: delete it, or raise on an empty id.
 
 ### 1.3 Org standards are missing from this checkout (Verified)
 

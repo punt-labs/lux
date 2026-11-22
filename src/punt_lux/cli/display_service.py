@@ -7,12 +7,12 @@ from pathlib import Path
 import typer
 
 from punt_lux.cli.display import display_app
-from punt_lux.paths import DisplayPaths
 from punt_lux.service import (
     ServiceActionFailedError,
     ServiceManager,
     ServiceNotInstalledError,
 )
+from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
 
 __all__ = ["display_app"]

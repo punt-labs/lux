@@ -37,8 +37,8 @@ from typing import Final
 
 import pytest
 
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.renderers import RecordingLog, RecordingRendererFactory
 
 _FRAMES: Final[int] = 60
 _ELEMENTS_PER_FRAME: Final[int] = 10

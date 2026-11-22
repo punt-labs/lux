@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Self, final
 from imgui_bundle import imgui
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import Element
+    from punt_lux.wire.model import Element
 
 __all__ = ["TooltipPainter"]
 

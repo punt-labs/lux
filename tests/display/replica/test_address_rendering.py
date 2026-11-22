@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
-from punt_lux.domain.hub_id import HubId
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 _PEMBROKE_1 = HubId("pembroke", 100)
 _PEMBROKE_2 = HubId("pembroke", 200)

@@ -22,8 +22,7 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -35,7 +34,9 @@ from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.protocol import TextElement
+from punt_lux.wire.model import TextElement
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.scope import Scope
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

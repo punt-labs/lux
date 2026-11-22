@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from punt_lux.commands._frame_ports import FrameOps
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Ok, Scope
 
 

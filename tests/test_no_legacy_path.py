@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-import punt_lux.protocol as protocol
-import punt_lux.protocol.elements as elements
+import punt_lux.wire.model as protocol
+import punt_lux.wire.model.elements as elements
 
 # Guard the obsolete module paths, not the replica that owns placement.
 _DELETED_MODULES = (
-    "punt_lux.protocol.elements.layout",
-    "punt_lux.protocol.elements.legacy_table",
-    "punt_lux.protocol.elements.container_abc_gate",
-    "punt_lux.protocol.elements.codec",
+    "punt_lux.wire.model.elements.layout",
+    "punt_lux.wire.model.elements.legacy_table",
+    "punt_lux.wire.model.elements.container_abc_gate",
+    "punt_lux.wire.model.elements.codec",
     "punt_lux.display.element_renderer",
     "punt_lux.display.table_renderer",
     "punt_lux.display.renderers.container_renderer",

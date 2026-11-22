@@ -16,7 +16,7 @@ from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
+from punt_lux.wire.model.painted_geometry import ElementGeometry, FrameGeometry
 
 __all__ = [
     "GeometryNotRequested",

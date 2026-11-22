@@ -16,7 +16,7 @@ from punt_lux.display.dock_bar import DOCK_BAR_HEIGHT, DockBar
 from punt_lux.display.replica.address_rendering import AddressRendering
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

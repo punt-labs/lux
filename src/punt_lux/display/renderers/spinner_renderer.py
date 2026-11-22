@@ -17,7 +17,7 @@ from typing import Self
 from imgui_bundle import ImVec4, imgui
 
 from punt_lux.display.renderers._color import parse_rgba
-from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.wire.model.elements.spinner import SpinnerElement
 
 __all__ = ["SpinnerRenderer"]
 

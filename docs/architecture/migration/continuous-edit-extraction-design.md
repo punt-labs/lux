@@ -285,7 +285,7 @@ behavior enumerated in the §1.3 diff:
 ```python
 from typing import final
 
-from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
+from punt_lux.wire.model.elements.rgba_color import Rgba, RgbaColor
 from punt_lux.scene.widget_state import WidgetState
 
 

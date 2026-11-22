@@ -6,7 +6,7 @@ import pytest
 
 from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.display.menus.popup_site import PopupSite
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 from tests.menu_doubles import FakeImGui
 
 _HUB = HubId.stub()

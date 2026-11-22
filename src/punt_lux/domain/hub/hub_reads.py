@@ -9,12 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.owner import Owner
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.element import Element as WireElement
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["HubReads"]
 

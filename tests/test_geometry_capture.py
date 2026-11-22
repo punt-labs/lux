@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, ClassVar, Self
 from punt_lux.display import geometry_capture
 from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.display.geometry_capture import GeometryCapture
-from punt_lux.protocol.geometry import Rect
+from punt_lux.wire.model.geometry import Rect
 
 if TYPE_CHECKING:
     import pytest

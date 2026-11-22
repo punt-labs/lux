@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.client_roster import RosterNames
     from punt_lux.domain.hub.client_session import ClientSession
     from punt_lux.domain.hub.session_callback import SessionCallback
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["NamedGroup", "NamedSession", "NamedSessions"]
 

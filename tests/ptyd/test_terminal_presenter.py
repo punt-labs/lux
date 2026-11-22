@@ -9,8 +9,8 @@ import pytest
 from punt_lux.display.terminal.font import TerminalFont
 from punt_lux.display.terminal.presenter import TerminalPresenter
 from punt_lux.display.terminal.remote_sessions import RemoteSessions
-from punt_lux.protocol.elements.terminal import TerminalElement
 from punt_lux.protocol.pty.control_fields import ControlError
+from punt_lux.wire.model.elements.terminal import TerminalElement
 
 
 def test_bad_replica_renders_a_placeholder_without_escaping_the_frame() -> None:

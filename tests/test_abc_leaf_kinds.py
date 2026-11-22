@@ -9,8 +9,8 @@ the registry aggregator cannot silently drop or mis-flag a kind.
 
 from __future__ import annotations
 
-from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
-from punt_lux.protocol.elements.abc_leaf_kinds import DefaultLeafKinds
+from punt_lux.wire.model.elements.abc_kind_names import AbcKindNames
+from punt_lux.wire.model.elements.abc_leaf_kinds import DefaultLeafKinds
 
 
 class TestDefaultLeafKinds:

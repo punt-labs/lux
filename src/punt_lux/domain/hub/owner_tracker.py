@@ -6,7 +6,7 @@ from operator import methodcaller
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.wire.model import ConnectionId, ElementId, SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

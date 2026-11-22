@@ -1,0 +1,144 @@
+"""HubScopedStore -- the aggregated-storage shape every multi-Hub collection uses.
+
+An aggregated store is an object, not a dictionary passed between functions
+(PY-OO-5, PY-IC-1). Two Hubs producing the identical local id could silently
+clobber one another's entry in a bare dict; this class makes that collision
+unrepresentable -- the real key is always a :class:`HubScopedKey`.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.wire.model.hub_scoped_key import HubScopedKey
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from punt_lux.wire.model.hub_id import HubId
+
+__all__ = ["HubScopedStore"]
+
+
+@final
+class HubScopedStore[V]:
+    """Index Display state by owning Hub and local ID."""
+
+    _entries: dict[HubScopedKey, V]
+    __slots__ = ("_entries",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._entries = {}
+        return self
+
+    def __len__(self) -> int:
+        """Return how many entries this store holds, across every Hub."""
+        return len(self._entries)
+
+    def hub_count(self) -> int:
+        """Return how many distinct Hubs currently hold an entry."""
+        return len(self.hubs())
+
+    def put(self, key: HubScopedKey, value: V) -> None:
+        """Assign one entry; two collide only on an identical (hub, local)."""
+        self._entries[key] = value
+
+    def get(self, key: HubScopedKey) -> V | None:
+        """Look up one entry; ``None`` answers a genuine "not present"."""
+        return self._entries.get(key)
+
+    def remove(self, key: HubScopedKey) -> V | None:
+        """Remove and return one entry, or ``None`` if it was not present."""
+        return self._entries.pop(key, None)
+
+    def remove_all(self, local: str) -> list[V]:
+        """Drop a local ID across all Hubs for a gesture without a Hub scope."""
+        stale = [key for key in self._entries if key.local == local]
+        return [self._entries.pop(key) for key in stale]
+
+    def remove_matching_hub_value(self, hub: HubId, value: V) -> list[HubScopedKey]:
+        """Remove matching values owned by this Hub only.
+
+        There is no hub-blind ``remove_matching(local, value)`` counterpart: matching on
+        local id and value alone, across every Hub, is exactly the collision this store
+        exists to make unrepresentable -- two Hubs placing the same local id at the same
+        value would both be removed.
+        """
+        matches = [
+            key for key, v in self._entries.items() if key.hub == hub and v == value
+        ]
+        for key in matches:
+            del self._entries[key]
+        return matches
+
+    def reassign_value(
+        self, hub: HubId, old: V, new: V, locals_filter: frozenset[str]
+    ) -> None:
+        """Replace matching values for this Hub, preserving their keys.
+
+        The ownership-transfer primitive a departed client's co-owned entries reassign
+        through, scoped to one frame's scenes.
+        """
+        for key, value in list(self._entries.items()):
+            if key.hub == hub and key.local in locals_filter and value == old:
+                self._entries[key] = new
+
+    def for_hub(self, hub: HubId) -> Iterator[tuple[str, V]]:
+        """Every entry a given Hub currently owns, local id and value.
+
+        The routing primitive a scene-less interaction or a menu click
+        resolves its one target Hub through.
+        """
+        for key, value in self._entries.items():
+            if key.hub == hub:
+                yield key.local, value
+
+    def entries(self) -> Iterator[tuple[HubScopedKey, V]]:
+        """Every entry this store holds, across every Hub, with its full key.
+
+        For a caller that owns this store privately and must resolve a bare
+        local id to its owning entry (or entries) when the caller genuinely
+        has no live Hub context -- a user gesture at the Display (closing a
+        tab, Clear All), never a Hub-originated message. Scanning a Display's
+        own in-process, small aggregated store is cheap; this does not leak
+        the store's backing structure, only its logical contents.
+        """
+        yield from self._entries.items()
+
+    def values(self) -> Iterator[V]:
+        """Every value this store holds, across every Hub, key discarded."""
+        return iter(self._entries.values())
+
+    def hubs(self) -> frozenset[HubId]:
+        """Return the distinct Hubs this store currently holds an entry for."""
+        return frozenset(key.hub for key in self._entries)
+
+    def flatten(self) -> dict[str, V]:
+        """Merge every Hub's entries into one ``local -> value`` mapping.
+
+        A genuine collision (two Hubs naming the identical local id)
+        resolves last-write-wins here -- a caller-facing convenience for
+        consumers with no live Hub to scope a read by, never the store's own
+        collision-safe write path, which stays keyed by the full
+        :class:`HubScopedKey`.
+        """
+        return {key.local: value for key, value in self._entries.items()}
+
+    def purge_hub_not_in(self, hub: HubId, still_named: frozenset[str]) -> list[V]:
+        """Drop this Hub's entries absent from the retained ID set.
+
+        The manifest-purge operation, scoped to one Hub's own entries by
+        construction, so a second live Hub's entries are never candidates.
+        """
+        stale = [
+            key
+            for key in self._entries
+            if key.hub == hub and key.local not in still_named
+        ]
+        return [self._entries.pop(key) for key in stale]
+
+    def drop_hub(self, hub: HubId) -> list[V]:
+        """Retire every entry a Hub owned, on disconnect."""
+        stale = [key for key in self._entries if key.hub == hub]
+        return [self._entries.pop(key) for key in stale]

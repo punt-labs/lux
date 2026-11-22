@@ -57,7 +57,7 @@ Hub-mediated proxy to the running Display, following the shape
   report.
 - This does not require a new wire message type. It reuses the existing
   generic `QueryRequest`/`QueryResponse` envelope
-  (`protocol/messages/introspect.py:74-91`) exactly as
+  (`wire/model/messages/introspect.py:74-91`) exactly as
   `inspect_scene`/`list_scenes`/`list_recent_events`/`list_errors` already
   do.
 
@@ -97,9 +97,9 @@ No new message class. `get_display_state` is one more `method` name on the
 existing generic envelope:
 
 - Hub → Display: `QueryRequest(method="display_state", params={})`
-  (`protocol/messages/introspect.py:74-80`)
+  (`wire/model/messages/introspect.py:74-80`)
 - Display → Hub: `QueryResponse(method="display_state", result={...})`
-  (`protocol/messages/introspect.py:83-90`)
+  (`wire/model/messages/introspect.py:83-90`)
 
 sent over `DisplayLink.query(method, params)`
 (`domain/hub/display_link.py:554-582`), the same call

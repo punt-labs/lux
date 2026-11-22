@@ -13,12 +13,12 @@ from punt_lux.display.replica.focus_request import FocusRequest
 from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.scene_index import SceneIndex
-from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
+from punt_lux.wire.model.identity import HubId, HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from punt_lux.protocol import SceneMessage
+    from punt_lux.wire.model import SceneMessage
 
 __all__ = ["FrameBook"]
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from punt_lux.display.query_dispatcher import QueryRouter
 from punt_lux.display.replica import SceneReplica
-from punt_lux.protocol import QueryResponse, SceneMessage, TextElement
+from punt_lux.wire.model import QueryResponse, SceneMessage, TextElement
 
 
 def _make_dispatcher(scenes: SceneReplica | None = None) -> QueryRouter:

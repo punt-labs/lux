@@ -34,13 +34,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, Self, final
 
 from punt_lux.domain.hub.menu_group_key import MenuGroupKey
-from punt_lux.domain.menu_name import MenuNames
+from punt_lux.wire.model.menu_name import MenuNames
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["ClientRoster", "RosterNames", "RosterRelease"]
 

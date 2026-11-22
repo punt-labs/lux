@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.wire.model import ConnectionId, ElementId, SceneId
 
 __all__ = ["HubOwnershipError"]
 

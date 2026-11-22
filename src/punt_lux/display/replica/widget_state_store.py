@@ -6,7 +6,7 @@ from collections import deque
 from typing import Self
 
 from punt_lux.display.replica.widget_state import WidgetState, WireScalar
-from punt_lux.domain.identity import HubScopedKey, HubScopedStore
+from punt_lux.wire.model.identity import HubScopedKey, HubScopedStore
 
 
 class WidgetStateStore:

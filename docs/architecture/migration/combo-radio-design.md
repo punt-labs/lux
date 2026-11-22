@@ -26,16 +26,16 @@ the DES-051 registry. **No protocol change is required.**
 
 The `checkbox` atomic-selection path, end to end:
 
-- **Element** — `protocol/elements/checkbox.py`. ABC subclass, keyword-only
+- **Element** — `wire/model/elements/checkbox.py`. ABC subclass, keyword-only
   `__new__` with `RAISING_FACTORY` / `NO_EMIT` DI sentinels, read-only property
   surface, `_set_<field>` setters, `_remote_dispatch_specs` returning one
   `RemoteDispatchSpec(ValueChanged, "changed", "value_changed")`, `to_dict` /
   `from_dict` delegators, `widget_value`, `resolved_props`.
-- **Codec** — `protocol/elements/checkbox_codec.py`. `JsonCheckboxDecoder`
+- **Codec** — `wire/model/elements/checkbox_codec.py`. `JsonCheckboxDecoder`
   constructs the element, installs the built-in `_UpdateValueHandler`
   (`apply_patch({"value": event.value})` on `ValueChanged`), then installs any
   wire-declared handlers. `JsonCheckboxEncoder` is stateless `strip_none`.
-- **Standalone handler builder** — `protocol/standalone_checkbox_handler.py`. A
+- **Standalone handler builder** — `wire/model/standalone_checkbox_handler.py`. A
   `noop` factory + `DecoratorRegistry` bound to the tier `PublishSink`.
 - **ImGui adapter** — `display/renderers/imgui/checkbox.py`. A leaf:
   `begin` returns `True`, `paint` calls `er.checkbox_renderer.render(self._elem)`
@@ -46,17 +46,17 @@ The `checkbox` atomic-selection path, end to end:
   **free idle-honour**; on a real toggle it `fire`s `ValueChanged` through the
   element's handler registry, which `DisplayServer._wrap_abc_elements` has wrapped
   for D21 remote dispatch.
-- **Registry** — `protocol/elements/abc_kind_table.py` (one `LeafKindSpec` per
+- **Registry** — `wire/model/elements/abc_kind_table.py` (one `LeafKindSpec` per
   kind), `abc_kind_names.py` (`MIGRATED_ABC_KINDS`), `abc_kind_verify.py`
   (`INTERACTIVE_KINDS`), `abc_leaf_spec.py`, `abc_registry.py`,
   `abc_kind_verify.py`.
-- **D21 wire path** — `domain/event_handler_host.py`
+- **D21 wire path** — `wire/model/event_handler_host.py`
   (`wrap_handlers_for_remote` iterates `_remote_dispatch_specs`, no `isinstance`
-  branch), `domain/handlers/remote_dispatch.py` (`RemoteDispatchGroup` stamps the
+  branch), `wire/model/handlers/remote_dispatch.py` (`RemoteDispatchGroup` stamps the
   `RemoteEventHandlerInvocation`), `domain/hub/clients.py`
   (`_hub_interaction_dispatch` → `_typed_event` rebuilds the typed event on the
   Hub's authoritative copy and fires it once).
-- **Legacy combo/radio** — `protocol/elements/combo.py`, `radio.py` (frozen
+- **Legacy combo/radio** — `wire/model/elements/combo.py`, `radio.py` (frozen
   dataclasses); `display/renderers/combo_renderer.py`, `radio_renderer.py`
   (`WidgetState`-driven, emit `RemoteEventHandlerInvocation` directly).
 - **Reference migrations** — `slider.py` / `slider_codec.py` /
@@ -193,7 +193,7 @@ seams are additive (DES-051); the fork-wiring seams remove the legacy path
 
 **New / rewritten per kind:**
 
-1. **Element class** — rewrite `protocol/elements/combo.py` (and `radio.py`)
+1. **Element class** — rewrite `wire/model/elements/combo.py` (and `radio.py`)
    from a frozen dataclass to a `@final` ABC subclass. Keyword-only `__new__`
    with `RAISING_FACTORY` / `NO_EMIT` sentinels; read-only property surface
    (`id`, `kind`, `label`, `items`, `selected`, `action` → `"changed"`,
@@ -204,7 +204,7 @@ seams are additive (DES-051); the fork-wiring seams remove the legacy path
    state and rolled back atomically if invalid; `_remote_dispatch_specs`;
    `validate()` (decision below); `to_dict` / `from_dict` delegators;
    `widget_value` (the index); `resolved_props`.
-2. **Codec** — new sibling module `protocol/elements/combo_codec.py`
+2. **Codec** — new sibling module `wire/model/elements/combo_codec.py`
    (`radio_codec.py`): `JsonComboDecoder` (installs `_UpdateSelectedHandler`,
    then wire handlers via an `_install_handlers` mirror of the checkbox decoder),
    `JsonComboEncoder` (stateless `strip_none` over the five wire fields +
@@ -213,7 +213,7 @@ seams are additive (DES-051); the fork-wiring seams remove the legacy path
    parallel to `_UpdateValueHandler`. Keeping the codec in its own module holds
    the element file under PY-OO-2 (≤ 300 lines, ≤ 3 classes).
 3. **Standalone handler builder** — new
-   `protocol/standalone_combo_handler.py` (`standalone_radio_handler.py`): a
+   `wire/model/standalone_combo_handler.py` (`standalone_radio_handler.py`): a
    `noop` factory + `DecoratorRegistry`, parallel to
    `standalone_checkbox_handler.py`, returning `HandlerDecoder[ValueChanged]`.
 4. **ImGui adapter** — new `display/renderers/imgui/combo.py`
@@ -272,13 +272,13 @@ seams are additive (DES-051); the fork-wiring seams remove the legacy path
 arm.**
 
 - `ValueChanged.value` is already `bool | int | float | str`
-  (`domain/interaction.py`). A selection index is an `int` — it rides the
+  (`wire/model/interaction.py`). A selection index is an `int` — it rides the
   existing arm. The docstring's per-kind list (`checkbox→bool`, `input_text→str`,
   …) gains `combo`/`radio`→`int`, but the type does not change.
 - The Hub dispatch `_typed_event` (`domain/hub/clients.py`) already accepts any
   scalar for `value_changed` and rejects non-scalars — an `int` index is accepted
   with no code change.
-- `InteractionEventBuilder` (`domain/interaction_event_builder.py`) is the
+- `InteractionEventBuilder` (`wire/model/interaction_event_builder.py`) is the
   in-process `Display.interact` double and only knows `checkbox` / `input_text` /
   `collapsing_header` / `tab_bar`. It does **not** cover `slider` /
   `input_number` / `color_picker` — which are migrated and green — because the
@@ -407,7 +407,7 @@ covering the round-trip procedure in `tests/CLAUDE.md`:
   growth is needed.
 - **Protocol, not base class:** each spec satisfies the structural
   `AbcKindSpec` Protocol via `LeafKindSpec`; the element satisfies both the
-  behavioral `Element` ABC and the structural `domain.element.Element` Protocol
+  behavioral `Element` ABC and the structural `wire.model.element.Element` Protocol
   (`to_dict` / `from_dict` / `kind` / `id`). No new base class.
 - **Literal over `str`-with-comment:** `kind` is `Literal["combo"]` /
   `Literal["radio"]`; `action` is `Literal["changed"]`. There is no mode field

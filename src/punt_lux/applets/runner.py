@@ -26,7 +26,7 @@ from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
 from punt_lux.apps.bd_child import BdLeash
 from punt_lux.client.facade import LuxClient
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

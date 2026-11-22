@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from punt_lux.display.menus import MenuItem, MenuModel, MenuSeparator, Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
-from punt_lux.domain.identity import HubId
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
+from punt_lux.wire.model.identity import HubId
 
 from .menu_doubles import SEPARATOR, FakeImGui, checked_menu, ignore, wire_menu
 

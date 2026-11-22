@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
     from punt_lux.display.replica.widget_state import WidgetState
     from punt_lux.display.texture_cache import TextureCache
-    from punt_lux.protocol import Element
-    from punt_lux.protocol.renderer import Emit, Renderer
+    from punt_lux.wire.model import Element
+    from punt_lux.wire.model.renderer import Emit, Renderer
 
 __all__ = ["ImGuiRendererFactory"]
 

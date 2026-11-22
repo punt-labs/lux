@@ -14,8 +14,8 @@ from typing import Literal, Self, final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 
 __all__ = ["CallbackInvocation", "MenuLeaf", "MenuLeafKind", "SessionCallback"]
 

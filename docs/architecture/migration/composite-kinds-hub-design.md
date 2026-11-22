@@ -34,9 +34,9 @@ The production install path for a `show()` call is:
 
 1. `SceneInstaller.install()` (`src/punt_lux/operations/scene_installer.py:49`–`70`)
    runs `SubmissionGate().first_rejection()` first.
-2. `SubmissionGate` (`src/punt_lux/domain/submission_gate.py:42`–`53`) runs
+2. `SubmissionGate` (`src/punt_lux/wire/model/submission_gate.py:42`–`53`) runs
    `ElementTreeValidator().validate_tree(roots)` — this walks
-   `child_elements()` (`domain/element_abc.py:164`–`188`), which every
+   `child_elements()` (`wire/model/element_abc.py:164`–`188`), which every
    `Element` ABC subclass has, including all nine kinds under investigation.
    There is no kind allow-list here.
 3. On a clean tree, `HubDisplay.show_scene()` →
@@ -44,12 +44,12 @@ The production install path for a `show()` call is:
    calls `SubtreeInstaller.install()`.
 4. `SubtreeInstaller.install()` (`domain/hub/subtree_installer.py:65`–`82`)
    recurses via `isinstance(element, Composite)` — a structural Protocol
-   check (`domain/composite.py`), not a kind check. Any element exposing a
+   check (`wire/model/composite.py`), not a kind check. Any element exposing a
    `children` tuple recurses; every other element installs as a leaf. Again,
    no kind allow-list.
 
-`tests/domain/test_hub_display_composite_recursion.py` and
-`tests/domain/test_subtree_installer.py` already exercise this recursion with
+`tests/wire/model/test_hub_display_composite_recursion.py` and
+`tests/wire/model/test_subtree_installer.py` already exercise this recursion with
 `CollapsingHeaderElement`/`TabBarElement` composites, confirming the claim is
 not just a code-reading inference.
 
@@ -60,10 +60,10 @@ it is submitted through the real front door. There is no per-kind class-level
 work remaining and no HubDisplay-side wiring gap. The 2026-07-27 "25/25 on
 the Element-ABC / Hub-Display path" claim is correct for this store.
 
-### 1.2 `domain.display.Display` (the Display-tier mirror) — not authoritative, and its interaction role is already dead
+### 1.2 `wire.model.display.Display` (the Display-tier mirror) — not authoritative, and its interaction role is already dead
 
 The confusion is that a *second* class, also named `Display`
-(`src/punt_lux/domain/display.py`), lives inside the Display-tier process
+(`src/punt_lux/wire/model/display.py`), lives inside the Display-tier process
 (`src/punt_lux/display/server.py`, the `lux-display` binary — see
 `topology.md`). `DisplayServer` constructs one at startup
 (`display/server.py:177`–`183`) and `DomainPump.route()` mirrors every
@@ -75,7 +75,7 @@ This class's own docstring is explicit about what it is:
 > the display forwards interactions to the Hub rather than dispatching
 > locally, so production interaction dispatch runs on the Hub side;
 > ``interact`` here stays the in-process dispatch contract [for tests]."
-> (`domain/display.py:7`–`23`)
+> (`wire/model/display.py:7`–`23`)
 
 And `DisplayServer._emit_event`, the real interaction path, confirms the
 docstring in code, not just prose:
@@ -96,14 +96,14 @@ says what it is honestly:
 > Hub authority; the display process cannot read the Hub's ``HubDisplay``."
 > (`src/punt_lux/scene_inspection.py:37`–`40`)
 
-### 1.2.1 Confronting `domain/display.py`'s own "It is not vestigial" claim
+### 1.2.1 Confronting `wire/model/display.py`'s own "It is not vestigial" claim
 
 The class's docstring does not only call itself "the display-process
 mirror" (quoted above) — the very next line says, in full: "It is the live
 store the display-side dual-write pump writes into: `DisplayServer`
 constructs one (`server._domain_display`) and `DomainPump.route` mirrors
 every native-kind scene into it. **It is not vestigial.**"
-(`domain/display.py:11`–`14`). Citing the rest of that docstring as evidence
+(`wire/model/display.py:11`–`14`). Citing the rest of that docstring as evidence
 while passing over its own explicit self-defense would be asserting past a
 direct contradiction, so it is worth being precise about what the claim is
 true of and what it is not.
@@ -152,7 +152,7 @@ is itself vestigial — a second authority-shaped write path, left over from
 before the Hub/Display process split existed, whose one surviving read
 (feeding `domain_mirror_present`) is explicitly documented as not meaningful
 for answering "is this element Hub-authoritative." (Per §1.2.1, this claim
-is about the wiring, not about the `domain.display.Display` class itself —
+is about the wiring, not about the `wire.model.display.Display` class itself —
 the class's separate role as a test-dispatch harness is real and is not what
 this conclusion is about.) Widening `_NATIVE_KINDS` to 16→25 would extend
 dead architecture, not close a gap. It would also violate `target.md`'s
@@ -175,7 +175,7 @@ kind:
 
 | Kind | ABC subclass | `_children()` override | `validate()` | Interaction routing |
 |---|---|---|---|---|
-| `group` | `GroupElement` (`protocol/elements/group.py:41`) | yes, plain container (`:97`) | leaf default (no invariant; layout is decoder-checked, `group_codec.py`) | none — display-only |
+| `group` | `GroupElement` (`wire/model/elements/group.py:41`) | yes, plain container (`:97`) | leaf default (no invariant; layout is decoder-checked, `group_codec.py`) | none — display-only |
 | `tab_bar` | `TabBarElement` (`tab_bar.py:52`) | yes, `Tab` children (`:122`) | `:186` | tab-select is Display-local view state (documented, not business state) |
 | `collapsing_header` | `CollapsingHeaderElement` (`collapsing_header.py:46`) | yes (`:109`) | `:142` | open/closed is Display-local view state |
 | `window` | `WindowElement` (`window.py:49`) | yes (`:120`) | `:144` | drag/resize position is Display-local view state |
@@ -210,7 +210,7 @@ covered the button/dialog pair.
    on the `child_elements()` Protocol method, never on `isinstance` of a
    concrete class.
 2. **Install, whole-tree, into `HubDisplay`.** `SubtreeInstaller.install()`
-   recurses on the `Composite` Protocol (`domain/composite.py`) — any element
+   recurses on the `Composite` Protocol (`wire/model/composite.py`) — any element
    with a `children` property. It records each node in `ElementIndex`,
    `OwnerTracker`, and (for the root) `RootRegistry`, and records
    parent→child edges in `ChildIndex` so cascade removal works at any depth.
@@ -224,7 +224,7 @@ covered the button/dialog pair.
 4. **Handler wrapping, whole-tree, on receipt.** `DisplayServer._wrap_abc_elements`
    (`display/server.py:816`–`824`) calls `elem.wrap_handlers_for_remote(self._emit_event)`
    on every top-level element in the incoming `SceneMessage`.
-   `wrap_handlers_for_remote` (`domain/event_handler_host.py:122`–`147`)
+   `wrap_handlers_for_remote` (`wire/model/event_handler_host.py:122`–`147`)
    recurses `_children()` and, for each element, iterates
    `_remote_dispatch_specs()` — the declarative seam every interactive kind
    implements (Button's `ButtonClicked`, Checkbox's `ValueChanged`, Modal's
@@ -281,7 +281,7 @@ was a fork — they are corrections of the epic's stated premise, backed by
 reading the shipped code and its own docstrings, which already state the
 conclusions above. The forks were about what to do with the vestigial
 Display-tier mirror *wiring* (per §1.2.1: the production write path, not the
-`domain.display.Display` class itself) and, for Q3, the class itself. All
+`wire.model.display.Display` class itself) and, for Q3, the class itself. All
 three are now ratified; each entry below states the original recommendation,
 the ruling, and the reasoning.
 
@@ -316,7 +316,7 @@ which is new scope beyond this epic, not a reason to keep the current
 dishonest-by-omission field around in the meantime.
 
 **Q3 — RATIFIED (operator, superseding this design's original
-recommendation): delete `domain.display.Display` entirely; retarget its test
+recommendation): delete `wire.model.display.Display` entirely; retarget its test
 callers to construct and drive `HubDisplay` directly.**
 
 This design originally recommended keeping the class as a test-only
@@ -332,7 +332,7 @@ change to ownership, dismissed-ancestor, or click-validation logic has to be
 made correctly in two independently maintained implementations — `Display`'s
 hand-rolled dicts versus `HubDisplay`'s `ElementIndex`/`OwnerTracker`/
 `RootRegistry`/`ChildIndex` — or they drift, and `Display`'s 885-line test
-file (`tests/domain/test_display.py`) stops proving anything about what
+file (`tests/wire/model/test_display.py`) stops proving anything about what
 actually ships. This design accepts the correction; §6's sequencing below
 is revised accordingly.
 
@@ -349,7 +349,7 @@ already shipped and in use:
   `hub_display.py:344`) and marks the scene dirty via a second module-level
   singleton, `hub_replicator` (`replicator_instance.py`). Neither is passed
   as a parameter — the dispatch closes over the process-wide instances.
-- `tests/domain/test_hub_interaction_dispatch.py` already exercises this in
+- `tests/wire/model/test_hub_interaction_dispatch.py` already exercises this in
   process against a *test-local* `HubDisplay()` — not the process-wide
   singleton — by constructing `isolated_display = HubDisplay()`, populating
   it with `isolated_display.apply(AddElement(...))`, and then using
@@ -358,7 +358,7 @@ already shipped and in use:
   before calling `HubInteractionDispatch.dispatch(...)`. The test then
   asserts the real, unstubbed handler chain ran
   (`test_hub_interaction_dispatch_runs_grouped_button_handlers_once`,
-  `tests/domain/test_hub_interaction_dispatch.py:26`–`70`).
+  `tests/wire/model/test_hub_interaction_dispatch.py:26`–`70`).
 
 So the answer to "already callable, or needs a new in-process entry point"
 is **already callable — retarget imports and follow the established
@@ -403,21 +403,21 @@ tied to deleting the mirror that fed them, and doing them together avoids an
 intermediate commit where `SceneInspector` still reports a field with no
 backing mirror.
 
-**PR 3 — Delete `domain.display.Display` and retarget its remaining test
+**PR 3 — Delete `wire.model.display.Display` and retarget its remaining test
 callers to `HubDisplay` (bead `lux-ttey.2`, split from PR 2 — see rationale
 below).**
-Delete `src/punt_lux/domain/display.py`. Retarget the seven test files still
-importing it — `tests/domain/test_display.py` (885 lines),
+Delete `src/punt_lux/wire/model/display.py`. Retarget the seven test files still
+importing it — `tests/wire/model/test_display.py` (885 lines),
 `tests/test_scene_inspector.py`, `tests/integration/test_disconnect_lifecycle.py`,
 `tests/regression/test_dialog_interaction_trace.py`,
 `tests/test_inputs_migration.py`, `tests/test_abc_wire_roundtrip.py`,
-`tests/domain/test_basics_migration.py` (2629 lines combined) — to construct
+`tests/wire/model/test_basics_migration.py` (2629 lines combined) — to construct
 `HubDisplay()` directly and drive dispatch through
 `HubInteractionDispatch.dispatch()`, following the
 `monkeypatch.setattr(hub_module, "hub_display", ...)` /
 `monkeypatch.setattr("...replicator_instance.hub_replicator", MagicMock())`
-pattern `tests/domain/test_hub_interaction_dispatch.py` already establishes
-(§5 Q3). `tests/domain/test_display.py` itself is the largest single file
+pattern `tests/wire/model/test_hub_interaction_dispatch.py` already establishes
+(§5 Q3). `tests/wire/model/test_display.py` itself is the largest single file
 and is a straight port of its assertions onto the `HubDisplay` API surface —
 `ElementIndex`/`OwnerTracker`/`RootRegistry`/`ChildIndex` replace `Display`'s
 hand-rolled dicts, so each assertion has a direct new home, not a redesign,
@@ -445,7 +445,7 @@ design's sequencing is no longer "small" — flagged explicitly rather than
 understated, per the operator's ratification changing Q3's scope.
 
 **PR 4 — Extend `test_no_legacy_path.py` (bead `lux-ttey.4`).**
-Add `DomainPump`, `_NATIVE_KINDS`, `domain.display.Display`, and
+Add `DomainPump`, `_NATIVE_KINDS`, `wire.model.display.Display`, and
 `domain_mirror_present` to the forbidden-pattern / deleted-module guard so
 this specific vestigial-wiring category of defect cannot silently reappear,
 the same structural guarantee the test already gives the `Legacy*` dataclass

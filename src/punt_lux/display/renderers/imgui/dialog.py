@@ -23,7 +23,7 @@ from punt_lux.display.replica.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.dialog import DialogElement
+    from punt_lux.wire.model.elements.dialog import DialogElement
 
 __all__ = ["ImGuiDialogRenderer"]
 

@@ -40,13 +40,13 @@ from punt_lux.domain.hub.dial_end import DialEnd
 from punt_lux.domain.hub.owned_condition import OwnedCondition
 from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
 from punt_lux.domain.hub.settlement import Settlement
-from punt_lux.domain.ids import SceneId
-from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
+from punt_lux.wire.model import AckMessage, PongMessage, QueryResponse
+from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.connection_closed import RetireCause
     from punt_lux.domain.hub.pending import Pending
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 __all__ = ["REPLY_TYPES", "ReplySink"]
 

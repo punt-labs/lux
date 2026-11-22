@@ -8,10 +8,10 @@ from punt_lux.display.replica.frame_heading import FrameHeading
 from punt_lux.display.replica.frame_placement import FramePlacement
 from punt_lux.display.replica.frame_visibility import FrameVisibility
 from punt_lux.display.replica.window_hints import WindowHints
-from punt_lux.protocol import SceneMessage
+from punt_lux.wire.model import SceneMessage
 
 if TYPE_CHECKING:
-    from punt_lux.domain.identity import HubId
+    from punt_lux.wire.model.identity import HubId
 
 
 @final

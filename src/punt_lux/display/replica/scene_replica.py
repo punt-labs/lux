@@ -17,8 +17,8 @@ from punt_lux.display.replica._wiring import (
 )
 from punt_lux.display.replica.element_walk import SceneTreeWalk
 from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
-from punt_lux.domain.identity import HubId, HubScopedKey
-from punt_lux.protocol import SceneMessage
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.identity import HubId, HubScopedKey
 
 __all__ = ["OnSceneReplacedFn", "SceneReplica"]
 

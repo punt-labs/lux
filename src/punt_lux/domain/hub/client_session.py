@@ -24,16 +24,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.client_host import NO_HOSTS, ClientHosts
-from punt_lux.domain.hub.lease_term import LeaseTerms
 from punt_lux.domain.hub.listener_slot import ListenerSlot
 from punt_lux.domain.hub.session_lease import SessionLease
+from punt_lux.wire.model.lease_term import LeaseTerms
 
 if TYPE_CHECKING:
     from punt_lux.client_host import ClientHost
     from punt_lux.domain.hub.callback_ports import CallbackListener
     from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.lease_term import LeaseTerm
     from punt_lux.domain.hub.session_callback import SessionCallback
+    from punt_lux.wire.model.lease_term import LeaseTerm
 
 __all__ = ["ClientSession"]
 

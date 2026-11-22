@@ -12,7 +12,7 @@ from punt_lux.protocol.pty.control_fields import ControlError
 
 if TYPE_CHECKING:
     from punt_lux.display.terminal.remote import RemoteSession
-    from punt_lux.protocol.elements.terminal import TerminalElement
+    from punt_lux.wire.model.elements.terminal import TerminalElement
 
 
 class TerminalPresenter:

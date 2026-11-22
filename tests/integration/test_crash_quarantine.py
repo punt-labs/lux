@@ -32,13 +32,14 @@ from punt_lux.domain.hub.liveness import DisplayLiveness
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.replicator import HubReplicator
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.protocol.elements.text import TextElement
-from tests.domain.display_double import Display, Responder
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.scope import Scope
+from tests.wire.model.display_double import Display, Responder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

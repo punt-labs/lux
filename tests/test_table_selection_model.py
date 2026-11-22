@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from punt_lux.protocol.elements.table_selection_model import TableSelectionModel
+from punt_lux.wire.model.elements.table_selection_model import TableSelectionModel
 
 
 class TestConstructionIsRaw:

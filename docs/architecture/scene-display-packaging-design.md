@@ -10,7 +10,7 @@ recommendation). Implemented as two units: Unit A (§5.1, bead `lux-i7y3`, PR
 the current architecture, not a proposal.
 
 **Scope:** the `scene/` package, the `display/` package, the Display-adjacent
-parts of `domain/`, and the Display-tier modules currently sitting loose at the
+parts of `wire/model/`, and the Display-tier modules currently sitting loose at the
 top of `src/punt_lux/`.
 
 **Grounding:** [target.md](target/target.md) and
@@ -24,7 +24,7 @@ confusion, and the `SceneManager` question — each spent real effort untangling
 overlapping names before they could state their actual question. The overlap:
 
 - `HubDisplay` (`domain/hub/`) — the Hub's authoritative store.
-- `Display` (`domain/`) — a second store, test-only, being deleted.
+- `Display` (`wire/model/`) — a second store, test-only, being deleted.
 - `DisplayServer` (`display/`) — the ImGui render loop.
 - `SceneManager` (`scene/`) — the render loop's scene and frame bookkeeping.
 - `MenuManager` (`display/`) — the render loop's menu bookkeeping.
@@ -65,8 +65,8 @@ Display-tier. `HubDisplay`'s element index, owner map, and scene presentations:
 lost. Hub-tier.
 
 A third category exists and must not be confused with either: the wire types in
-`protocol/` are tier-neutral, because both tiers speak them. That is why
-`protocol/` is a legitimate top-level package and `scene/` is not — `scene` is a
+`wire/model/` are tier-neutral, because both tiers speak them. That is why
+`wire/model/` is a legitimate top-level package and `scene/` is not — `scene` is a
 domain noun that exists on *both* tiers, so a package named for it gives no
 home to anything.
 
@@ -85,7 +85,7 @@ home to anything.
 
 Confirmation by import graph, not by reading: every production importer of
 `punt_lux.scene` is under `display/`, or is one of the two top-level modules in
-§3.3 whose only importer is `display/server.py`. Nothing in `domain/`,
+§3.3 whose only importer is `display/server.py`. Nothing in `wire/model/`,
 `domain/hub/`, `operations/`, `rest/`, or `tools/` imports `scene/` at all.
 `scene/` is a Display-tier package wearing a top-level, tier-neutral name.
 
@@ -122,18 +122,18 @@ below.
 These are the same accretion in a different form: Display-tier modules parked at
 the package root, where the root reads as "shared by everything."
 
-### 3.4 Display-adjacent `domain/`
+### 3.4 Display-adjacent `wire/model/`
 
 | Module | Class | Status |
 |---|---|---|
 | `domain/hub/hub_display.py` | `HubDisplay` | The Hub-authoritative store. target.md names it. Stays. |
 | `domain/hub/scene_writer.py`, `scene_presentation.py`, `scene_snapshot.py` | Hub-side scene write/read | Stay. Note they prove `scene` is a two-tier noun. |
 | `domain/hub/replicator.py`, `display_workers.py` | The Hub→Display replication leg | Stay in `domain/hub/` — this is the Hub's outbound side, not the Display. |
-| `domain/display.py` | `Display` | **Being deleted** by a separate in-flight mission. Treated below as already gone. |
+| `wire/model/display.py` | `Display` | **Being deleted** by a separate in-flight mission. Treated below as already gone. |
 | `display_client.py` (top level) | `DisplayClient` | The **Hub's** socket client of the display; constructed only in `domain/hub/clients.py`. Misfiled and misleadingly named — see §5.4. |
 
 Layering is currently clean in the one direction that matters and has one
-wrinkle in the other: nothing under `domain/` imports `punt_lux.display.*`, and
+wrinkle in the other: nothing under `wire/model/` imports `punt_lux.display.*`, and
 nothing under `display/` imports `domain.hub.*` — except
 `display/server.py`, which reaches into `punt_lux.display_client` for a
 `no_op_emit` helper. That is a Display-tier module importing a Hub-tier module
@@ -152,9 +152,9 @@ the reconstruction test in §2:
 | Package | Tier | Contains |
 |---|---|---|
 | `domain/hub/` | Hub | Authoritative state, ownership, handler dispatch, the replication leg |
-| `domain/` (non-hub) | tier-neutral domain | Element ABC, events, validation — the vocabulary both tiers share |
+| `wire/model/` (non-hub) | tier-neutral domain | Element ABC, events, validation — the vocabulary both tiers share |
 | `display/` | Display | The render loop, the replica it renders, input capture |
-| `protocol/` | wire | Element and message types both tiers speak |
+| `wire/model/` | wire | Element and message types both tiers speak |
 | `operations/`, `rest/`, `tools/`, `__main__.py` | client surfaces | Thin adapters over the engine |
 
 Corollary, and the specific rule `scene/` breaks: **no top-level package is
@@ -276,7 +276,7 @@ Stated explicitly so an implementation mission does not go looking:
   Its `scene_writer`, `scene_presentation`, and `scene_snapshot` modules stay
   where they are — they are the Hub's scene concern, and under N1 the path is
   what distinguishes them from `display/replica/scene_replica.py`.
-- `protocol/`, `operations/`, `rest/`, `tools/`, `applets/`, `apps/` are
+- `wire/model/`, `operations/`, `rest/`, `tools/`, `applets/`, `apps/` are
   untouched.
 - `display/renderers/`, `display/menus/`, and every other `display/` module not
   named above keep their names and locations.
@@ -325,7 +325,7 @@ consistent rename would be `UiStore` or `ElementStore` in
 *Recommendation: keep `HubDisplay`, grandfathered, and say so in the rule.*
 target.md and topology.md name it repeatedly; renaming it invalidates the
 canonical architecture documents to buy consistency in a class that no longer
-collides with anything once `domain/display.py` is gone and `DisplayServer`
+collides with anything once `wire/model/display.py` is gone and `DisplayServer`
 becomes `RenderLoop`. The collision drops from three to one, and one is not a
 collision.
 

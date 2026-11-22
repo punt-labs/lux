@@ -28,12 +28,12 @@ import numpy as np
 from imgui_bundle import ImVec2, imgui, implot
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.plot import PlotElement
+from punt_lux.wire.model.elements.plot import PlotElement
 
 if TYPE_CHECKING:
     from typing import Any
 
-    from punt_lux.protocol.elements.plot_series import PlotSeries
+    from punt_lux.wire.model.elements.plot_series import PlotSeries
 
 __all__ = ["ImGuiPlotRenderer"]
 

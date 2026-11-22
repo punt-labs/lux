@@ -164,7 +164,7 @@ test exists; the implementation mission writes it.
 | X5 | — | GAP |
 | X6 | `test_display_partition.py::test_close_frame_leaves_a_shared_id_alone_in_a_frame_still_up`, `::test_close_frame_leaves_a_menu_click_alone`, `test_scene_replica.py::test_closing_names_no_scene_of_a_frame_that_stays_up` (integration, shared-element-id + broadcast scenarios) plus `tests/test_pending_interactions.py::TestDiscardScenes` (new unit coverage of `discard_scenes` in isolation: empty set, no-match set, survivor order, broadcast event) | COVERED |
 | X7 | `test_scene_replica.py::test_focus_frame_cleared`, `test_frame_book.py::test_pop_returns_frame_and_clears_focus_when_it_held_it` | RETARGET |
-| X8 | `tests/domain/test_hub_interaction_dispatch.py::test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes` | **REPLACE** — asserts the Hub-side deletion F4 retires |
+| X8 | `tests/wire/model/test_hub_interaction_dispatch.py::test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes` | **REPLACE** — asserts the Hub-side deletion F4 retires |
 | X9 | `test_scene_replica.py::test_close_nonexistent_frame` | RETARGET |
 | D1 | `test_scene_replica.py::test_cleanup_and_next_tab_selection` | COVERED |
 | D2 | `test_scene_replica.py::test_dismiss_last_scene_empties_the_frame`, `test_empty_framed_scene_closes_its_only_frame` | RETARGET |

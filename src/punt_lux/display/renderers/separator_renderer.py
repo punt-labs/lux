@@ -7,7 +7,7 @@ from typing import Self
 
 from imgui_bundle import imgui
 
-from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.wire.model.elements.separator import SeparatorElement
 
 __all__ = ["SeparatorRenderer"]
 

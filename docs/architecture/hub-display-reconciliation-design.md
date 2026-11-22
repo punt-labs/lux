@@ -272,7 +272,7 @@ and `ReadyMessage`, not in `ObserverMessage`.
 
 ## Wire-protocol change
 
-Both changes land in `src/punt_lux/protocol/messages/lifecycle.py`, the
+Both changes land in `src/punt_lux/wire/model/messages/lifecycle.py`, the
 existing home for connection-lifecycle messages (`ReadyMessage`,
 `ConnectMessage`, `AckMessage`, `PingMessage`, `PongMessage`,
 `UnknownMessage`) — this is the same concern (identify and connect, not
@@ -293,7 +293,7 @@ declares its intent at identify time. `"hub"` is the writer identity
 read-only observer identity — the introspection request types
 (`IntrospectRequest`, `ListScenesRequest`, `ScreenshotRequest`,
 `QueryRequest`, and any future sibling in
-`protocol/messages/introspect.py`) are accepted; any `SceneMessage` from
+`wire/model/messages/introspect.py`) are accepted; any `SceneMessage` from
 a test fd is rejected with a named error surfaced to `list_errors`
 and the fd closed. The whitelist is "everything in the introspect
 module," not the specific class name `QueryRequest` — future
@@ -393,7 +393,7 @@ in the codebase.
 is still the old free-function shape (`_connect_to_dict` /
 `_connect_from_dict` and siblings, `register_codecs`), unlike
 `SceneMessage`'s already-migrated class-based `to_dict` / `from_dict`
-(`protocol/messages/scene.py`). Lux's own CLAUDE.md already flags this as
+(`wire/model/messages/scene.py`). Lux's own CLAUDE.md already flags this as
 the one remaining procedural corner in the message-codec migration ("fix a
 message codec onto its class when you touch the file"). Any implementation
 mission touching `lifecycle.py` for this change must migrate
@@ -750,8 +750,8 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
   `src/punt_lux/display/replica/frame_book.py`,
   `src/punt_lux/display/interaction_delivery.py`,
   `src/punt_lux/display/pending_interactions.py`,
-  `src/punt_lux/protocol/messages/lifecycle.py`,
-  `src/punt_lux/protocol/messages/scene.py`,
+  `src/punt_lux/wire/model/messages/lifecycle.py`,
+  `src/punt_lux/wire/model/messages/scene.py`,
   `src/punt_lux/domain/hub/client_identity.py`,
   `docs/architecture/target/target.md`, `docs/architecture/target/topology.md`,
   `docs/architecture/mcp-display-liveness.md`, `DESIGN.md` (DES-057, DES-058,

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
 from punt_lux.display.menus.menu_click import ClickTarget
 from punt_lux.display.menus.wire import WireMenu, WireSeparator
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

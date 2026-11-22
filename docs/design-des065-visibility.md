@@ -491,7 +491,7 @@ the fix. Module ownership is the specialist's call.
 `tests/display/replica/test_scene_replica.py`,
 `tests/display/replica/test_frame_book.py`, `tests/display/test_frame_commands.py`,
 `tests/display/test_render_loop.py`, `tests/display/test_hub_reconciliation.py`,
-`tests/domain/test_hub_interaction_dispatch.py`, `tests/test_display_partition.py`.
+`tests/wire/model/test_hub_interaction_dispatch.py`, `tests/test_display_partition.py`.
 The tests must assert the modelled properties by name. The full partition
 table, with every existing test marked COVERED, REPLACE, RETARGET or GAP, is
 [`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md);

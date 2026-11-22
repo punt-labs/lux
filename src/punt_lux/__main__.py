@@ -158,7 +158,7 @@ def status(
     """Check whether the display server is running."""
     from pathlib import Path
 
-    from punt_lux.paths import DisplayPaths
+    from punt_lux.service.display_paths import DisplayPaths
 
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     dp = DisplayPaths(Path(socket) if socket else None)
@@ -185,7 +185,7 @@ def doctor(
     """Check installation health."""
     from pathlib import Path
 
-    from punt_lux.paths import DisplayPaths
+    from punt_lux.service.display_paths import DisplayPaths
     from punt_lux.service.doctor_checks import EnvironmentChecks
     from punt_lux.service.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 

@@ -20,7 +20,7 @@ import pytest
 
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
+from punt_lux.wire.model import ButtonElement, RemoteEventHandlerInvocation, TextElement
 from tests.link_access import generation_of, shown
 
 
@@ -103,7 +103,7 @@ class TestWalkingSkeleton:
                 assert generation_of(client).ready is not None
 
                 # Send scene with image + 2 buttons
-                from punt_lux.protocol import ImageElement
+                from punt_lux.wire.model import ImageElement
 
                 acked = shown(
                     client,

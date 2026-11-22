@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from punt_lux.protocol.compositions.filtered_table_model import FilteredTableModel
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.compositions.filtered_table_model import FilteredTableModel
+from punt_lux.wire.model.elements.table import TableElement
 
 
 def _bound(

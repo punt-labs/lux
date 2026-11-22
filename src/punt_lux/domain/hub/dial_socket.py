@@ -23,16 +23,16 @@ from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.dial_writer import DialWriter
 from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
 from punt_lux.domain.hub.socket_line import SocketLine
-from punt_lux.protocol import FrameReader
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
+from punt_lux.wire.model import FrameReader
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from punt_lux.domain.hub.handshake_outcome import HandshakeResult
     from punt_lux.domain.hub.reply_sink import ReplySink
-    from punt_lux.protocol import Message, ReadyMessage
+    from punt_lux.wire.model import Message, ReadyMessage
 
 logger = logging.getLogger(__name__)
 

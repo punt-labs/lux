@@ -13,7 +13,7 @@ from punt_lux.display.menus.inventory import MenuInventory
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.replica.menu_by_hub import MenuByHub
 from punt_lux.display.replica.menu_stats import MenuStats
-from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
+from punt_lux.wire.model.identity import HubId, HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence

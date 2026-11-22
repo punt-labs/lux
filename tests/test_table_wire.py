@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.table_wire import TableWire
+from punt_lux.wire.model.elements.table_wire import TableWire
 
 
 def test_rows_from_wire_coerces_lists_to_tuples() -> None:

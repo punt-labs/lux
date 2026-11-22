@@ -11,8 +11,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.renderers import RecordingLog, RecordingRendererFactory
 
 
 def _emit(_msg: object) -> None:

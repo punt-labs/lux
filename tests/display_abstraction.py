@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from punt_lux.display import RenderLoop
-    from punt_lux.protocol import FrameReader
+    from punt_lux.wire.model import FrameReader
 
 
 # ---------------------------------------------------------------------------

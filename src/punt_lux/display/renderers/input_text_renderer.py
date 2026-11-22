@@ -18,9 +18,9 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
 )
 from punt_lux.display.renderers.imgui.search_focus_arbiter import SearchFocusArbiter
 from punt_lux.display.replica import WidgetState
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.wire.model.elements.input_text import InputTextElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ValueChanged
 
 __all__ = ["InputTextRenderer"]
 

@@ -12,7 +12,7 @@ panel are **not** table fields; they are compositions of existing primitives (se
 §0, the composite shape).
 **Exemplars copied:**
 
-- **`CheckboxElement`** (`protocol/elements/checkbox.py:40`,
+- **`CheckboxElement`** (`wire/model/elements/checkbox.py:40`,
   `display/renderers/imgui/checkbox.py`) — the interactive leaf: a
   Hub-authoritative value, a `_remote_dispatch_specs`, a built-in state-sync
   handler, the Display-side wrap, Hub-side re-dispatch, a re-push.
@@ -24,7 +24,7 @@ panel are **not** table fields; they are compositions of existing primitives (se
   Hub-authoritative *discrete selection* that references a **stable sub-part id**
   and reconciles when the sub-part set changes. The table's row selection is the
   same machinery, generalized from one id to a **set** of stable `row_id`s.
-- **`ModalModel`** (`protocol/elements/modal.py:47`) — the private model that owns
+- **`ModalModel`** (`wire/model/elements/modal.py:47`) — the private model that owns
   a cohesive state cluster; `TableSelectionModel`
   (§7) mirrors it and owns the
   single/multi/none mode logic.
@@ -241,7 +241,7 @@ The one line: **the basic `table` is a `tree`-shaped data leaf that is also
 
 One new typed event, `RowSelectionChanged`, a frozen-slots dataclass carrying the
 three identifying fields plus the full new selection set. It lands in a new
-`domain/selection_interaction.py`, not `container_interaction.py`
+`wire/model/selection_interaction.py`, not `container_interaction.py`
 (`container_interaction.py` already holds three classes — PY-OO-2 cap — and a table
 is a leaf, not a container).
 
@@ -419,7 +419,7 @@ window/modal/dialog geometry work does not apply.
 Per DES-041 decision 2, the new ABC class takes the canonical name; the legacy
 dataclass is renamed:
 
-- `protocol/elements/table.py` — `TableElement` → `LegacyTableElement`, keeping its
+- `wire/model/elements/table.py` — `TableElement` → `LegacyTableElement`, keeping its
   dataclass shape **including `filters` and `detail`** and its `TableFilter` /
   `TableDetail` value classes. The legacy class and its renderer stay until B7.
 - `display/table_renderer.py` — retained for `LegacyTableElement` until B7.
@@ -582,23 +582,23 @@ The core grid **shrinks**; the chrome moves to the composition layer.
 
 **Core grid — new (the basic `table` element):**
 
-- `src/punt_lux/protocol/elements/table.py` — the ABC `TableElement` (canonical
+- `src/punt_lux/wire/model/elements/table.py` — the ABC `TableElement` (canonical
   name) composing `TableSelectionModel`. Fields: `columns`, `rows`, `flags`
   (`TableFlags`), `column_widths` (optional), `key_column` (int-or-name → resolved
   index), `selection_mode`, `selected_row_ids`, `tooltip`. **No `filters`, no
   `detail`.** Overrides `id`, `kind`, `_children()` (`()`), `validate()`,
   `_remote_dispatch_specs()`, `resolved_props()`; setters `_set_rows` (reconcile),
   `_set_columns`, `_set_selected_row_ids`, `_set_selection_mode`.
-- `src/punt_lux/protocol/elements/table_selection_model.py` — `TableSelectionModel`
+- `src/punt_lux/wire/model/elements/table_selection_model.py` — `TableSelectionModel`
   (mode, selected `frozenset`, explicit `_anchor`, `apply` / `reconcile`,
   cardinality).
-- `src/punt_lux/protocol/elements/table_flags.py` — `TableFlags` value object.
-- `src/punt_lux/protocol/elements/table_codec.py` — `JsonTableEncoder` /
+- `src/punt_lux/wire/model/elements/table_flags.py` — `TableFlags` value object.
+- `src/punt_lux/wire/model/elements/table_codec.py` — `JsonTableEncoder` /
   `JsonTableDecoder` **and** the built-in `_UpdateSelectionHandler` (inside the
   codec, mirroring `_UpdateActiveTabHandler`; patches `selected_row_ids` **and**
   `anchor_row_id`); resolves `selection_mode` (a bare grid defaults `none`) and the
   `key_column` int-or-name.
-- `src/punt_lux/domain/selection_interaction.py` — `RowSelectionChanged`.
+- `src/punt_lux/wire/model/selection_interaction.py` — `RowSelectionChanged`.
 - `src/punt_lux/display/renderers/imgui/table.py` — `ImGuiTableRenderer`
   (`@final`, `LeafRenderer[TableElement]`): grid setup, column weights, the
   scrollable row region (native scroll + list clipper), the multi-select flow
@@ -638,12 +638,12 @@ the composition (the composition builds chrome from real `input_text` / `combo` 
 
 **Amended (interaction wiring):**
 
-- `domain/interaction.py` (`EventKind` += `"row_selection_changed"`);
-  `domain/handlers/remote_dispatch.py`, `domain/hub/clients.py`,
-  `domain/display.py` (one dispatch branch each);
-  `protocol/elements/abc_leaf_kinds.py` (`LeafKindSpec` for `table` + selection
-  handler_builder); `protocol/element_factory.py` (fork branch);
-  `protocol/elements/__init__.py`, `encoder_factory.py`,
+- `wire/model/interaction.py` (`EventKind` += `"row_selection_changed"`);
+  `wire/model/handlers/remote_dispatch.py`, `domain/hub/clients.py`,
+  `wire/model/display.py` (one dispatch branch each);
+  `wire/model/elements/abc_leaf_kinds.py` (`LeafKindSpec` for `table` + selection
+  handler_builder); `wire/model/element_factory.py` (fork branch);
+  `wire/model/elements/__init__.py`, `encoder_factory.py`,
   `display/renderers/imgui/factory.py`; `.oo-baseline.json`, `.oo-audit.jsonl`.
 
 Legacy deletion (`LegacyTableElement`, `table_renderer.py`, `TableFilter`,
@@ -652,7 +652,7 @@ Legacy deletion (`LegacyTableElement`, `table_renderer.py`, `TableFilter`,
 ## 8. Type sketches (recommended shape)
 
 ```python
-# domain/selection_interaction.py (new) — mirrors TabChanged, set-valued
+# wire/model/selection_interaction.py (new) — mirrors TabChanged, set-valued
 @dataclass(frozen=True, slots=True, init=False)
 class RowSelectionChanged:
     """The full visible selection after the gesture (row_ids, an unordered set —
@@ -668,7 +668,7 @@ class RowSelectionChanged:
     # __new__ / from_wire as TabChanged (object.__setattr__ over the slots)
 
 
-# protocol/elements/table_flags.py — kills the list[str]-with-a-comment
+# wire/model/elements/table_flags.py — kills the list[str]-with-a-comment
 @dataclass(frozen=True, slots=True)
 class TableFlags:
     borders: bool = True
@@ -682,7 +682,7 @@ class TableFlags:
     def to_wire(self) -> list[str]: ...
 
 
-# protocol/elements/table_selection_model.py — private, mirrors ModalModel
+# wire/model/elements/table_selection_model.py — private, mirrors ModalModel
 SelectionMode = Literal["none", "single", "multi"]
 
 
@@ -729,7 +729,7 @@ class TableSelectionModel:
         still-selected id or ""."""
 
 
-# protocol/elements/table.py — the basic grid (checkbox-interactive, tree-data-shaped)
+# wire/model/elements/table.py — the basic grid (checkbox-interactive, tree-data-shaped)
 class TableElement(Element):
     """A basic data grid: a leaf (no child elements) with a Hub-authoritative
     row selection set. No filters, no detail — those are composed siblings.

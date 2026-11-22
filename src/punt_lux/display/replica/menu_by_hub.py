@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from punt_lux.display.menus.wire import WireMenu
-    from punt_lux.domain.hub_id import HubId
-    from punt_lux.domain.hub_scoped_store import HubScopedStore
+    from punt_lux.wire.model.hub_id import HubId
+    from punt_lux.wire.model.hub_scoped_store import HubScopedStore
 
 __all__ = ["MenuByHub"]
 

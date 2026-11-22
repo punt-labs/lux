@@ -27,12 +27,12 @@ class LayerContract:
         "connection_identity "
         "paths log_level proctitle repo_root runtime logging_config usage "
         "credentials socket_writer wire_queue",
-        "wire": "domain protocol operations.models",
+        "wire": "wire protocol operations.models",
         "trust": "trust",
         "service": "service",
         "client": "client hub_client rest_transport rest_http_call rest_loopback "
         "rest_reply rest_error_body identity_headers header_value cli_identity",
-        "hub": "domain.hub operations commands tools rest luxd mcp_transport "
+        "hub": "domain operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
         "transport_policy hub_composition hub_lifespan mcp_session_manager "
         "mcp_session_scope",

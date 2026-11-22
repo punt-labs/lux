@@ -55,8 +55,8 @@ The corrected model finds neither violation.
 
 | Partition | Existing evidence | Status |
 | --- | --- | --- |
-| Frame fragmentation and bounded buffering | `tests/protocol/test_pty_frames.py` | Covered at codec layer |
-| Strict typed hello/attach/list/kill control boundary | `tests/protocol/test_pty_control.py` | Covered at codec layer |
+| Frame fragmentation and bounded buffering | `tests/wire/model/test_pty_frames.py` | Covered at codec layer |
+| Strict typed hello/attach/list/kill control boundary | `tests/wire/model/test_pty_control.py` | Covered at codec layer |
 | Both screens, modes and parser continuation in snapshots | `tests/terminal/test_snapshot.py` | Covered at native codec layer |
 | Output arriving between capture and completion | Model, bad-cut witness, core snapshot/tail and fragmented replica tests | Covered at core/replica layers |
 | Credit exhausted, returned, and isolated per viewer | Credit model, test_viewer_flow.py and finite fast/slow viewer integration | Covered for bounded flow partitions |

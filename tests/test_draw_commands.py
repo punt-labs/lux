@@ -4,24 +4,24 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.draw_bounds import (
+from punt_lux.wire.model.elements.draw_bounds import (
     NO_ROUNDING,
     Radius,
     Rounding,
 )
-from punt_lux.protocol.elements.draw_command_kind import (
+from punt_lux.wire.model.elements.draw_command_kind import (
     DrawCommand,
     DrawCommandKind,
 )
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
-from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
-from punt_lux.protocol.elements.draw_commands_shape import (
+from punt_lux.wire.model.elements.draw_commands_curve import BezierCubic
+from punt_lux.wire.model.elements.draw_commands_line import Line, Polyline
+from punt_lux.wire.model.elements.draw_commands_shape import (
     Circle,
     Rect,
     Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextGlyph
-from punt_lux.protocol.elements.draw_values import (
+from punt_lux.wire.model.elements.draw_commands_text import TextGlyph
+from punt_lux.wire.model.elements.draw_values import (
     DEFAULT_THICKNESS,
     WHITE,
     Color,

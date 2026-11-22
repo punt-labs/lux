@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING, final
 from imgui_bundle import ImVec2, ImVec4, imgui
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.elements.color_picker import ColorPickerElement
-    from punt_lux.protocol.elements.rgba_color import Rgba
+    from punt_lux.wire.model.elements.color_picker import ColorPickerElement
+    from punt_lux.wire.model.elements.rgba_color import Rgba
 
 __all__ = ["ColorChannelStrip"]
 

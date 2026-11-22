@@ -1,0 +1,1392 @@
+"""Unit tests for DisplayLink — connection and messaging."""
+
+from __future__ import annotations
+
+import contextlib
+import socket
+import threading
+import time
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from punt_lux.domain.hub.connection_closed import ConnectionClosedError
+from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.wire.model import (
+    AckMessage,
+    ConnectMessage,
+    MenuMessage,
+    PingMessage,
+    PongMessage,
+    ReadyMessage,
+    RemoteEventHandlerInvocation,
+    SceneMessage,
+    TextElement,
+    encode_frame,
+    recv_message,
+    send_message,
+)
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
+from tests.link_access import generation_of, shown, socket_of, writer_of
+from tests.wire.model.display_double import until
+
+# ---------------------------------------------------------------------------
+# Helpers — mini display server for testing
+# ---------------------------------------------------------------------------
+
+
+def _verify_closed(client: DisplayLink) -> None:
+    """Assert client is disconnected (separate function to avoid mypy narrowing)."""
+    assert not client.is_connected
+    with pytest.raises(ConnectionClosedError):
+        _ = client.desk.asks().dial
+
+
+def _mini_display(sock_path: Path, ready: threading.Event) -> socket.socket:
+    """Start a mini display server that sends ReadyMessage on connect.
+
+    Returns the server-side connection socket.
+    """
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(1)
+    ready.set()
+    conn, _ = server.accept()
+    send_message(conn, ReadyMessage())
+    server.close()
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# Connection lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestConnect:
+    def test_connect_and_close(self, tmp_path: Path) -> None:
+        """Client connects, receives ReadyMessage, then closes cleanly."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        server_conn: socket.socket | None = None
+        ready_event = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+
+            assert client.is_connected
+            ready = generation_of(client).ready
+            assert ready is not None
+            assert ready.version == "0.2"
+
+            client.close()
+            _verify_closed(client)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_connect_bounds_the_socket_send_timeout(self, tmp_path: Path) -> None:
+        """connect() applies SO_SNDTIMEO to its socket via ``set_send_timeout``.
+
+        Guards the wiring behind the send-timeout fix: without this call a wedged
+        display could block a send forever. Deleting the call in ``connect``
+        makes this fail — the separate ``test_send_timeout`` proves the option,
+        this proves it is applied to the real connection.
+        """
+        import shutil
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        server_conn: socket.socket | None = None
+        ready_event = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            with patch(
+                "punt_lux.domain.hub.handshake_connector.set_send_timeout"
+            ) as mock_set:
+                client.connect()
+            mock_set.assert_called_once()
+            (applied_to,) = mock_set.call_args.args
+            assert applied_to is socket_of(client)  # its own fd, not any socket
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_context_manager(self, tmp_path: Path) -> None:
+        """DisplayLink works as a context manager."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        server_conn: socket.socket | None = None
+        ready_event = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                assert client.is_connected
+            assert not client.is_connected
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_connect_no_server_raises(self, tmp_path: Path) -> None:
+        """Connecting to a nonexistent socket raises RuntimeError."""
+        sock_path = tmp_path / "nonexistent.sock"
+        client = DisplayLink.to_socket(sock_path, auto_spawn=False)
+        with pytest.raises(RuntimeError, match="Cannot connect"):
+            client.connect()
+
+    def test_double_connect_is_noop(self, tmp_path: Path) -> None:
+        """Calling connect() twice doesn't crash."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        server_conn: socket.socket | None = None
+        ready_event = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect()  # should be a no-op
+            assert client.is_connected
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# ConnectMessage.hub_id (W2, DES-089)
+# ---------------------------------------------------------------------------
+
+
+class TestPostHandshakeHubId:
+    def test_kind_hub_sends_a_real_hub_id(self, tmp_path: Path) -> None:
+        """A kind="hub" connection declares HubId.current().wire_token."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path,
+                name="lux-mcp",
+                kind="hub",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.current().wire_token
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_kind_test_sends_a_stub_hub_id(self, tmp_path: Path) -> None:
+        """A kind="test" connection declares a stub HubId, never an absence."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[ConnectMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, ConnectMessage)
+            received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path,
+                name="probe",
+                kind="test",
+                auto_spawn=False,
+                connect_timeout=2.0,
+            )
+            client.connect()
+            t.join(timeout=2)
+            assert len(received) == 1
+            assert received[0].hub_id == HubId.stub().wire_token
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Sending messages
+# ---------------------------------------------------------------------------
+
+
+class TestSendMessages:
+    def test_show_sends_scene(self, tmp_path: Path) -> None:
+        """show() sends a SceneMessage and receives AckMessage."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            # Read the scene, send ack
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, SceneMessage)
+            assert msg.id == "s1"
+            assert len(msg.elements) == 1
+            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                acked = shown(
+                    client,
+                    "s1",
+                    elements=[TextElement(id="t1", content="Hello")],
+                    presentation=ScenePresentation(frame_id="s1", title="Test"),
+                )
+                assert acked
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_show_drops_interleaved_event(self, tmp_path: Path) -> None:
+        """show() returns AckMessage; interleaved non-ack frames are dropped."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, SceneMessage)
+            # Send an interaction *before* the ack; without an active
+            # listener and no registered callback there is no consumer,
+            # so the new model drops it and proceeds to the ack.
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="b1", action="click", ts=time.time(), value=True
+                ),
+            )
+            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                acked = shown(
+                    client,
+                    "s1",
+                    elements=[TextElement(id="t1", content="Hello")],
+                )
+                assert acked
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_ping_pong(self, tmp_path: Path) -> None:
+        """ping() sends PingMessage and receives PongMessage."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, PingMessage)
+            send_message(server_conn, PongMessage(ts=msg.ts, display_ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                pong = client.desk.asks().ping()
+                assert isinstance(pong, PongMessage)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_ping_zero_timeout_is_honored_not_the_recv_budget(
+        self, tmp_path: Path
+    ) -> None:
+        """ping(0.0) must use a zero budget, not fall back to recv_timeout.
+
+        A zero wait means the deadline is already past, so the inline read is
+        never attempted. The earlier ``timeout or self._recv_timeout`` form
+        treated 0.0 as falsy and waited the full ~5s default instead.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        reads: list[float | None] = []
+
+        def _record(_generation: object, timeout: float) -> None:
+            reads.append(timeout)
+
+        try:
+            with (
+                DisplayLink.to_socket(
+                    sock_path, auto_spawn=False, connect_timeout=2.0
+                ) as client,
+                patch.object(DialGeneration, "poll_chunk", _record),
+            ):
+                pong = client.desk.asks().ping(timeout=0.0)
+            assert pong is None
+            assert reads == []  # a non-zero fallback budget would read here
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Receiving events
+# ---------------------------------------------------------------------------
+
+
+class TestRecvEvents:
+    def test_interaction_dispatched_to_callback(self, tmp_path: Path) -> None:
+        """Invocation delivery runs the registered on_event callback."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RemoteEventHandlerInvocation] = []
+        done = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="b1", action="click", ts=time.time(), value=True
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+
+            def _cb(msg: RemoteEventHandlerInvocation) -> None:
+                received.append(msg)
+                done.set()
+
+            client.events.set_fallback_handler(_cb)
+            try:
+                client.connect()
+                client.connect(listen=True)
+                assert done.wait(timeout=2.0), "Callback never fired"
+                assert received[0].element_id == "b1"
+                assert received[0].action == "click"
+            finally:
+                client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_poll_event_timeout_raises(self, tmp_path: Path) -> None:
+        """poll_event() raises TimeoutError when no event arrives in time."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                client.connect(listen=True)
+                with pytest.raises(TimeoutError):
+                    client.events.poll_event(timeout=0.2)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
+
+
+class TestErrorHandling:
+    def test_send_without_connect_raises(self) -> None:
+        """Writing a scene before connect() raises DisplayNotConnectedError."""
+        client = DisplayLink.to_socket(auto_spawn=False)
+        scene = ScenePresentation(frame_id="s1").message("s1", [])
+        with pytest.raises(DisplayNotConnectedError, match="Not connected"):
+            writer_of(client).send_scene(scene)
+
+    def test_poll_event_without_connect_raises(self) -> None:
+        """Calling poll_event() before connect() raises DisplayNotConnectedError."""
+        client = DisplayLink.to_socket(auto_spawn=False)
+        with pytest.raises(DisplayNotConnectedError, match="Not connected"):
+            client.events.poll_event()
+
+    def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
+        """A listener that started and exited surfaces as TimeoutError.
+
+        The gate is that the listener was started, not that it is alive —
+        an exited listener is the no-event-arrived case with a clearer
+        message, not a misuse RuntimeError. The listener exits here the way
+        it does in production: the display closes the connection.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        accepted = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            accepted.set()
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                assert accepted.wait(timeout=5), "display never accepted"
+                assert server_conn is not None
+                client.connect(listen=True)
+                server_conn.close()
+                # The wait is bounded and the message is chosen when it ends,
+                # by which time the listener has read the close and exited.
+                with pytest.raises(TimeoutError, match="listener thread has exited"):
+                    client.events.poll_event(timeout=1.0)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_close_without_connect_is_noop(self) -> None:
+        """Calling close() without connecting doesn't crash."""
+        client = DisplayLink.to_socket(auto_spawn=False)
+        client.close()  # should not raise
+
+    def test_handshake_mismatch_logs_warning_and_raises(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A non-ReadyMessage handshake reply is a protocol mismatch, not a
+        quiet disconnect: it must surface at WARNING (naming the unexpected
+        type) even though the Hub still retries via ``DisplayNotConnectedError``.
+
+        Without the WARNING, a persistent version skew would back off to the
+        replicator's slow disconnected cadence and retry into silence —
+        indistinguishable in the log from an ordinary "no display" wait.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(str(sock_path))
+            server.listen(1)
+            ready_event.set()
+            conn, _ = server.accept()
+            server_conn = conn
+            # Wrong message type: a PongMessage instead of ReadyMessage.
+            send_message(conn, PongMessage(ts=time.time(), display_ts=time.time()))
+            server.close()
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            with (
+                caplog.at_level(
+                    "WARNING", logger="punt_lux.domain.hub.handshake_connector"
+                ),
+                pytest.raises(RuntimeError, match="Expected ReadyMessage"),
+            ):
+                client.connect()
+            assert any(
+                r.levelname == "WARNING" and "PongMessage" in r.message
+                for r in caplog.records
+            ), "handshake mismatch must log a WARNING naming the unexpected type"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Auto-spawn
+# ---------------------------------------------------------------------------
+
+
+def _persistent_display(
+    sock_path: Path, stop: threading.Event, ready: threading.Event
+) -> None:
+    """Serve ReadyMessage on every accepted connection until stopped.
+
+    Unlike :func:`_mini_display` (single accept), this keeps answering so
+    the auto-spawn liveness probe and the client's own connection each get
+    a ``ReadyMessage`` handshake from the same live server.
+    """
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(5)
+    server.settimeout(0.2)
+    conns: list[socket.socket] = []
+    ready.set()
+    while not stop.is_set():
+        try:
+            conn, _ = server.accept()
+        except (TimeoutError, OSError):
+            continue
+        conns.append(conn)  # keep alive so buffered ReadyMessage is readable
+        with contextlib.suppress(OSError):
+            send_message(conn, ReadyMessage())
+    for c in conns:
+        c.close()
+    server.close()
+
+
+class TestAutoSpawn:
+    def test_auto_spawn_reuses_live_display_with_stale_pid(self) -> None:
+        """Regression: auto-spawn reuses a live display when the PID file is gone.
+
+        A live display answers the handshake but its PID file was removed.
+        connect(auto_spawn=True) must reuse the live socket and must NOT
+        spawn a second display (no ``subprocess.Popen``), preventing the
+        orphaned-window duplication.
+        """
+        import subprocess
+        import tempfile
+
+        from punt_lux.service.display_paths import DisplayPaths
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        stop = threading.Event()
+        ready = threading.Event()
+        t = threading.Thread(
+            target=_persistent_display, args=(sock_path, stop, ready), daemon=True
+        )
+        t.start()
+        assert ready.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            DisplayPaths(sock_path).remove_pid()  # stale/missing PID file
+            with patch.object(subprocess, "Popen") as popen:
+                client = DisplayLink.to_socket(
+                    sock_path, auto_spawn=True, connect_timeout=3.0
+                )
+                client.connect()
+                assert client.is_connected
+                popen.assert_not_called()  # no second display spawned
+                client.close()
+            assert sock_path.exists()  # live socket preserved
+        finally:
+            stop.set()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_auto_spawn_calls_ensure(self, tmp_path: Path) -> None:
+        """With auto_spawn=True, connect() calls DisplayPaths.ensure()."""
+        import tempfile
+
+        from punt_lux.service.display_paths import DisplayPaths
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            with patch.object(
+                DisplayPaths, "ensure", return_value=sock_path
+            ) as mock_ensure:
+                client = DisplayLink.to_socket(
+                    sock_path, auto_spawn=True, connect_timeout=2.0
+                )
+                client.connect()
+                mock_ensure.assert_called_once_with(2.0)
+                client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Background listener
+# ---------------------------------------------------------------------------
+
+
+class TestBackgroundListener:
+    """Tests for push-based event handling via background listener."""
+
+    def test_callback_dispatch(self) -> None:
+        """Listener dispatches RemoteEventHandlerInvocation to registered callback."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RemoteEventHandlerInvocation] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="btn1", action="click", ts=time.time(), value=True
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.events.set_fallback_handler(lambda msg: received.append(msg))
+            client.connect()
+            client.connect(listen=True)
+            # Wait for callback to fire
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(received) == 1
+            assert received[0].element_id == "btn1"
+            assert received[0].action == "click"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_unmatched_interaction_is_dropped(self) -> None:
+        """An interaction with no callback is dropped, not buffered."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            # An interaction whose (element_id, action) has no callback.
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="other", action="click", ts=time.time(), value=True
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            # Listener has had time to drain the frame; poll_event sees
+            # no business event and times out.
+            time.sleep(0.3)
+            with pytest.raises(TimeoutError):
+                client.events.poll_event(timeout=0.2)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_a_pending_reply_fails_when_the_listener_exits(self) -> None:
+        """A ping the listener can no longer answer fails at once, not at timeout."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            server_conn.recv(4096)  # the ping
+            server_conn.close()  # ... and the display goes away
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            began = time.monotonic()
+            with pytest.raises(ConnectionClosedError, match="was closed"):
+                client.desk.asks().ping(timeout=4.0)
+            assert time.monotonic() - began < 3.0
+            # The waiter learns of the end when the reader records it; the reader
+            # settles the dial a moment later, after its last look at the socket.
+            assert until(lambda: not client.is_connected)
+            client.close()
+        finally:
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_an_unknown_message_type_ends_the_connection(self) -> None:
+        """A kind the display never sends is refused, not dropped: the link closes."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            server_conn.sendall(encode_frame({"type": "custom_event", "data": "hello"}))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            deadline = time.monotonic() + 3.0
+            while client.is_connected and time.monotonic() < deadline:
+                time.sleep(0.02)
+            assert not client.is_connected
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_observer_message_routes_to_poll_event(self) -> None:
+        """ObserverMessage payloads queue for poll_event consumption."""
+        import tempfile
+
+        from punt_lux.wire.model import ObserverMessage
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                ObserverMessage(topic="work.saved", payload={"id": "save_btn"}),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            event = client.events.poll_event(timeout=2.0)
+            assert event.topic == "work.saved"
+            assert event.payload == {"id": "save_btn"}
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_ack_routing_through_queue(self) -> None:
+        """Acks route to _ack_queue so show() works with listener active."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(msg, SceneMessage)
+            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            acked = shown(
+                client, "s1", elements=[TextElement(id="t1", content="Hello")]
+            )
+            assert acked
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_send_scene_from_callback(self) -> None:
+        """send_scene() works from inside a callback without deadlock."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        callback_done = threading.Event()
+        server_received: list[SceneMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="trigger", action="click", ts=time.time(), value=True
+                ),
+            )
+            # Read the scene sent by the callback
+            msg = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            if isinstance(msg, SceneMessage):
+                server_received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+
+            def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
+                writer_of(client).send_scene(
+                    SceneMessage(
+                        id="response",
+                        elements=[TextElement(id="t1", content="Callback fired")],
+                        frame_id="response",
+                    )
+                )
+                callback_done.set()
+
+            client.events.set_fallback_handler(on_trigger)
+            client.connect()
+            client.connect(listen=True)
+            assert callback_done.wait(timeout=2.0)
+            # Give the server thread time to receive the scene
+            t.join(timeout=2)
+            assert len(server_received) == 1
+            assert server_received[0].id == "response"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_ping_and_query_from_a_callback_refuse_to_wait(self) -> None:
+        """A handler on the listener thread cannot wait for a reply it would produce."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        refusals: list[BaseException] = []
+        done = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="trigger", action="click", ts=time.time(), value=True
+                ),
+            )
+            done.wait(timeout=5)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+
+            def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
+                for call in (
+                    client.desk.asks().ping,
+                    lambda: client.desk.asks().query("scenes"),
+                ):
+                    try:
+                        call()
+                    except RuntimeError as exc:
+                        refusals.append(exc)
+                done.set()
+
+            client.events.set_fallback_handler(on_trigger)
+            client.connect()
+            client.connect(listen=True)
+            assert done.wait(timeout=5)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+        assert len(refusals) == 2, "ping and query must both raise RuntimeError"
+        assert all("listener thread" in str(exc) for exc in refusals)
+
+    def test_checkbox_changed_callback_receives_value_changed_event(self) -> None:
+        """Checkbox events route to ``(element_id, "changed")`` callbacks."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RemoteEventHandlerInvocation] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="cb1",
+                    action="changed",
+                    event_kind="value_changed",
+                    ts=time.time(),
+                    value=True,
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.events.set_fallback_handler(lambda msg: received.append(msg))
+            client.connect()
+            client.connect(listen=True)
+
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(received) == 1
+            assert received[0].element_id == "cb1"
+            assert received[0].action == "changed"
+            assert received[0].event_kind == "value_changed"
+            assert received[0].value is True
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_hello_world_menu_callback(self) -> None:
+        """E2E proof: menu click → callback → send_scene opens a frame.
+
+        Simulates the full pipeline: a menu leaf click arrives as a
+        ``RemoteEventHandlerInvocation``, the registered callback fires
+        send_scene to display "Hello World!" in a frame. The client's own
+        ``set_menu`` doubles as the readiness handshake so the server sends the
+        click only after the listener is up.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        callback_fired = threading.Event()
+        server_received: list[SceneMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            # The client's set_menu is the readiness signal: once it arrives, the
+            # listener is up and a click will be dispatched.
+            signal = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            assert isinstance(signal, MenuMessage)
+            # Simulate user clicking the "Hello" menu item
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="hello-world",
+                    action="menu",
+                    ts=time.time(),
+                    value={"item": "Hello", "menu": "Applications"},
+                ),
+            )
+            # Read the SceneMessage sent by the callback
+            scene = recv_message(server_conn, CLIENT_VOCABULARY, timeout=5)
+            if isinstance(scene, SceneMessage):
+                server_received.append(scene)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+
+            def on_hello(msg: RemoteEventHandlerInvocation) -> None:
+                writer_of(client).send_scene(
+                    SceneMessage(
+                        id="hello-scene",
+                        elements=[
+                            TextElement(id="greeting", content="Hello World!"),
+                        ],
+                        frame_id="hello-frame",
+                        frame_title="Greeting",
+                    )
+                )
+                callback_fired.set()
+
+            client.events.set_fallback_handler(on_hello)
+            client.connect()
+            client.connect(listen=True)
+            # Signal readiness (and trigger the flow) with a real menu write.
+            writer_of(client).set_menu(
+                [{"label": "Tools", "items": [{"label": "Hello", "id": "hello-world"}]}]
+            )
+            # Wait for the full pipeline to complete
+            assert callback_fired.wait(timeout=3.0), "Callback never fired"
+            t.join(timeout=3)
+            assert len(server_received) == 1
+            scene = server_received[0]
+            assert scene.id == "hello-scene"
+            assert scene.frame_id == "hello-frame"
+            assert len(scene.elements) == 1
+            assert isinstance(scene.elements[0], TextElement)
+            assert scene.elements[0].content == "Hello World!"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_poll_event_timeout_with_listener(self) -> None:
+        """poll_event() raises TimeoutError when no event arrives via listener."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayLink.to_socket(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            )
+            client.connect()
+            client.connect(listen=True)
+            with pytest.raises(TimeoutError):
+                client.events.poll_event(timeout=0.2)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)

@@ -30,17 +30,18 @@ from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.domain.hub import hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
-from punt_lux.protocol.elements.input_number import InputNumberElement
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.elements.input_number import InputNumberElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
 
 from .inspection_view import InspectionView
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.domain.element import Element as DomainElement
-    from punt_lux.protocol.messages.remote_invocation import (
+    from punt_lux.wire.model.element import Element as DomainElement
+    from punt_lux.wire.model.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
 

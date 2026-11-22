@@ -6,8 +6,8 @@ import pytest
 
 from punt_lux.display.replica.address_book import AddressBook
 from punt_lux.display.replica.lux_address import Rung
-from punt_lux.domain.hub_id import HubId
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 _PEMBROKE_1 = HubId("pembroke", 100)
 _PEMBROKE_2 = HubId("pembroke", 200)

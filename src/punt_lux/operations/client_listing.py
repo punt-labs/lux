@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.named_sessions import NamedSession
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.hub_collaborators import InboxDepth
 
 __all__ = ["ClientListing"]

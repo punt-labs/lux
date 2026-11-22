@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.renderers import radio_renderer
 from punt_lux.display.renderers.radio_renderer import RadioRenderer
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.wire.model.elements.radio import RadioElement
+from punt_lux.wire.model.interaction import ValueChanged
 
 if TYPE_CHECKING:
     import pytest

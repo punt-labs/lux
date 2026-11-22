@@ -35,8 +35,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import SessionCallback
     from punt_lux.domain.hub.session_write import SessionWrite
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.domain.scope import Scope
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.scope import Scope
 
 __all__ = ["ClientLifecycle"]
 

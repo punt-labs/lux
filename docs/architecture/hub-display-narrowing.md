@@ -447,7 +447,7 @@ which patches anything:
 
 I recommend (1) and a second test of (2)'s sequence only if (1) proves flaky.
 
-`tests/domain/test_hub_store_factory.py` carries the cases that prove the wiring:
+`tests/wire/model/test_hub_store_factory.py` carries the cases that prove the wiring:
 the lifecycle and the registry share one registration; a departure empties it; a
 write by a registered caller renews its lease; a write sweeps other lapsed
 connections but never its own caller; lifecycle and store release ownership under
@@ -863,7 +863,7 @@ bead.
 The design names it; the implementation mission's contract should list these.
 
 **New.** `src/punt_lux/domain/hub/hub_store_factory.py` (the factory and the singletons),
-`tests/domain/test_hub_store_factory.py`.
+`tests/wire/model/test_hub_store_factory.py`.
 
 **Changed, domain.** `hub_display.py` (constructor; the eleven door members and
 the singleton out; `writing_as` in), `client_lifecycle.py` (`exclusive()`),
@@ -882,7 +882,7 @@ the singleton out; `writing_as` in), `client_lifecycle.py` (`exclusive()`),
 
 **Tests.** The 50 test files with a `HubDisplay(` construction (326 sites) and the
 44 with door sites (largely the same files); `tests/hub_harness.py`;
-`tests/domain/test_hub_store_factory.py`; the D5 test (§4.6).
+`tests/wire/model/test_hub_store_factory.py`; the D5 test (§4.6).
 
 **Docs.** `DESIGN.md` (DES-101), `docs/architecture/system.tex` (the subsection
 "HubDisplay: the Authoritative Store"). `CHANGELOG.md`: none; the change is

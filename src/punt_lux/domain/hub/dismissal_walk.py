@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
+from punt_lux.wire.model.element_abc import Element as AbcElement
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
-    from punt_lux.domain.ids import ElementId, SceneId
+    from punt_lux.wire.model.ids import ElementId, SceneId
 
 __all__ = ["DismissalWalk"]
 

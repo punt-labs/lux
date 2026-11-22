@@ -23,7 +23,7 @@ from imgui_bundle import hello_imgui
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.scene_inspector import SceneInspector
 from punt_lux.display.screenshot_queue import ScreenshotQueue
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -34,7 +34,7 @@ from punt_lux.protocol import (
     ScreenshotRequest,
     UnknownMessage,
 )
-from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
+from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 
 if TYPE_CHECKING:
     import socket
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from punt_lux.display.query_dispatcher import QueryRouter
     from punt_lux.display.replica import SceneReplica
     from punt_lux.display.window_settings import WindowSettings
-    from punt_lux.protocol.messages import Message
+    from punt_lux.wire.model.messages import Message
 
 logger = logging.getLogger(__name__)
 
