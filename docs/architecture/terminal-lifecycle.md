@@ -81,7 +81,7 @@ existing `failed` and `closed` states are internal cleanup states and stay.)
 | reopen | Windows menu, or manager scene `Open` | Display / helper | `raise_frame`. | None. |
 | viewer reconnect | socket drops and returns | Display | Replica goes `DISCONNECTED`, then re-attaches by id; if the session is gone, it fails as in resume. | Status line. |
 | watch lost | helper's watch socket drops or overflows | helper | Re-dial; reconcile (below). | None. |
-| daemon restart | supervisor | daemon, helper | All shells end. New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`); the old helper's scenes lapse with its lease (30 s), and the new helper's sync replaces them. |
+| daemon restart | supervisor | daemon, helper | All shells end. New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`). Departure/lease expiry (30 s) releases old ownership but does not remove frames; old-instance removal is an implementation gap (section 7). |
 
 **Reconcile (`HelperList`, then `HelperSync`).** On every connect of the watch
 socket, and after every overflow, the helper sends `list` only after the daemon
@@ -125,6 +125,15 @@ it in hello/list responses. Its helper includes that instance id in its Hub
 identity, alongside `kind=app` and `name=<host label>`, so distinct daemons get
 distinct connection ids even when their host labels match. The label is
 display-only: the Clients submenu name and frame-title prefix.
+
+Increment 2 must add the instance id to `ClientIdentity`, carry it through
+`ClientHeaders` serialization/parsing, and include it among the fields hashed
+by `connection_for` (`connection_identity.py`); declaration alone is not enough.
+Today that function hashes only `kind`, `name`, `repo` and `agent`.
+The helper uses REST for menu registration and scene writes (`LuxClient`)
+and the WebSocket `/ws` listen leg for callbacks, events and renewal
+(`LuxHubClient`), not MCP. Both legs must carry the same instance field:
+`RestCaller` and `HubListenTransport` already share `connection_for`.
 
 ```text
 Clients
@@ -278,16 +287,30 @@ parallel worktrees.
 - Two regression tests replaying the model's fidelity traces (section 8).
 - The existing respawn-on-reattach tests are replaced, not kept.
 
-Closing question to check while implementing, not a design fork: on helper
-start, does the Hub drop scenes of the previous connection of the same
-identity? If it waits for the 30 s lease, stale frames show `unknown session`
-for up to 30 s after a daemon restart. If that is unacceptable, the helper
-clears them itself in `SessionWatch`'s first reconcile.
+After a daemon restart, the new instance has a different helper connection id.
+`HubSceneWriter.clear` only removes elements owned by the caller, so the new
+helper's first reconcile cannot clear the old instance's frames. Today a
+WebSocket disconnect detaches the listen leg but retains the session lease;
+explicit departure or expiry of the helper's 30 s lease runs
+`ClientLifecycle.depart`/`depart_lapsed` and releases ownership, registry,
+callbacks and subscriptions. **That cleanup does not remove scenes or frames**:
+`OwnerTracker.release_all` discards ownership records and leaves elements
+installed (`domain/hub/lifecycle.py`). Actual removal needs an explicit
+element removal or unowned-claim reclaim; neither is performed by the new
+helper's owner-scoped clear. Automatic removal of old-instance terminal
+frames therefore remains an implementation gap, not a guarantee of lease
+expiry or first reconcile. The later lifecycle unit must resolve it without
+aliasing instance identities.
 
 Increment 2 adds the daemon instance id (generated at daemon start and reported
-in hello/list), includes it in the helper's Hub identity, and adds the
-display-only host label and tests: same-labelled daemons have distinct
-connection ids and numbered Clients submenus. Increment 3 adds the
+in hello/list), includes it in the helper's Hub identity, and extends
+`domain/hub/client_identity.py`, `identity_headers.py` (both directions), and
+`connection_identity.py`'s hashed fields so REST and WebSocket listen resolve
+the same instance-aware connection id. It adds the display-only host label
+and tests: two otherwise identical, same-labelled declarations with different
+instance ids yield distinct `connection_for` ids; the same instance round-trips
+over REST and WebSocket to the same id, and separate connections receive
+numbered Clients submenus. Increment 3 adds the
 instance-valued `host` field to the element, the Display's instance-to-socket
 map and per-instance pools, `(instance, session)` replica keys, and a
 same-labelled second-daemon routing test. The host label never keys routing.
