@@ -246,6 +246,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/applet_event.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 2.0,
+    "max_complexity": 4.0,
+    "avg_complexity": 4.0,
+    "module_size": 37.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/applets/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -11689,10 +11702,10 @@
   "src/punt_lux/session_start.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.5,
-    "max_complexity": 4.0,
+    "avg_params": 0.5,
+    "max_complexity": 3.0,
     "avg_complexity": 2.5,
-    "module_size": 44.0,
+    "module_size": 28.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

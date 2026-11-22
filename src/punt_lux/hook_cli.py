@@ -6,9 +6,9 @@ from typing import final
 
 import typer
 
+from punt_lux.applet_event import AppletEvent, AppletRecords
 from punt_lux.hooks import emit, handle_session_start
 from punt_lux.logging_config import configure_logging
-from punt_lux.session_start import AppletEvent, SessionStartDecisions
 
 
 @final
@@ -34,4 +34,4 @@ class HookCommands:
     ) -> None:
         """Persist a controlled launch event even with standard streams discarded."""
         configure_logging("lux", "hook")
-        SessionStartDecisions.record(event, child_pid)
+        AppletRecords.record(event, child_pid)
