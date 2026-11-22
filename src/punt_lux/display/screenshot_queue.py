@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.framebuffer_capture import FramebufferCapture
-from punt_lux.protocol import ScreenshotResponse
+from punt_lux.wire.model import ScreenshotResponse
 
 if TYPE_CHECKING:
     import socket

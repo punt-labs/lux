@@ -15,7 +15,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.radio_renderer import RadioRenderer
-from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.wire.model.elements.radio import RadioElement
 
 __all__ = ["ImGuiRadioRenderer"]
 

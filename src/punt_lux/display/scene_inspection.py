@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.protocol.elements import element_to_dict
+from punt_lux.wire.model.elements import element_to_dict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model.elements import Element
 
 __all__ = ["ElementInspection", "SceneInspection"]
 

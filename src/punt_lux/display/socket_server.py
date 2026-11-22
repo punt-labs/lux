@@ -15,11 +15,11 @@ from punt_lux.display.client_registry import ClientRegistry
 from punt_lux.display.client_sender import ClientSender
 from punt_lux.display.nonblocking import Nonblocking
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import ReadyMessage
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.wire.model import ReadyMessage
 
 if TYPE_CHECKING:
-    from punt_lux.domain.identity import HubId
+    from punt_lux.wire.model.identity import HubId
 
 __all__ = ["SocketListener", "SocketListenerCallbacks"]
 

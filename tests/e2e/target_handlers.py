@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Self
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.handlers.publish_sink import PublishSink
+    from punt_lux.wire.model.handlers.publish_sink import PublishSink
 
 __all__ = ["PublishingHandler", "RecordingClickHandler"]
 

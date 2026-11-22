@@ -8,7 +8,7 @@ is the accepted design. As built, it differs in these names and placements:
   through `adopt`/`relabel`); there is no `Frame.scope_label` or `Frame.title`
   attribute.
 - The Scope builder is the public `tools.scope()`, and `Scope` lives in
-  `domain/scope.py` (re-exported by `operations`) with `observed` and
+  `wire/model/scope.py` (re-exported by `operations`) with `observed` and
   `in_process` constructors. `Scope.peer_host` is `Scope.client_host`.
 - The observed host is one immutable `ClientHost` value, captured at each door
   by `ClientHost.of_connection` and required on every lifecycle and registry
@@ -82,11 +82,11 @@ Multi-Hub Topology".
 Code read: `display/replica/{lux_address,address_book,address_rendering,
 frame_book,scene_eviction,scene_departure,scene_replica}.py`,
 `display/menus/{frame_info_popup,connection_panel,windows_menu}.py`,
-`display/dock_pill.py`, `protocol/messages/{scene,scene_codec}.py`,
-`protocol/compositions/client_details.py`,
+`display/dock_pill.py`, `wire/model/messages/{scene,scene_codec}.py`,
+`wire/model/compositions/client_details.py`,
 `domain/hub/{client_session,session_write,hub_clients,listener_legs,
 client_lifecycle,client_roster,menu_presence,owner_tracker,frame_owner_facts,
-scene_snapshot}.py`, `domain/hub_id.py`,
+scene_snapshot}.py`, `wire/model/hub_id.py`,
 `operations/{identity,scope,client_listing,client_identity_facts,
 frame_owner_facts,canonical_frame_owner,details_scene,client_details,
 client_details_port,ports}.py`, `operations/models/query_clients.py`,
@@ -503,7 +503,7 @@ Grouped by commit (next section).
 
 ### Hub label path
 
-- `protocol/messages/scene.py`, `scene_codec.py`: `frame_scope_label`.
+- `wire/model/messages/scene.py`, `scene_codec.py`: `frame_scope_label`.
 - `domain/hub/frame_owner_facts.py` (the port and its Null Object, now
   returning `FrameOwnership`), `scene_snapshot.py`, `scene_presentation.py`,
   `display_link.py`: carry it.
@@ -537,7 +537,7 @@ Grouped by commit (next section).
 
 - `operations/models/query_clients.py`, `operations/client_listing.py`,
   `operations/client_identity_facts.py`,
-  `protocol/compositions/client_details.py`, `operations/ports.py`,
+  `wire/model/compositions/client_details.py`, `operations/ports.py`,
   `hub_composition.py`.
 
 **Docs** (the leader authors `DESIGN.md` and `CHANGELOG.md`):

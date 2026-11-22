@@ -16,7 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ButtonElement,
     FrameReader,
     PingMessage,
@@ -26,7 +26,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 from .display_abstraction import (
     abstract,

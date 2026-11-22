@@ -19,14 +19,14 @@ from typing import Self, cast, final
 from punt_lux.display.client_reader import ClientReader
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
-from punt_lux.protocol import (
+from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model import (
     FrameReader,
     SceneMessage,
     TextElement,
     encode_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
-from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 
 def _server_ctx(ca: CertificateAuthority, tmp_path: Path) -> ssl.SSLContext:

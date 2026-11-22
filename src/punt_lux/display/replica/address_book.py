@@ -3,12 +3,12 @@
 DES-089 closes a bug every aggregating surface (menu, frame, scene, tree
 node) independently risked: keying ImGui identity or a title on a bare
 label lets two same-labeled items collide. :class:`AddressBook` tracks the
-live set of connected :class:`~punt_lux.domain.hub_id.HubId` values and,
+live set of connected :class:`~punt_lux.wire.model.hub_id.HubId` values and,
 per Hub, the live set of connections; answers whether the *Hub* rung is
 ambiguous -- a pure cardinality test, recomputed fresh on every call -- and,
 once the Hub rung is shown, reuses the collision-numbering machinery
 ``ClientRoster`` already applies at Rung 2
-(:class:`~punt_lux.domain.menu_name.MenuNames`) to label it -- "pembroke",
+(:class:`~punt_lux.wire.model.menu_name.MenuNames`) to label it -- "pembroke",
 then "pembroke (2)" for a second Hub on the same host. The connection and
 leaf rungs carry the labels their caller already resolved; whether the
 connection rung is shown is the caller's fact, not a count (DES-100).
@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import Self, final
 
 from punt_lux.display.replica.lux_address import LuxAddress, Rung
-from punt_lux.domain.hub_id import HubId
-from punt_lux.domain.menu_name import MenuNames
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.menu_name import MenuNames
 
 __all__ = ["AddressBook"]
 

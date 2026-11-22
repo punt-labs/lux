@@ -32,16 +32,16 @@ from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.replica.widget_state import WidgetState
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
-from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.group import GroupElement
-from punt_lux.protocol.elements.modal import ModalElement
-from punt_lux.protocol.elements.tab_bar import TabBarElement
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.elements.window import WindowElement
+from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.wire.model.elements.dialog import DialogElement
+from punt_lux.wire.model.elements.group import GroupElement
+from punt_lux.wire.model.elements.modal import ModalElement
+from punt_lux.wire.model.elements.tab_bar import TabBarElement
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.elements.window import WindowElement
 
 if TYPE_CHECKING:
     import pytest

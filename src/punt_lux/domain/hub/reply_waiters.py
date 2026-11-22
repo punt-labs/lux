@@ -24,11 +24,11 @@ from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.domain.hub.owned_condition import OwnedCondition
 from punt_lux.domain.hub.pending import Pending
-from punt_lux.protocol import AckMessage, PongMessage, QueryResponse
+from punt_lux.wire.model import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_end import DialEnd
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 logger = logging.getLogger(__name__)
 

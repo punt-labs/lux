@@ -12,7 +12,7 @@ from typing import ClassVar, Self, final
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["DetailsFrame"]
 

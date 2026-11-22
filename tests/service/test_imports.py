@@ -36,6 +36,7 @@ import pytest
                 "claude_permissions",
                 "config",
                 "display_mode_store",
+                "display_paths",
                 "display_restart",
                 "doctor_checks",
                 "doctor_report",

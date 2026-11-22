@@ -15,14 +15,14 @@ from typing import ClassVar, cast
 
 import pytest
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.button_publish import ButtonPublish
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.elements.button_publish import ButtonPublish
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ButtonClicked
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 
 
 class _RecordingSink:

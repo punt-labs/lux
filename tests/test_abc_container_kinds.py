@@ -8,8 +8,8 @@ mistakenly dropped) is caught against the single source of truth.
 
 from __future__ import annotations
 
-from punt_lux.protocol.elements.abc_container_kinds import DefaultContainerKinds
-from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
+from punt_lux.wire.model.elements.abc_container_kinds import DefaultContainerKinds
+from punt_lux.wire.model.elements.abc_kind_names import AbcKindNames
 
 
 class TestDefaultContainerKinds:

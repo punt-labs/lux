@@ -21,8 +21,8 @@ from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.reconnect_wait import ReconnectWait
-from punt_lux.domain.ids import SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -261,8 +261,8 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
     from punt_lux.domain.hub import hub_display, hub_lifecycle
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol.elements.text import TextElement
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.elements.text import TextElement
 
     conn = ConnectionId("reconcile-boundary-conn")
     kept = SceneId("reconcile-kept")

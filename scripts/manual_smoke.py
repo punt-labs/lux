@@ -57,11 +57,11 @@ from typing import Final, Self, cast
 from PIL import Image, UnidentifiedImageError
 
 from punt_lux.client.facade import LuxClient
-from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.operations import OpError, RenderRequest
 from punt_lux.operations.models.render import FrameSpec
-from punt_lux.protocol import Element
-from punt_lux.protocol.elements import (
+from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.wire.model import Element
+from punt_lux.wire.model.elements import (
     ButtonElement,
     CheckboxElement,
     CollapsingHeaderElement,
@@ -89,17 +89,17 @@ from punt_lux.protocol.elements import (
     TreeElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.draw_bounds import Radius
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
-from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
-from punt_lux.protocol.elements.draw_commands_shape import Circle, Rect, Triangle
-from punt_lux.protocol.elements.draw_commands_text import TextGlyph
-from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
-from punt_lux.protocol.elements.plot_series import PlotSeries
-from punt_lux.protocol.elements.table_flags import TableFlags
-from punt_lux.protocol.elements.tree_node import TreeNode
-from punt_lux.protocol.elements.window_chrome import WindowPlacement
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.wire.model.elements.draw_bounds import Radius
+from punt_lux.wire.model.elements.draw_commands_curve import BezierCubic
+from punt_lux.wire.model.elements.draw_commands_line import Line, Polyline
+from punt_lux.wire.model.elements.draw_commands_shape import Circle, Rect, Triangle
+from punt_lux.wire.model.elements.draw_commands_text import TextGlyph
+from punt_lux.wire.model.elements.draw_values import Color, Point2, Thickness
+from punt_lux.wire.model.elements.plot_series import PlotSeries
+from punt_lux.wire.model.elements.table_flags import TableFlags
+from punt_lux.wire.model.elements.tree_node import TreeNode
+from punt_lux.wire.model.elements.window_chrome import WindowPlacement
+from punt_lux.wire.model.validation_walk import HasChildElements
 
 
 @dataclass(frozen=True, slots=True)

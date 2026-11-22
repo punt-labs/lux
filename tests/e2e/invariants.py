@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.wire.model.messages.observer import ObserverMessage
 
 from .inspection_view import InspectionView
 

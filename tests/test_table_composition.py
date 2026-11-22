@@ -12,19 +12,19 @@ import copy
 
 import pytest
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.domain.selection_interaction import RowSelectionChanged
-from punt_lux.protocol.compositions import (
+from punt_lux.wire.model.compositions import (
     FilteredTableModel,
     TableComposition,
     TableCompositionSpec,
 )
-from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.elements.group import GroupElement
-from punt_lux.protocol.elements.input_text import InputTextElement
-from punt_lux.protocol.elements.markdown import MarkdownElement
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.elements.combo import ComboElement
+from punt_lux.wire.model.elements.group import GroupElement
+from punt_lux.wire.model.elements.input_text import InputTextElement
+from punt_lux.wire.model.elements.markdown import MarkdownElement
+from punt_lux.wire.model.elements.table import TableElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ValueChanged
+from punt_lux.wire.model.selection_interaction import RowSelectionChanged
 
 _SCENE = SceneId("s")
 _OWNER = ClientId("c")
@@ -84,12 +84,12 @@ def _search(group: GroupElement) -> InputTextElement:
 
 class TestDefaultGridRatio:
     def test_no_detail_uses_the_base_grid_ratio(self) -> None:
-        from punt_lux.protocol.compositions.table_chrome import TableChrome
+        from punt_lux.wire.model.compositions.table_chrome import TableChrome
 
         assert TableChrome.default_grid_ratio(None) == 0.6
 
     def test_ratio_shrinks_with_more_fields_and_is_clamped(self) -> None:
-        from punt_lux.protocol.compositions.table_chrome import TableChrome
+        from punt_lux.wire.model.compositions.table_chrome import TableChrome
 
         ratio = TableChrome.default_grid_ratio
         assert ratio({"fields": []}) == 0.6  # base, no trim below the field floor
@@ -375,7 +375,7 @@ class TestDetailBinding:
     def test_detail_shares_the_frame_through_a_draggable_split(self) -> None:
         # The grid and detail are the two panes of a split whose divider the user
         # drags; the grid no longer reserves scroll lines (the split bounds it).
-        from punt_lux.protocol.elements.split_pane import SplitPaneElement
+        from punt_lux.wire.model.elements.split_pane import SplitPaneElement
 
         group = self._master_detail()
         split = group.children[-1]

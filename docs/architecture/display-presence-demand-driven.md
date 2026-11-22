@@ -766,7 +766,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.replicator import HubReplicator
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["DisplayLinkOperations"]
 

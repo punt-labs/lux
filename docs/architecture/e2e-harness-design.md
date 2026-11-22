@@ -93,13 +93,13 @@ in-process illusion the harness exists to kill. The class is now deleted, so
 
 The harness runs the Hub logic and the Display logic in **one process**, wired
 through the shipped `InMemoryConnection`
-([`protocol/in_memory_connection.py`](../../src/punt_lux/protocol/in_memory_connection.py)).
+([`wire/model/in_memory_connection.py`](../../src/punt_lux/wire/model/in_memory_connection.py)).
 
 ### Why the in-memory connection is a faithful boundary, not a stub
 
 `InMemoryConnection` exposes the **identical** `send_line` / `iter_lines` /
 `close` shape as the real `LineSocket` wire transport
-(`protocol/connection.py:59-81`). Both are documented as interchangeable
+(`wire/model/connection.py:59-81`). Both are documented as interchangeable
 backends: `connection.py:7-9` states both "expose the same `send_line` /
 `iter_lines` / `close` shape so consumers don't branch on backend," and
 `in_memory_connection.py:47-53` describes the paired-queue duplex "matching the
@@ -143,7 +143,7 @@ The one deliberate omission is the pixel paint. By
 [target.md](./target/target.md) §Communication Model, "UI state crosses IPC;
 render calls do not." Omitting the paint removes nothing that crosses the loop.
 The
-[`RaisingRendererFactory`](../../src/punt_lux/protocol/renderers/raising.py)
+[`RaisingRendererFactory`](../../src/punt_lux/wire/model/renderers/raising.py)
 enforces this: bound off the wire before rebind (`test_display_rebind.py:56-68`),
 any accidental `render()` call **fails loud** rather than silently passing.
 
@@ -489,7 +489,7 @@ Display method was needed.
   handler (`Element.fire`) — the exact call `ButtonRenderer.render` makes on a
   real click. The wrapped handler routes through the production `_emit_event`,
   producing the same `RemoteEventHandlerInvocation` a real click produces. No
-  test-facing Display method, no protocol/wire message: the injection reuses the
+  test-facing Display method, no wire/model/wire message: the injection reuses the
   shipped remote-dispatch wrapping directly, so the crossed invocation is
   byte-identical to a real click's by construction.
 - **Marker / pyramid slotting:** `@pytest.mark.integration` (Tier-2, **runs in

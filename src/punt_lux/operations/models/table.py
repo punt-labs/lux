@@ -14,7 +14,7 @@ from pydantic import (
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.render import FrameSpec, RenderRequest
-from punt_lux.protocol.compositions import TableCompositionSpec
+from punt_lux.wire.model.compositions import TableCompositionSpec
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -221,8 +221,8 @@ ignore = [
 # Element classes use `id` as a keyword/field name throughout the protocol —
 # it matches the wire format ({"kind":"text","id":...}), the spike, and 55+
 # existing call sites. Shadowing the builtin is the established convention
-# for this directory; A002 is suppressed for protocol/elements/ only.
-"src/punt_lux/protocol/elements/*.py" = ["A002"]
+# for this directory; A002 is suppressed for wire/model/elements/ only.
+"src/punt_lux/wire/model/elements/*.py" = ["A002"]
 "src/punt_lux/service/__init__.py" = ["S603", "S607", "PLC0415"]
 "src/punt_lux/service/_backends.py" = ["S603", "S607"]
 "src/punt_lux/service/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
@@ -233,17 +233,17 @@ ignore = [
 "src/punt_lux/service/_legacy_sweep_systemd.py" = ["S603", "S607"]
 "src/punt_lux/service/_shim_ownership.py" = ["S603", "S607"]
 "tests/e2e/test_binary_sweep.py" = ["S101", "S603", "S607"]
-# Lazy imports to break circular dependency chains in domain/protocol layers
-"src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
+# Lazy imports to break circular dependency chains in model and Hub layers
+"src/punt_lux/wire/model/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/hub_interaction_dispatch.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/element_index.py" = ["PLC0415"]
 "src/punt_lux/domain/hub/builtin_callbacks.py" = ["PLC0415"]
-"src/punt_lux/protocol/element_factory.py" = ["PLC0415"]
-"src/punt_lux/protocol/elements/dialog_codec.py" = ["PLC0415"]
+"src/punt_lux/wire/model/element_factory.py" = ["PLC0415"]
+"src/punt_lux/wire/model/elements/dialog_codec.py" = ["PLC0415"]
 # Lazy import of SceneMessage inside decode() breaks a codec↔message cycle
-"src/punt_lux/protocol/messages/scene_codec.py" = ["PLC0415"]
+"src/punt_lux/wire/model/messages/scene_codec.py" = ["PLC0415"]
 # Native serialization for Hub→Display element transport (trusted IPC)
-"src/punt_lux/protocol/messages/pickled_element_codec.py" = ["S301"]
+"src/punt_lux/wire/model/messages/pickled_element_codec.py" = ["S301"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -381,10 +381,10 @@ adapters = [
     "punt_lux.bounded_send",
     "punt_lux.cli_identity",
     "punt_lux.log_level",
-    "punt_lux.protocol",
-    "punt_lux.protocol.connection",
-    "punt_lux.protocol.renderers",
-    "punt_lux.protocol.renderers.*",
+    "punt_lux.wire.model",
+    "punt_lux.wire.model.connection",
+    "punt_lux.wire.model.renderers",
+    "punt_lux.wire.model.renderers.*",
     "punt_lux.ptyd.input_buffer",
     "punt_lux.ptyd.leader_status",
     "punt_lux.domain.hub.handshake_outcome",
@@ -409,7 +409,7 @@ adapters = [
     "punt_lux.mcp_session_manager",
     "punt_lux.mcp_session_scope",
     "punt_lux.mcp_transport",
-    "punt_lux.paths",
+    "punt_lux.service.display_paths",
     "punt_lux.proctitle",
     "punt_lux.repo_root",
     "punt_lux.rest_error_body",
@@ -609,9 +609,17 @@ domain = [
     "punt_lux.session_key",
     "punt_lux.wire_queue",
     "punt_lux.write_progress",
+    "punt_lux.kernel.connection_id",
+    "punt_lux.kernel.programmer_error",
     "punt_lux.domain",
-    "punt_lux.domain.*",
-    "punt_lux.protocol.*",
+    "punt_lux.domain.hub",
+    "punt_lux.domain.hub.*",
+    "punt_lux.protocol",
+    "punt_lux.protocol.pty",
+    "punt_lux.protocol.pty.*",
+    "punt_lux.wire",
+    "punt_lux.wire.model",
+    "punt_lux.wire.model.*",
     "punt_lux.operations.models",
     "punt_lux.operations.models.*",
     "punt_lux.terminal",

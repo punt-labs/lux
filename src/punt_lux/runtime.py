@@ -12,7 +12,7 @@ import traceback
 from collections.abc import Callable
 from typing import Any, Self, cast
 
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 
 
 class RenderContext:

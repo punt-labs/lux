@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from punt_lux.display.pending_interactions import PendingInteractions
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

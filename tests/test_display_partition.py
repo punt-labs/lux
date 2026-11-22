@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.render_loop import _ORPHAN_FD
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ButtonElement,
     ConnectMessage,
     FrameReader,
@@ -30,7 +30,7 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1449,7 +1449,7 @@ class TestFrameLayoutPartitions:
 
     def test_frame_layout_in_protocol_round_trip(self):
         """frame_layout survives serialization and deserialization."""
-        from punt_lux.protocol import message_from_dict, message_to_dict
+        from punt_lux.wire.model import message_from_dict, message_to_dict
 
         msg = SceneMessage(
             id="s1",
@@ -1465,7 +1465,7 @@ class TestFrameLayoutPartitions:
 
     def test_frame_layout_none_omitted_in_protocol(self):
         """frame_layout=None is stripped from serialized dict."""
-        from punt_lux.protocol import message_to_dict
+        from punt_lux.wire.model import message_to_dict
 
         msg = SceneMessage(
             id="s1",
@@ -1477,7 +1477,7 @@ class TestFrameLayoutPartitions:
 
     def test_invalid_frame_layout_deserialized_as_none(self):
         """Invalid frame_layout values in wire data are discarded."""
-        from punt_lux.protocol import message_from_dict
+        from punt_lux.wire.model import message_from_dict
 
         d = {
             "type": "scene",
@@ -1492,7 +1492,7 @@ class TestFrameLayoutPartitions:
 
     def test_non_string_frame_layout_deserialized_as_none(self):
         """Non-string frame_layout values in wire data are discarded."""
-        from punt_lux.protocol import message_from_dict
+        from punt_lux.wire.model import message_from_dict
 
         d = {
             "type": "scene",

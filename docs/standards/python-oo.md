@@ -18,7 +18,7 @@ that define or exercise runtime seams.
 It applies especially to:
 
 - domain objects
-- protocol/message/element types
+- wire/model/message/element types
 - Hub and Display coordination
 - handler dispatch
 - state mutation and validation paths

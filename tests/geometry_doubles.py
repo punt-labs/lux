@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.display.geometry_capture import GeometryCapture
-from punt_lux.protocol.geometry import Rect
+from punt_lux.wire.model.geometry import Rect
 
 __all__ = ["EXPECTED_RECT", "FakeGeomImgui", "GeomFactory"]
 

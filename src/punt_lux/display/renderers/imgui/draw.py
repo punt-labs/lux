@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.draw import DrawElement
+from punt_lux.wire.model.elements.draw import DrawElement
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory

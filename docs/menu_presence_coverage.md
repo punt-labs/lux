@@ -142,23 +142,23 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | A9 | departure lands just before the record | marks; one sink; later departure marks | `test_identity_menu.py::test_a_departure_landing_before_the_record_still_marks_and_binds` (the before-snapshot window itself no longer exists; the test pins the end state under the lock) | covered |
 | A10 | non-agent identify (a cli) | no mark; no sink | `test_identity_menu.py::test_a_cli_identify_marks_nothing_and_binds_no_sink` | covered |
 | A11 | the record and the bind are one step | a departure cannot interleave | `test_identity_menu.py::test_a_departure_cannot_interleave_with_binding_the_sink` | covered |
-| A12 | a lapsed agent re-identifies as a non-agent (a `cli`) | marks; its entry is gone; scenes marked; no ghost after the lease renews | `tests/domain/test_client_lifecycle_callbacks.py::TestReDeclaring::test_a_lapsed_agent_re_identifying_as_a_cli_marks_and_stays_gone`, `::test_a_live_agent_re_identifying_as_a_cli_marks`; the rule itself: `::TestTheWithdrawalRule::test_a_live_withdrawal_is_revised`, `::test_a_lapsed_withdrawal_is_revised_too`, `::test_a_session_that_never_earned_reads_unchanged`, `::test_a_gain_still_reads_the_lease` | covered |
+| A12 | a lapsed agent re-identifies as a non-agent (a `cli`) | marks; its entry is gone; scenes marked; no ghost after the lease renews | `tests/wire/model/test_client_lifecycle_callbacks.py::TestReDeclaring::test_a_lapsed_agent_re_identifying_as_a_cli_marks_and_stays_gone`, `::test_a_live_agent_re_identifying_as_a_cli_marks`; the rule itself: `::TestTheWithdrawalRule::test_a_live_withdrawal_is_revised`, `::test_a_lapsed_withdrawal_is_revised_too`, `::test_a_session_that_never_earned_reads_unchanged`, `::test_a_gain_still_reads_the_lease` | covered |
 
 ### C: the callback route (INV-1)
 
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
 | C1 | non-agent attach (applet), no callback | registered, leg open; no mark; no sink | `test_ws_listen.py::test_a_first_leg_with_no_entries_to_clear_asks_for_no_menu_push` (marks only; the sink count is not asserted) | partial |
-| C2 | `register_callback` on an attached, identified, live applet | marks; exactly one sink; entry listed | `tests/operations/test_callback_operations.py::test_an_identified_listening_session_registers_and_the_menu_is_pushed` (mark, listing), `::test_registering_a_callback_binds_exactly_one_menu_sink` (sink); `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_marks_the_menus_and_binds_exactly_one_sink`, `::test_registering_again_still_leaves_one_sink` | covered |
-| C3 | the INV-1 regression: applet attach, `register_callback`, lapse, `depart_lapsed` | the departure marks; exactly one sink fired; entry gone | `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_an_applet_that_registers_then_lapses_is_departed_with_one_mark` | covered |
-| C4 | `register_callback` is a `ClientLifecycle` step: the store lock is held while the leg is written | no write to the registry's callbacks outside the store lock | `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_is_one_step_under_the_store_lock`; `::TestDetaching::test_is_one_step_under_the_store_lock` (detach) | covered |
-| C5 | `register_callback` revives a lapsed, still-reachable applet | marks; one sink; scenes marked | `tests/operations/test_callback_operations.py::test_registering_on_a_lapsed_reachable_applet_marks_menus_and_binds_one_sink`; `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_revives_a_lapsed_but_reachable_applet_with_one_sink_and_marks_its_scenes` | covered |
-| C6 | `detach` of a callback-only applet | marks; entry gone; session, lease and sink persist | `tests/domain/test_client_lifecycle_callbacks.py::TestDetaching::test_a_callback_only_applet_withdraws_its_entry_and_keeps_session_and_sink`; also `tests/test_ws_listen.py::test_a_departed_connections_menu_items_leave_with_it` | covered |
-| C7 | `detach` of a lapsed callback-only applet whose entry is still shown (INV-1b) | marks; entry gone | `tests/domain/test_client_lifecycle_callbacks.py::TestDetaching::test_a_lapsed_callback_only_applet_still_marks_the_withdrawal` | covered |
-| C8 | `detach` of an agent holding callbacks | no entry change; sink persists | `tests/domain/test_client_lifecycle_callbacks.py::TestDetaching::test_an_agent_holding_callbacks_stays_listed_and_keeps_its_sink` | covered |
+| C2 | `register_callback` on an attached, identified, live applet | marks; exactly one sink; entry listed | `tests/operations/test_callback_operations.py::test_an_identified_listening_session_registers_and_the_menu_is_pushed` (mark, listing), `::test_registering_a_callback_binds_exactly_one_menu_sink` (sink); `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_marks_the_menus_and_binds_exactly_one_sink`, `::test_registering_again_still_leaves_one_sink` | covered |
+| C3 | the INV-1 regression: applet attach, `register_callback`, lapse, `depart_lapsed` | the departure marks; exactly one sink fired; entry gone | `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_an_applet_that_registers_then_lapses_is_departed_with_one_mark` | covered |
+| C4 | `register_callback` is a `ClientLifecycle` step: the store lock is held while the leg is written | no write to the registry's callbacks outside the store lock | `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_is_one_step_under_the_store_lock`; `::TestDetaching::test_is_one_step_under_the_store_lock` (detach) | covered |
+| C5 | `register_callback` revives a lapsed, still-reachable applet | marks; one sink; scenes marked | `tests/operations/test_callback_operations.py::test_registering_on_a_lapsed_reachable_applet_marks_menus_and_binds_one_sink`; `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_revives_a_lapsed_but_reachable_applet_with_one_sink_and_marks_its_scenes` | covered |
+| C6 | `detach` of a callback-only applet | marks; entry gone; session, lease and sink persist | `tests/wire/model/test_client_lifecycle_callbacks.py::TestDetaching::test_a_callback_only_applet_withdraws_its_entry_and_keeps_session_and_sink`; also `tests/test_ws_listen.py::test_a_departed_connections_menu_items_leave_with_it` | covered |
+| C7 | `detach` of a lapsed callback-only applet whose entry is still shown (INV-1b) | marks; entry gone | `tests/wire/model/test_client_lifecycle_callbacks.py::TestDetaching::test_a_lapsed_callback_only_applet_still_marks_the_withdrawal` | covered |
+| C8 | `detach` of an agent holding callbacks | no entry change; sink persists | `tests/wire/model/test_client_lifecycle_callbacks.py::TestDetaching::test_an_agent_holding_callbacks_stays_listed_and_keeps_its_sink` | covered |
 | C9 | `detach` by a session that lost the slot | clears nothing; marks nothing | `test_ws_listen.py::test_a_superseded_sessions_teardown_leaves_its_successor_whole`, `test_hub_clients.py::test_a_teardown_by_a_session_that_lost_the_slot_removes_nothing` | covered |
 | C10 | re-attach clears the predecessor's callbacks | marks | `test_ws_listen.py::test_a_new_leg_arrives_with_none_of_its_predecessors_menu_entries`, `test_hub_clients.py::test_attaching_over_callbacks_revises_the_menu_though_presence_held` | covered (live case) |
-| C11 | re-attach clears callbacks of a lapsed applet (INV-1b) | marks | `tests/domain/test_client_lifecycle_callbacks.py::TestAttachingOverCallbacks::test_the_callbacks_of_a_lapsed_applet_are_cleared_with_a_mark` | covered |
+| C11 | re-attach clears callbacks of a lapsed applet (INV-1b) | marks | `tests/wire/model/test_client_lifecycle_callbacks.py::TestAttachingOverCallbacks::test_the_callbacks_of_a_lapsed_applet_are_cleared_with_a_mark` | covered |
 | C12 | `register_callback` refused (no leg, anonymous, superseded) | nothing marks, nothing binds | `test_callback_operations.py::test_registration_requires_a_push_reachable_connection`, `test_a_dropped_listener_closes_the_door_to_new_registrations`; `test_hub_clients.py::test_register_callback_refuses_an_unknown_session`, `test_register_callback_refuses_a_lapsed_session`, `test_a_registration_gated_against_a_departed_leg_is_refused`, `test_a_registration_lands_on_the_leg_that_now_holds_the_connection` | covered |
 
 ### DP: departure (graceful drop, lease sweep)
@@ -166,12 +166,12 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
 | DP1 | graceful drop of an earning agent | marks; entry gone; sink fired and unbound | `test_identity_menu.py::test_its_departure_marks_menus_and_the_entry_is_gone` | covered |
-| DP2 | sweep of a lapsed earning agent | marks; entry gone | `test_identity_menu.py::test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone`; `tests/domain/test_menu_departure_cascade.py::test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push` | covered |
+| DP2 | sweep of a lapsed earning agent | marks; entry gone | `test_identity_menu.py::test_a_lease_lapse_reap_marks_menus_and_the_entry_is_gone`; `tests/wire/model/test_menu_departure_cascade.py::test_a_lease_lapse_departure_marks_the_menu_bar_for_re_push` | covered |
 | DP3 | sweep of a lapsed agent attached by the listen leg | marks; entry gone | `test_ws_listen.py::test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it` | covered |
 | DP4 | departure of a non-earning session | no mark | `test_identity_menu.py::test_a_non_agent_departure_marks_nothing` | covered |
 | DP5 | departure of a connection whose socket is still open | registry and sink released; a later frame revives (see A8) | `test_ws_listen.py::test_a_swept_session_with_an_open_socket_is_revived_by_the_next_frame_marking_menus_and_binding_one_sink` | covered |
 | DP6 | a revived session later departs | marks; entry gone (no ghost) | `test_ws_listen.py::test_a_revived_session_departs_with_a_mark_not_a_ghost` | covered |
-| DP7 | departure (graceful or sweep) of a callback-only applet | marks via its sink; entry gone | `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_a_callback_only_applet_departs_with_a_mark_when_dropped` (graceful), `::test_an_applet_that_registers_then_lapses_is_departed_with_one_mark` (sweep) | covered |
+| DP7 | departure (graceful or sweep) of a callback-only applet | marks via its sink; entry gone | `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_a_callback_only_applet_departs_with_a_mark_when_dropped` (graceful), `::test_an_applet_that_registers_then_lapses_is_departed_with_one_mark` (sweep) | covered |
 | DP8 | the sweep departs every lapsed agent in one pass | marks; both gone | `test_identity_menu.py::test_the_sweep_removes_every_lapsed_agent_with_a_mark` | covered |
 
 ### L: lapse and renewal (the D4 cluster)
@@ -185,28 +185,28 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | L3c | renewed by the read loop's frame | marks; entry restored | `test_ws_listen.py::test_a_read_loop_frame_renewing_a_lapsed_agent_marks_menus_and_restores_its_entry` | covered |
 | L3d | renewal of a live agent | no mark | `test_identity_menu.py::test_repeating_an_identical_identify_marks_menus_once`; `test_ws_listen.py::test_a_read_loop_frame_on_a_live_session_only_renews` | covered |
 | L3e | one sink after the revival | exactly one | `test_identity_menu.py::test_renewing_a_lapsed_agent_leaves_exactly_one_menu_sink` | covered |
-| L4 | a renewing menu owner keeps its bar across reap opportunities | listed | `tests/domain/test_menu_departure_cascade.py::test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities` (menu owner, not agent) | partial |
+| L4 | a renewing menu owner keeps its bar across reap opportunities | listed | `tests/wire/model/test_menu_departure_cascade.py::test_a_renewing_menu_owner_keeps_its_bar_across_reap_opportunities` (menu owner, not agent) | partial |
 | L5 | `renew_if_registered` and `record` report a revival as `gained` | `gained` | `test_hub_clients.py::test_record_reports_a_lapsed_agents_renewal_as_gained`, `test_renew_if_registered_reports_a_revival_and_never_registers` | covered |
 
 ### B: the label of a renumbered survivor (INV-2)
 
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
-| B1 | a departure that frees a base name marks the survivor's scenes | survivor's scenes marked | `tests/domain/test_label_churn.py::test_the_survivor_that_inherits_the_base_name_is_marked` | covered |
+| B1 | a departure that frees a base name marks the survivor's scenes | survivor's scenes marked | `tests/wire/model/test_label_churn.py::test_the_survivor_that_inherits_the_base_name_is_marked` | covered |
 | B2 | the lease sweep marks the survivor the same way | marked | `test_label_churn.py::test_a_lease_sweep_marks_the_survivor_the_same_way` | covered |
 | B3 | a departure that moves no name marks nothing | nothing | `test_label_churn.py::test_a_departure_that_moves_no_name_marks_nothing` | covered |
 | B4 | naming a connection marks its scenes | marked | `test_label_churn.py::test_naming_a_connection_marks_the_scenes_it_already_shows` | covered |
-| B5 | a lapsed-but-unswept owner resolves to no label (the premise of INV-2) | `facts_for` reports empty | `tests/domain/test_label_revival.py::TestTheLabelFollowsTheRevival::test_a_lapsed_unswept_owner_reports_no_label` | covered |
-| B6 | revival by `renew` marks the connection's scenes | marked | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_renew` | covered |
-| B7 | revival by `arrive` marks them | marked | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_arrive` | covered |
-| B8 | revival by `identify` (an MCP call) marks them | marked | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_identify_with_the_same_declaration` | covered |
-| B9 | revival by `attach` (listen leg) marks them | marked | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_attach` | covered |
+| B5 | a lapsed-but-unswept owner resolves to no label (the premise of INV-2) | `facts_for` reports empty | `tests/wire/model/test_label_revival.py::TestTheLabelFollowsTheRevival::test_a_lapsed_unswept_owner_reports_no_label` | covered |
+| B6 | revival by `renew` marks the connection's scenes | marked | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_renew` | covered |
+| B7 | revival by `arrive` marks them | marked | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_arrive` | covered |
+| B8 | revival by `identify` (an MCP call) marks them | marked | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_identify_with_the_same_declaration` | covered |
+| B9 | revival by `attach` (listen leg) marks them | marked | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_attach` | covered |
 | B10 | revival by the read loop's frame marks them | marked | `tests/test_ws_listen.py::test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes` | covered |
-| B11 | revival by `register_callback` marks them | marked | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_register_callback` | covered |
-| B12 | revival of a session that earns nothing (a cli) marks its scenes | marked (this is the lapse, not the presence change) | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_a_session_that_earns_nothing_is_revived_too` | covered |
-| B13 | renewal of a live session marks no scenes | nothing | `tests/domain/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_a_live_renewal_marks_no_scenes` | covered |
-| B14 | an empty push evicts the oldest scene while the new owner is lapsed (`relabel(None)`); revival repairs the label | label restored after revival | `tests/domain/test_label_revival.py::TestTheLabelFollowsTheRevival::test_an_emptied_frame_blanked_for_a_lapsed_owner_is_repaired_by_revival` | covered |
-| B15 | end to end: renumber a lapsed survivor, push, renew it, push | the frame shows the current label | `tests/domain/test_label_revival.py::TestTheLabelFollowsTheRevival::test_a_renumbered_lapsed_survivor_shows_its_current_label_after_reviving` | covered |
+| B11 | revival by `register_callback` marks them | marked | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_register_callback` | covered |
+| B12 | revival of a session that earns nothing (a cli) marks its scenes | marked (this is the lapse, not the presence change) | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_a_session_that_earns_nothing_is_revived_too` | covered |
+| B13 | renewal of a live session marks no scenes | nothing | `tests/wire/model/test_label_revival.py::TestEveryStepThatEndsALapseMarksTheScenes::test_a_live_renewal_marks_no_scenes` | covered |
+| B14 | an empty push evicts the oldest scene while the new owner is lapsed (`relabel(None)`); revival repairs the label | label restored after revival | `tests/wire/model/test_label_revival.py::TestTheLabelFollowsTheRevival::test_an_emptied_frame_blanked_for_a_lapsed_owner_is_repaired_by_revival` | covered |
+| B15 | end to end: renumber a lapsed survivor, push, renew it, push | the frame shows the current label | `tests/wire/model/test_label_revival.py::TestTheLabelFollowsTheRevival::test_a_renumbered_lapsed_survivor_shows_its_current_label_after_reviving` | covered |
 
 ### S: sinks (P2)
 
@@ -215,35 +215,35 @@ has exactly one bound menu sink afterwards. Identifiers: **A** agent record,
 | S1 | after identify, one sink | one | `test_identity_menu.py::test_identify_binds_exactly_one_menu_sink` | covered |
 | S2 | N reconnects of one identity | still one | `test_ws_listen.py::test_reconnecting_the_same_identity_n_times_leaves_one_menu_sink` | covered |
 | S3 | the sink `ws_listen` binds compares equal across attaches | one object | `test_ws_listen.py::test_the_menu_sink_ws_listen_binds_is_the_same_object_on_every_attach` | covered |
-| S4 | departure fires and unbinds | zero afterwards | `tests/domain/test_departure_sinks.py::test_fire_unbinds_so_a_second_fire_is_a_noop`, `test_binding_the_same_sink_twice_fires_it_once` | covered at unit level |
+| S4 | departure fires and unbinds | zero afterwards | `tests/wire/model/test_departure_sinks.py::test_fire_unbinds_so_a_second_fire_is_a_noop`, `test_binding_the_same_sink_twice_fires_it_once` | covered at unit level |
 | S5 | no bound sink references a departed listen session | no reference | `test_ws_listen.py::test_no_bound_sink_references_a_departed_listen_session` | covered |
-| S6 | `MenuPresence` binds the same sink object on every announcement | one object | `tests/domain/test_menu_presence.py::test_every_announcement_binds_the_same_sink_object` | covered |
-| S7 | a callback-only applet has exactly one sink after `register_callback`, none after `depart` | one; zero | `tests/domain/test_client_lifecycle_callbacks.py::TestRegistering::test_marks_the_menus_and_binds_exactly_one_sink`, `::test_registering_again_still_leaves_one_sink`, `::test_a_callback_only_applet_departs_with_a_mark_when_dropped`; `tests/operations/test_callback_operations.py::test_registering_a_callback_binds_exactly_one_menu_sink` | covered |
+| S6 | `MenuPresence` binds the same sink object on every announcement | one object | `tests/wire/model/test_menu_presence.py::test_every_announcement_binds_the_same_sink_object` | covered |
+| S7 | a callback-only applet has exactly one sink after `register_callback`, none after `depart` | one; zero | `tests/wire/model/test_client_lifecycle_callbacks.py::TestRegistering::test_marks_the_menus_and_binds_exactly_one_sink`, `::test_registering_again_still_leaves_one_sink`, `::test_a_callback_only_applet_departs_with_a_mark_when_dropped`; `tests/operations/test_callback_operations.py::test_registering_a_callback_binds_exactly_one_menu_sink` | covered |
 
 ### P: push (P1)
 
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
-| P-1 | push with a mark pending shows exactly the earning set | shown equals earning | `tests/domain/test_hub_replicator.py::test_menu_state_is_pushed_from_a_fresh_registry_read`; `tests/integration/test_clients_menu_round_trip.py::test_the_display_draws_what_the_hub_composed` | covered |
-| P-2 | the executable invariants: a seeded random walk of the model's operations against the real lifecycle, a recording marker and the production roster and label readers; after every step P1 (live earning sessions in the roster, nothing unregistered shown), P2 (a departing earning session fires exactly one sink, none more) and P3 (a live session's scenes show the current label unless a mark is pending) | P1, P2, P3 | `tests/domain/test_menu_presence_model.py::test_every_invariant_holds_after_every_step` (parametrised over seeds; P2 is observed at departure, not as a bound-sink count) | covered |
+| P-1 | push with a mark pending shows exactly the earning set | shown equals earning | `tests/wire/model/test_hub_replicator.py::test_menu_state_is_pushed_from_a_fresh_registry_read`; `tests/integration/test_clients_menu_round_trip.py::test_the_display_draws_what_the_hub_composed` | covered |
+| P-2 | the executable invariants: a seeded random walk of the model's operations against the real lifecycle, a recording marker and the production roster and label readers; after every step P1 (live earning sessions in the roster, nothing unregistered shown), P2 (a departing earning session fires exactly one sink, none more) and P3 (a live session's scenes show the current label unless a mark is pending) | P1, P2, P3 | `tests/wire/model/test_menu_presence_model.py::test_every_invariant_holds_after_every_step` (parametrised over seeds; P2 is observed at departure, not as a bound-sink count) | covered |
 
 ### K: lock order
 
 | # | Partition | Expected | Covering test | Status |
 |---|---|---|---|---|
-| K1 | `PresenceWrites.record`, `renew_if_registered`, `discard`, `reap_lapsed`, `attach`, `register_callback` and `detach` complete while another thread holds the store write lock | the registry never waits on the store lock | `tests/domain/test_client_lifecycle_lock_order.py::TestRegistryWritesNeverWaitOnTheStoreLock::test_every_registry_write_completes_while_the_store_lock_is_held` | covered |
-| K2 | a presence-changing `ClientLifecycle` step (including `register_callback` and `detach`) completes while a reader holds the registry lock | no deadlock | `tests/domain/test_client_lifecycle_lock_order.py::TestLifecycleStepsNeverWaitOnAReader::test_every_step_completes_once_the_reader_lets_go` (identify, register_callback, detach, depart_lapsed) | covered |
+| K1 | `PresenceWrites.record`, `renew_if_registered`, `discard`, `reap_lapsed`, `attach`, `register_callback` and `detach` complete while another thread holds the store write lock | the registry never waits on the store lock | `tests/wire/model/test_client_lifecycle_lock_order.py::TestRegistryWritesNeverWaitOnTheStoreLock::test_every_registry_write_completes_while_the_store_lock_is_held` | covered |
+| K2 | a presence-changing `ClientLifecycle` step (including `register_callback` and `detach`) completes while a reader holds the registry lock | no deadlock | `tests/wire/model/test_client_lifecycle_lock_order.py::TestLifecycleStepsNeverWaitOnAReader::test_every_step_completes_once_the_reader_lets_go` (identify, register_callback, detach, depart_lapsed) | covered |
 
 ## Tests the implementation mission added
 
 Every test the previous revision of this audit named as missing now exists and is
 mapped in the tables above (verified by name against `tests/`):
 
-- `tests/domain/test_client_lifecycle_callbacks.py`: C3, C4, C5, C6, C7, C8, C11, C12, A12, S7, DP7 and the withdrawal rule.
-- `tests/domain/test_label_revival.py`: B5 to B9, B11 to B15; B10 is `tests/test_ws_listen.py::test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes`.
+- `tests/wire/model/test_client_lifecycle_callbacks.py`: C3, C4, C5, C6, C7, C8, C11, C12, A12, S7, DP7 and the withdrawal rule.
+- `tests/wire/model/test_label_revival.py`: B5 to B9, B11 to B15; B10 is `tests/test_ws_listen.py::test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes`.
 - `tests/operations/test_callback_operations.py`: C2, C5.
-- `tests/domain/test_client_lifecycle_lock_order.py`: K1, K2.
-- `tests/domain/test_menu_presence_model.py`: P-2.
+- `tests/wire/model/test_client_lifecycle_lock_order.py`: K1, K2.
+- `tests/wire/model/test_menu_presence_model.py`: P-2.
 
 No partition is MISSING. The partials that remain are C1 (marks only; its sink
 count is not asserted) and L4 (a menu owner, not an agent), both unchanged.
@@ -261,7 +261,7 @@ count is not asserted) and L4 (a menu owner, not an agent), both unchanged.
    every presence write; `CallbackOperations` and `ws_listen` hold none.
    (Checked: neither `operations/callbacks.py` nor `ws_listen.py` names
    `PresenceWrites` or `take_writes`; the structural guard
-   `tests/domain/test_presence_writes_only_through_lifecycle.py` reads the source.)
+   `tests/wire/model/test_presence_writes_only_through_lifecycle.py` reads the source.)
 4. No lease ADR is amended; DES-101 is amended for the callback route. The DESIGN.md entry for this work cites DES-057, DES-058,
    DES-064, DES-067, DES-094, DES-098, DES-099, DES-100 and DES-101 (the entry is
    the leader's and is not audited here).

@@ -20,14 +20,14 @@ from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
 from punt_lux.display.renderers.imgui.table_selection import TableRowSelection
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.selection_interaction import RowSelectionChanged
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.selection_interaction import RowSelectionChanged
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from punt_lux.display.replica.widget_state import WidgetState
-    from punt_lux.protocol.elements.table import TableElement
+    from punt_lux.wire.model.elements.table import TableElement
 
 __all__ = ["Pair", "TableRowPainter"]
 

@@ -11,7 +11,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import UNSUPPORTED_PROTOCOL_VERSION
 from mcp_types.version import HANDSHAKE_PROTOCOL_VERSIONS
 
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.mcp_session import SessionRegistry
 from punt_lux.mcp_session_scope import McpSessionScope
 from punt_lux.session_cleanup import SessionCleanup

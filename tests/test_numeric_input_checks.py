@@ -17,7 +17,7 @@ import math
 
 import pytest
 
-from punt_lux.protocol.elements.numeric_input_checks import NumericInputChecks
+from punt_lux.wire.model.elements.numeric_input_checks import NumericInputChecks
 
 _FALLBACK = 5.0
 

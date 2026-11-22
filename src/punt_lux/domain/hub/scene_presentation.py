@@ -23,15 +23,15 @@ from typing import (
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
-from punt_lux.domain.ids import SceneId
-from punt_lux.protocol import SceneMessage
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from punt_lux.domain.element import Element as WireElement
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol import Element as ProtocolElement
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model import Element as ProtocolElement
+    from punt_lux.wire.model.element import Element as WireElement
 
 __all__ = [
     "SceneLayout",

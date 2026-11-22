@@ -24,11 +24,11 @@ from punt_lux.domain.hub.handshake_outcome import (
     DisplayNotConnectedError,
     HandshakeResult,
 )
-from punt_lux.domain.hub_id import HubId
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from punt_lux.send_timeout import set_send_timeout
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.wire.model import ConnectMessage, ReadyMessage, recv_message, send_message
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 __all__ = ["HandshakeConnector", "HandshakeResult"]
 

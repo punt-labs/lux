@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.wire.model.elements.element_wire import ElementWireContext
 
 
 @pytest.fixture

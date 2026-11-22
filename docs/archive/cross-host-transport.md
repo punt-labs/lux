@@ -29,7 +29,7 @@ machine is involved.
 
 Today the Hub-to-Display leg is a single mechanism doing two jobs at once:
 `AF_UNIX`, mode `0700`, one well-known path per user
-(`display/socket_server.py`, `paths.py`). The socket's filesystem permission
+(`display/socket_server.py`, `service/display_paths.py`). The socket's filesystem permission
 *is* the entire trust model — anything that can open the path is, by
 construction, a process the same OS user already controls. `transport_policy.py`
 states the analogous refusal explicitly for luxd's other leg (MCP/REST):
@@ -337,7 +337,7 @@ style preference: fewer interleavings is less attack surface to
 reason about, model, and get wrong.
 
 The wire protocol itself — message framing, `ConnectMessage`,
-`SceneMessage`, everything in `protocol/` — does not change. This is the
+`SceneMessage`, everything in `wire/model/` — does not change. This is the
 architectural payoff of treating TLS as a socket-layer concern: the
 Hub-to-Display application protocol addressing.md builds on is identical
 on both legs, and a Hub process's own code (`DisplayLink.connect`) differs

@@ -24,7 +24,7 @@ from __future__ import annotations
 from hashlib import blake2s
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

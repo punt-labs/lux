@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.departure_sinks import DepartureSink
     from punt_lux.domain.hub.menu_listing import PresenceChange
     from punt_lux.domain.hub.replicator_ports import DirtyMarker
-    from punt_lux.domain.ids import ConnectionId, SceneId
+    from punt_lux.wire.model import ConnectionId, SceneId
 
 __all__ = ["MarkMenusSink", "MenuPresence", "SinkBinder"]
 

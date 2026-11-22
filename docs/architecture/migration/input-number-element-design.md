@@ -5,8 +5,8 @@
 **Kind:** `input_number` — interactive value input, the **4th** non-atomic
 mutable kind after `input_text`, `slider`, `color_picker`.
 **Exemplar:** the shipped `slider` migration — its ABC element
-([`slider.py`](../../../src/punt_lux/protocol/elements/slider.py)), its OO codec
-([`slider_codec.py`](../../../src/punt_lux/protocol/elements/slider_codec.py)),
+([`slider.py`](../../../src/punt_lux/wire/model/elements/slider.py)), its OO codec
+([`slider_codec.py`](../../../src/punt_lux/wire/model/elements/slider_codec.py)),
 its commit-on-idle renderer
 ([`slider_renderer.py`](../../../src/punt_lux/display/renderers/slider_renderer.py))
 and adapter
@@ -251,13 +251,13 @@ absence = no tooltip).
 ### 3.2 `InputNumberElement` on the Element ABC
 
 Replace the legacy frozen dataclass at
-[`input_number.py`](../../../src/punt_lux/protocol/elements/input_number.py) with
+[`input_number.py`](../../../src/punt_lux/wire/model/elements/input_number.py) with
 an `Element` ABC subclass, `@final`, mirroring
-[`slider.py`](../../../src/punt_lux/protocol/elements/slider.py) (PY-CC-1
+[`slider.py`](../../../src/punt_lux/wire/model/elements/slider.py) (PY-CC-1
 `__new__`, PY-IC-2 `@final`):
 
 - Keyword-only `__new__` with the `RAISING_FACTORY` / `NO_EMIT` sentinels from
-  [`abc_di_defaults`](../../../src/punt_lux/protocol/elements/abc_di_defaults.py);
+  [`abc_di_defaults`](../../../src/punt_lux/wire/model/elements/abc_di_defaults.py);
   `super().__new__(cls, renderer_factory=…, emit=…)`.
 - `_kind: Literal["input_number"]` set in `__new__`; `kind` property returns it.
 - Typed fields per §3.1. Variant-derived default format via a module constant
@@ -268,7 +268,7 @@ an `Element` ABC subclass, `@final`, mirroring
 - Read-only `@property` accessors for every field (PY-EN-2), plus
   `action -> Literal["changed"]`.
 - `_set_<field>` setters using
-  [`PatchField`](../../../src/punt_lux/protocol/elements/patch_field.py):
+  [`PatchField`](../../../src/punt_lux/wire/model/elements/patch_field.py):
   `_set_value` via `.as_number`; `_set_min` / `_set_max` / `_set_step` via a
   **new** `PatchField.as_optional_number` (returns `float | None` — the small
   helper this migration adds, §3.6); `_set_format` / `_set_label` via `.as_str`;
@@ -276,7 +276,7 @@ an `Element` ABC subclass, `@final`, mirroring
   numeric setters only coerce — the range/finiteness invariant is re-checked once
   for the whole element at the boundary, never per setter (§3.3).
 - `apply_patch` override, verbatim in shape from
-  [`slider.py:164`](../../../src/punt_lux/protocol/elements/slider.py): snapshot
+  [`slider.py:164`](../../../src/punt_lux/wire/model/elements/slider.py): snapshot
   `vars(self)`, run the base setter loop, re-check `_range_error_messages()`, roll
   the element back whole on failure. This is why a combined
   `{"value": 150, "max": 200}` applied value-first against a stale `max` is judged
@@ -285,7 +285,7 @@ an `Element` ABC subclass, `@final`, mirroring
   `(RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)` — the whole
   of the D21 wiring; the inverted wrap seam needs no `isinstance` branch.
 - `to_dict` / `from_dict` delegators to the codec (§3.4), keeping the structural
-  `domain.element.Element` Protocol satisfied.
+  `wire.model.element.Element` Protocol satisfied.
 - `validate()` (§3.5), `widget_value()` returning `self._value`, and
   `resolved_props()` returning `value` / `min` / `max` / `step` / `format` /
   `integer` / `tooltip`.
@@ -296,7 +296,7 @@ Because `min`/`max`/`value` are all patchable, the invariant is re-checked for t
 whole element at the boundary — not per setter — via a single
 `_range_error_messages()` predicate that backs both `validate()` and the
 `apply_patch` re-check, exactly as `slider`
-([`slider.py:190`](../../../src/punt_lux/protocol/elements/slider.py)). The
+([`slider.py:190`](../../../src/punt_lux/wire/model/elements/slider.py)). The
 predicate differs from `slider`'s only in skipping a bound comparison when that
 bound is `None` (optional bounds, §3.1): a missing lower bound imposes no lower
 constraint; a missing upper bound none upper.
@@ -306,10 +306,10 @@ constraint; a missing upper bound none upper.
 A new module `input_number_codec.py` holding `JsonInputNumberDecoder` +
 `JsonInputNumberEncoder` as **classes with methods** — never module-level
 `_input_number_to_dict` / `_from_dict` functions (PY-OO-5, PY-OO-7), the pattern
-[`slider_codec.py`](../../../src/punt_lux/protocol/elements/slider_codec.py)
+[`slider_codec.py`](../../../src/punt_lux/wire/model/elements/slider_codec.py)
 establishes and the CLAUDE.md "protocol codec functions" debt note demands. The
 legacy `InputNumberElement.to_dict`/`.from_dict`
-([`input_number.py:36`](../../../src/punt_lux/protocol/elements/input_number.py))
+([`input_number.py:36`](../../../src/punt_lux/wire/model/elements/input_number.py))
 are the procedural pattern being retired.
 
 - **`JsonInputNumberDecoder`** — constructed once per tier with that tier's
@@ -317,7 +317,7 @@ are the procedural pattern being retired.
   boundary through `ElementWireContext.for_kind("input_number")`:
   `require_str("id")`, `optional_number("value")`,
   `optional_nullable_number("min"/"max"/"step")` (the helper the legacy
-  `from_dict` already uses — [`element_wire.py:124`](../../../src/punt_lux/protocol/elements/element_wire.py)),
+  `from_dict` already uses — [`element_wire.py:124`](../../../src/punt_lux/wire/model/elements/element_wire.py)),
   `optional_nullable_str("format")`, `optional_bool("integer")`,
   `optional_nullable_str("tooltip")`; constructs the element; **installs the
   built-in `_UpdateValueHandler`** via `add_handler(ValueChanged, …)`; then
@@ -330,7 +330,7 @@ are the procedural pattern being retired.
   the legacy `to_dict` byte-for-byte in the tooltip-absent case; a present tooltip
   is new wire (§4).
 - A `build_standalone_input_number_handler_decoder` builder (mirroring
-  [`build_standalone_slider_handler_decoder`](../../../src/punt_lux/protocol/standalone_slider_handler.py))
+  [`build_standalone_slider_handler_decoder`](../../../src/punt_lux/wire/model/standalone_slider_handler.py))
   so `InputNumberElement.from_dict` decodes a handler-less input with a
   `RaisingPublishSink`.
 
@@ -339,7 +339,7 @@ are the procedural pattern being retired.
 Per [`element-contract.md`](../../target/element-contract.md) §"Validation
 Contract" and the "validation rides with migration" rule, `input_number` gains
 its `validate()` as part of this migration. `slider.validate()`
-([`slider.py:249`](../../../src/punt_lux/protocol/elements/slider.py)) is the
+([`slider.py:249`](../../../src/punt_lux/wire/model/elements/slider.py)) is the
 exemplar; the checks, aggregated (no fail-fast), each a
 `ValidationError(self._id, self._kind, message)`:
 
@@ -358,19 +358,19 @@ exemplar; the checks, aggregated (no fail-fast), each a
    present.** `input_int` truncates, so a non-integral bound would let a truncated
    commit fall outside the range the Hub re-checks — the same lesson `slider`'s
    review rounds settled
-   ([`slider.py:206`](../../../src/punt_lux/protocol/elements/slider.py)).
+   ([`slider.py:206`](../../../src/punt_lux/wire/model/elements/slider.py)).
 5. **`step >= 0` when present.** A negative step is a degenerate stepper; `0` is
    the documented "no buttons" value.
 6. **`format` well-formed** — a single variant-matching printf conversion
    (`diouxX` for the integer variant, `eEfFgGaA` for float), the same check
-   `slider` applies ([`slider.py:236`](../../../src/punt_lux/protocol/elements/slider.py)).
+   `slider` applies ([`slider.py:236`](../../../src/punt_lux/wire/model/elements/slider.py)).
    (`input_int` ignores `format`, but validating it keeps parity and catches a
    malformed float `format`.)
 
 ### 3.6 Small shared helper added: `PatchField.as_optional_number`
 
 `PatchField` today has `as_number` (→ `float`) but no optional variant
-([`patch_field.py:51`](../../../src/punt_lux/protocol/elements/patch_field.py)).
+([`patch_field.py:51`](../../../src/punt_lux/wire/model/elements/patch_field.py)).
 `input_number`'s `_set_min`/`_set_max`/`_set_step` need `float | None` coercion
 (a `None` patch clears the bound/stepper). Add `as_optional_number(value) ->
 float | None`: `None` passes through; a number coerces to `float`; anything else
@@ -386,7 +386,7 @@ tooltip activation. `input_number` makes **only the tooltip one** — the union 
 already wide enough.
 
 - **(No union widening.)** `ValueChanged.value` is `bool | int | float | str`
-  today ([`interaction.py:78`](../../../src/punt_lux/domain/interaction.py)),
+  today ([`interaction.py:78`](../../../src/punt_lux/wire/model/interaction.py)),
   widened for `slider`. `input_number` commits an `int` (integer variant) or a
   `float`, both already covered. **Zero** annotation change. Refresh only the
   PY-TS-14 justification comment to name `input_number` alongside `slider` as a
@@ -394,7 +394,7 @@ already wide enough.
 - **Tooltip activation.** `tooltip` is wire-**dead** on the legacy
   `input_number`: the dataclass carries a `tooltip: str | None` field, but
   `to_dict` never emits it and `from_dict` never reads it
-  ([`input_number.py:36`](../../../src/punt_lux/protocol/elements/input_number.py)).
+  ([`input_number.py:36`](../../../src/punt_lux/wire/model/elements/input_number.py)).
   This migration **activates** it — the encoder emits `tooltip` when present, the
   decoder reads it — for parity with `slider` / `input_text` / `checkbox` /
   `color_picker`. The encoder is byte-identical to the legacy `to_dict` only in
@@ -409,7 +409,7 @@ The forked ABC path joins at the same six seams `slider` and `color_picker`
 joined, each cited at the line the existing ABC-kind entries sit on today.
 
 1. **`element_factory.py`** — the inbound dispatcher
-   ([`element_factory.py`](../../../src/punt_lux/protocol/element_factory.py)):
+   ([`element_factory.py`](../../../src/punt_lux/wire/model/element_factory.py)):
    - add `"input_number"` to `_ABC_KINDS` (`element_factory.py:80`);
    - add `InputNumberElement` to `_ABC_LEAF_TYPES` (`element_factory.py:95`);
    - add an `"input_number": JsonInputNumberDecoder(…).decode` entry to the
@@ -420,15 +420,15 @@ joined, each cited at the line the existing ABC-kind entries sit on today.
      codec path fails loud instead of routing wrong.
 2. **`encoder_factory.py`** — add
    `(InputNumberElement, JsonInputNumberEncoder().encode)` to `_DISPATCH`
-   ([`encoder_factory.py:45`](../../../src/punt_lux/protocol/encoder_factory.py)).
-3. **`protocol/elements/__init__.py`** — add `InputNumberElement` to the
+   ([`encoder_factory.py:45`](../../../src/punt_lux/wire/model/encoder_factory.py)).
+3. **`wire/model/elements/__init__.py`** — add `InputNumberElement` to the
    ABC-encode `isinstance` union in `_element_to_dict`
-   ([`__init__.py:179`](../../../src/punt_lux/protocol/elements/__init__.py)) so
+   ([`__init__.py:179`](../../../src/punt_lux/wire/model/elements/__init__.py)) so
    its per-kind encoder owns tooltip emission (the checkbox/input_text lesson: an
    omission here double-appends or drops the tooltip). `InputNumberElement` is
    already in the `Element` union (`__init__.py:133`) and `__all__`; those stay.
 4. **`container_abc_gate.py`** — add `"input_number"` to `_MIGRATED_ABC_KINDS`
-   ([`container_abc_gate.py:24`](../../../src/punt_lux/protocol/elements/container_abc_gate.py))
+   ([`container_abc_gate.py:24`](../../../src/punt_lux/wire/model/elements/container_abc_gate.py))
    so an all-ABC `group` / `collapsing_header` / `tab_bar` containing an
    input_number forks onto the ABC path rather than the whole subtree falling
    legacy. Do this **only** as part of this migration — the module's comment
@@ -450,7 +450,7 @@ commit; no two live paths for one kind):
 
 - Remove the `register("input_number", InputNumberElement, …)` block from
   `InputsRegistry.apply`
-  ([`inputs.py:42`](../../../src/punt_lux/protocol/elements/inputs.py)) and its
+  ([`inputs.py:42`](../../../src/punt_lux/wire/model/elements/inputs.py)) and its
   import.
 
 ### 5.2 The renderer + adapter — swap in place, mirror `slider`
@@ -557,9 +557,9 @@ substituting the numeric carrier and adding the `input_number`-specific cases.
 
 **Create:**
 
-- `src/punt_lux/protocol/elements/input_number_codec.py` —
+- `src/punt_lux/wire/model/elements/input_number_codec.py` —
   `JsonInputNumberDecoder` + `JsonInputNumberEncoder` + `_UpdateValueHandler`.
-- `src/punt_lux/protocol/standalone_input_number_handler.py` —
+- `src/punt_lux/wire/model/standalone_input_number_handler.py` —
   `build_standalone_input_number_handler_decoder`.
 - `src/punt_lux/display/renderers/imgui/input_number.py` —
   `ImGuiInputNumberRenderer` adapter.
@@ -570,17 +570,17 @@ substituting the numeric carrier and adding the `input_number`-specific cases.
 
 **Modify:**
 
-- `src/punt_lux/protocol/elements/input_number.py` — replace the dataclass with
+- `src/punt_lux/wire/model/elements/input_number.py` — replace the dataclass with
   the `@final` ABC subclass (fields per §3.1, setters, `apply_patch` override,
   `_range_error_messages`, `validate`, codec delegators, `resolved_props`).
-- `src/punt_lux/protocol/elements/patch_field.py` — add `as_optional_number`.
-- `src/punt_lux/protocol/element_factory.py` — seams 1 (four edits).
-- `src/punt_lux/protocol/encoder_factory.py` — seam 2.
-- `src/punt_lux/protocol/elements/__init__.py` — seam 3 (encode union).
-- `src/punt_lux/protocol/elements/container_abc_gate.py` — seam 4.
+- `src/punt_lux/wire/model/elements/patch_field.py` — add `as_optional_number`.
+- `src/punt_lux/wire/model/element_factory.py` — seams 1 (four edits).
+- `src/punt_lux/wire/model/encoder_factory.py` — seam 2.
+- `src/punt_lux/wire/model/elements/__init__.py` — seam 3 (encode union).
+- `src/punt_lux/wire/model/elements/container_abc_gate.py` — seam 4.
 - `src/punt_lux/display/domain_pump.py` — seam 5 (+ import, docstring).
 - `src/punt_lux/display/renderers/imgui/factory.py` — seam 6 (+ import).
-- `src/punt_lux/protocol/elements/inputs.py` — remove the legacy registration
+- `src/punt_lux/wire/model/elements/inputs.py` — remove the legacy registration
   (+ import).
 - `src/punt_lux/display/renderers/input_number_renderer.py` — swap to
   commit-on-idle (`widget_state`-only, `ContinuousEditArbiter`).

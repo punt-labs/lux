@@ -12,7 +12,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.selectable_renderer import SelectableRenderer
-from punt_lux.protocol.elements.selectable import SelectableElement
+from punt_lux.wire.model.elements.selectable import SelectableElement
 
 __all__ = ["ImGuiSelectableRenderer"]
 

@@ -14,7 +14,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.input_text_renderer import InputTextRenderer
-from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.wire.model.elements.input_text import InputTextElement
 
 __all__ = ["ImGuiInputTextRenderer"]
 

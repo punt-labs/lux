@@ -4,7 +4,7 @@
 **Type:** migration design (composite/container; the first container migrated).
 **Element:** `group` — a display-only layout container (`rows` / `columns` / `paged`).
 **Exemplar copied:** `DialogElement` — the composite already on the ABC path
-(`protocol/elements/dialog.py:114`, `display/renderers/imgui/dialog.py:30`).
+(`wire/model/elements/dialog.py:114`, `display/renderers/imgui/dialog.py:30`).
 **Ground truth:** `docs/architecture/target/{target,ui-model,element-contract,introspection-api}.md`,
 [DES-039](../../../DESIGN.md) (self-validating elements), [DES-041](../../../DESIGN.md)
 (fork, don't mix; order by testability), the render engine merged in PR #239
@@ -103,7 +103,7 @@ ABC path:
 - It overrides `_children()` to expose its child controllers (`dialog.py:198`)
   and renders them via the **default** `_render_children` recursion.
 - It keeps `to_dict` / `from_dict` delegators so the structural
-  `domain.element.Element` Protocol still holds (`dialog.py:231`).
+  `wire.model.element.Element` Protocol still holds (`dialog.py:231`).
 - It implements `resolved_props()` for introspection (`dialog.py:259`).
 
 `GroupElement` is the same composite shape, minus four things Dialog has and a
@@ -451,20 +451,20 @@ Per [DES-041](../../../DESIGN.md) decision 2, **the new ABC class takes the
 canonical name `GroupElement`; the legacy dataclass is renamed out of the way**
 to `LegacyGroupElement`.
 
-- **`protocol/elements/layout.py`** — rename `GroupElement` →
+- **`wire/model/elements/layout.py`** — rename `GroupElement` →
   `LegacyGroupElement` (class, `__all__` at `layout.py:12`, and `register_codecs`
   at `layout.py:379`). The legacy class keeps its dataclass shape and its
   `child_elements()` (`layout.py:43`) for the validation walk. Its child
   recursion is amended to force nested groups legacy (§4.2 case 2).
-- **`protocol/elements/group.py`** (new) — the canonical ABC `GroupElement`.
-- **`protocol/elements/__init__.py`** — the `Element` union (`__init__.py:130`)
+- **`wire/model/elements/group.py`** (new) — the canonical ABC `GroupElement`.
+- **`wire/model/elements/__init__.py`** — the `Element` union (`__init__.py:130`)
   keeps a `GroupElement` member (now the ABC class) and adds `LegacyGroupElement`
   for the mixed path; `_element_to_dict` (`__init__.py:183`) adds ABC
   `GroupElement` to the per-kind-encoder isinstance tuple.
-- **`protocol/element_factory.py`** — the all-ABC gate + a `_group_decoder`
+- **`wire/model/element_factory.py`** — the all-ABC gate + a `_group_decoder`
   field constructed in `__new__`; `decode()` and `element_from_dict()` route
   `group` per §4.1.
-- **`protocol/encoder_factory.py`** — add
+- **`wire/model/encoder_factory.py`** — add
   `isinstance(elem, GroupElement) → JsonGroupEncoder().encode(elem)`
   (`encoder_factory.py` dispatch chain).
 - **`display/renderers/imgui/factory.py`** — add
@@ -567,8 +567,8 @@ noted where a split is planned.
 
 **New:**
 
-- `src/punt_lux/protocol/elements/group.py` — ABC `GroupElement` (one class).
-- `src/punt_lux/protocol/elements/group_codec.py` — `JsonGroupEncoder` +
+- `src/punt_lux/wire/model/elements/group.py` — ABC `GroupElement` (one class).
+- `src/punt_lux/wire/model/elements/group_codec.py` — `JsonGroupEncoder` +
   `JsonGroupDecoder` incl. the all-ABC gate + recursion (two classes; if the gate
   walk grows, extract a small `GroupSubtree` value class — still ≤ 3 classes).
 - `src/punt_lux/display/renderers/imgui/group.py` — `ImGuiGroupRenderer`
@@ -580,14 +580,14 @@ noted where a split is planned.
 
 **Renamed / amended:**
 
-- `src/punt_lux/protocol/elements/layout.py` — `GroupElement` →
+- `src/punt_lux/wire/model/elements/layout.py` — `GroupElement` →
   `LegacyGroupElement` (class, `__all__`, `register_codecs`); legacy child
   recursion forces nested groups legacy (§4.2).
-- `src/punt_lux/protocol/elements/__init__.py` — `Element` union +
+- `src/punt_lux/wire/model/elements/__init__.py` — `Element` union +
   `_element_to_dict` routing.
-- `src/punt_lux/protocol/element_factory.py` — the all-ABC gate, `_group_decoder`,
+- `src/punt_lux/wire/model/element_factory.py` — the all-ABC gate, `_group_decoder`,
   `decode()` / `element_from_dict()` routing.
-- `src/punt_lux/protocol/encoder_factory.py` — `GroupElement` encode entry.
+- `src/punt_lux/wire/model/encoder_factory.py` — `GroupElement` encode entry.
 - `src/punt_lux/display/renderers/imgui/factory.py` — `_DISPATCH` entry.
 - `src/punt_lux/display/renderers/container_renderer.py` — cast to
   `LegacyGroupElement`.

@@ -16,7 +16,7 @@ from typing import Self
 
 import pytest
 
-from punt_lux.protocol.renderers import (
+from punt_lux.wire.model.renderers import (
     RecordingLog,
     RecordingRenderer,
     RecordingRendererFactory,

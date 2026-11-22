@@ -13,9 +13,9 @@ import pytest
 
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
 from punt_lux.domain.hub.handshake_outcome import DisplayNotConnectedError
-from punt_lux.domain.hub_id import HubId
-from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model import ConnectMessage, ReadyMessage, recv_message, send_message
+from punt_lux.wire.model.hub_id import HubId
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
 
 class TestLazyHubIdentity:

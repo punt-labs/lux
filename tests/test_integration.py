@@ -16,7 +16,7 @@ import pytest
 
 from punt_lux import decode_frame, encode_frame
 from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     AckMessage,
     ReadyMessage,
     SceneMessage,
@@ -24,7 +24,7 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.protocol.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 from tests.link_access import shown
 
 NUM_RAPID_SCENES = 100

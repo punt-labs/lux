@@ -39,19 +39,19 @@ or invariant premise changed; the spec was not re-verified.
 Companion to `docs/hub_replicator.tex`. Derives the test partitions (Test
 Template Framework style) from the Z operation schemas, then maps them against
 the tests that cover them, exactly as `docs/display_lifecycle_coverage.md` maps
-its spec to `tests/display/test_socket_server.py` and `tests/test_paths.py`. The worker,
+its spec to `tests/display/test_socket_server.py` and `tests/service/test_display_paths.py`. The worker,
 its dirty signal, and the store lock are covered by
-`tests/domain/test_hub_replicator.py`, `tests/domain/test_dirty_signal.py`, and
-`tests/domain/test_store_lock.py`; the two store-empty clear partitions (CL1,
+`tests/wire/model/test_hub_replicator.py`, `tests/wire/model/test_dirty_signal.py`, and
+`tests/wire/model/test_store_lock.py`; the two store-empty clear partitions (CL1,
 CL2) are covered by the clear tool's tests in `tests/test_tools.py`, and the real
 bounded-send time limit behind P3/P4 is measured by the mandatory `SO_SNDTIMEO`
 probe test in `tests/test_send_timeout.py`. The menu leg (MN1–MN12) is exercised
 against a fake sender and a real `HubMenuRegistry`: the signal-level partitions
-(MN1–MN3, MN5) by `tests/domain/test_dirty_signal.py`, the send and
+(MN1–MN3, MN5) by `tests/wire/model/test_dirty_signal.py`, the send and
 failure-recovery partitions (MN4, MN6–MN11) by
-`tests/domain/test_hub_replicator.py`, and the recovery-level menu re-mark,
+`tests/wire/model/test_hub_replicator.py`, and the recovery-level menu re-mark,
 including the scene-only-respawn headline (MN12), by both
-`tests/domain/test_hub_replicator.py` and `tests/domain/test_recovery.py`.
+`tests/wire/model/test_hub_replicator.py` and `tests/wire/model/test_recovery.py`.
 
 The bar is that the spec's partitions are each covered by a test, not merely
 that the model-check passed.

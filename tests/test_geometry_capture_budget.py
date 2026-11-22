@@ -18,7 +18,7 @@ import time
 import pytest
 
 from punt_lux.display.geometry import ElementRef, GeometryRecorder
-from punt_lux.protocol.geometry import Rect
+from punt_lux.wire.model.geometry import Rect
 
 # Leaves are captured per element now, so 50 painted elements a frame is a
 # realistic mid-size scene. The ceiling is ~50x the measured ~40 us, loose enough

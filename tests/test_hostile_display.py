@@ -24,8 +24,8 @@ import pytest
 from punt_lux.domain.hub.connection_closed import ConnectionClosedError
 from punt_lux.domain.hub.display_link import DisplayLink
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.paths import DisplayPaths, SocketLiveness
-from punt_lux.protocol import (
+from punt_lux.service.display_paths import DisplayPaths, SocketLiveness
+from punt_lux.wire.model import (
     HEADER_FORMAT,
     FrameReader,
     ReadyMessage,
@@ -34,8 +34,8 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.protocol.json_payload import MAX_NESTING, JsonPayload
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.model.json_payload import MAX_NESTING, JsonPayload
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 from tests.link_access import writer_of
 
 if TYPE_CHECKING:
@@ -279,7 +279,7 @@ class TestDeepFrames:
         # deadline turns a regression into a failure instead of a hang.
         script = (
             "import sys\n"
-            "from punt_lux.protocol.json_payload import JsonPayload\n"
+            "from punt_lux.wire.model.json_payload import JsonPayload\n"
             f"unit = {unit!r}\n"
             'payload = b\'{"k": "\' + unit * (4 * 1024 * 1024 // len(unit))\n'
             "try:\n"
@@ -306,7 +306,7 @@ class TestDeepFrames:
         def boom(_raw: bytes) -> object:
             raise RecursionError
 
-        monkeypatch.setattr("punt_lux.protocol.json_payload.json.loads", boom)
+        monkeypatch.setattr("punt_lux.wire.model.json_payload.json.loads", boom)
 
         with pytest.raises(ValueError, match="nests too deeply"):
             JsonPayload(b"{}").as_object()

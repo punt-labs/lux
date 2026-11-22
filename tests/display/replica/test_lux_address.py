@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.display.replica.lux_address import LuxAddress, Rung
-from punt_lux.domain.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.id_separator import ID_SEPARATOR
 
 
 def _address(

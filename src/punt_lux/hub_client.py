@@ -29,10 +29,11 @@ from typing import TYPE_CHECKING, Self, final
 
 import websockets
 
-from punt_lux.domain.programmer_error import ProgrammerError
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.kernel.hub_paths import HubPaths
-from punt_lux.protocol.messages.listen import (
+from punt_lux.kernel.programmer_error import ProgrammerError
+from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.wire.model.messages.listen import (
     CallbackFrame,
     EventFrame,
     ReadyFrame,
@@ -40,7 +41,6 @@ from punt_lux.protocol.messages.listen import (
     ServerFrames,
     SubscribeFrame,
 )
-from punt_lux.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping

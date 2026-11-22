@@ -18,17 +18,18 @@ from punt_lux.client_host import UNOBSERVED
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import AddElement
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
 
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.wire.model.element import Element as WireElement
 
 __all__ = ["IsolatedHub"]
 

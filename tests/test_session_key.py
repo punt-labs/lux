@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.session_key import SessionKey
 
 

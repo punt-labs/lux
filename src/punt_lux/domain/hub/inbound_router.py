@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.reply_sink import REPLY_TYPES
 from punt_lux.polled_event import PolledEvent
-from punt_lux.protocol import ObserverMessage, RemoteEventHandlerInvocation
+from punt_lux.wire.model import ObserverMessage, RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ import pytest
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.paint_clock import PaintClock
-from punt_lux.protocol import FrameReader, SceneMessage, TextElement
+from punt_lux.wire.model import FrameReader, SceneMessage, TextElement
 
 
 @pytest.fixture

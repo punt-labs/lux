@@ -15,16 +15,16 @@ from typing import Final, Self
 
 import pytest
 
-from punt_lux.protocol.compositions.filtered_table_model import FilteredTableModel
-from punt_lux.protocol.compositions.table_composition import TableComposition
-from punt_lux.protocol.compositions.table_composition_spec import (
+from punt_lux.wire.model.compositions.filtered_table_model import FilteredTableModel
+from punt_lux.wire.model.compositions.table_composition import TableComposition
+from punt_lux.wire.model.compositions.table_composition_spec import (
     TableCompositionSpec,
 )
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.protocol.elements.table import TableElement
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.elements.checkbox import CheckboxElement
+from punt_lux.wire.model.elements.table import TableElement
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.renderers import RecordingLog, RecordingRendererFactory
 
 # -- scene scale --------------------------------------------------------
 
@@ -159,7 +159,7 @@ class TableScaleFixture:
     @staticmethod
     def _find_table(roots: object) -> TableElement:
         """Descend a one-level GroupElement wrapper to find the built grid."""
-        from punt_lux.protocol.elements.group import GroupElement
+        from punt_lux.wire.model.elements.group import GroupElement
 
         assert isinstance(roots, list)
         for root in roots:

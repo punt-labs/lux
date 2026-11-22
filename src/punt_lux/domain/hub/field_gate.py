@@ -20,7 +20,7 @@ from punt_lux.domain.hub.write_errors import ImmutableFieldError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.ids import ElementId
+    from punt_lux.wire.model.ids import ElementId
 
 __all__ = ["FieldGate"]
 

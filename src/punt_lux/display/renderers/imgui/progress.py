@@ -15,7 +15,7 @@ from typing import final
 from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.wire.model.elements.progress import ProgressElement
 
 __all__ = ["ImGuiProgressRenderer"]
 

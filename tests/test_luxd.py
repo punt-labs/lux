@@ -16,7 +16,7 @@ from punt_lux.mcp_transport import McpHttpTransport
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 
 class TestHealthRoute:

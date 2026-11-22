@@ -22,13 +22,18 @@ class TestLayerContract:
         ("module", "layer"),
         [
             ("punt_lux", "root"),
-            ("punt_lux.domain.elements", "wire"),
+            ("punt_lux.wire.model.elements", "wire"),
             ("punt_lux.domain.hub.scene", "hub"),
             ("punt_lux.operations.models.reply", "wire"),
             ("punt_lux.operations.scene", "hub"),
             ("punt_lux.service._backend_systemd", "service"),
             ("punt_lux.service._legacy_sweep_disk", "service"),
             ("punt_lux.kernel.hub_paths", "kernel"),
+            ("punt_lux.kernel.connection_id", "kernel"),
+            ("punt_lux.kernel.programmer_error", "kernel"),
+            ("punt_lux.wire", "wire"),
+            ("punt_lux.wire.model.lease_term", "wire"),
+            ("punt_lux.service.display_paths", "service"),
             ("punt_lux.cli.display_enablement", "cli"),
             ("punt_lux.service.display_mode_store", "service"),
             ("punt_lux.service.doctor_checks", "service"),
@@ -125,7 +130,7 @@ class TestRuntimeImports:
         ["TYPE_CHECKING", "typing.TYPE_CHECKING", "tc", "t.TYPE_CHECKING"],
     )
     def test_excludes_type_guards_but_keeps_runtime_else(self, guard: str) -> None:
-        names = RuntimeImports("punt_lux.domain.model").collect(
+        names = RuntimeImports("punt_lux.wire.model").collect(
             "from typing import TYPE_CHECKING as tc\nimport typing as t\n"
             f"if {guard}:\n    import punt_lux.cli\n"
             "else:\n    from .. import tracing\n"
@@ -135,10 +140,10 @@ class TestRuntimeImports:
         assert {"punt_lux.tracing", "punt_lux.client"} <= names
 
     def test_resolves_package_relative_imports(self) -> None:
-        names = RuntimeImports("punt_lux.domain", is_package=True).collect(
-            "from . import hub\nfrom ..tracing import trace\n"
+        names = RuntimeImports("punt_lux.wire", is_package=True).collect(
+            "from . import model\nfrom ..tracing import trace\n"
         )
-        assert "punt_lux.domain.hub" in names
+        assert "punt_lux.wire.model" in names
         assert "punt_lux.tracing" in names
 
     def test_empty_source(self) -> None:

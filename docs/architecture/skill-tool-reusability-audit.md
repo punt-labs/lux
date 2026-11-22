@@ -9,9 +9,9 @@ that decide dialog / button interaction wiring.
 To demonstrate Lux's interactive io-model, the leader had to read three source
 files that an MCP-only consumer never sees:
 
-- `src/punt_lux/protocol/elements/dialog_codec.py`
-- `src/punt_lux/protocol/element_factory.py`
-- `src/punt_lux/protocol/elements/button.py` / `dialog.py`
+- `src/punt_lux/wire/model/elements/dialog_codec.py`
+- `src/punt_lux/wire/model/element_factory.py`
+- `src/punt_lux/wire/model/elements/button.py` / `dialog.py`
 
 Two facts live only there:
 
@@ -284,7 +284,7 @@ Three decisions needed before any implementation dispatches:
    skill (Rank 5) until #1–2 land.
 
 If the operator confirms, the natural work split (per the Lux pairing table): the
-decode-time auto-wire + validation is a protocol/handler change (worker `gvr` or
+decode-time auto-wire + validation is a wire/model/handler change (worker `gvr` or
 `rmh`, evaluator the other; `djb` for the trust-boundary review since decode runs
 Hub-side); the tool-description and `describe`-tool work is the MCP surface
 (worker `mdm`, evaluator `rmh`). This is a `standard`-pipeline change — it
@@ -294,10 +294,10 @@ touches the wire-decode contract.
 
 ## Appendix — file:line index
 
-- Silent no-op (S1): `src/punt_lux/protocol/element_factory.py:144-146`
-- Dialog verb vocabulary: `src/punt_lux/protocol/elements/dialog.py:54-59`
-- Verb resolution at decode: `src/punt_lux/protocol/elements/dialog_codec.py:144`
-- Standalone button noop-only: `src/punt_lux/protocol/standalone_button_handler.py:42-45`
+- Silent no-op (S1): `src/punt_lux/wire/model/element_factory.py:144-146`
+- Dialog verb vocabulary: `src/punt_lux/wire/model/elements/dialog.py:54-59`
+- Verb resolution at decode: `src/punt_lux/wire/model/elements/dialog_codec.py:144`
+- Standalone button noop-only: `src/punt_lux/wire/model/standalone_button_handler.py:42-45`
 - Loud guards (contrast): `button_codec.py:131-138`, `dialog_codec.py:47-49`
 - `show` docstring (no dialog, inert button): `src/punt_lux/tools/tools.py:41-122`
 - Misleading recv line: `src/punt_lux/tools/tools.py:53`

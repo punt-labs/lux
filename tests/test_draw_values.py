@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
-from punt_lux.protocol.elements.draw_wire import WireContext
+from punt_lux.wire.model.elements.draw_values import Color, Point2, Thickness
+from punt_lux.wire.model.elements.draw_wire import WireContext
 
 
 @pytest.fixture

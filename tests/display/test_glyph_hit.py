@@ -11,7 +11,7 @@ from punt_lux.display.menus.glyph_canvas import GlyphCanvas
 from punt_lux.display.menus.glyph_hit import GlyphHit
 from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.display.menus.popup_cover import PopupCover
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 
 _FRAME = OpenFrame("f1", HubId.stub())
 _LOW = ImVec2(10.0, 10.0)

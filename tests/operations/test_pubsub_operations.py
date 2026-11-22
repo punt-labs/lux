@@ -20,16 +20,17 @@ from punt_lux.domain.hub.inbox import (
     offer,
 )
 from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuSelection
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import AddElement
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.models import OpError
 from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubscribed
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.pubsub import PubSubOperations
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort

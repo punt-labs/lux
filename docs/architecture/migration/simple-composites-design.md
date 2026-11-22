@@ -7,10 +7,10 @@ composites).
 **Elements:** `tab_bar` (tabbed container) and `collapsing_header` (collapsible
 section).
 **Exemplars copied:** `GroupElement` — the first container on the ABC path
-(`protocol/elements/group.py:42`, `protocol/elements/group_codec.py`,
+(`wire/model/elements/group.py:42`, `wire/model/elements/group_codec.py`,
 `display/renderers/imgui/group.py:29`) — for the composite/child-bearing surface;
 and `ButtonElement` / `CheckboxElement` — the shipped interactive exemplars
-(`protocol/elements/button.py:43`, `protocol/elements/checkbox.py:40`) — for the
+(`wire/model/elements/button.py:43`, `wire/model/elements/checkbox.py:40`) — for the
 full D21 path: a `_remote_dispatch_specs`, a built-in state-sync handler, the
 Display-side wrap, and Hub-side re-dispatch. New class takes the canonical name
 (DES-041, fork-don't-mix).
@@ -72,7 +72,7 @@ For a migrated ABC `tab_bar` / `collapsing_header`:
 - **Crosses the Hub→Display boundary:** the serialized container object *and its
   ABC children*, *and the built-in state-sync handler each registers*. A top-level
   ABC element crosses as one base64-encoded pickle blob
-  (`protocol/messages/scene.py`); `pickle` recurses the object graph, so the
+  (`wire/model/messages/scene.py`); `pickle` recurses the object graph, so the
   container's ABC children, their handler registrations, and the container's own
   handler registration all travel inside the one blob. `Element.__reduce__`
   (`element_abc.py:75`) keeps `_renderer_factory` and `_handlers` in the pickled
@@ -229,7 +229,7 @@ def _render_children(self, renderer: Renderer) -> None:
 Note `_active_tab` is passed *in*: the renderer honours the Hub-authoritative
 selection, it does not invent one (§4.7). The renderer surface it needs
 (`begin_tab` / `end_tab`) is broader than the shared leaf `Renderer` Protocol
-(`begin`/`paint`/`end`, `protocol/renderer.py`). The recommendation (§9-Q2) is a
+(`begin`/`paint`/`end`, `wire/model/renderer.py`). The recommendation (§9-Q2) is a
 **small `TabContainerRenderer` sub-protocol** rather than widening the shared
 `Renderer` Protocol.
 
@@ -415,7 +415,7 @@ a section is open* — the introspection payoff of Hub authority (§7 Level 5).
 ### 4.5 The interaction each kind fires
 
 Both kinds join the D21 event set. Two new typed interactions
-(`domain/interaction.py`), each a frozen-slots dataclass carrying the three
+(`wire/model/interaction.py`), each a frozen-slots dataclass carrying the three
 identifying fields plus its payload, exactly like `ButtonClicked` / `ValueChanged`:
 
 - **`TabChanged`** — payload `tab_id: str` (the newly-selected tab's id). `EventKind`
@@ -607,7 +607,7 @@ canonical names; the legacy dataclasses are renamed out of the way**, exactly as
 Hub-authoritative ruling — the fork mechanics are about ABC-vs-legacy routing, not
 about view-state.
 
-- `protocol/elements/layout.py` — `TabBarElement` → `LegacyTabBarElement`;
+- `wire/model/elements/layout.py` — `TabBarElement` → `LegacyTabBarElement`;
   `CollapsingHeaderElement` → `LegacyCollapsingHeaderElement` (class, `__all__`,
   `register_codecs`). Each legacy class keeps its dataclass shape and its
   `child_elements()` for the validation walk.
@@ -657,7 +657,7 @@ existing D21 modules.
 
 **New:**
 
-- `src/punt_lux/domain/interaction.py` — **amend**: add `TabChanged`
+- `src/punt_lux/wire/model/interaction.py` — **amend**: add `TabChanged`
   (payload `tab_id: str`) and `HeaderToggled` (payload `open: bool`) frozen-slots
   event dataclasses; extend `EventKind` to
   `Literal["button_clicked", "value_changed", "tab_changed", "header_toggled"]`
@@ -667,40 +667,40 @@ existing D21 modules.
 
 **Amended (the D21 dispatch seam grows two branches each):**
 
-- `src/punt_lux/domain/handlers/remote_dispatch.py` — `RemoteDispatchGroup.__call__`
+- `src/punt_lux/wire/model/handlers/remote_dispatch.py` — `RemoteDispatchGroup.__call__`
   (`:94`) adds `TabChanged → value = event.tab_id` and
   `HeaderToggled → value = event.open` alongside the existing
   `ValueChanged`/`ButtonClicked` branches. **The wrap seam.**
 - `src/punt_lux/domain/hub/clients.py` — `_hub_interaction_dispatch` (`:157`) adds
   `event_kind == "tab_changed"` / `"header_toggled"` branches that construct the
   typed event and fire it on the Hub copy. **The Hub re-dispatch seam.**
-- `src/punt_lux/domain/display.py` — `Display._build_event` (`:330`) adds the same
+- `src/punt_lux/wire/model/display.py` — `Display._build_event` (`:330`) adds the same
   two kinds for the in-process test dispatch contract.
-- `RemoteEventHandlerInvocation` (`protocol/messages/remote_invocation.py`) —
+- `RemoteEventHandlerInvocation` (`wire/model/messages/remote_invocation.py`) —
   **no change**: `value: Any` already carries a `str` or `bool` payload.
 
 ### 6.2 `tab_bar`
 
 **New:**
 
-- `src/punt_lux/protocol/elements/tab_bar.py` — the ABC `TabBarElement` (canonical
+- `src/punt_lux/wire/model/elements/tab_bar.py` — the ABC `TabBarElement` (canonical
   name) + the `Tab` value class (two classes, ≤ 300 lines). Overrides `id`, `kind`,
   `_children()`, `_render_children()`, `validate()`, `_remote_dispatch_specs()`,
   `resolved_props()`; setters `_set_tabs` (calls `_reconcile_active_tab`, §4.8) and
   `_set_active_tab`; keeps `to_dict`/`from_dict` delegators; `tooltip` stays
   `str | None`.
-- `src/punt_lux/protocol/elements/tab_bar_codec.py` — `JsonTabBarEncoder` +
+- `src/punt_lux/wire/model/elements/tab_bar_codec.py` — `JsonTabBarEncoder` +
   `JsonTabBarDecoder` (all-ABC gate via the shared `container_abc_gate`, §5;
   registers the built-in `_UpdateActiveTabHandler` before wire handlers; seeds
   `_active_tab` to `tabs[0].tab_id` when the wire omits it).
-- `src/punt_lux/protocol/standalone_tab_bar_handler.py` — the built-in
+- `src/punt_lux/wire/model/standalone_tab_bar_handler.py` — the built-in
   `_UpdateActiveTabHandler` (serializable state-sync, §4.6) + a `noop` factory
   registry, parallel to `standalone_checkbox_handler.py`.
 - `src/punt_lux/display/renderers/imgui/tab_bar.py` — `ImGuiTabBarRenderer`
   (`@final`; `begin`/`paint`/`end` **plus** `begin_tab`/`end_tab`), the interactive
   seam that honours `elem.active_tab` (SetSelected on Hub change) and fires
   `tab_changed` on a user change (§4.7). Satisfies `TabContainerRenderer`.
-- `src/punt_lux/protocol/renderer.py` (or a sibling) — the `TabContainerRenderer`
+- `src/punt_lux/wire/model/renderer.py` (or a sibling) — the `TabContainerRenderer`
   sub-protocol (`begin_tab(tab, *, active) -> bool`, `end_tab(*, opened: bool)`)
   extending the shared `Renderer` (§9-Q2).
 - `tests/test_tab_bar_element.py` — Levels 1–5 + validation (§7).
@@ -709,17 +709,17 @@ existing D21 modules.
 
 **Amended:**
 
-- `src/punt_lux/protocol/elements/layout.py` — `TabBarElement` →
+- `src/punt_lux/wire/model/elements/layout.py` — `TabBarElement` →
   `LegacyTabBarElement`; `decode_child` legacy-forces nested `tab_bar` /
   `collapsing_header` (§5).
-- `src/punt_lux/protocol/elements/container_abc_gate.py` (new, shared) — extracted
+- `src/punt_lux/wire/model/elements/container_abc_gate.py` (new, shared) — extracted
   `_MIGRATED_ABC_KINDS` + recursive `first_non_abc_kind`; add `tab_bar`.
-- `src/punt_lux/protocol/element_factory.py` — a `_tab_bar_decoder` field;
+- `src/punt_lux/wire/model/element_factory.py` — a `_tab_bar_decoder` field;
   `element_from_dict` gains the conditional-ABC fork branch.
-- `src/punt_lux/protocol/elements/__init__.py` — the `Element` union gains ABC
+- `src/punt_lux/wire/model/elements/__init__.py` — the `Element` union gains ABC
   `TabBarElement` and `LegacyTabBarElement`; `_element_to_dict` adds ABC
   `TabBarElement` to the per-kind-encoder isinstance tuple.
-- `src/punt_lux/protocol/encoder_factory.py` — `TabBarElement` encode entry.
+- `src/punt_lux/wire/model/encoder_factory.py` — `TabBarElement` encode entry.
 - `src/punt_lux/display/renderers/imgui/factory.py` — `(TabBarElement,
   ImGuiTabBarRenderer)` in `_DISPATCH`.
 - `.oo-baseline.json`, `.oo-audit.jsonl` — staged with the commit.
@@ -728,15 +728,15 @@ existing D21 modules.
 
 **New:**
 
-- `src/punt_lux/protocol/elements/collapsing_header.py` — the ABC
+- `src/punt_lux/wire/model/elements/collapsing_header.py` — the ABC
   `CollapsingHeaderElement` (canonical name; one class). Overrides `id`, `kind`,
   `_children()`, `validate()`, `_remote_dispatch_specs()`, `resolved_props()`;
   setter `_set_open`; keeps `to_dict`/`from_dict` delegators; `open: bool`,
   `label: str`, `tooltip: str | None`. **Inherits** `_render_children` (plain box).
-- `src/punt_lux/protocol/elements/collapsing_header_codec.py` —
+- `src/punt_lux/wire/model/elements/collapsing_header_codec.py` —
   `JsonCollapsingHeaderEncoder` + `JsonCollapsingHeaderDecoder` (all-ABC gate;
   registers the built-in `_UpdateOpenHandler`).
-- `src/punt_lux/protocol/standalone_collapsing_header_handler.py` — the built-in
+- `src/punt_lux/wire/model/standalone_collapsing_header_handler.py` — the built-in
   `_UpdateOpenHandler` (serializable state-sync for `HeaderToggled`) + a `noop`
   factory, parallel to the checkbox handler.
 - `src/punt_lux/display/renderers/imgui/collapsing_header.py` —
@@ -747,14 +747,14 @@ existing D21 modules.
 
 **Amended:**
 
-- `src/punt_lux/protocol/elements/layout.py` — `CollapsingHeaderElement` →
+- `src/punt_lux/wire/model/elements/layout.py` — `CollapsingHeaderElement` →
   `LegacyCollapsingHeaderElement` (the `decode_child` amendment is shared with
   §6.2).
-- `src/punt_lux/protocol/elements/container_abc_gate.py` — add `collapsing_header`.
-- `src/punt_lux/protocol/element_factory.py` — a `_collapsing_header_decoder` field
+- `src/punt_lux/wire/model/elements/container_abc_gate.py` — add `collapsing_header`.
+- `src/punt_lux/wire/model/element_factory.py` — a `_collapsing_header_decoder` field
   plus the `element_from_dict` fork branch.
-- `src/punt_lux/protocol/elements/__init__.py` — union + `_element_to_dict`.
-- `src/punt_lux/protocol/encoder_factory.py` — encode entry.
+- `src/punt_lux/wire/model/elements/__init__.py` — union + `_element_to_dict`.
+- `src/punt_lux/wire/model/encoder_factory.py` — encode entry.
 - `src/punt_lux/display/renderers/imgui/factory.py` — `_DISPATCH` entry.
 
 ### 6.4 Introspection — no new primitive

@@ -29,7 +29,7 @@ from typing import Self, final
 
 from punt_lux.domain.hub.applet_name_format import session_pid_from_name
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["MenuGroupKey"]
 

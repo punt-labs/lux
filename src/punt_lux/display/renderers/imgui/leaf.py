@@ -18,11 +18,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.wire.model.element_abc import Element as AbcElement
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol import Element
+    from punt_lux.wire.model import Element
 
 __all__ = ["LeafRenderer"]
 

@@ -22,16 +22,16 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
 )
 from punt_lux.display.renderers.imgui.header_open_arbiter import HeaderOpenArbiter
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.wire.model.elements.text import TextElement
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     import pytest
 
-    from punt_lux.protocol.messages.remote_invocation import (
+    from punt_lux.wire.model.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
 

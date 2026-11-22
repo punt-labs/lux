@@ -23,7 +23,7 @@ from imgui_bundle import imgui
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.group import GroupElement
+    from punt_lux.wire.model.elements.group import GroupElement
 
 __all__ = ["ImGuiGroupRenderer"]
 

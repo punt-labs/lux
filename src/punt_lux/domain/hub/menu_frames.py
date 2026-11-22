@@ -14,7 +14,7 @@ from punt_lux.domain.hub.details_frame import DetailsFrame
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import SessionCallback
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["MenuFrames"]
 

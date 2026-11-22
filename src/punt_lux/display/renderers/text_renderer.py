@@ -8,7 +8,7 @@ from typing import ClassVar, Self
 from imgui_bundle import ImVec4, imgui
 
 from punt_lux.display.renderers._color import parse_hex_color
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.elements.text import TextElement
 
 __all__ = ["TextRenderer"]
 

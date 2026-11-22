@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING, Self, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.tab_selection import TabSelectionArbiter
-from punt_lux.domain.container_interaction import TabChanged
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.container_interaction import TabChanged
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.tab import Tab
-    from punt_lux.protocol.elements.tab_bar import TabBarElement
+    from punt_lux.wire.model.elements.tab import Tab
+    from punt_lux.wire.model.elements.tab_bar import TabBarElement
 
 __all__ = ["ImGuiTabBarRenderer"]
 

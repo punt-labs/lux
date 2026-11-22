@@ -60,7 +60,7 @@ class ControlDispatch:
     def _hello(peer: Peer, request: HelloRequest) -> None:
         expected = (WIRE_VERSION, _snapshots.snapshot_version())
         if (request.version, request.snapshot_version) != expected:
-            raise ValueError("protocol/snapshot mismatch; restart client and daemon")
+            raise ValueError("wire/model/snapshot mismatch; restart client and daemon")
         peer.mark_ready()
         StreamPublisher.success(
             peer,

@@ -13,7 +13,7 @@ from typing import final
 
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.wire.model.elements.color_picker import ColorPickerElement
 
 __all__ = ["ImGuiColorPickerRenderer"]
 

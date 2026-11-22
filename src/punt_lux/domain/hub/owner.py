@@ -10,7 +10,7 @@ from punt_lux.domain.hub.ownership_error import HubOwnershipError
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_identity import ClientIdentity
     from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+    from punt_lux.wire.model import ConnectionId, ElementId, SceneId
 
 __all__ = ["Owner"]
 

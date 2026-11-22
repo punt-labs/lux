@@ -15,8 +15,8 @@ import pytest
 
 from punt_lux.display.frame_commands import FrameCommands
 from punt_lux.display.replica import SceneReplica
-from punt_lux.protocol import TextElement
-from punt_lux.protocol.messages.scene import SceneMessage
+from punt_lux.wire.model import TextElement
+from punt_lux.wire.model.messages.scene import SceneMessage
 
 _FRAME = "beads-lux"
 

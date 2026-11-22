@@ -443,7 +443,7 @@ types are Hub-internal (`domain/hub/connection_scoped_id.py`,
 deserialized from one.
 
 **Hub↔Display.** `SceneMessage.id` and `ScenePresentation.frame_id`
-(`protocol/messages/scene.py`) are already opaque `str` fields from the
+(`wire/model/messages/scene.py`) are already opaque `str` fields from the
 Display's point of view — nothing in `display/replica/` inspects their
 internal structure, only compares and stores them. This design changes what
 *value* the Hub puts into those existing fields; it adds no field, no
@@ -761,7 +761,7 @@ before implementation, per Decision 4 below.
   `src/punt_lux/domain/hub/menu_group_key.py`,
   `src/punt_lux/domain/hub/session_callback.py`,
   `src/punt_lux/domain/hub/callback_menu.py`,
-  `src/punt_lux/domain/ids.py`,
+  `src/punt_lux/wire/model/ids.py`,
   `src/punt_lux/connection_identity.py`,
   `src/punt_lux/cli_identity.py`,
   `src/punt_lux/applets/identity.py`,
@@ -776,8 +776,8 @@ before implementation, per Decision 4 below.
   `src/punt_lux/operations/models/render.py`,
   `src/punt_lux/operations/models/query_scenes.py`,
   `src/punt_lux/operations/models/query_ownership.py`,
-  `src/punt_lux/protocol/messages/scene.py`,
-  `src/punt_lux/protocol/messages/lifecycle.py`,
+  `src/punt_lux/wire/model/messages/scene.py`,
+  `src/punt_lux/wire/model/messages/lifecycle.py`,
   `docs/architecture/target/target.md`,
   `docs/architecture/target/ui-model.md`,
   `docs/architecture/one-code-path.md`,

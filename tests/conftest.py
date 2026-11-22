@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any, Self, cast
 import pytest
 
 from punt_lux.domain.hub.suspect_book import SuspectBook
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 from tests.link_access import forget_handed_queues, recording_hand_over
 from tests.tmp_guard import TmpGuard
 

@@ -15,14 +15,15 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.lease_term import LeaseTerms
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import AddElement
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
-from punt_lux.protocol.compositions.client_details import ClientDetails
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.compositions.client_details import ClientDetails
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.lease_term import LeaseTerms
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
 
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:

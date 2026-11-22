@@ -26,7 +26,7 @@ from punt_lux.domain.hub.dial_death import DialDeath
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.settlement import Settlement
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["SuspectBook"]
 

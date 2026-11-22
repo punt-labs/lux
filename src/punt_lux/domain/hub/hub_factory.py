@@ -20,14 +20,14 @@ import logging
 from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.domain.hub.hub import hub
-from punt_lux.domain.ids import Topic
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.ids import Topic
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["HubPublishSink", "hub_element_factory"]
 
@@ -41,7 +41,7 @@ class HubPublishSink:
     decoded Element fires inside the Hub routes to ``Hub.publish``
     against that connection's scope. Satisfies the structural
     ``PublishSink`` Protocol without inheriting from it; the protocol
-    lives in ``domain.handlers`` (inner layer) and this adapter lives
+    lives in ``wire.model.handlers`` (inner layer) and this adapter lives
     beside the Hub in ``domain.hub``.
     """
 

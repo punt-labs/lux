@@ -10,9 +10,9 @@ import pytest
 from punt_lux.display.replica import SceneReplica
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
-from punt_lux.domain.identity import HubId
-from punt_lux.protocol import Element, GroupElement, SceneMessage, TextElement
-from punt_lux.protocol.elements.terminal import TerminalElement
+from punt_lux.wire.model import Element, GroupElement, SceneMessage, TextElement
+from punt_lux.wire.model.elements.terminal import TerminalElement
+from punt_lux.wire.model.identity import HubId
 
 _HUB = HubId.stub()
 

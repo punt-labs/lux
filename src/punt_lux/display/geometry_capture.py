@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Self
 from imgui_bundle import imgui
 
 from punt_lux.display.geometry import ElementRef, GeometryRecorder
-from punt_lux.protocol.geometry import Rect
+from punt_lux.wire.model.geometry import Rect
 
 if TYPE_CHECKING:
     from collections.abc import Generator

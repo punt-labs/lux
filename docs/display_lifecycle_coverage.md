@@ -3,7 +3,7 @@
 Companion to `docs/display_lifecycle.tex`. Derives the test partitions
 (Test Template Framework style) from the Z operation schemas, then maps them
 against the existing tests in `tests/display/test_socket_server.py` and
-`tests/test_paths.py`. The bar is that the spec's partitions are covered by a
+`tests/service/test_display_paths.py`. The bar is that the spec's partitions are covered by a
 test, not merely that the model-check passed.
 
 Spec-operation → code mapping:
@@ -163,7 +163,7 @@ bound-but-not-listening socket refuses `connect`, so a probe reads it dead — i
 the entire reason the bind lock exists. `test_returns_false_on_bind_race`
 *monkeypatches* the probe to DEAD rather than exercising the real mechanism.
 
-- Module: `tests/test_paths.py`, class `TestIsRunning`.
+- Module: `tests/service/test_display_paths.py`, class `TestIsRunning`.
 - Test: `test_bound_not_listening_socket_probes_dead`.
 - Asserts: bind an `AF_UNIX` socket to the path, do **not** call `listen()`,
   keep the fd open; `DisplayPaths(path)._probe() is SocketLiveness.DEAD` and
@@ -195,7 +195,7 @@ holds the spawn lock while the display it spawns takes the bind lock; the design
 claim is that the fixed lock order (spawn-outer, bind-inner, never both by one
 agent) makes deadlock impossible.
 
-- Module: `tests/test_paths.py`, new class `TestLockOrdering`.
+- Module: `tests/service/test_display_paths.py`, new class `TestLockOrdering`.
 - Test: `test_spawn_and_bind_locks_coexist_without_deadlock`.
 - Asserts: thread A holds `_spawn_lock()`, thread B holds `bind_lock()`
   simultaneously (both enter within a bounded barrier); each then acquires and
@@ -210,7 +210,7 @@ takes the **bind** lock so it cannot unlink a socket a concurrent binder just
 created. The existing lock test (`test_reap_holds_lock_against_concurrent_ensure`)
 exercises the **spawn** lock only.
 
-- Module: `tests/test_paths.py`, class `TestReap`.
+- Module: `tests/service/test_display_paths.py`, class `TestReap`.
 - Test: `test_reap_cleanup_holds_bind_lock_against_binder`.
 - Asserts: hold `DisplayPaths(path).bind_lock()` in thread A (simulating a
   binder mid-window); in thread B call `reap()` on a dead-socket path; B's

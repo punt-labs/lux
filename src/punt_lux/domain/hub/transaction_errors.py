@@ -1,7 +1,7 @@
 """TransactionErrors -- the ways code can misuse a batch transaction's judge.
 
 Each is a rule the code broke, not a condition the data was in, so each is a
-:class:`~punt_lux.domain.programmer_error.ProgrammerError`: no fan-out boundary an
+:class:`~punt_lux.kernel.programmer_error.ProgrammerError`: no fan-out boundary an
 observer or a handler runs under may log it and carry on.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import final
 
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 
 __all__ = ["JudgeReusedError", "WriteDuringRollbackError"]
 

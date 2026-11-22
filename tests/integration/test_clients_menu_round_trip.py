@@ -37,17 +37,18 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.session_callback import SessionCallback
-from punt_lux.domain.identity import HubId
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.scene_installer import SceneInstaller
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.elements.table import TableElement
+from punt_lux.wire.model.identity import HubId
+from punt_lux.wire.model.ids import SceneId
 from tests.menu_doubles import FakeImGui, ignore
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 pytestmark = pytest.mark.integration
 

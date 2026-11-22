@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.ports import HubPorts
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["CanonicalFrameOwner"]
 

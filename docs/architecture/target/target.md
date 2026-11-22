@@ -250,6 +250,15 @@ live in `punt_lux.kernel`, independent of either the Hub or client SDK.
 Project display-mode file I/O belongs to `service.display_mode_store`; the
 Typer-facing enable/disable orchestration belongs to `cli.display_enablement`.
 
+Step 3 merges shared domain and protocol definitions into `punt_lux.wire.model`;
+`domain.hub` and `protocol.pty` remain until their later migrations. The merged
+facade exports the wire `Element` union and the structural `ElementProtocol`.
+`LeaseTerm` is a shared wire value, while `ConnectionId` and `ProgrammerError`
+belong to kernel. Display socket/process lifecycle, including protocol-aware
+readiness probing, belongs to `service.display_paths`, not kernel. Package moves
+must remove actual forbidden edges as well as update names in the shrinking
+ratchet baseline; the legacy package initializers do not alias moved models.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in
