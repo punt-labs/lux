@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, Self
 
-from punt_lux.ptyd.wire_queue import WireQueue
+from punt_lux.wire_queue import WireQueue
 
 
 class SendPort(Protocol):

@@ -9,11 +9,11 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec, SuccessReply
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.fault import SessionFault
-from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.peer import Peer
-from punt_lux.ptyd.snapshot import SnapshotError
 from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.viewers import Binding, ViewerBindings
+from punt_lux.terminal.output import OutputChunk, SessionSnapshot
+from punt_lux.terminal.snapshot import SnapshotError
 
 logger = logging.getLogger(__name__)
 

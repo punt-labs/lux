@@ -27,7 +27,7 @@ from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
-from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.terminal.snapshot import snapshot_version
 from tests.ptyd.wire_client import WireClient
 from spikes.terminal.proof_signals import ProofSignals
 

@@ -6,8 +6,8 @@ import pytest
 
 from punt_lux.protocol.pty.frames import FrameKind
 from punt_lux.ptyd.credit import CreditWindow
-from punt_lux.ptyd.output import SessionSnapshot
 from punt_lux.ptyd.viewer_flow import ViewerFlow
+from punt_lux.terminal.output import SessionSnapshot
 
 WINDOW = 256 * 1024
 DESCRIPTION: dict[str, object] = {"ended": False, "exit_code": None}

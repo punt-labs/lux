@@ -13,12 +13,12 @@ from punt_lux.protocol.pty.control import (
     ListRequest,
     Request,
 )
-from punt_lux.ptyd import snapshot as _snapshots
 from punt_lux.ptyd.core import SessionCore
 from punt_lux.ptyd.peer import Peer
 from punt_lux.ptyd.snapshot_cut import SnapshotCut
 from punt_lux.ptyd.stream_output import StreamPublisher
 from punt_lux.ptyd.viewers import ViewerBindings
+from punt_lux.terminal import snapshot as _snapshots
 
 logger = logging.getLogger(__name__)
 

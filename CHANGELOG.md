@@ -106,6 +106,9 @@
 
 ### Fixed
 
+- SessionStart applet launch intent is logged before its outcome by a single
+  detached logger, without delaying applet startup.
+
 - HTTP MCP sessions can inspect and clear their own scenes by local ID even
   when the client connects without a `session_key` query parameter.
 

@@ -34,7 +34,7 @@ class StartedDaemon:
                 time.sleep(0.01)
                 continue
             try:
-                from punt_lux.ptyd.snapshot import snapshot_version
+                from punt_lux.terminal.snapshot import snapshot_version
 
                 reply = client.request(
                     HelloRequest(1, WIRE_VERSION, snapshot_version())

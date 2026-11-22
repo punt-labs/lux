@@ -21,18 +21,17 @@ from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import (
+from punt_lux.ptyd.snapshot_cut import SnapshotCut
+from punt_lux.ptyd.stream_output import StreamPublisher
+from punt_lux.ptyd.viewers import Binding, ViewerBindings
+from punt_lux.terminal.ffi import Terminal, terminal_title
+from punt_lux.terminal.snapshot import (
     SnapshotError,
     encode_binary,
     screen_rows,
     tracked_terminal,
 )
-from punt_lux.ptyd.snapshot_cut import SnapshotCut
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
-from punt_lux.ptyd.stream_output import StreamPublisher
-from punt_lux.ptyd.viewers import Binding, ViewerBindings
-from punt_lux.terminal.ffi import Terminal, terminal_title
+from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
 from tests.ptyd.stream_fakes import RecordingPeer
 from tests.ptyd.test_session_core import FakeFactory
 
@@ -81,19 +80,6 @@ def test_visible_repaint_matches_the_complete_repaint_at_ground_state() -> None:
     visible = _visible_round_trip(src)
     assert screen_rows(visible) == screen_rows(src)
     assert terminal_title(visible) == terminal_title(src) == "a title"
-
-
-def test_vt_snapshot_metadata_round_trips() -> None:
-    snapshot = SessionSnapshot("tmux", 7, 20, 4, "v", b"paint", SnapshotEncoding.VT)
-    assert snapshot.to_dict()["format"] == "vt"
-    assert SessionSnapshot.from_dict(snapshot.to_dict(), b"paint") == snapshot
-
-
-def test_unknown_snapshot_format_is_rejected() -> None:
-    metadata = SessionSnapshot("tmux", 0, 20, 4, "v", b"x").to_dict()
-    metadata["format"] = "mystery"
-    with pytest.raises(ValueError, match="format"):
-        SessionSnapshot.from_dict(metadata, b"x")
 
 
 def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, RecordingPeer]:

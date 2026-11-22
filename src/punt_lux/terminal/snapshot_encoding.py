@@ -6,13 +6,13 @@ from enum import StrEnum
 from typing import Self
 
 from punt_lux.protocol.pty.control_fields import ControlError
-from punt_lux.ptyd.snapshot import (
+from punt_lux.terminal.ffi import Terminal
+from punt_lux.terminal.snapshot import (
     VtSnapshot,
     encode_binary,
     restore_binary,
     tracked_terminal,
 )
-from punt_lux.terminal.ffi import Terminal
 
 
 class SnapshotEncoding(StrEnum):

@@ -11,7 +11,7 @@ from typing import Self
 from punt_lux.protocol.pty.control import ControlCodec, ControlRequest
 from punt_lux.protocol.pty.frames import MAX_READ_BYTES, Frame, FrameDecoder, FrameKind
 from punt_lux.protocol.pty.replies import Reply, ReplyCodec
-from punt_lux.ptyd.output import SessionSnapshot
+from punt_lux.terminal.output import SessionSnapshot
 
 
 class WireClient:

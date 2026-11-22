@@ -13,8 +13,8 @@ pytest.importorskip("imgui_bundle")
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import encode_binary, snapshot_version, tracked_terminal
+from punt_lux.terminal.output import SessionSnapshot
+from punt_lux.terminal.snapshot import encode_binary, snapshot_version, tracked_terminal
 
 
 def begin(session: RemoteSession, data: bytes, ended: bool = False) -> None:
