@@ -14,6 +14,7 @@ name: Ratchets
 # workflow's name (the format GitHub's branch-protection UI expects):
 #   Ratchets / check-oo
 #   Ratchets / check-coupling
+#   Ratchets / check-layers
 
 on:
   push:
@@ -25,6 +26,38 @@ permissions:
   contents: read
 
 jobs:
+  check-layers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0
+      - name: Fetch origin/main (merge-base target for the layer ratchet)
+        run: git fetch origin main
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - name: Check layers against the pre-push or PR base baseline
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            if [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+              make check-layers BASE_REF="$BEFORE_SHA"
+            else
+              make check-layers
+            fi
+          else
+            BASE_REF="$(git merge-base origin/main HEAD)"
+            make check-layers BASE_REF="$BASE_REF"
+          fi
+
   # check-oo compares HEAD against a base baseline
   # (`git show <base>:.oo-baseline.json` -- oo_ratchet.oo.gitio
   # `resolve_base`/`show_baseline`). Which commit is "the base" differs by
