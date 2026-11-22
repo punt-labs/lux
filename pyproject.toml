@@ -388,7 +388,6 @@ adapters = [
     "punt_lux.claude_permissions",
     "punt_lux.client",
     "punt_lux.client.*",
-    "punt_lux.client_host",
     "punt_lux.config",
     "punt_lux.credentials",
     "punt_lux.doctor_checks",
@@ -583,6 +582,7 @@ application = [
     "punt_lux.applets.unreadable_board",
 ]
 domain = [
+    "punt_lux.client_host",
     "punt_lux._backends",
     "punt_lux._doctor_result",
     "punt_lux._service_errors",
