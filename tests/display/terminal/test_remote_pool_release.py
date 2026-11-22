@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -84,15 +85,28 @@ def test_a_late_frame_for_a_released_channel_spares_other_terminals(
 class _FakeConnection:
     """Records queued frames and flushes; the daemon sends nothing back."""
 
-    def __init__(self) -> None:
-        self.queued: list[Frame] = []
-        self.pumps = 0
+    _queued: list[Frame]
+    _pumps: int
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._queued = []
+        self._pumps = 0
+        return self
+
+    @property
+    def queued(self) -> list[Frame]:
+        return self._queued
+
+    @property
+    def pumps(self) -> int:
+        return self._pumps
 
     def queue(self, frame: Frame) -> None:
-        self.queued.append(frame)
+        self._queued.append(frame)
 
     def pump(self, budget_s: float) -> list[Frame]:
-        self.pumps += 1
+        self._pumps += 1
         return []
 
 
