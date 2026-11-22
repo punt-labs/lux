@@ -243,8 +243,14 @@ function start(name, hn, by = 'user') {
   t.command = command;
   const where = multiHost() ? ` on ${hn}` : '';
   if (by === 'agent') {
-    const fz = focused && terms.includes(focused) && !focused.docked ? focused.z : Math.max(0, ...[...panels, ...visibleTerms()].filter(w => w !== t && !w.docked).map(w => w.z));
-    t.z = fz - 0.5;
+    // Slot the agent's window directly under the one the user is in, using
+    // whole numbers: CSS z-index rejects fractions.
+    const shown = [...panels, ...visibleTerms()].filter(w => w !== t && !w.docked);
+    const top = focused && shown.includes(focused) ? focused : shown.reduce((a, b) => (b.z > a.z ? b : a), shown[0]);
+    if (top) {
+      for (const w of shown) if (w.z >= top.z) w.z += 1;
+      t.z = top.z - 1;
+    }
     log(`An agent started ${name}${where}. Its window appeared behind the one you are in and did not take focus: agent routes never steal focus.`, `term_new (MCP) ${ref(name)}${multiHost() ? ' --host ' + hn : ''}`);
     return;
   }
@@ -330,7 +336,10 @@ function renderMenu() {
     cols.push(it.sub());
   }
   const W = screen.clientWidth, H = screen.clientHeight - 34;
-  let left = menu.x, top = menu.y, prevLeft = null, prevWidth = 0;
+  let left = menu.x, top = menu.y;
+  // Once one column has to open leftward, every later one does too, each to
+  // the left of the leftmost column so far, so no column covers another.
+  let leftward = false, minLeft = Infinity, maxRight = -Infinity;
   cols.forEach((items, d) => {
     const col = h('div', { class: 'menu', role: 'menu', style: { left: left + 'px', top: top + 'px', maxHeight: (H - 30) + 'px', overflowY: 'auto' } });
     for (const it of items) {
@@ -360,17 +369,21 @@ function renderMenu() {
     // parent when it would overflow the right edge, and lift it when it would
     // run past the dock.
     const width = col.offsetWidth;
-    if (left + width > W) {
-      left = prevLeft !== null ? Math.max(0, prevLeft - width + 2) : Math.max(0, W - width);
-      col.style.left = left + 'px';
+    if (d === 0) {
+      left = Math.min(left, Math.max(0, W - width));
+    } else if (leftward || left + width > W) {
+      leftward = true;
+      left = Math.max(0, minLeft - width + 2);
     }
+    col.style.left = left + 'px';
     if (top + col.offsetHeight > H) {
       top = Math.max(28, H - col.offsetHeight);
       col.style.top = top + 'px';
     }
-    prevLeft = left; prevWidth = width;
+    minLeft = Math.min(minLeft, left);
+    maxRight = Math.max(maxRight, left + width);
     const on = col.querySelector('.mi.on');
-    if (on) { top += on.offsetTop - 4; left += width - 2; }
+    if (on) { top += on.offsetTop - 4; left = maxRight - 2; }
   });
 }
 
@@ -415,7 +428,8 @@ function addLauncher() {
   }
   if (launchersOn(hn).some(l => l.name === a.name)) { log(`${hn} already has a launcher named "${a.name}".`); return; }
   runtimeAdded.push({ host: hn, name: a.name, command: a.command });
-  log(`Added "${a.name}" on ${hn}, in memory until luxd-pty restarts. Lux printed the table to keep it; a person pastes it into ${hn}'s terminals.toml:  [[launcher]] name = ${tomlStr(a.name)} command = ${tomlStr(a.command)}`, call);
+  log(`Added "${a.name}" on ${hn}, in memory until luxd-pty restarts. To keep it, a person pastes the table lux printed into ${hn}'s terminals.toml.`, call);
+  addPanel.printed = `[[launcher]]\nname = ${tomlStr(a.name)}\ncommand = ${tomlStr(a.command)}`;
 }
 function addPanelWin() {
   const a = addPanel;
@@ -440,6 +454,8 @@ function addPanelWin() {
       field('add-command', 'Command', a.command, v => { a.command = v; }),
       h('div', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, 'Runtime only. To keep it, a person adds it to the file below.')),
       h('div', { class: 'frow end' }, h('button', { class: 'chip', onclick: () => { addLauncher(); render(); } }, 'Add')),
+      a.printed ? h('div', { class: 'frow' }, h('span', {}, 'Printed'), h('span', { class: 'chk' }, 'lux term launcher add prints this; paste it into the file:')) : null,
+      a.printed ? h('pre', { class: 'toml', id: 'printed-toml' }, a.printed) : null,
       h('pre', { class: 'toml' }, tomlFor(a.host))));
   node.style.width = '460px';
   return node;

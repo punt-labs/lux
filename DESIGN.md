@@ -8174,7 +8174,11 @@ Two further problems surfaced in the same discussion.
    a single session's items stay plain. A connection with no repository
    (`voxd`) keeps a submenu named for itself. Terminal daemons do not appear
    in Projects. DES-064's collision numbering moves from submenu names to item
-   labels.
+   labels for one repository's sessions. The submenu key is the repository's
+   full declared path, not its directory name: two different repositories
+   whose directories share a name (`~/work/lux` and `~/forks/lux`) are two
+   submenus, and those keep DES-064's submenu numbering (`lux`, `lux (2)`).
+   Only the same repository's several sessions merge.
 
 3. **Terminals groups by the shell's machine.** Each machine with a
    `luxd-pty` contributes its terminals. While one machine is connected the
@@ -8192,7 +8196,10 @@ Two further problems surfaced in the same discussion.
 
 5. **Terminal names follow the running program.** A terminal is named
    `machine :: program`, and a second one with the same name on that machine
-   gets `(2)`. Until renamed, the name follows the foreground program. A name
+   gets `(2)`. The machine part follows DES-089's rule for the Hub rung: it
+   is shown in a window title once a second machine is connected, and
+   elided while only one is, so a single-machine terminal is titled just
+   `program`. Until renamed, the name follows the foreground program. A name
    the user gives sticks; an empty name returns to automatic. Names are
    unique per machine. Rename is `lux term rename`. Run inside a terminal,
    every `lux term` command defaults to that terminal: `luxd-pty` puts the
@@ -8240,8 +8247,9 @@ Two further problems surfaced in the same discussion.
    - **The machine's own config file**, `~/.punt-labs/lux/terminals.toml`, one
      `[[launcher]]` table per entry. `luxd-pty` reads it at start and when it
      changes, and registers its entries with its Hub, so each machine offers
-     what it can run. On first start `luxd-pty` writes a file holding only the
-     shell, so the place to add one is evident.
+     what it can run. A machine with no file offers only the built-in shell,
+     with runtime registration off; `lux pty status` names the file's path
+     so the place to add one is evident. `luxd-pty` does not create it.
    - **Runtime registration**, by an agent or a person: the MCP tool
      `term_launcher_add` and the CLI `lux term launcher add` (with `ls` and
      `remove`), addressed to one machine. A runtime launcher is held in that
@@ -8250,10 +8258,13 @@ Two further problems surfaced in the same discussion.
 
    Two rules bound this, because a launcher starts a process on a machine:
 
-   - **No request on any route carries a command line; only a launcher's
-     name.** This holds for every way a terminal starts: a menu click, the
-     `lux term new` CLI, an MCP tool, and a scene that contains a terminal
-     element. The Display and the Hub forward the name; only the machine's own
+   - **No request that starts a terminal carries a command line; only a
+     launcher's name.** This holds for every way a terminal starts: a menu
+     click, the `lux term new` CLI, an MCP tool, and a scene that contains a
+     terminal element. Registering a launcher is a different request, and the
+     only one that carries a command: `term_launcher_add` and
+     `lux term launcher add` define a launcher, which the next rule gates, and
+     they start nothing. The Display and the Hub forward the name; only the machine's own
      `luxd-pty` resolves it to a command and runs it, as that machine's user.
      A forged or replayed request can start only what that machine already
      lists. The terminal element's `command` field is replaced by a
