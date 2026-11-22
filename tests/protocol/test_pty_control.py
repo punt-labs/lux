@@ -8,14 +8,21 @@ import pytest
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.control import (
-    MAX_CONTROL_BYTES,
+    WIRE_VERSION,
     ControlCodec,
     ControlRequest,
     Request,
 )
 from punt_lux.protocol.pty.control_fields import ControlError
+from punt_lux.protocol.pty.control_json import MAX_CONTROL_BYTES
 from punt_lux.protocol.pty.hello import HelloRequest
+from punt_lux.protocol.pty.new_request import NewRequest
+from punt_lux.protocol.pty.session_events import SessionEvent, WatchRequest
 from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+
+
+def test_wire_version_stays_compatible_with_running_daemon() -> None:
+    assert WIRE_VERSION == 3
 
 
 @pytest.mark.parametrize(
@@ -116,3 +123,24 @@ def test_direct_construction_validates_too() -> None:
         ListRequest(0)
     with pytest.raises(ControlError):
         HelloRequest(1, 0, "snapshot-version")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        NewRequest(1),
+        NewRequest(2, "work", "/bin/zsh -l", 120, 40),
+        NewRequest(3, "Terminal 3"),
+        WatchRequest(4),
+    ],
+)
+def test_new_and_watch_round_trip(message: Request) -> None:
+    assert isinstance(message, ControlRequest)
+    assert ControlCodec.decode(ControlCodec.encode(message)) == message
+    assert type(message).from_dict(message.to_dict()) == message
+
+
+def test_session_event_is_not_a_request() -> None:
+    event = SessionEvent("created", "t1.2", "work")
+    with pytest.raises(ControlError, match="operation"):
+        ControlCodec.decode(event.encode())

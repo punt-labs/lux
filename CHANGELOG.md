@@ -10,6 +10,11 @@
   layers cover every current module. Full diagnostics include a non-failing
   design scan; neither report gates `make check` or CI.
 
+- Named-terminal lifecycle design and protocol types `NewRequest`,
+  `WatchRequest`, `SessionEvent` and `SessionLabel`, with the tracked
+  `scripts/verify_terminal_model.sh` formal verification gate. Wire version
+  remains 3; the daemon refuses `new`/`watch` until the daemon unit lands.
+
 - Durable, privacy-safe SessionStart applet launch outcomes and display-mode
   decisions, with best-effort launch diagnostics that cannot delay applet startup.
 

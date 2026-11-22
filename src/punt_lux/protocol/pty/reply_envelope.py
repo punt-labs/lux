@@ -6,8 +6,8 @@ import json
 from collections.abc import Mapping
 from typing import cast
 
-from punt_lux.protocol.pty.control import MAX_CONTROL_BYTES
 from punt_lux.protocol.pty.control_fields import ControlError, ControlFields
+from punt_lux.protocol.pty.control_json import MAX_CONTROL_BYTES
 
 
 class ReplyEnvelope(ControlFields):
