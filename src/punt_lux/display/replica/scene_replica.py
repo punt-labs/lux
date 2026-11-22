@@ -20,19 +20,11 @@ from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
 from punt_lux.domain.identity import HubId, HubScopedKey
 from punt_lux.protocol import SceneMessage
 
-__all__ = ["OnSceneReplacedFn", "OnTerminalsHeldFn", "SceneReplica"]
+__all__ = ["OnSceneReplacedFn", "SceneReplica"]
 
-type OnTerminalsHeldFn = Callable[[frozenset[str]], None]
-
-
-class _NoTerminals:
-    """Settle nothing: a replica built without terminal replicas has none."""
-
-    def __call__(self, _names: frozenset[str]) -> None:
-        return None
-
-
-_NO_TERMINALS = _NoTerminals()
+# Receives the session names the replica's scenes still hold, after every
+# change; a replica built without terminal replicas settles nothing.
+type _OnTerminalsHeldFn = Callable[[frozenset[str]], None]
 
 # handle_framed_scene's own-Hub default; stands in for the many existing
 # callers with no real Hub connection -- production resolves the real HubId.
@@ -51,13 +43,13 @@ class SceneReplica:
     _stale: StaleIds
     _owner_facts: OwnerFactsStore
     _departure: SceneDeparture
-    _on_terminals_held: OnTerminalsHeldFn
+    _on_terminals_held: _OnTerminalsHeldFn
 
     def __new__(
         cls,
         *,
         on_scene_replaced: OnSceneReplacedFn,
-        on_terminals_held: OnTerminalsHeldFn = _NO_TERMINALS,
+        on_terminals_held: _OnTerminalsHeldFn = lambda _names: None,
     ) -> Self:
         self = super().__new__(cls)
         self._book = FrameBook()
