@@ -120,9 +120,11 @@ Numbers match the model.
 
 ### Hosts
 
-Each `luxd-pty` has one helper; the helper declares identity `kind=app`,
-`name=<host label>`. The Clients menu (DES-064) already names a submenu for the
-client, so:
+Each `luxd-pty` generates a unique daemon instance id at startup and reports
+it in hello/list responses. Its helper includes that instance id in its Hub
+identity, alongside `kind=app` and `name=<host label>`, so distinct daemons get
+distinct connection ids even when their host labels match. The label is
+display-only: the Clients submenu name and frame-title prefix.
 
 ```text
 Clients
@@ -134,8 +136,10 @@ Clients
     Terminals
 ```
 
-No new menu, no Hosts menu. DES-064's collision numbering handles two daemons
-with one name. The host label defaults to the machine hostname and is
+No new menu, no Hosts menu. DES-064's collision numbering can show
+`pembroke` and `pembroke (2)` only once the instance-bearing identities
+distinguish those connections; the shared label alone does not do that.
+The host label defaults to the machine hostname and is
 overridable (`LUX_PTY_HOST`). The frame title falls out of DES-100:
 `pembroke :: Terminal 3`.
 
@@ -145,7 +149,7 @@ overridable (`LUX_PTY_HOST`). The frame title falls out of DES-100:
 |---|---|
 | scene id | `terminal-<id>` (stored as `<connection>\x1f<id>` per DES-086) |
 | frame id | `terminal-<id>` |
-| element | `terminal` with `session=<id>`, and from increment 3 `host=<label>` |
+| element | `terminal` with `session=<id>`, and from increment 3 `host=<daemon instance id>` |
 | title | the session label |
 | manager scene id | `terminals` (one per helper) |
 
@@ -156,19 +160,24 @@ One terminal, one scene, one frame. `New terminal` registers no `frame_id`
 
 A Hub-rendered table, one row per live session of that host: label, state,
 `Open` (raises the frame), `Close` (kills the session). The buttons publish
-topics (`terminal.open`, `terminal.close`, payload `{host, session}`) that the
+topics (`terminal.open`, `terminal.close`, payload `{host, session}`, where
+`host` is the daemon instance id) that the
 helper subscribes to; the helper acts. This is the only place a user sees all
 sessions, including any whose frame is hidden, and the only UI path to `kill`.
 The table is rebuilt from the same list the helper reconciles from.
 
 ### Hosts across daemons (increment 3)
 
-The element gains `host: str` (`""` = this machine). The Display holds one
-`RemotePool` per host, built from a Display-side map `host -> socket path`
+The element gains `host: str`, carrying the daemon instance id, never the host
+label (`""` selects the configured local daemon instance). The Display holds
+one `RemotePool` per instance, built from a Display-side map
+`daemon instance id -> socket path`
 (config file; the Hub never sends a path to the Display, since that would let
 the Hub name an arbitrary socket for the Display to connect to). Replica key is
-`(host, session)`. Nothing else changes: ids are per-daemon, scenes are
-per-connection.
+`(instance, session)`. A restart generates a new instance id; routing must
+learn that id rather than treating an old instance as the new daemon.
+Session ids are per-daemon and scenes are per-connection. These are design
+contracts for the later units, not wire-type changes in this PR.
 
 ## 5. How the Display learns
 
@@ -275,9 +284,13 @@ identity? If it waits for the 30 s lease, stale frames show `unknown session`
 for up to 30 s after a daemon restart. If that is unacceptable, the helper
 clears them itself in `SessionWatch`'s first reconcile.
 
-Increment 2 is then the host label and its test (the Clients submenu is named
-for the host). Increment 3 adds `host` to the element, the per-host pool map,
-and a second-daemon test.
+Increment 2 adds the daemon instance id (generated at daemon start and reported
+in hello/list), includes it in the helper's Hub identity, and adds the
+display-only host label and tests: same-labelled daemons have distinct
+connection ids and numbered Clients submenus. Increment 3 adds the
+instance-valued `host` field to the element, the Display's instance-to-socket
+map and per-instance pools, `(instance, session)` replica keys, and a
+same-labelled second-daemon routing test. The host label never keys routing.
 
 ## 8. Formal model
 
@@ -294,10 +307,15 @@ every replica whose scene is gone or changed; `DropReplica` is the same
 release on its own. `listed` holds the acquired snapshot and `sync=listing`
 marks the interval before buffered-event replay. Individual helper event
 handlers wait until replay completes; daemon operations remain enabled.
+`watch` explicitly tracks `wnone`, `wpending` and `wacked`.
+`HelperSubscribe` sends the request, `HelperWatchAck` acknowledges it, and
+only `wacked` buffers daemon events and enables `HelperList`. Initialization,
+watch loss and daemon restart require subscription and acknowledgment before
+listing again. The model covers one daemon, not cross-host/instance routing.
 `ReplicaAttach` requires a running shell, and `ReplicaRefused` covers exited
 shells as well as absent or mismatched ids. `HelperLoseEvents` cannot fire
 when the watch is already lost and both event sets are empty.
-The intact model has 3482 states at set size 2 and no deadlock.
+The intact model has 4010 states at set size 2 and no deadlock.
 
 Goals, each an unreachable bad state in the intact model:
 
@@ -324,18 +342,23 @@ atomically in this model. It catches an orphan without waiting for name reuse;
 | `terminal_lifecycle_exit_leak_buggy.tex` | Helper clears scene on `ended` | I1 |
 | `terminal_lifecycle_swap_buggy.tex` | Resume checks the shell, and the never-reuse guard | I2 and I6 |
 
-Results from the last run: intact model, I1/I2/I3/I6/I7/I8 not found over all 3482
+Results from the last run: intact model, I1/I2/I3/I6/I7/I8 not found over all 4010
 states. Cache-leak I6 and I8 found; exit-leak I1 found; swap I2 and I6 found.
 I7 is also not found on all three fidelity variants. A local, uncommitted
 mutation that omits `createdEv` from `HelperSync` reaches I7: acquire an empty
 list, create a session, then apply the list without its buffered creation.
+A second local mutation removing the acknowledgment guard from `HelperList`
+also reaches I7: list before subscribing, create sessions without event
+buffering, then apply the stale snapshot.
 Deadlock check clean on all four files. State counts to the goal vary with
 search order.
 
-Cache-leak counterexample from ProB: `DaemonNew(n,s2)`,
-`DaemonNew(m,s1)`, `HelperCreated(n,s2)`, `DaemonRestart`,
-`DaemonNew(n,s1)`, `ReplicaRefused(n)` (the old scene expects s2),
-`HelperList`, `HelperSync` (scene returns for the new shell, replica kept).
+The latest cache-leak counterexample ends with an attached replica of `(n,s1)`:
+`HelperLoseEvents`, `HelperSubscribe`, `HelperWatchAck`, `HelperList`,
+`ShellExit(n)`, `ReplicaEnds(n,s1)`, `HelperSync` (scene cleared, replica
+kept), then `HelperLoseEvents`, `HelperSubscribe`, `HelperWatchAck`,
+`HelperList` (empty snapshot), `DaemonRemove(n)`, `DaemonNew(n,s2)`,
+`HelperSync` (buffered creation installs the new scene, old replica kept).
 The scene names a running shell and the
 cached replica of the dead one is still keyed to the name, so the Display
 shows the dead screen and never re-attaches. Today the name is the constant
@@ -351,14 +374,17 @@ model. Re-run the checks when the lifecycle code changes.
 
 ## 9. Working answers to the operator questions
 
-No answer arrived in the window, so the design proceeds on these
-recommendations. The operator may still change them.
+The design proceeds on these working answers, with Jim's explicit
+same-named-host decision recorded in item 2.
 
 1. **Frame close box hides the terminal.** The session lives and the Windows
    menu reopens it (DES-088; tmux detach). The `Terminals` manager holds the
    only kill, so one stray click cannot end a long job.
 2. **Hosts are Clients submenus named for the host**, not a new `Hosts` menu.
    A second menu source is the divergence DES-059 exists to prevent.
+   Jim's decision: a unique daemon instance id distinguishes helper Hub
+   identities and keys Display socket routing and replicas; host labels are
+   display-only, including when two daemons share the same label.
 3. **After a Hub restart every running session's frame reappears.** The user
    closes the ones they do not want. The alternative leaves a running shell
    with no window.

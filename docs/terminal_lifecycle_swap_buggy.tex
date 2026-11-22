@@ -52,7 +52,8 @@ anything still refers to it.
 \begin{zed}
   DSTATE ::= running | exited \\
   RPHASE ::= ready | gone \\
-  SYNC ::= synced | unsynced | listing
+  SYNC ::= synced | unsynced | listing \\
+  WATCH ::= wnone | wpending | wacked
 \end{zed}
 
 \texttt{exited} is the daemon's draining state: the program has ended
@@ -60,7 +61,10 @@ and the viewers are being told.  \texttt{gone} is a replica that ended
 (exited or failed to attach).  \texttt{unsynced} means the helper may
 hold scenes or have missed events that no longer match the daemon.
 \texttt{listing} is also out of sync: a list snapshot has been acquired
-but its buffered events have not yet been replayed.
+but its buffered events have not yet been replayed. The watch starts at
+\texttt{wnone}; sending a subscription makes it \texttt{wpending}, and
+the daemon acknowledgment makes it \texttt{wacked}. Only an acknowledged
+watch receives daemon notices.
 
 \section{State}
 
@@ -73,7 +77,8 @@ but its buffered events have not yet been replayed.
   bound : (NAME \cross SHELL) \pfun SHELL \\
   createdEv, endedEv : NAME \rel SHELL \\
   used : \power NAME \\
-  sync : SYNC
+  sync : SYNC \\
+  watch : WATCH
 \where
   \dom dstate = \dom daemon \\
   daemon \in NAME \pinj SHELL \\
@@ -93,6 +98,7 @@ recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
 \begin{schema}{Init}
   Sys'
 \where
+  watch' = wnone \\
   listed' = \emptyset \\
   daemon' = \emptyset \\
   dstate' = \emptyset \\
@@ -102,7 +108,7 @@ recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
   createdEv' = \emptyset \\
   endedEv' = \emptyset \\
   used' = \emptyset \\
-  sync' = synced
+  sync' = unsynced
 \end{schema}
 
 \section{Daemon Operations}
@@ -112,13 +118,15 @@ recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   listed' = listed \\
   n? \notin \dom daemon \\
   s? \notin \ran daemon \cup \ran scene \cup \ran createdEv \cup
     \ran endedEv \cup \ran listed \cup \ran (\dom replica) \\
   daemon' = daemon \cup \{ n? \mapsto s? \} \\
   dstate' = dstate \cup \{ n? \mapsto running \} \\
-  createdEv' = createdEv \cup \{ (n? , s?) \} \\
+  watch = wacked \implies createdEv' = createdEv \cup \{ (n? , s?) \} \\
+  watch \neq wacked \implies createdEv' = createdEv \\
   used' = used \cup \{ n? \} \\
   scene' = scene \\
   replica' = replica \\
@@ -127,19 +135,21 @@ recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
   sync' = sync
 \end{schema}
 
-Creation always announces itself, so the helper shows a scene whoever
-asked: the menu, the CLI, another client.
+Creation announces itself to an acknowledged watcher. Before acknowledgment,
+the next list discovers the session whoever asked: menu, CLI or another client.
 
 \begin{schema}{ShellExit}
   \Delta Sys \\
   n? : NAME
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   n? \in \dom daemon \\
   dstate~n? = running \\
   dstate' = dstate \oplus \{ n? \mapsto exited \} \\
-  endedEv' = endedEv \cup \{ (n? , daemon~n?) \} \\
+  watch = wacked \implies endedEv' = endedEv \cup \{ (n? , daemon~n?) \} \\
+  watch \neq wacked \implies endedEv' = endedEv \\
   daemon' = daemon \\
   scene' = scene \\
   replica' = replica \\
@@ -149,12 +159,13 @@ asked: the menu, the CLI, another client.
 \end{schema}
 
 Exit and an explicit kill are the same transition: the program ends and
-the daemon announces it.
+the daemon announces it to acknowledged watchers.
 
 \begin{schema}{DaemonRemove}
   \Delta Sys \\
   n? : NAME
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   n? \in \dom daemon \\
@@ -177,6 +188,7 @@ it: every attached replica has been told.
 \begin{schema}{DaemonRestart}
   \Delta Sys
 \where
+  watch' = wnone \\
   listed' = \emptyset \\
   used' = used \\
   daemon' = \emptyset \\
@@ -194,11 +206,46 @@ non-goal.  The helper is the daemon's child and restarts with it.
 
 \section{Helper Operations}
 
+\begin{schema}{HelperSubscribe}
+  \Delta Sys
+\where
+  watch = wnone \\
+  watch' = wpending \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  listed' = listed \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used \\
+  sync' = sync
+\end{schema}
+
+\begin{schema}{HelperWatchAck}
+  \Delta Sys
+\where
+  watch = wpending \\
+  watch' = wacked \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  listed' = listed \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used \\
+  sync' = sync
+\end{schema}
+
 \begin{schema}{HelperCreated}
   \Delta Sys \\
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   sync = synced \\
   listed' = listed \\
   used' = used \\
@@ -221,6 +268,7 @@ non-goal.  The helper is the daemon's child and restarts with it.
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   sync = synced \\
   listed' = listed \\
   used' = used \\
@@ -245,6 +293,7 @@ dropped; the ended notice handles the rest.
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   sync = synced \\
   listed' = listed \\
   used' = used \\
@@ -270,7 +319,9 @@ a late notice never removes a newer terminal that reuses the name.
 \begin{schema}{HelperLoseEvents}
   \Delta Sys
 \where
-  sync \neq unsynced \lor createdEv \neq \emptyset \lor endedEv \neq \emptyset \\
+  watch' = wnone \\
+  watch \neq wnone \lor sync \neq unsynced \lor
+    createdEv \neq \emptyset \lor endedEv \neq \emptyset \\
   listed' = \emptyset \\
   used' = used \\
   createdEv' = \emptyset \\
@@ -285,11 +336,14 @@ a late notice never removes a newer terminal that reuses the name.
 
 The helper crashes or its watch connection drops.  Notices in flight are
 lost; any pending list is invalidated and the next step must reconcile.
-The guard excludes a lost-watch no-op when both notice sets are empty.
+The watch resets to \texttt{wnone}, requiring a new subscription and ack.
+The guard excludes a no-op when already unsynced with no watch or events.
 
 \begin{schema}{HelperList}
   \Delta Sys
 \where
+  watch' = watch \\
+  watch = wacked \\
   sync = unsynced \\
   listed' = \{ n : NAME | n \in \dom daemon \land dstate~n = running
     @ n \mapsto daemon~n \} \\
@@ -305,12 +359,15 @@ The guard excludes a lost-watch no-op when both notice sets are empty.
 \end{schema}
 
 The helper sends the list request only after the daemon acknowledges its
-watch subscription, not merely after the socket connects. Notices remain buffered
+watch subscription (\texttt{HelperSubscribe}, then \texttt{HelperWatchAck}),
+not merely after the socket connects. The \texttt{wacked} guard on
+\texttt{HelperList} enforces this barrier. Notices remain buffered
 while the list response is pending; daemon operations can interleave.
 
 \begin{schema}{HelperSync}
   \Delta Sys
 \where
+  watch' = watch \\
   listed' = \emptyset \\
   used' = used \\
   sync = listing \\
@@ -336,6 +393,7 @@ over a creation for the same shell; ids are never reused in the intact model.
   \Delta Sys \\
   n? : NAME
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   n? \in \dom scene \\
@@ -358,6 +416,7 @@ Resume names the shell the scene expects and attaches only to that one.
   \Delta Sys \\
   n? : NAME
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   n? \in \dom scene \\
@@ -379,6 +438,7 @@ Resume names the shell the scene expects and attaches only to that one.
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   (n? , s?) \in \dom replica \\
@@ -402,6 +462,7 @@ lost connection.
   n? : NAME \\
   s? : SHELL
 \where
+  watch' = watch \\
   listed' = listed \\
   used' = used \\
   (n? , s?) \in \dom replica \\
