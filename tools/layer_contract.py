@@ -17,7 +17,8 @@ class LayerContract:
     _prefixes: ClassVar[dict[str, str]] = {
         "kernel": "tracing bounded_send send_timeout write_progress progress_clock "
         "polled_event connection_timing socket_owner client_host connection_identity "
-        "paths log_level proctitle repo_root runtime logging_config usage",
+        "paths log_level proctitle repo_root runtime logging_config usage "
+        "credentials socket_writer wire_queue",
         "wire": "domain protocol operations.models",
         "trust": "trust",
         "service": "service _backend_* _backends _platform_dispatch _launchctl "
