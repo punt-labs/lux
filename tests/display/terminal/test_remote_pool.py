@@ -48,6 +48,7 @@ class TestRemotePoolReplies:
         requests.receive.side_effect = ready_reply
         connection.pump.return_value = [Frame(0, FrameKind.DATA, b"hello")]
         assert pool.pump()
+        requests.receive.assert_called_once_with(b"hello")
         assert requests.attach.call_args_list == [call(2, first), call(3, second)]
         requests.disconnect.assert_not_called()
 
@@ -64,6 +65,7 @@ class TestRemotePoolReplies:
             Frame(3, FrameKind.DATA, b"output"),
         ]
         assert not pool.pump()
+        requests.receive.assert_called_once_with(b"reply")
         requests.attach.assert_not_called()
         requests.disconnect.assert_called_once_with(
             (session,), "/nonexistent/pty.sock: unexpected terminal channel"
@@ -85,6 +87,7 @@ class TestRemotePoolReplies:
             patch.object(session, "receive") as receive,
         ):
             assert pool.pump()
+        requests.receive.assert_called_once_with(b"attached")
         receive.assert_called_once_with(output)
         requests.disconnect.assert_not_called()
 
@@ -111,6 +114,10 @@ class TestRemotePoolReplies:
             patch.object(pending, "receive") as pending_receive,
         ):
             assert not pool.pump()
+        assert requests.receive.call_args_list == [
+            call(b"attached"),
+            call(b"duplicate"),
+        ]
         existing_receive.assert_called_once_with(output)
         pending_receive.assert_not_called()
         requests.disconnect.assert_called_once_with(
@@ -125,6 +132,7 @@ class TestRemotePoolReplies:
         requests.receive.side_effect = ValueError("invalid")
         connection.pump.return_value = [Frame(0, FrameKind.DATA, b"invalid")]
         assert not pool.pump()
+        requests.receive.assert_called_once_with(b"invalid")
         requests.disconnect.assert_called_once_with(
             (session,), "/nonexistent/pty.sock: invalid"
         )
