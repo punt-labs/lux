@@ -287,6 +287,8 @@ The Display reads the head of the stream.
   health' = health
 \end{schema}
 
+A live replica that reads the daemon's close answers with its own close (\texttt{RemoteSession.\_notice}), which frees the daemon's binding.
+
 
 
 \begin{schema}{ReceiveData}
@@ -323,7 +325,7 @@ The Display reads the head of the stream.
   reqs' = reqs \\
   dbound' = dbound \\
   dfin' = dfin \\
-  toDaemon' = toDaemon \\
+  toDaemon' = toDaemon \cup \{ c? \} \\
   usedCh' = usedCh \\
   collateral' = collateral \\
   health' = health
