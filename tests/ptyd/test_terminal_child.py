@@ -23,9 +23,9 @@ def test_stop_signals_group_once_then_reaps_after_grace_without_sleeping() -> No
             "punt_lux.ptyd.terminal_child.time.sleep",
             side_effect=AssertionError("blocking"),
         ),
-        patch("punt_lux.ptyd.terminal_child.os.killpg") as killpg,
+        patch("punt_lux.ptyd.process_group.os.killpg") as killpg,
         patch(
-            "punt_lux.ptyd.terminal_child.os.kill",
+            "punt_lux.ptyd.process_group.os.kill",
             side_effect=AssertionError("PID signal"),
         ),
         patch(
@@ -59,7 +59,7 @@ def test_exited_leader_stays_unreaped_until_descendants_are_signalled() -> None:
         patch(
             "punt_lux.ptyd.leader_status.os.waitpid", return_value=(123, 7 << 8)
         ) as reap,
-        patch("punt_lux.ptyd.terminal_child.os.killpg") as killpg,
+        patch("punt_lux.ptyd.process_group.os.killpg") as killpg,
     ):
         child = TerminalChild(123)
         assert not child.poll()
@@ -79,7 +79,7 @@ def test_exited_leader_stays_unreaped_until_descendants_are_signalled() -> None:
 
 def test_missing_group_still_reaps_owned_child() -> None:
     with (
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=ProcessLookupError),
+        patch("punt_lux.ptyd.process_group.os.killpg", side_effect=ProcessLookupError),
         patch("punt_lux.ptyd.leader_status.os.waitpid", return_value=(123, 0)),
     ):
         child = TerminalChild(123)
@@ -100,7 +100,7 @@ def test_exited_leader_is_reaped_when_macos_refuses_the_group_signal() -> None:
         ) as clock,
         patch("punt_lux.ptyd.leader_status.os.waitid", return_value=status),
         patch("punt_lux.ptyd.leader_status.os.waitpid", return_value=(123, 0)),
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch("punt_lux.ptyd.process_group.os.killpg", side_effect=PermissionError),
     ):
         child = TerminalChild(123)
         assert not child.poll()
@@ -123,7 +123,7 @@ def test_close_reaps_an_exited_shell_even_when_its_exit_was_not_yet_seen() -> No
         ) as clock,
         patch("punt_lux.ptyd.leader_status.os.waitid", return_value=status),
         patch("punt_lux.ptyd.leader_status.os.waitpid", return_value=(123, 0)),
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch("punt_lux.ptyd.process_group.os.killpg", side_effect=PermissionError),
     ):
         child = TerminalChild(123)
         assert not child.stop()
@@ -134,7 +134,7 @@ def test_close_reaps_an_exited_shell_even_when_its_exit_was_not_yet_seen() -> No
 
 def test_permission_errors_are_not_hidden_while_the_leader_is_alive() -> None:
     with (
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch("punt_lux.ptyd.process_group.os.killpg", side_effect=PermissionError),
         patch("punt_lux.ptyd.leader_status.os.waitid", return_value=None),
         pytest.raises(PermissionError),
     ):
@@ -176,22 +176,53 @@ def test_exited_leader_left_as_a_real_zombie_is_reaped_without_error() -> None:
     assert child.exit_code == 0
 
 
-def test_a_tolerated_eperm_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+def test_a_tolerated_eperm_is_logged_at_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
     with (
-        patch("punt_lux.ptyd.terminal_child.os.killpg", side_effect=PermissionError),
+        patch("punt_lux.ptyd.process_group.os.killpg", side_effect=PermissionError),
         patch("punt_lux.ptyd.leader_status.os.waitid", return_value=status),
-        caplog.at_level("WARNING", logger="punt_lux.ptyd"),
+        caplog.at_level("DEBUG", logger="punt_lux.ptyd"),
     ):
         TerminalChild(123).stop()
+    assert [r.levelname for r in caplog.records] == ["DEBUG"]
     assert "EPERM" in caplog.text
+
+
+def test_a_normal_shell_exit_signals_the_empty_group_once_and_warns_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """After `exit`, macOS refuses the group signal: the group has no member left.
+
+    The refusal proves there is nothing to SIGKILL after the grace period, so
+    the child sends no second signal and a routine exit adds no warning.
+    """
+    status = SimpleNamespace(si_status=0, si_code=os.CLD_EXITED)
+    with (
+        patch(
+            "punt_lux.ptyd.terminal_child.time.monotonic", return_value=10.0
+        ) as clock,
+        patch("punt_lux.ptyd.leader_status.os.waitid", return_value=status),
+        patch("punt_lux.ptyd.leader_status.os.waitpid", return_value=(123, 0)),
+        patch(
+            "punt_lux.ptyd.process_group.os.killpg", side_effect=PermissionError
+        ) as killpg,
+        caplog.at_level("WARNING", logger="punt_lux.ptyd"),
+    ):
+        child = TerminalChild(123)
+        child.stop()
+        clock.return_value = 10.31
+        assert child.poll()
+    killpg.assert_called_once_with(123, signal.SIGHUP)
+    assert caplog.records == []
 
 
 def test_echild_while_checking_exit_counts_as_reaped(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with (
-        patch("punt_lux.ptyd.terminal_child.os.killpg"),
+        patch("punt_lux.ptyd.process_group.os.killpg"),
         patch("punt_lux.ptyd.leader_status.os.waitpid", side_effect=ChildProcessError),
         patch(
             "punt_lux.ptyd.terminal_child.time.monotonic", side_effect=[0.0, 1.0, 1.0]
