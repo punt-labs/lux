@@ -420,6 +420,7 @@ adapters = [
     "punt_lux.trust",
     "punt_lux.trust.*",
     "punt_lux.domain.hub.cross_host_connector",
+    "punt_lux.domain.hub.cross_host_link",
     "punt_lux.domain.hub.dial_*",
     "punt_lux.domain.hub.display_connection",
     "punt_lux.domain.hub.display_link",

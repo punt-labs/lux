@@ -33,6 +33,7 @@ def test_full_report_includes_non_gating_design_scan() -> None:
         ("punt_lux.luxd", "entry"),
         ("punt_lux.client.facade", "adapters"),
         ("punt_lux.domain.hub.display_link", "adapters"),
+        ("punt_lux.domain.hub.cross_host_link", "adapters"),
         ("punt_lux.domain.hub.hub_display", "domain"),
         ("punt_lux.operations", "application"),
         ("punt_lux.operations.models.common", "domain"),
