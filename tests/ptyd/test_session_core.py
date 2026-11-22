@@ -16,9 +16,9 @@ pytest.importorskip("pyghostty")
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore, SessionError
 from punt_lux.ptyd.fault import SessionFault
-from punt_lux.ptyd.output import OutputChunk, SessionSnapshot
 from punt_lux.ptyd.process_port import ProcessPort
-from punt_lux.ptyd.snapshot import restore_binary
+from punt_lux.terminal.output import OutputChunk, SessionSnapshot
+from punt_lux.terminal.snapshot import restore_binary
 
 
 @dataclass

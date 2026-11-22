@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 from typing import Self
 
-from punt_lux.ptyd.credentials import PeerCredentials
+from punt_lux.credentials import PeerCredentials
 from punt_lux.terminal.runtime_directory import RuntimeDirectory
 
 

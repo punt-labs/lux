@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.ptyd.credentials import PeerCredentials
+from punt_lux.credentials import PeerCredentials
 from punt_lux.terminal.local_endpoint import LocalEndpoint
 
 if TYPE_CHECKING:

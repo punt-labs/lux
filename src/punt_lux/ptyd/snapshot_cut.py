@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Protocol, Self
 
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import ContinuationExhaustedError, SnapshotError
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
+from punt_lux.terminal.output import SessionSnapshot
+from punt_lux.terminal.snapshot import ContinuationExhaustedError, SnapshotError
+from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
 
 logger = logging.getLogger(__name__)
 

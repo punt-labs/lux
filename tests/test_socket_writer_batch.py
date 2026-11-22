@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.ptyd.socket_writer import SocketWriter
+from punt_lux.socket_writer import SocketWriter
 
 
 class CollectingSender:

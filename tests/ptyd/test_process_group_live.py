@@ -12,7 +12,7 @@ import pytest
 
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.output import OutputChunk
+from punt_lux.terminal.output import OutputChunk
 
 pytestmark = pytest.mark.integration
 

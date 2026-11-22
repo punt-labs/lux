@@ -18,7 +18,7 @@ from pathlib import Path
 from punt_lux.protocol.pty.control import WIRE_VERSION
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply
-from punt_lux.ptyd.snapshot import snapshot_version
+from punt_lux.terminal.snapshot import snapshot_version
 from punt_lux.terminal.launcher import DaemonLauncher
 from tests.ptyd.test_autostart_live import StartedDaemon
 from tests.ptyd.test_lifecycle_cycles_live import LifecycleCycle

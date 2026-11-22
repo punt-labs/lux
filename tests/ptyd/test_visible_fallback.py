@@ -21,18 +21,18 @@ from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.protocol.pty.attach import AttachRequest
 from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.ptyd.core import SessionCore
-from punt_lux.ptyd.output import SessionSnapshot
-from punt_lux.ptyd.snapshot import (
+from punt_lux.ptyd.snapshot_cut import SnapshotCut
+from punt_lux.ptyd.stream_output import StreamPublisher
+from punt_lux.ptyd.viewers import Binding, ViewerBindings
+from punt_lux.terminal.ffi import Terminal, terminal_title
+from punt_lux.terminal.output import SessionSnapshot
+from punt_lux.terminal.snapshot import (
     SnapshotError,
     encode_binary,
     screen_rows,
     tracked_terminal,
 )
-from punt_lux.ptyd.snapshot_cut import SnapshotCut
-from punt_lux.ptyd.snapshot_encoding import SnapshotEncoding
-from punt_lux.ptyd.stream_output import StreamPublisher
-from punt_lux.ptyd.viewers import Binding, ViewerBindings
-from punt_lux.terminal.ffi import Terminal, terminal_title
+from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
 from tests.ptyd.stream_fakes import RecordingPeer
 from tests.ptyd.test_session_core import FakeFactory
 

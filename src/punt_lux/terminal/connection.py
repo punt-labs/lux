@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 from typing import Self
 
+from punt_lux.credentials import PeerCredentials
 from punt_lux.protocol.pty.frames import MAX_READ_BYTES, Frame, FrameDecoder
-from punt_lux.ptyd.credentials import PeerCredentials
-from punt_lux.ptyd.socket_writer import SocketWriter
+from punt_lux.socket_writer import SocketWriter
 
 
 class TerminalConnection:
