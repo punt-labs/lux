@@ -9,6 +9,7 @@ from punt_lux.protocol.pty.control import (
     WIRE_VERSION,
     AttachRequest,
     HelloRequest,
+    KillRequest,
     ListRequest,
     Request,
 )
@@ -44,10 +45,16 @@ class ControlDispatch:
             StreamPublisher.success(
                 peer, request.request_id, {"sessions": self._core.describe()}
             )
-        else:
+        elif isinstance(request, KillRequest):
             self._bindings.close_session(request.session, "session killed")
             self._core.kill(request.session)
             StreamPublisher.success(peer, request.request_id, {})
+        else:
+            # new and watch decode on the wire but the daemon does not act on
+            # them yet; refuse them rather than run them as something else.
+            StreamPublisher.failure(
+                peer, request.request_id, f"unsupported operation {request.OP}"
+            )
 
     @staticmethod
     def _hello(peer: Peer, request: HelloRequest) -> None:

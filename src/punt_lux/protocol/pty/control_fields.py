@@ -21,10 +21,14 @@ class ControlFields:
         self._raw = raw
         return self
 
+    def exact(self, name: str, keys: frozenset[str]) -> None:
+        """Reject missing and unknown fields."""
+        if frozenset(self._raw) != keys:
+            raise ControlError(f"{name}: fields must be {sorted(keys)}")
+
     def shape(self, operation: str, keys: frozenset[str]) -> None:
         """Reject missing fields, unknown fields and the wrong discriminator."""
-        if frozenset(self._raw) != keys:
-            raise ControlError(f"{operation}: fields must be {sorted(keys)}")
+        self.exact(operation, keys)
         if self._raw.get("op") != operation:
             raise ControlError(f"expected operation {operation}")
 
