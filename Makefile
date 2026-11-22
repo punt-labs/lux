@@ -57,7 +57,7 @@ DESIGN_BASE ?= origin/main
 design-shadow: ## Report advisory design changes; never part of check
 	uv run --extra display oo-ratchet design src/punt_lux --shadow-check "$(DESIGN_BASE)"
 
-check: check-oo check-coupling check-suppressions lint type test ## Run all quality gates
+check: check-oo check-coupling check-suppressions check-layers lint type test ## Run all quality gates
 
 # CI compares PRs with their merge base and pushes to main with the pre-push
 # tip (github.event.before). Without BASE_REF, the package resolves the merge
@@ -78,10 +78,13 @@ update-suppressions: ## Update suppression baseline
 check-plugin-surface: ## Verify the plugin/ surface resolves entirely inside itself
 	bash scripts/check-plugin-surface.sh
 
-check-layers: ## Report future-package layer violations (never gates)
-	uv run --extra display python tools/layer_contract.py
+check-layers: ## Layer ratchet — reject new violations and stale baseline entries
+	uv run --extra display python -m tools.layer_contract $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
-.PHONY: check-layers
+update-layers: ## Shrink the layer baseline after removing violating import edges
+	uv run --extra display python -m tools.layer_contract --update $(if $(BASE_REF),--base-ref $(BASE_REF),)
+
+.PHONY: check-layers update-layers
 
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display oo-ratchet coupling src/punt_lux/ --check $(if $(BASE_REF),--base-ref $(BASE_REF),)

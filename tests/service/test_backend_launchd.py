@@ -1,0 +1,188 @@
+"""Check that installing an unchanged launchd service leaves it running."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import patch
+
+from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
+from punt_lux.service._backend_launchd import LaunchdBackend
+
+
+def _result(returncode: int):
+    class _Result:
+        def __init__(self) -> None:
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = ""
+
+    return _Result()
+
+
+class TestLaunchdInstallIdempotency:
+    """install() must not bootout a live daemon when nothing would change.
+
+    The bootout-then-bootstrap path only belongs on a genuine content
+    change. A daemon serving live long-lived MCP connections may never
+    actually die on SIGTERM (uvicorn's default graceful-shutdown window is
+    unbounded), so reinstalling an already-correct, already-active service
+    must return without touching launchd at all.
+    """
+
+    def test_install_is_a_noop_when_active_with_matching_plist(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd-hub").touch()
+
+        with (
+            patch(
+                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
+            ),
+            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+            # First install: not yet active, writes the plist the normal way.
+            with patch.object(backend, "is_active", return_value=False):
+                run.return_value = _result(0)  # bootstrap -> succeeds
+                first_result = backend.install()
+            assert first_result is False
+            run.reset_mock()
+
+            # Second install, same binary path, now active: nothing changed,
+            # so a live daemon must never be booted out for this reinstall.
+            with patch.object(backend, "is_active", return_value=True):
+                second_result = backend.install()
+
+        assert second_result is True
+        run.assert_not_called()
+
+    def test_install_still_cures_when_plist_content_differs(self, tmp_path: Path):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        local_bin = fake_home / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        (local_bin / "luxd-hub").touch()
+
+        with (
+            patch(
+                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
+            ),
+            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            backend = LaunchdBackend(HUB_SPEC)
+            backend.config_path().parent.mkdir(parents=True, exist_ok=True)
+            backend.config_path().write_text("<stale plist content>")
+
+            with patch.object(backend, "is_active", return_value=True):
+                run.side_effect = [
+                    _result(0),  # print -> registered
+                    _result(0),  # bootout -> succeeds
+                    _result(1),  # print -> gone
+                    _result(0),  # bootstrap -> succeeds
+                ]
+                result = backend.install()
+
+        assert result is False
+        verbs_issued = [call.args[0] for call in run.call_args_list]
+        assert any(v[:2] == ["launchctl", "bootout"] for v in verbs_issued)
+        assert any(v[:2] == ["launchctl", "bootstrap"] for v in verbs_issued)
+
+
+class TestKeepAliveRendering:
+    """The two KeepAlive stanzas a spec's restart_on_crash_only selects."""
+
+    def test_hub_spec_keeps_the_bare_always_restart_stanza(
+        self, tmp_path: Path
+    ) -> None:
+        # HUB_SPEC is untouched by the demand-driven design: restart on any
+        # exit, including a clean one -- byte-identical to the pre-existing
+        # plist, so an already-installed Hub never sees a spurious diff.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".local" / "bin").mkdir(parents=True)
+        (fake_home / ".local" / "bin" / "luxd-hub").touch()
+        with (
+            patch(
+                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
+            ),
+            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+        ):
+            plist = LaunchdBackend(HUB_SPEC)._plist_content()
+        lines = [line.strip() for line in plist.splitlines()]
+        keep_alive = lines.index("<key>KeepAlive</key>")
+        assert lines[keep_alive + 1] == "<true/>"
+        assert "SuccessfulExit" not in plist
+
+    def test_display_spec_uses_the_crash_only_dict_stanza(self, tmp_path: Path) -> None:
+        # DISPLAY_SPEC: a clean exit is operator-initiated (design §4) and
+        # must not respawn -- only a crash (non-zero/signal exit) does.
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        (fake_home / ".local" / "bin").mkdir(parents=True)
+        (fake_home / ".local" / "bin" / "luxd-display").touch()
+        with (
+            patch(
+                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
+            ),
+            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+        ):
+            plist = LaunchdBackend(DISPLAY_SPEC)._plist_content()
+        lines = [line.strip() for line in plist.splitlines()]
+        keep_alive = lines.index("<key>KeepAlive</key>")
+        assert lines[keep_alive + 1] == "<dict>"
+        success_exit = lines.index("<key>SuccessfulExit</key>")
+        assert lines[success_exit + 1] == "<false/>"
+
+
+class TestLaunchdStartRegistration:
+    def test_loaded_cleanly_stopped_display_uses_non_destructive_kickstart(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        args = run.call_args.args[0]
+        assert args[:2] == ["launchctl", "kickstart"]
+        assert args[2].endswith("/com.punt-labs.luxd-display")
+        assert "-k" not in args
+
+    def test_loaded_hub_start_does_not_kill_an_existing_process(self):
+        backend = LaunchdBackend(HUB_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        assert run.call_args.args[0][:2] == ["launchctl", "kickstart"]
+        assert "-k" not in run.call_args.args[0]
+
+    def test_unloaded_service_bootstraps_the_installed_plist(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=False),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(0)
+            assert backend.start()
+        assert run.call_args.args[0][:2] == ["launchctl", "bootstrap"]
+        assert run.call_args.args[0][-1] == str(backend.config_path())
+
+    def test_failed_kickstart_reports_failure_without_bootstrap_fallback(self):
+        backend = LaunchdBackend(DISPLAY_SPEC)
+        with (
+            patch.object(backend, "is_active", return_value=True),
+            patch("punt_lux.service._launchctl.subprocess.run") as run,
+        ):
+            run.return_value = _result(5)
+            assert not backend.start()
+        assert run.call_count == 1
+        assert run.call_args.args[0][:2] == ["launchctl", "kickstart"]

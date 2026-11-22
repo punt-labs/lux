@@ -32,7 +32,6 @@ from punt_lux.operations import (
     SceneList,
 )
 from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.operations.display_mode_store import DisplayModeStore
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -58,6 +57,7 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.agent_factory import agent_element_factory
 from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.service.display_mode_store import DisplayModeStore
 from punt_lux.tools import (
     clear,
     clear_scene,

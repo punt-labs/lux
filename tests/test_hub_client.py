@@ -16,8 +16,8 @@ import websockets
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
-from punt_lux.hub_paths import HubPaths
 from punt_lux.identity_headers import ClientHeaders
+from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.protocol.messages.listen import (
     CallbackFrame,
     EventFrame,

@@ -13,13 +13,13 @@ import urllib.request
 
 import typer
 
-from punt_lux.hub_paths import HubPaths
-from punt_lux.hub_restart import HubRestart, HubRestartError
+from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.service import (
     ServiceActionFailedError,
     ServiceManager,
     ServiceNotInstalledError,
 )
+from punt_lux.service.hub_restart import HubRestart, HubRestartError
 
 hub_app = typer.Typer(
     name="hub",

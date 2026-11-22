@@ -19,7 +19,7 @@ import logging
 from typing import final
 
 from punt_lux.display import RenderLoop
-from punt_lux.entry_runtime import DaemonRuntime
+from punt_lux.service.entry_runtime import DaemonRuntime
 
 __all__ = ["DisplayEntryPoint"]
 

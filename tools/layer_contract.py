@@ -1,34 +1,37 @@
-"""Report-only import contracts for the future packages in the platform plan.
+"""Ratchet import contracts for the future packages in the platform plan.
 
-No findings gate builds: this tool reports migration work, never enforces it.
+Known runtime edges live in .layer-baseline.json. New edges fail the check;
+removed edges fail until `make update-layers` shrinks the baseline.
+Baseline additions also fail against --base-ref (default: origin/main merge base).
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
+import json
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import ClassVar, Self
+
+from tools.layer_baseline import LayerBaseline
 
 
 class LayerContract:
     """Classify current modules against the planned package dependency graph."""
 
     _prefixes: ClassVar[dict[str, str]] = {
-        "kernel": "tracing bounded_send send_timeout write_progress progress_clock "
-        "polled_event connection_timing socket_owner client_host connection_identity "
+        "kernel": "kernel tracing bounded_send send_timeout write_progress "
+        "progress_clock polled_event connection_timing socket_owner client_host "
+        "connection_identity "
         "paths log_level proctitle repo_root runtime logging_config usage "
         "credentials socket_writer wire_queue",
         "wire": "domain protocol operations.models",
         "trust": "trust",
-        "service": "service _backend_* _backends _platform_dispatch _launchctl "
-        "_legacy_sweep* _binary_sweep* _shim_ownership _atomic_write _port_guard "
-        "_service_* _doctor_result doctor_* hub_restart display_restart hooks "
-        "claude_permissions permission_rules display_enablement config "
-        "_launchd_plist entry_runtime applet_event session_start",
+        "service": "service",
         "client": "client hub_client rest_transport rest_http_call rest_loopback "
-        "rest_reply rest_error_body identity_headers header_value cli_identity "
-        "hub_paths",
+        "rest_reply rest_error_body identity_headers header_value cli_identity",
         "hub": "domain.hub operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
         "transport_policy hub_composition hub_lifespan mcp_session_manager "
@@ -150,14 +153,28 @@ class LayerReport:
 
     _src: Path
     _contract: LayerContract
+    _violations: set[str]
+    _errors: list[str]
 
     def __new__(cls, src: Path) -> Self:
         self = super().__new__(cls)
         self._src = src
         self._contract = LayerContract()
+        self._violations = set()
+        self._errors = []
         return self
 
+    @property
+    def violations(self) -> frozenset[str]:
+        return frozenset(self._violations)
+
+    @property
+    def has_errors(self) -> bool:
+        return bool(self._errors)
+
     def render(self) -> str:
+        self._violations.clear()
+        self._errors.clear()
         modules: dict[str, Path] = {}
         for path in sorted((self._src / "punt_lux").rglob("*.py")):
             parts = path.relative_to(self._src).with_suffix("").parts
@@ -165,7 +182,7 @@ class LayerReport:
             modules[module] = path
         groups: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         edges: set[tuple[str, str]] = set()
-        errors: list[str] = []
+        errors = self._errors
         for module, path in modules.items():
             try:
                 imports = RuntimeImports(module, is_package=path.name == "__init__.py")
@@ -183,7 +200,8 @@ class LayerReport:
                 )
                 if self._contract.breaks_rule(*layers):
                     groups[layers].append((module, target))
-        lines = ["Layer contract (REPORT ONLY; runtime imports; unique module edges)"]
+                    self._violations.add(f"{module} → {target}")
+        lines = ["Layer contract (runtime imports; unique module edges)"]
         for (source, target), violations in sorted(
             groups.items(), key=lambda item: (-len(item[1]), item[0])
         ):
@@ -207,5 +225,67 @@ class LayerReport:
         return "\n".join(lines)
 
 
+class LayerRatchet:
+    """Compare reported edges with a checked-in, shrinking baseline."""
+
+    _report: LayerReport
+    _baseline: Path
+
+    def __new__(cls, src: Path, baseline: Path) -> Self:
+        self = super().__new__(cls)
+        self._report = LayerReport(src)
+        self._baseline = baseline
+        return self
+
+    def run(self, *, update: bool = False, base_ref: str = "") -> int:
+        print(self._report.render())
+        if self._report.has_errors:
+            print(
+                "Layer ratchet FAILED: fix unreadable modules before checking/updating."
+            )
+            return 1
+        try:
+            store = LayerBaseline(self._baseline)
+            baseline = store.read() if self._baseline.exists() else frozenset[str]()
+            if not self._baseline.exists() and not update:
+                raise ValueError("missing layer baseline; run make update-layers")
+            store.check(baseline, base_ref)
+            new = self._report.violations - baseline
+            stale = baseline - self._report.violations
+            if new and (not update or self._baseline.exists()):
+                print(f"New layer violations: {len(new)}")
+                print("\n".join(f"  {edge}" for edge in sorted(new)))
+                return 1
+            if update:
+                store.check(self._report.violations, base_ref)
+                self._baseline.write_text(
+                    json.dumps(sorted(self._report.violations), indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                print(f"Updated layer baseline: {len(self._report.violations)} edges")
+                return 0
+            if stale:
+                print(f"Stale layer baseline entries (removable): {len(stale)}")
+                print("\n".join(f"  {edge}" for edge in sorted(stale)))
+                print("Run make update-layers and commit the shrinking baseline.")
+                return 1
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            print(f"Layer ratchet FAILED: {error}")
+            return 1
+        print(f"Layer ratchet passed: {len(baseline)} known violations")
+        return 0
+
+
 if __name__ == "__main__":
-    print(LayerReport(Path(__file__).resolve().parents[1] / "src").render())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update", action="store_true", help="Shrink the baseline")
+    parser.add_argument(
+        "--base-ref", default="", help="Reject baseline additions vs this git ref"
+    )
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[1]
+    raise SystemExit(
+        LayerRatchet(root / "src", root / ".layer-baseline.json").run(
+            update=args.update, base_ref=args.base_ref
+        )
+    )

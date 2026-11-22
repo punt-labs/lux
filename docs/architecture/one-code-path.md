@@ -135,7 +135,7 @@ punt_lux/operations/
   display_control.py     # DisplayControlOperations: get/set theme,
                          #   get/set window settings, get_display_info,
                          #   set_frame_state, screenshot, ping
-  config.py              # DisplayModeOperations: read/write display mode
+  service/config.py              # DisplayModeOperations: read/write display mode
   pubsub.py              # PubSubOperations: subscribe, unsubscribe,
                          #   publish, receive
   models/                # Pydantic request and result models, split by concern

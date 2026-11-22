@@ -22,8 +22,8 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux._binary_sweep_disk import DiskBinaryLegacySweep
 from punt_lux.service import HUB_SPEC
+from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
 
 pytestmark = pytest.mark.e2e
 
@@ -56,7 +56,9 @@ def test_sweep_removes_an_owned_shim_under_the_real_uv_tool_dir(
 
     try:
         spec = replace(HUB_SPEC, legacy_binary_names=(_SCRATCH_NAME,))
-        with patch("punt_lux._binary_sweep_disk.Path.home", return_value=fake_home):
+        with patch(
+            "punt_lux.service._binary_sweep_disk.Path.home", return_value=fake_home
+        ):
             report = DiskBinaryLegacySweep(spec).sweep()
 
         assert report.all_clean

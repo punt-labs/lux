@@ -194,8 +194,8 @@ ignore = [
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
 "src/punt_lux/runtime.py" = ["S102", "BLE001"]
-"src/punt_lux/config.py" = ["S607"]
-"src/punt_lux/hooks.py" = ["S607"]
+"src/punt_lux/service/config.py" = ["S607"]
+"src/punt_lux/service/hooks.py" = ["S607"]
 "src/punt_lux/display/render_loop.py" = ["PLC0415"]
 "src/punt_lux/display/query_dispatcher.py" = ["PLC0415"]
 "src/punt_lux/display/fonts.py" = ["PLC0415"]
@@ -223,15 +223,15 @@ ignore = [
 # existing call sites. Shadowing the builtin is the established convention
 # for this directory; A002 is suppressed for protocol/elements/ only.
 "src/punt_lux/protocol/elements/*.py" = ["A002"]
-"src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/_backends.py" = ["S603", "S607"]
-"src/punt_lux/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/_backend_systemd.py" = ["S603", "S607"]
-"src/punt_lux/_launchctl.py" = ["S603"]
-"src/punt_lux/_port_guard.py" = ["S603", "S607"]
-"src/punt_lux/_legacy_sweep_launchd.py" = ["S603", "S607"]
-"src/punt_lux/_legacy_sweep_systemd.py" = ["S603", "S607"]
-"src/punt_lux/_shim_ownership.py" = ["S603", "S607"]
+"src/punt_lux/service/__init__.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/service/_backends.py" = ["S603", "S607"]
+"src/punt_lux/service/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/service/_backend_systemd.py" = ["S603", "S607"]
+"src/punt_lux/service/_launchctl.py" = ["S603"]
+"src/punt_lux/service/_port_guard.py" = ["S603", "S607"]
+"src/punt_lux/service/_legacy_sweep_launchd.py" = ["S603", "S607"]
+"src/punt_lux/service/_legacy_sweep_systemd.py" = ["S603", "S607"]
+"src/punt_lux/service/_shim_ownership.py" = ["S603", "S607"]
 "tests/e2e/test_binary_sweep.py" = ["S101", "S603", "S607"]
 # Lazy imports to break circular dependency chains in domain/protocol layers
 "src/punt_lux/domain/event_handler_host.py" = ["PLC0415"]
@@ -366,7 +366,7 @@ entry = [
     "punt_lux.luxd",
     "punt_lux.luxd_display",
     "punt_lux.hook_cli",
-    "punt_lux.entry_runtime",
+    "punt_lux.service.entry_runtime",
     "punt_lux.hub_composition",
     "punt_lux.ptyd.__main__",
     "punt_lux.ptyd.application",
@@ -377,7 +377,7 @@ entry = [
     "punt_lux.domain.hub.replicator_instance",
 ]
 adapters = [
-    "punt_lux._backends",
+    "punt_lux.service._backends",
     "punt_lux.bounded_send",
     "punt_lux.cli_identity",
     "punt_lux.log_level",
@@ -388,22 +388,22 @@ adapters = [
     "punt_lux.ptyd.input_buffer",
     "punt_lux.ptyd.leader_status",
     "punt_lux.domain.hub.handshake_outcome",
-    "punt_lux._atomic_write",
-    "punt_lux._backend_*",
-    "punt_lux._launchctl",
-    "punt_lux._launchd_plist",
-    "punt_lux._binary_sweep_disk",
-    "punt_lux._legacy_sweep_launchd",
-    "punt_lux._legacy_sweep_systemd",
-    "punt_lux._shim_ownership",
-    "punt_lux.claude_permissions",
+    "punt_lux.service._atomic_write",
+    "punt_lux.service._backend_*",
+    "punt_lux.service._launchctl",
+    "punt_lux.service._launchd_plist",
+    "punt_lux.service._binary_sweep_disk",
+    "punt_lux.service._legacy_sweep_launchd",
+    "punt_lux.service._legacy_sweep_systemd",
+    "punt_lux.service._shim_ownership",
+    "punt_lux.service.claude_permissions",
     "punt_lux.client",
     "punt_lux.client.*",
-    "punt_lux.config",
+    "punt_lux.service.config",
     "punt_lux.credentials",
-    "punt_lux.doctor_checks",
+    "punt_lux.service.doctor_checks",
     "punt_lux.hub_client",
-    "punt_lux.hub_paths",
+    "punt_lux.kernel.hub_paths",
     "punt_lux.logging_config",
     "punt_lux.mcp_endpoint",
     "punt_lux.mcp_session_manager",
@@ -471,20 +471,20 @@ adapters = [
     "punt_lux.applets.watch",
 ]
 application = [
-    "punt_lux._binary_sweep",
-    "punt_lux._legacy_sweep",
-    "punt_lux._platform_dispatch",
-    "punt_lux._port_guard",
-    "punt_lux.display_enablement",
-    "punt_lux.display_restart",
-    "punt_lux.hooks",
+    "punt_lux.service._binary_sweep",
+    "punt_lux.service._legacy_sweep",
+    "punt_lux.service._platform_dispatch",
+    "punt_lux.service._port_guard",
+    "punt_lux.cli.display_enablement",
+    "punt_lux.service.display_restart",
+    "punt_lux.service.hooks",
     "punt_lux.hub_lifespan",
-    "punt_lux.hub_restart",
+    "punt_lux.service.hub_restart",
     "punt_lux.mcp_session",
     "punt_lux.runtime",
     "punt_lux.service",
     "punt_lux.session_cleanup",
-    "punt_lux.session_start",
+    "punt_lux.service.session_start",
     "punt_lux.commands",
     "punt_lux.commands.*",
     "punt_lux.operations",
@@ -504,7 +504,7 @@ application = [
     "punt_lux.operations.display_control",
     "punt_lux.operations.display_facts",
     "punt_lux.operations.display_link",
-    "punt_lux.operations.display_mode_store",
+    "punt_lux.service.display_mode_store",
     "punt_lux.operations.display_port",
     "punt_lux.operations.display_reply",
     "punt_lux.operations.display_state_proxy",
@@ -594,16 +594,16 @@ application = [
 ]
 domain = [
     "punt_lux.client_host",
-    "punt_lux._doctor_result",
-    "punt_lux._service_errors",
-    "punt_lux._service_spec",
-    "punt_lux.applet_event",
+    "punt_lux.service._doctor_result",
+    "punt_lux.service._service_errors",
+    "punt_lux.service._service_spec",
+    "punt_lux.service.applet_event",
     "punt_lux.connection_identity",
     "punt_lux.connection_timing",
-    "punt_lux.doctor_report",
+    "punt_lux.service.doctor_report",
     "punt_lux.header_value",
     "punt_lux.identity_headers",
-    "punt_lux.permission_rules",
+    "punt_lux.service.permission_rules",
     "punt_lux.polled_event",
     "punt_lux.progress_clock",
     "punt_lux.session_key",

@@ -19,6 +19,7 @@ import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from punt_lux.kernel.hub_defaults import DEFAULT_HUB_PORT
 from punt_lux.logging_config import process_diagnostics
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.proctitle import set_process_title
@@ -27,9 +28,6 @@ from punt_lux.transport_policy import LoopbackTransportPolicy
 from punt_lux.ws_transport import HubListenTransport
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_HUB_PORT = 8430
-
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -139,7 +137,7 @@ def serve(
         raise SystemExit(2)
 
     from punt_lux.hub_lifespan import HubLifespan
-    from punt_lux.hub_paths import HubPaths
+    from punt_lux.kernel.hub_paths import HubPaths
 
     lifespan = HubLifespan(HubPaths())
     app = build_app(lifespan=lifespan.run)
