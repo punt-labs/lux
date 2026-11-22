@@ -47,14 +47,24 @@ class AttachmentRequests:
         self._send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
 
     def attach(self, request_id: int, session: RemoteSession) -> None:
+        """Ask the daemon to attach ``session``, or hold it behind a cancelled one.
+
+        While a cancelled attach for the same name is unanswered, the daemon
+        still holds (or is about to bind) that viewer and would refuse this one
+        as a duplicate; the session is held and ``due`` offers it again once
+        that reply has been read.
+        """
         if session.phase in (RemotePhase.FAILED, RemotePhase.CLOSED):
+            return
+        if self._cancelled.outstanding(session.name):
+            self._schedule.hold(session)
             return
         self._pending[request_id] = session
         request = session.request(request_id)
         self._send(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
 
     def due(self) -> tuple[RemoteSession, ...]:
-        return self._schedule.due(time.monotonic())
+        return self._schedule.due(time.monotonic(), self._cancelled.outstanding)
 
     def receive(self, data: bytes) -> RemoteSession | None:
         reply = ReplyCodec.decode(data)
@@ -88,7 +98,7 @@ class AttachmentRequests:
         A cancelled request's reply may still arrive; ``receive`` recognizes it
         instead of treating it as a protocol error.
         """
-        cancelled = {i for i, s in self._pending.items() if s is session}
+        cancelled = {i: s.name for i, s in self._pending.items() if s is session}
         self._cancelled.add(cancelled)
         self._pending = {i: s for i, s in self._pending.items() if i not in cancelled}
         self._schedule.discard(session)

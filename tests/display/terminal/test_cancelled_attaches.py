@@ -10,7 +10,7 @@ from punt_lux.protocol.pty.replies import FailureReply, SuccessReply
 def _cancelled(*ids: int) -> tuple[CancelledAttaches, list[Frame]]:
     sent: list[Frame] = []
     cancelled = CancelledAttaches(sent.append, lambda _channel: None)
-    cancelled.add(ids)
+    cancelled.add(dict.fromkeys(ids, "n"))
     return cancelled, sent
 
 
@@ -49,6 +49,14 @@ def test_clear_forgets_every_cancelled_request() -> None:
 def test_a_late_success_reports_its_channel_released() -> None:
     released: list[int] = []
     cancelled = CancelledAttaches(lambda _frame: None, released.append)
-    cancelled.add([3])
+    cancelled.add({3: "n"})
     cancelled.consume(SuccessReply(3, {"channel": 9}))
     assert released == [9]
+
+
+def test_a_name_is_outstanding_until_its_cancelled_reply_is_read() -> None:
+    cancelled, _ = _cancelled(3)
+    assert cancelled.outstanding("n")
+    assert not cancelled.outstanding("other")
+    cancelled.consume(FailureReply(3, "gone", False))
+    assert not cancelled.outstanding("n")

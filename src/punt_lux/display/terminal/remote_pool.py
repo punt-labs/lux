@@ -24,7 +24,6 @@ class RemotePool:
     _sessions: dict[str, RemoteSession]
     _channels: dict[int, RemoteSession]
     _released: set[int]
-    _flush_owed: bool
     _requests: AttachmentRequests
     _connection: TerminalConnection | None
     _ids: count[int]
@@ -35,7 +34,7 @@ class RemotePool:
         self = super().__new__(cls)
         self._path = path
         self._sessions, self._channels = {}, {}
-        self._released, self._flush_owed = set(), False
+        self._released = set()
         self._requests = AttachmentRequests(self.send, self._released.add)
         self._connection = None
         self._ids = count(1)
@@ -70,14 +69,23 @@ class RemotePool:
         return session
 
     def retain_only(self, names: Collection[str]) -> None:
-        """Release every replica whose element no longer names it."""
+        """Release every replica whose element no longer names it.
+
+        When no replica is left the idle connection is closed: the daemon frees
+        every viewer bound to it when the socket drops, which also covers an
+        attach still queued or in flight (docs/terminal_reopen.tex, goal O).
+        """
         for name in [n for n in self._sessions if n not in names]:
             self._drop(self._sessions.pop(name))
+        if not self._sessions and self._connection is not None:
+            self._drop_connection()
+            self._requests.reset()
+            self._channels.clear()
+            self._released.clear()
 
     def pump(self, budget_s: float = 0.003) -> bool:
-        if not self._sessions and not self._flush_owed:
+        if not self._sessions:
             return False
-        self._flush_owed = False
         try:
             self._ensure_connection()
             if self._connection is None:
@@ -114,8 +122,7 @@ class RemotePool:
         """Close one replica and tell the daemon to drop its viewer binding.
 
         The daemon may already have frames in flight for the channel, so it
-        is remembered as released and its late frames are ignored. The CLOSE
-        is owed a flush even when no replica is left to keep ``pump`` running.
+        is remembered as released and its late frames are ignored.
         """
         if (channel := session.channel) in self._channels:
             self.send(Frame(channel, FrameKind.CLOSE, b""))
@@ -123,7 +130,6 @@ class RemotePool:
             self._released.add(channel)
         self._requests.forget(session)
         session.close()
-        self._flush_owed = True
 
     def _attach(self, session: RemoteSession) -> None:
         self._requests.attach(next(self._ids), session)

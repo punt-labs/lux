@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Mapping
 from typing import Self
 
 from punt_lux.protocol.pty.frames import Frame, FrameKind
@@ -17,11 +17,15 @@ class CancelledAttaches:
     daemon bound a viewer on a channel nobody will read, so it is closed and
     reported released: the daemon's snapshot and output for it may already be
     in flight behind the reply.
+
+    A name with a cancelled attach still unanswered is *outstanding*: the
+    daemon allows one viewer per session on a connection, so a new attach for
+    that name would be refused as a duplicate if it arrived first.
     """
 
     _send: Callable[[Frame], None]
     _released: Callable[[int], None]
-    _ids: set[int]
+    _names: dict[int, str]
 
     def __new__(
         cls, send: Callable[[Frame], None], released: Callable[[int], None]
@@ -29,17 +33,20 @@ class CancelledAttaches:
         self = super().__new__(cls)
         self._send = send
         self._released = released
-        self._ids = set()
+        self._names = {}
         return self
 
-    def add(self, request_ids: Iterable[int]) -> None:
-        self._ids.update(request_ids)
+    def add(self, requests: Mapping[int, str]) -> None:
+        """Cancel ``requests``, each a request id mapped to its session name."""
+        self._names.update(requests)
+
+    def outstanding(self, name: str) -> bool:
+        return name in self._names.values()
 
     def consume(self, reply: Reply) -> bool:
         """Consume ``reply`` if it answers a cancelled attach; report whether it did."""
-        if reply.request_id not in self._ids:
+        if self._names.pop(reply.request_id, None) is None:
             return False
-        self._ids.discard(reply.request_id)
         if isinstance(reply, SuccessReply):
             channel = reply.result.get("channel")
             if type(channel) is int and channel > 0:
@@ -48,4 +55,4 @@ class CancelledAttaches:
         return True
 
     def clear(self) -> None:
-        self._ids.clear()
+        self._names.clear()

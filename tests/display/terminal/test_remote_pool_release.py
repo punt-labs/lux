@@ -48,14 +48,7 @@ def test_failed_replica_stays_on_screen_while_its_element_is_present() -> None:
 
 
 def test_release_closes_the_daemon_channel() -> None:
-    sent: list[Frame] = []
-    pool = _pool()
-    session = pool.get("t1", "")
-    session._channel = 7
-    pool._channels[7] = session
-    pool._connection = object()  # type: ignore[assignment]
-    pool.send = sent.append  # type: ignore[method-assign,assignment]
-    pool.retain_only(set())
+    pool, _, sent = _released_pool_with_a_live_peer()
     assert Frame(7, FrameKind.CLOSE, b"") in sent
     assert 7 not in pool._channels
 
@@ -87,12 +80,21 @@ class _FakeConnection:
 
     _queued: list[Frame]
     _pumps: int
+    _closed: bool
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._queued = []
         self._pumps = 0
+        self._closed = False
         return self
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def close(self) -> None:
+        self._closed = True
 
     @property
     def queued(self) -> list[Frame]:
@@ -117,7 +119,8 @@ def test_a_late_attach_reply_for_a_released_replica_closes_its_channel() -> None
     pool._requests._ready = True
     session = pool.get("gone", "")
     request_id = next(iter(pool._requests._pending))
-    pool.retain_only(set())
+    pool.get("live", "")
+    pool.retain_only({"live"})
     reply = ReplyCodec.encode(SuccessReply(request_id, {"channel": 9}))
     pool._receive(Frame(0, FrameKind.DATA, reply))
     assert session.phase is RemotePhase.CLOSED
@@ -125,17 +128,56 @@ def test_a_late_attach_reply_for_a_released_replica_closes_its_channel() -> None
     assert 9 not in pool._channels
 
 
-def test_releasing_the_last_terminal_still_flushes_its_close() -> None:
+def test_releasing_the_last_terminal_closes_the_idle_connection() -> None:
+    """With no replica left, the socket closes: the daemon frees every viewer."""
     pool = _pool()
     connection = _FakeConnection()
+    pool._connection = connection  # type: ignore[assignment]
+    pool._requests._ready = True
     session = pool.get("t1", "")
     session._channel = 7
     pool._channels[7] = session
+    pool.retain_only(set())
+    assert connection.closed
+    assert pool._connection is None
+    assert not pool._released
+    assert not pool._requests.ready
+    assert not pool.pump()
+
+
+def test_releasing_the_last_terminal_with_an_unsent_attach_sends_nothing() -> None:
+    """Model trace O: ReplicaAsk, ReleaseAsked, FinalPump must not bind a viewer."""
+    pool = _pool()
+    connection = _FakeConnection()
     pool._connection = connection  # type: ignore[assignment]
+    pool._requests._ready = True
+    pool.get("t1", "")
     pool.retain_only(set())
     pool.pump()
-    assert Frame(7, FrameKind.CLOSE, b"") in connection.queued
-    assert connection.pumps == 1
+    assert connection.closed
+    assert connection.pumps == 0
+
+
+def test_a_name_reopened_before_its_cancelled_reply_waits_for_it() -> None:
+    """Model trace F: the reopened attach is held until the old reply is read."""
+    pool = _pool()
+    connection = _FakeConnection()
+    pool._connection = connection  # type: ignore[assignment]
+    pool._requests._ready = True
+    pool.get("other", "")
+    pool.get("n", "")
+    old_id = max(pool._requests._pending)
+    pool.retain_only({"other"})
+    reopened = pool.get("n", "")
+    attaches = [f for f in connection.queued if b'"session":"n"' in f.payload]
+    assert len(attaches) == 1
+    reply = ReplyCodec.encode(SuccessReply(old_id, {"channel": 9}))
+    pool._receive(Frame(0, FrameKind.DATA, reply))
+    for session in pool._requests.due():
+        pool._attach(session)
+    attaches = [f for f in connection.queued if b'"session":"n"' in f.payload]
+    assert len(attaches) == 2
+    assert reopened.phase is RemotePhase.CONNECTING
 
 
 def test_data_behind_a_late_attach_reply_spares_other_terminals() -> None:
