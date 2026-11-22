@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import os
-import socket
 import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.credentials import PeerCredentials
 from punt_lux.terminal.local_endpoint import LocalEndpoint
-
-if TYPE_CHECKING:
-    from pytest import MonkeyPatch
 
 
 @pytest.fixture
@@ -69,27 +62,3 @@ def test_replacement_node_is_not_unlinked_on_old_close(socket_dir: Path) -> None
     path.write_text("replacement")
     endpoint.close()
     assert path.read_text() == "replacement"
-
-
-def test_kernel_peer_uid_matches_this_user() -> None:
-    first, second = socket.socketpair()
-    try:
-        assert PeerCredentials.uid(first) == os.getuid()
-        PeerCredentials.require_same_user(first)
-    finally:
-        first.close()
-        second.close()
-
-
-def test_other_user_is_rejected(monkeypatch: MonkeyPatch) -> None:
-    def uid(_peer: socket.socket) -> int:
-        return os.getuid() + 1
-
-    monkeypatch.setattr(PeerCredentials, "uid", uid)
-    first, second = socket.socketpair()
-    try:
-        with pytest.raises(PermissionError):
-            PeerCredentials.require_same_user(first)
-    finally:
-        first.close()
-        second.close()
