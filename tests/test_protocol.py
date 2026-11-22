@@ -339,7 +339,7 @@ class TestMessages:
 
     def test_ready_message(self):
         msg = ReadyMessage()
-        assert msg.version == "0.1"
+        assert msg.version == "0.2"
         assert msg.capabilities == []
 
     def test_ack_message(self):

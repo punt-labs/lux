@@ -6,6 +6,9 @@ import os
 import socket
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 from unittest.mock import patch
 
@@ -13,7 +16,13 @@ import pytest
 
 from punt_lux.domain.hub.handshake_connector import HandshakeConnector
 from punt_lux.domain.hub.handshake_outcome import DisplayNotConnectedError
-from punt_lux.wire.model import ConnectMessage, ReadyMessage, recv_message, send_message
+from punt_lux.wire.model import (
+    ConnectMessage,
+    ReadyMessage,
+    encode_frame,
+    recv_message,
+    send_message,
+)
 from punt_lux.wire.model.hub_id import HubId
 from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
 
@@ -96,3 +105,76 @@ class TestLazyHubIdentity:
                 assert client.fileno() == -1
                 display.settimeout(1)
                 assert display.recv(1) == b""
+
+
+class TestDisplayCompatibility:
+    @pytest.mark.parametrize("version", ["0.1", "", "9.0", None])
+    def test_an_incompatible_display_is_closed_before_identity_is_sent(
+        self, version: str | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        connector = HandshakeConnector(name="lux", kind="test")
+        raw: dict[str, object] = {"type": "ready"}
+        if version is not None:
+            raw["version"] = version
+        client, display = socket.socketpair()
+        with client, display, patch.object(connector, "_connect_message") as identity:
+            display.sendall(encode_frame(raw))
+            with pytest.raises(DisplayNotConnectedError, match="Restart luxd-display"):
+                connector.complete_handshake(client, "old-display", 1)
+            identity.assert_not_called()
+            assert client.fileno() == -1
+            display.settimeout(1)
+            assert display.recv(1) == b""
+        assert "protocol 0.2" in caplog.text
+        assert "make restart" in caplog.text
+        assert "lux service restart" in caplog.text
+
+    def test_the_current_display_is_accepted(self) -> None:
+        connector = HandshakeConnector(name="lux", kind="test")
+        client, display = socket.socketpair()
+        with client, display:
+            send_message(display, ReadyMessage())
+            result = connector.complete_handshake(client, "new-display", 1)
+            assert result.ready.version == "0.2"
+            assert result.sock is client
+            assert isinstance(
+                recv_message(display, CLIENT_VOCABULARY, timeout=1), ConnectMessage
+            )
+
+    def test_reusing_an_old_display_reports_the_restart_instead_of_spawning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with TemporaryDirectory(prefix="lux-") as base:
+            path = Path(base) / "d.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                listener.bind(str(path))
+                listener.listen()
+                listener.settimeout(5)
+
+                def serve_probe_and_handshake() -> list[bytes]:
+                    replies: list[bytes] = []
+                    for _ in range(2):
+                        peer, _address = listener.accept()
+                        with peer:
+                            peer.settimeout(5)
+                            send_message(peer, ReadyMessage(version="0.1"))
+                            replies.append(peer.recv(1))
+                    return replies
+
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(serve_probe_and_handshake)
+                    connector = HandshakeConnector(
+                        name="lux", kind="test", socket_path=path
+                    )
+                    with (
+                        patch(
+                            "punt_lux.service.display_paths.DisplayPaths._spawn",
+                            side_effect=AssertionError("must reuse the live Display"),
+                        ),
+                        pytest.raises(
+                            DisplayNotConnectedError, match="Restart luxd-display"
+                        ),
+                    ):
+                        connector.dial(1)
+                    assert future.result(timeout=5) == [b"", b""]
+        assert "Restart luxd-display" in caplog.text

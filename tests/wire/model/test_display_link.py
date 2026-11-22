@@ -94,7 +94,7 @@ class TestConnect:
             assert client.is_connected
             ready = generation_of(client).ready
             assert ready is not None
-            assert ready.version == "0.1"
+            assert ready.version == "0.2"
 
             client.close()
             _verify_closed(client)

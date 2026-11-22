@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-PROTOCOL_VERSION = "0.1"
+PROTOCOL_VERSION = "0.2"
 
 _Register = Callable[
     [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
@@ -116,7 +116,7 @@ class ReadyMessage:
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Rebuild from a wire dict."""
         return cls(
-            version=d.get("version", PROTOCOL_VERSION),
+            version=d.get("version", ""),
             capabilities=d.get("capabilities", []),
         )
 

@@ -57,6 +57,11 @@
 
 ### Changed
 
+- Hub↔Display handshake version is now `0.2` for the `wire.model` pickle
+  namespace. The Hub rejects an older or unversioned Display before sending
+  scenes, closes the connection, and logs an actionable error: restart
+  `luxd-display` with `make restart` or `lux service restart`.
+
 - **Breaking Python import changes:** shared `punt_lux.domain.*` and
   `punt_lux.protocol.*` models now live under `punt_lux.wire.model.*`, keeping
   their relative module paths. `punt_lux.domain.hub.*` and
