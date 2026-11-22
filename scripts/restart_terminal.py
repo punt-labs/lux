@@ -17,36 +17,44 @@ _WAIT_SECONDS = 30.0
 _POLL_SECONDS = 0.5
 
 
-def _socket_identity(path: Path) -> tuple[int, int, int] | None:
+def _socket_identity(path: Path) -> tuple[int, int] | None:
     try:
         info = path.lstat()
     except FileNotFoundError:
         return None
-    return info.st_dev, info.st_ino, info.st_ctime_ns
+    return info.st_dev, info.st_ino
 
 
 def _await_replacement(
     owner: SocketOwner,
     before: int | None,
     path: Path,
-    previous_socket: tuple[int, int, int] | None,
+    previous_socket: tuple[int, int] | None,
 ) -> bool:
     deadline = time.monotonic() + _WAIT_SECONDS
-    pid = None
+    pid: int | None = None
+    candidate: tuple[int, int] | None = None
     while time.monotonic() < deadline:
-        pid = owner.pid()
-        if pid is not None and pid != before:
-            if before is not None:
+        if before is not None:
+            pid = owner.pid()
+            if pid is not None and pid != before:
                 return True
-            current_socket = _socket_identity(path)
-            if current_socket is not None and current_socket != previous_socket:
-                return True
+        else:
+            candidate = _socket_identity(path)
+            pid = None
+            if candidate is not None and candidate != previous_socket:
+                pid = owner.pid()
+                if pid is not None and _socket_identity(path) == candidate:
+                    return True
         time.sleep(_POLL_SECONDS)
     logger.error(
-        "luxd-pty replacement not observed at %s (previous PID: %s, last PID: %s)",
+        "luxd-pty replacement not observed at %s "
+        "(previous PID: %s, last PID: %s, previous node: %s, candidate node: %s)",
         path,
         before,
         pid,
+        previous_socket,
+        candidate,
     )
     return False
 

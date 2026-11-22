@@ -14,17 +14,22 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize(
-    ("installed", "running", "pty_exit_code", "before", "after", "new_socket", "error"),
+    "installed,running,pty_exit_code,before,after,node_change,error",
     [
-        (False, False, 0, None, None, False, ""),
-        (True, False, 0, None, None, False, ""),
-        (True, True, 0, 101, 102, True, ""),
-        (True, True, 1, 101, None, False, "luxd-pty restart failed"),
-        (False, True, 0, 101, None, False, "luxd-pty is not installed"),
-        (True, True, 0, 101, None, True, "luxd-pty did not come back"),
-        (True, True, 0, 101, 101, False, "luxd-pty did not come back"),
-        (True, True, 0, None, 101, False, "luxd-pty did not come back"),
-        (True, True, 0, None, 102, True, ""),
+        (False, False, 0, None, None, "none", ""),
+        (True, False, 0, None, None, "none", ""),
+        (True, True, 0, 101, 102, "replace", ""),
+        (True, True, 1, 101, None, "none", "luxd-pty restart failed"),
+        (False, True, 0, 101, None, "none", "luxd-pty is not installed"),
+        (True, True, 0, 101, None, "replace", "luxd-pty did not come back"),
+        (True, True, 0, 101, 101, "none", "luxd-pty did not come back"),
+        (True, True, 0, None, 101, "none", "luxd-pty did not come back"),
+        (True, True, 0, None, 101, "metadata", "luxd-pty did not come back"),
+        (True, True, 0, None, 102, "replace", ""),
+        (True, True, 0, None, 102, "appear", ""),
+        (True, True, 0, None, None, "replace", "luxd-pty did not come back"),
+        (True, True, 0, None, None, "race", "luxd-pty did not come back"),
+        (True, True, 0, None, None, "rebind", "luxd-pty did not come back"),
     ],
     ids=[
         "absent",
@@ -35,7 +40,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
         "not-ready",
         "same-pid",
         "same-socket-with-unknown-owner",
+        "same-socket-with-changed-permissions",
         "new-socket-with-unknown-owner",
+        "missing-previous-socket",
+        "changed-socket-without-listener",
+        "old-peer-read-before-unready-rebind",
+        "candidate-disappears-during-probe",
     ],
 )
 def test_make_restart_restarts_pty_and_surfaces_failure(
@@ -46,7 +56,7 @@ def test_make_restart_restarts_pty_and_surfaces_failure(
     pty_exit_code: int,
     before: int | None,
     after: int | None,
-    new_socket: bool,
+    node_change: str,
     error: str,
 ) -> None:
     calls = tmp_path / "calls"
@@ -63,28 +73,48 @@ def test_make_restart_restarts_pty_and_surfaces_failure(
     entry.write_text(
         "import os, runpy, sys\n"
         "from argparse import ArgumentParser\n"
-        "from itertools import chain, count, repeat\n"
+        "from itertools import count\n"
         "from types import SimpleNamespace\n"
         "from unittest.mock import Mock\n"
         "from punt_lux.ptyd.entry_runtime import DaemonOptions\n"
-        "main = runpy.run_path(sys.argv[1])['main']\n"
+        "script = sys.argv[1]\n"
+        "sys.argv = [script]\n"
+        "main = runpy.run_path(script)['main']\n"
         "owner = Mock()\n"
         "before = int(os.environ['PTY_BEFORE_PID']) or None\n"
         "after = int(os.environ['PTY_AFTER_PID']) or None\n"
-        "socket_changed = os.environ['PTY_NEW_SOCKET'] == 'yes'\n"
-        "socket_id = (1, 2, 2) if socket_changed else (1, 1, 1)\n"
-        "identity = Mock(side_effect=chain([(1, 1, 1)], repeat(socket_id)))\n"
-        "owner.return_value.pid.side_effect = chain([before, before], repeat(after))\n"
-        "clock = SimpleNamespace(monotonic=count().__next__, sleep=lambda _: None)\n"
-        "main.__globals__.update(SocketOwner=owner, time=clock, _WAIT_SECONDS=3, "
-        "_socket_identity=identity)\n"
+        "node_change = os.environ['PTY_NODE_CHANGE']\n"
+        "expected = DaemonOptions.parse(ArgumentParser()).socket\n"
+        "expected.parent.mkdir(parents=True)\n"
+        "if node_change != 'appear':\n"
+        "    expected.touch()\n"
+        "replacement = expected.with_suffix('.new')\n"
+        "replacement.touch()\n"
+        "def sleep(_):\n"
+        "    if node_change == 'metadata':\n"
+        "        expected.chmod(0o600)\n"
+        "    can_replace = node_change in {'replace', 'appear', 'rebind'}\n"
+        "    if can_replace and replacement.exists():\n"
+        "        replacement.replace(expected)\n"
+        "def pid():\n"
+        "    reads = owner.return_value.pid.call_count\n"
+        "    if reads == 1:\n"
+        "        return before\n"
+        "    if reads == 2 and node_change == 'race':\n"
+        "        replacement.replace(expected)\n"
+        "        return 101  # The peer was read just before the old node went away.\n"
+        "    if node_change == 'rebind' and not replacement.exists():\n"
+        "        expected.unlink(missing_ok=True)\n"
+        "        return 102  # The candidate vanished after the peer read.\n"
+        "    if replacement.exists() and node_change in {'replace', 'appear'}:\n"
+        "        return before\n"
+        "    return after\n"
+        "owner.return_value.pid.side_effect = pid\n"
+        "clock = SimpleNamespace(monotonic=count().__next__, sleep=sleep)\n"
+        "main.__globals__.update(SocketOwner=owner, time=clock, _WAIT_SECONDS=3)\n"
         "result = main()\n"
         "if owner.called:\n"
-        "    sys.argv = [sys.argv[1]]\n"
-        "    expected = DaemonOptions.parse(ArgumentParser()).socket\n"
         "    owner.assert_called_once_with(expected)\n"
-        "    for call in identity.call_args_list:\n"
-        "        assert call.args == (expected,)\n"
         "raise SystemExit(result)\n"
     )
     if platform.system() == "Darwin":
@@ -115,7 +145,7 @@ def test_make_restart_restarts_pty_and_surfaces_failure(
     monkeypatch.setenv("PTY_EXIT_CODE", str(pty_exit_code))
     monkeypatch.setenv("PTY_BEFORE_PID", str(before or 0))
     monkeypatch.setenv("PTY_AFTER_PID", str(after or 0))
-    monkeypatch.setenv("PTY_NEW_SOCKET", "yes" if new_socket else "no")
+    monkeypatch.setenv("PTY_NODE_CHANGE", node_change)
     monkeypatch.setenv("PTY_TEST_ENTRY", str(entry))
     monkeypatch.setenv("PYTEST_PYTHON", sys.executable)
 
