@@ -30,6 +30,9 @@ I6='#n.(n:dom(scene) & n:dom(daemon) & daemon(n)=scene(n) & dstate(n)=running & 
 I7='sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))'
 I8='#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))'
 
+R1='collateral/={}'
+R2='health=failed'
+
 fail() {
   echo "FAIL: $1" >&2
   cat "$2" >&2
@@ -88,5 +91,26 @@ for model in "${models[@]}"; do
     check_model "$model" I7 'not found' "$I7"
   fi
   check_model "$model" I5-deadlock 'not found'
+done
+release_models=(
+  terminal_release.tex
+  terminal_release_channel_buggy.tex
+  terminal_release_attach_buggy.tex
+  terminal_release_late_reply_buggy.tex
+)
+for model in "${release_models[@]}"; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+  echo "PASS: $model fuzz"
+done
+check_model terminal_release.tex R1 'not found' "$R1"
+check_model terminal_release.tex R2 'not found' "$R2"
+for model in terminal_release_channel_buggy.tex terminal_release_attach_buggy.tex \
+  terminal_release_late_reply_buggy.tex; do
+  check_model "$model" R1 found "$R1"
+  check_model "$model" R2 found "$R2"
+done
+for model in "${release_models[@]}"; do
+  check_model "$model" R3-deadlock 'not found'
 done
 echo "PASS: all terminal lifecycle checks"
