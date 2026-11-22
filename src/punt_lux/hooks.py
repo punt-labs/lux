@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sys
 
-from punt_lux.config import ConfigManager
+from punt_lux.session_start import SessionStartDecisions
 
 # What a session is told at start when the display is on. The Beads entry it owns
 # is no longer anything the agent does: this session's applet registers it on
@@ -33,12 +33,7 @@ def handle_session_start() -> dict[str, object]:
     entries — its own server process, not the agent — so the agent does not
     duplicate work that is already done and would now be refused.
     """
-    cfg = ConfigManager().read()
-
-    if cfg.display == "y":
-        msg = _DISPLAY_ON_CONTEXT
-    else:
-        msg = "Lux display mode: off. Visual output disabled."
+    msg = SessionStartDecisions.display_context(_DISPLAY_ON_CONTEXT)
 
     return {
         "hookSpecificOutput": {

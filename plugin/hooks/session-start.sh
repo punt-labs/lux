@@ -93,10 +93,31 @@ claude) SESSION_WATCH_PID="$_grandparent_pid" ;;
 *) SESSION_WATCH_PID="$PPID" ;;
 esac
 
-if command -v lux-beads &>/dev/null; then
-  if ! pgrep -f "lux-beads --session-pid ${SESSION_WATCH_PID}\$" >/dev/null 2>&1; then
-    nohup lux-beads --session-pid "$SESSION_WATCH_PID" </dev/null >/dev/null 2>&1 &
+log_applet_event() {
+  if command -v lux &>/dev/null; then
+    lux hook applet-event "$@" </dev/null >/dev/null 2>&1 &
     disown
+  fi
+}
+
+if ! command -v lux-beads &>/dev/null; then
+  log_applet_event missing
+elif pgrep -f "lux-beads --session-pid ${SESSION_WATCH_PID}\$" >/dev/null 2>&1; then
+  log_applet_event already-running
+else
+  probe_status=$?
+  if [[ "$probe_status" != 1 ]]; then
+    log_applet_event probe-error
+  else
+    log_applet_event intent
+    nohup lux-beads --session-pid "$SESSION_WATCH_PID" </dev/null >/dev/null 2>&1 &
+    child_pid=$!
+    disown
+    if kill -0 "$child_pid" 2>/dev/null; then
+      log_applet_event launched --child-pid "$child_pid"
+    else
+      log_applet_event spawn-error --child-pid "$child_pid"
+    fi
   fi
 fi
 

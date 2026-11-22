@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from punt_lux.config import LuxConfig
 from punt_lux.hooks import handle_session_start
@@ -26,15 +29,39 @@ def _ctx(result: dict[str, object]) -> str:
 
 
 class TestHandleSessionStart:
+    @pytest.mark.parametrize(
+        ("cfg", "decision"), [(_DISPLAY_ON, "enabled"), (_DISPLAY_OFF, "disabled")]
+    )
+    def test_logs_display_decision(
+        self, caplog: pytest.LogCaptureFixture, cfg: LuxConfig, decision: str
+    ) -> None:
+        with (
+            caplog.at_level(logging.INFO),
+            patch("punt_lux.session_start.ConfigManager", _mock_config_manager(cfg)),
+        ):
+            handle_session_start()
+        assert caplog.messages == [f"SessionStart display decision: {decision}"]
+
+    def test_logs_safe_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+        with (
+            patch(
+                "punt_lux.session_start.ConfigManager",
+                side_effect=OSError("/private/alice"),
+            ),
+            pytest.raises(OSError),
+        ):
+            handle_session_start()
+        assert caplog.messages == ["SessionStart display decision failed: OSError"]
+
     def test_default_off(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             result = handle_session_start()
         assert "off" in _ctx(result)
 
     def test_display_on(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_ON)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             result = handle_session_start()
         assert "on" in _ctx(result)
 
@@ -44,7 +71,7 @@ class TestHandleSessionStart:
         # refused (no listen leg on that connection) and polling would only add
         # latency to a path that has none.
         mock_cls = _mock_config_manager(_DISPLAY_ON)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
         assert "applets" in ctx
         assert "do not register menu callbacks" in ctx
@@ -53,25 +80,25 @@ class TestHandleSessionStart:
     def test_display_on_points_at_the_skill_for_the_board(self) -> None:
         # The board itself is still the agent's to build when asked for it.
         mock_cls = _mock_config_manager(_DISPLAY_ON)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
         assert "/lux:scene.beads" in ctx
 
     def test_display_off_says_nothing_about_menus(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             ctx = _ctx(handle_session_start())
         assert "menu" not in ctx
 
     def test_display_off(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             result = handle_session_start()
         assert "off" in _ctx(result)
 
     def test_returns_valid_hook_structure(self) -> None:
         mock_cls = _mock_config_manager(_DISPLAY_OFF)
-        with patch("punt_lux.hooks.ConfigManager", mock_cls):
+        with patch("punt_lux.session_start.ConfigManager", mock_cls):
             result = handle_session_start()
         hso = cast("dict[str, object]", result["hookSpecificOutput"])
         assert hso["hookEventName"] == "SessionStart"
