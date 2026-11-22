@@ -59,7 +59,14 @@ def _wait_for_pid(binary_name: str, timeout: float = 60.0) -> int:
         if result.returncode == 0 and result.stdout.strip():
             return int(result.stdout.strip().splitlines()[0])
         time.sleep(0.5)
-    pytest.fail(f"{binary_name} did not appear in the process table within {timeout}s")
+    job = _run("launchctl", "print", f"gui/{_UID}/com.punt-labs.{binary_name}")
+    log = Path.home() / ".punt-labs/lux/logs/lux.log"
+    diagnostics = log.read_text()[-16000:] if log.exists() else "No Hub log created"
+    pytest.fail(
+        f"{binary_name} did not appear in the process table within {timeout}s\n"
+        f"launchctl print:\n{job.stdout}\n{job.stderr}\n"
+        f"Lux diagnostic log:\n{diagnostics}"
+    )
 
 
 @pytest.mark.skipif(platform.system() != "Darwin", reason="launchctl is macOS-only")
