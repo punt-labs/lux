@@ -84,7 +84,7 @@ input[type=radio], input[type=checkbox] { accent-color: var(--accent); }
 .mi.inert:hover { background: transparent; }
 .sep { height: 1px; background: var(--win-edge); margin: 4px 0; }
 .grp { padding: 4px 12px 2px; color: var(--faint); font-size: 11px; letter-spacing: .04em; }
-.addp .body { padding: 10px 12px; display: grid; gap: 7px; font-family: var(--sans); font-size: 13px; }
+.addp .body { padding: 10px 12px; display: grid; gap: 7px; font-family: var(--sans); font-size: 13px; max-height: 520px; overflow-y: auto; }
 .frow { display: flex; gap: 10px; align-items: center; }
 .frow > span:first-child { width: 72px; color: var(--muted); flex: none; }
 .frow.end { justify-content: flex-end; }
@@ -428,14 +428,17 @@ function addLauncher() {
   }
   if (launchersOn(hn).some(l => l.name === a.name)) { log(`${hn} already has a launcher named "${a.name}".`); return; }
   runtimeAdded.push({ host: hn, name: a.name, command: a.command });
+  lastPrinted[hn] = runtimeAdded[runtimeAdded.length - 1];
   log(`Added "${a.name}" on ${hn}, in memory until luxd-pty restarts. To keep it, a person pastes the table lux printed into ${hn}'s terminals.toml.`, call);
 }
-// What lux printed for a machine's runtime launchers: one table per launcher,
-// derived from what is registered there, so switching machines or a refused
-// or duplicate add never loses it.
+// What `lux term launcher add` printed for a machine: the one table from its
+// most recent successful add there, as a CLI call prints one table. It is kept
+// per machine, so switching machines or a refused or duplicate add never
+// loses it.
+const lastPrinted = {};
 function printedFor(hn) {
-  return runtimeAdded.filter(r => r.host === hn)
-    .map(r => `[[launcher]]\nname = ${tomlStr(r.name)}\ncommand = ${tomlStr(r.command)}`).join('\n\n');
+  const r = lastPrinted[hn];
+  return r ? `[[launcher]]\nname = ${tomlStr(r.name)}\ncommand = ${tomlStr(r.command)}` : '';
 }
 function addPanelWin() {
   const a = addPanel;
@@ -461,7 +464,7 @@ function addPanelWin() {
       field('add-command', 'Command', a.command, v => { a.command = v; }),
       h('div', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, 'Runtime only. To keep it, a person adds it to the file below.')),
       h('div', { class: 'frow end' }, h('button', { class: 'chip', onclick: () => { addLauncher(); render(); } }, 'Add')),
-      printed ? h('div', { class: 'frow' }, h('span', {}, 'Printed'), h('span', { class: 'chk' }, `Runtime launchers on ${a.host}, as lux printed them; paste into the file:`)) : null,
+      printed ? h('div', { class: 'frow' }, h('span', {}, 'Printed'), h('span', { class: 'chk' }, `lux term launcher add printed this for its last add on ${a.host}; paste it into the file:`)) : null,
       printed ? h('pre', { class: 'toml', id: 'printed-toml', style: { userSelect: 'text' } }, printed) : null,
       h('pre', { class: 'toml' }, tomlFor(a.host))));
   node.style.width = '460px';
