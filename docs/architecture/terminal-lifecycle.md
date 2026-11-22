@@ -415,6 +415,19 @@ the fix: the daemon queues snapshot data behind the attach reply, so those
 frames reach the Display after the late reply was consumed. Reproduce with
 `scripts/verify_terminal_model.sh`.
 
+[`docs/terminal_reopen.tex`](../terminal_reopen.tex) adds the attach request
+queue, the daemon's one-viewer-per-session rule (`ViewerBindings.add`
+rejects a second attach of a name on a peer, non-retryably) and the idle
+pump, at set size 3. Goals: F, no replica ends stuck `failed` (a reopened
+name rejected as a duplicate while a cancelled attach for it is unanswered);
+O, no daemon viewer binding survives quiescence (last release with an
+unsent attach); C, no collateral disconnect; D, deadlock freedom. The
+design the model proves safe closes the connection when the last replica is
+released, and holds a reopened name's attach back until the reply to its
+cancelled attach is read. Each measure alone fails: closing the idle
+connection alone reaches F, deferral alone reaches O, retrying the duplicate
+rejection alone reaches O, and the committed code reaches both.
+
 ## 9. Working answers to the operator questions
 
 The design proceeds on these working answers, with Jim's explicit

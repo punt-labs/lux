@@ -40,9 +40,9 @@ fail() {
 }
 
 check_model() {
-  local model="$1" label="$2" expected="$3" goal="${4:-}"
+  local model="$1" label="$2" expected="$3" goal="${4:-}" size="${5:-2}"
   local log="$LOG_DIR/${model%.tex}-$label.log"
-  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE 2)
+  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE "$size")
   if [[ -n "$goal" ]]; then
     args+=(-nodead -goal "$goal")
   fi
@@ -113,4 +113,28 @@ done
 for model in "${release_models[@]}"; do
   check_model "$model" R3-deadlock 'not found'
 done
+reopen_models=(
+  terminal_reopen.tex
+  terminal_reopen_committed_buggy.tex
+  terminal_reopen_closeidle_buggy.tex
+  terminal_reopen_defer_buggy.tex
+  terminal_reopen_retry_buggy.tex
+)
+for model in "${reopen_models[@]}"; do
+  log="$LOG_DIR/${model%.tex}-fuzz.log"
+  "$FUZZ" -t "docs/$model" >"$log" 2>&1 || fail "$model: fuzz failed" "$log"
+  echo "PASS: $model fuzz"
+done
+FF='failedCh/={}'
+OO='conn=linked & ran(dview)/\{asked,live,ended}={} & owed=settled & #c.(c:dom(dbound) & (c|->aclose)/:ran(sent) & (c|->aclose)/:ran(wq))'
+CC='collateral/={}'
+check_model terminal_reopen.tex F 'not found' "$FF" 3
+check_model terminal_reopen.tex O 'not found' "$OO" 3
+check_model terminal_reopen.tex C 'not found' "$CC" 3
+check_model terminal_reopen.tex D-deadlock 'not found' "" 3
+check_model terminal_reopen_committed_buggy.tex F found "$FF" 3
+check_model terminal_reopen_committed_buggy.tex O found "$OO" 3
+check_model terminal_reopen_closeidle_buggy.tex F found "$FF" 3
+check_model terminal_reopen_defer_buggy.tex O found "$OO" 3
+check_model terminal_reopen_retry_buggy.tex O found "$OO" 3
 echo "PASS: all terminal lifecycle checks"
