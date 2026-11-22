@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Bump punt-observe to 0.1.1 (log masking fixes)
+
 ### Added
 
 - Durable, privacy-safe SessionStart applet launch outcomes and display-mode
