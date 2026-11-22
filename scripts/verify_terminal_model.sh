@@ -4,9 +4,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-PROBCLI="${PROBCLI:-probcli}"
+if [[ -n "${PROBCLI:-}" ]]; then
+  command -v "$PROBCLI" >/dev/null || {
+    echo "ERROR: PROBCLI is not executable: $PROBCLI" >&2
+    exit 1
+  }
+elif PROBCLI="$(command -v probcli)"; then
+  :
+elif [[ -x "$HOME/Applications/ProB/probcli" ]]; then
+  PROBCLI="$HOME/Applications/ProB/probcli"
+else
+  echo "ERROR: probcli not found; set PROBCLI, add it to PATH, or install ~/Applications/ProB/probcli." >&2
+  exit 1
+fi
 FUZZ="${FUZZ:-fuzz}"
-command -v "$PROBCLI" >/dev/null
 command -v "$FUZZ" >/dev/null
 mkdir -p "$ROOT/.tmp"
 LOG_DIR="$(mktemp -d "$ROOT/.tmp/terminal-model.XXXXXX")"
