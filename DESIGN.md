@@ -8245,8 +8245,8 @@ Two further problems surfaced in the same discussion.
    - **Runtime registration**, by an agent or a person: the MCP tool
      `term_launcher_add` and the CLI `lux term launcher add` (with `ls` and
      `remove`), addressed to one machine. A runtime launcher is held in that
-     machine's `luxd-pty` memory and lasts until it restarts;
-     `lux term launcher add --save` writes it to the config file instead.
+     machine's `luxd-pty` memory and lasts until it restarts. Making one
+     permanent means a person adding it to the config file.
 
    Two rules bound this, because a launcher starts a process on a machine:
 
@@ -8256,11 +8256,24 @@ Two further problems surfaced in the same discussion.
      can start only what that machine already lists. This keeps DES-090's
      trust boundary and the existing rule that no MCP tool writes into a
      shell.
-   - **Agent registration is off unless the machine allows it.** Runtime
-     launchers from an agent's MCP session are refused unless that machine's
-     config file sets `allow_agent_launchers = true`. Registering a launcher
-     is letting an agent run a command on that machine, which is the
-     machine owner's decision, made in that machine's file.
+   - **Runtime registration is off unless the machine allows it.**
+     Registering a launcher is letting whoever registered it run a command on
+     that machine, which is the machine owner's decision, made in that
+     machine's file. Lux cannot tell a person's `lux` call from an agent's,
+     so the gate is on the route, not the caller: every runtime
+     registration — MCP or CLI, local or relayed through a Hub — is refused
+     unless the machine's config file sets `allow_runtime_launchers = true`.
+     Runtime launchers are held in memory only.
+   - **Lux never writes the config file.** It is the one persistent source,
+     and lux offers no command that changes it: there is no `--save`.
+     `lux term launcher add` prints the `[[launcher]]` table to paste instead.
+     The file is not a defence against an agent that can already edit files
+     or run shell commands as that user; such an agent can run commands
+     there with or without a launcher. What the rule protects against is a
+     client reaching the machine only through lux's own routes — an MCP
+     session, or a client on another machine relayed through the Hub — and
+     against those routes it holds: none of them can make a launcher
+     permanent or register one where the owner has not allowed it.
 
 10. **A person's gesture takes focus; an agent's never does.** A frame opened
     or raised by the user — a menu item, a dock pill, a Windows-menu entry,
@@ -8295,9 +8308,15 @@ Two further problems surfaced in the same discussion.
 - *Launchers configured on the Display or the Hub.* Neither knows what a
   machine can run, and either would put a command line on the wire, so a
   click could carry any command to any machine.
-- *Agent-registered launchers persisted by default.* An agent's session would
-  then be able to change a machine's standing configuration with no person
-  having written it.
+- *A `--save` flag that writes a runtime launcher into the config file.* An
+  MCP session or a relayed client could then make a launcher permanent
+  through lux itself, with no person having written it. Lux cannot tell an
+  agent's call from a person's, so it writes the file for neither.
+- *Gating runtime registration on who is calling.* Lux has no reliable way to
+  tell a person's CLI call from an agent's, so a caller-based rule either
+  blocks people or can be bypassed by claiming to be one. The gate is on the
+  route instead: `allow_runtime_launchers` governs every runtime
+  registration.
 - *Keeping the name `Clients`.* Accurate to the architecture, but it names the
   roster rather than what is in it. *Apps* (Omarchy) hides the grouping by
   repository; *Workspaces* (herdr) and *Sessions* (tmux) each already mean

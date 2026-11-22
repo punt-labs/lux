@@ -138,7 +138,7 @@ pre.toml { margin: 4px 0 0; padding: 8px 10px; background: #0e1117; border: 1px 
     <dl class="rules">
       <div><dt>Projects</dt><dd>By repository only. Two sessions in one repository share its submenu; repeated item names get (2). A client with no repository (voxd) keeps its own submenu. No terminals.</dd></div>
       <div><dt>Terminals</dt><dd>By the machine the shell runs on. With one machine the list is flat. New lists launchers, then the machine if more than one offers it.</dd></div>
-      <div><dt>Launchers</dt><dd>A name and a command, in each machine's ~/.punt-labs/lux/terminals.toml, or added at runtime with lux term launcher add / the term_launcher_add MCP tool. A click carries only the name; that machine's luxd-pty runs the command. Agents need allow_agent_launchers = true.</dd></div>
+      <div><dt>Launchers</dt><dd>A name and a command, in each machine's ~/.punt-labs/lux/terminals.toml, or added at runtime with lux term launcher add / the term_launcher_add MCP tool. A click carries only the name; that machine's luxd-pty runs the command. Runtime launchers last until luxd-pty restarts, and any runtime registration, MCP or CLI, needs allow_runtime_launchers = true in that machine's file. Lux never writes the file.</dd></div>
       <div><dt>Rename</dt><dd>lux term rename "name". Typed inside a terminal, it renames that terminal: the shell knows its own session.</dd></div>
       <div><dt>Focus</dt><dd>A window you open from a menu, pill or Windows entry takes focus (blue outline, blinking cursor). One an agent opens appears behind yours and never takes focus.</dd></div>
       <div><dt>Windows</dt><dd>Every open window, flat, by its full title. Minimized ones are greyed.</dd></div>
@@ -171,7 +171,7 @@ const panels = [
   { kind: 'panel', id: 'p3', repo: null, session: 'voxd', app: 'Music', host: 'local-mac', x: 740, y: 60, z: ++z, docked: false },
 ];
 const menu = { open: false, x: 0, y: 0, path: [], from: null };
-const addPanel = { open: false, x: 300, y: 90, z: 0, host: 'local-mac', who: 'agent', name: 'deploy log', command: 'tail -f /var/log/deploy.log', save: false };
+const addPanel = { open: false, x: 300, y: 90, z: 0, host: 'local-mac', who: 'agent', name: 'deploy log', command: 'tail -f /var/log/deploy.log' };
 const entries = [];
 
 function h(tag, props = {}, ...kids) {
@@ -279,7 +279,7 @@ function newItems() {
     return { label: name, sub: () => hs.map(hn => ({ label: hn, act: () => start(name, hn) })) };
   });
   items.splice(1, 0, { sep: true });
-  return [...items, { sep: true }, { label: 'Add launcher…', act: () => { addPanel.open = true; addPanel.z = ++z; } }];
+  return [...items, { sep: true }, { label: 'Add launcher…', act: () => { addPanel.open = true; addPanel.z = ++z; focused = addPanel; } }];
 }
 function termEntry(t) { return { label: multiHost() ? tname(t) : tname(t), dim: t.docked, act: () => raise(t) }; }
 function terminalsMenu() {
@@ -382,24 +382,25 @@ function panelWin(p) {
   node.style.width = '300px'; node.style.height = '110px';
   return node;
 }
+const tomlStr = s => JSON.stringify(String(s));
 function tomlFor(hn) {
-  const lines = [`# ${hn}: ~/.punt-labs/lux/terminals.toml`, `allow_agent_launchers = ${agentAllowed[hn]}`, ''];
-  const saved = [...LAUNCHERS[hn], ...runtimeAdded.filter(r => r.host === hn && r.saved)];
-  for (const l of saved) lines.push('[[launcher]]', `name = "${l.name}"`, `command = "${l.command}"`, '');
-  const mem = runtimeAdded.filter(r => r.host === hn && !r.saved);
+  const lines = [`# ${hn}: ~/.punt-labs/lux/terminals.toml  (lux never writes this file)`, `allow_runtime_launchers = ${agentAllowed[hn]}`, ''];
+  for (const l of LAUNCHERS[hn]) lines.push('[[launcher]]', `name = ${tomlStr(l.name)}`, `command = ${tomlStr(l.command)}`, '');
+  const mem = runtimeAdded.filter(r => r.host === hn);
   if (mem.length) lines.push(`# in memory until luxd-pty restarts: ${mem.map(r => r.name).join(', ')}`);
   return lines.join('\n');
 }
 function addLauncher() {
   const a = addPanel, hn = a.host;
-  const cli = `lux term launcher add ${ref(a.name)} ${ref(a.command)} --host ${hn}${a.save ? ' --save' : ''}`;
-  if (a.who === 'agent' && !agentAllowed[hn]) {
-    log(`Refused: ${hn} does not allow agent launchers. Its owner sets allow_agent_launchers = true in ${hn}'s terminals.toml to allow it.`, a.save ? null : 'term_launcher_add (MCP) → refused');
+  const cli = `lux term launcher add ${ref(a.name)} ${ref(a.command)} --host ${hn}`;
+  const call = a.who === 'agent' ? `term_launcher_add (MCP)   ≡   ${cli}` : cli;
+  if (!agentAllowed[hn]) {
+    log(`Refused: ${hn} does not allow runtime launchers, whoever asks and by whatever route, MCP or CLI. Its owner sets allow_runtime_launchers = true in ${hn}'s terminals.toml, or adds the launcher to that file directly.`, `${call}   → refused`);
     return;
   }
   if (launchersOn(hn).some(l => l.name === a.name)) { log(`${hn} already has a launcher named "${a.name}".`); return; }
-  runtimeAdded.push({ host: hn, name: a.name, command: a.command, saved: a.save });
-  log(`${a.who === 'agent' ? 'An agent' : 'You'} added "${a.name}" on ${hn}${a.save ? ', saved to its terminals.toml' : ', in memory until luxd-pty restarts'}. It is now in Terminals ▸ New.`, a.who === 'agent' ? `term_launcher_add (MCP)   ≡   ${cli}` : cli);
+  runtimeAdded.push({ host: hn, name: a.name, command: a.command });
+  log(`Added "${a.name}" on ${hn}, in memory until luxd-pty restarts. Lux printed the table to keep it; a person pastes it into ${hn}'s terminals.toml:  [[launcher]] name = ${tomlStr(a.name)} command = ${tomlStr(a.command)}`, call);
 }
 function addPanelWin() {
   const a = addPanel;
@@ -413,18 +414,16 @@ function addPanelWin() {
   };
   const hostSel = h('select', { id: 'add-host', 'aria-label': 'Machine' }, ...liveHosts().map(hn => { const o = h('option', {}, hn); if (hn === a.host) o.selected = true; return o; }));
   hostSel.addEventListener('change', () => { a.host = hostSel.value; render(); });
-  const whoSel = h('select', { id: 'add-who', 'aria-label': 'Added by' }, ...['agent', 'person'].map(w => { const o = h('option', { value: w }, w === 'agent' ? 'an agent (MCP)' : 'you (CLI)'); if (w === a.who) o.selected = true; return o; }));
+  const whoSel = h('select', { id: 'add-who', 'aria-label': 'Added by' }, ...['agent', 'person'].map(w => { const o = h('option', { value: w }, w === 'agent' ? 'an agent (MCP or CLI)' : 'you'); if (w === a.who) o.selected = true; return o; }));
   whoSel.addEventListener('change', () => { a.who = whoSel.value; render(); });
-  const save = h('input', { type: 'checkbox', id: 'add-save' }); save.checked = a.save;
-  save.addEventListener('change', () => { a.save = save.checked; render(); });
   const node = h('div', { class: 'win addp' },
-    h('div', { class: 'bar' }, h('span', {}, 'Add launcher'), h('button', { class: 'btn', 'aria-label': 'Done', onclick: e => { e.stopPropagation(); a.open = false; render(); } }, '–')),
+    h('div', { class: 'bar' }, h('span', {}, 'Add launcher'), h('button', { class: 'btn kill', 'aria-label': 'Close this dialog', title: 'Close (a dialog has no state to keep, so × ends it)', onclick: e => { e.stopPropagation(); a.open = false; if (focused === a) focused = null; render(); } }, '×')),
     h('div', { class: 'body' },
       h('label', { class: 'frow' }, h('span', {}, 'Machine'), hostSel),
       h('label', { class: 'frow' }, h('span', {}, 'Added by'), whoSel),
       field('add-name', 'Name', a.name, v => { a.name = v; }),
       field('add-command', 'Command', a.command, v => { a.command = v; }),
-      h('label', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, save, ' save to the machine\'s file (--save)')),
+      h('div', { class: 'frow' }, h('span', {}, 'Keep'), h('span', { class: 'chk' }, 'Runtime only. To keep it, a person adds it to the file below.')),
       h('div', { class: 'frow end' }, h('button', { class: 'chip', onclick: () => { addLauncher(); render(); } }, 'Add')),
       h('pre', { class: 'toml' }, tomlFor(a.host))));
   node.style.width = '460px';
@@ -474,7 +473,12 @@ function render() {
     node.style.left = w.x + 'px'; node.style.top = w.y + 'px'; node.style.zIndex = w.z;
     if (w.z === topZ) node.classList.add('top');
     if (w === focused) node.classList.add('focused');
-    node.addEventListener('pointerdown', e => { if (e.button === 0 && (w.z !== topZ || menu.open)) { w.z = ++z; menu.open = false; menu.from = null; queueMicrotask(render); } });
+    node.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      const changed = w.z !== topZ || menu.open || focused !== w;
+      focused = w;
+      if (changed) { w.z = ++z; menu.open = false; menu.from = null; queueMicrotask(render); }
+    });
     drag(node, w);
     screen.append(node);
   }
