@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-- Bump punt-observe to 0.1.1 (log masking fixes)
-
 ### Added
 
 - Durable, privacy-safe SessionStart applet launch outcomes and display-mode
@@ -107,6 +105,10 @@
   with a by-id pull.
 
 ### Fixed
+
+- Bump punt-observe to 0.1.1: diagnostic logs now mask bare bearer
+  credentials and home-directory prefixes, and URL query redaction keeps
+  prose punctuation.
 
 - SessionStart applet launch intent is logged before its outcome by a single
   detached logger, without delaying applet startup.
