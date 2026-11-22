@@ -60,12 +60,27 @@ def _wait_for_pid(binary_name: str, timeout: float = 60.0) -> int:
             return int(result.stdout.strip().splitlines()[0])
         time.sleep(0.5)
     job = _run("launchctl", "print", f"gui/{_UID}/com.punt-labs.{binary_name}")
+    pid = next(
+        (
+            line.split("=", 1)[1].strip()
+            for line in job.stdout.splitlines()
+            if line.strip().startswith("pid =")
+        ),
+        None,
+    )
+    sample = (
+        _run("/usr/bin/sample", pid, "1", "-file", "/dev/stdout", timeout=15)
+        if pid is not None
+        else None
+    )
     log = Path.home() / ".punt-labs/lux/logs/lux.log"
     diagnostics = log.read_text()[-16000:] if log.exists() else "No Hub log created"
     pytest.fail(
         f"{binary_name} did not appear in the process table within {timeout}s\n"
         f"launchctl print:\n{job.stdout}\n{job.stderr}\n"
         f"Lux diagnostic log:\n{diagnostics}"
+        f"\nProcess sample:\n{sample.stdout if sample else 'No running pid'}"
+        f"\n{sample.stderr if sample else ''}"
     )
 
 
