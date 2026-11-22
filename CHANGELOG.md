@@ -4,6 +4,12 @@
 
 ### Added
 
+- Report-only design ratchet: `make design-shadow` compares against
+  `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
+  verdict to the job summary even after a gate fails. Explicit architecture
+  layers cover every current module. Full diagnostics include a non-failing
+  design scan; neither report gates `make check` or CI.
+
 - Durable, privacy-safe SessionStart applet launch outcomes and display-mode
   decisions, with best-effort launch diagnostics that cannot delay applet startup.
 
@@ -45,6 +51,9 @@
   `make screenshots` target captures at a fixed interval.
 
 ### Changed
+
+- Upgrade the quality-gate dev dependency to `punt-oo-ratchet==0.4.0`, retaining
+  existing policies and baselines.
 
 - Depend on the published `punt-observe` 0.1.0 from PyPI instead of a Git
   revision, restoring compatibility with Lux's PyPI release workflow.
