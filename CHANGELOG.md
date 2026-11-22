@@ -120,6 +120,12 @@
 
 ### Fixed
 
+- **Hub startup no longer blocks on DNS:** importing `punt_lux.luxd` used to
+  resolve the host FQDN while building the Display link, which could stall
+  `luxd-hub` in a macOS mDNS reverse lookup before it started. The Hub
+  identity is now resolved on the first named Display handshake. An identity
+  that fails validation closes the socket and raises
+  `DisplayNotConnectedError`. (PL-1369)
 - Bump punt-observe to 0.1.1: diagnostic logs now mask bare bearer
   credentials and home-directory prefixes, and URL query redaction keeps
   prose punctuation.

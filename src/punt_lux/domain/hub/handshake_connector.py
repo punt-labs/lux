@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from functools import cached_property
 from pathlib import Path
 from typing import Literal, Self, final
 
@@ -38,15 +39,14 @@ logger = logging.getLogger(__name__)
 class HandshakeConnector:
     """Dials the display over ``AF_UNIX`` and performs the connect handshake.
 
-    Owns this connection's declared identity -- the display-facing ``name``,
-    its ``kind``, and its :class:`HubId` -- all fixed for the connection's
-    lifetime, plus the local endpoint (``socket_path``) and whether to spawn
-    the display when it is not already running.
+    Owns the display-facing ``name`` and ``kind``, plus the local endpoint
+    (``socket_path``) and whether to spawn the display when it is not already
+    running. Resolves its :class:`HubId` on the first named handshake and
+    keeps that wire identity for subsequent handshakes.
     """
 
     _name: str | None
     _kind: Literal["hub", "test"]
-    _hub_id: HubId
     _socket_path: Path | None
     _auto_spawn: bool
 
@@ -61,10 +61,14 @@ class HandshakeConnector:
         self = super().__new__(cls)
         self._name = name
         self._kind = kind
-        self._hub_id = HubId.current() if kind == "hub" else HubId.stub()
         self._socket_path = Path(socket_path) if socket_path else None
         self._auto_spawn = auto_spawn
         return self
+
+    @cached_property
+    def _hub_token(self) -> str:
+        """Resolve this connection's stable identity only when declaring it."""
+        return (HubId.current() if self._kind == "hub" else HubId.stub()).wire_token
 
     def dial(self, connect_timeout: float) -> HandshakeResult:
         """Open the display socket and perform the Ready/Connect handshake.
@@ -137,13 +141,11 @@ class HandshakeConnector:
             return
         try:
             send_message(sock, self._connect_message(self._name))
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             sock.close()
             err = f"ConnectMessage failed after handshake: {exc}"
             raise DisplayNotConnectedError(err) from exc
 
     def _connect_message(self, name: str) -> ConnectMessage:
         """Build this connection's declared identity, HubId included."""
-        return ConnectMessage(
-            name=name, kind=self._kind, hub_id=self._hub_id.wire_token
-        )
+        return ConnectMessage(name=name, kind=self._kind, hub_id=self._hub_token)
