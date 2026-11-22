@@ -103,3 +103,31 @@ def test_version_mismatch_does_not_mark_peer_ready(daemon: Path) -> None:
         assert isinstance(reply, FailureReply)
     finally:
         client.close()
+
+
+def test_closing_the_connection_frees_its_viewer_for_the_next_attach(
+    daemon: Path,
+) -> None:
+    """The Display closes its idle connection instead of sending CLOSE.
+
+    The daemon must drop that peer's viewer binding on EOF, without stopping
+    the program, so the next connection can attach the same session.
+    """
+    command = shlex.join([sys.executable, "-u", "-c", "import time; time.sleep(30)"])
+    first = WireClient(daemon)
+    try:
+        hello(first)
+        reply = first.request(AttachRequest(2, "freed", command))
+        assert isinstance(reply, SuccessReply)
+        first.snapshot(dict(reply.result))
+    finally:
+        first.close()
+    time.sleep(0.1)
+    second = WireClient(daemon)
+    try:
+        hello(second)
+        again = second.request(AttachRequest(2, "freed", command))
+        assert isinstance(again, SuccessReply)
+        assert isinstance(second.request(KillRequest(3, "freed")), SuccessReply)
+    finally:
+        second.close()

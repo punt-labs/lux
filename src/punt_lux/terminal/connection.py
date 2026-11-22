@@ -61,6 +61,27 @@ class TerminalConnection:
             frames.extend(self._decoder.feed(data))
         return frames
 
+    def drain(self, timeout_s: float) -> None:
+        """Send queued frames until none remain or ``timeout_s`` passes.
+
+        Called before a deliberate close so input the user already typed still
+        reaches the program. A peer that stops reading cannot hold the Display:
+        the wait is bounded, and an error ends it.
+        """
+        if self._closed:
+            return
+        deadline = time.monotonic() + timeout_s
+        try:
+            while self._writer.pending_bytes and time.monotonic() < deadline:
+                if not self._connect_ready():
+                    select.select([], [self._socket], [], 0.01)
+                    continue
+                self._writer.flush(self._socket)
+                if self._writer.pending_bytes:
+                    select.select([], [self._socket], [], 0.01)
+        except (OSError, ConnectionError):
+            return
+
     def close(self) -> None:
         if not self._closed:
             self._closed = True

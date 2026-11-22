@@ -81,13 +81,22 @@ class _FakeConnection:
     _queued: list[Frame]
     _pumps: int
     _closed: bool
+    _drains: int
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._queued = []
         self._pumps = 0
         self._closed = False
+        self._drains = 0
         return self
+
+    @property
+    def drains(self) -> int:
+        return self._drains
+
+    def drain(self, timeout_s: float) -> None:
+        self._drains += 1
 
     @property
     def closed(self) -> bool:
@@ -196,3 +205,17 @@ def test_data_behind_a_late_attach_reply_spares_other_terminals() -> None:
     pool._receive(Frame(9, FrameKind.DATA, b""))
     assert pool._channels.get(8) is live
     assert live.phase is not RemotePhase.DISCONNECTED
+
+
+def test_input_queued_on_the_last_terminal_is_drained_before_close() -> None:
+    """Closing the idle connection must not discard keystrokes."""
+    pool = _pool()
+    connection = _FakeConnection()
+    pool._connection = connection  # type: ignore[assignment]
+    session = pool.get("t1", "")
+    session._channel = 7
+    pool._channels[7] = session
+    pool.send(Frame(7, FrameKind.DATA, b"echo hi\r"))
+    pool.retain_only(set())
+    assert connection.drains == 1
+    assert connection.closed

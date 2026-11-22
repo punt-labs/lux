@@ -78,6 +78,7 @@ class RemotePool:
         for name in [n for n in self._sessions if n not in names]:
             self._drop(self._sessions.pop(name))
         if not self._sessions and self._connection is not None:
+            self._connection.drain(0.05)
             self._drop_connection()
             self._requests.reset()
             self._channels.clear()
