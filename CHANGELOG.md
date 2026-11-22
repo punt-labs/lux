@@ -4,6 +4,9 @@
 
 ### Added
 
+- Durable, privacy-safe SessionStart applet launch outcomes and display-mode
+  decisions, with best-effort launch diagnostics that cannot delay applet startup.
+
 - Private rotating Lux diagnostics and separate local Hub operation and
   Display first-paint timing telemetry, both powered by `punt-observe`.
 

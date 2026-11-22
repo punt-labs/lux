@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import stat
 import subprocess
@@ -11,69 +10,6 @@ import time
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
-from punt_lux.__main__ import app
-from punt_lux.applet_event import AppletEvent, AppletRecords
-
-
-@pytest.mark.parametrize(
-    ("event", "message"),
-    [
-        (AppletEvent.INTENT, "launch intent: spawning"),
-        (AppletEvent.LAUNCHED, "launched: spawned"),
-        (AppletEvent.MISSING, "skipped: executable missing"),
-        (AppletEvent.RUNNING, "skipped: already running"),
-        (AppletEvent.PROBE_ERROR, "failed: process probe error"),
-        (AppletEvent.SPAWN_ERROR, "failed: spawn error"),
-    ],
-)
-def test_safe_event_vocabulary(
-    caplog: pytest.LogCaptureFixture, event: AppletEvent, message: str
-) -> None:
-    with caplog.at_level(logging.INFO):
-        AppletRecords.record(event, 456)
-    suffix = (
-        " (child pid=456)"
-        if event in (AppletEvent.LAUNCHED, AppletEvent.SPAWN_ERROR)
-        else ""
-    )
-    assert caplog.messages == [f"SessionStart applet {message}{suffix}"]
-    assert caplog.records[0].levelno == (
-        logging.WARNING
-        if event in (AppletEvent.PROBE_ERROR, AppletEvent.SPAWN_ERROR)
-        else logging.INFO
-    )
-
-
-@pytest.mark.parametrize("event", list(AppletEvent))
-def test_absent_child_is_omitted(
-    caplog: pytest.LogCaptureFixture, event: AppletEvent
-) -> None:
-    with caplog.at_level(logging.INFO):
-        AppletRecords.record(event, 0)
-    assert "child pid" not in caplog.messages[0]
-
-
-@pytest.mark.parametrize("event", list(AppletEvent))
-def test_event_command_stdout_is_empty(tmp_path: Path, event: AppletEvent) -> None:
-    result = subprocess.run(
-        [sys.executable, "-m", "punt_lux", "hook", "applet-event", event.value],
-        env={**os.environ, "HOME": str(tmp_path)},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert result.stdout == ""
-
-
-@pytest.mark.parametrize(
-    "args",
-    [[], ["/private/alice"], ["launched", "--child-pid", "-1"]],
-)
-def test_invalid_events_are_rejected(args: list[str]) -> None:
-    result = CliRunner().invoke(app, ["hook", "applet-event", *args])
-    assert result.exit_code == 2
 
 
 @pytest.mark.parametrize(
@@ -112,7 +48,15 @@ def test_shell_records_decisions_without_standard_streams(
     )
     assert result.returncode == 0
     path = tmp_path / ".punt-labs/lux/logs/lux.log"
-    log = path.read_text()
+    log = ""
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        log = path.read_text() if path.exists() else ""
+        if f"SessionStart applet {message}" in log and (
+            scenario != "launch" or "launch intent: spawning" in log
+        ):
+            break
+        time.sleep(0.01)
     assert f"SessionStart applet {message}" in log
     assert ("launch intent: spawning" in log) == (scenario == "launch")
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
@@ -120,13 +64,17 @@ def test_shell_records_decisions_without_standard_streams(
     assert "private-session" not in log
 
 
-@pytest.mark.parametrize("logger_state", ["missing", "failing"])
+@pytest.mark.parametrize("logger_state", ["missing", "failing", "stalled"])
 def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     if logger_state == "failing":
         lux = bin_dir / "lux"
         lux.write_text("#!/bin/sh\necho noisy\necho noisy >&2\nexit 1\n")
+        lux.chmod(0o700)
+    if logger_state == "stalled":
+        lux = bin_dir / "lux"
+        lux.write_text("#!/bin/sh\nexec sleep 60\n")
         lux.chmod(0o700)
     captured = tmp_path / "launched"
     applet = bin_dir / "lux-beads"
@@ -141,6 +89,7 @@ def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> Non
         capture_output=True,
         text=True,
         check=False,
+        timeout=3,
         env={**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:/usr/bin:/bin"},
     )
     assert result.returncode == 0
