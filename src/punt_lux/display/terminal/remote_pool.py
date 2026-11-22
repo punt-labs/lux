@@ -1,4 +1,7 @@
-"""Direct-path latency baseline; production terminal traffic goes via the Hub."""
+"""Connect Display directly to luxd-pty's local Unix socket.
+
+LUX_PTY_SOCKET overrides ~/.punt-labs/lux/pty/luxd-pty.sock; Hub routing is the target.
+"""
 
 from __future__ import annotations
 
@@ -121,12 +124,10 @@ class RemotePool:
         if not ready and self._requests.ready:
             for session in self._sessions.values():
                 self._attach(session)
-            return
-        if pending is None:
-            return
-        if pending.channel in self._channels:
-            raise ValueError("duplicate terminal channel")
-        self._channels[pending.channel] = pending
+        elif pending is not None:
+            if pending.channel in self._channels:
+                raise ValueError("duplicate terminal channel")
+            self._channels[pending.channel] = pending
 
     def _drop_connection(self) -> None:
         if self._connection is not None:

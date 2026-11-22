@@ -17,21 +17,25 @@ class LayerContract:
     _prefixes: ClassVar[dict[str, str]] = {
         "kernel": "tracing bounded_send send_timeout write_progress progress_clock "
         "polled_event connection_timing socket_owner client_host connection_identity "
-        "paths log_level proctitle repo_root runtime",
+        "paths log_level proctitle repo_root runtime logging_config usage",
         "wire": "domain protocol operations.models",
         "trust": "trust",
         "service": "service _backend_* _backends _platform_dispatch _launchctl "
         "_legacy_sweep* _binary_sweep* _shim_ownership _atomic_write _port_guard "
         "_service_* _doctor_result doctor_* hub_restart display_restart hooks "
-        "claude_permissions permission_rules display_enablement config",
+        "claude_permissions permission_rules display_enablement config "
+        "_launchd_plist entry_runtime applet_event session_start",
         "client": "client hub_client rest_transport rest_http_call rest_loopback "
         "rest_reply rest_error_body identity_headers header_value cli_identity "
         "hub_paths",
         "hub": "domain.hub operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
-        "transport_policy hub_composition",
+        "transport_policy hub_composition hub_lifespan mcp_session_manager "
+        "mcp_session_scope",
         "display": "display luxd_display",
-        "cli": "cli __main__",
+        "terminal": "terminal",
+        "pty": "ptyd",
+        "cli": "cli __main__ hook_cli",
         "applets": "applets apps",
     }
     _allowed: ClassVar[dict[str, set[str]]] = {
@@ -41,7 +45,9 @@ class LayerContract:
         "service": {"kernel", "wire", "trust"},
         "client": {"kernel", "wire", "trust"},
         "hub": {"kernel", "wire", "trust", "service"},
-        "display": {"kernel", "wire", "trust", "service"},
+        "display": {"kernel", "wire", "trust", "service", "terminal"},
+        "terminal": {"kernel", "wire"},
+        "pty": {"kernel", "wire", "trust", "service", "client", "terminal"},
         "cli": {"kernel", "wire", "trust", "service", "client", "applets"},
         "applets": {"kernel", "wire", "trust", "service", "client"},
     }
