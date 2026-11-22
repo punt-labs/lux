@@ -224,10 +224,12 @@ Mirror `lux hub` / `luxd-hub` and `lux display` / `luxd-display`:
 The three code units are independent after the wire types land; run them in
 parallel worktrees.
 
-**Wire (first, small).** `protocol/pty/session_requests.py` adds `NewRequest`
-(label, command, cols, rows) and `WatchRequest`. New
-`protocol/pty/session_events.py` holds `SessionEvent` (frozen dataclass,
-`to_dict` / `from_dict`). `protocol/pty/control.py` registers the codecs.
+**Wire (first, small).** `protocol/pty/new_request.py` holds `NewRequest`
+(label, launcher, cols, rows). It names a launcher and carries no command line
+(DES-103 decision 9); `protocol/pty/launcher_name.py` validates the name.
+`protocol/pty/session_events.py` holds `WatchRequest` and `SessionEvent`
+(frozen dataclasses, `to_dict` / `from_dict`). `protocol/pty/control.py`
+registers the codecs.
 `AttachRequest` keeps its shape; its meaning becomes resume-only.
 
 **Daemon unit.**

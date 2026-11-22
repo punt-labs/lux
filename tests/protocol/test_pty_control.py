@@ -129,7 +129,7 @@ def test_direct_construction_validates_too() -> None:
     "message",
     [
         NewRequest(1),
-        NewRequest(2, "work", "/bin/zsh -l", 120, 40),
+        NewRequest(2, "work", "claude", 120, 40),
         NewRequest(3, "Terminal 3"),
         WatchRequest(4),
     ],
