@@ -11,11 +11,11 @@ from punt_lux.protocol.pty.control_fields import ControlFields
 
 @dataclass(frozen=True, slots=True)
 class AttachRequest:
-    """Resume a viewer on the running session with this id; never spawn one.
+    """Attach a viewer to this session id, starting it if unknown today.
 
-    The contract is resume-only: an unknown id is refused, and sessions are
-    created by ``NewRequest``. Size is in cells; ``command`` is an argv-like
-    string, not shell code.
+    The daemon unit will make this resume-only: refuse unknown ids and create
+    sessions through ``NewRequest`` instead. Size is in cells; ``command`` is
+    an argv-like string, not shell code.
     """
 
     request_id: int
