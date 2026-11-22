@@ -21,9 +21,10 @@ from typing import TYPE_CHECKING, Any, Self, cast, final
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol import Element
+from punt_lux.protocol.elements.terminal import TerminalElement
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = ["AbcNode", "ElementLocation", "ListSlot", "SceneTreeWalk"]
 
@@ -135,6 +136,16 @@ class SceneTreeWalk:
             for child in element.child_elements():
                 ids.extend(self.collect_ids(child))
         return ids
+
+    def terminal_sessions(self, elements: Sequence[object]) -> set[str]:
+        """Collect the session name of every terminal element in the trees."""
+        names: set[str] = set()
+        for element in elements:
+            if isinstance(element, TerminalElement):
+                names.add(element.session)
+            if isinstance(element, HasChildElements):
+                names |= self.terminal_sessions(element.child_elements())
+        return names
 
     def find(self, elements: list[Element], target_id: str) -> ElementLocation | None:
         """Locate ``target_id`` within ``elements``, or return ``None``.

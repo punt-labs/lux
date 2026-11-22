@@ -36,6 +36,7 @@ from punt_lux.display.replica.menu_replica import MenuReplica, OwnMenus
 from punt_lux.display.setup import DisplaySetup
 from punt_lux.display.socket_server import SocketListener, SocketListenerCallbacks
 from punt_lux.display.terminal.activity import TerminalActivity
+from punt_lux.display.terminal.remote_sessions import RemoteSessions
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
@@ -111,6 +112,7 @@ class RenderLoop:
         self._display_paths = paths
         self._scenes = SceneReplica(
             on_scene_replaced=self._drain_stale_events,
+            on_terminals_held=RemoteSessions.retain_only,
         )
         # Inline import (like the factory wiring below) keeps this off efferent.
         from punt_lux.display.replica.address_rendering import AddressRendering

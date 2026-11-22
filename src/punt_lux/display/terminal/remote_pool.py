@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Collection
 from itertools import count
 from pathlib import Path
 from typing import Self
@@ -65,6 +66,11 @@ class RemotePool:
             self._attach(session)
         return session
 
+    def retain_only(self, names: Collection[str]) -> None:
+        """Release every replica whose element no longer names it."""
+        for name in [n for n in self._sessions if n not in names]:
+            self._release(self._sessions.pop(name))
+
     def pump(self, budget_s: float = 0.003) -> bool:
         if not self._sessions:
             return False
@@ -98,6 +104,14 @@ class RemotePool:
             session.close()
         self._sessions.clear()
         self._channels.clear()
+
+    def _release(self, session: RemoteSession) -> None:
+        """Close one replica and tell the daemon to drop its viewer binding."""
+        if (channel := session.channel) in self._channels:
+            self.send(Frame(channel, FrameKind.CLOSE, b""))
+            del self._channels[channel]
+        self._requests.forget(session)
+        session.close()
 
     def _attach(self, session: RemoteSession) -> None:
         self._requests.attach(next(self._ids), session)

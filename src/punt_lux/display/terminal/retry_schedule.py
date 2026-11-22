@@ -33,6 +33,10 @@ class RetrySchedule:
     def succeeded(self, session: RemoteSession) -> None:
         self._delays.pop(session.name, None)
 
+    def discard(self, session: RemoteSession) -> None:
+        self._retries.pop(session.name, None)
+        self._delays.pop(session.name, None)
+
     def clear(self) -> None:
         self._retries.clear()
         self._delays.clear()

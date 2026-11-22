@@ -75,6 +75,11 @@ class AttachmentRequests:
         self._schedule.failed(session, time.monotonic())
         session.disconnected(reply.error)
 
+    def forget(self, session: RemoteSession) -> None:
+        """Drop every pending request and retry held for a released replica."""
+        self._pending = {i: s for i, s in self._pending.items() if s is not session}
+        self._schedule.discard(session)
+
     def reset(self) -> None:
         self._ready = False
         self._pending.clear()
