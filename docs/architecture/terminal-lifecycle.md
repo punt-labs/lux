@@ -84,8 +84,10 @@ existing `failed` and `closed` states are internal cleanup states and stay.)
 | daemon restart | supervisor | daemon, helper | All shells end. New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`); the old helper's scenes lapse with its lease (30 s), and the new helper's sync replaces them. |
 
 **Reconcile (`HelperList`, then `HelperSync`).** On every connect of the watch
-socket, and after every overflow, the helper connects the watch before listing
-the daemon's sessions. It buffers events while acquiring and applying the list.
+socket, and after every overflow, the helper sends `list` only after the daemon
+acknowledges its `watch` subscription, not merely after the socket connects.
+This subscription barrier prevents an exit between connect and subscribe from
+being missed. It buffers events while acquiring and applying the list.
 `HelperList` records a snapshot of the running sessions; creations and exits
 can occur before `HelperSync` applies it. Application adds buffered creations
 and removes buffered exits from that snapshot, releasing replicas whose scenes
@@ -307,15 +309,26 @@ Goals, each an unreachable bad state in the intact model:
   `#(a,b).(a:dom(daemon) & b:dom(daemon) & a/=b & daemon(a)=daemon(b))`
 - I6, no stale replica shadows a live scene:
   `#n.(n:dom(scene) & n:dom(daemon) & daemon(n)=scene(n) & dstate(n)=running & #s.(s:SHELL & (n|->s):dom(replica) & s/=scene(n)))`
+- I7, when synced with no pending events, every running session has a scene:
+  `sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))`
+- I8, every cached replica matches a current scene element:
+  `#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))`
+
+I8 is a safety check because scene removal and replacement release replicas
+atomically in this model. It catches an orphan without waiting for name reuse;
+`DropReplica` does not make a stranded copy an acceptable transient.
 
 | Variant | Removes | Goal reached |
 |---|---|---|
-| `terminal_lifecycle_cache_leak_buggy.tex` | Replica release, and the never-reuse guard | I6 (the operator's "exit, then nothing ever") |
+| `terminal_lifecycle_cache_leak_buggy.tex` | Replica release, and the never-reuse guard | I6 (the operator's "exit, then nothing ever") and I8 |
 | `terminal_lifecycle_exit_leak_buggy.tex` | Helper clears scene on `ended` | I1 |
 | `terminal_lifecycle_swap_buggy.tex` | Resume checks the shell, and the never-reuse guard | I2 and I6 |
 
-Results from the last run: intact model, I1/I2/I3/I6 not found over all 3482
-states. Cache-leak I6 found; exit-leak I1 found; swap I2 and I6 found.
+Results from the last run: intact model, I1/I2/I3/I6/I7/I8 not found over all 3482
+states. Cache-leak I6 and I8 found; exit-leak I1 found; swap I2 and I6 found.
+I7 is also not found on all three fidelity variants. A local, uncommitted
+mutation that omits `createdEv` from `HelperSync` reaches I7: acquire an empty
+list, create a session, then apply the list without its buffered creation.
 Deadlock check clean on all four files. State counts to the goal vary with
 search order.
 

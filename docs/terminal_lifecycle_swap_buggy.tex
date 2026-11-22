@@ -304,7 +304,8 @@ The guard excludes a lost-watch no-op when both notice sets are empty.
   used' = used
 \end{schema}
 
-The watch is connected before the list is acquired. Notices remain buffered
+The helper sends the list request only after the daemon acknowledges its
+watch subscription, not merely after the socket connects. Notices remain buffered
 while the list response is pending; daemon operations can interleave.
 
 \begin{schema}{HelperSync}
@@ -463,6 +464,26 @@ immortal \texttt{RemotePool} cache, keyed by name):
 \]
 Ids are never reused, so in the intact design this is unreachable; the
 \texttt{used} set models that guarantee.
+
+\paragraph{I7 --- quiescent scene completeness.}
+When synced with no pending creation or ended notices, every running daemon
+session has a matching scene:
+\[
+  sync = synced \land createdEv = \emptyset \land endedEv = \emptyset
+  \implies (\forall n : \dom daemon @ dstate~n = running \implies
+    n \in \dom scene \land scene~n = daemon~n)
+\]
+
+\paragraph{I8 --- no orphaned replicas.}
+Every cached replica matches a current scene element:
+\[
+  \forall n : NAME; s : SHELL | (n , s) \in \dom replica @
+    n \in \dom scene \land scene~n = s
+\]
+Scene removal and replacement release replicas atomically in this model.
+Thus an orphan is already a safety violation, not a transient waiting for
+\texttt{DropReplica}. The cache-leak variant must reach this goal even
+without reusing a name.
 
 \paragraph{I5 --- deadlock freedom.}
 Some operation is always enabled.

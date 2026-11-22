@@ -27,6 +27,8 @@ I1='#n.(n:dom(scene) & sync=synced & not(n:dom(daemon) & daemon(n)=scene(n) & ds
 I2='#k.(k:dom(bound) & bound(k)/=prj2(NAME,SHELL)(k))'
 I3='#(a,b).(a:dom(daemon) & b:dom(daemon) & a/=b & daemon(a)=daemon(b))'
 I6='#n.(n:dom(scene) & n:dom(daemon) & daemon(n)=scene(n) & dstate(n)=running & #s.(s:SHELL & (n|->s):dom(replica) & s/=scene(n)))'
+I7='sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))'
+I8='#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))'
 
 fail() {
   echo "FAIL: $1" >&2
@@ -73,12 +75,18 @@ check_model terminal_lifecycle.tex I1 'not found' "$I1"
 check_model terminal_lifecycle.tex I2 'not found' "$I2"
 check_model terminal_lifecycle.tex I3 'not found' "$I3"
 check_model terminal_lifecycle.tex I6 'not found' "$I6"
+check_model terminal_lifecycle.tex I7 'not found' "$I7"
+check_model terminal_lifecycle.tex I8 'not found' "$I8"
 check_model terminal_lifecycle_cache_leak_buggy.tex I6 found "$I6"
+check_model terminal_lifecycle_cache_leak_buggy.tex I8 found "$I8"
 check_model terminal_lifecycle_exit_leak_buggy.tex I1 found "$I1"
 check_model terminal_lifecycle_swap_buggy.tex I2 found "$I2"
 check_model terminal_lifecycle_swap_buggy.tex I6 found "$I6"
 
 for model in "${models[@]}"; do
+  if [[ "$model" != terminal_lifecycle.tex ]]; then
+    check_model "$model" I7 'not found' "$I7"
+  fi
   check_model "$model" I5-deadlock 'not found'
 done
 echo "PASS: all terminal lifecycle checks"
