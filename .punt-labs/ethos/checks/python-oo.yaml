@@ -1,0 +1,65 @@
+name: python-oo
+description: Advisory edit feedback, OO ratchets at commit, full gate at handoff.
+checks:
+  - name: ruff
+    stage: edit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: ["--extra", "display", "ruff", "check", "{file}"]
+    on_fail: advisory
+    timeout: 10s
+  - name: ruff-format
+    stage: edit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: ["--extra", "display", "ruff", "format", "--check", "{file}"]
+    on_fail: advisory
+    timeout: 10s
+  - name: shellcheck
+    stage: edit
+    files: ["**/*.sh"]
+    run: ["shellcheck", "{file}"]
+    on_fail: advisory
+    timeout: 10s
+  - name: ruff-commit
+    stage: commit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: ["--extra", "display", "ruff", "check", "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: ruff-format-commit
+    stage: commit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: ["--extra", "display", "ruff", "format", "--check", "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: oo-ratchet
+    stage: commit
+    files: all
+    adapter: make
+    target: check-oo
+    on_fail: block
+    timeout: 120s
+  - name: coupling-ratchet
+    stage: commit
+    files: all
+    adapter: make
+    target: check-coupling
+    on_fail: block
+    timeout: 120s
+  - name: suppression-ratchet
+    stage: commit
+    files: all
+    adapter: make
+    target: check-suppressions
+    on_fail: block
+    timeout: 120s
+  - name: gate
+    stage: handoff
+    files: all
+    adapter: make
+    target: check
+    on_fail: block
+    timeout: 30m
