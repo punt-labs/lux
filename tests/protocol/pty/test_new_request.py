@@ -84,3 +84,24 @@ def test_construction_validates() -> None:
         NewRequest(1, "work", "x" * 65)
     with pytest.raises(ControlError, match="cols"):
         NewRequest(1, "work", "", 0)
+
+
+def test_decoding_validates_each_field_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from punt_lux.protocol.pty.control_fields import ControlFields
+
+    calls: list[str] = []
+    original = ControlFields.shape
+
+    def counting_shape(self: ControlFields, op: str, keys: frozenset[str]) -> None:
+        calls.append(op)
+        original(self, op, keys)
+
+    monkeypatch.setattr(ControlFields, "shape", counting_shape)
+    NewRequest.from_dict(NewRequest(1, "work", "claude").to_dict())
+    calls.clear()
+    NewRequest.from_dict(
+        {"id": 1, "op": "new", "label": "w", "launcher": "", "cols": 80, "rows": 24}
+    )
+    assert calls == ["new"]

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
-from punt_lux.protocol.pty.control_fields import ControlFields
+from punt_lux.protocol.pty.control_fields import ControlError, ControlFields
 from punt_lux.protocol.pty.launcher_name import LauncherName
 from punt_lux.protocol.pty.session_label import SessionLabel
 
@@ -18,9 +18,8 @@ class NewRequest:
     ``label`` is what a person calls the session; empty means the daemon picks
     one. ``launcher`` names an entry in the daemon's launcher list; empty is
     the login shell. The request carries no command line, so it can start only
-    what the machine's owner listed. The codec decodes this request, but the
-    daemon answers it ``unsupported operation`` until it implements session
-    creation, so it starts nothing yet.
+    what the machine's owner listed. The daemon answers it
+    ``unsupported operation``.
     """
 
     request_id: int
@@ -34,7 +33,16 @@ class NewRequest:
     )
 
     def __post_init__(self) -> None:
-        self._read(self.to_dict())
+        SessionLabel(self.label)
+        LauncherName(self.launcher)
+        self._check_range("id", self.request_id, 1, (1 << 32) - 1)
+        self._check_range("cols", self.cols, 1, 1024)
+        self._check_range("rows", self.rows, 1, 512)
+
+    @staticmethod
+    def _check_range(key: str, value: int, minimum: int, maximum: int) -> None:
+        if not minimum <= value <= maximum:
+            raise ControlError(f"{key} is outside {minimum}..{maximum}")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -48,14 +56,10 @@ class NewRequest:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, object]) -> Self:
-        return cls(*cls._read(raw))
-
-    @classmethod
-    def _read(cls, raw: Mapping[str, object]) -> tuple[int, str, str, int, int]:
-        """Validate every field once, in constructor order."""
+        """Check the wire shape and field types; the constructor checks values."""
         fields = ControlFields(raw)
         fields.shape(cls.OP, cls.KEYS)
-        return (
+        return cls(
             fields.request_id(),
             SessionLabel.requested(fields).text,
             LauncherName.requested(fields).text,

@@ -27,3 +27,9 @@ def test_requested_reads_the_launcher_field() -> None:
 def test_requested_refuses_missing_or_non_string(raw: dict[str, object]) -> None:
     with pytest.raises(ControlError, match="launcher"):
         LauncherName.requested(ControlFields(raw))
+
+
+@pytest.mark.parametrize("text", ["\ud800", "a\udfffb"])
+def test_launcher_name_refuses_unpaired_surrogates(text: str) -> None:
+    with pytest.raises(ControlError, match="launcher"):
+        LauncherName(text)

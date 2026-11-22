@@ -17,3 +17,9 @@ def test_session_label_accepts(text: str) -> None:
 def test_session_label_refuses(text: str) -> None:
     with pytest.raises(ControlError, match="label"):
         SessionLabel(text)
+
+
+@pytest.mark.parametrize("text", ["\ud800", "a\udfffb"])
+def test_session_label_refuses_unpaired_surrogates(text: str) -> None:
+    with pytest.raises(ControlError, match="label"):
+        SessionLabel(text)
