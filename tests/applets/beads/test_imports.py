@@ -40,14 +40,42 @@ def test_beads_module_imports_in_fresh_process(module: str) -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("module", _OLD_MODULES)
-def test_old_module_path_has_no_alias(module: str) -> None:
-    result = _run(
+def _old_module_probe(module: str) -> str:
+    return (
         "import importlib, sys\n"
+        f"name = {module!r}\n"
         "try:\n"
-        f"    importlib.import_module({module!r})\n"
-        "except ModuleNotFoundError:\n"
-        "    sys.exit(0)\n"
+        "    importlib.import_module(name)\n"
+        "except ModuleNotFoundError as exc:\n"
+        "    if exc.name and (name == exc.name or name.startswith(exc.name + '.')):\n"
+        "        sys.exit(0)\n"
+        "    raise\n"
         "sys.exit(1)\n"
     )
-    assert result.returncode == 0, f"{module} still resolves"
+
+
+@pytest.mark.parametrize("module", _OLD_MODULES)
+def test_old_module_path_has_no_alias(module: str) -> None:
+    result = _run(_old_module_probe(module))
+    assert result.returncode == 0, (
+        f"{module} resolved or failed unexpectedly:\n{result.stderr}"
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "import missing_dependency_for_old_module_test\n",
+        "raise ModuleNotFoundError\n",
+    ],
+)
+def test_old_module_probe_rejects_an_existing_module(
+    tmp_path: Path, content: str
+) -> None:
+    (tmp_path / "legacy_old_app.py").write_text(content)
+    result = _run(
+        f"import sys; sys.path.insert(0, {str(tmp_path)!r})\n"
+        + _old_module_probe("legacy_old_app")
+    )
+    assert result.returncode != 0
