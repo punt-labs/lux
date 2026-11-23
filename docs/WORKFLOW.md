@@ -44,8 +44,9 @@ predicates over declared terms, never as bare primed flags.
 ## Roles
 
 The operator owns requirements and design direction, rules on genuine design
-forks, and verifies demos. Claude runs everything else: the backlog, the
-missions, the review cycles, and the merges. Review of code is done by agents
+forks, and judges interaction feel at the demo of an `interactive(pr)`
+change. Claude runs everything else:
+the backlog, the missions, the review cycles, the demos, and the merges. Review of code is done by agents
 — the local review agents before the PR, then Qodo and Bugbot on the PR. There
 is no human review gate. The operator reads code in the IDE, but that inspection is
 separate, feeds design discussion only, and nothing in these loops waits on
@@ -227,23 +228,27 @@ function pr_loop(unit):
     if local_review(full diff) is blocked: stop the unit until the
         operator rules                    # local_review: punt-kit pr-review.md
 
-    # C. DEMO — human confirmation of what only a human can judge
+    # C. DEMO — the leader verifies the running system; the operator judges feel
     make restart                          # from outside a Lux terminal; ends its sessions
     write down the expected outcome, then drive the real entry point
     capture machine evidence with the introspection tools, on both tiers:
         Hub store (scene_inspect, scene_ls, event_ls, error_ls) and
-        Display state (display_state_get); capture pixels with make screenshot
-    the operator confirms the sensory outcome: rendered pixels,
-        interaction feel — the part no introspection API can attest
+        Display state (display_state_get)
+    if rendering(pr): capture the pixels with lux display screenshot (or
+        the display_screenshot MCP tool) and READ the PNG back: the leader
+        confirms the widgets are drawn as the expected outcome says
+    if interactive(pr): the operator drives the interaction and confirms
+        its feel — the one thing a still frame cannot attest
 
     # D. SHIP
     mark the issue Done in Linear
     push; create the PR (description carries the verification playbook)
     if the PR changes a file that is not demo_exempt:
-        comment "demo confirmed: <head sha>"   # once step C passed on that
-                                               #   head, with the operator's
-                                               #   confirmation only where
-                                               #   step C requires it
+        comment "demo confirmed: <head sha> interaction: operator|none"
+                                               # once step C passed on that
+                                               #   head; "operator" only when
+                                               #   interactive(pr) and the
+                                               #   operator confirmed it
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open (Cursor dashboard: once per PR) — no
         #   "bugbot run" comment for round 1
@@ -263,22 +268,38 @@ function pr_loop(unit):
 #   - local_review (pr-review.md) runs before the PR and before every fix push
 #   - merge is explicit squash on a satisfied gate (ExitPR); never auto-merge
 #   - close_out: branch delete in git.md §4 order, then the merge recap
-#   - the demo gate is lux's own (pr-review.md's human-judged verify step);
-#     its terms stay defined here because they differ from pr-review.md's
-#     verify_* in both name and scope (the plugin/ carve-out is lux-only):
+#   - the demo gate is lux's form of pr-review.md's verification step
+#     (verified_head / verified_ok); interaction feel is the human-judged part
+#     lux names. Its terms are defined here, under lux's names:
+#       interactive(pr) = the PR changes a file under
+#                      src/punt_lux/display/ (rendering, input, focus, widget
+#                      state, menus, dialogs), src/punt_lux/hub/ handler
+#                      dispatch, or plugin/ — the code that decides what a
+#                      click, drag, key, focus change, or dialog does. Decided
+#                      from the diff's paths, never from the leader's judgement
+#       rendering(pr) = the PR changes a file under src/punt_lux/display/ or
+#                      src/punt_lux/wire/model/elements/ — what the Display
+#                      paints
 #       demoed_head  = the commit named in the leader's latest
-#                      "demo confirmed:" PR comment, newer than any
-#                      "demo failed:" comment; posted once the demo passes on
-#                      that commit, with operator confirmation only where the
-#                      demo requires it (rendered pixels or interaction feel a
-#                      human must judge)
-#       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/, and is
-#                      NOT under plugin/ — commands, skills, agents, and hooks
-#                      there are behavior even when Markdown, because Claude
-#                      Code executes them
-#       demo_ok(pr)  = every file the PR changes is demo_exempt, or demoed_head
-#                      exists, is the head or an ancestor of it, and every file
-#                      changed since it is demo_exempt
+#                      "demo confirmed: <sha> interaction: operator|none" PR
+#                      comment, newer than any "demo failed:" comment; posted
+#                      once the demo passes on that commit: the leader drove
+#                      the entry point and the introspection tools, read the
+#                      screenshot back when rendering(pr), and the comment
+#                      says "interaction: operator" only when the operator
+#                      confirmed interaction feel on that commit
+#       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/ (except
+#                      .github/workflows/), or a ratchet baseline or audit
+#                      file; and is NOT under plugin/ — commands, skills,
+#                      agents, and hooks there are behavior even when Markdown,
+#                      because Claude Code executes them, and a workflow under
+#                      .github/workflows/ is behavior that runs in CI
+#       demo_confirmed(pr) = demoed_head exists and, when interactive(pr),
+#                      its comment says "interaction: operator"
+#       demo_ok(pr)  = every file the PR changes is demo_exempt, or
+#                      demo_confirmed(pr) and demoed_head is the head or an
+#                      ancestor of it and every file changed since it is
+#                      demo_exempt
 ```
 
 Entry and exit for one PR iteration. `merge_gate` in the pseudocode is the
@@ -301,7 +322,8 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ localReviewClean(pr)                  -- a local round that left nothing
                                           --   to fix, BEFORE the PR opened and
                                           --   before every fix push
-  ∧ demoConfirmed(pr)                     -- held BEFORE the PR opened
+  ∧ demoConfirmed(pr)                     -- demo_confirmed held BEFORE the
+                                          --   PR opened
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ demoOk(pr)                            -- demo_ok held at the merge
@@ -388,11 +410,21 @@ mean the feature works. Before any PR opens, the feature is driven through
 its real entry point — an MCP tool call, a CLI command, a click in the
 running window — with the expected outcome written down first. Machine
 evidence comes from the introspection tools on both tiers, because the Hub's
-stored state and the Display's rendered state can diverge. Then the operator
-confirms what only a human can judge: the rendered pixels and the feel of the
-interaction. (The same principle in sibling repos: vox's audio flights are
-confirmed by ear, step by step.) This is the one human gate in the loops, and
-it is a demo, not a diff.
+stored state and the Display's rendered state can diverge. When the change
+touches what the Display paints (`rendering(pr)` above), the pixels are
+evidence too: `lux display screenshot` (or the `display_screenshot` MCP tool)
+writes the next painted frame to a PNG and the leader reads it back, checking
+the widgets against the written expectation. A screenshot that disagrees with
+the introspection snapshot is a defect, not noise.
+
+The operator's judgement is reserved for what a still frame cannot show: the
+feel of an interaction. When the change touches the code that decides what a
+click, drag, key, focus change, or dialog does (`interactive(pr)` above), the
+operator drives it and says whether it feels right, and the demo comment
+records "interaction: operator"; otherwise no operator step exists and the
+comment records "interaction: none". (The same principle in sibling repos:
+vox's audio flights are confirmed by ear, step by step.) The demo is a demo,
+not a diff, and the leader runs it end to end.
 
 ## Level 3 — The mission loop (design, code, test)
 
@@ -603,6 +635,9 @@ leader.
    High fix.
 5. **Defects flow inward, scope flows outward.** A defect found while a PR is
    open is fixed in that PR. Only genuinely new lines of work become issues.
-6. **The operator gates demos and direction, never diffs or sequencing.**
+6. **The operator gates interaction feel and direction, never diffs,
+   sequencing, or pixels.** The leader reads the screenshot back; the
+   operator is called in only for an `interactive(pr)` change, and the demo
+   comment records it.
 7. **Close-out is inside the loop.** The recap email, branch hygiene, and
    starting the next unit are steps of the loop, not afterthoughts.

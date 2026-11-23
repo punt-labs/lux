@@ -330,8 +330,7 @@ though it does not verify pixel-level rendering fidelity.
 
 `display_screenshot` captures the frame painted after the next buffer swap
 (`FramebufferCapture`, sized from the live `io.display_framebuffer_scale`),
-so an e2e test can read back real pixels, not only the scene tree. On macOS
-`make screenshot` captures the same window from outside the process.
+so an e2e test can read back real pixels, not only the scene tree.
 
 **Manual verification (required for rendering fidelity).** When changing
 rendering code, run `make install` and exercise the affected element

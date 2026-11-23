@@ -1,7 +1,6 @@
 """Mac isolated-window proof. Run with python -m spikes.terminal.check_daemon_window.
 
-LUX_CAPTURE_SCRIPT must point to the reviewed macOS screenshot helper (Lux main
-scripts/screenshot_macos.py). Only the test Display PID is passed to it. Normal
+LUX_CAPTURE_SCRIPT must point to the reviewed macOS screenshot helper (spikes/terminal/capture_macos.py). Only the test Display PID is passed to it. Normal
 Lux services are neither queried nor altered. Wrap execution in timeout 110.
 """
 

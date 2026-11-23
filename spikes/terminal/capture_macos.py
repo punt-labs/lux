@@ -2,7 +2,9 @@
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """Capture the running lux-display window to a PNG on macOS, via ffmpeg.
 
-macOS counterpart of scripts/screenshot.sh (Linux, DES-091). Same contract:
+The terminal spike's external window capture (macOS). Kept here because the spike
+scripts raise and locate the Display window by PID, which the in-process
+`lux display screenshot` does not do. Same contract as the retired DES-091 tool:
 
 - The window is resolved by PID: the on-screen, layer-0 window owned by a
   running ``luxd-display`` process. No title-only fallback, because this is
@@ -21,7 +23,7 @@ Prereqs: ffmpeg (``brew install ffmpeg``), the ``[display]`` extra (pyobjc
 Quartz + AppKit, Pillow), and Screen Recording permission for the terminal
 app (System Settings > Privacy & Security > Screen Recording).
 
-Usage: screenshot_macos.py [output-path] [--interval SECONDS --count N]
+Usage: capture_macos.py [output-path] [--interval SECONDS --count N]
 Default output path: $SCREENSHOT_OUT, else .tmp/lux-screenshot.png.
 With --count N it writes NAME-0001.png, NAME-0002.png, ...
 """
@@ -356,7 +358,7 @@ def capture(out: Path, *, raise_first: bool = True) -> Path:
         msg = f"could not prepare the output directory for {out}: {e}"
         raise ScreenshotError(msg) from e
     if sys.platform != "darwin":
-        msg = "screenshot_macos.py is macOS-only (use screenshot.sh on Linux)"
+        msg = "capture_macos.py is macOS-only"
         raise ScreenshotError(msg)
     # Past the platform guard we are committed to this path: every later exit
     # (permission, no window, occlusion) must leave no stale image to read.
@@ -440,7 +442,7 @@ def main() -> int:
             if i < a.count:
                 time.sleep(max(0.0, a.interval - (time.monotonic() - t0)))
     except ScreenshotError as e:
-        print(f"screenshot_macos.py: error: {e}", file=sys.stderr)
+        print(f"capture_macos.py: error: {e}", file=sys.stderr)
         return 1
     return 0
 

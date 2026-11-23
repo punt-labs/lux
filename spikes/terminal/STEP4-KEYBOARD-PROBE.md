@@ -34,7 +34,7 @@ proof. No zero/placeholder latency values are published.
   the unverified input step in the recorded environment.
 
 ```sh
-LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py \
+LUX_CAPTURE_SCRIPT=spikes/terminal/capture_macos.py \
   timeout 120 .venv/bin/python -m spikes.terminal.probe_keyboard_table
 ```
 

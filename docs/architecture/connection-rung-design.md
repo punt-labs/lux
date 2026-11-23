@@ -651,7 +651,7 @@ The implementer should not manufacture one elsewhere.
 
 **Demo** (`make restart`, expected result written first). Open a second Claude
 session in the same repo; run Vox and Details in both. `list_frames` and
-`inspect_scene` show both `scope_label`s, and `make screenshot` shows
+`inspect_scene` show both `scope_label`s, and `lux display screenshot` shows
 `lux :: Vox` and `lux (2) :: Vox`; Read the PNG. Open the `i` glyph: `Client
 host: 127.0.0.1` and `Hub host` is this machine's FQDN. Close one session:
 within one replication cycle the survivor reads `lux :: Vox` and a window the
