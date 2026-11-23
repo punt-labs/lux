@@ -349,7 +349,7 @@ budget, independent of the Hub. Terminal supervisor registration and opt-in
 enablement move from `pty.service` and `pty.enablement` into
 `service.terminal_service` and `service.terminal_enablement`. Foreground display
 lifecycle belongs to `service.display_foreground`: `lux display serve` checks
-the display extra and execs `python -m punt_lux.display` in the same environment,
+the display extra and execs `python -P -m punt_lux.display` in the same environment,
 retaining its PID, terminal and exit status without importing the renderer
 into the CLI. The renderer entry point lives in `display.luxd_display`.
 

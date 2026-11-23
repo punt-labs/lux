@@ -244,7 +244,7 @@ Terminal registration and enablement belong to
 \modpath{service/terminal_enablement.py}, not PTY execution.
 The CLI's foreground display lifecycle uses
 \modpath{service/display_foreground.py} to exec
-\texttt{python -m punt\_lux.display} in the same environment with the same
+\texttt{python -P -m punt\_lux.display} in the same environment with the same
 PID and terminal. Its renderer entry point is
 \modpath{display/luxd_display.py}; the shared round-trip budget lives in
 \modpath{kernel/display_defaults.py}. Removed paths have no import aliases.
