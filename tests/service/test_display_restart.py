@@ -9,6 +9,24 @@ import pytest
 
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
+from tests.service._probe_double import ProbeDouble
+
+
+@pytest.fixture(autouse=True)
+def stable_hub_witness() -> Iterator[None]:
+    """Isolate the local PID/socket cases from the separately tested Hub witness."""
+    with (
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            side_effect=ProbeDouble.local,
+        ),
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            return_value=True,
+        ),
+        patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),
+    ):
+        yield
 
 
 def _pid_series(*values: int | None) -> Iterator[int | None]:
@@ -94,7 +112,7 @@ class TestDisplayRestartSuccess:
         manager = MagicMock()
         manager.restart.return_value = "display restarted."
         pgrep_series = _pid_series(500, 501, 501, 501)
-        running_calls = iter([False, False, True])
+        running_calls = iter([False, False, True, True])
 
         paths = MagicMock()
         paths.is_running.side_effect = lambda: next(running_calls)
@@ -124,7 +142,7 @@ class TestDisplayRestartSuccess:
         pgrep_series = _pid_series(500, 501, 501, 501)
         # is_running() is true throughout (old owner still accepting, then
         # the new one); peer_pid() names the OLD pid until the lease moves.
-        peer_pid_calls = iter([500, 500, 501])
+        peer_pid_calls = iter([500, 500, 501, 501])
 
         paths = MagicMock()
         paths.is_running.return_value = True

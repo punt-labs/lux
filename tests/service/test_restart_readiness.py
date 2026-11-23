@@ -12,6 +12,7 @@ from punt_lux.service import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
 from punt_lux.service._restart_readiness import RestartReadiness
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
 from punt_lux.service.hub_restart import HubRestart, HubRestartError
+from tests.service._probe_double import ProbeDouble
 
 
 @pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
@@ -143,8 +144,17 @@ def test_success_does_not_probe_launchd(
     paths = MagicMock()
     paths.peer_pid.return_value = 102
     with (
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            side_effect=ProbeDouble.local,
+        ),
         patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
         patch.object(restart, "_polls", return_value=iter([None])),
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            return_value=True,
+        ),
+        patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),
         patch("punt_lux.service._restart_readiness.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):

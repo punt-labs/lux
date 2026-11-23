@@ -665,6 +665,41 @@ whose output states unambiguously whether the cure succeeded.
 
 ## Current failure diagnostics
 
+Display restart observes a single new PID, retaining the socket-owner check and
+requiring the Hub's existing read-only `GET /display` facts to name that PID.
+Those facts round-trip to the Display; a stale or different PID is not readiness.
+The Hub attaches `hub_connection_id` from the pinned request port, so a reconnect
+to the same PID cannot inherit the old dial's stability interval. Raw Display
+facts have no Hub identity; the readiness probe requires the Hub's metadata.
+The connection and owned socket must remain observed for `_STABILITY_SECONDS`
+(three seconds), within the 30-second monotonic deadline shared by startup and
+stability. Probes use at most 0.5 seconds, capped by the remaining budget, and
+successful replies arriving after the deadline are rejected. Local socket
+ownership is now one kernel-credential connection, not a separate handshake and
+retrying owner lookup. Both local probes cap their timeout to the remaining
+deadline. A Hub probe shares one shrinking budget across connect, send, response
+headers, and body reads. The failure-only launchd diagnostic retains its separate
+bounded I/O budget after readiness has failed.
+Hub restart readiness is unchanged.
+The first receipt starts a dial's window, while later samples credit time only
+up to their request send point. This excludes response delivery and post-reply
+local-check time, and avoids crediting time before a newly dialed connection
+actually answered the first request.
+
+An observed process exit or replacement fails immediately, even before a Hub
+connection, rather than accepting launchd's next crash-loop generation. Loss of
+socket ownership during stability also fails. An unreachable
+Hub is an error: this command does not silently weaken to socket-only readiness;
+`make restart` restarts the Hub first. Failures retain `DisplayRestartError` and
+the existing ERROR diagnostic, with a reason and a best-effort bounded tail of
+`~/.punt-labs/lux/logs/luxd-display-stderr.log` (12 lines, 4096 bytes).
+The tail is conditional on an existing redirected stderr file; generated
+service configurations do not install stderr redirection. Missing or unreadable
+files do not replace the original readiness error. Slow initial Display round
+trips (HTTP 504 or a probe timeout) remain pending within the deadline and restart
+the stability window, rather than misreporting an inconclusive probe as a crash.
+A replacement Hub dial likewise restarts the full window.
+
 Every successful launchd bootout is logged centrally at INFO with its service
 target, including stop, uninstall, and changed-plist upgrade sweeps. Failed
 or absent-job bootouts do not produce a success record.

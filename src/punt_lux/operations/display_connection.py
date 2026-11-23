@@ -15,9 +15,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.hub.connection_closed import ConnectionClosedError
-from punt_lux.hub.display_busy import DisplayBusyError
-from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.operations.display_query import DisplayQuery
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
@@ -62,14 +60,7 @@ class HubDisplayConnection:
         """
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
-        outcome = self._round_trip(lambda port: port.query(method, dict(params)))
-        if isinstance(outcome, DisplayFault):
-            return outcome
-        if outcome is None:
-            return DisplayFault(code="timeout")
-        if outcome.error:
-            return DisplayErrored(message=outcome.error)
-        return DisplayReplied(payload=outcome.result)
+        return self._round_trip(lambda port: DisplayQuery.run(port, method, params))
 
     def ping(self, wait: float | None) -> DisplayReply:
         """Round-trip a ping bounded by ``wait`` seconds; return the rtt.
@@ -94,29 +85,8 @@ class HubDisplayConnection:
         return DisplayReplied(payload={"rtt_seconds": elapsed})
 
     def _round_trip[T](self, call: Callable[[DisplayRequests], T]) -> T | DisplayFault:
-        """Run ``call`` on the connected link; fold every failure into a fault.
-
-        A failure drops the dial the call was made on and no other: by the time
-        it is seen another thread may have redialed, and that dial did not fail.
-        A request that lost the lock to another of its kind (nothing was sent)
-        drops nothing; any other ``RuntimeError`` is a bug and propagates.
-        """
-        try:
-            port = self._clients.asks()  # pinned to the dial it will use
-        except (DisplayNotConnectedError, ConnectionClosedError):
-            return DisplayFault(code="display_unavailable")
-        except OSError:
-            return DisplayFault(code="timeout")
-        try:
-            return call(port)
-        except DisplayBusyError:
-            return DisplayFault(code="timeout")  # nothing sent; the dial is sound
-        except ConnectionClosedError:
-            self._clients.drop(port.dial)
-            return DisplayFault(code="display_unavailable")
-        except OSError:
-            self._clients.drop(port.dial)
-            return DisplayFault(code="timeout")
+        """Run a pinned request with this adapter's registry and drop policy."""
+        return DisplayQuery.exchange(self._clients, call)
 
     @property
     def is_connected(self) -> bool:
