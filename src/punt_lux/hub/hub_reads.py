@@ -1,0 +1,58 @@
+"""HubReads — the authoritative introspection reads over the Hub store.
+
+The read half of ``HubDisplay``: a scene's roots, element count, and distinct root
+owners, each taking the store's read lock so that discipline stays here.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from punt_lux.hub.element_index import ElementIndex
+    from punt_lux.hub.owner import Owner
+    from punt_lux.hub.owner_tracker import OwnerTracker
+    from punt_lux.hub.store_lock import StoreLock
+    from punt_lux.wire.model.element import Element as WireElement
+    from punt_lux.wire.model.ids import SceneId
+
+__all__ = ["HubReads"]
+
+
+@final
+class HubReads:
+    """Locked, authoritative reads of the store for introspection."""
+
+    _index: ElementIndex
+    _owners: OwnerTracker
+    _lock: StoreLock
+    __slots__ = ("_index", "_lock", "_owners")
+
+    def __new__(
+        cls,
+        index: ElementIndex,
+        owners: OwnerTracker,
+        lock: StoreLock,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._index = index
+        self._owners = owners
+        self._lock = lock
+        return self
+
+    def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
+        """Return non-removed root elements for a scene, read under the lock."""
+        with self._lock.read():
+            return self._index.scene_roots(scene_id)
+
+    def element_count(self, scene_id: SceneId) -> int:
+        """Return the count of non-removed elements in a scene, read under lock."""
+        with self._lock.read():
+            return self._index.element_count(scene_id)
+
+    def scene_owners(self, scene_id: SceneId) -> tuple[Owner, ...]:
+        """Return distinct declared root owners in first-appearance order."""
+        with self._lock.read():
+            roots = self._index.scene_root_items(scene_id)
+            owned = (self._owners.get(scene_id, key) for key, _ in roots)
+            return tuple(dict.fromkeys(filter(None, owned)))

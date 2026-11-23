@@ -19,28 +19,28 @@ import pytest
 
 from punt_lux.bounded_send import TornStreamError
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.batch_sender import BatchSendError
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub.batch_sender import BatchSendError
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.connection_closed import (
     HubRetiredError,
 )
-from punt_lux.domain.hub.dial_death import DialDeath
-from punt_lux.domain.hub.dirty_signal import DrainedBatch
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
-from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.hub.reconnect_wait import ReconnectWait
-from punt_lux.domain.hub.replicator import (
+from punt_lux.hub.dial_death import DialDeath
+from punt_lux.hub.dirty_signal import DrainedBatch
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
+from punt_lux.hub.frame_ownership import FrameOwnership
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.menu_models import Menu, MenuAction
+from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.reconnect_wait import ReconnectWait
+from punt_lux.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
 )
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.hub.session_callback import MenuLeaf
+from punt_lux.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.session_callback import MenuLeaf
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.elements.text import TextElement
@@ -52,9 +52,9 @@ from tests.link_access import deaths_of
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.hub.dial_ref import DialRef
-    from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
-    from punt_lux.domain.hub.scene_snapshot import SceneReader
+    from punt_lux.hub.dial_ref import DialRef
+    from punt_lux.hub.frame_owner_facts import FrameOwnerFactsReader
+    from punt_lux.hub.scene_snapshot import SceneReader
     from punt_lux.wire.model.element import Element as WireElement
 
 _CONN = ConnectionId("repl-conn")
@@ -1207,7 +1207,7 @@ def test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets(
     # resets the delay. Driving one cycle at a time with sleep stubbed keeps this
     # deterministic and instant.
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.replicator.time.sleep", slept.append)
     factory = HubStoreFactory()
     store = factory.display
     lifecycle = factory.lifecycle
@@ -1235,7 +1235,7 @@ def test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff(
     # connected -- a different condition from a connected display misbehaving.
     # It must never trip the wedged-display backoff (_back_off/time.sleep).
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.replicator.time.sleep", slept.append)
     factory = HubStoreFactory()
     store = factory.display
     lifecycle = factory.lifecycle
@@ -1260,7 +1260,7 @@ def test_a_non_dial_runtime_error_never_drives_the_disconnected_branch(
     # outer exception handler (restored, wedged backoff advances), never be
     # misclassified as "never connected" and routed onto the slow backoff.
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.replicator.time.sleep", slept.append)
     factory = HubStoreFactory()
     store = factory.display
     lifecycle = factory.lifecycle
@@ -1799,7 +1799,7 @@ def test_isolation_exits_after_stable_interval_without_new_writes(
     # exit_isolation_if_stable on the class (instance attributes are __slots__
     # read-only) with a spy and prove the worker calls it even when no scene
     # or menu ever changes.
-    from punt_lux.domain.hub.crash_attribution import CrashAttribution
+    from punt_lux.hub.crash_attribution import CrashAttribution
 
     called = threading.Event()
     original = CrashAttribution.exit_isolation_if_stable
@@ -1906,8 +1906,8 @@ def test_an_idle_tick_that_raises_is_logged_and_the_worker_keeps_replicating(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     # The idle tick charges deaths; a store that refuses one must not end the thread.
-    from punt_lux.domain.hub import replicator as replicator_module
-    from punt_lux.domain.hub.batch_sender import BatchSender
+    from punt_lux.hub import replicator as replicator_module
+    from punt_lux.hub.batch_sender import BatchSender
 
     monkeypatch.setattr(replicator_module, "_STABILITY_TICK_SECONDS", 0.02)
     calls: list[int] = []

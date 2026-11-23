@@ -11,15 +11,15 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.replica import SceneReplica
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.frame_ownership import FrameOwnership
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.canonical_frame_owner import CanonicalFrameOwner
 from punt_lux.operations.client_listing import ClientListing
@@ -35,8 +35,8 @@ from tests.wire.model.test_hub_replicator import _FakeSender, _replicator
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.hub.replicator import HubReplicator
-    from punt_lux.domain.hub.scene_snapshot import SceneReader, SceneSnapshot
+    from punt_lux.hub.replicator import HubReplicator
+    from punt_lux.hub.scene_snapshot import SceneReader, SceneSnapshot
 
 
 def _zero_inbox_depth(_connection_id: ConnectionId) -> int:

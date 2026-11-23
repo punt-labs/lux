@@ -13,12 +13,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub.child_index import ChildIndex
-from punt_lux.domain.hub.element_index import ElementIndex
-from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.hub.owner_tracker import OwnerTracker
-from punt_lux.domain.hub.root_registry import RootRegistry
-from punt_lux.domain.hub.subtree_remover import SubtreeRemover
+from punt_lux.hub.child_index import ChildIndex
+from punt_lux.hub.element_index import ElementIndex
+from punt_lux.hub.owner import Owner
+from punt_lux.hub.owner_tracker import OwnerTracker
+from punt_lux.hub.root_registry import RootRegistry
+from punt_lux.hub.subtree_remover import SubtreeRemover
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId
@@ -173,7 +173,7 @@ def test_drop_scene_roots_attributes_a_failure_to_its_real_owner(
 
     monkeypatch.setattr(root, "mark_removed", _raise)
 
-    with caplog.at_level(logging.ERROR, logger="punt_lux.domain.hub.subtree_remover"):
+    with caplog.at_level(logging.ERROR, logger="punt_lux.hub.subtree_remover"):
         store.remover.drop_scene_roots(_SCENE)
 
     assert any(str(_CONN) in r.getMessage() for r in caplog.records)

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
-_HUB = "domain/hub/"
+_HUB = "hub/"
 _SCREENSHOTS = "display/screenshot_queue.py"  # has a `_capture` of its own
 _CLI_SHARED = "cli/_shared.py"  # reads JSON "inline" from a command line
 
@@ -311,7 +311,7 @@ class TestTheGuardCanFail:
             "def f(g):\n    return slot_module.Settler(g)\n",
             "def f(g):\n    make = Settler\n    return make(g)\n",
             "def f(g):\n    return getattr(slot_module, 'Settler')(g)\n",
-            "from punt_lux.domain.hub.settler import Settler as S\n",
+            "from punt_lux.hub.settler import Settler as S\n",
             "class C:\n    def m(self, g):\n        return Settler(g)\n",
         ],
     )
@@ -357,8 +357,8 @@ class TestTheGuardCanFail:
     @pytest.mark.parametrize(
         "planted",
         [
-            "from punt_lux.domain.hub.settler import Settler\n",
-            "import punt_lux.domain.hub.settler\n",
+            "from punt_lux.hub.settler import Settler\n",
+            "import punt_lux.hub.settler\n",
             "def f(s: Settler) -> Settler:\n    return s\n",
             "class C:\n    held: Settler\n",
         ],

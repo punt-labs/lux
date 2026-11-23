@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Self
 
-from punt_lux.domain.hub.guard_registry import GuardRegistry
+from punt_lux.hub.guard_registry import GuardRegistry
 from tests.wire.model.display_double import Call
 
 

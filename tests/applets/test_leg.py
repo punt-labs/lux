@@ -35,7 +35,7 @@ from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
 from punt_lux.rest_transport import HubUnavailableError

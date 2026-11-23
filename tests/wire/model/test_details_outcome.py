@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.details_outcome import (
+from punt_lux.hub.details_outcome import (
     DetailsRefused,
     DetailsShown,
     DetailsUnbound,

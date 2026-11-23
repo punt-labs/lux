@@ -474,7 +474,7 @@ modules not listed here.
 
 ### Hub
 
-- `src/punt_lux/domain/hub/hub_interaction_dispatch.py` — retire the
+- `src/punt_lux/hub/hub_interaction_dispatch.py` — retire the
   `frame_close` branch (F4). `FrameLifecycle.remove_frame` stays for the TTL
   sweep.
 

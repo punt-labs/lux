@@ -22,6 +22,8 @@ import pytest
 
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
+from punt_lux.hub.hub_factory import HubPublishSink, hub_element_factory
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import ReadyMessage, encode_frame, recv_message
 from punt_lux.wire.model.element_abc import Element
 from punt_lux.wire.model.elements.text import TextElement
@@ -69,6 +71,7 @@ def test_a_frame_pickled_by_an_old_hub_decodes_to_the_new_element() -> None:
         ("punt_lux.domain.element_abc", "Element", Element),
         ("punt_lux.domain.ids", "ElementId", ElementId),
         ("punt_lux.protocol.elements.text", "TextElement", TextElement),
+        ("punt_lux.domain.hub.hub_factory", "HubPublishSink", HubPublishSink),
         ("builtins", "dict", dict),
     ],
 )
@@ -78,21 +81,44 @@ def test_unpickler_resolves_moved_globals(
     assert ModelUnpickler(io.BytesIO()).find_class(module, name) is expected
 
 
-@pytest.mark.parametrize("module", ["punt_lux.domain.hub", "punt_lux.protocol.pty"])
-def test_retained_packages_are_not_remapped(module: str) -> None:
-    with pytest.raises(AttributeError, match=module):
-        ModelUnpickler(io.BytesIO()).find_class(module, "NoSuchClass")
+def test_retained_pty_package_is_not_remapped() -> None:
+    with pytest.raises(AttributeError, match=r"punt_lux\.protocol\.pty"):
+        ModelUnpickler(io.BytesIO()).find_class("punt_lux.protocol.pty", "NoSuchClass")
 
 
-def test_retained_hub_submodules_are_not_remapped() -> None:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-
-    assert (
-        ModelUnpickler(io.BytesIO()).find_class(
-            "punt_lux.domain.hub.client_identity", "ClientIdentity"
-        )
-        is ClientIdentity
+@pytest.mark.parametrize("legacy", [False, True], ids=["current", "legacy-hub"])
+def test_hub_publish_handler_crosses_in_an_element_pickle(legacy: bool) -> None:
+    element = hub_element_factory(ConnectionId("pickle-owner")).element_from_dict(
+        {
+            "kind": "button",
+            "id": "publish-button",
+            "label": "Publish",
+            "handlers": [{"event": "click", "publish": ["clicked"]}],
+        }
     )
+    payload = pickle.dumps(element, protocol=0)
+    assert b"punt_lux.hub.hub_factory\nHubPublishSink\n" in payload
+    if legacy:
+        payload = payload.replace(
+            b"punt_lux.hub.hub_factory\n", b"punt_lux.domain.hub.hub_factory\n"
+        )
+    decoded = PickledElementCodec().decode_all(
+        [{"_pickled": base64.b64encode(payload).decode("ascii")}]
+    )
+    assert len(decoded) == 1
+    assert type(decoded[0]) is type(element)
+    assert decoded[0].to_dict() == element.to_dict()
+
+
+def test_legacy_hub_non_element_is_still_rejected() -> None:
+    payload = pickle.dumps(HubPublishSink(ConnectionId("pickle-owner")), protocol=0)
+    payload = payload.replace(
+        b"punt_lux.hub.hub_factory\n", b"punt_lux.domain.hub.hub_factory\n"
+    )
+    with pytest.raises(ValueError, match="_pickled is not an Element: HubPublishSink"):
+        PickledElementCodec().decode_all(
+            [{"_pickled": base64.b64encode(payload).decode("ascii")}]
+        )
 
 
 def test_empty_element_list_remains_empty() -> None:

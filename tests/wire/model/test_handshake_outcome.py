@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 
-from punt_lux.domain.hub.handshake_outcome import (
+from punt_lux.hub.handshake_outcome import (
     DisplayNotConnectedError,
     HandshakeResult,
 )
@@ -24,7 +24,7 @@ def test_handshake_result_carries_the_endpoint_and_ready_message() -> None:
 
 
 def test_display_not_connected_error_is_re_exported_from_its_own_module() -> None:
-    from punt_lux.domain.hub.display_not_connected import (
+    from punt_lux.hub.display_not_connected import (
         DisplayNotConnectedError as Original,
     )
 

@@ -18,8 +18,8 @@
 %
 % Models the design in docs/architecture/target/target.md (the Hub is
 % authoritative; a re-show is a whole-UI resend) as realised by
-% src/punt_lux/domain/hub/frame_lifecycle.py (show/arm and expire/tear-down under
-% one StoreLock) and src/punt_lux/domain/hub/frame_expiry.py (the deadlines).
+% src/punt_lux/hub/frame_lifecycle.py (show/arm and expire/tear-down under
+% one StoreLock) and src/punt_lux/hub/frame_expiry.py (the deadlines).
 %
 % Type-check:  fuzz -t docs/frame_expiry.tex
 % Model-check: make prob SPEC=docs/frame_expiry.tex   (coverage + deadlock)

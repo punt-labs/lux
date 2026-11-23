@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.domain.hub.crash_attribution import (
+from punt_lux.hub.crash_attribution import (
     ATTRIBUTION_THRESHOLD,
     CrashAttribution,
 )
-from punt_lux.domain.hub.death_charger import DeathCharger
-from punt_lux.domain.hub.dial_death import DialDeath
+from punt_lux.hub.death_charger import DeathCharger
+from punt_lux.hub.dial_death import DialDeath
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.hub.quarantine_record import QuarantineRecord
 
 
 @final

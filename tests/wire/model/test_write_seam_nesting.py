@@ -12,9 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from punt_lux.domain.hub.field_realization import FieldRealization
-from punt_lux.domain.hub.write_result import WriteRejected
-from punt_lux.domain.hub.write_seam import WriteSeam
+from punt_lux.hub.field_realization import FieldRealization
+from punt_lux.hub.write_result import WriteRejected
+from punt_lux.hub.write_seam import WriteSeam
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.wire.model.nesting_cap import NestingCap
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     import pytest
 
-    from punt_lux.domain.hub.element_index import ElementIndex
+    from punt_lux.hub.element_index import ElementIndex
     from punt_lux.wire.model.element import Element as WireElement
     from punt_lux.wire.model.element_abc import Element as AbcElement
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
+from punt_lux.hub.interaction_handlers import InteractionHandlers
 from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:

@@ -3,7 +3,7 @@
 Per PY-EH-1, ownership is validated at the boundary before any state
 mutation. This is a typed Error value describing an ownership refusal
 as data (per PY-EH-8's discriminated-union-of-outcomes shape), distinct
-from ``HubOwnershipError`` (``domain.hub.ownership_error``), the
+from ``HubOwnershipError`` (``hub.ownership_error``), the
 exception ``HubDisplay.apply`` actually raises on the same refusal
 today.
 """

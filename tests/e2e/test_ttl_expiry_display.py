@@ -19,8 +19,8 @@ import time
 import pytest
 
 from punt_lux.display.replica import SceneReplica
-from punt_lux.domain.hub import hub, hub_display, hub_lifecycle
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub import hub, hub_display, hub_lifecycle
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage, TextElement
 from punt_lux.wire.model.ids import SceneId

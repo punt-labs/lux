@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.departure_sinks import DepartureSink, DepartureSinks
+from punt_lux.hub.departure_sinks import DepartureSink, DepartureSinks
 from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:
@@ -136,7 +136,7 @@ def test_fire_isolates_a_raising_sink_so_the_rest_still_run(
     sinks.bind(_CONN, _raising)
     sinks.bind(_CONN, second_sink)
 
-    with caplog.at_level(logging.ERROR, logger="punt_lux.domain.hub.departure_sinks"):
+    with caplog.at_level(logging.ERROR, logger="punt_lux.hub.departure_sinks"):
         sinks.fire(_CONN)  # must not raise
 
     assert second_fired == [_CONN]  # the second sink still ran

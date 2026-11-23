@@ -1,0 +1,184 @@
+"""NamedSessions — the live sessions and the menu name each one holds, read as one.
+
+Who is live and what each is called are two halves of one answer, and this is the
+value that keeps them together. The registry builds it inside its own critical
+section, so both were true at one instant. Reading them separately can show a
+client the other read has already retired, which is how a menu entry and a
+details frame come to disagree about which client is ``lux (2)``.
+
+Only identified sessions are named: an anonymous session contributes nothing to
+the bar and takes no place in the numbering.
+
+Two sessions the roster gave the same name belong to one submenu (the DES-067
+grouping); :meth:`~NamedSessions.commanding_groups` yields them together.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping
+
+    from punt_lux.hub.client_roster import RosterNames
+    from punt_lux.hub.client_session import ClientSession
+    from punt_lux.hub.session_callback import SessionCallback
+    from punt_lux.kernel.connection_id import ConnectionId
+
+__all__ = ["NamedGroup", "NamedSession", "NamedSessions"]
+
+
+@final
+class NamedSession:
+    """One live session and the name the menu calls the client that holds it."""
+
+    _connection_id: ConnectionId
+    _name: str
+    _session: ClientSession
+    __slots__ = ("_connection_id", "_name", "_session")
+
+    def __new__(
+        cls, connection_id: ConnectionId, name: str, session: ClientSession
+    ) -> Self:
+        self = super().__new__(cls)
+        self._connection_id = connection_id
+        self._name = name
+        self._session = session
+        return self
+
+    @property
+    def connection_id(self) -> ConnectionId:
+        """The connection this session holds, which a click round-trips back to."""
+        return self._connection_id
+
+    @property
+    def name(self) -> str:
+        """What the menu calls this client."""
+        return self._name
+
+    @property
+    def scope_label(self) -> str | None:
+        """The name a window of this client's carries, or ``None`` if anonymous.
+
+        An anonymous session is listed under a fallback name but declared none, so
+        it has no scope to show: its windows keep their plain titles (DES-100).
+        """
+        # None = the session declared no identity, hence no scope to label.
+        return None if self._session.identity is None else self._name
+
+    @property
+    def program(self) -> str:
+        """What this one connection is called beneath its submenu, not its group."""
+        identity = self._session.identity
+        return self._name if identity is None else identity.program
+
+    @property
+    def callbacks(self) -> tuple[SessionCallback, ...]:
+        """The commands this client registered, in registration order."""
+        return self._session.callbacks
+
+    @property
+    def session(self) -> ClientSession:
+        """The session as it stood at this read — what the Details facts come from."""
+        return self._session
+
+
+@final
+class NamedSessions:
+    """The sessions live at one instant, and the name each identified one holds."""
+
+    _sessions: Mapping[ConnectionId, ClientSession]
+    _names: Mapping[ConnectionId, str]
+    __slots__ = ("_names", "_sessions")
+
+    def __new__(
+        cls,
+        sessions: Mapping[ConnectionId, ClientSession],
+        names: Mapping[ConnectionId, str],
+    ) -> Self:
+        self = super().__new__(cls)
+        self._sessions = sessions
+        self._names = names
+        return self
+
+    @classmethod
+    def over(
+        cls, sessions: Mapping[ConnectionId, ClientSession], roster: RosterNames
+    ) -> Self:
+        """Name every identified session in *sessions* and hold the two together.
+
+        The caller holds the registry's lock, so *sessions* is the store itself
+        rather than a copy of it that some other reader has already moved past.
+        """
+        identities = {
+            cid: s.identity for cid, s in sessions.items() if s.identity is not None
+        }
+        return cls(dict(sessions), roster.names_for(identities))
+
+    @property
+    def sessions(self) -> Mapping[ConnectionId, ClientSession]:
+        """The sessions that were live when this was read."""
+        return self._sessions
+
+    def name_of(self, connection_id: ConnectionId, fallback: str) -> str:
+        """Return the connection's menu label, using the fallback if unnamed."""
+        return self._names.get(connection_id, fallback)
+
+    def named(self, connection_id: ConnectionId, fallback: str) -> NamedSession | None:
+        """Return the live session for *connection_id* with its name, or ``None``."""
+        session = self._sessions.get(connection_id)
+        if session is None:
+            return None
+        return NamedSession(
+            connection_id, self.name_of(connection_id, fallback), session
+        )
+
+    def commanding(self) -> Iterator[NamedSession]:
+        """Yield each named client that earns a submenu, in connection order.
+
+        A client earns one per :meth:`ClientSession.earns_menu_presence`. A
+        non-agent with no command is named but contributes no submenu, keeping
+        its number so a later registration does not renumber the bar.
+        """
+        for connection_id, name in self._names.items():
+            session = self._sessions[connection_id]
+            if session.earns_menu_presence():
+                yield NamedSession(connection_id, name, session)
+
+    def commanding_groups(self) -> Iterator[NamedGroup]:
+        """Yield each submenu's members together, in the order they registered.
+
+        Sibling sessions the roster gave one name land in one group (DES-067):
+        two applets under one Claude Code session render as one submenu with
+        the callbacks of both. A non-applet is a one-member group.
+        """
+        groups: dict[str, list[NamedSession]] = {}
+        for named in self.commanding():
+            groups.setdefault(named.name, []).append(named)
+        for name, members in groups.items():
+            yield NamedGroup(name, tuple(members))
+
+
+@final
+class NamedGroup:
+    """One submenu's members: everyone the roster called by the same name."""
+
+    _name: str
+    _members: tuple[NamedSession, ...]
+    __slots__ = ("_members", "_name")
+
+    def __new__(cls, name: str, members: tuple[NamedSession, ...]) -> Self:
+        self = super().__new__(cls)
+        self._name = name
+        self._members = members
+        return self
+
+    @property
+    def name(self) -> str:
+        """What the menu calls this submenu."""
+        return self._name
+
+    @property
+    def members(self) -> tuple[NamedSession, ...]:
+        """Every named session in this submenu, in the order they registered."""
+        return self._members

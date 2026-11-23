@@ -6,9 +6,9 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 
 

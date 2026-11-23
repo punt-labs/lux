@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from punt_lux.domain.hub.reconnect_signal import ReconnectSignal
-from punt_lux.domain.hub.reconnect_wait import ReconnectWait
+from punt_lux.hub.reconnect_signal import ReconnectSignal
+from punt_lux.hub.reconnect_wait import ReconnectWait
 from tests.wire.model.display_double import until
 
 

@@ -9,8 +9,8 @@ from punt_lux.commands._frame_ports import FrameOps as FrameOps
 from punt_lux.commands._topic_ports import TopicOps as TopicOps
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
         Cleared,
         ClientList,

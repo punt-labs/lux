@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import ButtonElement, TreeElement
 from punt_lux.wire.model.ids import SceneId
@@ -63,12 +63,10 @@ def test_an_agents_show_waits_for_the_handler_that_is_running(
     button = ButtonElement(id="b", label="x")
     button.add_handler(ButtonClicked, handler)
     store.apply(scope, AddElement(scene_id=_SCENE, element=button, parent_id=None))
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", store)
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", MagicMock()
-    )
+    monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_replicator", MagicMock())
 
     HubInteractionDispatch.dispatch(_click())
     shown.join(5)

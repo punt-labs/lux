@@ -2,7 +2,7 @@
 % writer_publish_generation.tex
 %
 % A Z specification of the Hub-writer publish path's inbox delivery --
-% src/punt_lux/domain/hub/inbox.py's `_writer` closure (registered by
+% src/punt_lux/hub/inbox.py's `_writer` closure (registered by
 % `ensure_writer`, invoked by `Hub.publish`'s fan-out) -- prompted by a
 % Copilot review finding on PR #498 (bead lux-m3xr) against
 % inbox.py:92-93.
@@ -39,7 +39,7 @@
 % every (re)creation -- and proves a writer's put always lands in the
 % generation live at PUT time, not the one live when it started looking.
 %
-% Read first: src/punt_lux/domain/hub/inbox.py (`inbox_for`, `_writer`,
+% Read first: src/punt_lux/hub/inbox.py (`inbox_for`, `_writer`,
 % `ensure_writer`, `drop_session`, `offer`), docs/menu_lifecycle.tex (D1,
 % the offer-path analogue this refines by scope), docs/connection_lease_reaping.tex
 % (I6/I7, the coarse `hasWriter`/`inboxNonEmpty` boolean this sharpens
@@ -91,14 +91,14 @@
 % identity, the thing `Hub.publish`'s snapshot captures and that the fix
 % must check is still current before it puts.
 %
-% Read first (in addition to Part One's list): src/punt_lux/domain/hub/hub.py
+% Read first (in addition to Part One's list): src/punt_lux/hub/hub.py
 % (`Hub.publish`, `SubscriptionRegistry.snapshot_subscribers` -- the
-% snapshot-then-invoke pattern), src/punt_lux/domain/hub/writer_registry.py
+% snapshot-then-invoke pattern), src/punt_lux/hub/writer_registry.py
 % (`WriterRegistry.bind`/`release` -- the identity-comparison mechanism a fix
 % can reuse for free), src/punt_lux/connection_identity.py and
 % src/punt_lux/session_key.py (both derive a `ConnectionId` that IS reused
 % across a same-identity reconnect -- the precondition for this hazard to be
-% reachable at all), src/punt_lux/domain/hub/departure_cascade.py
+% reachable at all), src/punt_lux/hub/departure_cascade.py
 % (`DepartureCascade.run` -- `on_disconnect` drops the writer binding under
 % the SAME `hub_display.write_lock()` hold `ensure_writer` uses, which is
 % what closes the registration race but not the snapshot race).

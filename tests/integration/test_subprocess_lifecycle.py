@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.wire.model import TextElement
 from tests.link_access import shown

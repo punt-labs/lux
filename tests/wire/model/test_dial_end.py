@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.dial_end import DialEnd
-from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.dial_end import DialEnd
+from punt_lux.hub.reply_sink import ReplySink
 
 
 class TestRecording:

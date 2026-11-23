@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
-from punt_lux.domain.hub import hub_display
+from punt_lux.hub import hub_display
 from punt_lux.tools import show
 from punt_lux.wire.model.elements import (
     CollapsingHeaderElement,
@@ -31,7 +31,7 @@ from punt_lux.wire.model.error import DuplicateIdError
 from punt_lux.wire.model.id_uniqueness import DuplicateIdScanner
 from punt_lux.wire.model.ids import ElementId, SceneId
 
-_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
+_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 _SCENE = SceneId("id-uniqueness-scene")
 
 

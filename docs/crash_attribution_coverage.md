@@ -13,7 +13,7 @@ guard), and the four T10-era controls regenerated against this specification
 [hub_end_charged](./crash_attribution_hub_end_charged_buggy.tex),
 [double_charge](./crash_attribution_double_charge_buggy.tex)). Design variant:
 [inflight_ack_drain](./crash_attribution_inflight_ack_drain.tex).
-Governs `src/punt_lux/domain/hub/{batch_sender,recovery,display_connection,
+Governs `src/punt_lux/hub/{batch_sender,recovery,display_connection,
 dial_generation,dial_socket,dial_drain,dial_reader,display_listener,display_replies,
 listener_thread,reply_sink,reader_slot,settler,bounded_ask,dial_end,settlement,
 suspect_book,death_queue,death_charger,dial_death,liveness_probe,replicator}.py` and the display's held ack in

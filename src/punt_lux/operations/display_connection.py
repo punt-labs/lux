@@ -15,9 +15,9 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.display_busy import DisplayBusyError
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.operations.display_reply import (
     DisplayErrored,
     DisplayFault,
@@ -27,8 +27,8 @@ from punt_lux.operations.display_reply import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.display_requests import DisplayRequests
+    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.display_requests import DisplayRequests
     from punt_lux.operations.display_reply import DisplayReply
 
 __all__ = ["HubDisplayConnection"]

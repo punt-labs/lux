@@ -134,7 +134,7 @@ def ping(
     from punt_lux.cli._shared import connect_client
     from punt_lux.cli_identity import CliIdentity
     from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
-    from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT
+    from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT
 
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT

@@ -6,16 +6,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.request_desk import RequestDesk
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.request_desk import RequestDesk
 from punt_lux.wire.model.ids import SceneId
 from tests.wire.model.display_double import Display
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.hub.dial_generation import DialGeneration
 
 
 @pytest.fixture

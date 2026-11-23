@@ -11,11 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.dial_generation import DialGeneration
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.wire.model import (
     AckMessage,
     ConnectMessage,
@@ -94,7 +94,7 @@ class TestConnect:
             assert client.is_connected
             ready = generation_of(client).ready
             assert ready is not None
-            assert ready.version == "0.2"
+            assert ready.version == "0.3"
 
             client.close()
             _verify_closed(client)
@@ -134,9 +134,7 @@ class TestConnect:
             client = DisplayLink.to_socket(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             )
-            with patch(
-                "punt_lux.domain.hub.handshake_connector.set_send_timeout"
-            ) as mock_set:
+            with patch("punt_lux.hub.handshake_connector.set_send_timeout") as mock_set:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
@@ -693,9 +691,7 @@ class TestErrorHandling:
                 sock_path, auto_spawn=False, connect_timeout=2.0
             )
             with (
-                caplog.at_level(
-                    "WARNING", logger="punt_lux.domain.hub.handshake_connector"
-                ),
+                caplog.at_level("WARNING", logger="punt_lux.hub.handshake_connector"),
                 pytest.raises(RuntimeError, match="Expected ReadyMessage"),
             ):
                 client.connect()

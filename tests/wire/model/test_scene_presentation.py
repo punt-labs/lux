@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.frame_ownership import FrameOwnership
-from punt_lux.domain.hub.scene_presentation import (
+from punt_lux.hub.frame_ownership import FrameOwnership
+from punt_lux.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )

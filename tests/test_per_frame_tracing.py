@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.display import renderers
 from punt_lux.display.render_loop import RenderLoop
-from punt_lux.domain.hub.dial_generation import DialGeneration
+from punt_lux.hub.dial_generation import DialGeneration
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:

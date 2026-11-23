@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.display_busy import DisplayBusyError
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.display_reply import (
     DisplayErrored,
@@ -25,8 +25,8 @@ from punt_lux.operations.display_reply import (
 from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.dial_ref import DialRef
 
 
 class _Response:

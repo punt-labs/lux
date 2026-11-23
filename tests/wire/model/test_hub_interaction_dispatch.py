@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, final
 from unittest.mock import MagicMock
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.button import ButtonElement
 from punt_lux.wire.model.elements.checkbox import CheckboxElement
@@ -54,11 +54,11 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
 
     mock_replicator = MagicMock()
 
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -118,12 +118,10 @@ def test_an_owner_literally_named_unowned_is_distinct_from_a_genuinely_unowned_e
     )
     lifecycle.depart(departed_owner)  # releases it; content stays
 
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", MagicMock()
-    )
+    monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_replicator", MagicMock())
 
     for element_id in ("live-owned", "unowned-elem"):
         HubInteractionDispatch.dispatch(
@@ -149,12 +147,8 @@ def _isolated_router(
     factory = HubStoreFactory()
     router = CallbackRouter(factory.clients)
     replicator = MagicMock()
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_callback_router", router
-    )
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", replicator
-    )
+    monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_callback_router", router)
+    monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_replicator", replicator)
     return factory, router, replicator
 
 
@@ -170,8 +164,8 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A callback-leaf menu click is held for the session that registered it."""
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -199,7 +193,7 @@ def test_menu_click_for_a_departed_session_repushes_the_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A callback click for a session that never registered re-pushes, no crash."""
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.hub.session_callback import CallbackInvocation
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     menu_id = CallbackInvocation(ConnectionId("gone"), "music").menu_id
@@ -215,10 +209,10 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Details command is the Hub's own: it runs here, and nothing is held."""
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.details_binding import DetailsBinding
-    from punt_lux.domain.hub.details_outcome import DetailsShown
-    from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.details_binding import DetailsBinding
+    from punt_lux.hub.details_outcome import DetailsShown
+    from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -233,9 +227,7 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     renderer.render_details.return_value = DetailsShown()
     binding = DetailsBinding()
     binding.bind(renderer)
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.details_instance.hub_client_details", binding
-    )
+    monkeypatch.setattr("punt_lux.hub.details_instance.hub_client_details", binding)
 
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
@@ -256,9 +248,9 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Hub owns the command, so it answers whether or not the client is there."""
-    from punt_lux.domain.hub.details_binding import DetailsBinding
-    from punt_lux.domain.hub.details_outcome import DetailsRefused
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.hub.details_binding import DetailsBinding
+    from punt_lux.hub.details_outcome import DetailsRefused
+    from punt_lux.hub.session_callback import CallbackInvocation
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("gone")
@@ -266,9 +258,7 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
     renderer.render_details.return_value = DetailsRefused(conn)  # not there
     binding = DetailsBinding()
     binding.bind(renderer)
-    monkeypatch.setattr(
-        "punt_lux.domain.hub.details_instance.hub_client_details", binding
-    )
+    monkeypatch.setattr("punt_lux.hub.details_instance.hub_client_details", binding)
 
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(
@@ -316,9 +306,9 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
     ``topic_subscribe``. On ``main`` the click was dropped in the non-callback
     branch; this is the regression that fails there and passes here.
     """
-    from punt_lux.domain.hub import hub_lifecycle
-    from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
-    from punt_lux.domain.hub.session_callback import MenuLeaf
+    from punt_lux.hub import hub_lifecycle
+    from punt_lux.hub.inbox import drain_inbox, ensure_writer
+    from punt_lux.hub.session_callback import MenuLeaf
 
     conn = ConnectionId("agent-menu-inbox-1")
     ensure_writer(
@@ -352,8 +342,8 @@ def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
     ``provider_gone``: nothing lands on any inbox and the menu re-pushes — the
     agent-path counterpart to the callback-path departed test above.
     """
-    from punt_lux.domain.hub.inbox import drain_inbox
-    from punt_lux.domain.hub.session_callback import MenuLeaf
+    from punt_lux.hub.inbox import drain_inbox
+    from punt_lux.hub.session_callback import MenuLeaf
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("agent-departed")  # never registered → not live
@@ -379,11 +369,11 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
     the same ``owner<US>run`` id, so the menu click is misrouted to the callback
     and never reaches the inbox — the regression this proves.
     """
-    from punt_lux.domain.hub import hub_lifecycle
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
-    from punt_lux.domain.hub.replicator_instance import hub_callback_router
-    from punt_lux.domain.hub.session_callback import (
+    from punt_lux.hub import hub_lifecycle
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.inbox import drain_inbox, ensure_writer
+    from punt_lux.hub.replicator_instance import hub_callback_router
+    from punt_lux.hub.session_callback import (
         CallbackInvocation,
         MenuLeaf,
         SessionCallback,
@@ -432,9 +422,9 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
     that stamped id is delivered to the session's inbox; ``receive`` returns the
     reserved ``lux.menu`` event carrying the agent's own item id.
     """
-    from punt_lux.domain.hub import hub_lifecycle
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.replicator_instance import hub_menu_registry
+    from punt_lux.hub import hub_lifecycle
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.replicator_instance import hub_menu_registry
     from punt_lux.operations import Scope, SetMenuRequest
     from punt_lux.tools.tools import OPERATIONS
 
@@ -478,7 +468,7 @@ def test_hub_interaction_dispatch_missing_scene_id_returns_silently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When ``scene_id`` is None the dispatch logs a warning and returns."""
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -499,7 +489,7 @@ def test_hub_interaction_dispatch_unknown_element_returns_silently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the element is not in the Hub index the dispatch returns."""
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -524,7 +514,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     from dataclasses import dataclass
     from typing import Literal, Self
 
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     @dataclass(frozen=True, slots=True)
     class _WireLeaf:
@@ -576,7 +566,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     Marking dirty is queue-only, so a click can never fail on display I/O the way
     the old inline re-push could. The replicator does the send in the background.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -597,7 +587,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -640,11 +630,11 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
 
     mock_replicator = MagicMock()
 
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -666,7 +656,7 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Unknown event_kind logs warning and returns without firing."""
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -719,7 +709,7 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     with the handler: the TTL sweep never used it, so retiring the branch left
     it with no caller at all.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -743,7 +733,7 @@ def test_hub_interaction_dispatch_never_deletes_a_frames_scenes(
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -775,7 +765,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     re-validates the shape for its kind. A non-scalar value (here a list) is
     rejected at the hub dispatch itself.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -818,7 +808,7 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
     names no kind is not a button click by default — it fits no element's spec,
     so it is denied at the boundary and the handler never runs.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -839,7 +829,7 @@ def test_hub_interaction_dispatch_kindless_invocation_denied(
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -868,7 +858,7 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     ``RemoveElement``) can flip ``_removed`` with nothing removing it from the
     index. The dispatch must still refuse to fire the child's handler.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -894,7 +884,7 @@ def test_hub_interaction_dispatch_drops_click_on_dismissed_ancestors_child(
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(
@@ -929,7 +919,7 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     reaches ``DismissalWalk`` at all — exactly the bug Bugbot caught in an
     earlier version of this test.
     """
-    import punt_lux.domain.hub as hub_module
+    import punt_lux.hub as hub_module
 
     factory = HubStoreFactory()
     isolated_display = factory.display
@@ -956,7 +946,7 @@ def test_hub_interaction_dispatch_drops_click_on_the_dismissed_element_itself(
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
     monkeypatch.setattr(
-        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+        "punt_lux.hub.replicator_instance.hub_replicator", mock_replicator
     )
 
     HubInteractionDispatch.dispatch(

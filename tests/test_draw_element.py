@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from punt_lux.wire.model import QueryResponse
     from punt_lux.wire.model.elements import Element
 
-_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
+_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 # -- helpers ----------------------------------------------------------------

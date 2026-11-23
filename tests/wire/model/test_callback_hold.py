@@ -13,16 +13,16 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, final
 
-from punt_lux.domain.hub.callback_hold import _HOLD_CAPACITY, CallbackRouter
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.hub.callback_hold import _HOLD_CAPACITY, CallbackRouter
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_session import ClientSession
+from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.callback_ports import CallbackListener
+    from punt_lux.hub.callback_ports import CallbackListener
 
 
 @final

@@ -9,9 +9,9 @@ import anyio
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import disconnect_connection
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub import disconnect_connection
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.mcp_session import SessionRegistry
 from punt_lux.mcp_session_manager import LuxSessionManager

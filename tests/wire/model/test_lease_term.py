@@ -13,7 +13,7 @@ import math
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from punt_lux.domain.hub.session_lease import SessionLease
+from punt_lux.hub.session_lease import SessionLease
 from punt_lux.wire.model.lease_term import (
     ExpiringLease,
     LeaseTerm,

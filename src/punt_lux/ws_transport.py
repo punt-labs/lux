@@ -19,18 +19,18 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocket
 
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub import hub, hub_lifecycle
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
+from punt_lux.hub import hub, hub_lifecycle
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.replicator_instance import hub_callback_router
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.ws_listen import HubListenSession
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub import Hub
+    from punt_lux.hub.callback_hold import CallbackRouter
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub import Hub
 
 logger = logging.getLogger(__name__)
 

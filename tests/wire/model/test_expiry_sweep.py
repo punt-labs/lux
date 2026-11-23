@@ -16,16 +16,16 @@ from typing import Literal, Self, final
 
 import pytest
 
-from punt_lux.domain.hub.expiry_sweep import ExpirySweep
-from punt_lux.domain.hub.frame_expiry import FrameExpiry
-from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import (
+from punt_lux.hub.expiry_sweep import ExpirySweep
+from punt_lux.hub.frame_expiry import FrameExpiry
+from punt_lux.hub.frame_lifecycle import FrameLifecycle
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )
-from punt_lux.domain.hub.store_lock import StoreLock
+from punt_lux.hub.store_lock import StoreLock
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope

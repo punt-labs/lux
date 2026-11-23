@@ -28,14 +28,14 @@ from punt_lux.display.menus.wire import (
 )
 from punt_lux.display.menus.wire_field import WireField
 from punt_lux.display.replica.frame_book import FrameBook
-from punt_lux.domain.hub.callback_menu import CallbackMenu
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_roster import ClientRoster
-from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
-from punt_lux.domain.hub.named_sessions import NamedSessions
-from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.hub.callback_menu import CallbackMenu
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_roster import ClientRoster
+from punt_lux.hub.client_session import ClientSession
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.menu_models import Menu, MenuAction
+from punt_lux.hub.named_sessions import NamedSessions
+from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage, TextElement
 from punt_lux.wire.model.identity import HubId

@@ -164,11 +164,16 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 ### Key architectural boundary: protocol vs. rendering
 
 Shared domain values, elements, messages, and framing now live in
-`punt_lux.wire.model`. Only `domain.hub` and `protocol.pty` remain at their old
-locations. The model facade's `Element` is the wire union; `ElementProtocol` is
+`punt_lux.wire.model`. Hub state and replication now live in `punt_lux.hub`;
+the old `punt_lux.domain` package is removed. Only `protocol.pty` awaits its
+package move. Shared patch requests and their validation errors belong in
+`wire.model.patch_batch` and `wire.model.write_errors`, not Hub. The model
+facade's `Element` is the wire union; `ElementProtocol` is
 the structural interface from `wire.model.element`. `ConnectionId` and
 `ProgrammerError` live in kernel; protocol-aware display socket/process
 lifecycle belongs to `service.display_paths`. No old-path alias modules exist.
+Ready version `0.3` requires both pickle namespaces; older Displays must be
+restarted with `make restart` or `lux service restart` before accepting scenes.
 
 The **JSON protocol** (the `wire/model/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `render_loop.py`, the per-kind adapters in `display/renderers/imgui/`, `replica/menu_replica.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
@@ -209,7 +214,7 @@ re-dispatch.
 | `client/facade.py` | `LuxClient` — public library facade; its private REST transport serves the CLI and library |
 | `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
-| `domain/hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
+| `hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
 | `apps/beads.py` | `BeadsBrowser` — loads and orders beads issues; `apps/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
 

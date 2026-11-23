@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, Self
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.hub.quarantine_record import QuarantineRecord
 
 __all__ = ["QuarantineInfo"]
 
@@ -15,7 +15,7 @@ __all__ = ["QuarantineInfo"]
 class QuarantineInfo(BaseModel):
     """Why a scene stopped being replicated: attributed deaths, when, and any error.
 
-    Mirrors :class:`~punt_lux.domain.hub.quarantine_record.QuarantineRecord`, the
+    Mirrors :class:`~punt_lux.hub.quarantine_record.QuarantineRecord`, the
     Hub-side value it is built from — this is the wire read shape, not the store's
     own record.
     """

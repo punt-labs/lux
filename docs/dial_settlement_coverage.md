@@ -6,7 +6,7 @@ model. Each row names the test that was red on the code as it stood at `41e90082
 green on the design. The design column says what the test does; the mapping that follows
 names it. A row marked GAP has no test.
 
-Governs: `src/punt_lux/domain/hub/{display_connection,dial_reader,display_listener,
+Governs: `src/punt_lux/hub/{display_connection,dial_reader,display_listener,
 listener_thread,display_replies,reply_sink,dial_generation,reader_slot,dial_drain,settler,
 bounded_ask,dial_end,dial_socket}.py`, and since round 5 `src/punt_lux/{bounded_send,send_timeout}.py`.
 Re-run `fuzz`, the model-check and every control whenever the end, settle or slot paths

@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_transaction import BatchTransaction
-from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
-from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
-from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-from punt_lux.domain.hub.lock_discipline import LockDiscipline
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
-from punt_lux.domain.hub.store_lock import StoreLock
+from punt_lux.hub.batch_transaction import BatchTransaction
+from punt_lux.hub.dial_generation import DialEnds, DialGeneration
+from punt_lux.hub.element_invocation_resolver import ResolvedInteraction
+from punt_lux.hub.handshake_outcome import HandshakeResult
+from punt_lux.hub.lock_discipline import LockDiscipline
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.store_lock import StoreLock
 from punt_lux.wire.model import PingMessage, ReadyMessage
 from punt_lux.wire.model.elements import ButtonElement
 from punt_lux.wire.model.ids import ClientId, ElementId, SceneId

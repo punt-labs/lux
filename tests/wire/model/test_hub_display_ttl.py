@@ -14,9 +14,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self, final
 
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope

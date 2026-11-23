@@ -14,8 +14,8 @@ from typing import final
 
 import pytest
 
-from punt_lux.domain.hub.listener_slot import ListenerSlot
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.listener_slot import ListenerSlot
+from punt_lux.hub.session_callback import SessionCallback
 
 
 @final

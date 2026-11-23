@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     import pytest
 
     from punt_lux.client._sync_ops import SyncOps
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
 
 _HOST = socket.gethostname()

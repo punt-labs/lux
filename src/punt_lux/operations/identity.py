@@ -14,13 +14,13 @@ from typing import TYPE_CHECKING, Self, final
 
 from pydantic import ValidationError
 
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.identity import Identified
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub_clients import HubClientRegistry
     from punt_lux.wire.model.scope import Scope
 
 __all__ = ["IdentityOperations"]

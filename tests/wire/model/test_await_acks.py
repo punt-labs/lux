@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.domain.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_busy import DisplayBusyError
+from punt_lux.hub.display_connection import DisplayConnection
 from punt_lux.wire.model import AckMessage, RemoteEventHandlerInvocation
 from tests.link_access import (
     drop_route,

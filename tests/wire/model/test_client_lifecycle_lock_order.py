@@ -15,12 +15,12 @@ import threading
 from typing import TYPE_CHECKING, final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.menu_presence import MarkMenusSink
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.menu_presence import MarkMenusSink
+from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:

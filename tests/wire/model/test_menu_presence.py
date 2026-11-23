@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.hub.departure_sinks import DepartureSink
-from punt_lux.domain.hub.menu_presence import MarkMenusSink, MenuPresence
+from punt_lux.hub.departure_sinks import DepartureSink
+from punt_lux.hub.menu_presence import MarkMenusSink, MenuPresence
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
 

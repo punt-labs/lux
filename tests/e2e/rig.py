@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.display.render_loop import RenderLoop
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.element_abc import Element as AbcElement
 from punt_lux.wire.model.in_memory_connection import InMemoryConnection
@@ -250,8 +250,8 @@ class SyncReplicator:
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         """Snapshot the scene from the Hub store and re-push it to the replica."""
-        from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.hub.frame_ownership import UNOWNED
+        from punt_lux.hub import hub_display
+        from punt_lux.hub.frame_ownership import UNOWNED
 
         roots = hub_display.scene_roots(scene_id)
         presentation = hub_display.frames.presentation_for(scene_id)

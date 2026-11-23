@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.death_queue import DeathQueue
-from punt_lux.domain.hub.dial_death import DialDeath
+from punt_lux.hub.death_queue import DeathQueue
+from punt_lux.hub.dial_death import DialDeath
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:

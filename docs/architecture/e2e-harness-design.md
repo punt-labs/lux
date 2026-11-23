@@ -66,13 +66,13 @@ The real loop (all citations to shipped code):
    (`server.py:1533-1562`).
 3. **Hub dispatch** — the Hub's `DisplayClient` fallback handler is
    `ClientRegistry._hub_interaction_dispatch`
-   (`domain/hub/clients.py:95`, definition at `clients.py:100`). It resolves the
+   (`hub/clients.py:95`, definition at `clients.py:100`). It resolves the
    element from the authoritative `HubDisplay` (`hub_display.resolve`,
    `clients.py:129`), constructs the typed `ButtonClicked`/`ValueChanged`
    (`clients.py:168-179`), and fires it **once** at the single dispatch site
    `element.fire(event)` (`clients.py:194`).
 4. **Business event** — the fired handler's `publish` decorator reaches
-   `hub.publish(connection_id, topic, payload)` (`domain/hub/hub.py:89-119`).
+   `hub.publish(connection_id, topic, payload)` (`hub/hub.py:89-119`).
    Fan-out is connection-scoped: session A's click never publishes into session
    B's topics (`hub.py:95-105`).
 5. **Real subscriber** — `hub.publish` invokes the connection's registered

@@ -13,7 +13,7 @@ from typing import Literal
 import pytest
 
 from punt_lux.display.replica import SceneReplica
-from punt_lux.domain.hub.scene_presentation import (
+from punt_lux.hub.scene_presentation import (
     ScenePresentation,
     ScenePresentationRegistry,
 )

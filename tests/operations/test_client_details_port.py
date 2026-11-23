@@ -13,17 +13,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
-from punt_lux.domain.hub.details_renderer import ClientDetailsRenderer
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.inbox import inbox_depth_for
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.details_outcome import DetailsRefused, DetailsShown
+from punt_lux.hub.details_renderer import ClientDetailsRenderer
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.inbox import inbox_depth_for
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.ports import HubPorts

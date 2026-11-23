@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.id_separator import ID_SEPARATOR
 

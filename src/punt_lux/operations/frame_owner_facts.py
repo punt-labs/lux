@@ -1,6 +1,6 @@
 """FrameOwnerFacts — the operations-layer reader for a scene's owner facts.
 
-Satisfies :class:`~punt_lux.domain.hub.frame_owner_facts.FrameOwnerFactsReader`
+Satisfies :class:`~punt_lux.hub.frame_owner_facts.FrameOwnerFactsReader`
 structurally: the replicator's scene-send path is domain code, so it declares
 the port it needs and this class answers it, reusing the Details command's
 own facts and formatting
@@ -13,14 +13,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
+from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.client_listing import ClientListing
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub import Hub
+    from punt_lux.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.operations.ports import HubPorts
     from punt_lux.wire.model.ids import SceneId
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.applet_name_format import format_name
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.menu_group_key import MenuGroupKey
+from punt_lux.hub.applet_name_format import format_name
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.menu_group_key import MenuGroupKey
 from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:
@@ -156,7 +156,7 @@ class TestFallbackWarning:
         malformed = ClientIdentity.model_construct(
             kind="applet", name="not-four-parts", repo="/w/lux"
         )
-        logger_name = "punt_lux.domain.hub.menu_group_key"
+        logger_name = "punt_lux.hub.menu_group_key"
         with caplog.at_level(logging.WARNING, logger=logger_name):
             MenuGroupKey.of(ConnectionId("a"), malformed)
 

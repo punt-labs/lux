@@ -117,8 +117,8 @@ REST carries their commands. The Hub's default port is defined in
 \modpath{luxd.py}; \modpath{mcp_transport.py} mounts \texttt{/mcp}.
 The public library facade is \texttt{LuxClient}
 (\modpath{client/facade.py}). Replication and return dispatch live in
-\modpath{domain/hub/replicator.py}, \modpath{domain/hub/display_link.py},
-and \modpath{domain/hub/hub_interaction_dispatch.py}.
+\modpath{hub/replicator.py}, \modpath{hub/display_link.py},
+and \modpath{hub/hub_interaction_dispatch.py}.
 
 \subsection{Current and Target}
 
@@ -228,7 +228,7 @@ Operations    & \modpath{operations/}            & The engine's front of
                 Each method takes a typed request and returns a typed
                 result or an \texttt{OpError}.  Models live in
                 \modpath{operations/models/}. \\
-Hub domain    & \modpath{domain/hub/}            & The authoritative
+Hub domain    & \modpath{hub/}            & The authoritative
                 engine core.  \texttt{HubDisplay} is the store;
                 \texttt{HubReplicator} is the sole writer to the Display;
                 \texttt{FrameLifecycle}, \texttt{FrameExpiry}, and
@@ -288,9 +288,9 @@ Client facade & \modpath{client/facade.py} & \texttt{LuxClient}
 Gateway       & \modpath{luxd.py}                & Builds the one FastAPI
                 app on uvicorn, mounts the MCP leg and the REST surface,
                 and starts the frame-expiry sweep on the event loop. \\
-Display client & \modpath{domain/hub/display\_link.py}    & \texttt{DisplayLink}
+Display client & \modpath{hub/display\_link.py}    & \texttt{DisplayLink}
                 --- the Unix-socket client of the Display.  Constructed in
-                exactly one place, \modpath{domain/hub/clients.py}, and an
+                exactly one place, \modpath{hub/clients.py}, and an
                 AST guard enforces that (Section \S\ref{sec:ipc}). \\
 Paths         & \modpath{service/display\_paths.py} & \texttt{DisplayPaths}
                 --- display socket discovery, PID lifecycle, and
@@ -460,18 +460,25 @@ Shared domain values, element objects, messages, and framing live together in
 \modpath{wire/model/}, independently of ImGui. The structural element contract
 is exported as \texttt{ElementProtocol}, distinct from the wire
 \texttt{Element} union. Adapters wrap these models: the Display renders them,
-and the replicator moves serialized elements over the wire. The remaining
-\modpath{domain/hub/} and \modpath{protocol/pty/} packages await their own moves.
+and the replicator moves serialized elements over the wire.
+Hub state and replication now live in \modpath{hub/}; the empty
+\modpath{domain/} package is removed. Only \modpath{protocol/pty/} awaits its move.
+Shared patch requests and validation errors live in
+\modpath{wire/model/patch\_batch.py} and \modpath{wire/model/write\_errors.py},
+so shared request models do not depend on Hub implementation.
 \texttt{ConnectionId} and \texttt{ProgrammerError} live in \modpath{kernel/};
 \texttt{LeaseTerm} is a shared wire value. Display socket/process lifecycle,
 including protocol-aware readiness checks, belongs to
 \modpath{service/display\_paths.py}. There are no old-import alias modules;
-only the pickle decoder remaps legacy shared-model module names from an older
+only the pickle decoder remaps legacy shared-model and Hub module names from an older
 Hub. Each move must shrink the layer baseline through real dependency fixes.
+Ready version \texttt{0.3} requires the shared-model and top-level Hub pickle
+namespaces. An older Display is refused before scenes are sent, with an error
+directing the operator to restart \texttt{luxd-display}.
 
 \subsection{HubDisplay: the Authoritative Store}
 
-\texttt{HubDisplay} (\modpath{domain/hub/hub\_display.py}) is the Hub's
+\texttt{HubDisplay} (\modpath{hub/hub\_display.py}) is the Hub's
 single authoritative surface for scene state.  It is a facade over typed
 collaborators, each with one responsibility:
 
@@ -584,7 +591,7 @@ replays the full chain once.
 \subsection{Agent Subscribe / Publish}
 
 The Hub also owns an application-level publish/subscribe channel
-(\modpath{domain/hub/hub.py}), distinct from the element-observer mechanism
+(\modpath{hub/hub.py}), distinct from the element-observer mechanism
 above; the two share no machinery.
 
 Every operation is scoped to a connection.  A connection cannot see, touch,
@@ -878,8 +885,8 @@ of ownership. Re-showing the same scoped scene replaces its retained roots
 through \texttt{HubDisplay.replace\_scene}. A new connection using the same
 local scene or frame label addresses a different namespace, not the old
 content (\modpath{operations/frame\_removal.py},
-\modpath{domain/hub/frame\_lifecycle.py}, and
-\modpath{domain/hub/hub\_display.py}).
+\modpath{hub/frame\_lifecycle.py}, and
+\modpath{hub/hub\_display.py}).
 
 Departure does not blank scene content. It can still mark menus and other
 connections' scene titles for replication through \texttt{MenuPresence};
@@ -890,7 +897,7 @@ does not erase what it drew.
 
 A frame may carry a time-to-live.  Shown with a \field{ttl\_seconds}, it is
 removed once that many seconds pass with no re-show refreshing it.  Three
-small components implement this, all in \modpath{domain/hub/}:
+small components implement this, all in \modpath{hub/}:
 
 \begin{itemize}
   \item \texttt{FrameExpiry} owns the bookkeeping: a \field{frame\_id} to a
@@ -1653,7 +1660,7 @@ ACCEPTED --- ratified by the operator 2026-09-05.  Companion to
 \S\ref{sec:addressing} (DES-089), which states the five-point contract
 this design satisfies.  The text below preserves the accepted transport design. Components now
 exist in \modpath{trust/}, \modpath{display/cross_host_listener.py}, and
-\modpath{domain/hub/cross_host_connector.py}; standard entry points do not
+\modpath{hub/cross_host_connector.py}; standard entry points do not
 wire the network leg. The original bead map and dependency order live in \path{docs/architecture/multi-hub-addressing-work.md}.}
 \end{quote}
 
@@ -2555,15 +2562,15 @@ Hub\textendash{}Display socket, whose own off-loopback story is mTLS
 
 The Display listens on a Unix domain socket, and luxd is its only client.
 Nothing else in the package opens that socket.  \texttt{DisplayLink}
-(\modpath{domain/hub/display\_link.py}) is the class that opens it, and it is
+(\modpath{hub/display\_link.py}) is the class that opens it, and it is
 constructed in exactly one place: \texttt{ClientRegistry} in
-\modpath{domain/hub/clients.py}, which holds luxd's one lazy connection and
+\modpath{hub/clients.py}, which holds luxd's one lazy connection and
 its reconnect policy.
 
 An AST guard enforces this
 (\path{tests/wire/model/test_display_socket_internal.py}).  The guard parses
 every module in the package and fails if any module outside the allowed set
---- \modpath{domain/hub/display\_link.py} and \modpath{domain/hub/clients.py} ---
+--- \modpath{hub/display\_link.py} and \modpath{hub/clients.py} ---
 imports or references \texttt{DisplayLink}.  Detection is by parse tree,
 not by regex, so every spelling (an aliased import, a multi-line
 parenthesized import, a whole-module import, a bare or attribute reference)

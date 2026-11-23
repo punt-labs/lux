@@ -13,7 +13,7 @@ import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands import Ctx, PingOps, ping
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError, Pong
 
 if TYPE_CHECKING:

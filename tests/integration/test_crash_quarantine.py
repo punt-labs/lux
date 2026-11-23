@@ -19,19 +19,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.crash_attribution import ATTRIBUTION_THRESHOLD
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.liveness import DisplayLiveness
-from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-from punt_lux.domain.hub.replicator import HubReplicator
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.crash_attribution import ATTRIBUTION_THRESHOLD
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.quarantine_record import QuarantineRecord
+from punt_lux.hub.replicator import HubReplicator
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scene_deps import SceneOperationsDeps
@@ -117,7 +117,7 @@ def _stack(
     """
     factory = HubStoreFactory()
     store = factory.display
-    monkeypatch.setattr("punt_lux.domain.hub.clients.hub_display", store)
+    monkeypatch.setattr("punt_lux.hub.clients.hub_display", store)
     registry = ClientRegistry()
     registry._client = DisplayLink(display, recv_timeout=3.0)  # test seam
     repl = HubReplicator(

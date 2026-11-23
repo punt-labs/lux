@@ -671,7 +671,7 @@ existing D21 modules.
   (`:94`) adds `TabChanged → value = event.tab_id` and
   `HeaderToggled → value = event.open` alongside the existing
   `ValueChanged`/`ButtonClicked` branches. **The wrap seam.**
-- `src/punt_lux/domain/hub/clients.py` — `_hub_interaction_dispatch` (`:157`) adds
+- `src/punt_lux/hub/clients.py` — `_hub_interaction_dispatch` (`:157`) adds
   `event_kind == "tab_changed"` / `"header_toggled"` branches that construct the
   typed event and fire it on the Hub copy. **The Hub re-dispatch seam.**
 - `src/punt_lux/wire/model/display.py` — `Display._build_event` (`:330`) adds the same

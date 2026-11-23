@@ -6,7 +6,7 @@ names a scene names its elements, the frame they go in, and the deadline they
 live under — so they travel as one value and the gate can accept or reject the
 whole of it.
 
-The frame is a :class:`~punt_lux.domain.hub.scene_presentation.ScenePresentation`,
+The frame is a :class:`~punt_lux.hub.scene_presentation.ScenePresentation`,
 which this composes: the presentation is the frame's own id, title, and size,
 while a submission is the whole offering.
 """
@@ -16,13 +16,13 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.hub.scene_presentation import ScenePresentation
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.element import Element as DomainElement
 

@@ -7,11 +7,11 @@ from typing import Literal
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.leg_writes import Detachment, Registration
-from punt_lux.domain.hub.session_callback import SessionCallback
-from punt_lux.domain.hub.session_write import SessionWrite
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_session import ClientSession
+from punt_lux.hub.leg_writes import Detachment, Registration
+from punt_lux.hub.session_callback import SessionCallback
+from punt_lux.hub.session_write import SessionWrite
 
 
 class _Leg:

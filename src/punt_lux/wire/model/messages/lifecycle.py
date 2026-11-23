@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-PROTOCOL_VERSION = "0.2"
+PROTOCOL_VERSION = "0.3"
 
 _Register = Callable[
     [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],

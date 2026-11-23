@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.domain.hub.patch_batch import PatchBatch
-from punt_lux.domain.hub.write_errors import MalformedPatchError
 from punt_lux.operations.models.common import OpError
+from punt_lux.wire.model.patch_batch import PatchBatch
+from punt_lux.wire.model.write_errors import MalformedPatchError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

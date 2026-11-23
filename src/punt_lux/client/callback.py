@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.client._rest_transport import _RestTransport
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Ok, OpError
 
 

@@ -245,7 +245,7 @@ class Element(EventHandlerHost, ABC):
         told, a write one of them makes that the judge refuses is raised out of here
         with this element already patched: undoing it, and every other write made
         under the same transaction, is the enclosing
-        :class:`~punt_lux.domain.hub.batch_transaction.BatchTransaction`'s work, which
+        :class:`~punt_lux.hub.batch_transaction.BatchTransaction`'s work, which
         checkpoints the element and the state its observers keep.
 
         A kind whose invariants span fields (a slider's value against its bounds)

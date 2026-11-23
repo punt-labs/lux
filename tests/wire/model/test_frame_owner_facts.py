@@ -11,12 +11,12 @@ from typing import Self, final
 
 import pytest
 
-from punt_lux.domain.hub.frame_owner_facts import (
+from punt_lux.hub.frame_owner_facts import (
     FrameOwnerFactsBinding,
     FrameOwnerFactsReader,
     NoFrameOwnerFacts,
 )
-from punt_lux.domain.hub.frame_ownership import UNOWNED, FrameOwnership
+from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
 
 
 @final

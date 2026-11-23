@@ -2,7 +2,7 @@
 
 **Status:** shipped. Both forks (§3, §4) were ratified as designed (Option A;
 bring `register_client`/`identify_client` under `StoreLock`) and implemented —
-`domain/hub/departure_sinks.py`, `domain/hub/departure_cascade.py`, the
+`hub/departure_sinks.py`, `hub/departure_cascade.py`, the
 `HubDisplay` wiring, and round 3 of the companion model below. See §10 for
 one known, out-of-scope residual left open by this implementation.
 **Bead:** `lux-vvmt`. Companion model: `docs/connection_lease_reaping.tex`
@@ -131,7 +131,7 @@ This is the fork the mission asked me to surface. Two shapes:
 ### Option A — a shared `connection_id → sink` registry, domain-resident
 
 Add a small domain-layer collaborator, e.g. `DepartureSinks`, living beside
-`WriterRegistry` in `domain/hub/` (same shape: `bind`/`drop`/`fire`, at most
+`WriterRegistry` in `hub/` (same shape: `bind`/`drop`/`fire`, at most
 one sink per connection id — mirrors `writer_registry.py:37-64` almost
 exactly). A transport module that owns per-connection side state — today,
 only `inbox.py` — registers itself once, at connect time (inside
@@ -149,7 +149,7 @@ departure trigger removes.
   one pass, get the full cascade per member of that set for free — no new
   plumbing needed at each trigger's call site.
 - Keeps the dependency arrow correct (PL-MD-1 / PY-IC-8): the coordinator
-  lives in `domain/hub/`, `inbox.py` already lives in `domain/hub/` and
+  lives in `hub/`, `inbox.py` already lives in `hub/` and
   already imports `hub`/`hub_display` — registering a sink is the same
   direction of dependency `inbox.py` already has, not a new one.
 - Generic against future transports. A second transport kind (say, a
@@ -482,20 +482,20 @@ introspection call).
 Not prescribed in interior detail — the implementation mission decides how to
 decompose — but the design above touches:
 
-- `domain/hub/hub_display.py` — `register_client`/`identify_client` gain
+- `hub/hub_display.py` — `register_client`/`identify_client` gain
   `self._lock.write()`; `_depart`/`_depart_lapsed` gain the two new cascade
   steps (or delegate to the new coordinator).
-- `domain/hub/hub.py` — no change to `on_disconnect` itself; it is now called
+- `hub/hub.py` — no change to `on_disconnect` itself; it is now called
   from more places.
 - **New**: a `DepartureSink` protocol + `DepartureSinks` registry (§6),
-  likely `domain/hub/departure_sinks.py`, sibling to `writer_registry.py`.
+  likely `hub/departure_sinks.py`, sibling to `writer_registry.py`.
 - **New**: the coordinator (§3/§6) — a new module, or (if the evaluator finds
   the responsibilities genuinely belong there) additional methods on
   `HubDisplay` itself; the design mission's judgment is that a new class is
   cleaner (§6's PY-IC-6 argument), but this is exactly the kind of call the
   implementation specialist is better placed to make once writing the code,
   and it is not gated on an operator ruling.
-- `domain/hub/lifecycle.py` — `disconnect_connection` shrinks or is retired
+- `hub/lifecycle.py` — `disconnect_connection` shrinks or is retired
   in favor of the coordinator; `on_disconnect` parameter likely removed.
 - `inbox.py` — `ensure_writer` registers its `drop_session` sink alongside
   `hub.register_writer`.

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub_composition import HubComposition
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import (

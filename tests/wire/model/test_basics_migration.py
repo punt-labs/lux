@@ -17,7 +17,7 @@ Markdown follow.
 from __future__ import annotations
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import (
     ElementId,

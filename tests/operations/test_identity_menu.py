@@ -13,18 +13,18 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import client_registry, hub
-from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.departure_cascade import DepartureCascade
-from punt_lux.domain.hub.departure_sinks import DepartureSink
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
-from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
-from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub import client_registry, hub
+from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.callback_menu import CallbackMenuReplica
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.departure_cascade import DepartureCascade
+from punt_lux.hub.departure_sinks import DepartureSink
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
+from punt_lux.hub.lease_reap_sweep import LeaseReapSweep
+from punt_lux.hub.menu_models import Menu, MenuAction
+from punt_lux.hub.menu_registry import HubMenuRegistry
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection

@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import WriterRegistry
+from punt_lux.hub import WriterRegistry
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub import Handler
+    from punt_lux.hub import Handler
 
 
 def _writer() -> tuple[Handler, list[ObserverMessage]]:

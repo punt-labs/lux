@@ -17,16 +17,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_judge import BatchJudge
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_result import WriteRejected
+from punt_lux.hub.batch_judge import BatchJudge
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.hub.write_result import WriteRejected
 from punt_lux.wire.model.compositions.filtered_table_model import FilteredTableModel
 from punt_lux.wire.model.elements import TableElement, TreeElement
 from tests.wire.model.test_nesting_cap_at_the_seam import _DEEP, _OWNER, _SCENE, _nodes
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
 
 _ROWS = [["r1", "idle"], ["r2", "busy"], ["r3", "idle"], ["r4", "busy"]]
 

@@ -18,7 +18,7 @@ from punt_lux.commands._ports import Ctx
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import SceneOps
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import (
         Cleared,
         InspectScope,

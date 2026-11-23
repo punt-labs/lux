@@ -7,7 +7,7 @@ from typing import cast
 
 from punt_lux.commands import Ctx, FrameOps, frame_remove
 from punt_lux.commands._frame_remove_request import FrameRemoveRequest
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Ok, OpError, Scope
 

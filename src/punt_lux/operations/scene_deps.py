@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub import Hub
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.operations.ports import DirtyMarker, ElementFactoryFor
 
 __all__ = ["SceneOperationsDeps"]

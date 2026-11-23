@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_refusals import NestingExceededError
-from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.hub.write_refusals import NestingExceededError
+from punt_lux.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scene_installer import SceneInstaller
@@ -35,12 +35,12 @@ from punt_lux.wire.model.update import AddElement, SetProperty
 from tests.class_references import ClassReferences, aliased_constructions
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
 _SCENE = SceneId("s")
 _OWNER = Scope.in_process(ConnectionId("local"))
-_SEAM_MODULE = "domain/hub/write_seam.py"
+_SEAM_MODULE = "hub/write_seam.py"
 
 
 def _payload(levels: int) -> dict[str, object]:
@@ -268,7 +268,7 @@ class TestATreeTooDeepToDecodeOrPatch:
             )
 
     def test_a_show_of_it_is_rejected_at_decode_with_the_cap_reason(self) -> None:
-        from punt_lux.domain.hub.hub_factory import hub_element_factory
+        from punt_lux.hub.hub_factory import hub_element_factory
 
         wire: dict[str, object] = {
             "kind": "tree",

@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 from punt_lux.operations.menu_arming import MenuArming
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub_clients import HubClientRegistry
     from punt_lux.operations.ports import EnsureWriter
 
 __all__ = ["MenuArmingDeps"]

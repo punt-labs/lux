@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.dial_reader import DialReader
-from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.dial_reader import DialReader
+from punt_lux.hub.element_invocation_resolver import ResolvedInteraction
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.interaction_handlers import InteractionHandlers
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.wire.model import ReadyMessage, RemoteEventHandlerInvocation
 from punt_lux.wire.model.compositions.filtered_table_model import FilteredTableModel
 from punt_lux.wire.model.elements import ButtonElement, TableElement, TreeElement
@@ -35,7 +35,7 @@ from tests.wire.model.test_retire_cause import _linked
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.wire.model.element import Element as WireElement
 
 

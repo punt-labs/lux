@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.owner import Owner
+    from punt_lux.hub.owner import Owner
 
 __all__ = ["SceneOwner"]
 

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.domain.hub.backoff_config import BackoffConfig
-from punt_lux.domain.hub.crash_attribution import STABLE_INTERVAL
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
+from punt_lux.hub.backoff_config import BackoffConfig
+from punt_lux.hub.crash_attribution import STABLE_INTERVAL
+from punt_lux.hub.respawn_backoff import RespawnBackoff
 
 
 class _FakeClock:

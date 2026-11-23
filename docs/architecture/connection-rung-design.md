@@ -84,7 +84,7 @@ frame_book,scene_eviction,scene_departure,scene_replica}.py`,
 `display/menus/{frame_info_popup,connection_panel,windows_menu}.py`,
 `display/dock_pill.py`, `wire/model/messages/{scene,scene_codec}.py`,
 `wire/model/compositions/client_details.py`,
-`domain/hub/{client_session,session_write,hub_clients,listener_legs,
+`hub/{client_session,session_write,hub_clients,listener_legs,
 client_lifecycle,client_roster,menu_presence,owner_tracker,frame_owner_facts,
 scene_snapshot}.py`, `wire/model/hub_id.py`,
 `operations/{identity,scope,client_listing,client_identity_facts,
@@ -504,7 +504,7 @@ Grouped by commit (next section).
 ### Hub label path
 
 - `wire/model/messages/scene.py`, `scene_codec.py`: `frame_scope_label`.
-- `domain/hub/frame_owner_facts.py` (the port and its Null Object, now
+- `hub/frame_owner_facts.py` (the port and its Null Object, now
   returning `FrameOwnership`), `scene_snapshot.py`, `scene_presentation.py`,
   `display_link.py`: carry it.
 - `operations/frame_owner_facts.py`, `operations/canonical_frame_owner.py`:
@@ -521,12 +521,12 @@ Grouped by commit (next section).
 
 ### Label churn
 
-- `domain/hub/client_roster.py`, `hub_clients.py`, `session_write.py`,
+- `hub/client_roster.py`, `hub_clients.py`, `session_write.py`,
   `client_lifecycle.py`, `menu_presence.py`.
 
 ### Observed host
 
-- `domain/hub/client_session.py`, `session_write.py`, `hub_clients.py`,
+- `hub/client_session.py`, `session_write.py`, `hub_clients.py`,
   `listener_legs.py`, `client_lifecycle.py`.
 - `operations/scope.py`, `operations/identity.py`.
 - Doors: `mcp_endpoint.py`, `tools/server.py`, `tools/tools.py`,

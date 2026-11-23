@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import ValidationError
 
-from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.header_value import HeaderValue
+from punt_lux.hub.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

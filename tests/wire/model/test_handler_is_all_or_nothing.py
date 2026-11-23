@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.wire.model.elements import ButtonElement, TreeElement
 from punt_lux.wire.model.elements.dialog import DialogElement
@@ -25,7 +25,7 @@ from tests.wire.model.test_handler_writes_are_judged import _fire
 from tests.wire.model.test_nesting_cap_at_the_seam import _DEEP, _OWNER, _SCENE, _nodes
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
 
 
 class _Screen(NamedTuple):

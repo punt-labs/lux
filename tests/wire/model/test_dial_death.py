@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.dial_death import DialDeath
+from punt_lux.hub.dial_death import DialDeath
 from punt_lux.wire.model.ids import SceneId
 
 

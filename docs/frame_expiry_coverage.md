@@ -14,10 +14,10 @@ in the tests so time is a value the test sets, not a wall it waits on.
 
 The design is `docs/architecture/target/target.md` (Hub-authoritative; a re-show
 is a whole-UI resend); the concrete methods live in
-`src/punt_lux/domain/hub/frame_expiry.py` (the deadlines),
-`src/punt_lux/domain/hub/frame_lifecycle.py` (arm/expire/tear-down under the store
-lock), `src/punt_lux/domain/hub/expiry_sweep.py` (the event-loop tick), and
-`src/punt_lux/domain/hub/scene_snapshot.py` (the replicator's post-blank reclaim).
+`src/punt_lux/hub/frame_expiry.py` (the deadlines),
+`src/punt_lux/hub/frame_lifecycle.py` (arm/expire/tear-down under the store
+lock), `src/punt_lux/hub/expiry_sweep.py` (the event-loop tick), and
+`src/punt_lux/hub/scene_snapshot.py` (the replicator's post-blank reclaim).
 
 | Spec operation | Design element |
 |---|---|

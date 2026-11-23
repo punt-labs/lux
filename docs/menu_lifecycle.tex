@@ -47,12 +47,12 @@
 %
 % Read first: docs/architecture/agent-menu-dispatch.md (Sections 4-7),
 % docs/connection_lease_reaping.tex (the departure cascade this refines;
-% I1/I5/I7), and the code: src/punt_lux/domain/hub/inbox.py (offer,
+% I1/I5/I7), and the code: src/punt_lux/hub/inbox.py (offer,
 % drop_session, ensure_writer), menu_registry.py (set_menus, drop_session),
 % menu_event.py (MenuEventRouter.deliver), operations/menus.py
 % (MenuOperations.set_menu), operations/menu_arming.py (MenuArming.admit),
-% domain/hub/hub_display.py (_depart, _depart_lapsed, drop_connection),
-% domain/hub/departure_cascade.py, session_cleanup.py.
+% hub/hub_display.py (_depart, _depart_lapsed, drop_connection),
+% hub/departure_cascade.py, session_cleanup.py.
 %
 % Type-check:  fuzz docs/menu_lifecycle.tex
 % Model-check (deadlock-freedom + structural invariant over the state space):

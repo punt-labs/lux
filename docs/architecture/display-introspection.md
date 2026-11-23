@@ -35,8 +35,8 @@ Hub-mediated proxy to the running Display, following the shape
    `list_clients` already reports `subscribed_topics` and `owned_scenes`
    per session (`operations/models/query_clients.py:15-27`), but not
    whether the connection currently has a writer bound
-   (`Hub.has_writer`, `domain/hub/hub.py:81-83`) or how deep its inbox
-   queue is (`domain/hub/inbox.py`'s per-connection `SimpleQueue`). Both
+   (`Hub.has_writer`, `hub/hub.py:81-83`) or how deep its inbox
+   queue is (`hub/inbox.py`'s per-connection `SimpleQueue`). Both
    are exactly what is needed to run and prove the lease-reap cascade
    convergence (`lux-vvmt`) and the twin-subscription-loss defect
    (`lux-95zt`): a reap that silently leaves a stale writer bound, or a
@@ -102,7 +102,7 @@ existing generic envelope:
   (`wire/model/messages/introspect.py:83-90`)
 
 sent over `DisplayLink.query(method, params)`
-(`domain/hub/display_link.py:554-582`), the same call
+(`hub/display_link.py:554-582`), the same call
 `DisplayFactProxy._inspect` and `FrameVisibilityProxy._frame_blocks`
 already make.
 
@@ -294,7 +294,7 @@ tool call, not an opt-in flag on someone else's.
 
 **Scene-id normalization.** The Display's `SceneReplica` keys scenes by
 whatever id the Hub last pushed under (the composed store key, per
-`domain/hub/connection_scoped_id.py`). `DisplayStateProxy.snapshot()`
+`hub/connection_scoped_id.py`). `DisplayStateProxy.snapshot()`
 should strip each `scenes` key back to the caller's own local id with
 `SceneListing.local_id_of` (`operations/queries.py:106-109`), the same
 composition-boundary step `ClientListing._client` already applies to
@@ -354,7 +354,7 @@ writer is bound, and how deep the connection's inbox queue is.
 
 ### B.1 `writer_bound` — already available, just unread here
 
-`Hub.has_writer(connection_id)` (`domain/hub/hub.py:81-83`) already
+`Hub.has_writer(connection_id)` (`hub/hub.py:81-83`) already
 answers this exactly. `ClientListing._client`
 (`operations/client_listing.py:65-90`) already holds `self._hub` and
 already calls `self._hub.topics_for(connection_id)` on the next line up —
@@ -363,11 +363,11 @@ addition to an existing method, using an existing public accessor.
 
 ### B.2 `inbox_depth` — one new accessor, following the existing port pattern
 
-The per-connection inbox queues live in `domain/hub/inbox.py` as a
+The per-connection inbox queues live in `hub/inbox.py` as a
 module-level `dict[ConnectionId, queue.SimpleQueue[ObserverMessage]]`
-(`domain/hub/inbox.py:31-32`), guarded by `_inboxes_lock`. `Hub` cannot
+(`hub/inbox.py:31-32`), guarded by `_inboxes_lock`. `Hub` cannot
 import `inbox.py` to expose this directly — `inbox.py` already imports
-`from punt_lux.domain.hub.hub import hub` (`domain/hub/inbox.py:14`), so a
+`from punt_lux.hub.hub import hub` (`hub/inbox.py:14`), so a
 `Hub → inbox` import would be a cycle (PL-CU-2).
 
 This is exactly the shape `HubPorts` already exists to solve — `inbox.py`
@@ -377,7 +377,7 @@ already supplies two of its callable ports, `ensure_writer` and
 `inbox_depth: Callable[[ConnectionId], int]`, is added the same way:
 
 ```python
-# domain/hub/inbox.py — one more function beside next_event, same style
+# hub/inbox.py — one more function beside next_event, same style
 def inbox_depth_for(connection_id: ConnectionId) -> int:
     """Return the connection's queued-but-undelivered event count.
 
@@ -406,7 +406,7 @@ class HubPorts:
 
 ```python
 # hub_composition.py:20,73-78 — wire the new port the same way as the other two
-from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
+from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 
 ...
 return HubPorts(
@@ -593,7 +593,7 @@ Engine:
 - `src/punt_lux/display/replica/widget_state.py` — `observable_snapshot`
 - `src/punt_lux/display/replica/scene_replica.py` — `widget_snapshot(scene_id)`
 - `src/punt_lux/display/query_dispatcher.py` — `"display_state"` handler
-- `src/punt_lux/domain/hub/inbox.py` — `inbox_depth_for`
+- `src/punt_lux/hub/inbox.py` — `inbox_depth_for`
 - `src/punt_lux/operations/ports.py` — `InboxDepth`, `HubPorts.inbox_depth`
 - `src/punt_lux/hub_composition.py` — wire the new port
 - `src/punt_lux/operations/models/display_state.py` — new module (§A.6)

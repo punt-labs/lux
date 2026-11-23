@@ -8,7 +8,7 @@ __version__ = version("punt-lux")
 
 from punt_lux.client import LuxClient
 from punt_lux.commands.ping import ping
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
 from punt_lux.operations import (
     OpError,

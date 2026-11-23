@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import dial_drain
-from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
-from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
+from punt_lux.hub import dial_drain
+from punt_lux.hub.dial_drain import DialDrain
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.reply_sink import ReplySink
+from punt_lux.hub.reply_waiters import ReplyOutOfOrderError
 from punt_lux.wire.model import AckMessage, ObserverMessage, PongMessage, encode_message
 from punt_lux.wire.model.ids import SceneId
 from tests.link_access import deaths_of, generation_of, writer_of
@@ -22,7 +22,7 @@ from tests.wire.model.test_retire_cause import _linked, _scene
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.hub.dial_generation import DialGeneration
     from punt_lux.wire.model import Message
 
 

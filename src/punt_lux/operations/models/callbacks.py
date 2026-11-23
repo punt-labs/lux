@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.operations.models.common import OpError
 
 if TYPE_CHECKING:

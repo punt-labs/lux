@@ -44,7 +44,7 @@ correct a scene the fresh Hub does not know to resend.
 Traced against the code as of 2026-08-15, not the target docs:
 
 1. **`HubDisplay` is memory-only, by design** (post-B7; see
-   `src/punt_lux/domain/hub/hub_display.py`). A `luxd` process restart
+   `src/punt_lux/hub/hub_display.py`). A `luxd` process restart
    constructs a brand-new `hub_display` singleton with zero scenes,
    zero clients, zero owners. Nothing on disk backs it. This was a
    deliberate architectural choice, not an oversight — persisting
@@ -52,17 +52,17 @@ Traced against the code as of 2026-08-15, not the target docs:
    the bead, and rightly so (see Alternatives Rejected).
 
 2. **`luxd` holds exactly one socket connection to the Display**, via
-   `ClientRegistry` (`src/punt_lux/domain/hub/clients.py`), which lazily
+   `ClientRegistry` (`src/punt_lux/hub/clients.py`), which lazily
    constructs and reconnects a single `DisplayLink` under the name
    `"lux-mcp"` (`_DISPLAY_CLIENT_NAME`, `clients.py:25`). Every scene that
    reaches the Display — from any agent, any REST caller, any applet's
    push through `luxd` — flows over this one connection. There is no
    other writer (`HubReplicator` is the sole background sender,
-   `domain/hub/replicator.py`).
+   `hub/replicator.py`).
 
 3. **The Display never distinguishes "the same Hub reconnecting" from "a
    different Hub process."** `DisplayLink._post_handshake`
-   (`domain/hub/display_link.py:217`) sends a `ConnectMessage(name="lux-mcp")`
+   (`hub/display_link.py:217`) sends a `ConnectMessage(name="lux-mcp")`
    after every low-level socket connect. `RenderLoop._handle_connect`
    (`display/render_loop.py:582`) records the name against the new file
    descriptor and does nothing else. There is no generation counter, no
@@ -99,7 +99,7 @@ Traced against the code as of 2026-08-15, not the target docs:
 
 6. **The existing recovery path already solves the opposite-direction
    problem, and solves it well.** `SendRecovery.recover`
-   (`domain/hub/recovery.py:57`) — reap-and-respawn a wedged Display, or
+   (`hub/recovery.py:57`) — reap-and-respawn a wedged Display, or
    just reconnect to a dead one — always ends by re-marking every one of
    `HubDisplay.live_scene_ids()` dirty
    (`SendRecovery._remark`, `recovery.py:78`), so a Display that crashed and
@@ -289,7 +289,7 @@ kind: Literal["hub", "test"]  # no default — every caller declares explicitly
 declares its intent at identify time. `"hub"` is the writer identity
 (singleton per name, preemption applies, manifest processed,
 `SceneMessage` accepted) — the only caller is `luxd`'s
-`ClientRegistry` (`domain/hub/clients.py`). `"test"` is the
+`ClientRegistry` (`hub/clients.py`). `"test"` is the
 read-only observer identity — the introspection request types
 (`IntrospectRequest`, `ListScenesRequest`, `ScreenshotRequest`,
 `QueryRequest`, and any future sibling in
@@ -371,7 +371,7 @@ message-ordering race described in Concurrency below. `_handle_message`
 gains a branch for `HubManifestMessage`, calling the new `SceneReplica`
 query and closing each returned frame id with `notify=False`.
 
-**6. `ClientRegistry` (`domain/hub/clients.py`) gains one choke point for
+**6. `ClientRegistry` (`hub/clients.py`) gains one choke point for
 "a fresh low-level connect just succeeded," used by both of its two
 reconnect call sites (`get()`'s lazy connect and `with_reconnect`'s retry
 connect) — today these are two separate call sites that could drift.
@@ -742,9 +742,9 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
 
 - Bead: `lux-e9vy` (P1, silent-failure class).
 - Design mission: `m-2026-08-15-004`.
-- Files read to ground this design: `src/punt_lux/domain/hub/display_link.py`,
-  `src/punt_lux/domain/hub/clients.py`, `src/punt_lux/domain/hub/hub_display.py`,
-  `src/punt_lux/domain/hub/replicator.py`, `src/punt_lux/domain/hub/recovery.py`,
+- Files read to ground this design: `src/punt_lux/hub/display_link.py`,
+  `src/punt_lux/hub/clients.py`, `src/punt_lux/hub/hub_display.py`,
+  `src/punt_lux/hub/replicator.py`, `src/punt_lux/hub/recovery.py`,
   `src/punt_lux/display/socket_server.py`, `src/punt_lux/display/render_loop.py`,
   `src/punt_lux/display/replica/scene_replica.py`,
   `src/punt_lux/display/replica/frame_book.py`,
@@ -752,7 +752,7 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
   `src/punt_lux/display/pending_interactions.py`,
   `src/punt_lux/wire/model/messages/lifecycle.py`,
   `src/punt_lux/wire/model/messages/scene.py`,
-  `src/punt_lux/domain/hub/client_identity.py`,
+  `src/punt_lux/hub/client_identity.py`,
   `docs/architecture/target/target.md`, `docs/architecture/target/topology.md`,
   `docs/architecture/mcp-display-liveness.md`, `DESIGN.md` (DES-057, DES-058,
   DES-060, DES-063, DES-065, DES-066, DES-067).

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, SessionOps, session_identify
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import OpError, Scope
 from punt_lux.operations.models.identity import Identified

@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
-from punt_lux.domain.hub import client_registry, hub, hub_display, hub_lifecycle
-from punt_lux.domain.hub.inbox import drop_session
+from punt_lux.hub import client_registry, hub, hub_display, hub_lifecycle
+from punt_lux.hub.inbox import drop_session
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
@@ -77,7 +77,7 @@ def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
     # the other marking the real background replicator. (Disconnect no longer
     # marks the replicator: a session's scenes survive, nothing to repaint.)
     sync = SyncReplicator(rig)
-    monkeypatch.setattr("punt_lux.domain.hub.replicator_instance.hub_replicator", sync)
+    monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_replicator", sync)
     monkeypatch.setattr("punt_lux.hub_composition.hub_replicator", sync)
     harness = LoopHarness(rig)
     yield harness

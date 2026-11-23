@@ -21,9 +21,9 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.service.display_paths import DisplayPaths, SocketLiveness
 from punt_lux.wire.model import (
     HEADER_FORMAT,

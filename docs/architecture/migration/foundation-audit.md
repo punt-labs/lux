@@ -46,7 +46,7 @@ reconciled cleanly; `checkbox` was not.
   `checkbox`/`button` route through pickle — so the checkbox encode asymmetry
   above is **untested**.
 - **Two parallel Hub-side stores exist:** `Display` (`wire/model/display.py`, 440
-  lines) and `HubDisplay` (`domain/hub/hub_display.py`, 398 lines). The live
+  lines) and `HubDisplay` (`hub/hub_display.py`, 398 lines). The live
   D21 path uses `HubDisplay`; the display-side dual-write pump uses `Display`.
   `Display.interact` is button-only (`display.py:325`, `:332`) and cannot
   dispatch the migrated `checkbox` — a stale parallel path inconsistent with
@@ -152,7 +152,7 @@ rather than copies. Recommend before #5 so #5 is a clean copy.
 
 ### D3 — Two parallel Hub-side stores; one is stale (HIGH strategic; needs R4)
 
-`wire/model/display.py` defines `Display` (440 lines); `domain/hub/hub_display.py`
+`wire/model/display.py` defines `Display` (440 lines); `hub/hub_display.py`
 defines `HubDisplay` (398 lines). Both docstrings claim "authoritative."
 
 - **Live D21 dispatch** resolves from `HubDisplay` (`clients.py:129`–`:130`,

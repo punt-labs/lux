@@ -27,7 +27,7 @@ from typing import Self, final
 from tests.source_imports import import_closure, modules_calling
 
 _SRC = Path(__file__).resolve().parents[3] / "src"
-_HUB = "punt_lux.domain.hub"
+_HUB = "punt_lux.hub"
 _ROOTS = (f"{_HUB}.display_requests", f"{_HUB}.display_listener")
 # What sits above the model's locks: the registry (its RLock), the store (its lock),
 # the store itself, and the replicator that calls the registry; and the singletons
@@ -260,7 +260,7 @@ class SlotTakers:
 
 
 def _hub(name: str) -> str:
-    return (_SRC / "punt_lux" / "domain" / "hub" / name).read_text(encoding="utf-8")
+    return (_SRC / "punt_lux" / "hub" / name).read_text(encoding="utf-8")
 
 
 def _takers() -> SlotTakers:
@@ -270,7 +270,7 @@ def _takers() -> SlotTakers:
 def _hub_sources() -> dict[str, str]:
     return {
         path.name: path.read_text(encoding="utf-8")
-        for path in (_SRC / "punt_lux" / "domain" / "hub").rglob("*.py")
+        for path in (_SRC / "punt_lux" / "hub").rglob("*.py")
     }
 
 

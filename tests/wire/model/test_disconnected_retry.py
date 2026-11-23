@@ -6,13 +6,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub.backoff_config import BackoffConfig
-from punt_lux.domain.hub.disconnected_retry import DisconnectedRetry
+from punt_lux.hub.backoff_config import BackoffConfig
+from punt_lux.hub.disconnected_retry import DisconnectedRetry
 
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.reconnect_wait import ReconnectWait
+    from punt_lux.hub.reconnect_wait import ReconnectWait
 
 
 class _FakeClients:
@@ -83,7 +83,7 @@ def test_logs_once_at_info_on_transition_then_debug_on_repeats(
 ) -> None:
     retry = DisconnectedRetry(BackoffConfig(base_delay=2.0, max_delay=120.0))
     clients = _FakeClients()
-    logger_name = "punt_lux.domain.hub.disconnected_retry"
+    logger_name = "punt_lux.hub.disconnected_retry"
     with caplog.at_level(logging.DEBUG, logger=logger_name):
         retry.wait(clients, since_gen=0)
         retry.wait(clients, since_gen=0)

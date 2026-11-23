@@ -7,9 +7,9 @@ Display's own :class:`~punt_lux.display.replica.lux_address.LuxAddress`
 (``hidden_id``) -- so "no agent-chosen id or hashed connection id contains
 it" is proven once, in one place, not reasserted per class.
 
-Lives directly under ``wire/model/`` rather than ``domain/hub/`` because it is
+Lives directly under ``wire/model/`` rather than ``hub/`` because it is
 genuinely shared across both tiers: importing anything nested inside
-``domain/hub/`` pulls in that package's ``__init__.py``, which wires the
+``hub/`` pulls in that package's ``__init__.py``, which wires the
 Hub's own asyncio-resident state (``Hub``, ``HubDisplay``, the client and
 writer registries) -- machinery a Display-side importer has no business
 loading.

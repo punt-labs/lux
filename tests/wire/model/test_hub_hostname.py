@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.hub import Hub
+from punt_lux.hub.hub import Hub
 from punt_lux.wire.model.hub_id import HubId
 
 if TYPE_CHECKING:

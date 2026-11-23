@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_judge import BatchJudge
-from punt_lux.domain.hub.element_invocation_resolver import ResolvedInteraction
-from punt_lux.domain.hub.write_refusals import NestingExceededError
+from punt_lux.hub.batch_judge import BatchJudge
+from punt_lux.hub.element_invocation_resolver import ResolvedInteraction
+from punt_lux.hub.write_refusals import NestingExceededError
 from punt_lux.wire.model.element_abc import Element
 from punt_lux.wire.model.elements import ButtonElement, TreeElement
 from punt_lux.wire.model.handler_writes import HandlerWrites
@@ -33,7 +33,7 @@ from tests.wire.model.test_nesting_cap_at_the_seam import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
 
 
 class _WritesNodes:

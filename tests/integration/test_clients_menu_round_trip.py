@@ -25,18 +25,18 @@ from punt_lux.display.menus import Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.wire import WireMenu
 from punt_lux.display.menus.wire_field import WireField
-from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.details_binding import DetailsBinding
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.callback_menu import CallbackMenuReplica
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.details_binding import DetailsBinding
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
@@ -171,11 +171,9 @@ class _Wired:
         """Dispatch every emitted click Hub-side, as luxd's socket handler does."""
         binding = DetailsBinding()
         binding.bind(self._details)
+        monkeypatch.setattr("punt_lux.hub.details_instance.hub_client_details", binding)
         monkeypatch.setattr(
-            "punt_lux.domain.hub.details_instance.hub_client_details", binding
-        )
-        monkeypatch.setattr(
-            "punt_lux.domain.hub.replicator_instance.hub_callback_router", self._router
+            "punt_lux.hub.replicator_instance.hub_callback_router", self._router
         )
         for invocation in self._sent:
             HubInteractionDispatch.dispatch(invocation)

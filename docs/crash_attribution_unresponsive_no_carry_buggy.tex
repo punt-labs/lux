@@ -16,7 +16,7 @@
 % as a display death and carried as a Hub end.  T14 splits the read into Recv and
 % Deliver and guards a display-ended capture on both being empty.
 %
-% The code it governs: src/punt_lux/domain/hub/{batch_sender,recovery,
+% The code it governs: src/punt_lux/hub/{batch_sender,recovery,
 % display_connection,dial_generation,reply_sink,liveness_probe,replicator,
 % death_charger}.py, and src/punt_lux/display/render_loop.py (the ack).  ADRs:
 % DES-102 (attribution, isolation and quarantine), DES-093 (the Hub never

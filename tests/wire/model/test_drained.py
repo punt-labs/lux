@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.drain_result import Drained
-from punt_lux.domain.hub.invalid_drain_error import InvalidDrainError
+from punt_lux.hub.drain_result import Drained
+from punt_lux.hub.invalid_drain_error import InvalidDrainError
 from punt_lux.kernel.programmer_error import ProgrammerError
 
 

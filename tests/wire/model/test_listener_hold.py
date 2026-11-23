@@ -13,20 +13,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask
-from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.drain_result import DrainIncompleteError
-from punt_lux.domain.hub.reader_slot import InlineHolder
-from punt_lux.domain.hub.settle_errors import UnendedDialError
-from punt_lux.domain.hub.settler import Settler
+from punt_lux.hub import bounded_ask
+from punt_lux.hub.dial_drain import DialDrain
+from punt_lux.hub.drain_result import DrainIncompleteError
+from punt_lux.hub.reader_slot import InlineHolder
+from punt_lux.hub.settle_errors import UnendedDialError
+from punt_lux.hub.settler import Settler
 from tests.link_access import bare_connection, drop_route, reading_of
 from tests.wire.model.display_double import Call, Display
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.display_connection import DisplayConnection
-    from punt_lux.domain.hub.reader_slot import ReaderSlot
+    from punt_lux.hub.display_connection import DisplayConnection
+    from punt_lux.hub.reader_slot import ReaderSlot
 
 
 @pytest.fixture

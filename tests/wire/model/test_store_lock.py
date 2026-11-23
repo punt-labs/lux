@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 
-from punt_lux.domain.hub.store_lock import StoreLock
+from punt_lux.hub.store_lock import StoreLock
 
 
 def test_read_and_write_share_one_reentrant_slot() -> None:

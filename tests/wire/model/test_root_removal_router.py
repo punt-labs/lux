@@ -8,8 +8,8 @@ router returns quietly instead of raising on an absent element.
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.owner_tracker import OwnerTracker
-from punt_lux.domain.hub.root_removal_router import RootRemovalRouter
+from punt_lux.hub.owner_tracker import OwnerTracker
+from punt_lux.hub.root_removal_router import RootRemovalRouter
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.scope import Scope
@@ -32,7 +32,7 @@ def test_route_for_an_already_dropped_element_is_a_no_op() -> None:
 
 def test_route_for_an_owned_element_applies_its_removal() -> None:
     """With an owner recorded, ``route`` applies the matching ``RemoveElement``."""
-    from punt_lux.domain.hub.owner import Owner
+    from punt_lux.hub.owner import Owner
 
     owners = OwnerTracker()
     owners.record(_SCENE, _ELEMENT_ID, Owner.from_session(_OWNER, None))
@@ -51,7 +51,7 @@ def test_route_for_an_owned_element_applies_its_removal() -> None:
 
 def test_the_removal_is_not_the_owners_contact() -> None:
     """The Hub removing a forgotten root must not renew the owner's lease."""
-    from punt_lux.domain.hub.owner import Owner
+    from punt_lux.hub.owner import Owner
 
     owners = OwnerTracker()
     owners.record(_SCENE, _ELEMENT_ID, Owner.from_session(_OWNER, None))

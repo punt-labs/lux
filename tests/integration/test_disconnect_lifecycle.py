@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.hub import Hub
+from punt_lux.hub.hub import Hub
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import ButtonElement
 from punt_lux.wire.model.ids import ElementId, SceneId, Topic

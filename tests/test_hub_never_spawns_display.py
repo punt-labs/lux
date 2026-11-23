@@ -12,18 +12,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_HUB_DIR = Path(__file__).parent.parent / "src" / "punt_lux" / "domain" / "hub"
+_HUB_DIR = Path(__file__).parent.parent / "src" / "punt_lux" / "hub"
 _FORBIDDEN = re.compile(
     r"\bServiceManager\b|\bDISPLAY_SPEC\b|\bDisplayServiceManager\b"
 )
 
 
 def test_no_hub_module_references_the_display_service_lifecycle() -> None:
+    assert _HUB_DIR.is_dir()
     offenders = {
         str(path.relative_to(_HUB_DIR))
         for path in _HUB_DIR.rglob("*.py")
         if _FORBIDDEN.search(path.read_text())
     }
     assert offenders == set(), (
-        f"domain/hub/ must never name the display's service lifecycle: {offenders}"
+        f"hub/ must never name the display's service lifecycle: {offenders}"
     )

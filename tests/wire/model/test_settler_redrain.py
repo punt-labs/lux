@@ -13,15 +13,15 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.dial_drain import DialDrain
+from punt_lux.hub.dial_drain import DialDrain
 from tests.link_access import bare_connection, drop_route, reading_of
 from tests.wire.model.display_double import Display
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_connection import DisplayConnection
+    from punt_lux.hub.dial_generation import DialGeneration
+    from punt_lux.hub.display_connection import DisplayConnection
 
 
 @pytest.fixture

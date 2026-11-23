@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.kernel.connection_id import ConnectionId
 
 

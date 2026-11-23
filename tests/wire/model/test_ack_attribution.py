@@ -23,14 +23,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import batch_sender
-from punt_lux.domain.hub.batch_sender import BatchSendError
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub import batch_sender
+from punt_lux.hub.batch_sender import BatchSendError
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     UnresponsiveError,
 )
-from punt_lux.domain.hub.display_replies import DisplayReplies
-from punt_lux.domain.hub.inbound_router import InboundRouter
+from punt_lux.hub.display_replies import DisplayReplies
+from punt_lux.hub.inbound_router import InboundRouter
 from punt_lux.wire.model import (
     AckMessage,
     PingMessage,
@@ -45,9 +45,9 @@ from tests.wire.model.test_retire_cause import _linked, _rig, _scene
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.pending import Pending
-    from punt_lux.domain.hub.settler import Settler
+    from punt_lux.hub.dial_generation import DialGeneration
+    from punt_lux.hub.pending import Pending
+    from punt_lux.hub.settler import Settler
     from punt_lux.wire.model import Message
 
 

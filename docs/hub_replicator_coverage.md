@@ -1,7 +1,7 @@
 # Hub Replicator: Test-Partition Coverage Audit
 
 **DES-068 note (2026-08-15).** `ClientRegistry` gained its own
-connect-success hook (`_connect_and_reconcile`, `domain/hub/clients.py`)
+connect-success hook (`_connect_and_reconcile`, `hub/clients.py`)
 that declares the Hub's manifest and marks the same `live_scene_ids()` (plus
 the menu) dirty on every fresh socket connect — the same content-refresh
 `SendRecovery._remark` (K2/K4/MN12 below) already performs for its own

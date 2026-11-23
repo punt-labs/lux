@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub import hub_display
-from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.hub import hub_display
+from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element_abc import Element as AbcElement
 from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation

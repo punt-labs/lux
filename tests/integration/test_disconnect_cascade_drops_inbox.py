@@ -2,7 +2,7 @@
 
 The lifecycle cascade owns no transport state of its own. A transport binds
 its own per-connection cleanup once, at connect time
-(:class:`~punt_lux.domain.hub.departure_sinks.DepartureSinks`), so resources
+(:class:`~punt_lux.hub.departure_sinks.DepartureSinks`), so resources
 held outside the domain — the per-session MCP inbox queue, file handles,
 etc. — are released in the same cascade rather than leaking until process
 exit.
@@ -11,10 +11,10 @@ exit.
 from __future__ import annotations
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import inbox
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.lifecycle import disconnect_connection
+from punt_lux.hub import inbox
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.lifecycle import disconnect_connection
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.messages.observer import ObserverMessage
 

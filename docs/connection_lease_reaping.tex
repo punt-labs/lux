@@ -65,19 +65,19 @@
 % Read first (round 3, in addition to the round-2 list below): the design
 % document's own "Read first" grounding at
 % docs/architecture/lease-reap-cascade.md Section 1 and Section 4 --
-% domain/hub/hub_display.py (register_client, identify_client,
-% drop_connection, _depart_lapsed, apply), domain/hub/lifecycle.py
-% (disconnect_connection), domain/hub/hub.py (on_disconnect), and
-% domain/hub/inbox.py (ensure_writer, drop_session).
+% hub/hub_display.py (register_client, identify_client,
+% drop_connection, _depart_lapsed, apply), hub/lifecycle.py
+% (disconnect_connection), hub/hub.py (on_disconnect), and
+% hub/inbox.py (ensure_writer, drop_session).
 %
-% Read first: src/punt_lux/domain/hub/hub_clients.py (HubClientRegistry --
+% Read first: src/punt_lux/hub/hub_clients.py (HubClientRegistry --
 % named_sessions/live_sessions/repos as READS that must become
 % non-destructive; reap/_sweep_locked; record/_renewed; discard),
-% src/punt_lux/domain/hub/hub_display.py (apply, drop_connection,
-% _reap_and_release), src/punt_lux/domain/hub/owner_tracker.py, and the
+% src/punt_lux/hub/hub_display.py (apply, drop_connection,
+% _reap_and_release), src/punt_lux/hub/owner_tracker.py, and the
 % graceful-departure path src/punt_lux/session_cleanup.py ->
-% src/punt_lux/domain/hub/lifecycle.py's disconnect_connection ->
-% HubDisplay.drop_connection, plus src/punt_lux/domain/hub/session_lease.py.
+% src/punt_lux/hub/lifecycle.py's disconnect_connection ->
+% HubDisplay.drop_connection, plus src/punt_lux/hub/session_lease.py.
 %
 % Type-check:  fuzz docs/connection_lease_reaping.tex
 % Model-check (see the Verification section for the exact goal predicates):

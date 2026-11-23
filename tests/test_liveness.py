@@ -1,4 +1,4 @@
-"""Unit tests for punt_lux.domain.hub.liveness — the display keepalive."""
+"""Unit tests for punt_lux.hub.liveness — the display keepalive."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.keepalive_ports import KeepaliveConnection
-from punt_lux.domain.hub.liveness import DisplayLiveness
-from punt_lux.domain.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.keepalive_ports import KeepaliveConnection
+from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.liveness_pacing import _DISCONNECTED_PROBE_INTERVAL
 from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.hub.dial_ref import DialRef
 
 
 class _FakeConnection:

@@ -26,8 +26,8 @@ from typer.testing import CliRunner
 from punt_lux.__main__ import app as cli_app
 from punt_lux.commands import Ctx
 from punt_lux.commands.display_state_get import DisplayStateOps, display_state_get
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.operations import Scope
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.rest import RestSurface

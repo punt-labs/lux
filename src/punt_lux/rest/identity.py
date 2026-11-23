@@ -30,7 +30,7 @@ from punt_lux.commands import (
     session_identify as session_identify_command,
 )
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.operations.models.identity import Identified
 from punt_lux.wire.model.scope import Scope

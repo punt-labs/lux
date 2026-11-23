@@ -1,0 +1,138 @@
+"""ElementInvocationResolver — resolve a display invocation to a fireable Element.
+
+The scene-element leg of ``HubInteractionDispatch`` guards a handful of ways
+a click can be stale or malformed before it may fire: a missing scene id, an
+element the Hub no longer indexes, a non-ABC (legacy) element, or a click on
+a descendant of an ancestor the Hub already dismissed. Each guard is a
+distinct reason to drop the invocation, keeping the dispatch's own method to
+the fire-or-drop decision, not the resolution mechanics.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.hub.lock_discipline import LockDiscipline
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.handler_failed_error import HandlerFailedError
+from punt_lux.wire.model.ids import ElementId, SceneId
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from punt_lux.hub.batch_transaction import BatchTransaction
+    from punt_lux.hub.guard_registry import Holder
+    from punt_lux.hub.hub_display import HubDisplay
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
+    from punt_lux.wire.model.event_protocol import Event
+
+__all__ = ["ElementInvocationResolver", "ResolvedInteraction"]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedInteraction:
+    """A display invocation resolved to a fireable Element and its owner."""
+
+    element: AbcElement
+    # None is a departure having released ownership, not a lookup failure --
+    # an unowned element still fires; nothing here required an owner check.
+    owner: ConnectionId | None
+    scene_id: SceneId
+    # The lock of the store the element was resolved in: firing walks that index.
+    store_guard: Holder
+
+    def fire(self, event: Event, transaction: BatchTransaction) -> None:
+        """Fire ``event`` on the element: its writes and removals stand or fall.
+
+        Every patch a handler writes, and every patch an observer it wakes writes, is
+        shown to the judge before the element it names is touched. One the judge
+        refuses puts every element the handlers wrote back, observers' state
+        included, drops the removals they asked for, and is logged at WARNING with the
+        event, the element and the reason. A handler that raises does the same and is
+        logged at ERROR, with the handler, the event, the element and its traceback;
+        a :class:`~punt_lux.kernel.programmer_error.ProgrammerError` is no handler's
+        own failure and propagates once the undo is done. Raises
+        :class:`~punt_lux.hub.lock_discipline.LockDisciplineError` unless the
+        store write lock is held: a handler's writes walk the element index an agent's
+        ``show`` mutates.
+        """
+        LockDiscipline.require_store("firing a handler", self.store_guard)
+        try:
+            refusal = transaction.run_handler(lambda: self.element.fire(event))
+        except HandlerFailedError as failure:
+            logger.error(
+                "%s on element %s: its writes and removals were rolled back",
+                failure,
+                self.element.id,
+                exc_info=failure,
+            )
+            return
+        if refusal is not None:
+            logger.warning(
+                "handler of %s on element %s refused a write: its writes and "
+                "removals were rolled back: %s",
+                type(event).__name__,
+                self.element.id,
+                refusal,
+            )
+
+
+@final
+class ElementInvocationResolver:
+    """Resolve one ``RemoteEventHandlerInvocation`` against a ``HubDisplay``."""
+
+    _hub_display: HubDisplay
+    __slots__ = ("_hub_display",)
+
+    def __new__(cls, hub_display: HubDisplay) -> Self:
+        self = super().__new__(cls)
+        self._hub_display = hub_display
+        return self
+
+    def resolve(self, msg: RemoteEventHandlerInvocation) -> ResolvedInteraction | None:
+        """Return the fireable element for ``msg``, or ``None`` to drop it, logged."""
+        scene_id = msg.scene_id
+        element_id = msg.element_id
+        if scene_id is None:
+            logger.warning(
+                "hub dispatch missing scene_id for element_id=%s", element_id
+            )
+            return None
+        sid = SceneId(scene_id)
+        eid = ElementId(element_id)
+        try:
+            element = self._hub_display.resolve(sid, eid)
+            owner = self._hub_display.owner_of(sid, eid)
+        except (KeyError, LookupError) as exc:
+            logger.warning(
+                "hub dispatch resolve failed scene_id=%s element_id=%s: %s",
+                scene_id,
+                element_id,
+                exc,
+            )
+            return None
+        if not isinstance(element, AbcElement):
+            logger.warning(
+                "hub dispatch type mismatch element_id=%s type=%s",
+                element_id,
+                type(element).__name__,
+            )
+            return None
+        dismissed = self._hub_display.dismissal.nearest_dismissed(sid, eid)
+        if dismissed is not None:
+            logger.warning(
+                "hub dispatch dropped for %s: element_id=%s dismissed_id=%s",
+                "itself dismissed" if dismissed == eid else "dismissed ancestor",
+                element_id,
+                dismissed,
+            )
+            return None
+        return ResolvedInteraction(
+            element=element,
+            owner=owner,
+            scene_id=sid,
+            store_guard=self._hub_display.write_lock(),
+        )

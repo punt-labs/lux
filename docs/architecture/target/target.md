@@ -251,13 +251,23 @@ Project display-mode file I/O belongs to `service.display_mode_store`; the
 Typer-facing enable/disable orchestration belongs to `cli.display_enablement`.
 
 Step 3 merges shared domain and protocol definitions into `punt_lux.wire.model`;
-`domain.hub` and `protocol.pty` remain until their later migrations. The merged
+the Hub and `protocol.pty` were retained for later migrations. The merged
 facade exports the wire `Element` union and the structural `ElementProtocol`.
 `LeaseTerm` is a shared wire value, while `ConnectionId` and `ProgrammerError`
 belong to kernel. Display socket/process lifecycle, including protocol-aware
 readiness probing, belongs to `service.display_paths`, not kernel. Package moves
 must remove actual forbidden edges as well as update names in the shrinking
 ratchet baseline; the legacy package initializers do not alias moved models.
+
+Step 4 promotes the Hub to `punt_lux.hub` and removes the empty
+`punt_lux.domain` package, without import aliases. Shared patch parsing and
+validation errors move into `wire.model.patch_batch` and
+`wire.model.write_errors`, removing the shared request model's Hub dependencies.
+The Display's unpickler also remaps old `domain.hub` paths: published element
+handlers carry `HubPublishSink` across the Hub→Display pickle boundary.
+Ready version `0.3` refuses Displays still using the old Hub namespace before
+scenes are sent, with an actionable Display restart error.
+`protocol.pty` remains until its own migration.
 
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`

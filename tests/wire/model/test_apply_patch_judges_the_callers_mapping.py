@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_judge import BatchJudge
+from punt_lux.hub.batch_judge import BatchJudge
 from punt_lux.wire.model.elements import ImageElement, MarkdownElement, TextElement
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.wire.model.elements.tree import TreeElement

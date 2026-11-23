@@ -23,7 +23,7 @@ class TestLayerContract:
         [
             ("punt_lux", "root"),
             ("punt_lux.wire.model.elements", "wire"),
-            ("punt_lux.domain.hub.scene", "hub"),
+            ("punt_lux.hub.scene", "hub"),
             ("punt_lux.operations.models.reply", "wire"),
             ("punt_lux.operations.scene", "hub"),
             ("punt_lux.service._backend_systemd", "service"),

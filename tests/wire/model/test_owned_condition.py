@@ -6,8 +6,8 @@ import threading
 
 import pytest
 
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
-from punt_lux.domain.hub.owned_condition import OwnedCondition
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.owned_condition import OwnedCondition
 
 
 def test_it_is_held_here_exactly_while_inside() -> None:

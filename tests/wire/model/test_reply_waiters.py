@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.dial_end import DialEnd
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
-from punt_lux.domain.hub.owned_condition import OwnedCondition
-from punt_lux.domain.hub.pending import Pending
-from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.dial_end import DialEnd
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.owned_condition import OwnedCondition
+from punt_lux.hub.pending import Pending
+from punt_lux.hub.reply_sink import ReplySink
+from punt_lux.hub.reply_waiters import ReplyOutOfOrderError, ReplyWaiters
 from punt_lux.wire.model import AckMessage, PongMessage, QueryResponse
 
 _STRANGER: Pending[None, QueryResponse] = Pending(None, QueryResponse)
@@ -25,7 +25,6 @@ _SOURCE = (
     Path(__file__).resolve().parents[3]
     / "src"
     / "punt_lux"
-    / "domain"
     / "hub"
     / "reply_waiters.py"
 )

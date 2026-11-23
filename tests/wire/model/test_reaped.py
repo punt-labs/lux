@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.reaped import Reaped
+from punt_lux.hub.reaped import Reaped
 from punt_lux.kernel.connection_id import ConnectionId
 
 _A = ConnectionId("a")

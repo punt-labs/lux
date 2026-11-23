@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from punt_lux.domain.hub.session_lease import SessionLease
+from punt_lux.hub.session_lease import SessionLease
 
 
 def test_live_until_the_ttl_elapses() -> None:

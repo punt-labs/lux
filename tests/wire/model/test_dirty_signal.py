@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import threading
 
-from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
+from punt_lux.hub.dirty_signal import DirtySignal, DrainedBatch
 from punt_lux.wire.model.ids import SceneId
 
 _S1 = SceneId("s1")

@@ -2,7 +2,7 @@
 
 **Status:** implemented. Bead `lux-81t3.1`, epic `lux-81t3`. This document
 was the design ratified before implementation (mission `m-2026-09-10-001`);
-the shipped code lives in `src/punt_lux/domain/hub/` (`clients.py`,
+the shipped code lives in `src/punt_lux/hub/` (`clients.py`,
 `replicator.py`, `liveness.py`, `disconnected_retry.py`, `display_linkage.py`)
 and the z-spec model is `docs/display_linkage.tex`. Retained as the design
 record — see §10 for the write-set this document's implementation followed.
@@ -33,7 +33,7 @@ happened.
 Tracing the code confirms the exact mechanism, and it turns out to be a
 **cadence** defect, not a missing capability:
 
-- `ClientRegistry.get()` (`src/punt_lux/domain/hub/clients.py:96-108`)
+- `ClientRegistry.get()` (`src/punt_lux/hub/clients.py:96-108`)
   constructs the Hub's one `DisplayLink` with `auto_spawn=False` — correct,
   and staying correct under this revision: the Hub dials out to the
   display's socket and never forks or starts anything. When nothing is
@@ -97,7 +97,7 @@ earlier draft of this document:
 
 1. **The Hub never starts, spawns, stops, or otherwise controls the
    display's process lifecycle. Not deferred — removed as a design
-   direction entirely.** No code path in `domain/hub/` may call
+   direction entirely.** No code path in `hub/` may call
    `ServiceManager.for_display().start()`/`.stop()`/`.restart()`, under any
    circumstance, including as a "helpful" fallback after repeated failures.
 2. **`lux display stop` means the process is gone, and pushing content does
@@ -169,7 +169,7 @@ display — behaves when there is no display to deliver to:
   mechanism; the only thing missing was giving the *disconnected* interval
   a sane cadence and a name.
 - **The Hub never touches the display's process.** Confirmed by this
-  design's write-set (§9): grep for `ServiceManager` inside `domain/hub/`
+  design's write-set (§9): grep for `ServiceManager` inside `hub/`
   after implementation must return zero hits tied to the display spec.
 
 ## 4. `DisplayLinkage` — an Observed Classification, Not a Controlled State
@@ -755,7 +755,7 @@ import os
 import socket
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.display_linkage import DisplayLinkage
+from punt_lux.hub.display_linkage import DisplayLinkage
 from punt_lux.operations.models.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
@@ -764,8 +764,8 @@ from punt_lux.operations.models.display_link import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.replicator import HubReplicator
+    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.replicator import HubReplicator
     from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["DisplayLinkOperations"]
@@ -842,14 +842,14 @@ state it exists to report.
 For the follow-on implementation mission. Every item is grounded in a
 specific file this design read.
 
-1. **New** `src/punt_lux/domain/hub/display_linkage.py` — `DisplayLinkage`
+1. **New** `src/punt_lux/hub/display_linkage.py` — `DisplayLinkage`
    enum with `classify()` (§4). Pure, no I/O, trivially unit-testable.
-2. **Modify** `src/punt_lux/domain/hub/respawn_backoff.py` —
+2. **Modify** `src/punt_lux/hub/respawn_backoff.py` —
    parameterize `RespawnBackoff.__new__` with `base_delay`/`max_delay`
    (defaulting to today's `_BASE_DELAY_SECONDS`/`_MAX_DELAY_SECONDS`, so the
    existing crash-respawn caller is unaffected); add the read-only
    `current_delay` property (§6.2).
-3. **Modify** `src/punt_lux/domain/hub/clients.py` (`ClientRegistry`) —
+3. **Modify** `src/punt_lux/hub/clients.py` (`ClientRegistry`) —
    - Add the `_reconnected: threading.Event` field, set inside `get()` on a
      fresh connect (`if not was_connected: self._reconnected.set()`) (§6.3).
    - Add `wait_for_reconnect(timeout: float) -> bool`, deliberately not
@@ -858,10 +858,10 @@ specific file this design read.
    - `get()`'s own connect/reconnect shape is otherwise unchanged — no
      ensure, no split; the earlier draft's `acquire()`/veto machinery is
      fully removed, not merely unused.
-4. **Modify** `src/punt_lux/domain/hub/replicator_ports.py` — add
+4. **Modify** `src/punt_lux/hub/replicator_ports.py` — add
    `wait_for_reconnect` to the `ClientProvider` Protocol (not
    `KeepaliveClients`) (§6.3).
-5. **Modify** `src/punt_lux/domain/hub/replicator.py` — this is the item
+5. **Modify** `src/punt_lux/hub/replicator.py` — this is the item
    the earlier write-set understated; it now covers `_run_cycle` and
    `_CycleOutcome` explicitly, not just `_push_cycle`:
    - Replace `_CycleOutcome.recovered: bool` with
@@ -870,7 +870,7 @@ specific file this design read.
      reclaims via `_reclaim_emptied` nor calls `_back_off()` (§6.1) — the
      structural fix for the double-sleep defect review found.
    - The second backoff is extracted into its own collaborator,
-     `DisconnectedRetry` (new `src/punt_lux/domain/hub/disconnected_retry.py`,
+     `DisconnectedRetry` (new `src/punt_lux/hub/disconnected_retry.py`,
      wrapping `RespawnBackoff` plus the wait and its once-per-transition log),
      held as `self._disconnected_retry: DisconnectedRetry`.
    - `_push_cycle` catches `DisplayNotConnectedError` (not a generic
@@ -881,7 +881,7 @@ specific file this design read.
      repeats (§6.5).
    - New `disconnected_delay` read-only property (returns
      `self._disconnected_backoff.current_delay`) for §9's introspection.
-6. **Modify** `src/punt_lux/domain/hub/liveness.py` (`DisplayLiveness`) —
+6. **Modify** `src/punt_lux/hub/liveness.py` (`DisplayLiveness`) —
    the coordinated cadence and quiet logging in §6.4: the new
    `_DISCONNECTED_PROBE_INTERVAL` constant, the `_disconnected: bool` field,
    `_run`'s adaptive interval, and `_probe`'s per-failure `WARNING` removed
@@ -943,7 +943,7 @@ specific file this design read.
       this change.
     - **Grep-provable safety check (§12 invariant 5)**: a test (or a
       `make check`-wired grep) asserting no source file under
-      `src/punt_lux/domain/hub/` references `ServiceManager` in connection
+      `src/punt_lux/hub/` references `ServiceManager` in connection
       with `DISPLAY_SPEC`/`DisplayServiceManager`.
 12. **CHANGELOG** entry under `## [Unreleased]`.
 13. **z-spec model** — **done** (z-spec mission `m-2026-09-10-002`,
@@ -1035,7 +1035,7 @@ mandatory z-spec still applies.
    curve that climbs but plateaus too low) must be the exact thing the
    model can distinguish from a correct curve.
 5. **The Hub never issues a process-control call to the display.** No
-   code path in `domain/hub/` (replicator, recovery, liveness, client
+   code path in `hub/` (replicator, recovery, liveness, client
    registry) calls `ServiceManager.start()`/`.stop()`/`.restart()` for the
    display, under any circumstance — checkable by grep (§10 item 11) and by
    the model, as the absolute form of the operator's ruling.
@@ -1104,7 +1104,7 @@ mandatory z-spec still applies.
   deliberately does NOT call into from Hub code; still the reference for
   `ServiceSpec`'s existing shape that §7's `restart_on_crash_only` field
   extends.
-- `src/punt_lux/domain/hub/clients.py`, `replicator.py`, `recovery.py`,
+- `src/punt_lux/hub/clients.py`, `replicator.py`, `recovery.py`,
   `respawn_backoff.py`, `liveness.py`, `hub_display.py`,
   `service/_backend_launchd.py`, `service/_backend_systemd.py`, `service/_service_spec.py` — the
   current implementation this design extends.

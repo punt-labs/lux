@@ -1,12 +1,12 @@
-"""Unit tests for punt_lux.domain.hub.display_workers — the worker facade."""
+"""Unit tests for punt_lux.hub.display_workers — the worker facade."""
 
 from __future__ import annotations
 
 from typing import cast
 
-from punt_lux.domain.hub.display_workers import DisplayWorkers
-from punt_lux.domain.hub.liveness import DisplayLiveness
-from punt_lux.domain.hub.replicator import HubReplicator
+from punt_lux.hub.display_workers import DisplayWorkers
+from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.replicator import HubReplicator
 
 
 class _Recorder:

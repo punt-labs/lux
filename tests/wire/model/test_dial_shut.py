@@ -12,7 +12,7 @@ from tests.wire.model.display_double import Display
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.display_connection import DisplayConnection
+    from punt_lux.hub.display_connection import DisplayConnection
 
 
 @pytest.fixture
