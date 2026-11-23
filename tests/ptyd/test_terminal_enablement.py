@@ -25,7 +25,7 @@ def test_process_lookup_handles_empty_invalid_and_multiple_results(
     output: str, expected: int | None
 ) -> None:
     with patch("punt_lux.service._backends.subprocess.run") as run:
-        run.return_value.stdout = output
+        run.return_value.stdout = output.encode()
         assert pgrep_pid("luxd-pty") == expected
 
 
