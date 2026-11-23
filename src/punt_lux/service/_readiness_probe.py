@@ -1,11 +1,10 @@
-"""The local ownership and remote Hub witnesses used by Display readiness."""
+"""The single budgeted local Display ownership witness."""
 
 from __future__ import annotations
 
 import socket
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.service._hub_display_probe import HubDisplayProbe
 from punt_lux.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
@@ -33,7 +32,3 @@ class ReadinessProbe:
                 return SocketOwner.peer_pid_of(probe) == pid
         except OSError:
             return False
-
-    @staticmethod
-    def connected(pid: int, timeout: float) -> str | None:
-        return HubDisplayProbe(pid, timeout).connected()

@@ -12,7 +12,7 @@ import os
 import socket
 
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied
-from punt_lux.operations.models.hub_connected import HubConnected
+from punt_lux.operations.models.hub_connection import HubConnection
 
 from ._fakes import StubPort, make_client
 
@@ -22,6 +22,7 @@ _INFO = {
     "window_height": 800,
     "fps": 60.0,
     "pid": 4242,
+    "hub_connection_id": "spoofed",
     "uptime_seconds": 12.5,
     "protocol_version": "1",
     "element_kinds": 25,
@@ -31,7 +32,9 @@ _INFO = {
 def test_get_display_info_returns_the_typed_record() -> None:
     client = make_client(
         display_port=StubPort(
-            DisplayReplied(_INFO, connection=HubConnected(name="hub-start:1"))
+            DisplayReplied(
+                _INFO, connection=HubConnection.model_validate("hub-start:1")
+            )
         )
     )
     resp = client.get("/display")
@@ -42,14 +45,12 @@ def test_get_display_info_returns_the_typed_record() -> None:
 
 
 def test_display_unavailable_maps_to_503() -> None:
-    client = make_client(
-        display_port=StubPort(DisplayFault(code="display_unavailable"))
-    )
+    client = make_client(display_port=StubPort(DisplayFault.UNAVAILABLE))
     assert client.get("/display").status_code == 503
 
 
 def test_timeout_maps_to_504() -> None:
-    client = make_client(display_port=StubPort(DisplayFault(code="timeout")))
+    client = make_client(display_port=StubPort(DisplayFault.TIMEOUT))
     assert client.get("/display").status_code == 504
 
 

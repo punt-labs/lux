@@ -13,7 +13,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
-from punt_lux.operations.models.hub_connected import HubConnected
+from punt_lux.operations.models.hub_connection import HubConnection
 from punt_lux.service._display_stability import DisplayStability
 from punt_lux.wire.model import QueryResponse
 
@@ -31,7 +31,7 @@ def test_identity_belongs_to_the_pinned_dial_not_the_display(method: str) -> Non
     reply = DisplayQuery.run(cast("DisplayRequests", port), method, {})
     assert isinstance(reply, DisplayReplied)
     assert reply.payload["hub_connection_id"] == "spoofed"
-    assert isinstance(reply.connection, HubConnected)
+    assert isinstance(reply.connection, HubConnection)
     assert reply.connection.name == "hub-dial"
     port.query.assert_called_once_with(method, {})
 
@@ -39,9 +39,7 @@ def test_identity_belongs_to_the_pinned_dial_not_the_display(method: str) -> Non
 def test_no_reply_is_a_timeout() -> None:
     port = MagicMock()
     port.query.return_value = None
-    assert DisplayQuery.run(port, "get_display_info", {}) == DisplayFault(
-        code="timeout"
-    )
+    assert DisplayQuery.run(port, "get_display_info", {}) == DisplayFault.TIMEOUT
 
 
 def test_display_error_is_not_replaced_with_identity_metadata() -> None:
@@ -68,7 +66,7 @@ def test_real_dial_names_survive_query_resolution_and_reset_stability() -> None:
         port.connection_id = dial
         reply = DisplayQuery.run(port, "get_display_info", {})
         assert isinstance(reply, DisplayReplied)
-        assert isinstance(reply.connection, HubConnected)
+        assert isinstance(reply.connection, HubConnection)
         identity = reply.connection.name
         assert identity == dial
         assert window.observe(identity, (now, now)) is expected

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.service._hub_display_facts import HubDisplayFacts
-from punt_lux.service._readiness_http import open_connection
+from punt_lux.service._hub_http_exchange import ReadinessHTTP
 
 
 class HubDisplayProbe:
@@ -22,9 +22,6 @@ class HubDisplayProbe:
 
     def connected(self) -> str | None:
         """Require a successful Hub round trip to this exact Display process."""
-        try:
-            with open_connection(self._timeout) as connection:
-                connection.request("GET", "/display")
-                return HubDisplayFacts(connection.getresponse()).identity(self._pid)
-        except TimeoutError:
-            return None
+        with ReadinessHTTP(self._timeout).open() as connection:
+            connection.request("GET", "/display")
+            return HubDisplayFacts.read(connection.getresponse()).identity(self._pid)

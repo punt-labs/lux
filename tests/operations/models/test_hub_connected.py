@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-from pydantic import ValidationError
+from dataclasses import FrozenInstanceError
 
-from punt_lux.operations.models.hub_connected import HubConnected
+import pytest
+from pydantic import TypeAdapter, ValidationError
+
+from punt_lux.operations.models.hub_connection import HubConnected
 
 
 def test_named_connection() -> None:
@@ -17,9 +19,9 @@ def test_named_connection() -> None:
 )
 def test_invalid_connection(payload: dict[str, str]) -> None:
     with pytest.raises(ValidationError):
-        HubConnected.model_validate(payload)
+        TypeAdapter(HubConnected).validate_python(payload)
 
 
 def test_connection_cannot_be_replaced() -> None:
-    with pytest.raises(ValidationError, match="frozen"):
+    with pytest.raises(FrozenInstanceError):
         HubConnected(name="start:1").__setattr__("name", "start:2")

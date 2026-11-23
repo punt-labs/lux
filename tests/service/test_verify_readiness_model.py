@@ -61,8 +61,10 @@ esac
     "report",
     [
         "exit 0\n",
-        "printf 'No counter example found. ALL states visited.\\n'\n"
-        "printf '! Total Errors: 2, Warnings: 0\\n'\n",
+        (
+            "printf 'No counter example found. ALL states visited.\\n'\n"
+            "printf '! Total Errors: 2, Warnings: 0\\n'\n"
+        ),
     ],
 )
 def test_empty_or_error_reports_do_not_pass(tmp_path: Path, report: str) -> None:

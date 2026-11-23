@@ -362,11 +362,13 @@ The extra invariants require ready to name the sampled PID and the original
 candidate, not a replacement. Each disabled check must have its own witness.
 
 \section{Verification and partitions}
-The verification script checks five safety invariants as unreachable goals:
+The verification script checks seven safety invariants as unreachable goals:
 ready implies sampled dial age at least three; time never exceeds six;
 ready implies the new PID; ready occurs strictly before six; ready requires
 \(sentAt - observedSince \geq 3\), the actual credited observation window on
-the same consecutively observed dial, not merely its age since opening.
+the same consecutively observed dial, not merely its age since opening;
+ready requires the Hub's sampled PID to equal the live local process;
+ready requires that process to remain the original pinned candidate.
 A separate model
 check enables deadlock detection. Terminal self-loops represent termination, not
 continued I/O. Removing \texttt{RESETDIAL} must reach a too-young ready dial;

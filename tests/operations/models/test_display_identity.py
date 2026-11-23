@@ -19,7 +19,7 @@ def test_identity_is_independent_of_process_uptime(dial: str | None) -> None:
             "hub_connection_id": dial,
         }
     )
-    assert facts.hub_connection_id == dial
+    assert facts.hub_connection_id.name == dial
 
 
 def test_empty_identity_does_not_invent_a_process() -> None:

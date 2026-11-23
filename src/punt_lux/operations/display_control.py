@@ -57,23 +57,19 @@ class DisplayControlOperations:
         reply = self._port.query("get_display_info", {})
         if isinstance(reply, DisplayReplied):
             return DisplayInfo.from_payload(
-                {**reply.payload, "hub_connection": reply.connection}
+                {**reply.payload, "hub_connection_id": reply.connection}
             )
         return reply.resolve()
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme and the themes available to switch to."""
-        payload = self._port.query("get_theme", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return ThemeState.from_payload(payload)
+        data = self._port.query("get_theme", {}).resolve()
+        return data if isinstance(data, OpError) else ThemeState.from_payload(data)
 
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        payload = self._port.query("get_window_settings", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return WindowSettings.from_payload(payload)
+        data = self._port.query("get_window_settings", {}).resolve()
+        return data if isinstance(data, OpError) else WindowSettings.from_payload(data)
 
     @staticmethod
     def screenshot() -> Screenshot | OpError:
@@ -132,7 +128,5 @@ class DisplayControlOperations:
         Hub has. Here it sits beside :meth:`set_frame_state`, the other
         operation over the same state.
         """
-        payload = self._port.query("list_scenes", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return FrameStates.from_payload(payload)
+        data = self._port.query("list_scenes", {}).resolve()
+        return data if isinstance(data, OpError) else FrameStates.from_payload(data)

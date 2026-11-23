@@ -162,7 +162,7 @@ def test_geometry_unavailable_when_display_faults() -> None:
     _seed(store)
     ops = QueryOperations(
         store,
-        _StubPort(DisplayFault(code="display_unavailable")),
+        _StubPort(DisplayFault.UNAVAILABLE),
         ClientListing(store, clients, Hub(), _zero_inbox_depth),
     )
     result = ops.inspect_scene("s1", _C1, InspectScope(want_geometry=True))

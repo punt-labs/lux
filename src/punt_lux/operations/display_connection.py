@@ -59,7 +59,7 @@ class HubDisplayConnection:
         timeout, and so is a request that lost the lock to another of its kind.
         """
         if not self._is_running():
-            return DisplayFault(code="display_unavailable")
+            return DisplayFault.UNAVAILABLE
         return self._round_trip(lambda port: DisplayQuery.run(port, method, params))
 
     def ping(self, wait: float | None) -> DisplayReply:
@@ -70,14 +70,14 @@ class HubDisplayConnection:
         clock; the pong's echoed ``ts`` is kept only as a validity signal.
         """
         if not self._is_running():
-            return DisplayFault(code="display_unavailable")
+            return DisplayFault.UNAVAILABLE
         started = time.monotonic()
         outcome = self._round_trip(lambda port: port.ping(timeout=wait))
         elapsed = time.monotonic() - started
         if isinstance(outcome, DisplayFault):
             return outcome
         if outcome is None:
-            return DisplayFault(code="timeout")
+            return DisplayFault.TIMEOUT
         if outcome.ts is None:
             # A pong must echo the ts we sent; one without it is a defective reply,
             # not a zero-latency success — surface it as an error, never 0.0s.

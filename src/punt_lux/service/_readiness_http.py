@@ -1,57 +1,49 @@
-"""Ordinary HTTP connections bounded by socket and whole-request deadlines."""
+"""One absolute I/O deadline, including a socket's complete response body."""
 
 from __future__ import annotations
 
-import http.client
 import socket
 import threading
 import time
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING
-
-from punt_lux.kernel.hub_paths import HubPaths
+from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
 
-def _expire(sock: socket.socket) -> None:
-    with suppress(OSError):
-        sock.shutdown(socket.SHUT_RDWR)
+class ProbeDeadline:
+    """Socket timeouts and the watchdog spend the same remaining budget."""
 
+    _deadline: float
 
-def _remaining(deadline: float) -> float:
-    if (remaining := deadline - time.monotonic()) <= 0:
-        raise TimeoutError("Hub Display probe deadline elapsed")
-    return remaining
+    def __new__(cls, seconds: float) -> Self:
+        self = super().__new__(cls)
+        self._deadline = time.monotonic() + seconds
+        return self
 
+    def remaining(self) -> float:
+        """Require a positive budget before starting another operation."""
+        if (remaining := self._deadline - time.monotonic()) <= 0:
+            raise TimeoutError("Hub Display probe deadline elapsed")
+        return remaining
 
-@contextmanager
-def open_connection(timeout: float) -> Generator[http.client.HTTPConnection]:
-    """Close an ordinary connection at the absolute deadline, even during reads."""
-    deadline = time.monotonic() + timeout
-    if (port := HubPaths().read_port()) is None:
-        raise ConnectionError("Hub port file is missing; Hub is not running")
-    connection = http.client.HTTPConnection(
-        "127.0.0.1", port, timeout=_remaining(deadline)
-    )
-    watchdog = None
-    try:
-        connection.connect()
-        sock = connection.sock
+    @contextmanager
+    def watch(self, sock: socket.socket | None) -> Generator[None]:
+        """Interrupt a response read without racing the response's cleanup."""
         if sock is None:
             raise ConnectionError("Hub connection has no socket")
-        sock.settimeout(_remaining(deadline))
-        watchdog = threading.Timer(_remaining(deadline), _expire, args=(sock,))
+        sock.settimeout(self.remaining())
+        watchdog = threading.Timer(self.remaining(), self._expire, args=(sock,))
         watchdog.daemon = True
         watchdog.start()
-        yield connection
-    except TimeoutError:
-        raise
-    except (OSError, http.client.HTTPException, ValueError) as error:
-        raise ConnectionError(f"Hub Display probe unavailable: {error}") from error
-    finally:
-        if watchdog is not None:
+        try:
+            yield
+        finally:
             watchdog.cancel()
             watchdog.join()
-        connection.close()
+
+    @staticmethod
+    def _expire(sock: socket.socket) -> None:
+        with suppress(OSError):
+            sock.shutdown(socket.SHUT_RDWR)

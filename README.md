@@ -445,6 +445,15 @@ Rendering uses [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut's imm
 [Contributing](CONTRIBUTING.md) |
 [Changelog](CHANGELOG.md)
 
+### Development and release checks
+
+The full `make check` gate, also used by release preflight, requires the `fuzz`
+Z typechecker and ProB's `probcli` in addition to the Python and Node tools.
+The [model CI workflow](.github/workflows/models.yml) records the pinned tool
+versions and installation recipe. Install these tools before running a release.
+ProB defaults to `~/Applications/ProB/probcli`; for an installation on `PATH`,
+run `PROBCLI="$(command -v probcli)" make check`.
+
 ## License
 
 MIT

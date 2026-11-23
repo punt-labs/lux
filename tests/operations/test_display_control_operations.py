@@ -102,14 +102,14 @@ def test_get_display_info_accepts_the_live_display_payload() -> None:
 
 
 def test_get_display_info_maps_unavailable_to_op_error() -> None:
-    ops = _ops(_FakePort(query=DisplayFault(code="display_unavailable")))
+    ops = _ops(_FakePort(query=DisplayFault.UNAVAILABLE))
     result = ops.get_display_info()
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"
 
 
 def test_get_display_info_maps_timeout_to_op_error() -> None:
-    ops = _ops(_FakePort(query=DisplayFault(code="timeout")))
+    ops = _ops(_FakePort(query=DisplayFault.TIMEOUT))
     result = ops.get_display_info()
     assert isinstance(result, OpError)
     assert result.code == "timeout"
@@ -259,7 +259,7 @@ def test_list_frames_refuses_a_reply_it_does_not_recognise() -> None:
 
 def test_list_frames_passes_a_display_failure_through() -> None:
     """No display running is a fault the caller sees, never an empty frame list."""
-    port = _FakePort(query=DisplayFault(code="display_unavailable"))
+    port = _FakePort(query=DisplayFault.UNAVAILABLE)
 
     result = _ops(port).list_frames()
 

@@ -28,9 +28,9 @@ def test_distinct_hub_processes_and_start_times_cannot_reuse_a_dial_name() -> No
     for pid, started in [(100, 10), (101, 10), (100, 11)]:
         with (
             patch("punt_lux.hub.dial_generation.DialSocket"),
-            patch("punt_lux.hub.dial_generation.os.getpid", return_value=pid),
-            patch("punt_lux.hub.dial_generation._HUB_STARTED", started),
-            patch("punt_lux.hub.dial_generation._DIAL_SEQUENCE", count(1)),
+            patch("punt_lux.hub.dial_identity.os.getpid", return_value=pid),
+            patch("punt_lux.hub.dial_identity._HUB_STARTED", started),
+            patch("punt_lux.hub.dial_identity._DIAL_SEQUENCE", count(1)),
         ):
             names.append(DialGeneration(MagicMock(), MagicMock()).connection_id)
     assert names == ["100:10:1", "101:10:1", "100:11:1"]

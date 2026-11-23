@@ -12,7 +12,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
-from punt_lux.operations.models.hub_connected import HubConnected
+from punt_lux.operations.models.hub_connection import HubConnection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -37,29 +37,27 @@ class DisplayQuery:
         try:
             port = self._clients.asks()
         except (DisplayNotConnectedError, ConnectionClosedError):
-            return DisplayFault(code="display_unavailable")
+            return DisplayFault.UNAVAILABLE
         except OSError:
-            return DisplayFault(code="timeout")
+            return DisplayFault.TIMEOUT
         try:
             return call(port)
-        except DisplayBusyError:
-            return DisplayFault(code="timeout")
-        except ConnectionClosedError:
-            self._clients.drop(port.dial)
-            return DisplayFault(code="display_unavailable")
-        except OSError:
-            self._clients.drop(port.dial)
-            return DisplayFault(code="timeout")
+        except (DisplayBusyError, ConnectionClosedError, OSError) as error:
+            if not isinstance(error, DisplayBusyError):
+                self._clients.drop(port.dial)
+            return (
+                DisplayFault.UNAVAILABLE
+                if isinstance(error, ConnectionClosedError)
+                else DisplayFault.TIMEOUT
+            )
 
     @staticmethod
     def run(
         port: DisplayRequests, method: str, params: Mapping[str, object]
     ) -> DisplayReply:
-        response = port.query(method, dict(params))
-        if response is None:
-            return DisplayFault(code="timeout")
-        if response.error:
-            return DisplayErrored(message=response.error)
-        return DisplayReplied(
-            payload=response.result, connection=HubConnected(name=port.connection_id)
-        )
+        reply = port.query(method, dict(params))
+        if reply is None:
+            return DisplayFault.TIMEOUT
+        if reply.error:
+            return DisplayErrored(message=reply.error)
+        return DisplayReplied(reply.result, HubConnection.observed(port.connection_id))

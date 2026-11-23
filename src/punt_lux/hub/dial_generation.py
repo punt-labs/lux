@@ -17,10 +17,7 @@ socket lock. The sink's lock is never held while taking the socket lock.
 
 from __future__ import annotations
 
-import os
-import time
 from dataclasses import dataclass
-from itertools import count
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import TornStreamError
@@ -29,8 +26,8 @@ from punt_lux.hub.connection_closed import (
     HubRetiredError,
     UnresponsiveError,
 )
+from punt_lux.hub.dial_identity import DialIdentity
 from punt_lux.hub.dial_socket import DialSocket
-from punt_lux.hub.generation_ref import GenerationRef
 from punt_lux.hub.reply_sink import ReplySink
 from punt_lux.tracing import trace
 from punt_lux.wire.model import PingMessage, encode_message
@@ -41,6 +38,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.connection_closed import RetireCause
     from punt_lux.hub.dial_writer import DialWriter
     from punt_lux.hub.drain_result import Drained
+    from punt_lux.hub.generation_ref import GenerationRef
     from punt_lux.hub.handshake_outcome import HandshakeResult
     from punt_lux.hub.pending import Pending
     from punt_lux.hub.settlement import Settlement
@@ -55,9 +53,6 @@ if TYPE_CHECKING:
     )
 
 __all__ = ["DialEnds", "DialGeneration"]
-
-_HUB_STARTED = time.time_ns()
-_DIAL_SEQUENCE = count(1)
 
 
 @final
@@ -82,11 +77,10 @@ class DialGeneration:
     _socket: DialSocket
     _writer: DialWriter
     # The identity every failure names this dial by: one per dial, equal to itself.
-    _ref: GenerationRef
-    _connection_id: str
+    _identity: DialIdentity
     # Reports this dial's own breakage to whoever holds the current dial.
     _ends: DialEnds
-    __slots__ = ("_connection_id", "_ends", "_ref", "_sink", "_socket", "_writer")
+    __slots__ = ("_ends", "_identity", "_sink", "_socket", "_writer")
 
     def __new__(
         cls,
@@ -96,8 +90,7 @@ class DialGeneration:
         self = super().__new__(cls)
         self._ends = ends
         self._sink = ReplySink()
-        self._ref = GenerationRef(self)
-        self._connection_id = f"{os.getpid()}:{_HUB_STARTED}:{next(_DIAL_SEQUENCE)}"
+        self._identity = DialIdentity.for_generation(self)
         self._socket = DialSocket(dial, self._sink, require_open=self._require_open)
         self._writer = self._socket.writer(self._write_failed)
         return self
@@ -105,7 +98,7 @@ class DialGeneration:
     @property
     def connection_id(self) -> str:
         """Name this dial within this Hub process lifetime."""
-        return self._connection_id
+        return self._identity.name
 
     @property
     def owed_acks(self) -> int:
@@ -129,7 +122,7 @@ class DialGeneration:
     @property
     def ref(self) -> GenerationRef:
         """A name for this dial that confers no power over it: what a failure names."""
-        return self._ref
+        return self._identity.reference
 
     @property
     def ready(self) -> ReadyMessage:
