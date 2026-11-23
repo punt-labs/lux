@@ -31,8 +31,18 @@ class MenuProcess:
     def poll(self) -> None:
         if self._stopping:
             return
-        if self._child is not None and not self._child.poll():
-            return
+        if self._child is not None:
+            if not self._child.poll():
+                return
+            logger.log(
+                {0: logging.INFO, None: logging.WARNING}.get(
+                    self._child.exit_code, logging.ERROR
+                ),
+                "Terminal menu helper exited (status %s); retrying. "
+                "After upgrading, restart luxd-pty with make restart.",
+                self._child.exit_code,
+            )
+            self._child = None
         if time.monotonic() >= self._retry_at:
             self._spawn()
 
