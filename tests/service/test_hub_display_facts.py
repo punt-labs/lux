@@ -27,7 +27,7 @@ def test_a_matching_process_must_name_its_dial(identity: str | None) -> None:
         }
     ).encode()
     if identity:
-        assert HubDisplayFacts.identity(response, 502) == identity
+        assert HubDisplayFacts(response).identity(502) == identity
     else:
         with pytest.raises(ConnectionError, match="restart Hub"):
-            HubDisplayFacts.identity(response, 502)
+            HubDisplayFacts(response).identity(502)

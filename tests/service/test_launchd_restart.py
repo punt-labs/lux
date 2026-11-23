@@ -129,6 +129,7 @@ def test_recovered_restart_waits_for_readiness(
     with (
         patch(
             "punt_lux.service._display_readiness.ReadinessProbe.local",
+            autospec=True,
             side_effect=ProbeDouble.local,
         ),
         patch("pathlib.Path.home", return_value=tmp_path),

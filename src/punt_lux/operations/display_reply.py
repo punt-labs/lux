@@ -11,10 +11,12 @@ running, or did not answer in time.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Literal
 
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.display_identity import HubConnection
+from punt_lux.operations.models.hub_unobserved import HubUnobserved
 
 __all__ = [
     "DisplayErrored",
@@ -34,6 +36,7 @@ class DisplayReplied:
     """
 
     payload: Mapping[str, object]
+    connection: HubConnection = field(default_factory=HubUnobserved)
 
     def resolve(self) -> Mapping[str, object] | OpError:
         """Resolve a successful display reply to its payload."""
@@ -46,7 +49,7 @@ class DisplayErrored:
 
     message: str
 
-    def resolve(self) -> Mapping[str, object] | OpError:
+    def resolve(self) -> OpError:
         """Convert a display-reported error to a rejected operation."""
         return OpError(code="rejected", reason=self.message)
 
@@ -67,7 +70,7 @@ class DisplayFault:
         "timeout": "display did not respond in time",
     }
 
-    def resolve(self) -> Mapping[str, object] | OpError:
+    def resolve(self) -> OpError:
         """Convert a reply fault to the operation error named by its code."""
         return OpError(code=self.code, reason=self._REASON[self.code])
 

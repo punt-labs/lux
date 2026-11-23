@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.operations.models.display_info import DisplayInfo
 
@@ -13,8 +13,15 @@ if TYPE_CHECKING:
 class HubDisplayFacts:
     """A matching process must also name the Hub connection that answered."""
 
-    @staticmethod
-    def identity(response: http.client.HTTPResponse, pid: int) -> str | None:
+    _response: http.client.HTTPResponse
+
+    def __new__(cls, response: http.client.HTTPResponse) -> Self:
+        self = super().__new__(cls)
+        self._response = response
+        return self
+
+    def identity(self, pid: int) -> str | None:
+        response = self._response
         if response.status in (503, 504):
             return None
         if response.status != 200:

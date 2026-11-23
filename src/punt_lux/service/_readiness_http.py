@@ -1,91 +1,57 @@
-"""HTTP probes with one deadline across connect, send, headers, and body reads."""
+"""Ordinary HTTP connections bounded by socket and whole-request deadlines."""
 
 from __future__ import annotations
 
 import http.client
-import io
+import socket
+import threading
 import time
-from contextlib import contextmanager
-from functools import partial
-from typing import TYPE_CHECKING, Self, cast
+from contextlib import contextmanager, suppress
+from typing import TYPE_CHECKING
 
 from punt_lux.kernel.hub_paths import HubPaths
 
 if TYPE_CHECKING:
-    import socket
-    from collections.abc import Buffer, Generator
+    from collections.abc import Generator
 
 
-class ReadinessHTTP(io.RawIOBase):
-    """Adapt HTTPResponse's file reads to a shrinking socket budget."""
+def _expire(sock: socket.socket) -> None:
+    with suppress(OSError):
+        sock.shutdown(socket.SHUT_RDWR)
 
-    __slots__ = ("_deadline", "_socket")
-    _socket: socket.socket
-    _deadline: float
 
-    def __new__(cls, sock: socket.socket, deadline: float) -> Self:
-        sock = sock.dup()
-        self = super().__new__(cls)
-        self._socket, self._deadline = sock, deadline
-        return self
+def _remaining(deadline: float) -> float:
+    if (remaining := deadline - time.monotonic()) <= 0:
+        raise TimeoutError("Hub Display probe deadline elapsed")
+    return remaining
 
-    def close(self) -> None:
-        self._socket.close()
-        super().close()
 
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer: Buffer) -> int:
-        self._socket.settimeout(self._remaining(self._deadline))
-        return self._socket.recv_into(cast("bytearray", buffer))
-
-    def makefile(self, _mode: str) -> io.BufferedReader:
-        """HTTPResponse only asks its socket for a buffered binary reader."""
-        return io.BufferedReader(self)
-
-    @staticmethod
-    def _response(
-        sock: socket.socket,
-        debuglevel: int = 0,
-        method: str | None = None,
-        *,
-        deadline: float,
-    ) -> http.client.HTTPResponse:
-        reader = ReadinessHTTP(sock, deadline)
-        return http.client.HTTPResponse(
-            cast("socket.socket", reader), debuglevel=debuglevel, method=method
-        )
-
-    @staticmethod
-    def _remaining(deadline: float) -> float:
-        if (remaining := deadline - time.monotonic()) <= 0:
-            raise TimeoutError("Hub Display probe deadline elapsed")
-        return remaining
-
-    @staticmethod
-    @contextmanager
-    def open(timeout: float) -> Generator[http.client.HTTPConnection]:
-        deadline = time.monotonic() + timeout
-        if (port := HubPaths().read_port()) is None:
-            raise ConnectionError(
-                "Hub is not running; start it before restarting Display"
-            )
-        connection = http.client.HTTPConnection(
-            "127.0.0.1", port, timeout=ReadinessHTTP._remaining(deadline)
-        )
-        try:
-            connection.connect()
-            sock = cast("socket.socket", connection.sock)
-            sock.settimeout(ReadinessHTTP._remaining(deadline))
-            connection.response_class = cast(
-                "type[http.client.HTTPResponse]",
-                partial(ReadinessHTTP._response, deadline=deadline),
-            )
-            yield connection
-        except TimeoutError:
-            raise
-        except (OSError, http.client.HTTPException, ValueError) as error:
-            raise ConnectionError(f"Hub Display probe unavailable: {error}") from error
-        finally:
-            connection.close()
+@contextmanager
+def open_connection(timeout: float) -> Generator[http.client.HTTPConnection]:
+    """Close an ordinary connection at the absolute deadline, even during reads."""
+    deadline = time.monotonic() + timeout
+    if (port := HubPaths().read_port()) is None:
+        raise ConnectionError("Hub port file is missing; Hub is not running")
+    connection = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=_remaining(deadline)
+    )
+    watchdog = None
+    try:
+        connection.connect()
+        sock = connection.sock
+        if sock is None:
+            raise ConnectionError("Hub connection has no socket")
+        sock.settimeout(_remaining(deadline))
+        watchdog = threading.Timer(_remaining(deadline), _expire, args=(sock,))
+        watchdog.daemon = True
+        watchdog.start()
+        yield connection
+    except TimeoutError:
+        raise
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        raise ConnectionError(f"Hub Display probe unavailable: {error}") from error
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+            watchdog.join()
+        connection.close()

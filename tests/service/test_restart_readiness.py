@@ -146,6 +146,7 @@ def test_success_does_not_probe_launchd(
     with (
         patch(
             "punt_lux.service._display_readiness.ReadinessProbe.local",
+            autospec=True,
             side_effect=ProbeDouble.local,
         ),
         patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),

@@ -11,8 +11,13 @@ from punt_lux.operations.models.display_info import DisplayInfo
 
 @pytest.mark.parametrize("dial", [None, "hub-dial"])
 def test_identity_is_independent_of_process_uptime(dial: str | None) -> None:
-    facts = DisplayIdentity(
-        pid=502, uptime_seconds=5, protocol_version="3", hub_connection_id=dial
+    facts = DisplayIdentity.model_validate(
+        {
+            "pid": 502,
+            "uptime_seconds": 5,
+            "protocol_version": "3",
+            "hub_connection_id": dial,
+        }
     )
     assert facts.hub_connection_id == dial
 

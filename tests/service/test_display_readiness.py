@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -21,7 +22,7 @@ def paths() -> Iterator[MagicMock]:
     result.peer_pid.return_value = 502
     with patch(
         "punt_lux.service._display_readiness.ReadinessProbe.local",
-        side_effect=ProbeDouble.local,
+        new=ProbeDouble.local,
     ):
         yield result
 
@@ -142,6 +143,77 @@ def test_hub_unreachable_is_logged_and_becomes_existing_cli_error(
     assert DISPLAY_SPEC.launchd_label in caplog.text
 
 
+def test_refused_hub_can_come_up_and_must_start_a_fresh_window(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        hub.side_effect = ConnectionRefusedError("connection refused")
+        assert not ready.observe(502, 501)
+        clock.return_value = 5
+        hub.side_effect = None
+        hub.return_value = "dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 8
+        assert ready.observe(502, 501)
+
+
+def test_connecting_at_28_seconds_cannot_finish_before_timeout(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            return_value="dial",
+        ),
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        clock.return_value = 28
+        assert not ready.observe(502, 501)
+        clock.return_value = 29.9
+        assert not ready.observe(502, 501)
+        clock.return_value = 30
+        with pytest.raises(DisplayReadinessError, match="stability window"):
+            ready.observe(502, 501)
+
+
+def test_polls_does_not_yield_at_the_deadline() -> None:
+    now = 0.0
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        now += seconds
+
+    with (
+        patch(
+            "punt_lux.service._display_readiness.time.monotonic",
+            side_effect=lambda: now,
+        ),
+        patch("punt_lux.service._display_readiness.time.sleep", side_effect=sleep),
+    ):
+        assert len(list(DisplayReadiness.polls(1, 0.25))) == 3
+        assert now == 1
+
+
+def test_stale_stderr_is_omitted_and_current_tail_names_mtime(tmp_path: Path) -> None:
+    log = tmp_path / ".punt-labs/lux/logs/luxd-display-stderr.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("old monitor error")
+    mtime = log.stat().st_mtime
+    with patch("pathlib.Path.home", return_value=tmp_path):
+        stale = DisplayReadiness._stderr_tail(mtime + 1)
+        fresh = DisplayReadiness._stderr_tail(mtime)
+    assert "omitted" in stale and "old monitor error" not in stale
+    assert "old monitor error" in fresh
+    assert f"mtime {mtime:.6f}" in fresh
+
+
 @pytest.mark.parametrize(
     "pids,connections,expected_error",
     [
@@ -164,6 +236,10 @@ def test_restart_command_uses_the_full_stability_witness(
     log.write_text(monitor_error)
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
+        patch(
+            "punt_lux.service.display_restart.time.time",
+            return_value=log.stat().st_mtime,
+        ),
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
         patch("punt_lux.service.display_restart.pgrep_pid", side_effect=[501, *pids]),
         patch(
@@ -228,7 +304,9 @@ def test_timeout_without_hub_match_names_missing_witness(paths: MagicMock) -> No
 def test_local_and_hub_probes_share_the_remaining_deadline(paths: MagicMock) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.ReadinessProbe.local") as local,
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.local", autospec=True
+        ) as local,
         patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
@@ -259,7 +337,9 @@ def test_local_and_hub_probes_share_the_remaining_deadline(paths: MagicMock) -> 
 def test_local_probe_time_cannot_age_the_preceding_hub_sample(paths: MagicMock) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.ReadinessProbe.local") as local,
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.local", autospec=True
+        ) as local,
         patch(
             "punt_lux.service._display_readiness.ReadinessProbe.connected",
             return_value="dial",
@@ -326,3 +406,93 @@ def test_unavailable_or_empty_stderr_does_not_mask_failure(
             path.parent.mkdir(parents=True)
             path.write_text(content)
         assert DisplayReadiness._stderr_tail() == ""
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionRefusedError("refused"),
+        ConnectionResetError("reset"),
+        ConnectionError("missing port file"),
+        ConnectionError("HTTP 500"),
+    ],
+)
+def test_transport_failure_resets_an_observed_window(
+    paths: MagicMock, error: ConnectionError
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        hub.return_value = "dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 2
+        hub.side_effect = error
+        assert not ready.observe(502, 501)
+        clock.return_value = 3
+        hub.side_effect = None
+        assert not ready.observe(502, 501)
+        clock.return_value = 5.9
+        assert not ready.observe(502, 501)
+        clock.return_value = 6
+        assert ready.observe(502, 501)
+
+
+def test_timeout_names_the_last_transport_error(paths: MagicMock) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        hub.side_effect = ConnectionError("first refused")
+        assert not ready.observe(502, 501)
+        hub.side_effect = ConnectionError("last reset")
+        assert not ready.observe(502, 501)
+        clock.return_value = 30
+        with pytest.raises(DisplayReadinessError, match="last reset") as error:
+            ready.observe(502, 501)
+        assert "first refused" not in str(error.value)
+
+
+def test_live_pid_without_local_socket_names_the_missing_witness(
+    paths: MagicMock,
+) -> None:
+    paths.is_running.return_value = False
+    with patch("punt_lux.service._display_readiness.time.monotonic") as clock:
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        assert not ready.observe(502, 501)
+        clock.return_value = 30
+        with pytest.raises(
+            DisplayReadinessError, match="pid 502 has no live owned local socket"
+        ):
+            ready.observe(502, 501)
+
+
+def test_pgrep_gets_only_the_remaining_budget(paths: MagicMock) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service.display_restart.pgrep_pid") as pgrep,
+    ):
+        clock.return_value = 0
+
+        def polls() -> Iterator[None]:
+            clock.return_value = 29.75
+            yield
+
+        def probe(_name: str, *, timeout: float | None = None) -> int:
+            if timeout is None:
+                return 501
+            assert timeout == 0.25
+            clock.return_value = 30
+            raise subprocess.TimeoutExpired("pgrep", timeout)
+
+        pgrep.side_effect = probe
+        with (
+            patch.object(DisplayRestart, "_polls", side_effect=polls),
+            pytest.raises(DisplayRestartError, match="within 30s"),
+        ):
+            DisplayRestart(manager=MagicMock(), paths=paths).run()

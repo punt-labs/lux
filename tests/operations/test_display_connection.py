@@ -76,6 +76,10 @@ class _Client:
     ping_timeout: float | None
 
     @property
+    def connection_id(self) -> str:
+        return "test-hub:1"
+
+    @property
     def dial(self) -> DialRef:
         """The dial a failed request names when it asks for the drop."""
         return self._dial

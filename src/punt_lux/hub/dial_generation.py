@@ -17,7 +17,10 @@ socket lock. The sink's lock is never held while taking the socket lock.
 
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import dataclass
+from itertools import count
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.bounded_send import TornStreamError
@@ -53,6 +56,9 @@ if TYPE_CHECKING:
 
 __all__ = ["DialEnds", "DialGeneration"]
 
+_HUB_STARTED = time.time_ns()
+_DIAL_SEQUENCE = count(1)
+
 
 @final
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -77,9 +83,10 @@ class DialGeneration:
     _writer: DialWriter
     # The identity every failure names this dial by: one per dial, equal to itself.
     _ref: GenerationRef
+    _connection_id: str
     # Reports this dial's own breakage to whoever holds the current dial.
     _ends: DialEnds
-    __slots__ = ("_ends", "_ref", "_sink", "_socket", "_writer")
+    __slots__ = ("_connection_id", "_ends", "_ref", "_sink", "_socket", "_writer")
 
     def __new__(
         cls,
@@ -90,9 +97,15 @@ class DialGeneration:
         self._ends = ends
         self._sink = ReplySink()
         self._ref = GenerationRef(self)
+        self._connection_id = f"{os.getpid()}:{_HUB_STARTED}:{next(_DIAL_SEQUENCE)}"
         self._socket = DialSocket(dial, self._sink, require_open=self._require_open)
         self._writer = self._socket.writer(self._write_failed)
         return self
+
+    @property
+    def connection_id(self) -> str:
+        """Name this dial within this Hub process lifetime."""
+        return self._connection_id
 
     @property
     def owed_acks(self) -> int:

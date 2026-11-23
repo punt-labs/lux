@@ -51,6 +51,11 @@ class DisplayRequests:
         return cls(exchange.current(), exchange)
 
     @property
+    def connection_id(self) -> str:
+        """The process-scoped serial of the pinned Hub dial."""
+        return self._generation.connection_id
+
+    @property
     def dial(self) -> DialRef:
         """The dial every request through this port uses: what a failure names."""
         return self._generation.ref

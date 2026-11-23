@@ -17,7 +17,7 @@ from pathlib import Path
 __all__ = ["ServiceBackend", "has_linger", "pgrep_pid"]
 
 
-def pgrep_pid(process_name: str) -> int | None:
+def pgrep_pid(process_name: str, *, timeout: float | None = None) -> int | None:
     """Return the pid of the running process, or ``None`` if none is up.
 
     ``pgrep -x`` matches the ``setproctitle`` name — the same string that
@@ -31,6 +31,7 @@ def pgrep_pid(process_name: str) -> int | None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout,
     )
     try:
         return int(result.stdout.strip().splitlines()[0])

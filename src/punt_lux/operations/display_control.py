@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
@@ -53,10 +54,12 @@ class DisplayControlOperations:
 
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""
-        payload = self._port.query("get_display_info", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return DisplayInfo.from_payload(payload)
+        reply = self._port.query("get_display_info", {})
+        if isinstance(reply, DisplayReplied):
+            return DisplayInfo.from_payload(
+                {**reply.payload, "hub_connection": reply.connection}
+            )
+        return reply.resolve()
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme and the themes available to switch to."""

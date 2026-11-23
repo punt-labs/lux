@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.hub.connection_closed import ConnectionClosedError
 from punt_lux.hub.display_busy import DisplayBusyError
@@ -12,6 +12,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
+from punt_lux.operations.models.hub_connected import HubConnected
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -24,13 +25,17 @@ if TYPE_CHECKING:
 class DisplayQuery:
     """Turn one pinned query into an operation reply without redialing."""
 
-    @staticmethod
-    def exchange[T](
-        clients: ClientRegistry, call: Callable[[DisplayRequests], T]
-    ) -> T | DisplayFault:
+    _clients: ClientRegistry
+
+    def __new__(cls, clients: ClientRegistry) -> Self:
+        self = super().__new__(cls)
+        self._clients = clients
+        return self
+
+    def exchange[T](self, call: Callable[[DisplayRequests], T]) -> T | DisplayFault:
         """Pin before calling; a failure retires only the dial that failed."""
         try:
-            port = clients.asks()
+            port = self._clients.asks()
         except (DisplayNotConnectedError, ConnectionClosedError):
             return DisplayFault(code="display_unavailable")
         except OSError:
@@ -40,10 +45,10 @@ class DisplayQuery:
         except DisplayBusyError:
             return DisplayFault(code="timeout")
         except ConnectionClosedError:
-            clients.drop(port.dial)
+            self._clients.drop(port.dial)
             return DisplayFault(code="display_unavailable")
         except OSError:
-            clients.drop(port.dial)
+            self._clients.drop(port.dial)
             return DisplayFault(code="timeout")
 
     @staticmethod
@@ -55,7 +60,6 @@ class DisplayQuery:
             return DisplayFault(code="timeout")
         if response.error:
             return DisplayErrored(message=response.error)
-        payload = response.result
-        if method == "get_display_info":
-            payload = {**payload, "hub_connection_id": str(port.dial)}
-        return DisplayReplied(payload=payload)
+        return DisplayReplied(
+            payload=response.result, connection=HubConnected(name=port.connection_id)
+        )

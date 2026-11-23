@@ -18,6 +18,7 @@ def stable_hub_witness() -> Iterator[None]:
     with (
         patch(
             "punt_lux.service._display_readiness.ReadinessProbe.local",
+            autospec=True,
             side_effect=ProbeDouble.local,
         ),
         patch(
@@ -34,7 +35,7 @@ def _pid_series(*values: int | None) -> Iterator[int | None]:
 
 
 def _fake_pgrep(series: Iterator[int | None]) -> object:
-    def _next(_name: str) -> int | None:
+    def _next(_name: str, **_kwargs: object) -> int | None:
         return next(series)
 
     return _next
@@ -49,7 +50,7 @@ def _pid_after(before: int, after: int) -> object:
     """
     calls = iter([before])
 
-    def _next(_name: str) -> int:
+    def _next(_name: str, **_kwargs: object) -> int:
         return next(calls, after)
 
     return _next

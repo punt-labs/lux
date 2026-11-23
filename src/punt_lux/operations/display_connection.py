@@ -86,7 +86,7 @@ class HubDisplayConnection:
 
     def _round_trip[T](self, call: Callable[[DisplayRequests], T]) -> T | DisplayFault:
         """Run a pinned request with this adapter's registry and drop policy."""
-        return DisplayQuery.exchange(self._clients, call)
+        return DisplayQuery(self._clients).exchange(call)
 
     @property
     def is_connected(self) -> bool:

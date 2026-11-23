@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.service import (
@@ -56,19 +58,25 @@ class DisplayRestart:
 
     def run(self) -> str:
         """Restart the display and return the line describing what came back."""
+        started_at = time.time()
         before = pgrep_pid(self._spec.process_name)
         try:
             self._manager.restart()
         except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
             raise DisplayRestartError(str(exc)) from exc
-        return self._await_ready(before)
+        return self._await_ready(before, started_at)
 
-    def _await_ready(self, before: int | None) -> str:
+    def _await_ready(self, before: int | None, started_at: float | None = None) -> str:
         """Require the new process to survive the Hub connection stability window."""
-        readiness = DisplayReadiness(self._spec, self._paths, _WAIT_SECONDS)
+        readiness = DisplayReadiness(self._spec, self._paths, _WAIT_SECONDS, started_at)
         try:
             for _ in self._polls():
-                pid = pgrep_pid(self._spec.process_name)
+                try:
+                    pid = pgrep_pid(
+                        self._spec.process_name, timeout=readiness.remaining()
+                    )
+                except subprocess.TimeoutExpired:
+                    readiness.timeout()
                 if readiness.observe(pid, before):
                     return f"display restarted (pid {pid}) at {self._paths.socket_path}"
             readiness.timeout()
