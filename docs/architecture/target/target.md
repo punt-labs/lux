@@ -304,6 +304,12 @@ old-path aliases remain. Tests mirror `pty/` and `wire/stream/`.
 initializer and public root still eagerly load Hub code, as described in step 6;
 runtime import isolation remains operations-package debt.
 
+The pickle decoder maps old `protocol.pty` globals to `wire.stream` without
+making the old package importable. Ready remains `0.3`: terminal scene pickles
+contain model elements with primitive placement fields, not stream contracts or
+PTY execution objects. PTY control and stream frames use JSON/binary codecs,
+not pickle; no PTY execution pickle-name remapping is needed.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in

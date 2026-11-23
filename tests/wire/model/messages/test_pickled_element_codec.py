@@ -26,12 +26,14 @@ from punt_lux.hub.hub_factory import HubPublishSink, hub_element_factory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import ReadyMessage, encode_frame, recv_message
 from punt_lux.wire.model.element_abc import Element
+from punt_lux.wire.model.elements.terminal import TerminalElement
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId
 from punt_lux.wire.model.messages.model_unpickler import ModelUnpickler
 from punt_lux.wire.model.messages.pickled_element_codec import PickledElementCodec
 from punt_lux.wire.model.messages.scene_codec import SceneCodec
 from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.stream.session_label import SessionLabel
 
 # A pickle whose GLOBAL opcode names a module that does not exist — exactly what
 # a renamed or deleted element class produces at the receiving tier. Raw
@@ -81,9 +83,32 @@ def test_unpickler_resolves_moved_globals(
     assert ModelUnpickler(io.BytesIO()).find_class(module, name) is expected
 
 
-def test_retained_pty_package_is_not_remapped() -> None:
-    with pytest.raises(AttributeError, match=r"punt_lux\.protocol\.pty"):
+def test_current_stream_package_is_not_remapped() -> None:
+    with pytest.raises(AttributeError, match=r"punt_lux\.wire\.stream"):
         ModelUnpickler(io.BytesIO()).find_class("punt_lux.wire.stream", "NoSuchClass")
+
+
+def test_old_stream_pickle_resolves_without_import_aliases() -> None:
+    label = SessionLabel("kept session")
+    payload = pickle.dumps(label, protocol=0)
+    old_payload = payload.replace(b"punt_lux.wire.stream.", b"punt_lux.protocol.pty.")
+    assert old_payload != payload
+    assert ModelUnpickler(io.BytesIO(old_payload)).load() == label
+    with pytest.raises(ValueError, match="_pickled is not an Element: SessionLabel"):
+        PickledElementCodec().decode_all(
+            [{"_pickled": base64.b64encode(old_payload).decode("ascii")}]
+        )
+
+
+def test_terminal_scene_pickle_has_no_execution_or_stream_globals() -> None:
+    element = TerminalElement(id="terminal", session="kept-session")
+    payload = pickle.dumps(element, protocol=0)
+    assert b"punt_lux.wire.stream" not in payload
+    assert b"punt_lux.pty" not in payload
+    decoded = PickledElementCodec().decode_all(
+        [{"_pickled": base64.b64encode(payload).decode("ascii")}]
+    )
+    assert decoded[0].to_dict() == element.to_dict()
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["current", "legacy-hub"])

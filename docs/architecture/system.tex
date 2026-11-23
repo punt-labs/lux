@@ -485,6 +485,10 @@ The terminal menu projection imports request values from
 \modpath{operations/models/}, removing the direct static PTY-to-Hub edge.
 The operations initializer still eagerly loads Hub code; runtime import
 isolation remains operations-package debt.
+The pickle decoder resolves old stream globals at their new namespace without
+import aliases. Ready remains version \texttt{0.3}: terminal element pickles
+carry primitive placement fields, not stream contracts or PTY execution
+objects. PTY control and stream traffic use JSON and binary framing, not pickle.
 Shared patch requests and validation errors live in
 \modpath{wire/model/patch\_batch.py} and \modpath{wire/model/write\_errors.py},
 so shared request models do not depend on Hub implementation.

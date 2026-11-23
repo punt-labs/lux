@@ -92,7 +92,6 @@
   "punt_lux.operations.models.callbacks \u2192 punt_lux.hub.session_callback",
   "punt_lux.operations.models.menu_results \u2192 punt_lux.hub.menu_models",
   "punt_lux.operations.models.render \u2192 punt_lux.hub.scene_presentation",
-  "punt_lux.pty.menu_projection \u2192 punt_lux.operations",
   "punt_lux.rest.identity \u2192 punt_lux.client.identity_headers",
   "punt_lux.ws_transport \u2192 punt_lux.client.identity_headers"
 ]

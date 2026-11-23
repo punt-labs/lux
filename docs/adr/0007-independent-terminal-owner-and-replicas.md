@@ -9,7 +9,7 @@
   `terminal` element/session naming decision remains.
 - **Evidence:** `spikes/terminal/STEP4-PLAN.md`, `STEP4-LIVE.md`,
   `STEP4-PERFORMANCE.md`; `docs/pty_{attach,child,peer,credit,daemon}.tex` and
-  their coverage reports; `tests/ptyd/` and `tests/wire/model/test_pty_*.py`.
+  their coverage reports; `tests/pty/` and `tests/wire/model/test_pty_*.py`.
 
 ## Context
 

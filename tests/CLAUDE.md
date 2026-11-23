@@ -72,8 +72,8 @@ elapsed time. Behavior assertions are stable; wall-clock bounds are not.
 Shared model tests mirror `wire/model/` under `tests/wire/model/`; Hub tests
 mirror `hub/` under `tests/hub/`. PTY execution tests mirror `pty/` under
 `tests/pty/`, including process-group tests; stream contract tests mirror
-`wire/stream/` under `tests/wire/stream/`. `tests/pty/test_imports.py` imports
-both packages in fresh interpreters and rejects the removed package paths.
+`wire/stream/` under `tests/wire/stream/`. Each package's `test_imports.py`
+imports its modules in fresh interpreters and rejects its removed package path.
 Client SDK tests mirror `client/` under `tests/client/`, including the relocated
 WebSocket, HTTP contract and identity-header tests. Client identity and applet-name
 tests belong in `tests/wire/model/`. Beads applet tests mirror `applets/beads/` under
