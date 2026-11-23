@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import time
 from collections.abc import Iterator
+from itertools import chain, repeat
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -80,6 +82,64 @@ def test_a_known_candidate_can_complete_stability_in_the_last_second(
         clock.return_value = 29.5
         assert ready.observe(ready.pid())
         lookup.assert_called_once_with(DISPLAY_SPEC.process_name)
+
+
+@pytest.mark.parametrize("observed", [False, True])
+def test_lookup_timeout_is_pending_and_restarts_the_stability_window(
+    paths: MagicMock, observed: bool
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+        patch(
+            "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
+            return_value="dial",
+        ),
+    ):
+        clock.return_value = 0
+        results: list[object] = [501]
+        if observed:
+            results.append(502)
+        results += [subprocess.TimeoutExpired("pgrep", 2)] + [502] * 6
+        lookup.side_effect = results
+
+        def polls() -> Iterator[None]:
+            for instant in range(1, 8):
+                clock.return_value = instant
+                yield
+
+        with patch.object(DisplayRestart, "_polls", side_effect=polls):
+            result = DisplayRestart(manager=MagicMock(), paths=paths).run()
+        assert "pid 502" in result
+        assert clock.return_value == (6 if observed else 5)
+
+
+def test_lookup_timeouts_wait_for_the_deadline_and_name_the_last_error(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+    ):
+        clock.return_value = 0
+        lookup.side_effect = chain([501], repeat(subprocess.TimeoutExpired("pgrep", 2)))
+
+        def polls() -> Iterator[None]:
+            for half_second in range(1, 60):
+                clock.return_value = half_second / 2
+                yield
+            clock.return_value = 30
+
+        with (
+            patch.object(DisplayRestart, "_polls", side_effect=polls),
+            pytest.raises(
+                DisplayRestartError,
+                match=r"within 30s.*last PID lookup error:.*pgrep.*timed out",
+            ),
+        ):
+            DisplayRestart(manager=MagicMock(), paths=paths).run()
+        assert clock.return_value == 30
+        assert lookup.call_count > 1
 
 
 @pytest.mark.parametrize("replacement", [None, 503])

@@ -12,7 +12,7 @@ make check-models
 
 | Model | Implementation |
 | --- | --- |
-| candidate / stabilizing / ready / failed | `DisplayReadiness.observe`, `DisplayStability.observe`, `DisplayReadinessError` |
+| candidate / stabilizing / ready / failed | `DisplayReadiness.poll` / `observe`, `DisplayStability.observe`, `ReadinessError` |
 | `Spawn`, `NoCandidate`, `Crash`, `Replace` | `_candidate`: new PID required; a later missing/replaced candidate fails |
 | `generation`, `Dial`, `Drop` | `DialGeneration.connection_id`, process/start/serial names pinned by `DisplayRequests`, `ClientRegistry.asks` reconnect |
 | `Begin`, `LocalDone` | `ReadinessProbe.local`: one Unix connection plus kernel peer credentials |
@@ -20,7 +20,7 @@ make check-models
 | `Finish` | `DisplayStability.observe` starts at first receipt, crediting only through each later request's send point |
 | `observedSince` | Independent ghost of the first consecutive receipt for the observed dial, even if the implementation timer fails to reset |
 | `Wait`, `Spend` | `DisplayReadiness.polls`, `ProbeDeadline.remaining`, and ordinary HTTP socket timeouts and an absolute-deadline shutdown watchdog |
-| `ProbeError`, `TransportPending` | local witness loss fails; Hub transport failures reset stability and remain pending until the deadline |
+| `ProbeError`, `TransportPending` | verified local witness loss fails; polling PID lookup timeouts (idle work) and Hub transport failures reset stability and remain pending until the deadline |
 | `Finished` | return or raise; no further readiness probes |
 
 The bounded carrier has two dial names, an old/new/successor/gone PID carrier,
@@ -49,6 +49,7 @@ Paths below are relative to `tests/`.
 | Dial names are real, stable and distinct; capabilities carry no token | `hub/test_dial_generation.py`; `hub/test_generation_ref.py` |
 | Real names survive query-to-window pipeline | `operations/test_display_query.py::test_real_dial_names_survive_query_resolution_and_reset_stability` |
 | Pending probe after a successful observation | `service/test_display_readiness.py::test_a_pending_hub_probe_restarts_stability_without_claiming_a_disconnect` |
+| PID lookup times out before or during stability, then recovers; repeated timeouts retain their cause until the deadline | `service/test_display_readiness.py::test_lookup_timeout_is_pending_and_restarts_the_stability_window`; `service/test_display_readiness.py::test_lookup_timeouts_wait_for_the_deadline_and_name_the_last_error` |
 | Missing or wrong PID in Hub facts | `service/test_hub_display_probe.py`: mismatched PID, malformed/empty/oversized payload |
 | Missing dial metadata | `service/test_hub_display_facts.py`: absent/empty name fails with a Hub-restart instruction |
 | HTTP 503/504 / client timeout | `service/test_hub_display_probe.py`: pending status/timeout cases |
@@ -88,8 +89,9 @@ Clock-controlled observer tests stub external witnesses deliberately; they do
 not by themselves prove the socket or dial-name mechanism. The separate real
 credential, real-name pipeline and real-TCP tests cover those boundaries without
 stubbed ownership or fabricated identity. A locked-screen macOS crash and native
-launchd behavior remain manually unverified. Stock launchd StandardErrorPath creates the redirected file; inclusion remains
-best-effort and requires an mtime at least as new as this restart.
+launchd behavior remain manually unverified. Generated launchd plists omit
+StandardErrorPath; a separately redirected stderr file is included only when its
+mtime is at least as new as this restart.
 
 ## Verification record
 
@@ -101,14 +103,14 @@ PASS: receipt-credit fuzz
 PASS: short-window fuzz
 PASS: stale-pid fuzz
 PASS: second-pid fuzz
-PASS: I1-I7-safety not found (159986 states)
-PASS: deadlock not found (159986 states)
-PASS: reconnect-fidelity found (43219 states)
-PASS: deadline-fidelity found (77 states)
-PASS: delivery-fidelity found (34271 states)
-PASS: short-window-fidelity found (24946 states)
-PASS: stale-pid-fidelity found (52750 states)
-PASS: second-pid-fidelity found (54113 states)
+PASS: I1-I7-safety not found (160126 states)
+PASS: deadlock not found (160126 states)
+PASS: reconnect-fidelity found (34521 states)
+PASS: deadline-fidelity found (297 states)
+PASS: delivery-fidelity found (68031 states)
+PASS: short-window-fidelity found (30818 states)
+PASS: stale-pid-fidelity found (20646 states)
+PASS: second-pid-fidelity found (71272 states)
 PASS: all readiness model checks
 ```
 
@@ -121,6 +123,6 @@ Hub PID despite a live new local PID. The successor-PID witness accepts a
 crash-loop replacement after the original candidate has been pinned. These are
 expected counterfactual witnesses, not failures of the fixed observer.
 
-The fixed model exhausts the same 159986 states in both safety and deadlock runs.
+The fixed model exhausts the same 160126 states in both safety and deadlock runs.
 The parser unit tests independently exercise formatting drift, missing tools and
 empty/error output rather than stubbing the model-checking result in the gate.

@@ -29,8 +29,7 @@ def test_query_starts_only_if_the_fixed_timeout_fits(
         if queries:
             assert scope.pid((None, False)) == 502
         else:
-            with pytest.raises(ReadinessError, match="within 30s"):
-                scope.pid((None, False))
+            assert scope.pid((None, False)) is None
         assert lookup.call_count == queries
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, NoReturn, Self
 
 from punt_lux.service._display_restart_scope import DisplayRestartScope
@@ -44,6 +45,17 @@ class DisplayReadiness:
     def pid(self) -> int | None:
         """Read the process identity without exceeding this attempt's deadline."""
         return self._scope.pid((self._pid, self._stability.started))
+
+    def poll(self) -> int | None:
+        """Return a ready PID, keeping failed lookups pending without credit."""
+        try:
+            pid = self.pid()
+            return pid if self.observe(pid) else None
+        except TimeoutExpired as error:
+            self._scope.pending(f"last PID lookup error: {error}")
+            self._stability.observe(None, (0, 0))
+            self.remaining()
+            return None
 
     def observe(self, pid: int | None) -> bool:
         """Accept only a stable Hub reply and local socket from the new process."""

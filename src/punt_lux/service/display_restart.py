@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.service import (
@@ -68,11 +67,10 @@ class DisplayRestart:
         """Require the new process to survive the Hub connection stability window."""
         try:
             for _ in self._polls():
-                pid = readiness.pid()
-                if readiness.observe(pid):
+                if (pid := readiness.poll()) is not None:
                     return f"display restarted (pid {pid}) at {self._paths.socket_path}"
             readiness.timeout()
-        except (ReadinessError, TimeoutExpired) as error:
+        except ReadinessError as error:
             raise DisplayRestartError(str(error)) from error
 
     @staticmethod

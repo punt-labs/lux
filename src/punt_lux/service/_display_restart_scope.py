@@ -55,10 +55,11 @@ class DisplayRestartScope:
         """Start a process query only when its entire fixed timeout fits."""
         candidate, stabilizing = observation
         if self.remaining(stabilizing=stabilizing) < _backends.PGREP_TIMEOUT:
-            if candidate is None:
-                self.timeout(stabilizing=stabilizing)
             return candidate
         return _backends.pgrep_pid(self._attempt.spec.process_name)
+
+    def pending(self, message: str) -> None:
+        self._last_error = f"; {message}"
 
     def local(self, pid: int, *, stabilizing: bool) -> bool:
         connected = self._probe.local(pid, self.remaining(stabilizing=stabilizing))
@@ -77,7 +78,7 @@ class DisplayRestartScope:
                 pid, min(_PROBE_SECONDS, self.remaining(stabilizing=stabilizing))
             ).connected()
         except (OSError, http.client.HTTPException, ValueError) as error:
-            self._last_error = f"; last Hub transport error: {error}"
+            self.pending(f"last Hub transport error: {error}")
             return None
 
     def timeout(self, *, stabilizing: bool) -> NoReturn:

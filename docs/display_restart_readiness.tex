@@ -331,7 +331,7 @@ HTTP header/body bytes is not collapsed into a single unbounded receive.
   \Delta Readiness
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
-  work \in \{rwhub, rwwire, rwafter\} \\
+  work \in \{rwidle, rwhub, rwwire, rwafter\} \\
   phase' = rscandidate \land work' = rwwait \land process' = process \\
   now' = now \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = 0 \land age' = 0 \\
