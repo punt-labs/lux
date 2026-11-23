@@ -105,7 +105,7 @@ update-layers: ## Shrink the layer baseline after removing violating import edge
 
 .PHONY: check-layers update-layers
 
-demo-class: ## Classify this branch's changed files for the demo gate (interactive / rendering / exempt)
+demo-class: ## Classify this branch's committed changes for the demo gate (interactive / rendering / exempt)
 	uv run --extra display python -m tools.demo_class $(if $(BASE_REF),--base-ref $(BASE_REF),)
 
 .PHONY: demo-class

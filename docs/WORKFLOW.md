@@ -275,7 +275,11 @@ function pr_loop(unit):
 #       interactive(pr) = the PR changes a file that reads input or decides
 #                      what input does, as reported by make demo-class
 #                      (tools/demo_class.py); the demo comment quotes its
-#                      summary
+#                      summary. The tool decides by AST for every .py under
+#                      src/punt_lux/, and by path: wire/model/handlers/,
+#                      wire/model/compositions/ and plugin/ are interactive.
+#                      It prints one kind per path, by precedence: exempt,
+#                      then interactive, then rendering
 #       rendering(pr) = the PR changes a file under src/punt_lux/display/,
 #                      src/punt_lux/wire/model/elements/,
 #                      src/punt_lux/wire/model/compositions/, or
@@ -293,8 +297,9 @@ function pr_loop(unit):
 #                      "interaction: operator" only when the operator
 #                      confirmed interaction feel on that commit
 #       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/ (except
-#                      .github/workflows/), or a ratchet baseline or audit
-#                      file; and is NOT under plugin/ — commands, skills,
+#                      .github/workflows/), or a root file named .oo-*,
+#                      .suppression-* or .layer-* ending in -baseline.json
+#                      or -audit.jsonl; and is NOT under plugin/ — commands, skills,
 #                      agents, and hooks there are behavior even when Markdown,
 #                      because Claude Code executes them, and a workflow under
 #                      .github/workflows/ is behavior that runs in CI
@@ -327,11 +332,12 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ localReviewClean(pr)                  -- a local round that left nothing
                                           --   to fix, BEFORE the PR opened and
                                           --   before every fix push
-  ∧ demoConfirmed(pr)                     -- vacuous when every changed file
-                                          --   is demo_exempt; otherwise the
-                                          --   demo passed BEFORE the PR opened
-                                          --   and demoed_head is the head or
-                                          --   an ancestor (demo_ok)
+  ∧ demoConfirmed(pr)                     -- every changed file is
+                                          --   demo_exempt; or demoed_head
+                                          --   exists and, when interactive(pr),
+                                          --   its comment says "interaction:
+                                          --   operator"; held BEFORE the PR
+                                          --   opened
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ demoOk(pr)                            -- demo_ok held at the merge
@@ -423,7 +429,8 @@ touches what the Display paints (`rendering(pr)` above), the pixels are
 evidence too: `lux display screenshot` (or the `display_screenshot` MCP tool)
 writes the next painted frame to a PNG and the leader reads it back, checking
 the widgets against the written expectation. A screenshot that disagrees with
-the introspection snapshot is a defect, not noise.
+the introspection snapshot is a defect, not noise. When every changed file
+is `demo_exempt`, there is no demo and no demo comment.
 
 The operator's judgement is reserved for what a still frame cannot show: the
 feel of an interaction. When the change touches the code that decides what a
