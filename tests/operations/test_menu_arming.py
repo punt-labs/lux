@@ -14,10 +14,10 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.null_dirty_marker import NullDirtyMarker
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps
+from punt_lux.wire.model.scope import Scope
 
 
 @final

@@ -12,7 +12,7 @@ import re
 import uuid
 from typing import Self, final
 
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["SessionKey"]
 

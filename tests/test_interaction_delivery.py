@@ -15,7 +15,7 @@ from punt_lux.display.evictions import Evictions
 from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.pending_interactions import PendingInteractions
 from punt_lux.display.replica import WidgetState
-from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 
 def _build(

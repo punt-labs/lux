@@ -284,7 +284,7 @@ piece of that fragmentation the design does not cover.
 
 ### E4 — MODERATE — `Display._build_event` branches on kind strings
 
-`domain/display.py:330-379` selects the event type with
+`wire/model/display.py:330-379` selects the event type with
 `if element.kind == "button"` / `if element.kind == "checkbox"`. Adding a new
 interactive kind means editing this string ladder. A typed per-kind event
 factory (isinstance against the element type, or an event map keyed by type)
@@ -397,7 +397,7 @@ and model `frame_flags` as a typed value.
 ### D2 — MODERATE — `scene.py` reaches into cross-package privates
 
 `scene.py:11-17` imports `_element_to_dict` and `_strip_none` — leading-
-underscore module privates from `protocol.elements` — across the package
+underscore module privates from `wire.model.elements` — across the package
 boundary. The public `element_to_dict` already exists (used at
 `scene_inspection.py:22`).
 
@@ -429,7 +429,7 @@ document the exact kwargs it must tolerate.
 `Element.render()` is exercised by `test_text_recording.py:22-33`,
 `test_text_outbound_e2e.py:117`, `test_element_abc.py:114-134`, and
 `test_frame_budget.py:54` — every one constructs a `RecordingRendererFactory`
-(`protocol/renderers/recording.py`), a display-capable stand-in, and calls
+(`wire/model/renderers/recording.py`), a display-capable stand-in, and calls
 `elem.render()`. Production elements carry `RAISING_FACTORY` and are never
 painted via `elem.render()` (A1, C1). So a green suite coexists with a template
 method that would crash if driven the way the render-path design intends.

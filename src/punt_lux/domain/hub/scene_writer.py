@@ -25,15 +25,15 @@ from punt_lux.domain.hub.write_errors import (
     MalformedPatchError,
 )
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected, WriteResult
-from punt_lux.domain.update import RemoveElement
+from punt_lux.wire.model.update import RemoveElement
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-    from punt_lux.domain.scope import Scope
+    from punt_lux.wire.model import ConnectionId, ElementId, SceneId
+    from punt_lux.wire.model.scope import Scope
 
 __all__ = ["HubSceneWriter", "SceneScope"]
 

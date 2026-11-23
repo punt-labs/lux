@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import final
 
 from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.protocol import ReadyMessage
+from punt_lux.wire.model import ReadyMessage
 
 __all__ = ["DisplayNotConnectedError", "HandshakeResult"]
 

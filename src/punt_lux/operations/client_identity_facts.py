@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.protocol.compositions.client_details import ClientDetails
+from punt_lux.wire.model.compositions.client_details import ClientDetails
 
 if TYPE_CHECKING:
     from punt_lux.operations.client_facts import ClientFacts

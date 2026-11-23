@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
     from punt_lux.domain.hub.frame_owner_facts import FrameOwnerFactsReader
@@ -31,7 +30,8 @@ if TYPE_CHECKING:
         ScenePusher,
     )
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.element import Element as WireElement
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["SceneReader", "SceneSnapshot"]
 

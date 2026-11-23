@@ -1,7 +1,7 @@
 """Display receive→rebind path — the C1/C2 renderer-factory rebind.
 
 Drives the real production wiring: build ABC elements, ship them through the
-native-pickle scene wire (``protocol/messages/scene.py``), and feed the
+native-pickle scene wire (``wire/model/messages/scene.py``), and feed the
 received copies through ``RenderLoop._wrap_abc_elements``. Off the wire
 every element carries the fail-loud ``RaisingRendererFactory`` sentinel;
 after the rebind every element — and every child of a composite — carries the
@@ -17,15 +17,15 @@ from pathlib import Path
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import (
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.elements import (
     ButtonElement,
     DialogElement,
     TextElement,
 )
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 
 
 def _received_scene(msg: SceneMessage) -> SceneMessage:

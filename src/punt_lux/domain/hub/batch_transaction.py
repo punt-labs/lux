@@ -20,16 +20,16 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.handler_writes import HandlerWrites, WriteRefusedError
 from punt_lux.domain.hub.batch_judge import BatchJudge
 from punt_lux.domain.hub.write_result import WriteRejected
+from punt_lux.wire.model.handler_writes import HandlerWrites, WriteRefusedError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from punt_lux.domain.element_abc import Element
-    from punt_lux.domain.handler_writes import WriteJudge
     from punt_lux.domain.hub.field_realization import FieldRealization
+    from punt_lux.wire.model.element_abc import Element
+    from punt_lux.wire.model.handler_writes import WriteJudge
 
 __all__ = ["BatchTransaction"]
 

@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import SeparatorElement
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements import SeparatorElement
 
 # One representative from each family that requires a real id: display leaves,
 # an interactive input, and a composite. All route through ``require_id`` now.

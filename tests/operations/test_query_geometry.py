@@ -14,14 +14,12 @@ from typing import Self, cast
 
 import pytest
 
-from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.inspect_scope import InspectScope
@@ -32,9 +30,12 @@ from punt_lux.operations.models.query_geometry import (
 )
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.queries import QueryOperations
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.geometry import Rect
-from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.element import Element as DomainElement
+from punt_lux.wire.model.geometry import Rect
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.painted_geometry import ElementGeometry, FrameGeometry
+from punt_lux.wire.model.scope import Scope
 
 _C1 = Scope.in_process(ConnectionId("c1"))
 

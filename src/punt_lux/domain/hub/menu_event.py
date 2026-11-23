@@ -22,11 +22,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, cast, final
 
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.wire.model.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_ports import LiveSessions
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["MenuDelivery", "MenuEventRouter", "MenuEventSink", "MenuSelection"]
 

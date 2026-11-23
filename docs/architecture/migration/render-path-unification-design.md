@@ -67,9 +67,9 @@ everything else. So `text` is the *only* kind that can take the ABC branch;
 routing any other ABC kind there would raise.
 
 Meanwhile `button`, `checkbox`, and `dialog` — all ABC subclasses
-([button.py:47](../../../src/punt_lux/protocol/elements/button.py),
-[checkbox.py:41](../../../src/punt_lux/protocol/elements/checkbox.py),
-[dialog.py:125](../../../src/punt_lux/protocol/elements/dialog.py)) — fall into
+([button.py:47](../../../src/punt_lux/wire/model/elements/button.py),
+[checkbox.py:41](../../../src/punt_lux/wire/model/elements/checkbox.py),
+[dialog.py:125](../../../src/punt_lux/wire/model/elements/dialog.py)) — fall into
 the `else` branch and paint via the legacy dispatch:
 
 - `button`, `checkbox` → `ElementRenderer.render_element`
@@ -103,7 +103,7 @@ and shrinks Batch 7 to deleting a now-legacy-only dispatch table.
 
 The core change. `Element.render()` today hardcodes a leaf-vs-composite branch
 and a fixed child-iteration step into the base class
-([element_abc.py:108-127](../../../src/punt_lux/domain/element_abc.py)):
+([element_abc.py:108-127](../../../src/punt_lux/wire/model/element_abc.py)):
 
 **Before:**
 
@@ -366,7 +366,7 @@ popup chrome + dismiss handling.
 
 ### 4. The `Renderer` Protocol
 
-The Protocol ([renderer.py:18-29](../../../src/punt_lux/protocol/renderer.py))
+The Protocol ([renderer.py:18-29](../../../src/punt_lux/wire/model/renderer.py))
 becomes the ImGui-surface contract the step hooks drive — open, paint own body,
 close:
 
@@ -389,9 +389,9 @@ does — paint this node's own body — and freeing `render` for the Element
 skeleton), and `begin()` returns `bool` / `end()` takes `opened: bool` so the
 short-circuit is expressible. The Protocol docstring's current claim that "the
 Element ABC's template method chooses which path to take based on whether
-`_children()` is empty" ([renderer.py:22-25](../../../src/punt_lux/protocol/renderer.py))
+`_children()` is empty" ([renderer.py:22-25](../../../src/punt_lux/wire/model/renderer.py))
 becomes false and is rewritten as above. The `render()` and module docstrings on
-the ABC ([element_abc.py:1-29, 108-116](../../../src/punt_lux/domain/element_abc.py))
+the ABC ([element_abc.py:1-29, 108-116](../../../src/punt_lux/wire/model/element_abc.py))
 are updated in the same PR so the source describes the fixed skeleton + four
 step hooks, not a leaf-vs-composite branch.
 
@@ -407,16 +407,16 @@ needs.
   The default `_render_children` recurses `self._children()` (protected, on the
   element). A renderer that itself needs to read children reads the element's
   **public** `children` property — `DialogElement` exposes one
-  ([dialog.py:204-207](../../../src/punt_lux/protocol/elements/dialog.py)) —
+  ([dialog.py:204-207](../../../src/punt_lux/wire/model/elements/dialog.py)) —
   never `child_elements()` (reserved for the validation walk) and never the
   protected `_children()`.
 - **`wrap_handlers_for_remote` and the validation walk are UNCHANGED.** Only the
   render path changes. `wrap_handlers_for_remote` still recurses via
   `self._children()`
-  ([event_handler_host.py:117](../../../src/punt_lux/domain/event_handler_host.py))
+  ([event_handler_host.py:117](../../../src/punt_lux/wire/model/event_handler_host.py))
   — the dialog buttons' D21 wrapping is untouched — and the validation walk still
   recurses via the public `child_elements()` bridge
-  ([element_abc.py:159-167](../../../src/punt_lux/domain/element_abc.py)). So
+  ([element_abc.py:159-167](../../../src/punt_lux/wire/model/element_abc.py)). So
   `_children()` keeps two live consumers (wrapping + validation) plus the render
   default. This is exactly why the dialog does **not** empty `_children()`: doing
   so would strip the buttons' D21 wrapping and validation. The dialog reports its
@@ -462,10 +462,10 @@ element, not the renderer:
   ([checkbox_renderer.py:52-59](../../../src/punt_lux/display/renderers/checkbox_renderer.py)).
 
 `elem.fire` dispatches to the element's handler registry
-([event_handler_host.py:81](../../../src/punt_lux/domain/event_handler_host.py)).
+([event_handler_host.py:81](../../../src/punt_lux/wire/model/event_handler_host.py)).
 On the Display side those handlers were replaced by a `RemoteDispatchGroup` in
 `wrap_handlers_for_remote`
-([event_handler_host.py:117](../../../src/punt_lux/domain/event_handler_host.py)),
+([event_handler_host.py:117](../../../src/punt_lux/wire/model/event_handler_host.py)),
 which
 sends a `RemoteEventHandlerInvocation` to the Hub instead of running the real
 handler. **Because the new renderers call the *same* `ButtonRenderer` /
@@ -478,8 +478,8 @@ path (`child.render()` → `ImGuiButtonRenderer` → `ButtonRenderer`), so their
 handling flips the model via `self._elem.model.close()` and fires the
 `mark_removed` observer cascade
 ([dialog.py:93-107](../../../src/punt_lux/display/renderers/imgui/dialog.py),
-[dialog.py:119-122](../../../src/punt_lux/protocol/elements/dialog.py),
-[element_abc.py:320-345](../../../src/punt_lux/domain/element_abc.py)). Its
+[dialog.py:119-122](../../../src/punt_lux/wire/model/elements/dialog.py),
+[element_abc.py:320-345](../../../src/punt_lux/wire/model/element_abc.py)). Its
 trigger condition is `was_open and not visible`
 ([dialog.py:90-91](../../../src/punt_lux/display/renderers/imgui/dialog.py)),
 where `was_open` is the **prior-frame** latch read from `widget_state` at the top
@@ -512,7 +512,7 @@ def _paint_element(self, elem: Element) -> None:
 Applied at [server.py:1461-1466](../../../src/punt_lux/display/server.py) and the
 duplicated block at
 [server.py:1508-1511](../../../src/punt_lux/display/server.py). (`ElementABC` is
-`punt_lux.domain.element_abc.Element` — imported under the disambiguating alias
+`punt_lux.wire.model.element_abc.Element` — imported under the disambiguating alias
 already used in
 [scene_inspection.py:75](../../../src/punt_lux/scene_inspection.py).) The two
 copies **collapse to one** call to `_paint_element`; `_render_scene_tab`
@@ -535,23 +535,23 @@ factory — `self._imgui_renderer_factory(elem).render()`
 ([server.py:1463-1464](../../../src/punt_lux/display/server.py)) — and never
 reads `elem._renderer_factory`. The flip deletes that bypass: `elem.render()`
 calls `self._renderer_factory(self)`
-([element_abc.py:117](../../../src/punt_lux/domain/element_abc.py)) — the factory
+([element_abc.py:117](../../../src/punt_lux/wire/model/element_abc.py)) — the factory
 carried **on the element**. Off the Display that factory raises. The chain is:
 
 - scene transport is pickle
-  ([scene.py:83](../../../src/punt_lux/protocol/messages/scene.py) dumps,
-  [scene.py:121-128](../../../src/punt_lux/protocol/messages/scene.py) loads);
+  ([scene.py:83](../../../src/punt_lux/wire/model/messages/scene.py) dumps,
+  [scene.py:121-128](../../../src/punt_lux/wire/model/messages/scene.py) loads);
 - `Element.__reduce__` keeps `_renderer_factory` in the pickled state — it
   excludes only `_observers`
-  ([element_abc.py:94](../../../src/punt_lux/domain/element_abc.py));
+  ([element_abc.py:94](../../../src/punt_lux/wire/model/element_abc.py));
 - the element was built Hub-side with `RaisingRendererFactory`
   ([server.py:233-234](../../../src/punt_lux/display/server.py)), whose `__call__`
   raises `RuntimeError` unconditionally
-  ([raising.py:38-45](../../../src/punt_lux/protocol/renderers/raising.py)).
+  ([raising.py:38-45](../../../src/punt_lux/wire/model/renderers/raising.py)).
 
 So every inbound ABC element arrives on the Display carrying a factory that
 raises on `render()`. **PR #237 closes this**: `Element.bind_renderer_factory`
-([element_abc.py:134-145](../../../src/punt_lux/domain/element_abc.py)) assigns
+([element_abc.py:134-145](../../../src/punt_lux/wire/model/element_abc.py)) assigns
 the passed factory to `self._renderer_factory` and **recurses into
 `_children()`**, and the inbound `_wrap_abc_elements` pass calls it with the
 Display's real factory on every top-level ABC element
@@ -562,7 +562,7 @@ paint loop walks: `_wrap_abc_elements(msg)` runs before
 reference ([manager.py:195](../../../src/punt_lux/scene/manager.py)), and
 `_render_scene_tab` iterates `scene.elements` from that same stored message. The
 `RaisingRendererFactory` docstring now describes this correctly
-([raising.py:11-13](../../../src/punt_lux/protocol/renderers/raising.py)).
+([raising.py:11-13](../../../src/punt_lux/wire/model/renderers/raising.py)).
 
 What the rebind guarantees for this design's four exemplars, all covered by the
 merged code:

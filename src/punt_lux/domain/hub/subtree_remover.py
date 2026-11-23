@@ -19,14 +19,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.root_registry import RootRegistry
-    from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+    from punt_lux.wire.model import ConnectionId, ElementId, SceneId
 
 __all__ = ["SubtreeRemover"]
 

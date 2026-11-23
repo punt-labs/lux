@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, SceneOps, scene_table
-from punt_lux.domain.ids import ConnectionId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import OpError, RenderTableRequest, SceneShown, Scope
 from tests.commands._scene_stub import StubSceneOps, identity
 

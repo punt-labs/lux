@@ -25,10 +25,10 @@ from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.imgui.table_column_weights import ColumnWeights
 from punt_lux.display.renderers.imgui.table_row_painter import Pair, TableRowPainter
 from punt_lux.display.renderers.imgui.table_sort import TableSort
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.elements.table import TableElement
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.elements.table_flags import TableFlags
+    from punt_lux.wire.model.elements.table_flags import TableFlags
 
 __all__ = ["ImGuiTableRenderer"]
 

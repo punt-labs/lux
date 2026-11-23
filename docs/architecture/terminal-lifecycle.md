@@ -397,6 +397,37 @@ been delivered to every viewer"; the daemon cannot see replica phase, it sees
 its own bindings. The macOS child reap and the PTY itself are outside the
 model. Re-run the checks when the lifecycle code changes.
 
+### Releasing a replica on the shared connection
+
+[`docs/terminal_release.tex`](../terminal_release.tex) models one luxd-pty
+connection shared by many replicas, each on its own channel, with the daemon's
+frames and attach replies in flight in one ordered stream. Its goals: R1, no
+unreleased replica is ever dropped because of a frame for another channel
+(`collateral/={}`); R2, no connection error at all (`health=failed`); and
+deadlock freedom. The intact model (released-channel memory, cancelled-attach
+memory, and a late attach reply that also marks its channel released) has 1194
+states and reaches neither goal. Three buggy variants reach both: no
+released-channel memory (`terminal_release_channel_buggy.tex`), no
+cancelled-attach memory (`terminal_release_attach_buggy.tex`), and a late reply
+that closes the channel but does not remember it as released
+(`terminal_release_late_reply_buggy.tex`). The last is the first revision of
+the fix: the daemon queues snapshot data behind the attach reply, so those
+frames reach the Display after the late reply was consumed. Reproduce with
+`scripts/verify_terminal_model.sh`.
+
+[`docs/terminal_reopen.tex`](../terminal_reopen.tex) adds the attach request
+queue, the daemon's one-viewer-per-session rule (`ViewerBindings.add`
+rejects a second attach of a name on a peer, non-retryably) and the idle
+pump, at set size 3. Goals: F, no replica ends stuck `failed` (a reopened
+name rejected as a duplicate while a cancelled attach for it is unanswered);
+O, no daemon viewer binding survives quiescence (last release with an
+unsent attach); C, no collateral disconnect; D, deadlock freedom. The
+design the model proves safe closes the connection when the last replica is
+released, and holds a reopened name's attach back until the reply to its
+cancelled attach is read. Each measure alone fails: closing the idle
+connection alone reaches F, deferral alone reaches O, retrying the duplicate
+rejection alone reaches O, and the committed code reaches both.
+
 ## 9. Working answers to the operator questions
 
 The design proceeds on these working answers, with Jim's explicit

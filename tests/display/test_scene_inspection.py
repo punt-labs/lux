@@ -20,8 +20,8 @@ import pytest
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.scene_inspection import ElementInspection, SceneInspection
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import (
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.elements import (
     ButtonElement,
     CheckboxElement,
     DialogElement,
@@ -30,13 +30,13 @@ from punt_lux.protocol.elements import (
     TableElement,
     TextElement,
 )
-from punt_lux.protocol.elements.plot_series import PlotSeries
-from punt_lux.protocol.elements.tree import TreeElement
+from punt_lux.wire.model.elements.plot_series import PlotSeries
+from punt_lux.wire.model.elements.tree import TreeElement
 
 if TYPE_CHECKING:
-    from punt_lux.domain.inspectable import Inspectable
-    from punt_lux.protocol import QueryResponse
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import QueryResponse
+    from punt_lux.wire.model.elements import Element
+    from punt_lux.wire.model.inspectable import Inspectable
 
 
 def _server() -> RenderLoop:

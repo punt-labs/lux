@@ -42,10 +42,11 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_presence import MarkMenusSink
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.domain.ids import ConnectionId, SceneId, Topic
-from punt_lux.domain.scope import Scope
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.messages.listen import CallbackFrame
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.ids import SceneId, Topic
+from punt_lux.wire.model.messages.listen import CallbackFrame
+from punt_lux.wire.model.scope import Scope
 from punt_lux.ws_listen import HubListenSession
 from punt_lux.ws_transport import HubListenTransport
 

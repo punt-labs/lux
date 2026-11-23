@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.protocol import PongMessage, QueryRequest, QueryResponse
+from punt_lux.wire.model import PongMessage, QueryRequest, QueryResponse
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration

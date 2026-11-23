@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from punt_lux.display.display_log import ErrorRecorder
-    from punt_lux.protocol.messages import Message
+    from punt_lux.wire.model.messages import Message
 
 __all__ = ["SocketListenerCallbacks"]
 

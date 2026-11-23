@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.subscription_registry import Handler
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["WriterRegistry"]
 

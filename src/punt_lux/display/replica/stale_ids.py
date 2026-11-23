@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.replica.frame_book import FrameBook
-    from punt_lux.protocol import SceneMessage
+    from punt_lux.wire.model import SceneMessage
 
 __all__ = ["OnSceneReplacedFn", "StaleIds"]
 

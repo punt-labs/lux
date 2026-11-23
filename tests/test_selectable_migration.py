@@ -24,25 +24,25 @@ import pytest
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.domain.validation_walk import ElementTreeValidator
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import SelectableElement
-from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
-from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
-from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
-from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.elements import SelectableElement
+from punt_lux.wire.model.elements.abc_kind_names import AbcKindNames
+from punt_lux.wire.model.elements.abc_kind_verify import AbcKindVerifier
+from punt_lux.wire.model.elements.abc_registry import AbcElementRegistry
+from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ValueChanged
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.validation_walk import ElementTreeValidator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.protocol import QueryResponse
+    from punt_lux.wire.model import QueryResponse
 
 
 def _decode(wire: Mapping[str, object]) -> object:
@@ -131,9 +131,9 @@ class TestCapabilityGuard:
         assert "selectable" in AbcKindVerifier.INTERACTIVE_KINDS
 
     def test_guard_rejects_a_handler_less_selectable_spec(self) -> None:
-        from punt_lux.protocol.elements.abc_kind_codec import KindCodec
-        from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
-        from punt_lux.protocol.elements.selectable_codec import (
+        from punt_lux.wire.model.elements.abc_kind_codec import KindCodec
+        from punt_lux.wire.model.elements.abc_leaf_spec import LeafKindSpec
+        from punt_lux.wire.model.elements.selectable_codec import (
             JsonSelectableDecoder,
             JsonSelectableEncoder,
         )

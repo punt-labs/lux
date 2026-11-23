@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.dial_generation import DialGeneration
     from punt_lux.domain.hub.display_connection import DisplayConnection
     from punt_lux.domain.hub.reader_slot import ListenerHold
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 logger = logging.getLogger(__name__)
 

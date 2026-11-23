@@ -9,7 +9,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
+from punt_lux.wire.model.identity import HubId, HubScopedKey, HubScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping

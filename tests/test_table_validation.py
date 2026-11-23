@@ -3,7 +3,7 @@
 The table decides what "valid" means for *itself*: rows must fit the
 declared columns and cells must be renderable scalars. These tests cover
 the table's ``validate()`` in isolation; the tree-walk and ``show``
-integration are covered in ``tests/domain/test_validation_walk.py`` and
+integration are covered in ``tests/wire/model/test_validation_walk.py`` and
 ``tests/test_tools.py``.
 """
 
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.group import GroupElement
-from punt_lux.protocol.elements.table import TableElement
+from punt_lux.wire.model.elements.group import GroupElement
+from punt_lux.wire.model.elements.table import TableElement
 
 
 class TestTableValidate:

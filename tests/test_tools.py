@@ -12,7 +12,6 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
-from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.callback_hold import CallbackRouter
 from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
@@ -23,8 +22,7 @@ from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.scene_presentation import SceneLayout
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.scope import Scope
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import (
     Operations,
     OpError,
@@ -32,10 +30,26 @@ from punt_lux.operations import (
     SceneList,
 )
 from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.operations.display_mode_store import DisplayModeStore
 from punt_lux.operations.ports import HubPorts
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
+from punt_lux.service.display_mode_store import DisplayModeStore
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.tools import (
+    clear,
+    clear_scene,
+    display_mode,
+    inspect_scene,
+    list_scenes,
+    ping,
+    recv,
+    screenshot,
+    set_menu,
+    show,
+    show_dashboard,
+    show_table,
+    update,
+)
+from punt_lux.tools.server import _session_key
+from punt_lux.wire.model import (
     CheckboxElement,
     CollapsingHeaderElement,
     ColorPickerElement,
@@ -56,24 +70,11 @@ from punt_lux.protocol import (
     TreeElement,
     WindowElement,
 )
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.tools import (
-    clear,
-    clear_scene,
-    display_mode,
-    inspect_scene,
-    list_scenes,
-    ping,
-    recv,
-    screenshot,
-    set_menu,
-    show,
-    show_dashboard,
-    show_table,
-    update,
-)
-from punt_lux.tools.server import _session_key
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.element import Element as DomainElement
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.scope import Scope
 
 
 class TestElementFromDict:

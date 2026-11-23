@@ -6,7 +6,7 @@ from punt_lux.display.menus.frame_info_glyph import FrameInfoGlyph
 from punt_lux.display.menus.glyph_canvas import GlyphCanvas
 from punt_lux.display.menus.open_popup import OpenFrame
 from punt_lux.display.menus.popup_cover import PopupCover
-from punt_lux.domain.identity import HubId
+from punt_lux.wire.model.identity import HubId
 from tests.display.test_frame_info_button import (
     _EXPECTED_ANCHOR,
     _OFF_BUTTON,

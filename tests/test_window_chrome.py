@@ -11,7 +11,7 @@ import math
 
 import pytest
 
-from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
+from punt_lux.wire.model.elements.window_chrome import WindowFlags, WindowPlacement
 
 
 class TestWindowPlacement:

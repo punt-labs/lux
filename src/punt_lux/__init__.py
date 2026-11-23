@@ -17,8 +17,9 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
+from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.wire.model import (
     AckMessage,
     ButtonElement,
     CheckboxElement,
@@ -57,7 +58,6 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
-from punt_lux.rest_transport import HubUnavailableError
 
 __all__ = [
     "AckMessage",

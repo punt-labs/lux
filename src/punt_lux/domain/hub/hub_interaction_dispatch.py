@@ -20,7 +20,7 @@ from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.session_callback import MenuLeaf
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +66,8 @@ class HubInteractionDispatch:
             ElementInvocationResolver,
         )
         from punt_lux.domain.hub.replicator_instance import hub_replicator
-        from punt_lux.domain.ids import ClientId
-        from punt_lux.domain.interaction_errors import WrongKindError
+        from punt_lux.wire.model.ids import ClientId
+        from punt_lux.wire.model.interaction_errors import WrongKindError
 
         resolved = ElementInvocationResolver(hub_display).resolve(msg)
         if resolved is None:

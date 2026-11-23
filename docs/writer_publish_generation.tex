@@ -114,7 +114,7 @@
 % `hub.writer_is_current(connection_id, _writer)` -- backed by
 % `WriterRegistry.is_current` -- under the same `_inboxes_lock` hold as the
 % put, exactly as Section~\ref{sec:codechange} specifies. Regression:
-% tests/domain/test_inbox.py::test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session.
+% tests/wire/model/test_inbox.py::test_stale_writer_after_reconnect_does_not_deliver_into_the_new_session.
 %
 
 \documentclass[a4paper,10pt,fleqn]{article}
@@ -861,7 +861,7 @@ so the two remain traceable to each other.
     \texttt{test\_current\_writer\_delivers\_after\_a\_drain\_inbox\_swap}.
   \item The regression test reproducing Section~\ref{sec:fidelity2}'s trace
     at the Python level is
-    \texttt{tests/domain/test\_inbox.py::test\_stale\_writer\_after\_reconnect\_does\_not\_deliver\_into\_the\_new\_session}:
+    \texttt{tests/wire/model/test\_inbox.py::test\_stale\_writer\_after\_reconnect\_does\_not\_deliver\_into\_the\_new\_session}:
     it registers a writer, captures it (standing in for \texttt{Hub.publish}'s
     snapshot by holding a reference to the bound handler), drives a full
     disconnect-and-reconnect cycle under the same \texttt{ConnectionId}, then

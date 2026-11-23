@@ -20,8 +20,8 @@ from punt_lux.domain.hub.inbox_queue import BoundedInbox
 
 if TYPE_CHECKING:
     from punt_lux.client_host import ClientHost
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol.messages.observer import ObserverMessage
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.messages.observer import ObserverMessage
 
 __all__ = [
     "drain_inbox",

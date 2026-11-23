@@ -17,14 +17,14 @@ import tempfile
 from pathlib import Path
 
 from punt_lux.display import RenderLoop
-from punt_lux.domain.hub_id import HubId
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ConnectMessage,
     SceneMessage,
     TextElement,
     encode_message,
     send_message,
 )
+from punt_lux.wire.model.hub_id import HubId
 from tests.display._mtls_harness import (
     BackgroundConnect,
     LoopbackListener,

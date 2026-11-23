@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import copy
 
-from punt_lux.protocol.elements.tree_node import TreeNode
-from punt_lux.protocol.elements.tree_selection_model import TreeSelectionModel
+from punt_lux.wire.model.elements.tree_node import TreeNode
+from punt_lux.wire.model.elements.tree_selection_model import TreeSelectionModel
 
 
 class TestConstructionIsRaw:

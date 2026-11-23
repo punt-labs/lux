@@ -16,8 +16,8 @@ import pytest
 from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.hub_paths import HubPaths
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.operations import (
     Ok,
     OpError,

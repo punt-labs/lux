@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.domain.hub import hub
-from punt_lux.domain.ids import ConnectionId, Topic
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.tools.server import _session_key
 from punt_lux.tools.subscribe_tools import (
     drain_inbox,
@@ -13,6 +13,7 @@ from punt_lux.tools.subscribe_tools import (
     subscribe,
     unsubscribe,
 )
+from punt_lux.wire.model.ids import Topic
 
 
 @pytest.fixture

@@ -25,8 +25,8 @@ from cryptography.x509.oid import NameOID
 
 from punt_lux.display.cross_host_listener import CrossHostListener
 from punt_lux.display.cross_host_verification import CrossHostVerification
-from punt_lux.domain.identity import HubId
 from punt_lux.trust import CertificateAuthority, KeyPair, LeafCertificate
+from punt_lux.wire.model.identity import HubId
 
 
 def _der_for(hostname: str) -> bytes:
@@ -135,7 +135,7 @@ class TestMatching:
         self,
     ) -> None:
         # The declared HubId side, not just the SAN side: HubId itself
-        # canonicalizes to lowercase (domain/hub_id.py), so a peer
+        # canonicalizes to lowercase (wire/model/hub_id.py), so a peer
         # declaring an upper-case hub_id against a lower-case cert SAN
         # passes Gate 2 exactly as a same-case declaration would.
         verification = CrossHostVerification()

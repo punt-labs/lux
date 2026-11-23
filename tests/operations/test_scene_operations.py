@@ -15,10 +15,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.quarantine_record import QuarantineRecord
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
-from punt_lux.domain.nesting_cap import NestingCap
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import AddElement
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -30,17 +27,21 @@ from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.scenes import SceneOperations
-from punt_lux.protocol import CollapsingHeaderElement
-from punt_lux.protocol.elements import GroupElement, TreeElement
-from punt_lux.protocol.json_payload import MAX_ELEMENT_NESTING
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.wire.model import CollapsingHeaderElement
+from punt_lux.wire.model.elements import GroupElement, TreeElement
+from punt_lux.wire.model.ids import ElementId, SceneId, Topic
+from punt_lux.wire.model.json_payload import MAX_ELEMENT_NESTING
+from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.nesting_cap import NestingCap
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import pytest
 
-    from punt_lux.domain.element import Element as WireElement
+    from punt_lux.wire.model.element import Element as WireElement
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope.in_process(_CONNECTION)

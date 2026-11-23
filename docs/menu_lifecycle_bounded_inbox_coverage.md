@@ -267,15 +267,15 @@ B1/B2 govern.
 
 Each row names a behaviour a test must exercise; the "Covering test" column
 names the real test in the file the fix landed in,
-`tests/domain/test_inbox_queue.py` (note: `domain/`, not `domain/hub/`).
+`tests/wire/model/test_inbox_queue.py` (note: `wire/model/`, not `domain/hub/`).
 
 | Partition | Meaning | Covering test |
 |---|---|---|
-| **BB1 (bound under concurrent producers, the overshoot regression)** | two producers putting concurrently into a near-full inbox never leave `depth > cap` | `tests/domain/test_inbox_queue.py::test_two_producers_at_capacity_keep_the_bound_exact` — the direct regression test for overshoot |
-| **BB2 (single drop per over-capacity admission, the double-drop regression)** | a producer putting into a full inbox concurrent with another put or a `recv` drops exactly one oldest, never discarding a message that had room | `tests/domain/test_inbox_queue.py::test_two_producers_at_capacity_keep_the_bound_exact` (exact final `depth == capacity` rules out both overshoot and double-drop under concurrent producers) and `tests/domain/test_inbox_queue.py::test_a_real_guarded_consumer_never_tears_puts_compound` (a racing `recv` never spuriously lowers a drop's observed length below `capacity - 1`) — the direct regression tests for double-drop; `tests/domain/test_inbox_queue.py::test_a_dequeue_between_puts_check_and_drop_causes_a_spurious_drop` is the deterministic fidelity witness reproducing the tear when the guard is bypassed |
-| BB3 (put under capacity) | a `put` into an inbox below capacity enqueues without dropping; `depth` rises by one | `tests/domain/test_inbox_queue.py::test_under_capacity_is_a_plain_fifo` |
-| BB4 (put at capacity) | a single `put` into a full inbox drops the oldest and enqueues the newest; `depth` stays at `cap` | `tests/domain/test_inbox_queue.py::test_at_capacity_drops_the_oldest_and_keeps_the_newest` (drop-and-admit) and `tests/domain/test_inbox_queue.py::test_a_full_inbox_warns_when_it_drops` (the loss is logged) |
-| BB5 (drain under the lock) | a `recv`/`drain`/`depth` racing a `put` never observes or produces a torn queue (the `get`/`drain`/`depth` legs are under `boxLock`) | `tests/domain/test_inbox_queue.py::test_a_real_guarded_consumer_never_tears_puts_compound` |
+| **BB1 (bound under concurrent producers, the overshoot regression)** | two producers putting concurrently into a near-full inbox never leave `depth > cap` | `tests/wire/model/test_inbox_queue.py::test_two_producers_at_capacity_keep_the_bound_exact` — the direct regression test for overshoot |
+| **BB2 (single drop per over-capacity admission, the double-drop regression)** | a producer putting into a full inbox concurrent with another put or a `recv` drops exactly one oldest, never discarding a message that had room | `tests/wire/model/test_inbox_queue.py::test_two_producers_at_capacity_keep_the_bound_exact` (exact final `depth == capacity` rules out both overshoot and double-drop under concurrent producers) and `tests/wire/model/test_inbox_queue.py::test_a_real_guarded_consumer_never_tears_puts_compound` (a racing `recv` never spuriously lowers a drop's observed length below `capacity - 1`) — the direct regression tests for double-drop; `tests/wire/model/test_inbox_queue.py::test_a_dequeue_between_puts_check_and_drop_causes_a_spurious_drop` is the deterministic fidelity witness reproducing the tear when the guard is bypassed |
+| BB3 (put under capacity) | a `put` into an inbox below capacity enqueues without dropping; `depth` rises by one | `tests/wire/model/test_inbox_queue.py::test_under_capacity_is_a_plain_fifo` |
+| BB4 (put at capacity) | a single `put` into a full inbox drops the oldest and enqueues the newest; `depth` stays at `cap` | `tests/wire/model/test_inbox_queue.py::test_at_capacity_drops_the_oldest_and_keeps_the_newest` (drop-and-admit) and `tests/wire/model/test_inbox_queue.py::test_a_full_inbox_warns_when_it_drops` (the loss is logged) |
+| BB5 (drain under the lock) | a `recv`/`drain`/`depth` racing a `put` never observes or produces a torn queue (the `get`/`drain`/`depth` legs are under `boxLock`) | `tests/wire/model/test_inbox_queue.py::test_a_real_guarded_consumer_never_tears_puts_compound` |
 | **DL1 (leaf-lock deadlock-freedom)** | the offer path and, as of round 3, the publish path (both `_inboxes_lock` → inbox lock) never deadlock; no path takes `_inboxes_lock` while holding the inbox lock, and no path takes the inbox lock and then reaches back for `_inboxes_lock` | covered by `probcli -model_check` in this spec; the grep-provable code check is that no `BoundedInbox` method acquires `_inboxes_lock` |
 
 Partitions in **bold** are the direct regression requirement for overshoot
@@ -283,7 +283,7 @@ Partitions in **bold** are the direct regression requirement for overshoot
 happy paths (BB3/BB4) but not BB1/BB2 would look complete and still miss both
 race defects.
 
-A sixth test, `tests/domain/test_inbox_queue.py::test_a_non_positive_capacity_is_rejected_at_construction`
+A sixth test, `tests/wire/model/test_inbox_queue.py::test_a_non_positive_capacity_is_rejected_at_construction`
 (parametrized over `capacity=0` and `capacity=-1`), guards a precondition the
 model assumes rather than states: every B1/B2 partition above reasons about a
 queue bounded by a *positive* `capacity`. It is not a BB-row of its own — it is

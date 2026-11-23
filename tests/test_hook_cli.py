@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.applet_event import AppletEvent
+from punt_lux.service.applet_event import AppletEvent
 
 
 @pytest.mark.parametrize("event", list(AppletEvent))

@@ -207,7 +207,7 @@ distributed incremental diff protocol.
 Lux is becoming a family of processes that share one set of packages, not one
 process. This section records the package names and layer rules agreed before
 any more code moves. They are targets: today the code still ships as one
-distribution, and `make check-layers` reports where it breaks these rules.
+distribution, and `make check-layers` ratchets where it breaks these rules.
 
 ### Process roles
 
@@ -243,9 +243,34 @@ Every package lives under the one `punt_lux` namespace.
 
 ### Layer rules
 
+The first package move installs lifecycle code under `punt_lux.service`, with
+the service managers exported from its `__init__.py`. Private implementation
+modules retain their leading underscores. `HubPaths` and the default Hub port
+live in `punt_lux.kernel`, independent of either the Hub or client SDK.
+Project display-mode file I/O belongs to `service.display_mode_store`; the
+Typer-facing enable/disable orchestration belongs to `cli.display_enablement`.
+
+Step 3 merges shared domain and protocol definitions into `punt_lux.wire.model`;
+`domain.hub` and `protocol.pty` remain until their later migrations. The merged
+facade exports the wire `Element` union and the structural `ElementProtocol`.
+`LeaseTerm` is a shared wire value, while `ConnectionId` and `ProgrammerError`
+belong to kernel. Display socket/process lifecycle, including protocol-aware
+readiness probing, belongs to `service.display_paths`, not kernel. Package moves
+must remove actual forbidden edges as well as update names in the shrinking
+ratchet baseline; the legacy package initializers do not alias moved models.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
-reports, without failing, every import that breaks it.
+reports every runtime import edge that breaks it. The checked-in
+`.layer-baseline.json` allows the known migration violations; new edges fail
+`make check-layers` (also run by `make check` and CI). Stale entries fail too:
+after removing violations, run `make update-layers` and commit the shrinking
+baseline. The update target refuses to add new violations to an existing baseline.
+The check also rejects baseline additions relative to `BASE_REF` (by default,
+the merge base with `origin/main`, when available), so adding an import and its
+baseline entry together cannot bypass the gate. A base without the baseline file
+skips only this growth comparison, allowing the initial baseline to land. CI uses
+the PR merge base or the pre-push commit on main, with full git history.
 
 | Package | May import |
 |---|---|

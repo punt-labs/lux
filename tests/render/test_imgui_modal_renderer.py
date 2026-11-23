@@ -20,8 +20,8 @@ from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
-from punt_lux.domain.container_interaction import ModalClosed
-from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.wire.model.container_interaction import ModalClosed
+from punt_lux.wire.model.elements.modal import ModalElement
 
 if TYPE_CHECKING:
     import pytest

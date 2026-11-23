@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.paths import DisplayPaths
+from punt_lux.service.display_paths import DisplayPaths
 
 runner = CliRunner()
 
@@ -87,7 +87,7 @@ class TestPing:
         # Drive the real LuxClient.connect with no port file, so the CLI
         # surfaces the production message — including the actionable hint —
         # rather than a string the test supplied.
-        with patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None):
+        with patch("punt_lux.kernel.hub_paths.HubPaths.read_port", return_value=None):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
         # Failure lines go to stderr per CLI convention; stdout stays clean.

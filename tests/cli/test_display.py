@@ -244,7 +244,10 @@ class TestDisplayAdminVerbs:
         from punt_lux.service import ServiceNotInstalledError
 
         with (
-            patch("punt_lux.paths.DisplayPaths.is_running", return_value=False),
+            patch(
+                "punt_lux.service.display_paths.DisplayPaths.is_running",
+                return_value=False,
+            ),
             patch("punt_lux.cli.display_service.ServiceManager") as mock_cls,
         ):
             mock_cls.for_display.return_value.start.side_effect = (
@@ -260,7 +263,10 @@ class TestDisplayAdminVerbs:
         self,
     ) -> None:
         with (
-            patch("punt_lux.paths.DisplayPaths.is_running", return_value=True),
+            patch(
+                "punt_lux.service.display_paths.DisplayPaths.is_running",
+                return_value=True,
+            ),
             patch("punt_lux.cli.display_service.ServiceManager") as mock_cls,
         ):
             result = runner.invoke(app, ["display", "start"])

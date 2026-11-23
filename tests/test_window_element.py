@@ -22,28 +22,28 @@ from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import (
+from punt_lux.tools import show
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.elements import (
     ButtonElement,
     ProgressElement,
     TextElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
-from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.tools import show
+from punt_lux.wire.model.elements.window_chrome import WindowFlags, WindowPlacement
+from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.validation_walk import ElementTreeValidator, HasChildElements
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from punt_lux.protocol import QueryResponse
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import QueryResponse
+    from punt_lux.wire.model.elements import Element
 
 _CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
 

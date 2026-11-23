@@ -6,8 +6,8 @@ import logging
 
 import pytest
 
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.session_cleanup import SessionCleanup
 
 

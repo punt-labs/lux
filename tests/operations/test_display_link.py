@@ -19,9 +19,9 @@ from punt_lux.operations.models.display_link import (
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.display_link import ReplicatorLink
     from punt_lux.operations.display_port import DisplayPort
+    from punt_lux.wire.model.ids import SceneId
 
 
 class _FakePort:

@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.scope import Scope
-from punt_lux.domain.update import RemoveElement
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import RemoveElement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
-    from punt_lux.domain.ids import ElementId, SceneId
+    from punt_lux.wire.model.ids import ElementId, SceneId
 
 __all__ = ["RootRemovalRouter"]
 

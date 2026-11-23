@@ -12,7 +12,7 @@ from punt_lux.domain.hub import hub_display, hub_lifecycle
 from punt_lux.domain.hub.display_workers import display_workers
 from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 from punt_lux.domain.hub.lease_reap_sweep import LeaseReapSweep
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.usage import capture_usage
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
-    from punt_lux.hub_paths import HubPaths
+    from punt_lux.kernel.hub_paths import HubPaths
 
 logger = logging.getLogger(__name__)
 

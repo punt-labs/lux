@@ -17,20 +17,20 @@ import pytest
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.domain.validation_walk import ElementTreeValidator
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import GroupElement, ImageElement
-from punt_lux.protocol.elements.image_source import DataImage, PathImage
-from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.elements import GroupElement, ImageElement
+from punt_lux.wire.model.elements.image_source import DataImage, PathImage
+from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.validation_walk import ElementTreeValidator
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.protocol import QueryResponse
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import QueryResponse
+    from punt_lux.wire.model.elements import Element
 
 
 def _decode(wire: Mapping[str, object]) -> object:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.image_source import DataImage, PathImage
-from punt_lux.protocol.elements.image_source_spec import ImageSourceSpec
+from punt_lux.wire.model.elements.image_source import DataImage, PathImage
+from punt_lux.wire.model.elements.image_source_spec import ImageSourceSpec
 
 
 class TestResolve:

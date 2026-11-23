@@ -16,7 +16,7 @@ real ImGui and are covered by the visual/e2e tiers.
 from __future__ import annotations
 
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.elements.text import TextElement
 
 
 def test_paint_skips_unstyled_text_with_tooltip() -> None:

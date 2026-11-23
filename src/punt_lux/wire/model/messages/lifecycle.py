@@ -1,0 +1,202 @@
+"""Connection-lifecycle messages — ready, hub manifest, ack, ping/pong.
+
+``ConnectMessage`` -- the connection-identity handshake -- lives in its own
+sibling module, ``connect_message.py``: it grew its own required Hub-identity
+field and validation and earned the one-message-per-module treatment this
+package already gives ``remote_invocation.py``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any, Literal, Self, cast, final
+
+from punt_lux.wire.model.messages.unknown_message import UnknownMessage
+
+__all__ = [
+    "PROTOCOL_VERSION",
+    "AckMessage",
+    "HubManifestMessage",
+    "PingMessage",
+    "PongMessage",
+    "ReadyMessage",
+    "UnknownMessage",
+    "register_codecs",
+]
+
+
+PROTOCOL_VERSION = "0.2"
+
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
+
+
+@dataclass(frozen=True, slots=True)
+class PingMessage:
+    """Probe liveness and latency."""
+
+    type: Literal["ping"] = "ping"
+    ts: float | None = None  # absent when the sender omits a timestamp
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting an absent timestamp."""
+        d: dict[str, Any] = {"type": self.type}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(ts=d.get("ts"))
+
+
+@dataclass(frozen=True, slots=True)
+class HubManifestMessage:
+    """The declaring Hub's complete, authoritative set of live scene ids.
+
+    Sent by a ``kind="hub"`` connection immediately after ``ConnectMessage``
+    and before any ``SceneMessage``.  Empty on a fresh Hub-process restart;
+    the full live set on an ordinary reconnect.  On receipt, the display
+    purges every scene not named here AND not owned by the identifying fd —
+    orphaned scenes from a prior Hub die (owner reassigned to the orphan
+    sentinel) are swept by the same rule (DES-068).
+    """
+
+    scene_ids: tuple[str, ...]
+    type: Literal["hub_manifest"] = "hub_manifest"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict."""
+        return {"type": self.type, "scene_ids": list(self.scene_ids)}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict; an absent ``scene_ids`` decodes to empty.
+
+        Rejects anything but a list or tuple of strings rather than silently
+        coercing it: ``tuple("s1")`` would iterate the characters of a bare
+        string into single-character "ids" that can never match a real scene,
+        purging every scene the manifest was supposed to protect.
+        """
+        raw = d.get("scene_ids", [])
+        if not isinstance(raw, (list, tuple)):
+            kind = type(raw).__name__
+            err = f"HubManifestMessage.scene_ids must be a list, got {kind}"
+            raise ValueError(err)
+        seq = cast("list[object] | tuple[object, ...]", raw)
+        scene_ids: list[str] = []
+        for i, item in enumerate(seq):
+            if not isinstance(item, str):
+                err = f"HubManifestMessage.scene_ids[{i}] must be a string: {item!r}"
+                raise ValueError(err)
+            scene_ids.append(item)
+        return cls(scene_ids=tuple(scene_ids))
+
+
+@dataclass(frozen=True, slots=True)
+class ReadyMessage:
+    """Announce that the display is ready to render."""
+
+    version: str = PROTOCOL_VERSION
+    type: Literal["ready"] = "ready"
+    capabilities: list[str] = field(default_factory=lambda: list[str]())
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting empty capabilities."""
+        d: dict[str, Any] = {"type": self.type, "version": self.version}
+        if self.capabilities:
+            d["capabilities"] = self.capabilities
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(
+            version=d.get("version", ""),
+            capabilities=d.get("capabilities", []),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AckMessage:
+    """Acknowledge a scene or update."""
+
+    scene_id: str
+    type: Literal["ack"] = "ack"
+    ts: float | None = None  # absent when the sender omits a timestamp
+    error: str | None = None  # absent on success; the failure reason otherwise
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting absent optional fields."""
+        d: dict[str, Any] = {"type": self.type, "scene_id": self.scene_id}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        if self.error is not None:
+            d["error"] = self.error
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(scene_id=d["scene_id"], ts=d.get("ts"), error=d.get("error"))
+
+
+@dataclass(frozen=True, slots=True)
+class PongMessage:
+    """Echo a ping and optionally report the display's clock."""
+
+    type: Literal["pong"] = "pong"
+    ts: float | None = None  # echoes the ping's timestamp, absent if it had none
+    display_ts: float | None = None  # absent when the display omits its own clock
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict, omitting absent optional fields."""
+        d: dict[str, Any] = {"type": self.type}
+        if self.ts is not None:
+            d["ts"] = self.ts
+        if self.display_ts is not None:
+            d["display_ts"] = self.display_ts
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict."""
+        return cls(ts=d.get("ts"), display_ts=d.get("display_ts"))
+
+
+@final
+class LifecycleCodecs:
+    """Registers every lifecycle message class's codec into a MessageRegistry.
+
+    ``register`` operates on every class this module defines -- the shared
+    vocabulary that marks it as behavior belonging to the module as a whole
+    (PY-OO-7), not a free function that merely happens to sit beside them.
+    """
+
+    __slots__ = ()
+
+    @staticmethod
+    def register(register: _Register) -> None:
+        """Register this module's message codecs into a MessageRegistry."""
+        register("ready", ReadyMessage, ReadyMessage.to_dict, ReadyMessage.from_dict)
+        register("ack", AckMessage, AckMessage.to_dict, AckMessage.from_dict)
+        register("pong", PongMessage, PongMessage.to_dict, PongMessage.from_dict)
+        register("ping", PingMessage, PingMessage.to_dict, PingMessage.from_dict)
+        register(
+            "hub_manifest",
+            HubManifestMessage,
+            HubManifestMessage.to_dict,
+            HubManifestMessage.from_dict,
+        )
+        register(
+            "unknown", UnknownMessage, UnknownMessage.to_dict, UnknownMessage.from_dict
+        )
+
+
+# The package-wide registration entry point every sibling module exposes
+# under this exact name (see ``messages/__init__.py``).
+register_codecs = LifecycleCodecs.register

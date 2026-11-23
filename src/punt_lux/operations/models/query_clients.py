@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, NonNegativeFloat, NonNegativeInt
 
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.lease_term import LeaseTerm
+from punt_lux.wire.model.lease_term import LeaseTerm
 
 __all__ = ["ClientList", "HubClient"]
 

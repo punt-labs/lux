@@ -1,0 +1,118 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Terminal daemon: observe restart readiness}
+\maketitle
+
+After an active service accepts restart, Make reports success only after
+observing a replacement listener. An unchanged process must not pass even
+if its PID was unreadable before restart. In particular, reading the old PID
+and then seeing a new, not-yet-listening socket is not evidence of readiness.
+
+This model starts at supervisor acceptance. Node generations abstract
+\texttt{(device, inode)}. A running daemon binds once and holds its
+lifetime claim while listening (see \texttt{pty\_daemon.tex}); a replacement
+creates a new node. The old listener can linger after supervisor acceptance,
+but it cannot bind a new node. Zero denotes a missing node or an unreadable
+PID. Old and replacement PIDs are distinct. A reused inode cannot establish
+replacement if the prior PID was unreadable; metadata-only changes do not
+count as a new node. Success records an observation, not a promise that the
+process cannot exit afterwards.
+
+\begin{zed}
+RSTEP ::= rrscan | rrprobe | rrcheck | rrdone | rrexpired
+\end{zed}
+
+\begin{schema}{Restart}
+phase : RSTEP \\
+before, previous : 0 \upto 1 \\
+node, candidate : 0 \upto 3 \\
+live, observed : 0 \upto 2
+\where
+before = 1 \implies previous = 1 \\
+live = 1 \implies node = 1 \\
+live = 2 \implies node > 1
+\end{schema}
+
+\begin{schema}{Init}
+Restart'
+\where
+phase' = rrscan \land node' = previous' \land live' = previous' \\
+candidate' = 0 \land observed' = 0
+\end{schema}
+
+\begin{schema}{AdvanceDaemon}
+\Delta Restart
+\where
+phase \in \{rrscan, rrprobe, rrcheck\} \\
+(node = 1 \land node' = 0 \land live' = 0) \lor
+\quad~(node = 0 \land node' = 2 \land live' = 0) \lor
+\quad~(node > 1 \land live = 0 \land node' = node \land live' = 2)
+\quad~\lor (node = 2 \land node' = 3 \land live' = 0) \\
+phase' = phase \land before' = before \land previous' = previous \\
+candidate' = candidate \land observed' = observed
+\end{schema}
+
+\begin{schema}{Snapshot}
+\Delta Restart
+\where
+phase = rrscan \\
+candidate' = node \land node' = node \land live' = live \\
+(before = 1 \lor (node \neq 0 \land node \neq previous))
+\quad~\implies phase' = rrprobe \\
+(before = 0 \land (node = 0 \lor node = previous))
+\quad~\implies phase' = rrscan \\
+before' = before \land previous' = previous \land observed' = observed
+\end{schema}
+
+\begin{schema}{ReadPeer}
+\Delta Restart
+\where
+phase = rrprobe \\
+observed' \in \{0, live\} \\
+(before = 1 \land observed' = 2) \implies phase' = rrdone \\
+(before = 1 \land observed' \neq 2) \implies phase' = rrscan \\
+(before = 0 \land observed' \neq 0) \implies phase' = rrcheck \\
+(before = 0 \land observed' = 0) \implies phase' = rrscan \\
+before' = before \land previous' = previous \land node' = node \\
+candidate' = candidate \land live' = live
+\end{schema}
+
+\begin{schema}{Confirm}
+\Delta Restart
+\where
+phase = rrcheck \\
+(node = candidate) \implies phase' = rrdone \\
+(node \neq candidate) \implies phase' = rrscan \\
+before' = before \land previous' = previous \land node' = node \\
+candidate' = candidate \land live' = live \land observed' = observed
+\end{schema}
+
+\begin{schema}{Timeout}
+\Delta Restart
+\where
+phase = rrscan \land phase' = rrexpired \\
+before' = before \land previous' = previous \land node' = node \\
+candidate' = candidate \land live' = live \land observed' = observed
+\end{schema}
+
+\begin{schema}{Reported}
+\Xi Restart
+\where
+phase \in \{rrdone, rrexpired\}
+\end{schema}
+
+Check deadlock freedom and search for the negation of readiness:
+\verb|phase = rrdone & observed /= 2|. For the old order, let
+\texttt{Snapshot} always advance and let \texttt{Confirm} test
+\verb|node /= 0 & node /= previous| instead. The counterexample reads the
+old peer before advancing to a new, unready node and incorrectly succeeds.
+
+The Make regression exercises supervisor failure and inactive-service skips
+before this model starts. Within it, the cases cover unchanged PID,
+unreadable prior PID with an unchanged, chmodded, or new node, initial absence,
+an unready replacement, and a candidate disappearing during a peer read.
+The old-order regression fails if the probe reads the old peer before
+checking for a new node. Tests change real filesystem metadata and script
+peer credentials to control the interleaving.
+\end{document}

@@ -8,7 +8,7 @@ from typing import Self
 from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.wire.model.elements.image import ImageElement
 
 __all__ = ["ImageRenderer"]
 

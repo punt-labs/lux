@@ -28,8 +28,8 @@ from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol.messages.observer import ObserverMessage
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
 

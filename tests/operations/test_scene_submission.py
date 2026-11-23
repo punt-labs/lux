@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.scene_submission import SceneSubmission
-from punt_lux.protocol import CollapsingHeaderElement
+from punt_lux.wire.model import CollapsingHeaderElement
+from punt_lux.wire.model.ids import SceneId
 
 _OWNER = ConnectionId("session-a")
 

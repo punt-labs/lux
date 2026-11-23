@@ -13,9 +13,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
 from punt_lux.display.replica import WidgetState
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked, ValueChanged
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ButtonElement,
     CheckboxElement,
     Element,
@@ -26,6 +24,8 @@ from punt_lux.protocol import (
     SeparatorElement,
     TextElement,
 )
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ButtonClicked, ValueChanged
 
 if TYPE_CHECKING:
     import pytest
@@ -128,7 +128,7 @@ class TestEmitEvent:
         lives in a frame or a top-level tab.
         """
         from punt_lux.display.replica.frame import Frame
-        from punt_lux.domain.identity import HubId, HubScopedKey
+        from punt_lux.wire.model.identity import HubId, HubScopedKey
 
         server = _make_server()
         # Empty element list — the scene_id assignment lives at the top of
@@ -173,7 +173,7 @@ class TestEmitEvent:
             }
         )
 
-        with caplog.at_level(logging.ERROR, logger="punt_lux.domain.element_abc"):
+        with caplog.at_level(logging.ERROR, logger="punt_lux.wire.model.element_abc"):
             button.fire(
                 ButtonClicked(
                     scene_id=SceneId("scene"),
@@ -209,7 +209,7 @@ class TestEmitEvent:
         assert isinstance(checkbox, CheckboxElement)
         assert checkbox.handler_count(ValueChanged) == 2
 
-        with caplog.at_level(logging.ERROR, logger="punt_lux.domain.element_abc"):
+        with caplog.at_level(logging.ERROR, logger="punt_lux.wire.model.element_abc"):
             checkbox.fire(
                 ValueChanged(
                     scene_id=SceneId("scene"),
@@ -360,7 +360,7 @@ class TestPollClientsSkipsRemoved:
 
         # Manually register the client
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
 
@@ -379,7 +379,7 @@ class TestPollClientsSkipsRemoved:
         server = _make_server()
         sock = _mock_sock()
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         server._socket_listener._registry._readers[sock.fileno()] = FrameReader()
 
@@ -402,7 +402,7 @@ class TestMalformedMessageDisconnects:
         server = _make_server()
         sock = _mock_sock()
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         reader = FrameReader()
         server._socket_listener._registry._readers[sock.fileno()] = reader
@@ -433,7 +433,7 @@ class TestMalformedMessageDisconnects:
         server = _make_server()
         sock = _mock_sock()
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         reader = FrameReader()
         server._socket_listener._registry._readers[sock.fileno()] = reader
@@ -462,7 +462,7 @@ class TestMalformedMessageDisconnects:
         server = _make_server()
         sock = _mock_sock()
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         reader = FrameReader()
         server._socket_listener._registry._readers[sock.fileno()] = reader
@@ -530,7 +530,7 @@ class TestFlushEvents:
     def test_flush_routes_a_menu_click_to_its_declared_hub_only(self) -> None:
         """A menu-bar click carries the Hub its menu was replicated from, so
         delivery names that one connection -- W6, never a broadcast."""
-        from punt_lux.domain.identity import HubId
+        from punt_lux.wire.model.identity import HubId
 
         server = _make_server()
         sock1 = _mock_sock_fd(10)
@@ -569,7 +569,7 @@ class TestModalDismissRevertOnUndeliverable:
 
     @staticmethod
     def _latch_modal(server: RenderLoop, scene_id: str, element_id: str) -> WidgetState:
-        from punt_lux.domain.identity import HubId, HubScopedKey
+        from punt_lux.wire.model.identity import HubId, HubScopedKey
 
         ws = server._scenes._widget_state.open(HubScopedKey(HubId.stub(), scene_id))
         ws.set(f"{element_id}{WidgetState.OPEN_SUFFIX}", 1)
@@ -647,7 +647,7 @@ class TestModalDismissRevertOnUndeliverable:
         sock = _mock_sock_fd(10)
         sock.send.side_effect = OSError("boom")
         server._socket_listener.clients.append(sock)
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
 
         server._socket_listener._registry._readers[10] = FrameReader()
         server._socket_listener._registry._fd_to_client[10] = sock
@@ -710,7 +710,7 @@ class TestFrameSendBudget:
         ) -> tuple[list[object], list[object], list[object]]:
             return ([], [], [])
 
-        from punt_lux.domain.identity import HubId
+        from punt_lux.wire.model.identity import HubId
 
         monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
         server = _make_server()
@@ -745,8 +745,8 @@ class TestFrameSendBudget:
         first send, and the undelivered suffix must stay held (a reconnect
         delivers it) rather than being destroyed at the failed send.
         """
-        from punt_lux.domain.identity import HubId
-        from punt_lux.protocol import FrameReader
+        from punt_lux.wire.model import FrameReader
+        from punt_lux.wire.model.identity import HubId
 
         server = _make_server()
         dead = _mock_sock_fd(10)

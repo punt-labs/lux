@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["QuarantineRegistry"]
 

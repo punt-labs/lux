@@ -21,9 +21,10 @@ import pytest
 from punt_lux.display.replica import SceneReplica
 from punt_lux.domain.hub import hub, hub_display, hub_lifecycle
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.scope import Scope
-from punt_lux.protocol import SceneMessage, TextElement
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model import SceneMessage, TextElement
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scope import Scope
 
 _OWNER_FD = 1
 _FRAME = "ttl-e2e-frame"

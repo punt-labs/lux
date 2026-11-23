@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 import pytest
 
 from punt_lux.display import RenderLoop
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     AckMessage,
     FrameReader,
     IntrospectRequest,
@@ -33,12 +33,12 @@ from punt_lux.protocol import (
     ScreenshotResponse,
     TextElement,
 )
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 if TYPE_CHECKING:
     import socket
 
-    from punt_lux.protocol import Message
+    from punt_lux.wire.model import Message
 
 _FD = 4711
 

@@ -24,9 +24,9 @@ import socket
 import ssl
 from typing import Self, final
 
-from punt_lux.domain.identity import HubId
-from punt_lux.domain.programmer_error import ProgrammerError
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.trust import LeafCertificate
+from punt_lux.wire.model.identity import HubId
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class CrossHostVerification:
         ``"fass"`` casefold identically), which would let one hostname
         masquerade as another. ``str.lower()`` is exact here because
         ``HubId.hostname`` is already canonicalized ASCII-only at
-        construction (``domain/hub_id.py``) and the certificate's SAN is an
+        construction (``wire/model/hub_id.py``) and the certificate's SAN is an
         IA5String -- ASCII-only by the X.509 encoding itself (RFC 5280) --
         so only this side, the cert-derived one, still needs lowering. A
         peer certificate this Display cannot read as naming exactly one

@@ -16,12 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.domain.hub.session_callback import MenuLeaf
-from punt_lux.domain.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
+from punt_lux.wire.model.id_separator import ID_SEPARATOR, NONBLANK_FRAME_ID
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["MenuAction"]
 

@@ -39,8 +39,8 @@ from punt_lux.display.renderers.imgui.continuous_edit_selection import (
 )
 from punt_lux.display.renderers.input_text_renderer import InputTextRenderer
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.domain.interaction import ValueChanged
-from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.wire.model.elements.input_text import InputTextElement
+from punt_lux.wire.model.interaction import ValueChanged
 
 if TYPE_CHECKING:
     import pytest

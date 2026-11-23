@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from punt_lux.paths import DisplayPaths
+from punt_lux.service.display_paths import DisplayPaths
 
 dp = DisplayPaths()
 SOCK_PATH = dp.socket_path

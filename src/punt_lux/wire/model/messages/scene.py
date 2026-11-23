@@ -1,0 +1,63 @@
+"""Scene-replacement message — the full-scene replace.
+
+Its wire mapping and validation live in the sibling
+:class:`~punt_lux.wire.model.messages.scene_codec.SceneCodec`, to which ``to_dict`` /
+``from_dict`` delegate.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
+
+from punt_lux.wire.model.messages.scene_codec import SceneCodec
+
+if TYPE_CHECKING:
+    from punt_lux.wire.model.elements import Element
+
+__all__ = [
+    "SceneMessage",
+]
+
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
+
+
+@dataclass(frozen=True, slots=True)
+class SceneMessage:
+    """Replace the entire display contents, framing the scene it carries."""
+
+    id: str
+    elements: list[Element]
+    frame_id: str  # required — no scene crosses the wire unframed (Hub self-frames)
+    type: Literal["scene"] = "scene"
+    layout: Literal["single", "rows", "columns", "grid"] = "single"
+    title: str | None = None
+    frame_title: str | None = None
+    frame_size: tuple[int, int] | None = None
+    frame_flags: dict[str, bool] | None = None
+    frame_layout: Literal["tab", "stack"] | None = None
+    # Absent = no change / owner unknown -- the display keeps its last cached
+    # snapshot rather than blanking it (the departure guarantee, PY-TS-14).
+    frame_owner_facts: tuple[tuple[str, str], ...] | None = None
+    # The Hub's roster name of the frame's canonical owner ("lux", "lux (2)"),
+    # shown as the title's connection rung. Absent = the Hub has no name for
+    # the owner right now; the display keeps the last one (PY-TS-14).
+    frame_scope_label: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict (delegates to :class:`SceneCodec`)."""
+        return SceneCodec.encode(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Rebuild from a wire dict (delegates to :class:`SceneCodec`)."""
+        return cast("Self", SceneCodec.decode(d))
+
+    @staticmethod
+    def register_codecs(register: _Register) -> None:
+        """Register the scene codec into a MessageRegistry."""
+        register("scene", SceneMessage, SceneMessage.to_dict, SceneMessage.from_dict)

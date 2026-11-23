@@ -668,7 +668,7 @@ class TestBeadsCLI:
                 "punt_lux.apps.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
-            patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None),
+            patch("punt_lux.kernel.hub_paths.HubPaths.read_port", return_value=None),
         ):
             result = runner.invoke(app, ["beads"])
 

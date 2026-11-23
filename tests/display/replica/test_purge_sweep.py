@@ -8,8 +8,8 @@ from punt_lux.display.replica.frame import Frame
 from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.display.replica.owner_facts_cache import OwnerFactsStore
 from punt_lux.display.replica.scene_departure import SceneDeparture
-from punt_lux.domain.identity import HubId, HubScopedKey
-from punt_lux.protocol import SceneMessage, TextElement
+from punt_lux.wire.model import SceneMessage, TextElement
+from punt_lux.wire.model.identity import HubId, HubScopedKey
 
 _HUB = HubId.stub()
 _OTHER = HubId("other.invalid", 2)

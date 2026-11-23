@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.renderers import RaisingRendererFactory
+from punt_lux.wire.model.renderers import RaisingRendererFactory
 
 
 def test_raising_renderer_factory_raises_runtime_error_on_call() -> None:

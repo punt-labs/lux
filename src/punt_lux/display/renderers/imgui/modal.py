@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING, ClassVar, Self, final
 from imgui_bundle import imgui
 
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.domain.container_interaction import ModalClosed
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.container_interaction import ModalClosed
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.modal import ModalElement
+    from punt_lux.wire.model.elements.modal import ModalElement
 
 __all__ = ["ImGuiModalRenderer"]
 

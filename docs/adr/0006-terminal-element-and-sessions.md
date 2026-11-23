@@ -7,7 +7,7 @@
   through the Hub, rather than bypassing it.
 - **Date:** 2026-11-15
 - **Evidence:** `spikes/terminal/STEP3.md`;
-  `src/punt_lux/protocol/elements/terminal.py`,
+  `src/punt_lux/wire/model/elements/terminal.py`,
   `src/punt_lux/display/terminal/sessions.py` (historical, removed by step 4),
   `display/render_loop.py`. Current lifetime evidence is in ADR-0007.
 

@@ -38,8 +38,8 @@ from punt_lux.apps.beads_result import BeadsRows
 from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.operations import Ok, OpError
-from punt_lux.protocol.messages.listen import CallbackFrame, ReadyFrame
 from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.wire.model.messages.listen import CallbackFrame, ReadyFrame
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, RecordingClient
 

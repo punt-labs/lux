@@ -14,20 +14,20 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.handler_failed_error import HandlerFailedError
 from punt_lux.domain.hub.lock_discipline import LockDiscipline
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.handler_failed_error import HandlerFailedError
+from punt_lux.wire.model.ids import ElementId, SceneId
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from punt_lux.domain.event_protocol import Event
     from punt_lux.domain.hub.batch_transaction import BatchTransaction
     from punt_lux.domain.hub.guard_registry import Holder
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol import RemoteEventHandlerInvocation
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
+    from punt_lux.wire.model.event_protocol import Event
 
 __all__ = ["ElementInvocationResolver", "ResolvedInteraction"]
 
@@ -53,7 +53,7 @@ class ResolvedInteraction:
         included, drops the removals they asked for, and is logged at WARNING with the
         event, the element and the reason. A handler that raises does the same and is
         logged at ERROR, with the handler, the event, the element and its traceback;
-        a :class:`~punt_lux.domain.programmer_error.ProgrammerError` is no handler's
+        a :class:`~punt_lux.kernel.programmer_error.ProgrammerError` is no handler's
         own failure and propagates once the undo is done. Raises
         :class:`~punt_lux.domain.hub.lock_discipline.LockDisciplineError` unless the
         store write lock is held: a handler's writes walk the element index an agent's

@@ -17,8 +17,8 @@ from unittest.mock import MagicMock
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
-from punt_lux.protocol.elements.window import WindowElement
-from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
+from punt_lux.wire.model.elements.window import WindowElement
+from punt_lux.wire.model.elements.window_chrome import WindowFlags, WindowPlacement
 
 if TYPE_CHECKING:
     import pytest

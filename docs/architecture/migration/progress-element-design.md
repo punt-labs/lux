@@ -68,12 +68,12 @@ For `progress` specifically:
 
 ### 1.3 Why a display-only leaf needs `render`/`id`/`_children`/`apply_patch` but NOT the handler/wrap machinery
 
-The Element ABC (`domain/element_abc.py:49`) carries a wide surface, but a
+The Element ABC (`wire/model/element_abc.py:49`) carries a wide surface, but a
 display-only leaf uses only part of it:
 
 | ABC member | Progress needs it? | Why |
 |---|---|---|
-| `id` (abstract property, `element_abc.py:100`) | **Yes** | The only abstract member. Every element must have a stable identity within its scene (`element-contract.md:44`); `HubDisplay` indexes and resolves by it (`domain/display.py:88`, `:349`). |
+| `id` (abstract property, `element_abc.py:100`) | **Yes** | The only abstract member. Every element must have a stable identity within its scene (`element-contract.md:44`); `HubDisplay` indexes and resolves by it (`wire/model/display.py:88`, `:349`). |
 | `render()` (template, `element_abc.py:105`) | **Yes, inherited** | Never overridden. For a leaf it calls `renderer_factory(self)` then `renderer.render()`; the empty-children branch is taken. |
 | `_children()` (`element_abc.py:119`) | **Yes, the empty default** | A leaf has no children. It inherits `return ()` and never overrides — exactly as `TextElement` does. |
 | `apply_patch()` (`element_abc.py:124`) | **Yes, inherited** | The in-place mutation path that replaces the frozen-dataclass `replace(...)` call. It dispatches each patch key to a `_set_<key>` setter, which the element must provide. |
@@ -98,7 +98,7 @@ template (`element-migration-audit.md:59`, `:147`–`:164`).
 - It provides `_set_content`/`_set_style`/`_set_tooltip`/`_set_color` setters so
   the inherited `apply_patch` works (`text.py:142`–`:156`).
 - It keeps `to_dict`/`from_dict` delegators so the structural
-  `domain.element.Element` Protocol still holds (`text.py:160`–`:173`).
+  `wire.model.element.Element` Protocol still holds (`text.py:160`–`:173`).
 - It registers no handlers and appears in no branch of
   `wrap_handlers_for_remote`.
 
@@ -138,7 +138,7 @@ confirmation that this is the intended meaning of "migrated" for a leaf.
 ### 2.1 Before (legacy) and after (ABC)
 
 The current `ProgressElement` is a frozen dataclass with a hand-rolled codec
-(`protocol/elements/progress.py:14`–`:42`):
+(`wire/model/elements/progress.py:14`–`:42`):
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -234,7 +234,7 @@ in the same commit — no dual path for one kind).
    ABC-set table of truth to be consistent (`element-migration-audit.md:82`–`:89`
    flags the analogous Checkbox omission).
 
-2. **`protocol/element_factory.py` — decode dispatch (the JsonElementFactory).**
+2. **`wire/model/element_factory.py` — decode dispatch (the JsonElementFactory).**
    - `_ABC_KINDS` frozenset (`element_factory.py:49`): add `"progress"`.
    - Add a `_progress_decoder: JsonProgressDecoder` field and construct it in
      `__new__` with the tier DI (mirror `text.py`'s decoder at
@@ -245,11 +245,11 @@ in the same commit — no dual path for one kind).
      `:200`–`:204`): include `ProgressElement` in the isinstance unions so the
      boundary invariants recognize it as an ABC kind.
 
-3. **`protocol/encoder_factory.py` — encode dispatch (the JsonEncoderFactory).**
+3. **`wire/model/encoder_factory.py` — encode dispatch (the JsonEncoderFactory).**
    Add `if isinstance(elem, ProgressElement): return
    JsonProgressEncoder().encode(elem)` (mirror `encoder_factory.py:36`).
 
-4. **`protocol/elements/__init__.py:185` — `_element_to_dict`.** Add
+4. **`wire/model/elements/__init__.py:185` — `_element_to_dict`.** Add
    `ProgressElement` to the isinstance tuple that routes through
    `_ENCODER_FACTORY` (currently `TextElement | ButtonElement | DialogElement`).
    This moves progress off the trailing generic-tooltip-append branch
@@ -264,7 +264,7 @@ in the same commit — no dual path for one kind).
 
 `ProgressElement` stays a member of the `Element` union
 (`elements/__init__.py:152`) — it still satisfies the structural
-`domain.element.Element` Protocol via its `to_dict`/`from_dict` delegators, exactly
+`wire.model.element.Element` Protocol via its `to_dict`/`from_dict` delegators, exactly
 as the ABC exemplars do (`element-migration-audit.md:46`–`:50`).
 
 ### 3.1 Mixed-scene coexistence stays intact
@@ -326,13 +326,13 @@ element, keyed by id:
 Field semantics:
 
 - **`render_path`** — `Literal["abc", "legacy"]`. Computed as `"abc" if
-  isinstance(elem, domain.element_abc.Element) else "legacy"`. This is the
+  isinstance(elem, wire.model.element_abc.Element) else "legacy"`. This is the
   load-bearing flip signal: it reflects the element *object's* type in the
   authoritative store. For `progress` it is `"legacy"` before this PR and `"abc"`
   after. Boundary classification by isinstance against the ABC is appropriate here
   (a query-side boundary decision, not domain behavior).
 - **`hub_authoritative`** — `bool`. True iff `ElementId(elem.id)` is present in
-  `domain_display.snapshot(SceneId(scene_id)).element_ids` (`domain/display.py:187`).
+  `domain_display.snapshot(SceneId(scene_id)).element_ids` (`wire/model/display.py:187`).
   A second, independent signal that the pump routed the element into `HubDisplay`
   via `apply`, not just that its type is ABC. Caveat (§6 Q6): the pump skips
   mixed scenes containing a non-native kind, so `hub_authoritative` can be `False`

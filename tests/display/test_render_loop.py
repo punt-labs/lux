@@ -18,8 +18,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display import RenderLoop
-from punt_lux.domain.identity import HubId
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     CallbackMenuMessage,
     ConnectMessage,
     HubManifestMessage,
@@ -29,6 +28,7 @@ from punt_lux.protocol import (
     TextElement,
     ThemeMessage,
 )
+from punt_lux.wire.model.identity import HubId
 
 if TYPE_CHECKING:
     import pytest

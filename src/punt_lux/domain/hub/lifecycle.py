@@ -20,7 +20,7 @@ from punt_lux.domain.hub.hub_store_factory import hub_lifecycle as default_lifec
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["disconnect_connection"]
 

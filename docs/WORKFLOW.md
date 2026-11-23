@@ -228,7 +228,7 @@ function pr_loop(unit):
         operator rules                    # local_review: punt-kit pr-review.md
 
     # C. DEMO — human confirmation of what only a human can judge
-    make restart                          # rebuilds and restarts luxd AND the display
+    make restart                          # from outside a Lux terminal; ends its sessions
     write down the expected outcome, then drive the real entry point
     capture machine evidence with the introspection tools, on both tiers:
         Hub store (scene_inspect, scene_ls, event_ls, error_ls) and
@@ -378,6 +378,10 @@ and the ruleset has no `copilot_code_review` rule. If a push still starts a
 Bugbot run, its findings are findings like any other.
 
 ### The demo gate
+
+Run `make restart` from outside a Lux terminal: restarting `luxd-pty` ends
+its sessions. For a demo that doesn't change PTY, use
+`make reload && lux display restart` to keep those sessions open.
 
 `make check` passing means the code compiles and the tests pass. It does not
 mean the feature works. Before any PR opens, the feature is driven through

@@ -69,6 +69,12 @@ elapsed time. Behavior assertions are stable; wall-clock bounds are not.
 
 ## Writing tests
 
+Shared model tests mirror `wire/model/` under `tests/wire/model/`; retained Hub
+and PTY packages still use `tests/domain/hub/` and `tests/protocol/pty/`.
+`tests/wire/model/test_imports.py` imports each new model module in a fresh
+interpreter. Legacy Hub pickle-name compatibility is covered by
+`tests/wire/model/messages/test_pickled_element_codec.py`.
+
 **Protocol tests are the primary safety net.** Every element kind must
 have a test that verifies the serialization roundtrip: build → serialize →
 deserialize → compare. Protocol changes without roundtrip tests are
@@ -127,7 +133,7 @@ so nested elements can never silently skip the walk. An element kind is not
 
 ### Level 2 — Wire roundtrip (unit/integration)
 
-The Hub→Display wire is the `SceneMessage` codec (`protocol/messages/scene.py`):
+The Hub→Display wire is the `SceneMessage` codec (`wire/model/messages/scene.py`):
 it serializes to a dict, and each **ABC element** crosses as a base64-encoded
 pickled `_pickled` entry inside that dict, while legacy elements cross as plain
 dicts. Build a scene containing the element → serialize the scene message →

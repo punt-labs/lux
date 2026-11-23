@@ -16,13 +16,13 @@ new handler code.
 
 Bool-atomic exemplar:
 
-- `protocol/elements/checkbox.py` — `@final`-shaped ABC leaf; `_value: bool`,
+- `wire/model/elements/checkbox.py` — `@final`-shaped ABC leaf; `_value: bool`,
   keyword-only `__new__` with `abc_di_defaults` sentinels, property `value`,
   `_set_value` via `PatchField("value").as_bool`, `_remote_dispatch_specs`
   → `RemoteDispatchSpec(ValueChanged, "changed", "value_changed")`,
   `to_dict`/`from_dict` delegators, `widget_value`, `resolved_props`. No
   `validate()` override — no `apply_patch` override.
-- `protocol/elements/checkbox_codec.py` — `JsonCheckboxDecoder` installs
+- `wire/model/elements/checkbox_codec.py` — `JsonCheckboxDecoder` installs
   `ApplyPatchOnChange(elem, field="value")` then wire `handlers`;
   `JsonCheckboxEncoder.encode` = `strip_none({kind,id,label,value,tooltip})`.
 - `display/renderers/imgui/checkbox.py` — `ImGuiCheckboxRenderer` adapter
@@ -35,31 +35,31 @@ Bool-atomic exemplar:
 
 Atomic-selection siblings (the shared handler):
 
-- `protocol/elements/value_change_handlers.py` —
+- `wire/model/elements/value_change_handlers.py` —
   `type ChangedField = Literal["value", "selected"]`; `@final`
   `ApplyPatchOnChange(elem, *, field: ChangedField)` calls
   `elem.apply_patch({field: event.value})`, pickle-safe;
   `@final NoopValueHandler`; `build_standalone_value_handler_decoder(sink)`.
   **The `"selected"` arm already exists** — combo/radio use it.
-- `protocol/elements/combo.py` / `combo_codec.py` — the int-index sibling;
+- `wire/model/elements/combo.py` / `combo_codec.py` — the int-index sibling;
   read for the atomic pattern and to confirm `selectable` is *simpler* (no
   index invariant, so no `apply_patch`/`validate` overrides, no
   `_index_error_messages`).
 
 DES-051 registry (the "one file a migration edits"):
 
-- `protocol/elements/abc_kind_table.py` — `DefaultAbcKinds._leaf_specs()`;
+- `wire/model/elements/abc_kind_table.py` — `DefaultAbcKinds._leaf_specs()`;
   a leaf spec is one `LeafKindSpec(kind=..., codec=KindCodec(...),
   handler_builder=build_standalone_value_handler_decoder)`.
-- `protocol/elements/abc_kind_names.py` — `MIGRATED_ABC_KINDS` frozenset.
-- `protocol/elements/abc_kind_verify.py` — `INTERACTIVE_KINDS` frozenset; the
+- `wire/model/elements/abc_kind_names.py` — `MIGRATED_ABC_KINDS` frozenset.
+- `wire/model/elements/abc_kind_verify.py` — `INTERACTIVE_KINDS` frozenset; the
   capability guard raises if an interactive kind's spec omits `HANDLERS`.
 - `abc_kind_spec.py` / `abc_leaf_spec.py` — the `AbcKindSpec` Protocol
   (structural, `runtime_checkable`) and the `LeafKindSpec` shape.
 
 Legacy `selectable` (what it emits today):
 
-- `protocol/elements/selectable.py` — `@dataclass(frozen=True, slots=True)`,
+- `wire/model/elements/selectable.py` — `@dataclass(frozen=True, slots=True)`,
   `selected: bool = False`, `tooltip: str | None = None`. `to_dict` emits
   `{kind,id,label}` and adds `selected: True` **only when True**; **never
   emits `tooltip`**. `from_dict` reads `id/label/selected` (not tooltip).
@@ -68,7 +68,7 @@ Legacy `selectable` (what it emits today):
   `(clicked, new_val)`; on click writes `WidgetState` and emits a
   `RemoteEventHandlerInvocation(action="clicked", value=new_val)` directly.
   This is the legacy pump path the migration retires.
-- Registration / dispatch touchpoints: `protocol/elements/inputs.py`
+- Registration / dispatch touchpoints: `wire/model/elements/inputs.py`
   (`InputsRegistry` — selectable is its *only* remaining registration);
   `display/element_renderer.py` `_NATIVE_DISPATCH` (DES-042) +
   `_WIDGET_STATE_RENDERERS`; `display/renderers/imgui/factory.py` `_DISPATCH`;
@@ -114,7 +114,7 @@ transitional leaf compatibility; verify-as-you-go), `combo-radio-design.md`,
 4. **`validate()` is vacuous → no override.** A `bool` toggle plus a `str`
    label is always well-formed; there is no `selected`-vs-`items` range to
    police (that is combo/radio). Like `checkbox`, `SelectableElement` inherits
-   the ABC default `validate() -> ()` (`domain/element_abc.py:167`). DES-039 is
+   the ABC default `validate() -> ()` (`wire/model/element_abc.py:167`). DES-039 is
    satisfied by the *component-appropriate* answer being "no constraints." The
    self-validation **tests** still exist — `validate() == ()` for a valid
    element, and malformed **wire** (missing `id`, non-bool `selected`) rejected
@@ -133,7 +133,7 @@ implies. Every module stays under PY-OO-2 (≤ 300 lines, ≤ 3 classes).
 
 ### New (2)
 
-- `src/punt_lux/protocol/elements/selectable_codec.py` —
+- `src/punt_lux/wire/model/elements/selectable_codec.py` —
   `JsonSelectableDecoder` + `JsonSelectableEncoder`, mirroring
   `checkbox_codec.py`. Decoder installs
   `ApplyPatchOnChange(elem, field="selected")` then any wire `handlers`;
@@ -146,7 +146,7 @@ implies. Every module stays under PY-OO-2 (≤ 300 lines, ≤ 3 classes).
 
 ### Rewritten (2)
 
-- `src/punt_lux/protocol/elements/selectable.py` — frozen dataclass → `@final`
+- `src/punt_lux/wire/model/elements/selectable.py` — frozen dataclass → `@final`
   ABC `SelectableElement` (PY-CC-1 `__new__`, PY-IC-2 `@final`, PY-EN-1/2
   `_selected` + property). Fields `_id/_label/_selected/_tooltip/_kind`;
   keyword-only `__new__` with `RAISING_FACTORY`/`NO_EMIT` sentinels; property
@@ -183,11 +183,11 @@ implies. Every module stays under PY-OO-2 (≤ 300 lines, ≤ 3 classes).
 
 ### Fork-wiring removals
 
-- `src/punt_lux/protocol/elements/inputs.py` — **delete the module.**
+- `src/punt_lux/wire/model/elements/inputs.py` — **delete the module.**
   `selectable` was `InputsRegistry`'s only remaining registration; once it
   moves to the ABC registry the class is empty. Remove the `InputsRegistry`
   import and the `InputsRegistry().apply(codec.register)` call from
-  `protocol/elements/__init__.py` (`build_element_codec`). PL-PP-1: no dead
+  `wire/model/elements/__init__.py` (`build_element_codec`). PL-PP-1: no dead
   shim, no empty-class tombstone.
 - `display/server.py:1026` `_auto_click_emit_loop` selectable branch — this
   synthetic auto-click harness switches on `isinstance(elem,

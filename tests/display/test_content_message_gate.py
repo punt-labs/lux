@@ -13,8 +13,8 @@ from punt_lux.display.content_message_gate import ContentMessageGate
 from punt_lux.display.identity_guard import IdentityGuard
 from punt_lux.display.socket_listener_callbacks import SocketListenerCallbacks
 from punt_lux.display.socket_server import SocketListener
-from punt_lux.domain.hub_id import HubId
-from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
+from punt_lux.wire.model import CallbackMenuMessage, MenuMessage, ThemeMessage
+from punt_lux.wire.model.hub_id import HubId
 
 
 def _mock_sock(fd: int) -> MagicMock:

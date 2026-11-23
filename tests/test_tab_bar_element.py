@@ -25,31 +25,31 @@ from punt_lux.display.renderers.imgui.tab_selection import (
     TabSelectionArbiter,
 )
 from punt_lux.display.replica import SceneReplica, WidgetState
-from punt_lux.domain.container_interaction import TabChanged
-from punt_lux.domain.element_abc import Element as AbcElement
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElements
-from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.agent_factory import agent_element_factory
-from punt_lux.protocol.elements import (
+from punt_lux.tools import show
+from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.container_interaction import TabChanged
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.elements import (
     ButtonElement,
     ProgressElement,
     Tab,
     TabBarElement,
     TextElement,
 )
-from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.messages import message_from_dict, message_to_dict
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.protocol.renderer import Renderer, TabContainerRenderer
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
-from punt_lux.tools import show
+from punt_lux.wire.model.encoder_factory import JsonEncoderFactory
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.messages import message_from_dict, message_to_dict
+from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.renderer import Renderer, TabContainerRenderer
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.validation_walk import ElementTreeValidator, HasChildElements
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.protocol import QueryResponse
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import QueryResponse
+    from punt_lux.wire.model.elements import Element
 
 _CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.asks"
 

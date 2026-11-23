@@ -17,8 +17,8 @@ from punt_lux.domain.hub.client_identity import ClientIdentity
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.ids import ConnectionId
 from punt_lux.hub_composition import HubComposition
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.menus import MenuDepartureSink
 from tests.rest._fakes import Recorder

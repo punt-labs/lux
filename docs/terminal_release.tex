@@ -1,0 +1,493 @@
+%
+% terminal_release.tex
+%
+% A Z specification of one shared luxd-pty connection and the terminal
+% replicas multiplexed over it, each on its own channel.  It models the
+% ordering the lifecycle model terminal_lifecycle.tex abstracts away: a
+% replica is released while the daemon still has frames, or an attach
+% reply, in flight for its channel.
+%
+% Design record: docs/architecture/terminal-lifecycle.md section 8
+% Source of record:
+%   src/punt_lux/display/terminal/remote_pool.py   RemotePool._drop, _receive
+%   src/punt_lux/display/terminal/cancelled_attaches.py
+%   src/punt_lux/display/terminal/attachment_requests.py
+%   src/punt_lux/ptyd/viewer_input.py, viewers.py   the daemon's side
+%
+% Type-check:  fuzz -t docs/terminal_release.tex
+% Model-check: scripts/verify_terminal_model.sh
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Releasing a Terminal Replica on a Shared Connection: a Z Specification}
+\author{Formal model of late frames and late attach replies}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+The Display holds one socket to the terminal daemon and many replicas on it.
+Releasing a replica sends \texttt{CLOSE} for its channel and forgets the
+channel locally, but the daemon may already have \texttt{DATA}, a
+\texttt{CLOSE}, or an attach reply in flight for it.  Any frame the Display
+cannot place raises an error and the Display drops the whole connection, which
+disconnects every other replica.  The property to establish is that releasing
+one replica never disconnects another.
+
+This is the intact design: a released channel and a cancelled attach are both remembered.
+
+\section{Basic Types}
+
+\begin{zed}
+  [CH] \\
+  CONN ::= linked | severed \\
+  VIEW ::= asked | live | cancelled | released \\
+  FK ::= reply | data | close \\
+  HEALTH ::= calm | failed
+\end{zed}
+
+\texttt{CH} is a channel number, also the identity of the attach request that
+will be answered on it; numbering restarts with each connection.  The
+Display's view of a channel is \texttt{asked} (attach sent, reply awaited),
+\texttt{live} (in \texttt{\_channels}), \texttt{cancelled} (replica released
+while \texttt{asked}) or \texttt{released} (live replica released).
+\texttt{FK} is the kind of a frame the daemon sends: the attach reply on the
+control channel, stream data, or the stream close.  Snapshots are data.
+
+\section{State}
+
+\begin{schema}{Sys}
+  conn : CONN \\
+  dview : CH \pfun VIEW \\
+  reqs, dbound, dfin, toDaemon, usedCh, collateral : \power CH \\
+  inflight : \seq (CH \cross FK) \\
+  health : HEALTH
+\where
+  \#~inflight \leq 3 \\
+  dfin \subseteq dbound
+\end{schema}
+
+\texttt{dview} is the Display's bookkeeping.  \texttt{reqs} are attach
+requests the daemon has not yet answered.  \texttt{dbound} are the daemon's
+viewer bindings and \texttt{dfin} those it has already sent a
+\texttt{CLOSE} for.  \texttt{toDaemon} are \texttt{CLOSE} frames the Display
+has sent that the daemon has not yet read.  \texttt{inflight} is the single
+ordered byte stream from the daemon: control replies and channel frames share
+it, so a reply always precedes the frames of its channel.
+\texttt{usedCh} are channels numbered on this connection.
+\texttt{collateral} is a history variable: the unreleased replicas
+(\texttt{asked} or \texttt{live}) that were dropped by a connection error
+triggered by some other channel.  \texttt{health} becomes \texttt{failed}
+when any such error occurs at all.
+
+\begin{schema}{Init}
+  Sys'
+\where
+  conn' = linked \\
+  dview' = \emptyset \\
+  reqs' = \emptyset \\
+  dbound' = \emptyset \\
+  dfin' = \emptyset \\
+  toDaemon' = \emptyset \\
+  usedCh' = \emptyset \\
+  collateral' = \emptyset \\
+  inflight' = \langle \rangle \\
+  health' = calm
+\end{schema}
+
+\section{Display Operations}
+
+\begin{schema}{ReplicaAsk}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \notin usedCh \\
+  dview' = dview \cup \{ c? \mapsto asked \} \\
+  reqs' = reqs \cup \{ c? \} \\
+  usedCh' = usedCh \cup \{ c? \} \\
+  conn' = conn \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  collateral' = collateral \\
+  inflight' = inflight \\
+  health' = health
+\end{schema}
+
+\begin{schema}{ReleaseLive}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in \dom dview \\
+  dview~c? = live \\
+  dview' = dview \oplus \{ c? \mapsto released \} \\
+  toDaemon' = toDaemon \cup \{ c? \} \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  inflight' = inflight \\
+  health' = health
+\end{schema}
+
+Releasing a live replica sends \texttt{CLOSE} and \emph{remembers} the
+channel as \texttt{released} (the \texttt{\_released} set).
+
+\begin{schema}{ReleaseAsked}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in \dom dview \\
+  dview~c? = asked \\
+  dview' = dview \oplus \{ c? \mapsto cancelled \} \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  inflight' = inflight \\
+  health' = health
+\end{schema}
+
+Releasing a replica whose attach is unanswered \emph{cancels} the request
+(\texttt{CancelledAttaches}).
+
+\section{Daemon Operations}
+
+\begin{schema}{DaemonAttach}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in reqs \\
+  \#~inflight < 3 \\
+  reqs' = reqs \setminus \{ c? \} \\
+  dbound' = dbound \cup \{ c? \} \\
+  inflight' = inflight \cat \langle (c? , reply) \rangle \\
+  conn' = conn \\
+  dview' = dview \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{DaemonSendsData}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in dbound \setminus dfin \\
+  \#~inflight < 3 \\
+  inflight' = inflight \cat \langle (c? , data) \rangle \\
+  conn' = conn \\
+  dview' = dview \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{DaemonSendsClose}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in dbound \setminus dfin \\
+  \#~inflight < 3 \\
+  dfin' = dfin \cup \{ c? \} \\
+  inflight' = inflight \cat \langle (c? , close) \rangle \\
+  conn' = conn \\
+  dview' = dview \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+The daemon keeps a binding after it sends \texttt{CLOSE}; only the viewer's
+\texttt{CLOSE} removes it.
+
+\begin{schema}{DaemonReadsClose}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in toDaemon \cap dbound \\
+  toDaemon' = toDaemon \setminus \{ c? \} \\
+  dbound' = dbound \setminus \{ c? \} \\
+  dfin' = dfin \setminus \{ c? \} \\
+  conn' = conn \\
+  dview' = dview \\
+  reqs' = reqs \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  inflight' = inflight \\
+  health' = health
+\end{schema}
+
+\begin{schema}{DaemonRejectsClose}
+  \Delta Sys \\
+  c? : CH
+\where
+  conn = linked \\
+  c? \in toDaemon \setminus dbound \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  reqs' = \emptyset \\
+  dbound' = \emptyset \\
+  dfin' = \emptyset \\
+  toDaemon' = \emptyset \\
+  usedCh' = \emptyset \\
+  inflight' = \langle \rangle \\
+  collateral' = collateral \cup \dom (dview \rres \{ live , asked \}) \\
+  health' = failed
+\end{schema}
+
+A \texttt{CLOSE} for a channel the daemon has no binding for raises
+``unknown viewer channel'' and the daemon drops the peer.
+
+\section{Receiving a Frame}
+
+The Display reads the head of the stream.
+
+\begin{schema}{ReceiveReply}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , reply) \\
+  c? \in \dom dview \\
+  dview~c? = asked \\
+  dview' = dview \oplus \{ c? \mapsto live \} \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+A live replica that reads the daemon's close answers with its own close (\texttt{RemoteSession.\_notice}), which frees the daemon's binding.
+
+\begin{schema}{ReceiveLateReply}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , reply) \\
+  c? \in \dom dview \\
+  dview~c? = cancelled \\
+  dview' = dview \oplus \{ c? \mapsto released \} \\
+  toDaemon' = toDaemon \cup \{ c? \} \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+The reply to a cancelled attach is consumed.  The daemon opened the channel
+and queued its snapshot behind the reply, so the Display closes the channel
+\\emph{and remembers it as released}: frames already in flight must be
+ignored.
+
+\begin{schema}{ReceiveData}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , data) \\
+  c? \in \dom dview \\
+  dview~c? = live \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  dview' = dview \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{ReceiveClose}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , close) \\
+  c? \in \dom dview \\
+  dview~c? = live \\
+  dview' = \{ c? \} \ndres dview \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \cup \{ c? \} \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{ReceiveLateFrame}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , data) \\
+  c? \in \dom dview \\
+  dview~c? = released \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  dview' = dview \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{ReceiveLateClose}
+  \Delta Sys \\
+  c? : CH
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , close) \\
+  c? \in \dom dview \\
+  dview~c? = released \\
+  dview' = \{ c? \} \ndres dview \\
+  inflight' = tail~inflight \\
+  conn' = conn \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+A frame for a released channel is ignored; its \texttt{CLOSE} forgets the
+channel.
+
+\begin{schema}{ReceiveUnplaceable}
+  \Delta Sys \\
+  c? : CH \\
+  k? : FK
+\where
+  inflight \neq \langle \rangle \\
+  head~inflight = (c? , k?) \\
+  \lnot ((k? = reply \land c? \in \dom dview \land
+      (dview~c? = asked \lor dview~c? = cancelled)) \lor
+    (k? \neq reply \land c? \in \dom dview \land
+      (dview~c? = live \lor dview~c? = released))) \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  reqs' = \emptyset \\
+  dbound' = \emptyset \\
+  dfin' = \emptyset \\
+  toDaemon' = \emptyset \\
+  usedCh' = \emptyset \\
+  inflight' = \langle \rangle \\
+  collateral' = collateral \cup
+    (\dom (dview \rres \{ live , asked \}) \setminus \{ c? \}) \\
+  health' = failed
+\end{schema}
+
+The frame names a channel the Display can neither place nor excuse.  The
+connection is dropped and every unreleased replica goes with it.
+
+\section{Connection Operations}
+
+\begin{schema}{Disconnect}
+  \Delta Sys
+\where
+  conn = linked \\
+  conn' = severed \\
+  dview' = \emptyset \\
+  reqs' = \emptyset \\
+  dbound' = \emptyset \\
+  dfin' = \emptyset \\
+  toDaemon' = \emptyset \\
+  usedCh' = \emptyset \\
+  inflight' = \langle \rangle \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+\begin{schema}{Reconnect}
+  \Delta Sys
+\where
+  conn = severed \\
+  conn' = linked \\
+  dview' = dview \\
+  reqs' = reqs \\
+  dbound' = dbound \\
+  dfin' = dfin \\
+  toDaemon' = toDaemon \\
+  usedCh' = usedCh \\
+  inflight' = inflight \\
+  collateral' = collateral \\
+  health' = health
+\end{schema}
+
+A voluntary disconnect or a daemon restart is not an error: the old
+connection's channels are gone and the new one restarts numbering.
+
+\section{Goals}
+
+\paragraph{R1 --- a release never disconnects another replica.}
+\[
+  collateral = \emptyset
+\]
+The bad state is \texttt{collateral} $\neq \emptyset$.
+
+\paragraph{R2 --- no spurious protocol error.}
+The only frame errors are real ones, and none arises from releases:
+\texttt{health} $= $ \texttt{calm}.  In the intact model both R1 and R2
+hold in every state; the close sent for a channel the daemon has already
+dropped (\texttt{DaemonRejectsClose}) is unreachable too.
+
+\paragraph{R3 --- deadlock freedom.}
+\texttt{Disconnect} and \texttt{Reconnect} between them are always enabled, so
+the model cannot stop; the check guards against a guard written wrongly.
+
+\section{Verification}
+
+\begin{verbatim}
+  scripts/verify_terminal_model.sh
+\end{verbatim}
+
+\section{Fidelity}
+
+Two buggy variants sit beside this file (\texttt{terminal\_release\_channel\_buggy.tex} and \texttt{terminal\_release\_attach\_buggy.tex}); each makes R1 and R2 reachable, which the intact model cannot reach.
+
+\end{document}

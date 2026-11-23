@@ -4,7 +4,7 @@ Writing moved out of the Hub entirely (DES-088): the CLI writes
 ``DisplayModeStore`` directly (``cli/display.py``'s ``mode()`` SET branch),
 so there is no ``DisplayModeOperations.write_display_mode`` left to test here
 -- ``DisplayModeStore`` itself covers the write, and its own test module
-(``tests/operations/test_display_mode_store.py``) is the reference for that.
+(``tests/service/test_display_mode_store.py``) is the reference for that.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from punt_lux.operations import DisplayModeState, OpError
 from punt_lux.operations.config import DisplayModeOperations
-from punt_lux.operations.display_mode_store import DisplayModeStore
+from punt_lux.service.display_mode_store import DisplayModeStore
 
 
 def _ops() -> DisplayModeOperations:

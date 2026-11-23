@@ -191,30 +191,30 @@ prose drift, not this specification.
 
 | Partition | Expected covering test (design §10 item 11) | Status |
 |---|---|---|
-| L1 | `tests/domain/test_display_linkage.py::test_classify_truth_table` (parametrized, 4 branches, no fakes) | IMPLEMENTED |
-| L2 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
-| L3 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
-| L4 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
-| L5 | `tests/domain/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
-| L6 | `tests/domain/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — a fake `ClientProvider` whose `get()` raises `DisplayNotConnectedError` drives the `disconnected` branch; asserts `_back_off()` is never invoked | IMPLEMENTED |
+| L1 | `tests/wire/model/test_display_linkage.py::test_classify_truth_table` (parametrized, 4 branches, no fakes) | IMPLEMENTED |
+| L2 | `tests/wire/model/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L3 | `tests/wire/model/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L4 | `tests/wire/model/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L5 | `tests/wire/model/test_display_linkage.py::test_classify_truth_table` | IMPLEMENTED |
+| L6 | `tests/wire/model/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — a fake `ClientProvider` whose `get()` raises `DisplayNotConnectedError` drives the `disconnected` branch; asserts `_back_off()` is never invoked | IMPLEMENTED |
 | L7 | `tests/test_client_registry.py::TestConnectAndReconcile` — every fresh connect through `get()` (any caller) reconciles via DES-068's one choke point | IMPLEMENTED |
 | L8 | `tests/test_client_registry.py::test_get_does_not_reconnect_when_already_connected` — no duplicate re-mark | IMPLEMENTED |
-| L9 | `tests/domain/test_hub_replicator.py::test_the_disconnected_backoff_climbs_from_base_to_cap` — the delay sequence matches the 2s→120s curve | IMPLEMENTED |
-| L10 | `tests/domain/test_hub_replicator.py::test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success` | IMPLEMENTED |
+| L9 | `tests/wire/model/test_hub_replicator.py::test_the_disconnected_backoff_climbs_from_base_to_cap` — the delay sequence matches the 2s→120s curve | IMPLEMENTED |
+| L10 | `tests/wire/model/test_hub_replicator.py::test_the_disconnected_backoff_resets_on_a_clean_send_not_on_dial_success` | IMPLEMENTED |
 | L11 | (model-only; fidelity control (a), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
 | L12 | `tests/test_client_registry.py::test_wait_for_reconnect_wakes_promptly_on_a_concurrent_connect` and `::test_a_reconnect_landing_in_the_get_to_wait_gap_is_not_lost` (PR-465: the generation-counter race close) | IMPLEMENTED |
 | L13 | `tests/test_client_registry.py::test_a_wait_snapshotted_after_its_own_connect_waits_out_its_own_timeout` | IMPLEMENTED |
 | L14 | (model-only; fidelity control (b), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
 | L15 | `tests/test_client_registry.py::test_wait_for_reconnect_does_not_hold_the_registry_lock` — a concurrent `.get()` from another thread completes while the wait is in flight | IMPLEMENTED |
 | L16 | (model-only; bonus fidelity control (c), reproduced in `docs/display_linkage.tex` §Fidelity against a scratch variant, not a committed file) | MODEL-CHECKED |
-| L17 | `tests/domain/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — `_back_off()` (the wedge-backoff sleep) is never invoked on the `disconnected` path | IMPLEMENTED |
-| L18 | `tests/domain/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` et al. (wedge curve), contrasted with L9's disconnected curve — the wedge tests never touch `_disconnected_retry` | IMPLEMENTED |
-| L19 | `tests/domain/test_hub_replicator.py` — L9 and L18's tests run in the same module without cross-contamination (shared file, independent `HubReplicator` instances per test) | IMPLEMENTED |
+| L17 | `tests/wire/model/test_hub_replicator.py::test_a_dial_failure_drives_the_disconnected_branch_not_the_wedged_backoff` — `_back_off()` (the wedge-backoff sleep) is never invoked on the `disconnected` path | IMPLEMENTED |
+| L18 | `tests/wire/model/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` et al. (wedge curve), contrasted with L9's disconnected curve — the wedge tests never touch `_disconnected_retry` | IMPLEMENTED |
+| L19 | `tests/wire/model/test_hub_replicator.py` — L9 and L18's tests run in the same module without cross-contamination (shared file, independent `HubReplicator` instances per test) | IMPLEMENTED |
 | L20 | `tests/test_client_registry.py::TestConnectAndReconcile` — the reconcile hook lives entirely in `ClientRegistry.get()`, so it fires identically for `DisplayLiveness`'s and `HubReplicator`'s calls; no per-caller branch exists to test separately | IMPLEMENTED |
 | L21 | `tests/test_liveness.py::TestDisconnectedPacing::test_interval_relaxes_after_a_failure_and_snaps_back_on_reconnect` | IMPLEMENTED |
 | L22 | No dedicated covering test. `DisplayLiveness` and `HubReplicator` share one production `ClientRegistry`/`_lock`, but no test exercises both workers concurrently against one fake to assert the prober's `.get()` is never gated by the replicator's `rwaitdisc` phase. Gap, not a false-covered row. | GAP |
 | L23 | `tests/test_hub_never_spawns_display.py::test_no_hub_module_references_the_display_service_lifecycle` — grep-provable, asserts no `src/punt_lux/domain/hub/` file references `ServiceManager`/`DISPLAY_SPEC`/`DisplayServiceManager` | IMPLEMENTED |
-| L24 | (model-only for this audit; the underlying `SendRecovery._remark` re-mark-every-live-scene behavior is exercised by `tests/domain/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` and `::test_a_dead_peer_reconnects_without_reaping`, but neither seeds a *second*, batch-untouched live scene, so no test in this repository yet drives the exact multi-scene case the round-3 `RHeal` fix models) | GAP |
+| L24 | (model-only for this audit; the underlying `SendRecovery._remark` re-mark-every-live-scene behavior is exercised by `tests/wire/model/test_hub_replicator.py::test_a_wedged_display_is_reaped_respawned_and_repainted` and `::test_a_dead_peer_reconnects_without_reaping`, but neither seeds a *second*, batch-untouched live scene, so no test in this repository yet drives the exact multi-scene case the round-3 `RHeal` fix models) | GAP |
 | L25 | (model-only for this audit; `DisplayLiveness.check_once()`'s ping-fails-despite-a-successful-`.get()` branch and its `self._clients.drop()` call are visible in the design doc's own code excerpt, §6.4, but no test in `tests/test_liveness.py` isolates a ping failure from a dial failure) | GAP |
 
 Three partitions (L11, L14, L16) have no code to test yet by construction —

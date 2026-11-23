@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Self, final
 
 from punt_lux.display import RenderLoop
-from punt_lux.protocol import ReadyMessage, recv_message
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.model import ReadyMessage, recv_message
+from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 
 
 def _sock_path() -> str:

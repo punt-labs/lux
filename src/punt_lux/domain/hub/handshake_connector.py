@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from functools import cached_property
 from pathlib import Path
 from typing import Literal, Self, final
 
@@ -23,11 +24,11 @@ from punt_lux.domain.hub.handshake_outcome import (
     DisplayNotConnectedError,
     HandshakeResult,
 )
-from punt_lux.domain.hub_id import HubId
-from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import ConnectMessage, ReadyMessage, recv_message, send_message
-from punt_lux.protocol.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.domain.hub.ready_handshake import ReadyHandshake
 from punt_lux.send_timeout import set_send_timeout
+from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.wire.model import ConnectMessage, send_message
+from punt_lux.wire.model.hub_id import HubId
 
 __all__ = ["HandshakeConnector", "HandshakeResult"]
 
@@ -38,15 +39,14 @@ logger = logging.getLogger(__name__)
 class HandshakeConnector:
     """Dials the display over ``AF_UNIX`` and performs the connect handshake.
 
-    Owns this connection's declared identity -- the display-facing ``name``,
-    its ``kind``, and its :class:`HubId` -- all fixed for the connection's
-    lifetime, plus the local endpoint (``socket_path``) and whether to spawn
-    the display when it is not already running.
+    Owns the display-facing ``name`` and ``kind``, plus the local endpoint
+    (``socket_path``) and whether to spawn the display when it is not already
+    running. Resolves its :class:`HubId` on the first named handshake and
+    keeps that wire identity for subsequent handshakes.
     """
 
     _name: str | None
     _kind: Literal["hub", "test"]
-    _hub_id: HubId
     _socket_path: Path | None
     _auto_spawn: bool
 
@@ -61,16 +61,20 @@ class HandshakeConnector:
         self = super().__new__(cls)
         self._name = name
         self._kind = kind
-        self._hub_id = HubId.current() if kind == "hub" else HubId.stub()
         self._socket_path = Path(socket_path) if socket_path else None
         self._auto_spawn = auto_spawn
         return self
+
+    @cached_property
+    def _hub_token(self) -> str:
+        """Resolve this connection's stable identity only when declaring it."""
+        return (HubId.current() if self._kind == "hub" else HubId.stub()).wire_token
 
     def dial(self, connect_timeout: float) -> HandshakeResult:
         """Open the display socket and perform the Ready/Connect handshake.
 
         Raises:
-            DisplayNotConnectedError: If the socket cannot connect, no Ready
+            DisplayNotConnectedError: If the socket cannot connect, no compatible Ready
                 message arrives, or the identity cannot be sent.
             RuntimeError: If starting the local display times out.
             ValueError: If the Ready frame is malformed.
@@ -98,38 +102,14 @@ class HandshakeConnector:
         The handshake closes the socket on failure.
 
         Raises:
-            DisplayNotConnectedError: If no Ready message arrives or the
+            DisplayNotConnectedError: If no compatible Ready message arrives or the
                 identity cannot be sent.
             ValueError: If the Ready frame is malformed.
         """
-        ready = self._recv_ready(sock, endpoint, connect_timeout)
+        ready = ReadyHandshake.receive(sock, endpoint, connect_timeout)
         self._send_identity(sock)
         logger.info("Connected to display at %s (protocol %s)", endpoint, ready.version)
         return HandshakeResult(sock=sock, endpoint=endpoint, ready=ready)
-
-    def _recv_ready(
-        self, sock: socket.socket, endpoint: str, connect_timeout: float
-    ) -> ReadyMessage:
-        """Receive and validate the ``ReadyMessage``, closing ``sock`` on failure."""
-        try:
-            ready = recv_message(sock, DISPLAY_VOCABULARY, timeout=connect_timeout)
-        except Exception:
-            sock.close()
-            raise
-        if ready is None:
-            sock.close()
-            msg = f"Handshake timed out after {connect_timeout}s at {endpoint}"
-            raise DisplayNotConnectedError(msg)
-        if not isinstance(ready, ReadyMessage):
-            sock.close()
-            # A protocol mismatch (e.g. version skew), not a disconnect: still
-            # raises DisplayNotConnectedError so the replicator holds and retries,
-            # but a persistent mismatch must stay visible, not vanish into that
-            # path's ordinary quiet-disconnected retry cadence.
-            logger.warning("Handshake mismatch: expected ReadyMessage, got %s", ready)
-            msg = f"Expected ReadyMessage, got {type(ready).__name__}"
-            raise DisplayNotConnectedError(msg)
-        return ready
 
     def _send_identity(self, sock: socket.socket) -> None:
         """Send this connection's declared identity, if it has a name."""
@@ -137,13 +117,11 @@ class HandshakeConnector:
             return
         try:
             send_message(sock, self._connect_message(self._name))
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             sock.close()
             err = f"ConnectMessage failed after handshake: {exc}"
             raise DisplayNotConnectedError(err) from exc
 
     def _connect_message(self, name: str) -> ConnectMessage:
         """Build this connection's declared identity, HubId included."""
-        return ConnectMessage(
-            name=name, kind=self._kind, hub_id=self._hub_id.wire_token
-        )
+        return ConnectMessage(name=name, kind=self._kind, hub_id=self._hub_token)

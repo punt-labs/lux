@@ -7,15 +7,15 @@ from pathlib import Path
 
 import pytest
 
-import punt_lux.protocol as protocol
-import punt_lux.protocol.elements as elements
+import punt_lux.wire.model as protocol
+import punt_lux.wire.model.elements as elements
 
 # Guard the obsolete module paths, not the replica that owns placement.
 _DELETED_MODULES = (
-    "punt_lux.protocol.elements.layout",
-    "punt_lux.protocol.elements.legacy_table",
-    "punt_lux.protocol.elements.container_abc_gate",
-    "punt_lux.protocol.elements.codec",
+    "punt_lux.wire.model.elements.layout",
+    "punt_lux.wire.model.elements.legacy_table",
+    "punt_lux.wire.model.elements.container_abc_gate",
+    "punt_lux.wire.model.elements.codec",
     "punt_lux.display.element_renderer",
     "punt_lux.display.table_renderer",
     "punt_lux.display.renderers.container_renderer",
@@ -31,7 +31,7 @@ _FORBIDDEN_SOURCE_PATTERNS = (
     # The six deleted Legacy*Element classes, named precisely rather than by
     # the bare "class Legacy" prefix -- "legacy" is also the correct English
     # word for the unrelated service-lifecycle domain (LegacySweep and kin,
-    # src/punt_lux/_legacy_sweep.py: curing pre-rename launchd/systemd
+    # src/punt_lux/service/_legacy_sweep.py: curing pre-rename launchd/systemd
     # registrations), and a bare-prefix match would forbid that legitimate
     # reuse along with the real element-migration regression it exists to
     # catch.

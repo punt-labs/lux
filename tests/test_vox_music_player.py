@@ -43,11 +43,11 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.domain.ids import ClientId, ElementId, SceneId, Topic
-from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId, Topic
+from punt_lux.wire.model.interaction import ButtonClicked
+from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 from punt_lux.ws_transport import HubListenTransport
 
 # voxd's identity and the connection id both legs share — the WebSocket handshake

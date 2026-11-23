@@ -21,7 +21,7 @@
 % delivery order, confirming the atomicity invariant or producing the exact trace.
 %
 % Source of record:
-%   src/punt_lux/domain/element_abc.py:202  -- Element.apply_patch: snapshot =
+%   src/punt_lux/wire/model/element_abc.py:202  -- Element.apply_patch: snapshot =
 %                                              dict(vars(self)); open a per-patch
 %                                              _notify_buffer (reset to None on
 %                                              entry, so each nested apply_patch
@@ -31,10 +31,10 @@
 %                                              buffer to None and THEN fire each
 %                                              deferred notification, de-duplicated
 %                                              in first-seen key order.
-%   src/punt_lux/protocol/elements/table.py:180 -- _set_rows: notifies "rows"
+%   src/punt_lux/wire/model/elements/table.py:180 -- _set_rows: notifies "rows"
 %                                              (dataset refresh) plus, on reconcile,
 %                                              "selected_row_ids".
-%   src/punt_lux/protocol/compositions/filtered_table_model.py:118 --
+%   src/punt_lux/wire/model/compositions/filtered_table_model.py:118 --
 %                                              _on_table_change: on "selected_row_ids"
 %                                              folds the write into the full selection;
 %                                              on "rows", if NOT _reprojecting,

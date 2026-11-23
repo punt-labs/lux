@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from punt_lux.domain.hub.menu_action import MenuAction
 
 if TYPE_CHECKING:
-    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["Menu", "MenuAction", "MenuEntry", "MenuSeparator", "WireMenuEntry"]
 

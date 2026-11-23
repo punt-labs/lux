@@ -5,7 +5,7 @@ structurally: the replicator's scene-send path is domain code, so it declares
 the port it needs and this class answers it, reusing the Details command's
 own facts and formatting
 (:class:`~punt_lux.operations.client_identity_facts.ClientIdentityFacts`,
-:class:`~punt_lux.protocol.compositions.client_details.ClientDetails`) so the
+:class:`~punt_lux.wire.model.compositions.client_details.ClientDetails`) so the
 popup and the Hub's own record of a connection always agree.
 """
 
@@ -21,8 +21,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_clients import HubClientRegistry
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.ports import HubPorts
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["FrameOwnerFacts"]
 

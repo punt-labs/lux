@@ -22,7 +22,7 @@ import pytest
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
-from punt_lux.protocol.elements.draw import DrawElement
+from punt_lux.wire.model.elements.draw import DrawElement
 
 
 class TestParseColor:

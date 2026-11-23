@@ -18,21 +18,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.batch_transaction import BatchTransaction
 from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.field_realization import AbcFieldRealization
 from punt_lux.domain.hub.write_refusals import NestingExceededError, UnheldTargetError
-from punt_lux.domain.nesting_cap import NestingCap
+from punt_lux.wire.model.element_abc import Element as AbcElement
+from punt_lux.wire.model.nesting_cap import NestingCap
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.hub.write_result import WriteRejected
-    from punt_lux.domain.ids import ElementId, SceneId
+    from punt_lux.wire.model.element import Element as WireElement
+    from punt_lux.wire.model.ids import ElementId, SceneId
 
 __all__ = ["WriteSeam"]
 

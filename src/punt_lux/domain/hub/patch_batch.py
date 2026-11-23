@@ -13,7 +13,7 @@ from itertools import starmap
 from typing import Self, cast
 
 from punt_lux.domain.hub.write_errors import MalformedPatchError
-from punt_lux.domain.ids import ElementId
+from punt_lux.wire.model.ids import ElementId
 
 __all__ = ["FieldPatch", "PatchBatch"]
 

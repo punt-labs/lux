@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, cast
 
 from punt_lux.display import client_sender
 from punt_lux.display.client_sender import ClientSender
-from punt_lux.protocol import AckMessage, SceneMessage, TextElement
+from punt_lux.wire.model import AckMessage, SceneMessage, TextElement
 from tests.display.test_reply_discipline import _FD, _hub_client, _Peer
 
 if TYPE_CHECKING:

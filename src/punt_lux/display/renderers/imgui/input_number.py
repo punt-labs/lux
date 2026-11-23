@@ -13,7 +13,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
-from punt_lux.protocol.elements.input_number import InputNumberElement
+from punt_lux.wire.model.elements.input_number import InputNumberElement
 
 __all__ = ["ImGuiInputNumberRenderer"]
 

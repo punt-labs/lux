@@ -17,6 +17,11 @@ class TerminalActivity:
         )
 
     @staticmethod
+    def retain(names: frozenset[str]) -> None:
+        """Release every replica whose terminal element has left the scenes."""
+        RemoteSessions.retain_only(names)
+
+    @staticmethod
     def close() -> None:
         """Release replicas and connection; the daemon keeps its programs."""
         RemoteSessions.close_all()

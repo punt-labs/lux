@@ -57,6 +57,35 @@
 
 ### Changed
 
+- Hub↔Display handshake version is now `0.2` for the `wire.model` pickle
+  namespace. The Hub rejects an older or unversioned Display before sending
+  scenes, closes the connection, and logs an actionable error: restart
+  `luxd-display` with `make restart` or `lux service restart`.
+
+- **Breaking Python import changes:** shared `punt_lux.domain.*` and
+  `punt_lux.protocol.*` models now live under `punt_lux.wire.model.*`, keeping
+  their relative module paths. `punt_lux.domain.hub.*` and
+  `punt_lux.protocol.pty.*` remain in place. `LeaseTerm` moves from
+  `punt_lux.domain.hub.lease_term` to `punt_lux.wire.model.lease_term`,
+  `ProgrammerError` moves to `punt_lux.kernel.programmer_error`,
+  `ConnectionId` moves to `punt_lux.kernel.connection_id`, and display
+  socket/process lifecycle moves from `punt_lux.paths` to
+  `punt_lux.service.display_paths`. The merged model facade exports the wire
+  `Element` union and the structural `ElementProtocol`. There are no
+  compatibility aliases; callers must update their imports. Old Hub-pickled
+  element module names are remapped during Display decoding.
+
+- **Breaking Python import changes:** `punt_lux.service` is now a package
+  rather than a module, with its existing public service-manager exports at
+  the package root. Root-level install and lifecycle modules now live under
+  `punt_lux.service.*`. Update `punt_lux.hub_paths` imports to
+  `punt_lux.kernel.hub_paths`, `punt_lux.display_enablement` to
+  `punt_lux.cli.display_enablement`, and
+  `punt_lux.operations.display_mode_store` to
+  `punt_lux.service.display_mode_store`. `DEFAULT_HUB_PORT` moves from
+  `punt_lux.luxd` to `punt_lux.kernel.hub_defaults`. There are no compatibility
+  aliases; callers must use the new import paths.
+
 - Upgrade the quality-gate dev dependency to `punt-oo-ratchet==0.4.0`, retaining
   existing policies and baselines.
 
@@ -120,6 +149,12 @@
 
 ### Fixed
 
+- **Hub startup no longer blocks on DNS:** importing `punt_lux.luxd` used to
+  resolve the host FQDN while building the Display link, which could stall
+  `luxd-hub` in a macOS mDNS reverse lookup before it started. The Hub
+  identity is now resolved on the first named Display handshake. An identity
+  that fails validation closes the socket and raises
+  `DisplayNotConnectedError`. (PL-1369)
 - Bump punt-observe to 0.1.1: diagnostic logs now mask bare bearer
   credentials and home-directory prefixes, and URL query redaction keeps
   prose punctuation.
@@ -625,7 +660,7 @@
   logged, never registered — on any mismatch; a same-host (`AF_UNIX`)
   connection is untouched (`isinstance` structurally excludes a plain
   `socket.socket`). `HubId.hostname` is now canonicalized to ASCII-lowercase
-  at construction (`domain/hub_id.py`) so the wire token, the
+  at construction (`wire/model/hub_id.py`) so the wire token, the
   registration/preemption key, and this gate's own compare can never
   disagree about whether two differently-cased hostnames name the same Hub
   — closing an identity/preemption bypass where a peer could otherwise
@@ -907,8 +942,8 @@
   nothing and its 10-second port-bind timeout raced the `[display]`
   extras' cold load (imgui-bundle ~66 MB, numpy, Pillow). `install.sh`
   now captures whether the daemons were running before install and skips
-  the restart on a fresh install. `_WAIT_SECONDS` in `hub_restart.py` and
-  `display_restart.py` widens from 10 to 30 to accommodate real
+  the restart on a fresh install. `_WAIT_SECONDS` in `service/hub_restart.py` and
+  `service/display_restart.py` widens from 10 to 30 to accommodate real
   cold-load timings (#394).
 
 - **`lux-z6g7`: display connection dropped and macOS "not responding"
@@ -955,7 +990,7 @@
   remove a file it no longer manages under the old name. `lux hub install`
   now sweeps this legacy disk binary the same way it already sweeps legacy
   launchd/systemd registrations: `DiskBinaryLegacySweep`
-  (`_binary_sweep_disk.py`) resolves `~/.local/bin/luxd`'s real target
+  (`service/_binary_sweep_disk.py`) resolves `~/.local/bin/luxd`'s real target
   (following a symlink or a shebang line), verifies via `uv tool dir` that
   the target resolves inside this package's own uv-tool directory using
   `Path.is_relative_to()` (not a `str.startswith()` prefix check, which a
@@ -1605,7 +1640,7 @@
   and re-pushes the board, so an already-open board goes stale after a `bd`
   command until the next click rather than updating automatically. Removed
   the hook, its `hooks.json` wiring, `handle_post_bash`/`read_hook_input`/
-  `_BD_CMD_RE` from `hooks.py`, and the `lux hook post-bash` CLI dispatcher.
+  `_BD_CMD_RE` from `service/hooks.py`, and the `lux hook post-bash` CLI dispatcher.
 
 ## [0.23.1] - 2026-08-08
 
@@ -1625,7 +1660,7 @@
   `DisplayLink`.** It is the Hub's socket client of the display, not
   Display-tier code, despite the old name and location — moving it closes the
   one Display→Hub import in the tree. The unrelated agent-side wire-decode
-  factory the same file held moved to `protocol/agent_factory.py`.
+  factory the same file held moved to `wire/model/agent_factory.py`.
 - **`QueryDispatcher` is `QueryRouter`; `SocketServer` is `SocketListener`.**
   Both now live under `display/` with their callers. No bare `*Dispatcher` or
   `*Server` names a job.
@@ -1654,7 +1689,7 @@ old paths or class names directly (outside this package) needs updating.
 
 ### Removed
 
-- **`punt_lux.domain.display.Display`.** The display-tier scene mirror had no
+- **`punt_lux.wire.model.display.Display`.** The display-tier scene mirror had no
   production caller left once `DomainPump` went, and it carried a second
   implementation of ownership, dismissed-ancestor, and click validation beside
   the Hub's. `HubDisplay` is the one store and `HubInteractionDispatch` the one
@@ -2726,7 +2761,7 @@ old paths or class names directly (outside this package) needs updating.
   `from_dict` methods (PY-OO-5), and the container-recursion dispatcher was
   extracted to `container_dispatch.py`. Wire output is byte-identical (132
   characterization snapshots unchanged).
-- **`hub_*` path helpers promoted to a `HubPaths` class** (`hub_paths.py`),
+- **`hub_*` path helpers promoted to a `HubPaths` class** (`kernel/hub_paths.py`),
   mirroring `DisplayPaths` — extracted from `paths.py`, no behavior change.
   (lux-bsrs)
 - **Display lifecycle formally specified and model-checked** — `docs/display_lifecycle.tex`
@@ -2812,7 +2847,7 @@ describe what shipped, framed as increments.
   workspace path explicitly. (lux-r929)
 - **Internal decomposition (ongoing, not complete)** — the original
   `display.py` (4,208 lines) was split into `display/`, `scene/`, `tools/`, and
-  `protocol/` packages; `protocol.py`, `messages.py`, and `elements.py` became
+  `wire/model/` packages; `protocol.py`, `messages.py`, and `elements.py` became
   sub-packages; `MessageRegistry` and `ElementCodec` registries replaced
   if/elif dispatch. `display/server.py` (~1,400 lines) and
   `display/element_renderer.py` (~1,100 lines) are still above the 300-line

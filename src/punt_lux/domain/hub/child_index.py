@@ -15,7 +15,7 @@ from __future__ import annotations
 import contextlib
 from typing import Self, final
 
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.wire.model.ids import ElementId, SceneId
 
 __all__ = ["ChildIndex"]
 

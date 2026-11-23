@@ -24,9 +24,10 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.inbox import inbox_depth_for
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.ports import HubPorts
+from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort

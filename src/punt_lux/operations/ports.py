@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from punt_lux.client_host import ClientHost
-from punt_lux.domain.ids import ConnectionId
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.element_factory import JsonElementFactory
+from punt_lux.wire.model.messages.observer import ObserverMessage
 
 if TYPE_CHECKING:
-    from punt_lux.domain.ids import SceneId
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.hub_collaborators import InboxDepth
+    from punt_lux.wire.model.ids import SceneId
 
 __all__ = ["DirtyMarker", "ElementFactoryFor", "EnsureWriter", "HubPorts", "NextEvent"]
 

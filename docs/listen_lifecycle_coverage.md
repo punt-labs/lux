@@ -20,8 +20,8 @@ test that stubs the mechanism is a gap, not coverage.
 
 Tests are named without their `test_` prefix. The files that matter are
 `tests/test_ws_listen.py`, `tests/client/test_ws_e2e.py`,
-`tests/domain/test_callback_hold.py`, `tests/domain/test_hub_clients.py`,
-`tests/domain/test_listener_slot.py`, and
+`tests/wire/model/test_callback_hold.py`, `tests/wire/model/test_hub_clients.py`,
+`tests/wire/model/test_listener_slot.py`, and
 `tests/operations/test_callback_operations.py`. All of them drive real domain
 objects — no stubbed router, no mocked registry — so where they cover a branch,
 they cover it honestly.

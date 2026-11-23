@@ -13,12 +13,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
-from punt_lux.protocol.elements.abc_di_defaults import (
+from punt_lux.wire.model.elements.abc_di_defaults import (
     NO_EMIT,
     RAISING_FACTORY,
     NoEmit,
 )
-from punt_lux.protocol.elements.text import TextElement
+from punt_lux.wire.model.elements.text import TextElement
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -67,7 +67,7 @@ def test_exemplars_construct_with_the_shared_sentinels() -> None:
     A directly-constructed element carries ``RAISING_FACTORY``, so any
     accidental ``elem.render()`` raises instead of silently painting.
     """
-    from punt_lux.protocol.elements import (
+    from punt_lux.wire.model.elements import (
         ButtonElement,
         CheckboxElement,
         DialogElement,

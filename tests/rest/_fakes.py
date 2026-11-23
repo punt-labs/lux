@@ -23,11 +23,12 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.display_reply import DisplayReply
-from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.rest import RestSurface
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.messages.observer import ObserverMessage
 
 # The default identity every fake client declares, so its writes own scenes under
 # a named ``cli`` caller; a test passes ``identity={}`` to send none and exercise

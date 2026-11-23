@@ -13,7 +13,7 @@ from typing import final
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
 from punt_lux.display.renderers.slider_renderer import SliderRenderer
-from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.wire.model.elements.slider import SliderElement
 
 __all__ = ["ImGuiSliderRenderer"]
 

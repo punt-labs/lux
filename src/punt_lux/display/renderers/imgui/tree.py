@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, ClassVar, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.protocol.elements.tree import TreeElement
+from punt_lux.wire.model.elements.tree import TreeElement
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.elements.tree_node import TreeNode
+    from punt_lux.wire.model.elements.tree_node import TreeNode
 
 __all__ = ["ImGuiTreeRenderer"]
 

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from punt_lux.display.identity_guard import IdentityGuard
     from punt_lux.display.replica.menu_replica import MenuReplica
-    from punt_lux.protocol import CallbackMenuMessage, MenuMessage, ThemeMessage
+    from punt_lux.wire.model import CallbackMenuMessage, MenuMessage, ThemeMessage
 
 __all__ = ["ContentMessageGate"]
 

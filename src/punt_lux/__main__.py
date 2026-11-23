@@ -65,7 +65,7 @@ def enable(
     quiet: QuietFlag = False,
 ) -> None:
     """Enable visual output for this project."""
-    from punt_lux.display_enablement import DisplayEnablement
+    from punt_lux.cli.display_enablement import DisplayEnablement
 
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     DisplayEnablement(flags).apply(on=True)
@@ -81,7 +81,7 @@ def disable(
     quiet: QuietFlag = False,
 ) -> None:
     """Disable visual output for this project."""
-    from punt_lux.display_enablement import DisplayEnablement
+    from punt_lux.cli.display_enablement import DisplayEnablement
 
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     DisplayEnablement(flags).apply(on=False)
@@ -158,7 +158,7 @@ def status(
     """Check whether the display server is running."""
     from pathlib import Path
 
-    from punt_lux.paths import DisplayPaths
+    from punt_lux.service.display_paths import DisplayPaths
 
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     dp = DisplayPaths(Path(socket) if socket else None)
@@ -185,9 +185,9 @@ def doctor(
     """Check installation health."""
     from pathlib import Path
 
-    from punt_lux.doctor_checks import EnvironmentChecks
-    from punt_lux.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
-    from punt_lux.paths import DisplayPaths
+    from punt_lux.service.display_paths import DisplayPaths
+    from punt_lux.service.doctor_checks import EnvironmentChecks
+    from punt_lux.service.doctor_report import FAIL, OK, OPTIONAL, DoctorReport
 
     OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet).apply_logging()
     _check = DoctorReport()

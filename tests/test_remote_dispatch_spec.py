@@ -7,12 +7,7 @@ from typing import ClassVar, Protocol, cast
 
 import pytest
 
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked, ValueChanged
-from punt_lux.domain.interaction_errors import WrongKindError
-from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
-from punt_lux.domain.wire_event import WireEvent
-from punt_lux.protocol.elements import (
+from punt_lux.wire.model.elements import (
     ButtonElement,
     CheckboxElement,
     CollapsingHeaderElement,
@@ -26,6 +21,11 @@ from punt_lux.protocol.elements import (
     SliderElement,
     TabBarElement,
 )
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ButtonClicked, ValueChanged
+from punt_lux.wire.model.interaction_errors import WrongKindError
+from punt_lux.wire.model.remote_dispatch_spec import RemoteDispatchSpec
+from punt_lux.wire.model.wire_event import WireEvent
 
 # One instance of every interactive ABC kind — the classes that declare a
 # RemoteDispatchSpec. A new interactive kind adds itself here and nowhere else.

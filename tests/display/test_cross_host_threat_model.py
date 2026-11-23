@@ -47,8 +47,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.display.cross_host_verification import CrossHostVerification
-from punt_lux.domain.identity import HubId, HubScopedKey, HubScopedStore
 from punt_lux.trust import CertificateAuthority
+from punt_lux.wire.model.identity import HubId, HubScopedKey, HubScopedStore
 from tests.display._mtls_harness import FakeClock, LoopbackListener, MtlsMaterial
 
 if TYPE_CHECKING:

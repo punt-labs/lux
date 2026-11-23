@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.elements.table_flags import TableFlags
+from punt_lux.wire.model.elements.table_flags import TableFlags
 
 
 class TestToWire:

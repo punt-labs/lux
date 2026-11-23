@@ -9,9 +9,9 @@ from typing import Self
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers._arrow import ArrowDirections
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
-from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.wire.model.elements.button import ButtonElement
+from punt_lux.wire.model.ids import ClientId, ElementId, SceneId
+from punt_lux.wire.model.interaction import ButtonClicked
 
 __all__ = ["ButtonRenderer"]
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.protocol import (
+from punt_lux.wire.model import (
     ButtonElement,
     CheckboxElement,
     ColorPickerElement,
@@ -31,8 +31,8 @@ from punt_lux.protocol import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.protocol import SceneMessage
-    from punt_lux.protocol.elements import Element
+    from punt_lux.wire.model import SceneMessage
+    from punt_lux.wire.model.elements import Element
 
 __all__ = ["AutoClicker"]
 

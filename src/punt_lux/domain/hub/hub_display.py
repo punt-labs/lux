@@ -31,7 +31,6 @@ import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.dismissal_walk import DismissalWalk
 from punt_lux.domain.hub.element_index import (
@@ -56,9 +55,10 @@ from punt_lux.domain.hub.scene_snapshot import SceneReader
 from punt_lux.domain.hub.subtree_installer import SubtreeInstaller
 from punt_lux.domain.hub.subtree_remover import SubtreeRemover
 from punt_lux.domain.hub.write_seam import WriteSeam
-from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
+from punt_lux.wire.model import ConnectionId, ElementId, SceneId
+from punt_lux.wire.model.element import Element as WireElement
+from punt_lux.wire.model.update import AddElement, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -68,7 +68,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.owner_tracker import OwnerTracker
     from punt_lux.domain.hub.quarantine_record import QuarantineRecord
     from punt_lux.domain.hub.store_lock import StoreGuard, StoreLock
-    from punt_lux.domain.scope import Scope
+    from punt_lux.wire.model.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]
 

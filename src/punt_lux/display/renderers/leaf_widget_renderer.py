@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import Element
+    from punt_lux.wire.model import Element
 
 __all__ = ["LeafWidgetRenderer"]
 

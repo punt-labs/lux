@@ -37,8 +37,8 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from punt_lux.client_host import ClientHost
 from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.ids import Topic
-from punt_lux.protocol.messages.listen import (
+from punt_lux.wire.model.ids import Topic
+from punt_lux.wire.model.messages.listen import (
     CallbackFrame,
     ClientFrames,
     EventFrame,
@@ -52,8 +52,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.callback_hold import CallbackRouter
     from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
     from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.protocol.messages.observer import ObserverMessage
+    from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.messages.observer import ObserverMessage
 
 logger = logging.getLogger(__name__)
 

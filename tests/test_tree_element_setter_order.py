@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from punt_lux.protocol.elements import TreeElement
-from punt_lux.protocol.elements.tree_node import TreeNode
+from punt_lux.wire.model.elements import TreeElement
+from punt_lux.wire.model.elements.tree_node import TreeNode
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
