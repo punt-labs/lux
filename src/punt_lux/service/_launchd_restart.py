@@ -32,17 +32,15 @@ class LaunchdRestart:
         if result.returncode == 0:
             return True
         label = self._plist.spec.launchd_label
-        logger.warning(
-            "launchctl kickstart failed (rc=%d) for %s: %s",
-            result.returncode,
-            label,
-            result.stderr.strip(),
-        )
+        message = "launchctl kickstart failed (rc=%d) for %s: %s"
+        args = result.returncode, label, result.stderr.strip()
         if result.returncode == 113 and self._plist.path.exists():
+            logger.info(message, *args)
             logger.warning(
                 "%s is not registered; bootstrapping installed plist %s",
                 label,
                 self._plist.path,
             )
             return self._bootstrap()
+        logger.warning(message, *args)
         return False

@@ -46,7 +46,7 @@ def test_restart_recovery_partitions(
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
         patch("punt_lux.service._launchctl.subprocess.run") as run,
-        caplog.at_level(logging.WARNING),
+        caplog.at_level(logging.INFO),
     ):
         backend = LaunchdBackend(spec)
         path = backend.config_path()
@@ -68,8 +68,29 @@ def test_restart_recovery_partitions(
             assert spec.launchd_label in caplog.text
             assert str(path) in caplog.text
             assert "bootstrapping installed plist" in caplog.text
+            attempt = next(
+                record
+                for record in caplog.records
+                if "bootstrapping installed plist" in record.getMessage()
+            )
+            assert attempt.levelno == logging.WARNING
+            if bootstrap_rc:
+                assert any(
+                    record.levelno >= logging.WARNING
+                    and "launchctl bootstrap failed" in record.getMessage()
+                    for record in caplog.records
+                )
         if kick_rc == 0:
             assert not caplog.records
+        else:
+            failures = [
+                record
+                for record in caplog.records
+                if "launchctl kickstart failed" in record.getMessage()
+            ]
+            assert len(failures) == 1
+            expected_level = logging.INFO if "bootstrap" in verbs else logging.WARNING
+            assert failures[0].levelno == expected_level
         if installed:
             assert path.read_text() == "existing plist"
 
