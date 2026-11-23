@@ -33,7 +33,6 @@ from punt_lux.operations.timing import Timed
 
 if TYPE_CHECKING:
     from punt_lux.hub.callback_hold import CallbackRouter
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.client_lifecycle import ClientLifecycle
     from punt_lux.hub.hub import Hub
     from punt_lux.hub.hub_clients import HubClientRegistry
@@ -73,6 +72,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.theme import ThemeState
     from punt_lux.operations.models.window import WindowSettings
     from punt_lux.operations.ports import HubPorts
+    from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.model.scope import Scope
 
 __all__ = ["Operations"]

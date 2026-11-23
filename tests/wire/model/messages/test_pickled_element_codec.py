@@ -98,6 +98,8 @@ def test_hub_publish_handler_crosses_in_an_element_pickle(legacy: bool) -> None:
     )
     payload = pickle.dumps(element, protocol=0)
     assert b"punt_lux.hub.hub_factory\nHubPublishSink\n" in payload
+    assert b"ClientIdentity" not in payload
+    assert b"applet_name_format" not in payload
     if legacy:
         payload = payload.replace(
             b"punt_lux.hub.hub_factory\n", b"punt_lux.domain.hub.hub_factory\n"

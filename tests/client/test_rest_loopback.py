@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.rest_http_call import HttpCall
-from punt_lux.rest_loopback import LoopbackTransport
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.client.rest_http_call import HttpCall
+from punt_lux.client.rest_loopback import LoopbackTransport
+from punt_lux.client.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Generator

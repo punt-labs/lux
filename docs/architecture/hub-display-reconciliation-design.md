@@ -752,7 +752,7 @@ existing `hub_replicator.tex` / `hub_replicator_coverage.md` pair):**
   `src/punt_lux/display/pending_interactions.py`,
   `src/punt_lux/wire/model/messages/lifecycle.py`,
   `src/punt_lux/wire/model/messages/scene.py`,
-  `src/punt_lux/hub/client_identity.py`,
+  `src/punt_lux/wire/model/client_identity.py`,
   `docs/architecture/target/target.md`, `docs/architecture/target/topology.md`,
   `docs/architecture/mcp-display-liveness.md`, `DESIGN.md` (DES-057, DES-058,
   DES-060, DES-063, DES-065, DES-066, DES-067).

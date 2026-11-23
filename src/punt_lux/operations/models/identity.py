@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["Identified"]
 

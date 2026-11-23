@@ -31,8 +31,8 @@ from punt_lux.wire.model.lease_term import LeaseTerms
 if TYPE_CHECKING:
     from punt_lux.client_host import ClientHost
     from punt_lux.hub.callback_ports import CallbackListener
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.session_callback import SessionCallback
+    from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.model.lease_term import LeaseTerm
 
 __all__ = ["ClientSession"]

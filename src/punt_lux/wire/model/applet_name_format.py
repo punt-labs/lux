@@ -4,12 +4,12 @@ An applet identifies itself with ``lux · <repo> · #<pid> · <program>``: the t
 the repository, the session that declared it, and the program that runs there.
 The Hub needs to read the pid back to know when two applet connections belong
 to one session (:class:`~punt_lux.hub.menu_group_key.MenuGroupKey`), so
-the parse lives in the domain layer where the reader is. The writer delegates
+the format lives in the shared wire model. The writer delegates
 to :func:`format_name` here so both halves change together, and the round-trip
 test in ``tests/applets/test_identity.py`` fails if either half moves alone.
 
 The module exposes :data:`APPLET_NAME_RE` so
-:class:`~punt_lux.hub.client_identity.ClientIdentity` can reject a
+:class:`~punt_lux.wire.model.client_identity.ClientIdentity` can reject a
 wire-decoded applet with an unparseable name at construction. Taking a bare
 ``name`` string here — not a ``ClientIdentity`` — keeps the dependency arrow
 pointing outward from :class:`ClientIdentity`, avoiding an import cycle.

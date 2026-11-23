@@ -57,6 +57,16 @@
 
 ### Changed
 
+- **Breaking Python import changes:** `punt_lux.hub_client`, `rest_transport`,
+  `rest_http_call`, `rest_loopback`, `rest_reply`, `rest_error_body`,
+  `identity_headers`, `header_value` and `cli_identity` now live under
+  `punt_lux.client`, retaining their module names. `punt_lux.hub.client_identity`
+  and `punt_lux.hub.applet_name_format` move to `punt_lux.wire.model`.
+  No compatibility alias modules or new facade re-exports are provided;
+  callers must update imports. The public `client.rest_transport` contract and
+  private `client._rest_transport` implementation remain distinct. Identity
+  values are not carried in Hub-to-Display element pickles, so Ready stays `0.3`.
+
 - Hub↔Display handshake version is now `0.3` for the `wire.model` and top-level
   `hub` pickle namespaces. The Hub rejects an older or unversioned Display before sending
   scenes, closes the connection, and logs an actionable error: restart

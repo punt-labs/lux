@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.operations import OpError, SceneShown
 from punt_lux.ptyd.lifetime import DaemonLifetime
@@ -15,7 +16,6 @@ from punt_lux.ptyd.menu_clients import TerminalClients
 from punt_lux.ptyd.menu_listener import TerminalMenu
 from punt_lux.ptyd.menu_process import MenuProcess
 from punt_lux.ptyd.menu_projection import TerminalProjection
-from punt_lux.rest_transport import HubUnavailableError
 
 
 class MenuDoubles:

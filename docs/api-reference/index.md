@@ -78,7 +78,7 @@ client, listener, and exported request and wire types.
 
 ## WebSocket listener
 
-::: punt_lux.hub_client
+::: punt_lux.client.hub_client
     options:
       members:
         - CallbackHandler

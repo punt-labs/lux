@@ -16,7 +16,6 @@ from typing import Self, final
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_store_factory import HubStoreFactory
@@ -28,6 +27,7 @@ from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
 

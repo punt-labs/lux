@@ -18,7 +18,6 @@ from punt_lux.commands._ports import Ctx
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import SceneOps
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import (
         Cleared,
         InspectScope,
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
         Scope,
         UpdateRequest,
     )
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 @final

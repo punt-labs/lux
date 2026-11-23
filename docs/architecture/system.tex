@@ -208,6 +208,20 @@ protocol; the surfaces are the MCP tools, the REST routers, the CLI, and
 the transport plumbing that carries each.  The Display is the engine's
 second process.
 
+The SDK lives under \modpath{client/}: \modpath{client/hub\_client.py}
+owns WebSocket access, and \modpath{client/rest\_transport.py} defines the
+HTTP transport contract.  The distinct
+\modpath{client/\_rest\_transport.py} remains the private implementation;
+neither move adds compatibility aliases or facade re-exports.
+Shared client identity and applet-name formatting live in
+\modpath{wire/model/client\_identity.py} and
+\modpath{wire/model/applet\_name\_format.py}, not the Hub.
+Applets use the shared \modpath{operations/models/} contracts rather
+than the operations facade.  Client facade dependencies on
+\modpath{commands/} remain migration debt pending a design decision.
+The identity values do not cross in Hub-to-Display element pickles, so
+Ready remains version \texttt{0.3} with the existing legacy-name remapping.
+
 \begin{longtable}{p{2.6cm}p{3.3cm}p{8.2cm}}
 \toprule
 \textbf{Concern} & \textbf{File or package} & \textbf{Responsibility} \\
@@ -283,7 +297,7 @@ MCP transport & \modpath{mcp\_transport.py}      & luxd's MCP leg:
 Client facade & \modpath{client/facade.py} & \texttt{LuxClient}
                 --- the public library and CLI client.
                 \modpath{client/\_rest\_transport.py} implements REST;
-                \modpath{rest\_loopback.py} is the in-process transport
+                \modpath{client/rest\_loopback.py} is the in-process transport
                 tests use. \\
 Gateway       & \modpath{luxd.py}                & Builds the one FastAPI
                 app on uvicorn, mounts the MCP leg and the REST surface,

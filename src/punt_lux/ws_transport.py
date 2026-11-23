@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import ValidationError
 from starlette.websockets import WebSocket
 
+from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.connection_identity import connection_for
 from punt_lux.hub import hub, hub_lifecycle
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.ws_listen import HubListenSession
 
 if TYPE_CHECKING:

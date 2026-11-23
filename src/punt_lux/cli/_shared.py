@@ -21,10 +21,10 @@ from pydantic import ValidationError
 
 from punt_lux.cli._connection import command_path, connect_client as connect_client
 from punt_lux.cli._identity_errors import describe_identity_error
-from punt_lux.cli_identity import CliIdentity
-from punt_lux.hub.client_identity import ClientIdentity, ClientKind
+from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.logging_config import configure_logging as configure_logging
 from punt_lux.operations import Scope
+from punt_lux.wire.model.client_identity import ClientIdentity, ClientKind
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine

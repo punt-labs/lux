@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
-    from punt_lux.rest_http_call import HttpCall
+    from punt_lux.client.rest_http_call import HttpCall
 
 __all__ = ["HttpResponse", "HttpTransport", "HubUnavailableError"]
 

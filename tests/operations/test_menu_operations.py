@@ -17,7 +17,6 @@ import pytest
 from pydantic import ValidationError
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_store_factory import HubStoreFactory
@@ -29,6 +28,7 @@ from punt_lux.operations.menu_arming_deps import MenuArmingDeps
 from punt_lux.operations.menus import MenuOperations, MenuOperationsDeps
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
 

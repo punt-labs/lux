@@ -10,16 +10,16 @@ from typing import TYPE_CHECKING, Annotated, Self, final
 
 from pydantic import Field, TypeAdapter, ValidationError
 
+from punt_lux.client.rest_reply import RestReply
 from punt_lux.operations.models.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
 )
-from punt_lux.rest_reply import RestReply
 
 if TYPE_CHECKING:
+    from punt_lux.client.rest_transport import HttpResponse
     from punt_lux.operations import OpError
     from punt_lux.operations.models.display_link import DisplayLinkState
-    from punt_lux.rest_transport import HttpResponse
 
 __all__ = ["LinkReply"]
 

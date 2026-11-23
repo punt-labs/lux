@@ -269,6 +269,19 @@ Ready version `0.3` refuses Displays still using the old Hub namespace before
 scenes are sent, with an actionable Display restart error.
 `protocol.pty` remains until its own migration.
 
+Step 5 consolidates the SDK under `punt_lux.client`: WebSocket access, the HTTP
+transport contract and values, identity headers, and CLI identity resolution.
+`client/rest_transport.py` owns the public transport contract;
+`client/_rest_transport.py` remains the distinct private implementation, without
+new facade re-exports. Shared `ClientIdentity` and applet-name formatting belong
+to `wire.model`, so clients, applets and request models do not depend on Hub
+behavior. Applets import operation values from `operations.models`, classified
+as wire, rather than the Hub-owned operations facade.
+The client facade's dependencies on `punt_lux.commands` remain baseline debt
+pending a design decision.
+The moved identity values do not occur in Hub-to-Display element pickles, so
+Ready remains `0.3` and the existing pickle remapping is unchanged.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in

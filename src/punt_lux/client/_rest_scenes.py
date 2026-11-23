@@ -3,7 +3,7 @@
 Splits the largest cohesive cluster of REST verbs -- scene install, patch,
 clear, list, inspect, and the table/dashboard composites -- out of
 ``_rest_transport.py`` so that module stays under its size target. Both classes
-share one :class:`~punt_lux.rest_transport.HttpTransport` and one identity
+share one :class:`~punt_lux.client.rest_transport.HttpTransport` and one identity
 header set; :class:`_SceneRestOps` never constructs its own.
 
 Every write method accepts (and ignores) a ``scope`` keyword to satisfy
@@ -19,6 +19,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
+from punt_lux.client.rest_http_call import HttpCall
+from punt_lux.client.rest_reply import RestReply
 from punt_lux.operations import (
     Cleared,
     OpError,
@@ -30,12 +32,10 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
-from punt_lux.rest_http_call import HttpCall
-from punt_lux.rest_reply import RestReply
 
 if TYPE_CHECKING:
+    from punt_lux.client.rest_transport import HttpTransport
     from punt_lux.operations import InspectScope, Scope
-    from punt_lux.rest_transport import HttpTransport
 
 __all__ = ["_SceneRestOps"]
 
