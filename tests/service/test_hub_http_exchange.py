@@ -113,6 +113,7 @@ def test_slow_body_trickle_cannot_extend_the_absolute_deadline(close: bool) -> N
 
 
 @pytest.mark.parametrize("close", [False, True])
+@pytest.mark.slow
 def test_real_watchdog_interrupts_a_trickling_body_without_thread_errors(
     monkeypatch: pytest.MonkeyPatch, close: bool
 ) -> None:
