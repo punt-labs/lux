@@ -10,9 +10,6 @@
   provides product-neutral daemon management without Lux or third-party
   dependencies. The current version remains unchanged until release.
 
-- Use the published `punt-oo-ratchet==0.6.0` for workspace-aware quality gates
-  instead of the temporary Git dependency.
-
 - Report-only design ratchet: `make design-shadow` compares against
   `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
   verdict to the job summary even after a gate fails. Explicit architecture
@@ -167,7 +164,8 @@
   `punt_lux.luxd` to `punt_lux.kernel.hub_defaults`. There are no compatibility
   aliases; callers must use the new import paths.
 
-- Upgrade the quality-gate dev dependency to `punt-oo-ratchet==0.4.0`, retaining
+- Upgrade the quality-gate dev dependency to the published
+  `punt-oo-ratchet==0.6.0`, replacing the temporary Git dependency while retaining
   existing policies and baselines.
 
 - Depend on the published `punt-observe` 0.1.0 from PyPI instead of a Git
