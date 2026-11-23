@@ -118,12 +118,13 @@ bless-coupling: override FILES := $(value FILES)
 bless-coupling: override REASON := $(value REASON)
 bless-coupling: ## Bounded coupling bless (FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation")
 	@test -n "$$FILES" || { echo "FILES is required" >&2; exit 1; }; \
-	set -f; IFS=,; for file in $$FILES; do \
+	set -f; status=0; IFS=,; for file in $$FILES; do \
 		case "/$$file" in \
-			*/$(SERVICE_ROOT)/*) uv run --extra display oo-ratchet coupling $(SERVICE_SOURCES) --rebaseline-files "$$file" --reason "$$REASON" ;; \
-			*) uv run --extra display oo-ratchet coupling $(LUX_SOURCES) --rebaseline-files "$$file" --reason "$$REASON" ;; \
-		esac || exit $$?; \
-	done
+			*/$(SERVICE_ROOT)/*) set -- $(SERVICE_SOURCES) ;; \
+			*) set -- $(LUX_SOURCES) ;; \
+		esac; \
+		uv run --extra display oo-ratchet coupling "$$@" --rebaseline-files "$$file" --reason "$$REASON" || status=1; \
+	done; exit $$status
 
 .PHONY: bless-coupling
 

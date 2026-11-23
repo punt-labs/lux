@@ -24,7 +24,7 @@ def recorder(tmp_path: Path) -> tuple[dict[str, str], Path]:
         "import json, os, sys\n"
         "with open(os.environ['CALLS'], 'a') as output:\n"
         "    output.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "sys.exit(7 if os.environ.get('FAIL') else 0)\n"
+        "sys.exit(7 if os.environ.get('FAIL_FILE') in sys.argv[1:] else 0)\n"
     )
     executable.chmod(0o755)
     calls = tmp_path / "calls.jsonl"
@@ -68,20 +68,33 @@ def test_bless_dispatches_each_file_to_its_gate_scope(
         assert call[-4:] == ["--rebaseline-files", file, "--reason", reason]
 
 
-@pytest.mark.parametrize("files", ["", "a.py,b.py"])
-def test_empty_or_failed_bless_stops_without_further_writes(
+def test_empty_bless_does_not_invoke_the_ratchet(
+    recorder: tuple[dict[str, str], Path],
+) -> None:
+    env, log = recorder
+    result = subprocess.run(
+        [MAKE, "bless-coupling", "FILES=", "REASON=test"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert not log.exists()
+
+
+@pytest.mark.parametrize("files", ["a.py,b.py", "b.py,a.py"])
+def test_refused_file_does_not_skip_other_files(
     recorder: tuple[dict[str, str], Path], files: str
 ) -> None:
     env, log = recorder
     result = subprocess.run(
         [MAKE, "bless-coupling", f"FILES={files}", "REASON=test"],
         cwd=ROOT,
-        env={**env, "FAIL": "1"},
+        env={**env, "FAIL_FILE": "a.py"},
         capture_output=True,
         text=True,
     )
     assert result.returncode != 0
-    if files:
-        assert len(log.read_text().splitlines()) == 1
-    else:
-        assert not log.exists()
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [call[-3] for call in calls] == files.split(",")
