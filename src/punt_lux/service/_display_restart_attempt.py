@@ -28,7 +28,7 @@ class RestartAttempt:
     wait: float
 
     @classmethod
-    def capture(cls, spec: ServiceSpec, wait: float) -> Self:
+    def start(cls, spec: ServiceSpec, wait: float) -> Self:
         """Capture the timestamp before the initial, bounded process lookup."""
         started_at = time.time()
         try:

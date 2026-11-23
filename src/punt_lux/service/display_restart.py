@@ -57,7 +57,7 @@ class DisplayRestart:
     def run(self) -> str:
         """Restart the display and return the line describing what came back."""
         try:
-            attempt = RestartAttempt.capture(self._spec, _WAIT_SECONDS)
+            attempt = RestartAttempt.start(self._spec, _WAIT_SECONDS)
             self._manager.restart()
         except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
             raise DisplayRestartError(str(exc)) from exc
