@@ -296,8 +296,7 @@ successful Hub `GET /display` reply naming that same PID and its pinned
 and a live owned socket for three seconds, within the
 30-second readiness deadline. A crash during this window fails
 instead of accepting a replacement from a crash loop. The Hub must be reachable:
-start it first (`make restart` already does). Socket-only restart success is no
-longer accepted. A replacement Hub dial or a pending probe restarts the stability
+start it first (`make restart` already does). A replacement Hub dial or a pending probe restarts the stability
 window; an inconclusive slow reply alone does not prove a crash. Hub restart
 readiness is unchanged.
 
@@ -310,8 +309,13 @@ Display readiness errors explain the missing connection or observed exit and,
 when available, include the last 12 lines (at most 4096 bytes) of
 `~/.punt-labs/lux/logs/luxd-display-stderr.log`, which can explain window startup
 failures such as an unavailable monitor while the screen is locked.
-This tail is best-effort: it reads an existing redirected stderr file; Lux's
-generated service configuration does not create that capture automatically.
+This tail is best-effort and includes the file's modification time. Only stderr
+modified since the restart began is attached; older output is explicitly omitted.
+Generated launchd plists omit `StandardErrorPath`; this tail is available only
+with separately configured stderr redirection. Without a capture file the tail
+is omitted.
+Transport failures reset the stability window and remain pending until the deadline;
+timeout diagnostics include the last transport error.
 
 Restart readiness failures are recorded in `~/.punt-labs/lux/logs/lux.log`
 before the CLI reports failure. On macOS, the entry includes the service label
@@ -442,6 +446,15 @@ Rendering uses [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut's imm
 [PR/FAQ](prfaq.pdf) |
 [Contributing](CONTRIBUTING.md) |
 [Changelog](CHANGELOG.md)
+
+### Development and release checks
+
+The full `make check` gate, also used by release preflight, requires the `fuzz`
+Z typechecker and ProB's `probcli` in addition to the Python and Node tools.
+The [model CI workflow](.github/workflows/models.yml) records the pinned tool
+versions and installation recipe. Install these tools before running a release.
+ProB defaults to `~/Applications/ProB/probcli`; for an installation on `PATH`,
+run `PROBCLI="$(command -v probcli)" make check`.
 
 ## License
 

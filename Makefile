@@ -57,7 +57,11 @@ DESIGN_BASE ?= origin/main
 design-shadow: ## Report advisory design changes; never part of check
 	uv run --extra display oo-ratchet design src/punt_lux --shadow-check "$(DESIGN_BASE)"
 
-check: check-oo check-coupling check-suppressions check-layers lint type test ## Run all quality gates
+check: check-oo check-coupling check-suppressions check-layers check-models lint type test ## Run all quality gates
+
+.PHONY: check-models
+check-models: ## Type-check and model-check Display readiness and every fidelity mutant
+	PROBCLI="$(PROBCLI)" bash scripts/verify_readiness_model.sh
 
 # CI compares PRs with their merge base and pushes to main with the pre-push
 # tip (github.event.before). Without BASE_REF, the package resolves the merge

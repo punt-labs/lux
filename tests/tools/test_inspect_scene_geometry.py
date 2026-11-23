@@ -85,6 +85,10 @@ class _StubClient:
     __slots__ = ()
 
     @property
+    def connection_id(self) -> str:
+        return "geometry-stub-dial"
+
+    @property
     def dial(self) -> DialRef:
         """The dial a failed request would name; the stub has no real one."""
         return fake_dial()

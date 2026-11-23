@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.operations.models.display_info import DisplayInfo
 
@@ -10,18 +10,19 @@ if TYPE_CHECKING:
     import http.client
 
 
-class HubDisplayFacts:
+class HubDisplayFacts(DisplayInfo, frozen=True):
     """A matching process must also name the Hub connection that answered."""
 
-    @staticmethod
-    def identity(response: http.client.HTTPResponse, pid: int) -> str | None:
-        if response.status in (503, 504):
-            return None
+    @classmethod
+    def read(cls, response: http.client.HTTPResponse) -> Self:
+        """Read validated facts from a successful Hub reply."""
         if response.status != 200:
             raise ConnectionError(f"Hub Display probe returned HTTP {response.status}")
-        facts = DisplayInfo.model_validate_json(response.read(65536))
-        if facts.pid != pid:
+        return cls.model_validate_json(response.read(65536))
+
+    def identity(self, pid: int) -> str | None:
+        if self.pid != pid:
             return None
-        if not facts.hub_connection_id:
+        if not self.hub_connection_id.name:
             raise ConnectionError("Hub does not report its Display dial; restart Hub")
-        return facts.hub_connection_id
+        return self.hub_connection_id.name

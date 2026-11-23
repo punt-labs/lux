@@ -51,6 +51,11 @@ class DisplayRequests:
         return cls(exchange.current(), exchange)
 
     @property
+    def connection_id(self) -> str:
+        """The process-scoped serial of the pinned Hub dial."""
+        return self._generation.connection_id
+
+    @property
     def dial(self) -> DialRef:
         """The dial every request through this port uses: what a failure names."""
         return self._generation.ref
@@ -68,10 +73,8 @@ class DisplayRequests:
         goes unanswered. The look is made before the ping is sent, so its own bytes
         cannot vouch for the ping's answer.
         """
-        if self._generation.is_progressing():
-            return True
         try:
-            return self.ping(timeout) is not None
+            return self._generation.is_progressing() or self.ping(timeout) is not None
         except DisplayBusyError:
             return True
 

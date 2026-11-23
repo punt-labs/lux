@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from collections.abc import Mapping
+from typing import Self
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from punt_lux.operations.models.common import OpError
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from punt_lux.operations.models.hub_connection import HubConnection
 
 
 class DisplayIdentity(BaseModel, frozen=True):
@@ -18,8 +17,7 @@ class DisplayIdentity(BaseModel, frozen=True):
     pid: int
     uptime_seconds: float
     protocol_version: str
-    # Raw Display replies have no Hub dial; the Hub attaches its pinned name.
-    hub_connection_id: str | None = None
+    hub_connection_id: HubConnection = Field(default_factory=HubConnection)
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> Self | OpError:

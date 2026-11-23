@@ -3,12 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.service.hub_restart import HubRestart, HubRestartError
+
+
+@pytest.mark.parametrize("initial", [True, False])
+def test_lookup_timeout_is_not_absence_or_a_successful_restart(initial: bool) -> None:
+    manager = MagicMock()
+    failure = TimeoutExpired("pgrep", 2)
+    outcomes: list[object] = (
+        [failure]
+        if initial
+        else [CompletedProcess("pgrep", 0, stdout=b"12345\n"), failure]
+    )
+    with (
+        patch("punt_lux.service._backends.subprocess.run", side_effect=outcomes),
+        patch.object(HubRestart, "_polls", return_value=iter([None])),
+        pytest.raises(HubRestartError, match=r"pgrep.*timed out"),
+    ):
+        HubRestart(manager=manager, paths=_paths_stub()).run()
+    assert manager.restart.call_count == (0 if initial else 1)
 
 
 def _pid_series(*values: int | None) -> Iterator[int | None]:

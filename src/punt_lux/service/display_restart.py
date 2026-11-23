@@ -11,8 +11,8 @@ from punt_lux.service import (
     ServiceNotInstalledError,
     ServiceSpec,
 )
-from punt_lux.service._backends import pgrep_pid
-from punt_lux.service._display_readiness import DisplayReadiness, DisplayReadinessError
+from punt_lux.service._display_readiness import DisplayReadiness
+from punt_lux.service._display_restart_attempt import ReadinessError, RestartAttempt
 from punt_lux.service.display_paths import DisplayPaths
 
 if TYPE_CHECKING:
@@ -56,23 +56,21 @@ class DisplayRestart:
 
     def run(self) -> str:
         """Restart the display and return the line describing what came back."""
-        before = pgrep_pid(self._spec.process_name)
         try:
+            attempt = RestartAttempt.start(self._spec, _WAIT_SECONDS)
             self._manager.restart()
         except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
             raise DisplayRestartError(str(exc)) from exc
-        return self._await_ready(before)
+        return self._await_ready(DisplayReadiness(attempt, self._paths))
 
-    def _await_ready(self, before: int | None) -> str:
+    def _await_ready(self, readiness: DisplayReadiness) -> str:
         """Require the new process to survive the Hub connection stability window."""
-        readiness = DisplayReadiness(self._spec, self._paths, _WAIT_SECONDS)
         try:
             for _ in self._polls():
-                pid = pgrep_pid(self._spec.process_name)
-                if readiness.observe(pid, before):
+                if (pid := readiness.poll()) is not None:
                     return f"display restarted (pid {pid}) at {self._paths.socket_path}"
             readiness.timeout()
-        except DisplayReadinessError as error:
+        except ReadinessError as error:
             raise DisplayRestartError(str(error)) from error
 
     @staticmethod

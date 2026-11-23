@@ -76,6 +76,10 @@ class _Client:
     ping_timeout: float | None
 
     @property
+    def connection_id(self) -> str:
+        return "test-hub:1"
+
+    @property
     def dial(self) -> DialRef:
         """The dial a failed request names when it asks for the drop."""
         return self._dial
@@ -159,14 +163,14 @@ def test_query_short_circuits_when_the_display_is_not_running() -> None:
     conn = _conn(_Registry(_Client()), running=False)
     reply = conn.query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "display_unavailable"
+    assert reply.resolve().code == "display_unavailable"
 
 
 def test_query_maps_a_send_failure_to_timeout_and_drops() -> None:
     registry = _Registry(_Client(error=OSError("EPIPE")))
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "timeout"
+    assert reply.resolve().code == "timeout"
     assert registry.drops == [registry.client_dial]
 
 
@@ -179,14 +183,14 @@ def test_query_maps_a_failed_reconnect_to_unavailable_and_drops_nothing() -> Non
     )
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "display_unavailable"
+    assert reply.resolve().code == "display_unavailable"
     assert registry.drops == []  # no dial was made, so there is none to drop
 
 
 def test_query_maps_a_none_reply_to_timeout() -> None:
     reply = _conn(_Registry(_Client(query=None))).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "timeout"
+    assert reply.resolve().code == "timeout"
 
 
 def test_query_maps_a_display_error_reply_to_errored() -> None:
@@ -238,7 +242,7 @@ def test_ping_maps_a_failed_reconnect_to_unavailable_and_drops_nothing() -> None
     )
     reply = _conn(registry).ping(None)
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "display_unavailable"
+    assert reply.resolve().code == "display_unavailable"
     assert registry.drops == []  # no dial was made, so there is none to drop
 
 
@@ -253,7 +257,7 @@ def test_query_maps_a_closed_connection_to_unavailable_and_drops() -> None:
     registry = _Registry(_Client(error=ConnectionClosedError("Not connected")))
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "display_unavailable"
+    assert reply.resolve().code == "display_unavailable"
     assert registry.drops == [registry.client_dial]
 
 
@@ -261,7 +265,7 @@ def test_ping_maps_a_closed_connection_to_unavailable_and_drops() -> None:
     registry = _Registry(_Client(error=ConnectionClosedError("listener exited")))
     reply = _conn(registry).ping(None)
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "display_unavailable"
+    assert reply.resolve().code == "display_unavailable"
     assert registry.drops == [registry.client_dial]
 
 
@@ -271,7 +275,7 @@ def test_ping_that_lost_the_lock_to_another_ping_is_a_timeout_and_keeps_the_dial
     registry = _Registry(_Client(error=DisplayBusyError("a ping is in flight")))
     reply = _conn(registry).ping(0.1)
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "timeout"
+    assert reply.resolve().code == "timeout"
     assert registry.drops == []
 
 
@@ -279,7 +283,7 @@ def test_query_that_lost_the_lock_to_another_query_keeps_the_dial() -> None:
     registry = _Registry(_Client(error=DisplayBusyError("a query is in flight")))
     reply = _conn(registry).query("get_theme", {})
     assert isinstance(reply, DisplayFault)
-    assert reply.code == "timeout"
+    assert reply.resolve().code == "timeout"
     assert registry.drops == []
 
 

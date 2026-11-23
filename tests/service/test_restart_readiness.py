@@ -111,7 +111,12 @@ def test_timeout_logs_before_raising_original_error(
 ) -> None:
     manager = MagicMock()
     with (
-        patch(f"punt_lux.service.{module}.pgrep_pid", return_value=None),
+        patch(
+            "punt_lux.service._backends.pgrep_pid"
+            if module == "display_restart"
+            else f"punt_lux.service.{module}.pgrep_pid",
+            return_value=None,
+        ),
         patch.object(restart, "_polls", return_value=iter(())),
         patch(
             "punt_lux.service._restart_readiness.platform.system", return_value="Darwin"
@@ -145,13 +150,19 @@ def test_success_does_not_probe_launchd(
     paths.peer_pid.return_value = 102
     with (
         patch(
-            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            "punt_lux.service._readiness_probe.ReadinessProbe.local",
+            autospec=True,
             side_effect=ProbeDouble.local,
         ),
-        patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
+        patch(
+            "punt_lux.service._backends.pgrep_pid"
+            if module == "display_restart"
+            else f"punt_lux.service.{module}.pgrep_pid",
+            side_effect=[101, 102],
+        ),
         patch.object(restart, "_polls", return_value=iter([None])),
         patch(
-            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
             return_value=True,
         ),
         patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),

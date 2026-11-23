@@ -128,16 +128,22 @@ def test_recovered_restart_waits_for_readiness(
     paths.peer_pid.return_value = 102
     with (
         patch(
-            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            "punt_lux.service._readiness_probe.ReadinessProbe.local",
+            autospec=True,
             side_effect=ProbeDouble.local,
         ),
         patch("pathlib.Path.home", return_value=tmp_path),
         patch("punt_lux.service.detect_platform", return_value="macos"),
         patch("punt_lux.service._launchctl.subprocess.run") as run,
-        patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
+        patch(
+            "punt_lux.service._backends.pgrep_pid"
+            if module == "display_restart"
+            else f"punt_lux.service.{module}.pgrep_pid",
+            side_effect=[101, 102],
+        ),
         patch.object(restart, "_polls", return_value=iter([None])),
         patch(
-            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
             return_value=True,
         ),
         patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),

@@ -11,10 +11,12 @@ running, or did not answer in time.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import ClassVar, Literal
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Literal
 
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.hub_connection import HubConnection
 
 __all__ = [
     "DisplayErrored",
@@ -34,6 +36,7 @@ class DisplayReplied:
     """
 
     payload: Mapping[str, object]
+    connection: HubConnection = field(default_factory=HubConnection)
 
     def resolve(self) -> Mapping[str, object] | OpError:
         """Resolve a successful display reply to its payload."""
@@ -46,30 +49,21 @@ class DisplayErrored:
 
     message: str
 
-    def resolve(self) -> Mapping[str, object] | OpError:
+    def resolve(self) -> OpError:
         """Convert a display-reported error to a rejected operation."""
         return OpError(code="rejected", reason=self.message)
 
 
-@dataclass(frozen=True, slots=True)
-class DisplayFault:
-    """The round-trip never produced an answer.
+class DisplayFault(Enum):
+    """The two failures to obtain an answer, with their operation errors."""
 
-    ``display_unavailable`` means no display process is running; ``timeout``
-    means the bounded send or receive elapsed (or the peer died mid-send). The
-    code maps straight onto the matching ``OpError`` code.
-    """
+    UNAVAILABLE = ("display_unavailable", "display is not running")
+    TIMEOUT = ("timeout", "display did not respond in time")
+    _value_: tuple[Literal["display_unavailable", "timeout"], str]
 
-    code: Literal["display_unavailable", "timeout"]
-
-    _REASON: ClassVar[dict[str, str]] = {
-        "display_unavailable": "display is not running",
-        "timeout": "display did not respond in time",
-    }
-
-    def resolve(self) -> Mapping[str, object] | OpError:
-        """Convert a reply fault to the operation error named by its code."""
-        return OpError(code=self.code, reason=self._REASON[self.code])
+    def resolve(self) -> OpError:
+        """Convert a reply fault to its immutable operation error."""
+        return OpError(code=self.value[0], reason=self.value[1])
 
 
 # A proxied round-trip yields exactly one of these.
