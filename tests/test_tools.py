@@ -1918,6 +1918,7 @@ class TestScreenshotTool:
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
         client = _mock_client()
+        client.asks().connection_id = "d1"  # the dial the reply is attributed to
         client.asks().query.return_value = QueryResponse(
             method="screenshot", result={"path": "/tmp/lux-screenshots/a.png"}
         )
@@ -1933,6 +1934,7 @@ class TestScreenshotTool:
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
         client = _mock_client()
+        client.asks().connection_id = "d1"
         client.asks().query.return_value = QueryResponse(
             method="screenshot", error="a screenshot is already waiting"
         )
