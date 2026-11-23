@@ -73,7 +73,10 @@ Shared model tests mirror `wire/model/` under `tests/wire/model/`; Hub tests
 mirror `hub/` under `tests/hub/`, and PTY tests remain in `tests/protocol/pty/`.
 Client SDK tests mirror `client/` under `tests/client/`, including the relocated
 WebSocket, HTTP contract and identity-header tests. Client identity and applet-name
-tests belong in `tests/wire/model/`. `tests/client/test_imports.py` imports every
+tests belong in `tests/wire/model/`. Beads applet tests mirror `applets/beads/` under
+`tests/applets/beads/`; `tests/applets/beads/test_imports.py` imports every
+module in a fresh interpreter and verifies the removed `punt_lux.apps` paths
+have no aliases. `tests/client/test_imports.py` imports every
 SDK module in a fresh interpreter with blocking DNS forbidden and verifies that
 the removed root SDK and Hub identity module paths have no aliases.
 `tests/hub/test_imports.py` imports every Hub module in a fresh interpreter

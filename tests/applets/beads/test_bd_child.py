@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 import pytest
 
-from punt_lux.apps.bd_child import BdChild, BdLeash
-from punt_lux.apps.bd_command import BdOutput, BdRun, BoardScope
-from punt_lux.apps.bd_exit import BdCancelledError, BdExit
+from punt_lux.applets.beads.bd_child import BdChild, BdLeash
+from punt_lux.applets.beads.bd_command import BdOutput, BdRun, BoardScope
+from punt_lux.applets.beads.bd_exit import BdCancelledError, BdExit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -244,7 +244,7 @@ def test_a_child_that_will_not_die_is_logged_and_the_wait_still_ends(
         return None
 
     monkeypatch.setattr(BdChild, "end", does_not_end)
-    monkeypatch.setattr("punt_lux.apps.bd_child._REAP_SECONDS", 0.2)
+    monkeypatch.setattr("punt_lux.applets.beads.bd_child._REAP_SECONDS", 0.2)
 
     with caplog.at_level(logging.ERROR), pytest.raises(subprocess.TimeoutExpired):
         child.output(0.2)
@@ -434,7 +434,7 @@ def test_a_reap_that_gives_up_closes_the_pipes(
         return None
 
     monkeypatch.setattr(BdChild, "end", does_not_end)
-    monkeypatch.setattr("punt_lux.apps.bd_child._REAP_SECONDS", 0.2)
+    monkeypatch.setattr("punt_lux.applets.beads.bd_child._REAP_SECONDS", 0.2)
 
     with caplog.at_level(logging.ERROR), pytest.raises(subprocess.TimeoutExpired):
         child.output(0.2)

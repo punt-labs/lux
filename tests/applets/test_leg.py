@@ -27,14 +27,14 @@ from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.applet_board import AppletBoard
-from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_result import BeadsRows
+from punt_lux.applets.beads.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsRows
 from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import Ok, OpError
@@ -796,7 +796,7 @@ def test_a_click_that_could_not_be_started_is_reported_rather_than_lost(
     def _no_worker(func: object, /, *args: object, **kwargs: object) -> None:
         raise RuntimeError("no worker thread could be started")
 
-    monkeypatch.setattr("punt_lux.apps.bd_child.asyncio.to_thread", _no_worker)
+    monkeypatch.setattr("punt_lux.applets.beads.bd_child.asyncio.to_thread", _no_worker)
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(_clicked(leg))  # draining re-raises anything the task let out

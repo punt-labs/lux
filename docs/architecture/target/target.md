@@ -282,6 +282,14 @@ pending a design decision.
 The moved identity values do not occur in Hub-to-Display element pickles, so
 Ready remains `0.3` and the existing pickle remapping is unchanged.
 
+Step 6 folds the old `punt_lux.apps` package into `punt_lux.applets.beads`,
+which now holds the whole Beads applet: the `lux-beads` program
+(`applets/beads/applet.py`), its service and source, the `bd` runner, and the
+board that turns a load into a render request. The board builds those requests
+from `operations.models`, so the last applets-to-Hub edge is gone. Generic
+applet machinery (leg, claim, watch, board cache and slots) stays in
+`punt_lux.applets`. No alias module remains at `punt_lux.apps`.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in

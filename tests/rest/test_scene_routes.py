@@ -392,8 +392,8 @@ def test_beads_board_request_installs_live_chrome_through_the_table_route() -> N
     # Hub CONSTRUCTS the composition, so the beads board's search box, status/type
     # combos, and detail are live — the fix for the dead-chrome defect where the
     # generic render route decoded a pre-composed tree with built-in handlers only.
-    from punt_lux.apps.beads_board import BeadsBoard
-    from punt_lux.apps.beads_result import BeadsRows
+    from punt_lux.applets.beads.beads_board import BeadsBoard
+    from punt_lux.applets.beads.beads_result import BeadsRows
 
     issues = [
         {

@@ -57,6 +57,13 @@
 
 ### Changed
 
+- **Breaking Python import changes:** `punt_lux.apps` is folded into
+  `punt_lux.applets.beads`. `apps.beads` becomes `applets.beads.browser`; the
+  other `apps.*` modules keep their names. `applets.beads` (the `lux-beads`
+  program) becomes `applets.beads.applet`, and `applets.beads_service` and
+  `applets.beads_source` move into the package. The `lux-beads` console script
+  is unchanged. No compatibility alias modules are provided.
+
 - **Breaking Python import changes:** `punt_lux.hub_client`, `rest_transport`,
   `rest_http_call`, `rest_loopback`, `rest_reply`, `rest_error_body`,
   `identity_headers`, `header_value` and `cli_identity` now live under

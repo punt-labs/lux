@@ -7,10 +7,10 @@ import logging
 import time
 from typing import Any, ClassVar, cast
 
-from punt_lux.apps.bd_command import BdOutput, BdRun, BoardScope
-from punt_lux.apps.beads_detail import BeadsDetail
-from punt_lux.apps.beads_load import BeadsLoad
-from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.applets.beads.bd_command import BdOutput, BdRun, BoardScope
+from punt_lux.applets.beads.beads_detail import BeadsDetail
+from punt_lux.applets.beads.beads_load import BeadsLoad
+from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult, BeadsRows
 
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80

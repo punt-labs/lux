@@ -26,13 +26,13 @@ import pytest
 
 import punt_lux.applets as applets_package
 from punt_lux.applets.applet_board import AppletBoard
-from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsRows
+from punt_lux.applets.beads.beads_service import BeadsService
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.board_work import BoardWork
 from punt_lux.applets.latency import ClickLatency
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 from punt_lux.operations.models.scene_results import SceneShown
 from tests.class_references import ClassReferences
 
@@ -41,8 +41,8 @@ from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.apps.beads_load import BeadsLoad
-    from punt_lux.apps.beads_result import BeadsResult
+    from punt_lux.applets.beads.beads_load import BeadsLoad
+    from punt_lux.applets.beads.beads_result import BeadsResult
     from punt_lux.operations import RenderRequest, RenderTableRequest
 
 # Two boards a test can tell apart on sight, so the id that landed says which of
@@ -742,7 +742,7 @@ def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
     showing = {name for name, text in package.items() if _calls(text, "shows")}
     assert showing == {
         "applets/applet_board.py",
-        "applets/beads_service.py",
+        "applets/beads/beads_service.py",
         "applets/board_glass.py",
     }, "a state was shown from outside the region and its entrances"
     region = sources["applets/board_glass.py"]
@@ -823,11 +823,11 @@ def test_a_module_that_writes_no_scene_through_the_board_is_not_one_of_its_write
 # the frame (which only the mint produces) or hold the board; one that does neither
 # writes a scene of its own, which is anyone's to write.
 
-_BOARD_MINT = "apps/beads_board.py"
+_BOARD_MINT = "applets/beads/beads_board.py"
 # Beside the module that defines the board and mints its frame.
 _BOARD_HOLDERS = frozenset(
     {
-        "applets/beads_service.py",
+        "applets/beads/beads_service.py",
         "applets/board_load.py",
         "cli/beads.py",
     }
@@ -995,8 +995,8 @@ def test_prose_and_other_names_are_not_the_boards_frame(source: str) -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        "from punt_lux.apps.beads_board import BeadsBoard\n",
-        "from punt_lux.apps import beads_board\nx = beads_board.BeadsBoard\n",
+        "from punt_lux.applets.beads.beads_board import BeadsBoard\n",
+        "from punt_lux.applets.beads import beads_board\nx = beads_board.BeadsBoard\n",
         "def f(board: BeadsBoard) -> None:\n    board.starting()\n",
     ],
 )

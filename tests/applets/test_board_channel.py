@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_result import BeadsRows
 from punt_lux.applets.board_channel import BoardChannel
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsRows
 
 from .board_doubles import ISSUE, RecordingClient
 

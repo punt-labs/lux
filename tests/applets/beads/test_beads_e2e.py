@@ -102,7 +102,7 @@ def _applet(
         [
             sys.executable,
             "-m",
-            "punt_lux.applets.beads",
+            "punt_lux.applets.beads.applet",
             "--session-pid",
             str(session_pid),
         ],

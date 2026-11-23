@@ -17,8 +17,8 @@ import time
 from enum import Enum
 from typing import Self, final
 
-from punt_lux.apps.bd_child import BdChild, BdLeash
-from punt_lux.apps.beads_result import BeadsFailure
+from punt_lux.applets.beads.bd_child import BdChild, BdLeash
+from punt_lux.applets.beads.beads_result import BeadsFailure
 
 __all__ = ["BdOutput", "BdRun", "BoardScope"]
 
