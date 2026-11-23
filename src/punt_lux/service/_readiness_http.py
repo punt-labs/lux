@@ -24,9 +24,14 @@ class ReadinessHTTP(io.RawIOBase):
     _deadline: float
 
     def __new__(cls, sock: socket.socket, deadline: float) -> Self:
+        sock = sock.dup()
         self = super().__new__(cls)
         self._socket, self._deadline = sock, deadline
         return self
+
+    def close(self) -> None:
+        self._socket.close()
+        super().close()
 
     def readable(self) -> bool:
         return True
@@ -44,19 +49,17 @@ class ReadinessHTTP(io.RawIOBase):
         sock: socket.socket,
         debuglevel: int = 0,
         method: str | None = None,
-        url: str | None = None,
         *,
         deadline: float,
     ) -> http.client.HTTPResponse:
         reader = ReadinessHTTP(sock, deadline)
         return http.client.HTTPResponse(
-            cast("socket.socket", reader), debuglevel=debuglevel, method=method, url=url
+            cast("socket.socket", reader), debuglevel=debuglevel, method=method
         )
 
     @staticmethod
     def _remaining(deadline: float) -> float:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        if (remaining := deadline - time.monotonic()) <= 0:
             raise TimeoutError("Hub Display probe deadline elapsed")
         return remaining
 
@@ -64,8 +67,7 @@ class ReadinessHTTP(io.RawIOBase):
     @contextmanager
     def open(timeout: float) -> Generator[http.client.HTTPConnection]:
         deadline = time.monotonic() + timeout
-        port = HubPaths().read_port()
-        if port is None:
+        if (port := HubPaths().read_port()) is None:
             raise ConnectionError(
                 "Hub is not running; start it before restarting Display"
             )
@@ -74,9 +76,8 @@ class ReadinessHTTP(io.RawIOBase):
         )
         try:
             connection.connect()
-            if connection.sock is None:
-                raise ConnectionError("Hub connection closed before the probe")
-            connection.sock.settimeout(ReadinessHTTP._remaining(deadline))
+            sock = cast("socket.socket", connection.sock)
+            sock.settimeout(ReadinessHTTP._remaining(deadline))
             connection.response_class = cast(
                 "type[http.client.HTTPResponse]",
                 partial(ReadinessHTTP._response, deadline=deadline),

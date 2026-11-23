@@ -167,6 +167,8 @@
 
 ### Fixed
 
+- Display readiness can read a connection-close HTTP reply after its headers;
+  the bounded reader retains its own socket until the response closes.
 - Display readiness local ownership probes and every Hub HTTP read now share the
   remaining deadline, rather than starting independent handshake/retry budgets.
 - Display restart stability now belongs to the Hub's pinned connection identity,
