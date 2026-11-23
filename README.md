@@ -311,7 +311,9 @@ when available, include the last 12 lines (at most 4096 bytes) of
 failures such as an unavailable monitor while the screen is locked.
 This tail is best-effort and includes the file's modification time. Only stderr
 modified since the restart began is attached; older output is explicitly omitted.
-Stock launchd installs create this file through `StandardErrorPath`.
+Generated launchd plists omit `StandardErrorPath`; this tail is available only
+with separately configured stderr redirection. Without a capture file the tail
+is omitted.
 Transport failures reset the stability window and remain pending until the deadline;
 timeout diagnostics include the last transport error.
 
