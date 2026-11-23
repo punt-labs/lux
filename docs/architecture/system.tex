@@ -476,7 +476,19 @@ is exported as \texttt{ElementProtocol}, distinct from the wire
 \texttt{Element} union. Adapters wrap these models: the Display renders them,
 and the replicator moves serialized elements over the wire.
 Hub state and replication now live in \modpath{hub/}; the empty
-\modpath{domain/} package is removed. Only \modpath{protocol/pty/} awaits its move.
+\modpath{domain/} package is removed. The PTY owner now lives in \modpath{pty/},
+including process-group management; its shared stream contracts live in
+\modpath{wire/stream/}. The former \modpath{ptyd/} and
+\modpath{protocol/pty/} imports are removed without aliases. The
+\texttt{luxd-pty} executable, process behavior, and stream formats are unchanged.
+The terminal menu projection imports request values from
+\modpath{operations/models/}, removing the direct static PTY-to-Hub edge.
+The operations initializer still eagerly loads Hub code; runtime import
+isolation remains operations-package debt.
+The pickle decoder resolves old stream globals at their new namespace without
+import aliases. Ready remains version \texttt{0.3}: terminal element pickles
+carry primitive placement fields, not stream contracts or PTY execution
+objects. PTY control and stream traffic use JSON and binary framing, not pickle.
 Shared patch requests and validation errors live in
 \modpath{wire/model/patch\_batch.py} and \modpath{wire/model/write\_errors.py},
 so shared request models do not depend on Hub implementation.

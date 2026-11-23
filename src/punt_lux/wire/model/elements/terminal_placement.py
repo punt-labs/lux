@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from abc import abstractmethod
 
-from punt_lux.protocol.pty.control_fields import ControlError, ControlFields
 from punt_lux.wire.model.element_abc import Element
 from punt_lux.wire.model.validation import ValidationError
+from punt_lux.wire.stream.control_fields import ControlError, ControlFields
 
 
 class TerminalPlacement(Element):

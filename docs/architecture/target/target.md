@@ -267,7 +267,7 @@ The Display's unpickler also remaps old `domain.hub` paths: published element
 handlers carry `HubPublishSink` across the Hub→Display pickle boundary.
 Ready version `0.3` refuses Displays still using the old Hub namespace before
 scenes are sent, with an actionable Display restart error.
-`protocol.pty` remains until its own migration.
+`protocol.pty` remains at this step until its step-7 migration.
 
 Step 5 consolidates the SDK under `punt_lux.client`: WebSocket access, the HTTP
 transport contract and values, identity headers, and CLI identity resolution.
@@ -294,6 +294,21 @@ Removing that transitive Hub load remains debt of
 the operations package, not part of this move. Generic
 applet machinery (leg, claim, watch, board cache and slots) stays in
 `punt_lux.applets`. No alias module remains at `punt_lux.apps`.
+
+Step 7 moves the PTY owner from `punt_lux.ptyd` to `punt_lux.pty`, including
+`process_group.py`, and moves its stream contracts from `protocol.pty` to
+`wire.stream`. The `luxd-pty` executable and wire formats are unchanged; no
+old-path aliases remain. Tests mirror `pty/` and `wire/stream/`.
+`pty.menu_projection` imports `OpError` and `RenderRequest` from
+`operations.models`, removing the direct static PTY-to-Hub edge. The operations
+initializer and public root still eagerly load Hub code, as described in step 6;
+runtime import isolation remains operations-package debt.
+
+The pickle decoder maps old `protocol.pty` globals to `wire.stream` without
+making the old package importable. Ready remains `0.3`: terminal scene pickles
+contain model elements with primitive placement fields, not stream contracts or
+PTY execution objects. PTY control and stream frames use JSON/binary codecs,
+not pickle; no PTY execution pickle-name remapping is needed.
 
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`

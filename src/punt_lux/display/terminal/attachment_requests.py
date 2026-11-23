@@ -10,11 +10,11 @@ from punt_lux.display.terminal.cancelled_attaches import CancelledAttaches
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.retry_schedule import RetrySchedule
-from punt_lux.protocol.pty.control import WIRE_VERSION, ControlCodec
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import FailureReply, ReplyCodec
 from punt_lux.terminal.snapshot import snapshot_version
+from punt_lux.wire.stream.control import WIRE_VERSION, ControlCodec
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import FailureReply, ReplyCodec
 
 
 class AttachmentRequests:

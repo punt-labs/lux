@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.pty.control_fields import ControlError
 from punt_lux.terminal.output import OutputChunk, SessionSnapshot
 from punt_lux.terminal.snapshot import screen_rows, tracked_terminal
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
+from punt_lux.wire.stream.control_fields import ControlError
 
 
 @pytest.mark.parametrize("data", [b"", b"abc", b"\xff\x00"])

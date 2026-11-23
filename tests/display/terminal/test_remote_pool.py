@@ -10,7 +10,7 @@ import pytest
 
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_pool import RemotePool
-from punt_lux.protocol.pty.frames import Frame, FrameKind
+from punt_lux.wire.stream.frames import Frame, FrameKind
 
 
 @pytest.fixture

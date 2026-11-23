@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.protocol.pty.frames import Frame, FrameDecoder, FrameKind
 from punt_lux.terminal.connection import TerminalConnection
+from punt_lux.wire.stream.frames import Frame, FrameDecoder, FrameKind
 
 pytestmark = pytest.mark.integration
 

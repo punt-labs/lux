@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.protocol.pty.control_fields import ControlFields
 from punt_lux.terminal.ffi import Terminal
 from punt_lux.terminal.output import SessionSnapshot
 from punt_lux.terminal.snapshot import snapshot_version
+from punt_lux.wire.stream.control_fields import ControlFields
 
 
 class SnapshotTransfer:

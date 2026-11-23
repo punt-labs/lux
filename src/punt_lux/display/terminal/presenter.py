@@ -8,7 +8,7 @@ from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.terminal.font import TerminalFont
 from punt_lux.display.terminal.remote_sessions import RemoteSessions
-from punt_lux.protocol.pty.control_fields import ControlError
+from punt_lux.wire.stream.control_fields import ControlError
 
 if TYPE_CHECKING:
     from punt_lux.display.terminal.remote import RemoteSession

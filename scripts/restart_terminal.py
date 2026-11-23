@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from punt_lux.logging_config import configure_logging
-from punt_lux.ptyd.service import TerminalService
+from punt_lux.pty.service import TerminalService
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.socket_owner import SocketOwner
 

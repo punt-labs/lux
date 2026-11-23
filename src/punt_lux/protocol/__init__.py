@@ -1,4 +1,4 @@
-"""PTY wire contracts awaiting the terminal package migration."""
+"""Former protocol namespace; shared contracts live under punt_lux.wire."""
 
 from __future__ import annotations
 

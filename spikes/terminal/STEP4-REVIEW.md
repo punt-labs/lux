@@ -139,10 +139,10 @@ This review is a local source/test audit, not an independent external review.
 ## Verification commands
 
 ```sh
-PYTEST_ADDOPTS='tests/ptyd tests/protocol tests/render tests/display/test_display_setup.py tests/test_protocol.py tests/test_frame_geometry_timing.py tests/test_frame_placement.py tests/test_frame_tiling.py tests/test_frame_entry_order_agreement.py tests/test_markdown_font.py tests/test_per_frame_tracing.py tests/test_renderers_import_fallback.py' \
+PYTEST_ADDOPTS='tests/pty tests/wire tests/render tests/display/test_display_setup.py tests/test_protocol.py tests/test_frame_geometry_timing.py tests/test_frame_placement.py tests/test_frame_tiling.py tests/test_frame_entry_order_agreement.py tests/test_markdown_font.py tests/test_per_frame_tracing.py tests/test_renderers_import_fallback.py' \
   timeout 420 make check BASE_REF=3712972
-timeout 120 .venv/bin/python -m pytest tests/ptyd/test_core_live.py tests/ptyd/test_holder_live.py -o addopts='' -q
-timeout 120 .venv/bin/python -m pytest tests/ptyd -m integration --ignore=tests/ptyd/test_core_live.py --ignore=tests/ptyd/test_holder_live.py -o addopts='' -q
+timeout 120 .venv/bin/python -m pytest tests/pty/test_core_live.py tests/pty/test_holder_live.py -o addopts='' -q
+timeout 120 .venv/bin/python -m pytest tests/pty -m integration --ignore=tests/pty/test_core_live.py --ignore=tests/pty/test_holder_live.py -o addopts='' -q
 ```
 
 Cold demand-start timing is historical after machine opt-in superseded it;

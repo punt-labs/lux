@@ -167,7 +167,7 @@ class TestTheDoorIsTheSlot:
             where: count
             for where, count in _everywhere("capture").items()
             if not where.startswith(_SCREENSHOTS)
-            and where not in {"ptyd/snapshot_cut.py:SnapshotCut.cut"}
+            and where not in {"pty/snapshot_cut.py:SnapshotCut.cut"}
         }
 
         assert found == {

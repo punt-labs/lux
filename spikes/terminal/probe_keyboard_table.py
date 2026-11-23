@@ -23,13 +23,13 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-from punt_lux.protocol.pty.control import WIRE_VERSION
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import SuccessReply
-from punt_lux.protocol.pty.session_requests import KillRequest
+from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import SuccessReply
+from punt_lux.wire.stream.session_requests import KillRequest
 from punt_lux.terminal.snapshot import snapshot_version
 from spikes.terminal.check_two_windows import WindowProof
-from tests.ptyd.wire_client import WireClient
+from tests.pty.wire_client import WireClient
 
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAM = """

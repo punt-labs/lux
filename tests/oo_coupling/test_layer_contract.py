@@ -51,14 +51,14 @@ class TestLayerContract:
             ("punt_lux.__main__", "cli"),
             ("punt_lux.applets.beads.board", "applets"),
             ("punt_lux.trust.identity", "trust"),
-            ("punt_lux.ptyd", "pty"),
-            ("punt_lux.ptyd.service", "pty"),
+            ("punt_lux.pty", "pty"),
+            ("punt_lux.pty.service", "pty"),
             ("punt_lux.terminal", "terminal"),
             ("punt_lux.terminal.connection", "terminal"),
             ("punt_lux.terminal.snapshot", "terminal"),
             ("punt_lux.terminal.snapshot_encoding", "terminal"),
             ("punt_lux.terminal.output", "terminal"),
-            ("punt_lux.protocol.pty.frames", "wire"),
+            ("punt_lux.wire.stream.frames", "wire"),
             ("punt_lux.display.terminal.remote_pool", "display"),
             ("punt_lux.service._launchd_plist", "service"),
             ("punt_lux.service.entry_runtime", "service"),
@@ -71,7 +71,7 @@ class TestLayerContract:
             ("punt_lux.hook_cli", "cli"),
             ("punt_lux.service.session_start", "service"),
             ("punt_lux.terminalish", "unassigned"),
-            ("punt_lux.ptydish", "unassigned"),
+            ("punt_lux.ptyish", "unassigned"),
             ("punt_lux.clientish", "unassigned"),
             ("punt_lux.hub_client", "unassigned"),
             ("punt_lux.rest_transport", "unassigned"),
@@ -168,11 +168,11 @@ class TestLayerReport:
         package = tmp_path / "punt_lux"
         package.mkdir()
         (package / "display.py").write_text(
-            "import punt_lux.terminal\nimport punt_lux.ptyd\n"
+            "import punt_lux.terminal\nimport punt_lux.pty\n"
         )
-        (package / "terminal.py").write_text("import punt_lux.ptyd\n")
-        (package / "ptyd.py").write_text("import punt_lux.terminal\n")
-        (package / "cli.py").write_text("import punt_lux.ptyd\n")
+        (package / "terminal.py").write_text("import punt_lux.pty\n")
+        (package / "pty.py").write_text("import punt_lux.terminal\n")
+        (package / "cli.py").write_text("import punt_lux.pty\n")
         report = LayerReport(tmp_path).render()
         assert "display → pty: 1" in report
         assert "terminal → pty: 1" in report

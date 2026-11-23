@@ -76,7 +76,7 @@ def test_make_restart_restarts_pty_and_surfaces_failure(
         "from itertools import count\n"
         "from types import SimpleNamespace\n"
         "from unittest.mock import Mock\n"
-        "from punt_lux.ptyd.entry_runtime import DaemonOptions\n"
+        "from punt_lux.pty.entry_runtime import DaemonOptions\n"
         "script = sys.argv[1]\n"
         "sys.argv = [script]\n"
         "main = runpy.run_path(script)['main']\n"

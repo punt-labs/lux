@@ -16,14 +16,14 @@ __all__ = ["ModelUnpickler"]
 
 
 class ModelUnpickler(pickle.Unpickler):
-    """Load moved shared and Hub models while preserving the PTY namespace."""
+    """Load moved shared, stream, and Hub models at their current namespace."""
 
     _legacy_packages: ClassVar[tuple[tuple[str, str], ...]] = (
         ("punt_lux.domain.hub.patch_batch", "punt_lux.wire.model.patch_batch"),
         ("punt_lux.domain.hub.write_errors", "punt_lux.wire.model.write_errors"),
         ("punt_lux.domain.hub", "punt_lux.hub"),
         ("punt_lux.domain", "punt_lux.wire.model"),
-        ("punt_lux.protocol.pty", "punt_lux.protocol.pty"),
+        ("punt_lux.protocol.pty", "punt_lux.wire.stream"),
         ("punt_lux.protocol", "punt_lux.wire.model"),
     )
 

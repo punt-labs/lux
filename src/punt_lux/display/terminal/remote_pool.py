@@ -15,8 +15,8 @@ from typing import Self
 from punt_lux.display.terminal.attachment_requests import AttachmentRequests
 from punt_lux.display.terminal.idling_decision import IdlingDecision
 from punt_lux.display.terminal.remote import RemoteSession
-from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.terminal.connection import TerminalConnection
+from punt_lux.wire.stream.frames import Frame, FrameKind
 
 
 class RemotePool:

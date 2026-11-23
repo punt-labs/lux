@@ -12,8 +12,8 @@ relay remains unimplemented on this branch.
 
 Evidence is in `spikes/terminal/STEP1.md` through `STEP4-PLAN.md`, with
 actual-window and measured results in `STEP4-LIVE.md` and `STEP4-PERFORMANCE.md`.
-Code spans `src/punt_lux/display/terminal/`, `terminal/`, `ptyd/` and
-`protocol/pty/`. What a polished product still
+Code spans `src/punt_lux/display/terminal/`, `terminal/`, `pty/` and
+`wire/stream/`. What a polished product still
 needs is in [`../terminal-known-limitations.md`](../terminal-known-limitations.md).
 
 | ADR | Decision | Status |

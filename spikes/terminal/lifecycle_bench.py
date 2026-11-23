@@ -15,14 +15,14 @@ import tempfile
 import time
 from pathlib import Path
 
-from punt_lux.protocol.pty.control import WIRE_VERSION
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import SuccessReply
+from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.terminal.snapshot import snapshot_version
 from punt_lux.terminal.launcher import DaemonLauncher
-from tests.ptyd.test_autostart_live import StartedDaemon
-from tests.ptyd.test_lifecycle_cycles_live import LifecycleCycle
-from tests.ptyd.wire_client import WireClient
+from tests.pty.test_autostart_live import StartedDaemon
+from tests.pty.test_lifecycle_cycles_live import LifecycleCycle
+from tests.pty.wire_client import WireClient
 
 
 class ResourceCycles:

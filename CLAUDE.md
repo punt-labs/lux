@@ -165,8 +165,9 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 
 Shared domain values, elements, messages, and framing now live in
 `punt_lux.wire.model`. Hub state and replication now live in `punt_lux.hub`;
-the old `punt_lux.domain` package is removed. Only `protocol.pty` awaits its
-package move. Shared patch requests and their validation errors belong in
+the old `punt_lux.domain` package is removed. PTY execution now lives in
+`punt_lux.pty`; its shared stream contracts live in `punt_lux.wire.stream`.
+Shared patch requests and their validation errors belong in
 `wire.model.patch_batch` and `wire.model.write_errors`, not Hub. The model
 facade's `Element` is the wire union; `ElementProtocol` is
 the structural interface from `wire.model.element`. `ConnectionId` and

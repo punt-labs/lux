@@ -224,46 +224,46 @@ Mirror `lux hub` / `luxd-hub` and `lux display` / `luxd-display`:
 The three code units are independent after the wire types land; run them in
 parallel worktrees.
 
-**Wire (first, small).** `protocol/pty/new_request.py` holds `NewRequest`
+**Wire (first, small).** `wire/stream/new_request.py` holds `NewRequest`
 (label, launcher, cols, rows). It names a launcher and carries no command line
-(DES-103 decision 9); `protocol/pty/launcher_name.py` validates the name.
-`protocol/pty/session_events.py` holds `WatchRequest` and `SessionEvent`
-(frozen dataclasses, `to_dict` / `from_dict`). `protocol/pty/control.py`
+(DES-103 decision 9); `wire/stream/launcher_name.py` validates the name.
+`wire/stream/session_events.py` holds `WatchRequest` and `SessionEvent`
+(frozen dataclasses, `to_dict` / `from_dict`). `wire/stream/control.py`
 registers the codecs.
 `AttachRequest` keeps its shape; its meaning becomes resume-only.
 
 **Daemon unit.**
 
-- `ptyd/core.py`: `acquire` is deleted. In its place `create(NewRequest)` and
+- `pty/core.py`: `acquire` is deleted. In its place `create(NewRequest)` and
   `attach(id)`. The respawn branch goes.
-- New `ptyd/session_ids.py`: `SessionIds` (boot value plus counter, produces
+- New `pty/session_ids.py`: `SessionIds` (boot value plus counter, produces
   ids).
-- New `ptyd/session_labels.py`: `SessionLabels` (uniqueness among live
+- New `pty/session_labels.py`: `SessionLabels` (uniqueness among live
   sessions).
-- New `ptyd/session_watchers.py`: `SessionWatchers` (subscribed peers, bounded
+- New `pty/session_watchers.py`: `SessionWatchers` (subscribed peers, bounded
   queues, overflow drops).
-- New `ptyd/exited_sessions.py`: `ExitedSessions` (removes an exited session
+- New `pty/exited_sessions.py`: `ExitedSessions` (removes an exited session
   once every binding has been sent `CLOSE`).
-- `ptyd/control_dispatch.py`: handles `new` and `watch`; attach no longer
+- `pty/control_dispatch.py`: handles `new` and `watch`; attach no longer
   creates.
-- `ptyd/stream_output.py`: calls `ExitedSessions` after a flush.
-- `ptyd/session.py` and `ptyd/session_state.py`: carry `label`; `describe()`
+- `pty/stream_output.py`: calls `ExitedSessions` after a flush.
+- `pty/session.py` and `pty/session_state.py`: carry `label`; `describe()`
   returns it.
 
 **Helper unit.**
 
-- New `ptyd/daemon_client.py`: `DaemonClient` (new, list, kill, watch over
+- New `pty/daemon_client.py`: `DaemonClient` (new, list, kill, watch over
   `TerminalConnection`).
-- New `ptyd/session_watch.py`: `SessionWatch` (watch loop, reconnect, reconcile).
-- New `ptyd/terminal_scenes.py`: `TerminalScenes` (builds the `RenderRequest`
+- New `pty/session_watch.py`: `SessionWatch` (watch loop, reconnect, reconcile).
+- New `pty/terminal_scenes.py`: `TerminalScenes` (builds the `RenderRequest`
   for one session, the scene id, frame id).
-- New `ptyd/terminal_manager.py`: `TerminalManager` (the `Terminals` table and
+- New `pty/terminal_manager.py`: `TerminalManager` (the `Terminals` table and
   its button topics).
-- `ptyd/menu_projection.py`: shrinks to registering `New terminal` and
+- `pty/menu_projection.py`: shrinks to registering `New terminal` and
   `Terminals`, and routing clicks; the hard-coded `luxd-pty-terminal` goes.
-- `ptyd/menu_clients.py`: identity name becomes the host label (new
-  `ptyd/host_label.py`, `HostLabel`).
-- `ptyd/menu_listener.py`: wires the watch.
+- `pty/menu_clients.py`: identity name becomes the host label (new
+  `pty/host_label.py`, `HostLabel`).
+- `pty/menu_listener.py`: wires the watch.
 
 **Display unit.**
 
@@ -277,12 +277,12 @@ registers the codecs.
 
 **Tests (written first; each fails on today's code).**
 
-- `tests/ptyd/test_core_lifecycle.py`: new, resume, unknown id refused, exit
+- `tests/pty/test_core_lifecycle.py`: new, resume, unknown id refused, exit
   removes after `CLOSE`, label unique, id never reused, limit.
-- `tests/ptyd/test_session_watchers.py`: events, overflow drops the watcher.
-- `tests/ptyd/test_session_watch_reconcile.py`: lost events then sync equals
+- `tests/pty/test_session_watchers.py`: events, overflow drops the watcher.
+- `tests/pty/test_session_watch_reconcile.py`: lost events then sync equals
   the daemon's list.
-- `tests/ptyd/test_exit_removes_frame.py`: a real `luxd-pty` and a stub Hub;
+- `tests/pty/test_exit_removes_frame.py`: a real `luxd-pty` and a stub Hub;
   `exit` leaves no scene (this is the user's reported defect, end to end).
 - `tests/display/terminal/test_remote_pool_release.py`: element removed means
   replica released; a hidden frame keeps its replica.
