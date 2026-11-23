@@ -85,12 +85,12 @@ class ImguiInputScan(ast.NodeVisitor):
     TOOLTIP_FLAG: ClassVar[str] = "for_tooltip"
     HOVER_QUERY: ClassVar[str] = "is_item_hovered"
     # Any receiver: forwarding an interaction to its handler.
-    HANDLER_CALLS: ClassVar[frozenset[str]] = frozenset({"fire", "dispatch"})
+    HANDLER_CALLS: ClassVar[frozenset[str]] = frozenset({"fire", "dispatch", "clicked"})
     # ``io.key_ctrl``, ``io.mouse_pos``, ``io.want_text_input``: reads, not calls.
     IO_PREFIXES: ClassVar[tuple[str, ...]] = ("key_", "mouse_", "want_")
-    # An event class: ButtonClicked, ValueChanged, ClickLatency, ...
+    # An event class: ButtonClicked, ValueChanged, ServicedClick, ... (not ClickLatency)
     EVENT_NAME: ClassVar[re.Pattern[str]] = re.compile(
-        r"^(?=[A-Z])\w*(Click\w*|Changed|Pressed|Submitted)$"
+        r"^(?=[A-Z])\w*(Click|Clicked|Changed|Pressed|Submitted)$"
     )
     FORWARDING_NAMES: ClassVar[frozenset[str]] = frozenset(
         {"interaction_delivery", "pending_interactions", "frame_commands", "auto_click"}

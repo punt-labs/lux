@@ -25,7 +25,8 @@ INTERACTIVE_REAL_FILES = [
     (D + "terminal/keymap.py", "reads io.key_ctrl"),
     (D + "menus/menu_click.py", BY_NAME),
     (S + "applets/serviced_click.py", BY_NAME),
-    (S + "applets/leg.py", "references event ClickLatency"),
+    (S + "applets/leg.py", "calls clicked()"),
+    (S + "applets/serviced_click.py", "references event ServicedClick"),
     (S + "pty/viewer_input.py", BY_NAME),
     (S + "pty/control_input.py", BY_NAME),
     (
@@ -48,6 +49,8 @@ DISPLAY_ONLY_REAL_FILES = [
     D + "socket_server.py",
     D + "paint_telemetry.py",
     S + "applets/beads/beads_board.py",
+    S + "applets/latency.py",
+    S + "applets/__init__.py",
 ]
 
 
