@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
 from tests.fresh_imports import (
@@ -42,9 +45,23 @@ def test_present_module_fails() -> None:
         assert_not_importable("sys")
 
 
-def test_wrong_missing_module_is_not_accepted() -> None:
-    with pytest.raises(AssertionError, match="ModuleNotFoundError"):
-        assert_not_importable("punt_lux.no_such_import_test_package.nested")
+def test_removed_parent_module_succeeds() -> None:
+    assert_not_importable("punt_lux.no_such_import_test_package.nested")
+
+
+def test_missing_dependency_is_not_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "broken_import_fixture.py").write_text(
+        "import missing_dependency_for_fresh_import_test\n"
+    )
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) + os.pathsep + os.environ.get("PYTHONPATH", "")
+    )
+    with pytest.raises(
+        AssertionError, match="missing_dependency_for_fresh_import_test"
+    ):
+        assert_not_importable("broken_import_fixture")
 
 
 def test_empty_isolation_policy_succeeds() -> None:
