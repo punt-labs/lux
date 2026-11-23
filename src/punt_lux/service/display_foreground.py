@@ -27,7 +27,7 @@ class DisplayForeground:
         """Replace this process with the display using the same Python environment."""
         for module in sorted(cls._dependencies):
             importlib.import_module(module)
-        args = [sys.executable, "-m", "punt_lux.display"]
+        args = [sys.executable, "-P", "-m", "punt_lux.display"]
         if socket is not None:
             args.append(f"--socket={socket}")
         if test_auto_click:
