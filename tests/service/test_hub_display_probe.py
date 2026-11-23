@@ -26,6 +26,7 @@ def test_hub_facts_must_name_the_new_process(
         "hub_connection_id": "dial-1",
     }
     with (
+        patch("punt_lux.service._readiness_http.time.monotonic", return_value=10),
         patch("punt_lux.service._readiness_http.HubPaths.read_port", return_value=8430),
         patch("punt_lux.service._readiness_http.http.client.HTTPConnection") as connect,
     ):
@@ -34,7 +35,7 @@ def test_hub_facts_must_name_the_new_process(
         response.read.return_value = json.dumps(payload).encode()
         assert HubDisplayProbe(502, 0.25).connected() == expected
     assert connect.call_args.args == ("127.0.0.1", 8430)
-    assert connect.call_args.kwargs["timeout"] == pytest.approx(0.25, abs=0.01)
+    assert connect.call_args.kwargs["timeout"] == 0.25
     connect.return_value.request.assert_called_once_with("GET", "/display")
     connect.return_value.close.assert_called_once()
 
