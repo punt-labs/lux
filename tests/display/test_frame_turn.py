@@ -47,6 +47,9 @@ class _Recorder:
         self.calls.append("swapped")
         return ()
 
+    def before_swap(self) -> None:
+        self.calls.append("capture")
+
     def after_swap(self) -> None:
         self.calls.append("screenshot")
 
@@ -116,6 +119,18 @@ class TestWhatASwapReleases:
         _turn(rec, clock=True).after_swap()
 
         assert rec.calls == ["swapped", "release-acks", "screenshot"]
+
+    def test_the_capture_is_taken_before_the_swap_and_delivered_after(self) -> None:
+        # The back buffer holds the drawn frame only until the swap; a front-buffer
+        # read after it is blank on Mesa/GLX. So the pixels are read before the
+        # swap and the reply, which must follow the acks, goes out after it.
+        rec = _Recorder()
+        turn = _turn(rec, clock=True)
+
+        turn.before_swap()
+        turn.after_swap()
+
+        assert rec.calls == ["capture", "swapped", "release-acks", "screenshot"]
 
 
 class TestTheFrameTimeline:

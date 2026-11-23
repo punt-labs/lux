@@ -137,8 +137,12 @@ class FrameTurn:
         """Note that a scene was drawn this frame: its swap is the one to time."""
         self._paint_clock.painted(scene_id)
 
+    def before_swap(self) -> None:
+        """Read the drawn frame while GL_BACK still holds it: a queued screenshot."""
+        self._queries.before_swap()
+
     def after_swap(self) -> None:
-        """Flush what a completed buffer swap releases: GL_FRONT has the frame."""
+        """Flush what a completed swap releases: the acks, then the screenshot."""
         PaintTelemetry.report_swap(self._paint_clock)
         self._sender.release_acks()
         self._queries.after_swap()

@@ -8430,23 +8430,38 @@ constraint. hello_imgui's own `OpenglScreenshotRgb()` does the same read from
 the default framebuffer sized by `DrawData->FramebufferScale`.
 
 `BeforeSwap`, the callback DES-028 asked for, was added to hello_imgui on
-2026-08-09 and is bound in the imgui-bundle lux ships; it is not needed, and
-the capture keeps lux's existing `after_swap` hook.
+2026-08-09 and is bound in the imgui-bundle lux ships. On macOS it makes no
+difference, but review of the first cut (PR #607) ran a native GLX probe on
+Mesa under Xvfb: there `GL_FRONT` after the swap reads back `(0, 0, 0, 0)`
+with no GL error, so an after-swap read returns a successful blank PNG on
+Linux CI. The read therefore happens in `before_swap` from `GL_BACK`, which
+holds the drawn frame on both platforms.
 
 ### Decision
 
-1. `FramebufferCapture` sizes the read from `io.display_framebuffer_scale`.
+1. `FramebufferCapture` is the GL read alone: `read_frame()` reads `GL_BACK`
+   sized from `io.display_framebuffer_scale` and raises on failure. It holds
+   no state.
 2. The Hub sends the ordinary `QueryRequest(method="screenshot")` through the
    existing `DisplayPort.query` route; `DisplayControlOperations.screenshot`
    narrows the reply to `Screenshot(path=...)`. The hard-coded refusal is gone.
-3. The display answers that one query **a frame late**: `ClientQueries` hands
-   the requester's socket to `ScreenshotQueue` instead of the router, and the
-   `QueryResponse` goes out from `after_swap` with the frame just presented.
-   The Hub matches a query reply by order and holds one query in flight
-   (DES-102), so a reply one swap later is still the reply to that query; a
-   second `screenshot` while one waits is refused at once, so no requester
-   waits out a timeout for a reply that never comes.
-4. The dedicated `ScreenshotRequest` / `ScreenshotResponse` wire messages are
+3. The display answers that one query **a frame late**, in two steps.
+   `ClientQueries` hands the requester's socket to `ScreenshotQueue` instead of
+   the router. In `before_swap` the queue reads the frame while the back buffer
+   still holds it; a read that fails is answered at once with its error, since
+   nothing waits for the swap. In `after_swap`, after the acks the swap
+   releases, the queue writes the PNG and sends the `QueryResponse`. The Hub
+   matches a query reply by order and holds one query in flight (DES-102), so
+   a reply one swap later is still the reply to that query; a second
+   `screenshot` while one waits is refused at once, so no requester waits out
+   a timeout for a reply that never comes.
+4. The PNG is written into the display's own runtime directory
+   (`<socket dir>/screenshots`, so `/tmp/lux-$USER/screenshots` or
+   `$XDG_RUNTIME_DIR/lux/screenshots`), created at mode 0700 by the display
+   and refused if another user owns it, and opened once by descriptor. A
+   shared temporary root would let another local user pre-create the
+   directory and redirect the write (review finding on PR #607).
+5. The dedicated `ScreenshotRequest` / `ScreenshotResponse` wire messages are
    removed. They existed only because the generic query path was believed
    unable to defer; it can, and one reply type (`QueryResponse`) keeps the
    Hub's `ReplyWaiters` and `REPLY_TYPES` unchanged.
@@ -8458,3 +8473,5 @@ The PNG path is on the display's host, as before. External capture
 process is not running in, and for pixels after window-server composition;
 the in-process capture is tied to one painted frame, needs no Screen
 Recording permission, and works with the window occluded or on another Space.
+Captures are not retained or pruned by lux; the directory is the user's own
+runtime directory and the files are theirs to remove.

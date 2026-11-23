@@ -38,6 +38,7 @@ from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 
 if TYPE_CHECKING:
     import socket
+    from pathlib import Path
 
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.geometry import GeometryRecorder
@@ -71,11 +72,14 @@ class ClientQueries:
         scenes: SceneReplica,
         geometry: GeometryRecorder,
         settings: WindowSettings,
+        screenshot_dir: Path,
     ) -> Self:
         self = super().__new__(cls)
         self._sender = sender
         self._query_router = query_router
-        self._screenshots = ScreenshotQueue(query_router.record_error, sender)
+        self._screenshots = ScreenshotQueue(
+            query_router.record_error, sender, screenshot_dir
+        )
         self._start_time = time.time()
         query_router.register_handler(
             "inspect_scene", SceneInspector(scenes=scenes, geometry=geometry).inspect
@@ -101,6 +105,10 @@ class ClientQueries:
             self._query(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
+
+    def before_swap(self) -> None:
+        """Read the frame just drawn for the queued screenshot, if any."""
+        self._screenshots.before_swap()
 
     def after_swap(self) -> None:
         """Answer the queued screenshot, if any, now the frame has been swapped."""

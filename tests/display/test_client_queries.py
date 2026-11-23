@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
@@ -44,6 +45,7 @@ def _queries(
         scenes=MagicMock(),
         geometry=MagicMock(),
         settings=WindowSettings(),
+        screenshot_dir=Path("/nonexistent/never-written"),
     )
     return queries, sender, router
 

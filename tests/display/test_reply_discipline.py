@@ -180,6 +180,7 @@ class TestAScreenshotIsNeverOverwritten:
         loop._handle_message(sock, _SCREENSHOT)
         loop._handle_message(sock, _SCREENSHOT)
 
+        loop._turn.before_swap()
         loop._turn.after_swap()
 
         answered = [r for r in peer.replies() if isinstance(r, QueryResponse)]
@@ -245,6 +246,7 @@ class TestAHubThatDoesNotRead:
         loop, peer, sock = _hub_client(blocked=True)
         loop._handle_message(sock, _SCREENSHOT)
 
+        loop._turn.before_swap()
         loop._turn.after_swap()
 
         assert peer.closed
