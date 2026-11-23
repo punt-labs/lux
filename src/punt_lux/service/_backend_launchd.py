@@ -5,16 +5,15 @@ from __future__ import annotations
 import logging
 import subprocess
 import textwrap
-from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, ClassVar, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
 from punt_lux.service._backends import ServiceBackend
 from punt_lux.service._launchctl import launchctl
+from punt_lux.service._launchd_install import LaunchdInstallation
 from punt_lux.service._launchd_plist import LaunchdPlist
-from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux.service._service_errors import ServiceMigrationError
+from punt_lux.service._launchd_restart import LaunchdRestart
 
 if TYPE_CHECKING:
     from punt_lux.service import ServiceSpec
@@ -31,6 +30,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
     __slots__ = ("_plist",)
 
     _plist: LaunchdPlist
+    STATUS_TIMEOUT_SECONDS: ClassVar[float] = 2.0
 
     def __new__(cls, spec: ServiceSpec) -> Self:
         self = super().__new__(cls)
@@ -50,6 +50,17 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         )
         return result.returncode == 0
 
+    def registration_status(self) -> str:
+        """Return a bounded launchd registration status without retaining output."""
+        status = subprocess.run(
+            ["launchctl", "print", self._plist.target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=LaunchdBackend.STATUS_TIMEOUT_SECONDS,
+        ).returncode
+        return f"launchctl print {self._plist.target}: rc={status}"
+
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
 
@@ -58,24 +69,9 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         daemon from exiting promptly. A changed plist requires a verified stop
         before the new version can load.
         """
-        label = self._plist.spec.launchd_label
-        desired_plist = self._plist_content()
-        if self.is_active():
-            if self._plist.installed_content() == desired_plist:
-                logger.info("%s already installed and up to date; no-op", label)
-                return True
-            LaunchdLegacySweep(
-                replace(self._plist.spec, legacy_launchd_labels=(label,))
-            ).sweep()
-            logger.info("Deregistered existing %s before upgrade", label)
-
-        self._plist.write(desired_plist)
-        logger.info("Wrote %s", self._plist.path)
-        if not self._bootstrap():
-            msg = f"failed to bootstrap {label} into launchd"
-            raise ServiceMigrationError(msg)
-        logger.info("Bootstrapped %s into launchd", label)
-        return False
+        return LaunchdInstallation(self._plist, self._bootstrap).run(
+            self._plist_content(), active=self.is_active()
+        )
 
     def enable_autostart(self) -> bool:
         return launchctl.run(["launchctl", "enable", self._plist.target], verb="enable")
@@ -102,12 +98,14 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return launchctl.run(["launchctl", "bootout", target], verb="bootout")
 
     def restart(self) -> bool:
-        """Atomically kill-and-respawn under the same plist — one call, no pid file."""
-        target = self._plist.target
-        return launchctl.run(
-            ["launchctl", "kickstart", "-k", target],
-            verb="kickstart",
+        """Kickstart a loaded job, or bootstrap its missing registration."""
+        result = subprocess.run(
+            ["launchctl", "kickstart", "-k", self._plist.target],
+            capture_output=True,
+            text=True,
+            check=False,
         )
+        return LaunchdRestart(self._plist, self._bootstrap).finish(result)
 
     def start(self) -> bool:
         """Kickstart registration without -k, else bootstrap installed config.

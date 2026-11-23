@@ -45,7 +45,7 @@ def start() -> None:
 
 @display_app.command("stop")
 def stop() -> None:
-    """Stop the display; the service registration stays."""
+    """Stop the display without deleting its installed service configuration."""
     try:
         typer.echo(ServiceManager.for_display().stop())
     except ServiceActionFailedError as exc:

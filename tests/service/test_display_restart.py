@@ -64,6 +64,8 @@ class TestDisplayRestartSuccess:
 
         assert "pid 501" in result
 
+        manager.restart.assert_called_once_with()
+
     def test_succeeds_on_fresh_install_none_to_pid(self) -> None:
         """On a first-ever install the display is not up when the supervisor
         call goes out; the moment a pid appears AND the socket accepts is the
