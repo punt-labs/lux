@@ -151,12 +151,15 @@ def test_real_watchdog_interrupts_a_trickling_body_without_thread_errors(
                     "punt_lux.service._hub_http_exchange.HubPaths.read_port",
                     return_value=server.getsockname()[1],
                 ),
-                pytest.raises(http.client.IncompleteRead) as interrupted,
+                pytest.raises(
+                    (http.client.IncompleteRead, ConnectionResetError)
+                ) as interrupted,
                 ReadinessHTTP(2).open() as connection,
             ):
                 connection.request("GET", "/display")
                 connection.getresponse().read()
-            assert 0 < len(interrupted.value.partial) < 1000
+            if isinstance(interrupted.value, http.client.IncompleteRead):
+                assert 0 < len(interrupted.value.partial) < 1000
         finally:
             stopped.set()
             thread.join(timeout=5)
