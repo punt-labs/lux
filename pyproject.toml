@@ -114,8 +114,8 @@ docs = [
 
 [project.scripts]
 lux = "punt_lux.__main__:_entry"
-luxd-hub = "punt_lux.luxd:main"
-luxd-display = "punt_lux.luxd_display:DisplayEntryPoint.main"
+luxd-hub = "punt_lux.hub.luxd:main"
+luxd-display = "punt_lux.display.luxd_display:DisplayEntryPoint.main"
 luxd-pty = "punt_lux.pty.__main__:PtyEntryPoint.main"
 lux-beads = "punt_lux.applets.beads.applet:app"
 
@@ -137,7 +137,7 @@ stateless-values = "any"
 [tool.oo-ratchet.coupling.caps]
 "src/punt_lux/operations/facade.py" = { efferent_coupling = 20 }
 "src/punt_lux/tools/subscribe_tools.py" = { efferent_coupling = 20 }
-"src/punt_lux/hub_composition.py" = { efferent_coupling = 20 }
+"src/punt_lux/hub/hub_composition.py" = { efferent_coupling = 20 }
 
 [tool.ruff]
 line-length = 88
@@ -193,7 +193,7 @@ ignore = [
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
-"src/punt_lux/runtime.py" = ["S102", "BLE001"]
+"src/punt_lux/kernel/runtime.py" = ["S102", "BLE001"]
 "src/punt_lux/service/config.py" = ["S607"]
 "src/punt_lux/service/hooks.py" = ["S607"]
 "src/punt_lux/display/render_loop.py" = ["PLC0415"]
@@ -207,7 +207,7 @@ ignore = [
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/cli/*.py" = ["T20", "FBT", "PLC0415"]
-"src/punt_lux/luxd.py" = ["PLC0415"]
+"src/punt_lux/hub/luxd.py" = ["PLC0415"]
 "src/punt_lux/applets/beads/browser.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 # FastAPI resolves the resolve_scope dependency's annotations at runtime to inject
@@ -216,7 +216,7 @@ ignore = [
 # Same reason for the /ws route: FastAPI reads the endpoint's `websocket: WebSocket`
 # hint at registration to know it is the socket rather than a query parameter, so
 # WebSocket is a runtime import here even though it appears only in an annotation.
-"src/punt_lux/ws_transport.py" = ["TC002"]
+"src/punt_lux/hub/ws_transport.py" = ["TC002"]
 "src/punt_lux/tools/__init__.py" = ["PLC0415"]
 # Element classes use `id` as a keyword/field name throughout the protocol —
 # it matches the wire format ({"kind":"text","id":...}), the spike, and 55+
@@ -363,11 +363,12 @@ entry = [
     "punt_lux.tools.*",
     "punt_lux.rest",
     "punt_lux.rest.*",
-    "punt_lux.luxd",
-    "punt_lux.luxd_display",
-    "punt_lux.hook_cli",
+    "punt_lux.hub.luxd",
+    "punt_lux.display.luxd_display",
+    "punt_lux.display.__main__",
+    "punt_lux.cli.hook_cli",
     "punt_lux.service.entry_runtime",
-    "punt_lux.hub_composition",
+    "punt_lux.hub.hub_composition",
     "punt_lux.pty.__main__",
     "punt_lux.pty.application",
     "punt_lux.pty.entry_runtime",
@@ -377,10 +378,11 @@ entry = [
     "punt_lux.hub.replicator_instance",
 ]
 adapters = [
+    "punt_lux.service.display_foreground",
     "punt_lux.service._backends",
-    "punt_lux.bounded_send",
+    "punt_lux.kernel.bounded_send",
     "punt_lux.client.cli_identity",
-    "punt_lux.log_level",
+    "punt_lux.kernel.log_level",
     "punt_lux.wire.model",
     "punt_lux.wire.model.connection",
     "punt_lux.wire.model.renderers",
@@ -410,31 +412,31 @@ adapters = [
     "punt_lux.client.scene",
     "punt_lux.client.session",
     "punt_lux.service.config",
-    "punt_lux.credentials",
+    "punt_lux.kernel.credentials",
     "punt_lux.service.doctor_checks",
     "punt_lux.client.hub_client",
     "punt_lux.kernel.hub_paths",
-    "punt_lux.logging_config",
-    "punt_lux.mcp_endpoint",
-    "punt_lux.mcp_session_manager",
-    "punt_lux.mcp_session_scope",
-    "punt_lux.mcp_transport",
+    "punt_lux.kernel.logging_config",
+    "punt_lux.hub.mcp_endpoint",
+    "punt_lux.hub.mcp_session_manager",
+    "punt_lux.hub.mcp_session_scope",
+    "punt_lux.hub.mcp_transport",
     "punt_lux.service.display_paths",
-    "punt_lux.proctitle",
-    "punt_lux.repo_root",
+    "punt_lux.kernel.proctitle",
+    "punt_lux.kernel.repo_root",
     "punt_lux.client.rest_error_body",
     "punt_lux.client.rest_http_call",
     "punt_lux.client.rest_loopback",
     "punt_lux.client.rest_reply",
     "punt_lux.client.rest_transport",
-    "punt_lux.send_timeout",
-    "punt_lux.socket_owner",
-    "punt_lux.socket_writer",
-    "punt_lux.tracing",
-    "punt_lux.transport_policy",
-    "punt_lux.usage",
-    "punt_lux.ws_listen",
-    "punt_lux.ws_transport",
+    "punt_lux.kernel.send_timeout",
+    "punt_lux.kernel.socket_owner",
+    "punt_lux.kernel.socket_writer",
+    "punt_lux.kernel.tracing",
+    "punt_lux.hub.transport_policy",
+    "punt_lux.kernel.usage",
+    "punt_lux.hub.ws_listen",
+    "punt_lux.hub.ws_transport",
     "punt_lux.display",
     "punt_lux.display.*",
     "punt_lux.trust",
@@ -488,12 +490,12 @@ application = [
     "punt_lux.cli.display_enablement",
     "punt_lux.service.display_restart",
     "punt_lux.service.hooks",
-    "punt_lux.hub_lifespan",
+    "punt_lux.hub.hub_lifespan",
     "punt_lux.service.hub_restart",
-    "punt_lux.mcp_session",
-    "punt_lux.runtime",
+    "punt_lux.hub.mcp_session",
+    "punt_lux.kernel.runtime",
     "punt_lux.service",
-    "punt_lux.session_cleanup",
+    "punt_lux.hub.session_cleanup",
     "punt_lux.service.session_start",
     "punt_lux.commands",
     "punt_lux.commands.*",
@@ -564,11 +566,11 @@ application = [
     "punt_lux.pty.control_dispatch",
     "punt_lux.pty.core",
     "punt_lux.pty.dispatch",
-    "punt_lux.pty.enablement",
+    "punt_lux.service.terminal_enablement",
     "punt_lux.pty.lifetime",
     "punt_lux.pty.menu_entry",
     "punt_lux.pty.process_retirement",
-    "punt_lux.pty.service",
+    "punt_lux.service.terminal_service",
     "punt_lux.pty.session",
     "punt_lux.pty.session_birth",
     "punt_lux.pty.session_lifecycle",
@@ -603,22 +605,23 @@ application = [
     "punt_lux.applets.unreadable_board",
 ]
 domain = [
-    "punt_lux.client_host",
+    "punt_lux.kernel.display_defaults",
+    "punt_lux.kernel.client_host",
     "punt_lux.service._doctor_result",
     "punt_lux.service._service_errors",
     "punt_lux.service.service_spec",
     "punt_lux.service.applet_event",
-    "punt_lux.connection_identity",
-    "punt_lux.connection_timing",
+    "punt_lux.kernel.connection_identity",
+    "punt_lux.kernel.connection_timing",
     "punt_lux.service.doctor_report",
     "punt_lux.wire.model.header_value",
     "punt_lux.wire.model.identity_headers",
     "punt_lux.service.permission_rules",
-    "punt_lux.polled_event",
-    "punt_lux.progress_clock",
-    "punt_lux.session_key",
-    "punt_lux.wire_queue",
-    "punt_lux.write_progress",
+    "punt_lux.kernel.polled_event",
+    "punt_lux.kernel.progress_clock",
+    "punt_lux.hub.session_key",
+    "punt_lux.kernel.wire_queue",
+    "punt_lux.kernel.write_progress",
     "punt_lux.kernel.connection_id",
     "punt_lux.kernel.programmer_error",
     "punt_lux.hub",

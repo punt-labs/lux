@@ -20,7 +20,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.bounded_send import TornStreamError
 from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
@@ -29,7 +28,8 @@ from punt_lux.hub.connection_closed import (
 from punt_lux.hub.dial_identity import DialIdentity
 from punt_lux.hub.dial_socket import DialSocket
 from punt_lux.hub.reply_sink import ReplySink
-from punt_lux.tracing import trace
+from punt_lux.kernel.bounded_send import TornStreamError
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model import PingMessage, encode_message
 
 if TYPE_CHECKING:

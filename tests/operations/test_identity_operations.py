@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayReply

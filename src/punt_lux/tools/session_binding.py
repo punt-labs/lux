@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, final
 if TYPE_CHECKING:
     from contextvars import Token
 
-    from punt_lux.client_host import ClientHost
+    from punt_lux.kernel.client_host import ClientHost
 
 __all__ = ["SessionBinding"]
 

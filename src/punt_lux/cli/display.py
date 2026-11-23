@@ -169,16 +169,15 @@ def serve(
     ),
 ) -> None:
     """Start the display server in the foreground."""
+    from punt_lux.service.display_foreground import DisplayForeground
+
     try:
-        from punt_lux.luxd_display import DisplayEntryPoint
+        DisplayForeground.serve(socket, test_auto_click=test_auto_click)
     except ModuleNotFoundError as exc:
-        _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
-        if exc.name and exc.name.split(".")[0] in _display_modules:
+        if exc.name and DisplayForeground.is_dependency(exc.name):
             typer.echo(
                 "Display extras not installed. Run: pip install 'punt-lux[display]'",
                 err=True,
             )
             raise typer.Exit(code=1) from None
         raise
-
-    DisplayEntryPoint.serve(socket, test_auto_click=test_auto_click)

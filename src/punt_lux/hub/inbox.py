@@ -19,7 +19,7 @@ from punt_lux.hub.hub_store_factory import hub_lifecycle
 from punt_lux.hub.inbox_queue import BoundedInbox
 
 if TYPE_CHECKING:
-    from punt_lux.client_host import ClientHost
+    from punt_lux.kernel.client_host import ClientHost
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.messages.observer import ObserverMessage
 

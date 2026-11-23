@@ -6,7 +6,7 @@ from typing import Self, final
 
 from punt_lux.applets.beads._beads_payload import BeadsPayloadBuilder
 from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult
-from punt_lux.repo_root import RepoRoot
+from punt_lux.kernel.repo_root import RepoRoot
 from punt_lux.wire.model import TextElement
 from punt_lux.wire.operations import FrameSpec, RenderRequest, RenderTableRequest
 

@@ -37,22 +37,22 @@ class TestLayerContract:
             ("punt_lux.cli.display_enablement", "cli"),
             ("punt_lux.service.display_mode_store", "service"),
             ("punt_lux.service.doctor_checks", "service"),
-            ("punt_lux.client_host", "kernel"),
-            ("punt_lux.credentials", "kernel"),
-            ("punt_lux.socket_writer", "kernel"),
-            ("punt_lux.wire_queue", "kernel"),
+            ("punt_lux.kernel.client_host", "kernel"),
+            ("punt_lux.kernel.credentials", "kernel"),
+            ("punt_lux.kernel.socket_writer", "kernel"),
+            ("punt_lux.kernel.wire_queue", "kernel"),
             ("punt_lux.client.connection", "client"),
             ("punt_lux.client.hub_client", "client"),
             ("punt_lux.client.rest_transport", "client"),
             ("punt_lux.client._rest_transport", "client"),
             ("punt_lux.wire.model.client_identity", "wire"),
             ("punt_lux.wire.model.applet_name_format", "wire"),
-            ("punt_lux.luxd_display", "display"),
+            ("punt_lux.display.luxd_display", "display"),
             ("punt_lux.__main__", "cli"),
             ("punt_lux.applets.beads.board", "applets"),
             ("punt_lux.trust.identity", "trust"),
             ("punt_lux.pty", "pty"),
-            ("punt_lux.pty.service", "pty"),
+            ("punt_lux.service.terminal_service", "service"),
             ("punt_lux.terminal", "terminal"),
             ("punt_lux.terminal.connection", "terminal"),
             ("punt_lux.terminal.snapshot", "terminal"),
@@ -62,13 +62,20 @@ class TestLayerContract:
             ("punt_lux.display.terminal.remote_pool", "display"),
             ("punt_lux.service._launchd_plist", "service"),
             ("punt_lux.service.entry_runtime", "service"),
-            ("punt_lux.hub_lifespan", "hub"),
-            ("punt_lux.mcp_session_manager", "hub"),
-            ("punt_lux.mcp_session_scope", "hub"),
-            ("punt_lux.logging_config", "kernel"),
-            ("punt_lux.usage", "kernel"),
+            ("punt_lux.service.terminal_service", "service"),
+            ("punt_lux.service.terminal_enablement", "service"),
+            ("punt_lux.service.display_foreground", "service"),
+            ("punt_lux.commands", "commands"),
+            ("punt_lux.commands.display_state_get", "commands"),
+            ("punt_lux.luxd", "unassigned"),
+            ("punt_lux.hook_cli", "unassigned"),
+            ("punt_lux.hub.hub_lifespan", "hub"),
+            ("punt_lux.hub.mcp_session_manager", "hub"),
+            ("punt_lux.hub.mcp_session_scope", "hub"),
+            ("punt_lux.kernel.logging_config", "kernel"),
+            ("punt_lux.kernel.usage", "kernel"),
             ("punt_lux.service.applet_event", "service"),
-            ("punt_lux.hook_cli", "cli"),
+            ("punt_lux.cli.hook_cli", "cli"),
             ("punt_lux.service.session_start", "service"),
             ("punt_lux.terminalish", "unassigned"),
             ("punt_lux.ptyish", "unassigned"),
@@ -89,6 +96,16 @@ class TestLayerContract:
             ("wire", "kernel", False),
             ("hub", "client", True),
             ("hub", "service", False),
+            ("hub", "commands", False),
+            ("cli", "commands", False),
+            ("commands", "kernel", False),
+            ("commands", "wire", False),
+            ("commands", "commands", False),
+            ("commands", "hub", True),
+            ("commands", "service", True),
+            ("commands", "client", True),
+            ("commands", "trust", True),
+            ("wire", "commands", True),
             ("cli", "applets", False),
             ("applets", "cli", True),
             ("client", "client", False),
@@ -140,18 +157,18 @@ class TestRuntimeImports:
         names = RuntimeImports("punt_lux.wire.model").collect(
             "from typing import TYPE_CHECKING as tc\nimport typing as t\n"
             f"if {guard}:\n    import punt_lux.cli\n"
-            "else:\n    from .. import tracing\n"
+            "else:\n    from ..kernel import tracing\n"
             "def deferred():\n    import punt_lux.client\n"
         )
         assert "punt_lux.cli" not in names
-        assert {"punt_lux.tracing", "punt_lux.client"} <= names
+        assert {"punt_lux.kernel.tracing", "punt_lux.client"} <= names
 
     def test_resolves_package_relative_imports(self) -> None:
         names = RuntimeImports("punt_lux.wire", is_package=True).collect(
-            "from . import model\nfrom ..tracing import trace\n"
+            "from . import model\nfrom ..kernel.tracing import trace\n"
         )
         assert "punt_lux.wire.model" in names
-        assert "punt_lux.tracing" in names
+        assert "punt_lux.kernel.tracing" in names
 
     def test_empty_source(self) -> None:
         assert RuntimeImports("punt_lux").collect("") == frozenset()
@@ -185,16 +202,17 @@ class TestLayerReport:
         package = tmp_path / "punt_lux"
         package.mkdir()
         (package / "__init__.py").write_text("import punt_lux.cli\n")
-        (package / "tracing.py").write_text(
+        (package / "kernel").mkdir()
+        (package / "kernel" / "tracing.py").write_text(
             "import punt_lux.cli\nimport punt_lux.cli\n"
             "from punt_lux.cli import function\n"
             "if TYPE_CHECKING:\n    import punt_lux.unknown\n"
         )
-        (package / "cli.py").write_text("import punt_lux.tracing\n")
+        (package / "cli.py").write_text("import punt_lux.kernel.tracing\n")
         (package / "unknown.py").write_text("import missing_dependency\n")
         report = LayerReport(tmp_path).render()
         assert "kernel → cli: 1" in report
-        assert "punt_lux.tracing → punt_lux.cli" in report
+        assert "punt_lux.kernel.tracing → punt_lux.cli" in report
         assert "Unassigned modules: 1 (not errors)\n  punt_lux.unknown" in report
         assert "Root entry: punt_lux (exempt)" in report
         assert "Totals: 4 modules, 3 runtime edges, 1 violations in 1 groups" in report
@@ -219,7 +237,8 @@ class TestLayerRatchet:
     def source(self, tmp_path: Path) -> Path:
         package = tmp_path / "src" / "punt_lux"
         package.mkdir(parents=True)
-        (package / "tracing.py").write_text("import punt_lux.cli\n")
+        (package / "kernel").mkdir()
+        (package / "kernel" / "tracing.py").write_text("import punt_lux.cli\n")
         (package / "cli.py").write_text("")
         return package.parent
 
@@ -231,13 +250,13 @@ class TestLayerRatchet:
         assert LayerRatchet(source, baseline).run() == 1
         output = capsys.readouterr().out
         assert "New layer violations: 1" in output
-        assert "punt_lux.tracing → punt_lux.cli" in output
+        assert "punt_lux.kernel.tracing → punt_lux.cli" in output
 
     def test_baseline_violation_passes(
         self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         baseline = tmp_path / "baseline.json"
-        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
+        baseline.write_text(json.dumps(["punt_lux.kernel.tracing → punt_lux.cli"]))
         assert LayerRatchet(source, baseline).run() == 0
         assert "Layer ratchet passed: 1 known violations" in capsys.readouterr().out
 
@@ -245,13 +264,13 @@ class TestLayerRatchet:
         self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         baseline = tmp_path / "baseline.json"
-        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
-        (source / "punt_lux" / "tracing.py").write_text("")
+        baseline.write_text(json.dumps(["punt_lux.kernel.tracing → punt_lux.cli"]))
+        (source / "punt_lux" / "kernel" / "tracing.py").write_text("")
         ratchet = LayerRatchet(source, baseline)
         assert ratchet.run() == 1
         output = capsys.readouterr().out
         assert "Stale layer baseline entries (removable): 1" in output
-        assert "punt_lux.tracing → punt_lux.cli" in output
+        assert "punt_lux.kernel.tracing → punt_lux.cli" in output
         assert "make update-layers" in output
         assert ratchet.run(update=True) == 0
         assert json.loads(baseline.read_text()) == []
@@ -272,7 +291,9 @@ class TestLayerRatchet:
         ratchet = LayerRatchet(source, baseline)
         assert ratchet.run() == 1
         assert ratchet.run(update=True) == 0
-        assert json.loads(baseline.read_text()) == ["punt_lux.tracing → punt_lux.cli"]
+        assert json.loads(baseline.read_text()) == [
+            "punt_lux.kernel.tracing → punt_lux.cli"
+        ]
         assert ratchet.run() == 0
 
     @pytest.mark.parametrize("raw", ["{", "{}", "[1]", "null"])
@@ -290,7 +311,7 @@ class TestLayerRatchet:
     ) -> None:
         baseline = tmp_path / "baseline.json"
         baseline.write_text("[]\n")
-        (source / "punt_lux" / "tracing.py").write_text("import ???")
+        (source / "punt_lux" / "kernel" / "tracing.py").write_text("import ???")
         ratchet = LayerRatchet(source, baseline)
         assert ratchet.run() == 1
         assert ratchet.run(update=True) == 1
@@ -316,7 +337,7 @@ class TestLayerRatchet:
         mode: str,
         explicit: bool,
     ) -> None:
-        edge = "punt_lux.tracing → punt_lux.cli"
+        edge = "punt_lux.kernel.tracing → punt_lux.cli"
         baseline = tmp_path / "baseline.json"
         git = shutil.which("git")
         assert git is not None
@@ -352,7 +373,7 @@ class TestLayerRatchet:
         )
         baseline.write_text(json.dumps([] if mode == "shrank" else [edge]))
         if mode == "shrank":
-            (source / "punt_lux" / "tracing.py").write_text("")
+            (source / "punt_lux" / "kernel" / "tracing.py").write_text("")
         if mode == "deleted":
             baseline.unlink()
         result = LayerRatchet(source, baseline).run(
@@ -372,6 +393,6 @@ class TestLayerRatchet:
         self, source: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         baseline = tmp_path / "baseline.json"
-        baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.cli"]))
+        baseline.write_text(json.dumps(["punt_lux.kernel.tracing → punt_lux.cli"]))
         assert LayerRatchet(source, baseline).run(base_ref="missing-ref") == 1
         assert "Layer ratchet FAILED" in capsys.readouterr().out

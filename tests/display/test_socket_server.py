@@ -508,7 +508,9 @@ class TestSendClientLifecycle:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A few EAGAINs then a drain delivers the message and keeps the client."""
-        monkeypatch.setattr("punt_lux.bounded_send.select.select", _always_writable)
+        monkeypatch.setattr(
+            "punt_lux.kernel.bounded_send.select.select", _always_writable
+        )
         server, sender = _make_server_and_sender()
         client = _FakeClient(fd=4321, eagain_before=3)
         sock = _inject_client(server, client)
@@ -541,7 +543,9 @@ class TestSendClientLifecycle:
         is the original defect. The send reports non-delivery so the caller can
         re-hold, and the connection survives for the next frame or a keepalive.
         """
-        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        monkeypatch.setattr(
+            "punt_lux.kernel.bounded_send.select.select", _never_writable
+        )
         server, sender = _make_server_and_sender()
         client = _FakeClient(fd=4323, eagain_before=1_000_000)
         sock = _inject_client(server, client)
@@ -559,7 +563,7 @@ class TestSendClientLifecycle:
         connection unusable -- reusing it would interleave the next frame -- so it
         is severed like a dead peer and never reused.
         """
-        from punt_lux.bounded_send import TornStreamError
+        from punt_lux.kernel.bounded_send import TornStreamError
 
         server, sender = _make_server_and_sender()
         client = _FakeClient(fd=4324, fail_with=TornStreamError("stream torn"))
@@ -595,7 +599,7 @@ class TestFrameDeadline:
             wait_calls.append((time.monotonic(), t))
             return ([], [], [])  # never writable
 
-        monkeypatch.setattr("punt_lux.bounded_send.select.select", _record_wait)
+        monkeypatch.setattr("punt_lux.kernel.bounded_send.select.select", _record_wait)
         server, sender = _make_server_and_sender()
         client = _FakeClient(fd=5001, eagain_before=1_000_000)
         sock = _inject_client(server, client)
@@ -1146,7 +1150,9 @@ class TestAReplyHasOneDoor:
     def test_a_reply_that_missed_its_deadline_severs_the_client(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        monkeypatch.setattr(
+            "punt_lux.kernel.bounded_send.select.select", _never_writable
+        )
         server, sender = _make_server_and_sender()
         client = _FakeClient(fd=7003, eagain_before=1_000_000)
         sock = _inject_client(server, client)

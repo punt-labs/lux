@@ -17,11 +17,11 @@ from typing import final
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub_display import UnknownElementError
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.hub.write_result import WriteAccepted, WriteRejected
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId

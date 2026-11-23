@@ -49,7 +49,7 @@ def test_sweep_removes_an_owned_shim_under_the_real_uv_tool_dir(
     real_punt_lux_bin = Path(real_tool_dir) / "punt-lux" / "bin"
     real_punt_lux_bin.mkdir(parents=True, exist_ok=True)
     shim = real_punt_lux_bin / _SCRATCH_NAME
-    shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.luxd import main\n")
+    shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.hub.luxd import main\n")
     shim.chmod(0o755)
     link = bin_dir / _SCRATCH_NAME
     link.symlink_to(shim)

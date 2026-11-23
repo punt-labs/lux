@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
-from punt_lux.bounded_send import TornStreamError
 from punt_lux.hub.backoff_config import BackoffConfig
 from punt_lux.hub.batch_sender import BatchSendError
 from punt_lux.hub.connection_closed import HubRetiredError
@@ -34,6 +33,7 @@ from punt_lux.hub.dirty_signal import DrainedBatch
 from punt_lux.hub.quarantine_record import QuarantineRecord
 from punt_lux.hub.recovery import SendRecovery
 from punt_lux.hub.respawn_backoff import RespawnBackoff
+from punt_lux.kernel.bounded_send import TornStreamError
 from punt_lux.wire.model.ids import SceneId
 from tests.dial_double import fake_dial
 

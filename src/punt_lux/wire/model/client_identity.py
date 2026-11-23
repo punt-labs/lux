@@ -27,7 +27,7 @@ from pydantic import (
     model_validator,
 )
 
-from punt_lux.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.wire.model.applet_name_format import APPLET_NAME_RE
 
 if TYPE_CHECKING:
@@ -111,7 +111,7 @@ class ClientIdentity(BaseModel):
     def _reject_nul(cls, value: str | None) -> str | None:
         """Reject a NUL in any field, wherever the declaration came from.
 
-        :func:`~punt_lux.connection_identity.connection_for` joins these fields
+        :func:`~punt_lux.kernel.connection_identity.connection_for` joins these fields
         on a NUL to derive a connection id; a field carrying one breaks that
         join's distinctness guarantee, so every source is caught here.
         """

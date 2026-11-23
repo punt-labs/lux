@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.client_host import NO_HOSTS, ClientHost
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.menu_listing import MenuListing
+from punt_lux.kernel.client_host import NO_HOSTS, ClientHost
 
 if TYPE_CHECKING:
     from punt_lux.hub.callback_ports import CallbackListener

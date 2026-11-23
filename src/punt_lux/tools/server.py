@@ -2,7 +2,7 @@
 
 The ``mcp`` FastMCP instance is the tool registry; ``_session_key`` carries the
 calling session's identity so each tool resolves its Hub scope. luxd's transport
-leg (:mod:`punt_lux.mcp_transport`) binds the initialized session's key for
+leg (:mod:`punt_lux.hub.mcp_transport`) binds the initialized session's key for
 each call; absent that binding it stays at the default.
 """
 
@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 
-from punt_lux.client_host import UNOBSERVED
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.tools.session_binding import SessionBinding
 
 if TYPE_CHECKING:
-    from punt_lux.client_host import ClientHost
+    from punt_lux.kernel.client_host import ClientHost
 
 logger = logging.getLogger(__name__)
 

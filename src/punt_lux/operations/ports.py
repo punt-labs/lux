@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from punt_lux.client_host import ClientHost
+from punt_lux.kernel.client_host import ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element_factory import JsonElementFactory
 from punt_lux.wire.model.messages.observer import ObserverMessage

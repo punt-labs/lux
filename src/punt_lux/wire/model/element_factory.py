@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self, cast
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.elements.abc_kind_spec import TierBinding
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 

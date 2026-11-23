@@ -59,7 +59,7 @@ class ReadyFrame(BaseModel):
 
     The client reads it back to confirm the identity it declared resolved to the
     connection its REST-registered callbacks are held under — the two legs' shared
-    key (see :func:`punt_lux.connection_identity.connection_for`).
+    key (see :func:`punt_lux.kernel.connection_identity.connection_for`).
     """
 
     model_config = ConfigDict(frozen=True)

@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, cast
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.container_interaction import HeaderToggled
 from punt_lux.wire.model.elements.container_dispatch import dispatch
 from punt_lux.wire.model.elements.element_wire import ElementWireContext

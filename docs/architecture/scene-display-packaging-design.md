@@ -309,7 +309,7 @@ Not in scope, but named so nobody has to rediscover them:
 - `display/server.py` is 1,082 lines against a 300-line target. Renaming it does
   not fix that.
 - `runtime.py` (`CodeExecutor`, `RenderContext`) has no production importer at
-  all — only `tests/test_runtime.py`. That is an orphan module under PL-MD-5 and
+  all — only `tests/kernel/test_runtime.py`. That is an orphan module under PL-MD-5 and
   wants a bead, not a slot in this design.
 
 ## 7. Open questions — decisions needed before implementation

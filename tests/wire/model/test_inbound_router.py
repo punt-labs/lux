@@ -14,7 +14,7 @@ from punt_lux.hub.dial_generation import DialEnds, DialGeneration
 from punt_lux.hub.handshake_outcome import HandshakeResult
 from punt_lux.hub.inbound_router import InboundRouter
 from punt_lux.hub.interaction_handlers import InteractionHandlers
-from punt_lux.polled_event import PolledEvent
+from punt_lux.kernel.polled_event import PolledEvent
 from punt_lux.wire.model import (
     AckMessage,
     HubManifestMessage,

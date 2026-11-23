@@ -22,7 +22,7 @@ this design reuses its shape and where it diverges.
 ```toml
 [project.scripts]
 lux = "punt_lux.__main__:app"
-luxd = "punt_lux.luxd:main"
+luxd = "punt_lux.hub.luxd:main"
 lux-beads = "punt_lux.applets.beads:app"
 ```
 
@@ -57,7 +57,7 @@ $ head -c 200 ~/.local/share/uv/tools/punt-lux/bin/luxd
 #!~/.local/share/uv/tools/punt-lux/bin/python3
 # -*- coding: utf-8 -*-
 import sys
-from punt_lux.luxd import main
+from punt_lux.hub.luxd import main
 ...
 
 $ cat ~/.local/share/uv/tools/punt-lux/uv-receipt.toml
@@ -83,7 +83,7 @@ Three facts this design relies on, all verified above rather than assumed:
 2. **The target under `.../tools/punt-lux/bin/` is itself a regular file**
    — a small generated Python launcher with a shebang pointing at the
    tool's private venv interpreter and a hardcoded `from
-   punt_lux.luxd import main`.
+   punt_lux.hub.luxd import main`.
 3. **`uv tool dir` is the authoritative source for the tools root**, not a
    hardcoded `~/.local/share/uv/tools` path literal — it respects
    `UV_TOOL_DIR` overrides and any future default change. §2.4 uses this
@@ -99,7 +99,7 @@ of `luxd` — but it has no reason to touch a file it no longer manages
 under the old name. `~/.local/bin/luxd` is not removed. It keeps pointing
 at `~/.local/share/uv/tools/punt-lux/bin/luxd`, a file whose *contents*
 (the shebang, the `import` line) belong to whatever version of
-`punt_lux.luxd:main` was last installed — potentially the fixed, renamed
+`punt_lux.hub.luxd:main` was last installed — potentially the fixed, renamed
 version, since the underlying venv is shared and reinstalled in place, but
 addressable only under a name (`luxd`) that documentation, muscle memory,
 and this design's own `HUB_SPEC.legacy_binary_names` (§3) will no longer
@@ -703,7 +703,7 @@ New `tests/service/test_binary_sweep.py`, structured after
       tool_root = tmp_path / "uv-tools" / "punt-lux" / "bin"
       tool_root.mkdir(parents=True)
       shim = tool_root / name
-      shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.luxd import main\n")
+      shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.hub.luxd import main\n")
       shim.chmod(0o755)
       link = bin_dir / name
       link.symlink_to(shim)

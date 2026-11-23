@@ -19,10 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub import hub, hub_display
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.inbox import drain_inbox, ensure_writer, next_event
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.container_interaction import (
     HeaderToggled,

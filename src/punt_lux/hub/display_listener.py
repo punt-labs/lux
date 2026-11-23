@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.connection_closed import RetireCause
     from punt_lux.hub.dial_generation import DialGeneration
     from punt_lux.hub.display_connection import DisplayConnection
-    from punt_lux.polled_event import PolledEvent
+    from punt_lux.kernel.polled_event import PolledEvent
     from punt_lux.wire.model import Message, RemoteEventHandlerInvocation
 
 __all__ = ["DisplayListener"]

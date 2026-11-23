@@ -17,13 +17,13 @@ import textwrap
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.hub.field_gate import FieldGate
 from punt_lux.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.hub.write_result import WriteRejected
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import Tab, TabBarElement, TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId

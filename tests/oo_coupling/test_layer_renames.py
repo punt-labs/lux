@@ -58,7 +58,7 @@ def test_git_rename_preserves_baseline_but_rejects_new_edges(
     old = package / "old.py"
     old.write_text("VALUE = 42\n")
     baseline = tmp_path / "baseline.json"
-    baseline.write_text(json.dumps(["punt_lux.tracing → punt_lux.old"]))
+    baseline.write_text(json.dumps(["punt_lux.kernel.tracing → punt_lux.old"]))
     git = shutil.which("git")
     assert git is not None
     subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
@@ -88,8 +88,8 @@ def test_git_rename_preserves_baseline_but_rejects_new_edges(
     subprocess.run([git, "add", "src"], cwd=tmp_path, check=True)
     store = LayerBaseline(baseline)
     base_ref = "HEAD" if explicit else ""
-    expected = frozenset({"punt_lux.tracing → punt_lux.new"})
+    expected = frozenset({"punt_lux.kernel.tracing → punt_lux.new"})
     assert store.read(base_ref) == expected
     store.check(expected, base_ref)
     with pytest.raises(ValueError, match="1 added edges"):
-        store.check(expected | {"punt_lux.tracing → punt_lux.cli"}, base_ref)
+        store.check(expected | {"punt_lux.kernel.tracing → punt_lux.cli"}, base_ref)

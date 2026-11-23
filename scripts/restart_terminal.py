@@ -7,10 +7,10 @@ import sys
 import time
 from pathlib import Path
 
-from punt_lux.logging_config import configure_logging
-from punt_lux.pty.service import TerminalService
+from punt_lux.kernel.logging_config import configure_logging
+from punt_lux.kernel.socket_owner import SocketOwner
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
-from punt_lux.socket_owner import SocketOwner
+from punt_lux.service.terminal_service import TerminalService
 
 logger = logging.getLogger(__name__)
 _WAIT_SECONDS = 30.0

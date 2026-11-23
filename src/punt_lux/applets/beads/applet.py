@@ -27,7 +27,7 @@ from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.leg import AppletLeg
 from punt_lux.applets.program import AppletProgram
 from punt_lux.applets.watch import NoSession, SessionWatch
-from punt_lux.logging_config import process_diagnostics
+from punt_lux.kernel.logging_config import process_diagnostics
 
 logger = logging.getLogger(__name__)
 

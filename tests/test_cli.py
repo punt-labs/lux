@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -144,7 +143,7 @@ class TestPing:
         # route omits the param and luxd uses its standing budget — yet the HTTP
         # bound still sits a fixed margin above that budget so it never trips first.
         from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
-        from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT
+        from punt_lux.kernel.display_defaults import DEFAULT_RECV_TIMEOUT
         from punt_lux.wire.operations import Pong
 
         captured: dict[str, object] = {}
@@ -193,41 +192,40 @@ class TestPing:
 
 class TestDisplay:
     def test_display_calls_server(self) -> None:
-        """display serve constructs RenderLoop and calls run()."""
-        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
+        """display serve delegates process ownership to service."""
+        with patch(
+            "punt_lux.service.display_foreground.DisplayForeground.serve"
+        ) as serve:
             result = runner.invoke(app, ["display", "serve"])
             assert result.exit_code == 0
-            mock_cls.assert_called_once_with(None, test_auto_click=False)
-            mock_cls.return_value.run.assert_called_once()
+            serve.assert_called_once_with(None, test_auto_click=False)
 
     def test_display_with_socket(self) -> None:
-        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
+        with patch(
+            "punt_lux.service.display_foreground.DisplayForeground.serve"
+        ) as serve:
             result = runner.invoke(
                 app, ["display", "serve", "--socket", "/tmp/test.sock"]
             )
             assert result.exit_code == 0
-            mock_cls.assert_called_once_with("/tmp/test.sock", test_auto_click=False)
+            serve.assert_called_once_with("/tmp/test.sock", test_auto_click=False)
 
     def test_display_with_test_auto_click(self) -> None:
-        with patch("punt_lux.luxd_display.RenderLoop") as mock_cls:
+        with patch(
+            "punt_lux.service.display_foreground.DisplayForeground.serve"
+        ) as serve:
             result = runner.invoke(app, ["display", "serve", "--test-auto-click"])
             assert result.exit_code == 0
-            mock_cls.assert_called_once_with(None, test_auto_click=True)
+            serve.assert_called_once_with(None, test_auto_click=True)
 
 
 class TestDisplayMissingExtras:
     def test_display_missing_display_extra(self) -> None:
         """lux display serve exits 1 with helpful message when display deps missing."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "punt_lux.luxd_display":
-                raise ModuleNotFoundError(name="imgui_bundle")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=fake_import):
+        with patch(
+            "punt_lux.service.display_foreground.DisplayForeground.serve",
+            side_effect=ModuleNotFoundError(name="imgui_bundle"),
+        ):
             result = runner.invoke(app, ["display", "serve"])
 
         assert result.exit_code == 1
@@ -235,16 +233,10 @@ class TestDisplayMissingExtras:
 
     def test_display_reraises_unrelated_import_error(self) -> None:
         """lux display serve re-raises ModuleNotFoundError for non-display modules."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
-            if name == "punt_lux.luxd_display":
-                raise ModuleNotFoundError(name="some_unrelated_package")
-            return real_import(name, *args, **kwargs)
-
-        with patch("builtins.__import__", side_effect=fake_import):
+        with patch(
+            "punt_lux.service.display_foreground.DisplayForeground.serve",
+            side_effect=ModuleNotFoundError(name="some_unrelated_package"),
+        ):
             result = runner.invoke(app, ["display", "serve"])
 
         # Typer catches the unhandled exception — exit code 1 but no

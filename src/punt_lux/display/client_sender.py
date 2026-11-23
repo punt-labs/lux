@@ -18,7 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.bounded_send import BoundedSend
+from punt_lux.kernel.bounded_send import BoundedSend
 from punt_lux.wire.model import AckMessage, encode_message
 
 if TYPE_CHECKING:

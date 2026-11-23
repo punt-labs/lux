@@ -22,23 +22,17 @@ class LayerContract:
     """Classify current modules against the planned package dependency graph."""
 
     _prefixes: ClassVar[dict[str, str]] = {
-        "kernel": "kernel tracing bounded_send send_timeout write_progress "
-        "progress_clock polled_event connection_timing socket_owner client_host "
-        "connection_identity "
-        "paths log_level proctitle repo_root runtime logging_config usage "
-        "credentials socket_writer wire_queue",
+        "kernel": "kernel",
         "wire": "wire protocol",
         "trust": "trust",
         "service": "service",
         "client": "client",
-        "hub": "hub operations commands tools rest luxd mcp_transport "
-        "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
-        "transport_policy hub_composition hub_lifespan mcp_session_manager "
-        "mcp_session_scope",
-        "display": "display luxd_display",
+        "commands": "commands",
+        "hub": "hub operations tools rest",
+        "display": "display",
         "terminal": "terminal",
         "pty": "pty",
-        "cli": "cli __main__ hook_cli",
+        "cli": "cli __main__",
         "applets": "applets",
     }
     _allowed: ClassVar[dict[str, set[str]]] = {
@@ -47,11 +41,12 @@ class LayerContract:
         "trust": {"kernel"},
         "service": {"kernel", "wire", "trust"},
         "client": {"kernel", "wire", "trust"},
-        "hub": {"kernel", "wire", "trust", "service"},
+        "commands": {"kernel", "wire"},
+        "hub": {"kernel", "wire", "trust", "service", "commands"},
         "display": {"kernel", "wire", "trust", "service", "terminal"},
         "terminal": {"kernel", "wire"},
         "pty": {"kernel", "wire", "trust", "service", "client", "terminal"},
-        "cli": {"kernel", "wire", "trust", "service", "client", "applets"},
+        "cli": {"kernel", "wire", "trust", "service", "client", "applets", "commands"},
         "applets": {"kernel", "wire", "trust", "service", "client"},
     }
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
@@ -21,6 +23,29 @@ from punt_lux.wire.operations.display_link import (
 )
 
 runner = CliRunner()
+
+
+@pytest.mark.parametrize(
+    "missing", ["OpenGL.GL", "PIL.Image", "numpy._core", "imgui_bundle._imgui_bundle"]
+)
+def test_partial_display_extra_retains_install_guidance(missing: str) -> None:
+    original_import = importlib.import_module
+
+    def load(name: str, package: str | None = None) -> object:
+        if name.split(".")[0] == missing.split(".")[0]:
+            raise ModuleNotFoundError(f"No module named '{missing}'", name=missing)
+        return original_import(name, package)
+
+    with (
+        patch("importlib.import_module", side_effect=load),
+        patch("punt_lux.service.display_foreground.os.execv") as execute,
+    ):
+        result = runner.invoke(app, ["display", "serve"])
+    assert result.exit_code == 1
+    assert "Display extras not installed" in result.output
+    assert "pip install 'punt-lux[display]'" in result.output
+    assert "Traceback" not in result.output
+    execute.assert_not_called()
 
 
 class _DisplayClient:

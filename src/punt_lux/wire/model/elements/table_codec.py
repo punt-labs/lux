@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.wire.model.elements.element_wire import ElementWireContext
 from punt_lux.wire.model.elements.selection_wire import SelectionWire

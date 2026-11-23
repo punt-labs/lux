@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.display.evicted_compensation import CompensationTable
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

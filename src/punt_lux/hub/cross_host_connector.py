@@ -26,7 +26,7 @@ from punt_lux.hub.handshake_outcome import (
     DisplayNotConnectedError,
     HandshakeResult,
 )
-from punt_lux.send_timeout import set_send_timeout
+from punt_lux.kernel.send_timeout import set_send_timeout
 
 __all__ = ["CrossHostConnector"]
 

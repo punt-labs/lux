@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.service._hub_http_exchange import ReadinessHTTP
+from punt_lux.service._readiness_http import ProbeDeadline
 
 
 @pytest.mark.parametrize("close", [False, True])
@@ -119,6 +120,14 @@ def test_real_watchdog_interrupts_a_trickling_body_without_thread_errors(
 ) -> None:
     errors: list[threading.ExceptHookArgs] = []
     monkeypatch.setattr(threading, "excepthook", errors.append)
+    expired = threading.Event()
+    expire = ProbeDeadline._expire
+
+    def record_expiration(sock: socket.socket) -> None:
+        expire(sock)
+        expired.set()
+
+    monkeypatch.setattr(ProbeDeadline, "_expire", staticmethod(record_expiration))
     stopped = threading.Event()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))
@@ -151,12 +160,17 @@ def test_real_watchdog_interrupts_a_trickling_body_without_thread_errors(
                     "punt_lux.service._hub_http_exchange.HubPaths.read_port",
                     return_value=server.getsockname()[1],
                 ),
-                pytest.raises(http.client.IncompleteRead) as interrupted,
                 ReadinessHTTP(2).open() as connection,
             ):
                 connection.request("GET", "/display")
-                connection.getresponse().read()
-            assert 0 < len(interrupted.value.partial) < 1000
+                response = connection.getresponse()
+                with pytest.raises(
+                    (http.client.IncompleteRead, ConnectionResetError)
+                ) as interrupted:
+                    response.read()
+            if isinstance(interrupted.value, http.client.IncompleteRead):
+                assert 0 < len(interrupted.value.partial) < 1000
+            assert expired.is_set()
         finally:
             stopped.set()
             thread.join(timeout=5)

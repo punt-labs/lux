@@ -23,7 +23,7 @@ from punt_lux.hub.connection_closed import ConnectionClosedError
 from punt_lux.hub.dial_writer import DialWriter
 from punt_lux.hub.drain_result import CutShort, Drained, DrainIncompleteError
 from punt_lux.hub.socket_line import SocketLine
-from punt_lux.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
+from punt_lux.kernel.send_timeout import SEND_TIMEOUT_CEILING_SECONDS
 from punt_lux.wire.model import FrameReader
 from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 

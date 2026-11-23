@@ -25,7 +25,7 @@ from punt_lux.hub.handshake_outcome import (
     HandshakeResult,
 )
 from punt_lux.hub.ready_handshake import ReadyHandshake
-from punt_lux.send_timeout import set_send_timeout
+from punt_lux.kernel.send_timeout import set_send_timeout
 from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.wire.model import ConnectMessage, send_message
 from punt_lux.wire.model.hub_id import HubId

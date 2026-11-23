@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.elements._util import strip_none
 from punt_lux.wire.model.elements.element_wire import ElementWireContext
 from punt_lux.wire.model.elements.value_change_handlers import ApplyPatchOnChange

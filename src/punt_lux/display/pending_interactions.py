@@ -22,8 +22,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.connection_timing import CONNECTION_TIMING
 from punt_lux.display.evictions import Evictions
+from punt_lux.kernel.connection_timing import CONNECTION_TIMING
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable

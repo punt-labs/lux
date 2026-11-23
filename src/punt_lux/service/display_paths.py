@@ -19,7 +19,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Self
 
-from punt_lux.socket_owner import SocketOwner
+from punt_lux.kernel.socket_owner import SocketOwner
 from punt_lux.wire.model import ReadyMessage, recv_message
 from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
 

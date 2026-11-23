@@ -13,12 +13,12 @@ from __future__ import annotations
 import threading
 from typing import Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_listing import MenuListing
 from punt_lux.hub.menu_presence import MarkMenusSink
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import SceneId

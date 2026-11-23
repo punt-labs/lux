@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast, get_args
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.scope import Provenance, Scope
 

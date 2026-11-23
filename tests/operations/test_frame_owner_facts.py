@@ -7,12 +7,12 @@ record of a connection always agree.
 
 from __future__ import annotations
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts

@@ -37,7 +37,7 @@ class TestLazyHubIdentity:
                     "from unittest.mock import patch\n"
                     "with patch('socket.getfqdn', "
                     "side_effect=AssertionError('DNS')) as dns:\n"
-                    " import punt_lux.luxd\n"
+                    " import punt_lux.hub.luxd\n"
                     " from punt_lux.hub.replicator_instance "
                     "import hub_replicator\n"
                     " assert hub_replicator is not None\n"

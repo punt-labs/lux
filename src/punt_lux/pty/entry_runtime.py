@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, Self, final
 
-from punt_lux.logging_config import failure_details, process_diagnostics
+from punt_lux.kernel.logging_config import failure_details, process_diagnostics
 from punt_lux.terminal.process_session import ProcessSession
 
 if TYPE_CHECKING:

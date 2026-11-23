@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub import hub
 from punt_lux.hub.hub_factory import HubPublishSink, hub_element_factory
 from punt_lux.hub.inbox import drain_inbox, ensure_writer
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element_factory import JsonElementFactory
 from punt_lux.wire.model.handlers.publish_sink import PublishSink

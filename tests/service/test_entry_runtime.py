@@ -20,7 +20,7 @@ def test_daemon_runtime_records_failure_and_flushes_usage(tmp_path: Path) -> Non
             "-c",
             (
                 "from punt_lux.service.entry_runtime import DaemonRuntime\n"
-                "from punt_lux.usage import record_first_paint\n"
+                "from punt_lux.kernel.usage import record_first_paint\n"
                 "with DaemonRuntime('test-daemon').run():\n"
                 "    record_first_paint(100)\n"
                 "    raise RuntimeError('private startup error')\n"

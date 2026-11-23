@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.tools.server import bind_session, current_client_host, unbind_session
 from punt_lux.tools.session_binding import SessionBinding
 

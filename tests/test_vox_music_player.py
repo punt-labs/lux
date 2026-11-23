@@ -32,14 +32,15 @@ from typing import Self, final
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from punt_lux.client_host import UNOBSERVED
-from punt_lux.connection_identity import connection_for
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.ws_transport import HubListenTransport
+from punt_lux.kernel.client_host import UNOBSERVED
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.element_factory import JsonElementFactory
 from punt_lux.wire.model.elements.button import ButtonElement
@@ -48,7 +49,6 @@ from punt_lux.wire.model.interaction import ButtonClicked
 from punt_lux.wire.model.menu_models import Menu, MenuAction
 from punt_lux.wire.model.renderers.raising import RaisingRendererFactory
 from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
-from punt_lux.ws_transport import HubListenTransport
 
 # voxd's identity and the connection id both legs share — the WebSocket handshake
 # declares the same X-Lux-Client-* headers REST uses, so the callback registered

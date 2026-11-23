@@ -45,7 +45,7 @@ its dirty signal, and the store lock are covered by
 `tests/wire/model/test_store_lock.py`; the two store-empty clear partitions (CL1,
 CL2) are covered by the clear tool's tests in `tests/test_tools.py`, and the real
 bounded-send time limit behind P3/P4 is measured by the mandatory `SO_SNDTIMEO`
-probe test in `tests/test_send_timeout.py`. The menu leg (MN1–MN12) is exercised
+probe test in `tests/kernel/test_send_timeout.py`. The menu leg (MN1–MN12) is exercised
 against a fake sender and a real `HubMenuRegistry`: the signal-level partitions
 (MN1–MN3, MN5) by `tests/wire/model/test_dirty_signal.py`, the send and
 failure-recovery partitions (MN4, MN6–MN11) by

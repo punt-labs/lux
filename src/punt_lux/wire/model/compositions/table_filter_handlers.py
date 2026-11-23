@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.wire.model.compositions.filtered_table_model import FilteredTableModel

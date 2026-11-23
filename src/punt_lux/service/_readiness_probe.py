@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.socket_owner import SocketOwner
+from punt_lux.kernel.socket_owner import SocketOwner
 
 if TYPE_CHECKING:
     from punt_lux.service.display_paths import DisplayPaths

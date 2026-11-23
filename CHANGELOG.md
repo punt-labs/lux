@@ -57,6 +57,18 @@
 
 ### Changed
 
+- **Breaking imports:** move all 34 top-level implementation modules into
+  `punt_lux.kernel`, `punt_lux.hub`, `punt_lux.display` or `punt_lux.cli`,
+  retaining filenames without aliases. Only the root `__init__` and `__main__`
+  remain. Hub/Display console entry points use their new package locations;
+  hook callers use `punt_lux.cli.hook_cli`. Terminal lifecycle moves from
+  `pty.service`/`pty.enablement` to `service.terminal_service` and
+  `service.terminal_enablement`. The shared display timeout lives in
+  `kernel.display_defaults`. Foreground display launch execs the package
+  executable in the same Python environment, retaining PID and terminal.
+  Commands form a kernel/wire-only layer shared by Hub and CLI, with unchanged
+  MCP/CLI formatting. No pickle payload or Ready version change is required.
+
 - Prepare reusable client and service packages: move operation contracts to
   `punt_lux.wire.operations`, operation ports to `punt_lux.wire.ops`, and shared
   identity headers and menu/presentation values to `punt_lux.wire.model`.

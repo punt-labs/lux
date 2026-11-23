@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_presence import MarkMenusSink
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.callbacks import CallbackOperations
 from punt_lux.wire.model.client_identity import ClientIdentity

@@ -1,0 +1,8 @@
+[
+  {
+    "file": "src/punt_lux/service/display_foreground.py",
+    "ceiling": 1,
+    "justify": "User-approved step 9a: one S606 exception on os.execv(sys.executable, args). The interpreter is fixed, module punt_lux.display is literal, all user options are argv values, and no shell is used; exec preserves foreground PID, terminal and exit status.",
+    "added_at": "2026-11-23T18:12:29.796544Z"
+  }
+]
