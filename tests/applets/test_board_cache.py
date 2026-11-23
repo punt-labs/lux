@@ -22,6 +22,8 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.applet_board import AppletBoard
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsRows
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.board_work import BoardWork
@@ -29,8 +31,6 @@ from punt_lux.applets.held_board import HeldBoard
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.no_board import NoBoard
 from punt_lux.applets.unreadable_board import UnreadableBoard
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsFailure, BeadsRows
 
 from .board_doubles import ISSUE, Journal, RecordingClient, Source, ThenFails
 

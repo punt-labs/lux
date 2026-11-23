@@ -21,10 +21,10 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.applets.beads.bd_child import BdLeash
 from punt_lux.applets.board_ops import ScopedBoardOps
 from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
-from punt_lux.apps.bd_child import BdLeash
 from punt_lux.client.facade import LuxClient
 from punt_lux.kernel.programmer_error import ProgrammerError
 

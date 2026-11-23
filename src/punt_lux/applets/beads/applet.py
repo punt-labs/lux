@@ -21,7 +21,7 @@ from typing import Self, final
 
 import typer
 
-from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.beads.beads_service import BeadsService
 from punt_lux.applets.claim import NoClaim, SessionClaim
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.leg import AppletLeg

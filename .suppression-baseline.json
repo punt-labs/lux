@@ -14,10 +14,10 @@
       "pyright_ignore": 2,
       "per_file_ignores": 3
     },
-    "src/punt_lux/apps/_beads_payload.py": {
+    "src/punt_lux/applets/beads/_beads_payload.py": {
       "type_ignore": 1
     },
-    "src/punt_lux/apps/bd_child.py": {
+    "src/punt_lux/applets/beads/bd_child.py": {
       "noqa": 1
     },
     "src/punt_lux/cli/hub.py": {
@@ -267,7 +267,7 @@
     "src/punt_lux/cli/*.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/apps/beads.py": {
+    "src/punt_lux/applets/beads/browser.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/tools/server.py": {

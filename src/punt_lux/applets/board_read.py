@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.built_board import BuiltBoard
 
 if TYPE_CHECKING:
+    from punt_lux.applets.beads.beads_load import BeadsLoad
+    from punt_lux.applets.beads.beads_result import BeadsResult
     from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_order import BoardOrder
-    from punt_lux.apps.beads_load import BeadsLoad
-    from punt_lux.apps.beads_result import BeadsResult
 
 __all__ = ["BoardRead"]
 

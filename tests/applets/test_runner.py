@@ -15,16 +15,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.applets.applet_board import AppletBoard
-from punt_lux.applets.beads_service import BeadsService
+from punt_lux.applets.beads.bd_command import BdOutput, BdRun, BoardScope
+from punt_lux.applets.beads.bd_exit import BdCancelledError
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_service import BeadsService
+from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.runner import ServiceRunner
-from punt_lux.apps.bd_command import BdOutput, BdRun, BoardScope
-from punt_lux.apps.bd_exit import BdCancelledError
-from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.apps.beads_board import BeadsBoard
 
 from .board_doubles import RecordingClient
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from punt_lux.apps.beads_load import BeadsLoad
+    from punt_lux.applets.beads.beads_load import BeadsLoad
 
 __all__ = ["BeadsSource", "BoardUnavailableError"]
 

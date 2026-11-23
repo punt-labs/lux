@@ -29,7 +29,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.apps.bd_exit import BdCancelledError, BdExit
+from punt_lux.applets.beads.bd_exit import BdCancelledError, BdExit
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator

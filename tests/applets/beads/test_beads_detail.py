@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from punt_lux.apps.beads_detail import BeadsDetail
+from punt_lux.applets.beads.beads_detail import BeadsDetail
 
 _ISSUE: dict[str, Any] = {
     "id": "beads-001",

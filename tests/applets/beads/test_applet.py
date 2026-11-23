@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Self, final
 
-from punt_lux.applets.beads import BeadsApplet
+from punt_lux.applets.beads.applet import BeadsApplet
 
 
 @final

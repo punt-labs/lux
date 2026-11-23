@@ -39,7 +39,7 @@ class LayerContract:
         "terminal": "terminal",
         "pty": "ptyd",
         "cli": "cli __main__ hook_cli",
-        "applets": "applets apps",
+        "applets": "applets",
     }
     _allowed: ClassVar[dict[str, set[str]]] = {
         "kernel": set(),

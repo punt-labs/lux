@@ -49,7 +49,7 @@ class TestLayerContract:
             ("punt_lux.wire.model.applet_name_format", "wire"),
             ("punt_lux.luxd_display", "display"),
             ("punt_lux.__main__", "cli"),
-            ("punt_lux.apps.clock", "applets"),
+            ("punt_lux.applets.beads.board", "applets"),
             ("punt_lux.trust.identity", "trust"),
             ("punt_lux.ptyd", "pty"),
             ("punt_lux.ptyd.service", "pty"),

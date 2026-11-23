@@ -217,8 +217,8 @@ re-dispatch.
 | `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `hub/clients.py`, guard-enforced |
-| `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads.py` (`lux-beads` — the first bundled applet) |
-| `apps/beads.py` | `BeadsBrowser` — loads and orders beads issues; `apps/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
+| `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads/` (`lux-beads` — the first bundled applet: `applet.py`, its service, the `bd` runner and board) |
+| `applets/beads/browser.py` | `BeadsBrowser` — loads and orders beads issues; `applets/beads/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
 
 25 wire element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`client.scene.table()`), dashboards (`client.scene.dashboard()`), custom rendering (`draw` element). `SplitPaneElement` is a `GroupElement` refinement with the same JSON kind, not a 26th wire kind.
 

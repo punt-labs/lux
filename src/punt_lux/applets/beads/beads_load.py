@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.apps.bd_command import BdOutput
-from punt_lux.apps.beads_result import BeadsResult, BeadsRows
+from punt_lux.applets.beads.bd_command import BdOutput
+from punt_lux.applets.beads.beads_result import BeadsResult, BeadsRows
 
 __all__ = ["BeadsLoad"]
 

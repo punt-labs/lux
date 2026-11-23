@@ -50,7 +50,7 @@ unless the table says otherwise. The mapping:
 | P5 | `test_a_board_the_slot_refused_never_reaches_the_display` |
 | P6 | structurally unconstructable, for a distinct reason from P2/P3 -- see "P6" below |
 | P7 | `test_the_first_placeholder_of_a_session_still_appears` |
-| P8 | `test_the_failure_message_never_lands_over_a_board`, and at the service level `test_a_board_that_arrives_mid_click_outlives_the_click_that_failed` in [`test_beads_service.py`](../tests/applets/test_beads_service.py) |
+| P8 | `test_the_failure_message_never_lands_over_a_board`, and at the service level `test_a_board_that_arrives_mid_click_outlives_the_click_that_failed` in [`test_beads_service.py`](../tests/applets/beads/test_beads_service.py) |
 | P9 | `test_the_failure_message_appears_when_there_is_nothing_to_lose` |
 | P10 | `test_the_slot_keeps_the_board_whose_load_began_last`, over the slot's own contention in [`test_board_slot.py`](../tests/applets/test_board_slot.py) |
 | P11 | `test_nothing_writes_the_display_from_outside_the_push_region` |
