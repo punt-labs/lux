@@ -22,10 +22,10 @@ if TYPE_CHECKING:
     from punt_lux.service.display_paths import DisplayPaths
 
 _PROBE_SECONDS = 0.5
-type _Observe = Callable[[str | None, tuple[float, float]], bool]
+type _Observe = Callable[[str | None, tuple[float, float]], bool]  # None: reset window.
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ProbeConnected:
     hub_connection_id: str
 
@@ -33,7 +33,7 @@ class _ProbeConnected:
         return observer(self.hub_connection_id, interval)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ProbePending:
     reason: str
 

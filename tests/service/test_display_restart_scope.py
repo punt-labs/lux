@@ -100,5 +100,6 @@ def test_connected_result_distinguishes_waiting_from_a_pinned_dial(
         if identity
         else _ProbePending("never connected to Hub with the new PID")
     )
+    assert not hasattr(result, "__dict__")
     with pytest.raises(FrozenInstanceError):
         setattr(result, next(iter(result.__dataclass_fields__)), "replacement")
