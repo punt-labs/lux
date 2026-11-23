@@ -88,7 +88,7 @@ aws = [
 [dependency-groups]
 dev = [
     "httpx>=0.28,<1",
-    "punt-oo-ratchet",
+    "punt-oo-ratchet==0.6.0",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
     "pyright>=1.1.400",
@@ -140,8 +140,6 @@ members = ["packages/punt-lux-client", "packages/punt-service"]
 [tool.uv.sources]
 punt-lux-client = { workspace = true }
 punt-service = { workspace = true }
-# Before merge, replace this Git source with punt-oo-ratchet==0.6.0 once released.
-punt-oo-ratchet = { git = "https://github.com/punt-labs/python-oo-ratchet.git", rev = "8341b5c317e42b5c14627e35dc1fbdffbf0e0b50" }
 
 [tool.oo-ratchet.coupling]
 stateless-values = "any"

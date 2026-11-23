@@ -10,6 +10,9 @@
   provides product-neutral daemon management without Lux or third-party
   dependencies. The current version remains unchanged until release.
 
+- Use the published `punt-oo-ratchet==0.6.0` for workspace-aware quality gates
+  instead of the temporary Git dependency.
+
 - Report-only design ratchet: `make design-shadow` compares against
   `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
   verdict to the job summary even after a gate fails. Explicit architecture

@@ -48,6 +48,5 @@ snapshot. Both checks compare live source at the Git base, not snapshot totals.
 The new `punt_service` namespace is a first adoption; its two existing source
 suppressions are unchanged by extraction.
 
-The development ratchet is pinned to merge commit
-`8341b5c317e42b5c14627e35dc1fbdffbf0e0b50`. Replace the Git source with
-`punt-oo-ratchet==0.6.0` only after the release is available and approved.
+The development ratchet is pinned to the published `punt-oo-ratchet==0.6.0`
+release from PyPI.
