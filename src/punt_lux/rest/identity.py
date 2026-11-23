@@ -31,6 +31,7 @@ from punt_lux.commands import (
     session_identify as session_identify_command,
 )
 from punt_lux.connection_identity import connection_for
+from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.identity import Identified
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.scope import Scope
@@ -97,12 +98,14 @@ class RestCaller:
         """FastAPI dependency: the declared identity of a write that owns no UI.
 
         A write that leaves nothing in the Hub store -- a screenshot writes a
-        file on the display host -- still needs a named caller: the owning scope
-        is resolved first, which challenges an identity-less request, and the
-        route gets the identity that scope was derived from.
+        file on the display host -- still needs a named, well-formed caller, but
+        records no session: a capture-only app under the never-expiring app
+        lease would otherwise outlive its process in the session list. The
+        challenge and the malformed-identity rejection are the ones a scoped
+        write gets.
         """
-        RestCaller.resolve_scope(request)
-        return RestCaller.resolve_identity(request)
+        caller = cast("RestCaller", request.app.state.rest_caller)
+        return caller.declared(request)
 
     def resolve(self, request: Request) -> Scope:
         """Return the scope this request's writes own, or reject an unidentified one.
@@ -119,13 +122,7 @@ class RestCaller:
         with the WebSocket listen leg, so a caller that registers a callback over
         REST and listens over the WebSocket resolves to one connection on both.
         """
-        declaration = ClientHeaders.declaration_from(request.headers)
-        if declaration is None:
-            raise HTTPException(
-                status_code=self._errors.status_for("identification_required"),
-                detail=_CHALLENGE_REASON,
-                headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
-            )
+        declaration = self._declaration(request)
         scope = Scope.observed(
             connection_for(declaration), ClientHost.of_connection(request)
         )
@@ -135,6 +132,28 @@ class RestCaller:
         )
         self._errors.respond(outcome)
         return scope
+
+    def declared(self, request: Request) -> ClientIdentity:
+        """Return the request's validated identity without recording a session.
+
+        The challenge for a missing declaration and the named rejection for a
+        malformed one are the same ones :meth:`resolve` raises; only the
+        ``identify`` that binds a session is skipped.
+        """
+        return self._errors.respond(
+            IdentityOperations.validate(self._declaration(request))
+        )
+
+    def _declaration(self, request: Request) -> dict[str, object]:
+        """Read the identity headers, or raise the identification challenge."""
+        declaration = ClientHeaders.declaration_from(request.headers)
+        if declaration is None:
+            raise HTTPException(
+                status_code=self._errors.status_for("identification_required"),
+                detail=_CHALLENGE_REASON,
+                headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
+            )
+        return declaration
 
 
 # The route-parameter forms of the three dependencies, declared once for every
