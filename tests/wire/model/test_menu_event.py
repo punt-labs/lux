@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuEventRouter, MenuSelection
+from punt_lux.hub.menu_event import MENU_TOPIC, MenuEventRouter, MenuSelection
 from punt_lux.kernel.connection_id import ConnectionId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.hub.client_session import ClientSession
+    from punt_lux.hub.client_session import ClientSession
     from punt_lux.wire.model.messages.observer import ObserverMessage
 
 

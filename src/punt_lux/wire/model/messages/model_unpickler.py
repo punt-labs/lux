@@ -16,11 +16,15 @@ __all__ = ["ModelUnpickler"]
 
 
 class ModelUnpickler(pickle.Unpickler):
-    """Load shared models without redirecting the retained Hub or PTY packages."""
+    """Load moved shared and Hub models while preserving the PTY namespace."""
 
     _legacy_packages: ClassVar[tuple[tuple[str, str], ...]] = (
-        ("punt_lux.domain.", "punt_lux.domain.hub"),
-        ("punt_lux.protocol.", "punt_lux.protocol.pty"),
+        ("punt_lux.domain.hub.patch_batch", "punt_lux.wire.model.patch_batch"),
+        ("punt_lux.domain.hub.write_errors", "punt_lux.wire.model.write_errors"),
+        ("punt_lux.domain.hub", "punt_lux.hub"),
+        ("punt_lux.domain", "punt_lux.wire.model"),
+        ("punt_lux.protocol.pty", "punt_lux.protocol.pty"),
+        ("punt_lux.protocol", "punt_lux.wire.model"),
     )
 
     @classmethod
@@ -32,17 +36,13 @@ class ModelUnpickler(pickle.Unpickler):
     def require_element(obj: object) -> Element:
         """Refuse non-elements before the Display attempts to wrap handlers."""
         if not isinstance(obj, AbcElement):
-            raise ValueError(
-                f"scene element _pickled is not an Element: {type(obj).__name__}"
-            )
+            msg = f"scene element _pickled is not an Element: {type(obj).__name__}"
+            raise ValueError(msg)
         return cast("Element", obj)
 
     def find_class(self, module: str, name: str) -> Any:
         """Resolve moved globals at their new module and leave other names intact."""
-        for prefix, retained in self._legacy_packages:
-            if module.startswith(prefix) and not (
-                module == retained or module.startswith(retained + ".")
-            ):
-                module = "punt_lux.wire.model." + module.removeprefix(prefix)
-                break
+        for prefix, destination in self._legacy_packages:
+            if module == prefix or module.startswith(prefix + "."):
+                return super().find_class(module.replace(prefix, destination, 1), name)
         return super().find_class(module, name)

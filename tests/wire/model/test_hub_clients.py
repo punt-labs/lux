@@ -16,12 +16,12 @@ import time
 from typing import final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.presence_writes import PresenceWrites
-from punt_lux.domain.hub.session_callback import SessionCallback
-from punt_lux.domain.hub.session_write import SessionWrite
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_session import ClientSession
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.presence_writes import PresenceWrites
+from punt_lux.hub.session_callback import SessionCallback
+from punt_lux.hub.session_write import SessionWrite
 from punt_lux.kernel.connection_id import ConnectionId
 
 

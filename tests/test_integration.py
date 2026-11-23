@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux import decode_frame, encode_frame
-from punt_lux.domain.hub.display_link import DisplayLink
+from punt_lux.hub.display_link import DisplayLink
 from punt_lux.wire.model import (
     AckMessage,
     ReadyMessage,

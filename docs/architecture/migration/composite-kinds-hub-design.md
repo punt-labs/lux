@@ -40,9 +40,9 @@ The production install path for a `show()` call is:
    `Element` ABC subclass has, including all nine kinds under investigation.
    There is no kind allow-list here.
 3. On a clean tree, `HubDisplay.show_scene()` →
-   `HubDisplay.apply(AddElement(...))` (`domain/hub/hub_display.py:285`–`313`)
+   `HubDisplay.apply(AddElement(...))` (`hub/hub_display.py:285`–`313`)
    calls `SubtreeInstaller.install()`.
-4. `SubtreeInstaller.install()` (`domain/hub/subtree_installer.py:65`–`82`)
+4. `SubtreeInstaller.install()` (`hub/subtree_installer.py:65`–`82`)
    recurses via `isinstance(element, Composite)` — a structural Protocol
    check (`wire/model/composite.py`), not a kind check. Any element exposing a
    `children` tuple recurses; every other element installs as a leaf. Again,
@@ -239,7 +239,7 @@ covered the button/dialog pair.
    Hub resolves the element by `(scene_id, element_id)` in `ElementIndex` —
    depth-independent, since the index is flat and keyed by id, not by tree
    position — and fires the real handler
-   (`domain/hub/hub_interaction_dispatch.py`).
+   (`hub/hub_interaction_dispatch.py`).
 
 Every step above is generic over "any `Element` ABC subclass," proven today
 by `group`/`tab_bar`/`collapsing_header`/`modal`'s own tests plus the
@@ -324,7 +324,7 @@ in-process dispatch harness, on the reasoning that it predated `HubDisplay`
 and gave the test suite an in-process double for D21 dispatch mechanics
 without `HubDisplay`'s locking and session machinery. The operator's ruling
 rejects that reasoning on a fact this design had not checked:
-`HubDisplay.__new__` (`domain/hub/hub_display.py:106`) takes only an
+`HubDisplay.__new__` (`hub/hub_display.py:106`) takes only an
 optional clock callable — no socket, no session, no luxd dependency — so it
 is exactly as constructible in a single test process as `Display` is. The
 justification for a separate class is gone. Keeping it means every future
@@ -343,7 +343,7 @@ or socket, or needs new production code first. It is already callable, with
 no new production code needed, and the pattern is not hypothetical — it is
 already shipped and in use:
 
-- `HubInteractionDispatch.dispatch()` (`domain/hub/hub_interaction_dispatch.py:29`–`46`)
+- `HubInteractionDispatch.dispatch()` (`hub/hub_interaction_dispatch.py:29`–`46`)
   is a `@staticmethod` that resolves the element via a module-level
   singleton `hub_display: HubDisplay` (constructed once at import,
   `hub_display.py:344`) and marks the scene dirty via a second module-level

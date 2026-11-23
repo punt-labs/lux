@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
-from punt_lux.domain.hub.hub_factory import HubPublishSink
+from punt_lux.hub.hub_factory import HubPublishSink
 from punt_lux.kernel.connection_id import ConnectionId
 
 from .target_handlers import PublishingHandler

@@ -4247,8 +4247,8 @@ element.
 - `element-contract.md` (the normative sub-element addressing clause added with
   this ADR), `simple-composites-design.md` (the `tab_bar` application and the
   Hub-authoritative view-state decision), `table_renderer.py:165` (the legacy
-  `row_index` anti-pattern), `domain/hub/element_index.py` /
-  `domain/hub/child_index.py` (the element-level routing this extends); beads
+  `row_index` anti-pattern), `hub/element_index.py` /
+  `hub/child_index.py` (the element-level routing this extends); beads
   `lux-4n5n`, `lux-i3ag`.
 
 ## DES-046: View-State Locality — Discrete Agent-Drivable Selections Are Hub-Authoritative; Continuous In-Progress Input Is Display-Local
@@ -4415,7 +4415,7 @@ the pipeline the ratified legacy `replace()` seam builds on.
   (full design; author gvr, review rmh, ratified with amendments A1/A3/A4/A5/A6 +
   no-mixed-composites), `target.md` (Hub authority, replication policy),
   `element-contract.md` (validation contract, sub-element addressing),
-  `domain/hub/hub_display.py` / `element_index.py` (the authoritative store this
+  `hub/hub_display.py` / `element_index.py` (the authoritative store this
   writes through); bead `lux-4n5n`.
 
 ## DES-048: Commit-on-Idle Reconciliation — the Mechanism for Display-Local Continuous Input
@@ -7141,7 +7141,7 @@ independent defects sit behind the one symptom. **Gap (a):** an agent item
 cannot carry a `frame_id` — `MenuAction.frame_id` exists, `to_wire` serializes
 it, and the display honors it (`display/menus/wire.py:113`,
 `wire_decode.py:86-87`), but `Menu._entry_from_wire`
-(`domain/hub/menu_models.py:111-139`) never reads it, so every agent item is
+(`hub/menu_models.py:111-139`) never reads it, so every agent item is
 `frame_id=None` and the frame-raise never fires. **Gap (b):** a frameless click
 reaches the Hub and is dropped — `wire_decode.py:85-96` always emits
 `RemoteEventHandlerInvocation(action="menu", element_id=<item id>)`, and
@@ -7339,14 +7339,14 @@ only one of them is still broken:
   menu-build time*, Hub-side, before any click happens — the raise is
   Display-local and pre-emit, so the Display can only raise a frame it was
   told about. `MenuAction(...)` is constructed in exactly two places in the
-  whole domain layer (`grep MenuAction( src/punt_lux/domain/hub/` returns only
-  these two): `ClientSubmenu._leaves()` (`domain/hub/client_submenu.py:60-74`),
+  whole domain layer (`grep MenuAction( src/punt_lux/hub/` returns only
+  these two): `ClientSubmenu._leaves()` (`hub/client_submenu.py:60-74`),
   which composes a real `frame_id` for every applet callback that registered
   one (the Beads shape, above) — and `ClientSubmenu._details()`
-  (`domain/hub/client_submenu.py:76-82`), the Hub's own built-in `Details`
+  (`hub/client_submenu.py:76-82`), the Hub's own built-in `Details`
   command, which constructs `MenuAction(id=..., label=_DETAILS_LABEL)` with
   **no `frame_id` at all**, so it defaults to `None`
-  (`domain/hub/menu_action.py:45`). `Details` is answered entirely Hub-side
+  (`hub/menu_action.py:45`). `Details` is answered entirely Hub-side
   (`hub_interaction_dispatch.py:123-129` → `ClientDetailsPort.render_details`
   → `ClientDetailsOperations.show_client_details`
   (`operations/client_details.py:61-91`)), which installs the client's Details
@@ -7390,11 +7390,11 @@ deterministic frame — the same treatment `_leaves()` already gives every
 framed applet callback: compute its real, composed frame key at menu-build
 time and carry it on the `MenuAction`. Do this without duplicating the
 `"lux.client-details.{connection_id}"` naming convention, which today lives
-only in `operations/details_scene.py` — a layer `domain/hub/` may not import
+only in `operations/details_scene.py` — a layer `hub/` may not import
 from (`operations → domain`, PY-IC-9; the reverse is a layering violation,
 PL-MD-1). Extract the naming convention itself down into a small value class
 in the domain layer that both `operations/details_scene.py` (which needs the
-raw id) and `domain/hub/client_submenu.py` (which needs the raw id composed
+raw id) and `hub/client_submenu.py` (which needs the raw id composed
 against the owner, exactly as `SceneInstaller.install`'s `.scoped(owner)` will
 compose it) can share — one definition of "the frame a client's Details lives
 in," read from two call sites instead of typed twice.
@@ -7405,10 +7405,10 @@ in," read from two call sites instead of typed twice.
 the design record. The shipped shape differs where the ruling removed
 seniority: there is no `ClientSubmenu._details()`. `MemberEntries` gives each
 callback-less connection one entry of its own, and that entry and the Details
-scene share one `DetailsFrame` value (`domain/hub/details_frame.py`, tested
+scene share one `DetailsFrame` value (`hub/details_frame.py`, tested
 in `tests/wire/model/test_details_frame.py`).
 
-- **New:** `src/punt_lux/domain/hub/details_frame.py` — a small `@final`
+- **New:** `src/punt_lux/hub/details_frame.py` — a small `@final`
   frozen value class (e.g. `DetailsFrame`) wrapping one `ConnectionId`, exposing
   the raw id (`f"lux.client-details.{connection_id}"`) and the store-scoped id
   (`ConnectionScopedId.compose(connection_id, raw_id)` — the exact key
@@ -7418,17 +7418,17 @@ in `tests/wire/model/test_details_frame.py`).
   delegates its raw-id computation to the new class instead of re-deriving
   `f"{_SCENE_PREFIX}.{connection_id}"` inline (`_SCENE_PREFIX` stays for the
   table sub-element id, a separate concern).
-- **Modify:** `src/punt_lux/domain/hub/client_submenu.py` — `_details()` sets
+- **Modify:** `src/punt_lux/hub/client_submenu.py` — `_details()` sets
   `frame_id=` the new class's scoped id for `senior.connection_id`, mirroring
   `_leaves()`'s existing composition.
 - **New/modify tests:**
-  - `tests/domain/hub/test_details_frame.py` (or co-located with an existing
+  - `tests/hub/test_details_frame.py` (or co-located with an existing
     `client_submenu`/`session_callback` test file) — unit coverage for the new
     value class: raw id shape, scoped id shape, and that the scoped id matches
     `ConnectionScopedId.compose` byte-for-byte (boundary: two different
     `connection_id`s never collide; invalid: no invalid input surface beyond
     what `ConnectionId` already validates).
-  - `tests/domain/hub/test_client_submenu.py` (or wherever `ClientSubmenu` is
+  - `tests/hub/test_client_submenu.py` (or wherever `ClientSubmenu` is
     currently tested) — assert `_details()`'s `MenuAction.frame_id` is no longer
     `None`, and equals the new class's scoped id for the same connection.
   - `tests/display/test_menu_wire.py` — a new test in the

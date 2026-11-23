@@ -14,14 +14,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_judge import BatchJudge, _Written
-from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.dial_generation import DialEnds, DialGeneration
-from punt_lux.domain.hub.drain_result import CutShort, Drained, DrainIncompleteError
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.settle_errors import UnendedDialError
-from punt_lux.domain.hub.transaction_errors import JudgeReusedError
-from punt_lux.domain.hub.write_refusals import UnheldTargetError
+from punt_lux.hub.batch_judge import BatchJudge, _Written
+from punt_lux.hub.dial_drain import DialDrain
+from punt_lux.hub.dial_generation import DialEnds, DialGeneration
+from punt_lux.hub.drain_result import CutShort, Drained, DrainIncompleteError
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.settle_errors import UnendedDialError
+from punt_lux.hub.transaction_errors import JudgeReusedError
+from punt_lux.hub.write_refusals import UnheldTargetError
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.wire.model import PongMessage
 from punt_lux.wire.model.elements import TableElement
@@ -33,8 +33,8 @@ from tests.wire.model.test_retire_cause import _linked
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.settlement import Settlement
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.settlement import Settlement
 
 
 @pytest.fixture

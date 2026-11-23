@@ -4,7 +4,7 @@
 connection to luxd: it subscribes to pub-sub topics and receives, in a blocking
 receive loop, both those topics' events and the menu-callback clicks routed to its
 session, dispatching each to an app handler. It carries the same
-:class:`~punt_lux.domain.hub.client_identity.ClientIdentity` a
+:class:`~punt_lux.hub.client_identity.ClientIdentity` a
 :class:`~punt_lux.client.facade.LuxClient` uses, so the daemon's scene pushes
 (over REST) and its listen stream (over this WebSocket) resolve to one connection —
 a callback the daemon registers over REST is delivered here.
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
     from websockets.asyncio.client import ClientConnection
 
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
 

@@ -108,7 +108,7 @@ test that builds a store is touched once, mechanically.
 Source files with door sites: `operations/scenes.py`, `pubsub.py`, `identity.py`,
 `callbacks.py`, `menu_arming.py`, `menu_arming_deps.py`, `frame_owner_facts.py`,
 `client_details_port.py`, `client_listing.py`, `ws_listen.py`,
-`domain/hub/inbox.py`, `lifecycle.py`, `scene_writer.py`,
+`hub/inbox.py`, `lifecycle.py`, `scene_writer.py`,
 `replicator_instance.py`; the sweep is wired in `luxd.py`.
 
 `HubDisplay.apply` is the only *store* code that touches the door
@@ -196,14 +196,14 @@ already imports `ClientLifecycle` and `HubClientRegistry` at runtime at the
 baseline. I checked the import closure: `client_lifecycle.py` reaches three
 modules (itself, `menu_presence`, `null_dirty_marker`) and `hub_clients.py`
 reaches seventeen, and neither closure contains `hub_display` or the
-`punt_lux.domain.hub` package initialiser. The door depends on the lock and the
+`punt_lux.hub` package initialiser. The door depends on the lock and the
 ownership map, not on the store. A `Protocol` there would be a type with nothing
 to invert.
 
 **The rule.** A new `Protocol` exists only where a real dependency direction
 requires one — a lower layer that must not name the concrete class above it, or a
-cycle. Neither occurs in the door: every consumer is in `domain/hub`, `operations/`
-or a presentation module, all of which may import `domain/hub`. A fake that is one
+cycle. Neither occurs in the door: every consumer is in `hub`, `operations/`
+or a presentation module, all of which may import `hub`. A fake that is one
 method shorter is not a reason.
 
 **One addition to the provider.** `ClientLifecycle.exclusive()` returns the store
@@ -274,7 +274,7 @@ the first draft listed here, do not exist at the baseline: the stale docstring a
 ### 4.4 The composition root
 
 ```python
-# domain/hub/hub_store_factory.py
+# hub/hub_store_factory.py
 @final
 class HubStoreFactory:
     """Builds the shared primitives, the client door, and the store over them."""
@@ -306,7 +306,7 @@ unpacked into three module names, and by tests as their composition root. The
 defaults (`hub=default_hub`, `clock=time.monotonic`) mirror `HubDisplay.__new__`
 today, so a test construction rewrites to `HubStoreFactory().display`.
 
-**Process singletons** — at the bottom of `domain/hub/hub_store_factory.py`, the
+**Process singletons** — at the bottom of `hub/hub_store_factory.py`, the
 module that owns the build. (A first draft put them in a module of their own,
 `store_instance.py`; a module of bare singletons has no class, and the new-file
 strict rule on `method_ratio` and `class_to_func_ratio` refuses it. Beside the
@@ -321,7 +321,7 @@ hub_lifecycle: ClientLifecycle = _store.lifecycle
 hub_clients: HubClientRegistry = _store.clients
 ```
 
-`domain/hub/__init__.py` re-exports the three names *instead of* the
+`hub/__init__.py` re-exports the three names *instead of* the
 `HubDisplay`, `UnknownElementError` and `UnknownSceneError` names it re-exports
 today. Nothing in `src/` or `tests/` imports those three from the package (grep
 at HEAD); dropping them keeps the package at 15 public names and 10 imported
@@ -862,7 +862,7 @@ bead.
 
 The design names it; the implementation mission's contract should list these.
 
-**New.** `src/punt_lux/domain/hub/hub_store_factory.py` (the factory and the singletons),
+**New.** `src/punt_lux/hub/hub_store_factory.py` (the factory and the singletons),
 `tests/wire/model/test_hub_store_factory.py`.
 
 **Changed, domain.** `hub_display.py` (constructor; the eleven door members and
@@ -871,7 +871,7 @@ the singleton out; `writing_as` in), `client_lifecycle.py` (`exclusive()`),
 `clients.py`, `replicator_instance.py` (`hub_callback_menus`), `scene_writer.py`
 (`writing_as`), `lease_reap_sweep.py` (`depart_lapsed(exclude)`),
 `callback_menu.py` (`callback_menus`), `named_sessions.py` (`named`),
-`departure_cascade.py` (docstring, F5), `domain/hub/__init__.py` (re-exports).
+`departure_cascade.py` (docstring, F5), `hub/__init__.py` (re-exports).
 
 **Changed, operations and surfaces.** `operations/facade.py`, `scenes.py`
 (`arriving_as`), `pubsub.py`, `callbacks.py`, `identity.py`,

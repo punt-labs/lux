@@ -20,28 +20,28 @@ from typing import TYPE_CHECKING, Self, cast, final
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import batch_sender
-from punt_lux.domain.hub.batch_sender import BatchSender, BatchSendError
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub import batch_sender
+from punt_lux.hub.batch_sender import BatchSender, BatchSendError
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.crash_attribution import (
+from punt_lux.hub.crash_attribution import (
     ATTRIBUTION_THRESHOLD,
     CrashAttribution,
 )
-from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.dirty_signal import DrainedBatch
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_listener import DisplayListener
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.recovery import SendRecovery
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.dial_generation import DialGeneration
+from punt_lux.hub.dirty_signal import DrainedBatch
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.display_listener import DisplayListener
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.recovery import SendRecovery
+from punt_lux.hub.respawn_backoff import RespawnBackoff
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import (
     AckMessage,
@@ -58,12 +58,12 @@ from tests.wire.model.display_double import Call, Display, Responder, until
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.batch_sender import _InFlight
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dirty_signal import DirtySignal
-    from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.replicator_ports import (
+    from punt_lux.hub.batch_sender import _InFlight
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.dirty_signal import DirtySignal
+    from punt_lux.hub.handshake_outcome import HandshakeResult
+    from punt_lux.hub.hub_display import HubDisplay
+    from punt_lux.hub.replicator_ports import (
         CallbackMenuReader,
         ClientProvider,
         DisplayLifecycle,

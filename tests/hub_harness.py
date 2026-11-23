@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Self, final
 from unittest.mock import MagicMock
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -27,8 +27,8 @@ from punt_lux.wire.model.update import AddElement
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub_clients import HubClientRegistry
     from punt_lux.wire.model.element import Element as WireElement
 
 __all__ = ["IsolatedHub"]
@@ -45,7 +45,7 @@ class IsolatedHub:
     __slots__ = ("clients", "display", "lifecycle", "replicator")
 
     def __new__(cls, monkeypatch: pytest.MonkeyPatch) -> Self:
-        import punt_lux.domain.hub as hub_module
+        import punt_lux.hub as hub_module
 
         self = super().__new__(cls)
         factory = HubStoreFactory()
@@ -55,7 +55,7 @@ class IsolatedHub:
         self.replicator = MagicMock()
         monkeypatch.setattr(hub_module, "hub_display", self.display)
         monkeypatch.setattr(
-            "punt_lux.domain.hub.replicator_instance.hub_replicator", self.replicator
+            "punt_lux.hub.replicator_instance.hub_replicator", self.replicator
         )
         return self
 

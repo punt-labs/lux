@@ -18,13 +18,13 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.domain.hub import bounded_ask, socket_line
-from punt_lux.domain.hub.connection_closed import UnresponsiveError
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.drain_result import Drained
-from punt_lux.domain.hub.handshake_outcome import HandshakeResult
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub import bounded_ask, socket_line
+from punt_lux.hub.connection_closed import UnresponsiveError
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.drain_result import Drained
+from punt_lux.hub.handshake_outcome import HandshakeResult
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.send_timeout import (
     SCENE_WRITE_DEADLINE_SECONDS,
     SEND_TIMEOUT_CEILING_SECONDS,
@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.hub.dial_generation import DialGeneration
 
 _HOST = "display.example.com"
 # Scheduling slack on top of D: the deadline is a ceiling, not an alarm clock.

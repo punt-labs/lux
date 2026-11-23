@@ -365,16 +365,16 @@ its own state and its own reset condition.
 The design names the affected objects; the implementation mission decides how to
 split them.
 
-- **`domain/hub/recovery.py`** — `SendRecovery._remark` excludes quarantined
+- **`hub/recovery.py`** — `SendRecovery._remark` excludes quarantined
   scenes from the re-mark (the load-bearing loop break); `recover` drives the
   respawn through the new `RespawnBackoff` and records the attribution for the
   suspect scene.
-- **`domain/hub/replicator.py`** — the two-mode (batching / isolation) send loop
+- **`hub/replicator.py`** — the two-mode (batching / isolation) send loop
   and the mode transitions; on a send failure it hands the attribution object the
   suspect set (the whole batch in batching mode, the singleton being probed in
   isolation mode) and consults it for the current mode and the isolation-exit
   decision.
-- **A new attribution object** (e.g. `domain/hub/crash_attribution.py`) — owns the
+- **A new attribution object** (e.g. `hub/crash_attribution.py`) — owns the
   per-scene windowed tally, the threshold, the batching/isolation mode, and the
   `STABLE_INTERVAL` exit decision. It attributes every death to its suspect set,
   quarantines a scene at the threshold, and returns to batching only after a
@@ -383,7 +383,7 @@ split them.
   functions.
 - **A new `RespawnBackoff`** (its own module or beside the attribution object) —
   owns the respawn delay growth and the serve-stably reset rule.
-- **The scene store** (`domain/hub/hub_display.py` / the scene entry it holds) —
+- **The scene store** (`hub/hub_display.py` / the scene entry it holds) —
   carries the `quarantined` state and the `QuarantineRecord`; excludes quarantined
   scenes from `live_scene_ids()` for replication; clears quarantine on an owner
   update/clear.

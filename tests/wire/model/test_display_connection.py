@@ -9,13 +9,13 @@ from typing import Self, final
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.handshake_outcome import HandshakeResult
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.handshake_outcome import HandshakeResult
 from punt_lux.wire.model import (
     AckMessage,
     FrameReader,

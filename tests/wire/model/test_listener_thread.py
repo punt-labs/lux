@@ -11,14 +11,14 @@ from typing import TYPE_CHECKING, final
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.dial_reader import DialReader
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.domain.hub.inbound_router import InboundRouter
-from punt_lux.domain.hub.interaction_handlers import InteractionHandlers
-from punt_lux.domain.hub.listener_thread import ListenerThread
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.dial_generation import DialGeneration
+from punt_lux.hub.dial_reader import DialReader
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_not_connected import DisplayNotConnectedError
+from punt_lux.hub.inbound_router import InboundRouter
+from punt_lux.hub.interaction_handlers import InteractionHandlers
+from punt_lux.hub.listener_thread import ListenerThread
 from punt_lux.wire.model import (
     HEADER_FORMAT,
     AckMessage,
@@ -35,8 +35,8 @@ from tests.wire.model.display_double import Display, until
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.settlement import Settlement
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.settlement import Settlement
     from punt_lux.wire.model import Message
 
 
@@ -283,7 +283,7 @@ class _Stalled:
 
 
 def _stalled_rig(monkeypatch: pytest.MonkeyPatch) -> tuple[_Rig, _Stalled]:
-    monkeypatch.setattr("punt_lux.domain.hub.listener_thread._JOIN_TIMEOUT", 0.1)
+    monkeypatch.setattr("punt_lux.hub.listener_thread._JOIN_TIMEOUT", 0.1)
     stalled = _Stalled()
     return _Rig(stalled.route), stalled
 

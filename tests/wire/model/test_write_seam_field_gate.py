@@ -18,18 +18,18 @@ import textwrap
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
-from punt_lux.domain.hub.field_gate import FieldGate
-from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_errors import ImmutableFieldError
-from punt_lux.domain.hub.write_result import WriteRejected
+from punt_lux.hub.deferral_errors import StructuralFieldWriteError
+from punt_lux.hub.field_gate import FieldGate
+from punt_lux.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.hub.write_result import WriteRejected
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import Tab, TabBarElement, TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.update import AddElement
+from punt_lux.wire.model.write_errors import ImmutableFieldError
 
 _SCENE = SceneId("gate-scene")
 _CONN = ConnectionId("gate-conn")
@@ -53,7 +53,7 @@ def _assert_gate_names_field_under_adversarial_seed(
     gate names ``expected``, which a reintroduced ``next(iter(...))`` would not.
     """
     script = textwrap.dedent(f"""
-        from punt_lux.domain.hub.field_gate import FieldGate, {set_name} as _set
+        from punt_lux.hub.field_gate import FieldGate, {set_name} as _set
         from {error_module} import {error_name}
         from punt_lux.wire.model.ids import ElementId
 
@@ -178,7 +178,7 @@ def test_reject_names_highest_precedence_immutable_field() -> None:
 
     _assert_gate_names_field_under_adversarial_seed(
         set_name="_IMMUTABLE_FIELDS",
-        error_module="punt_lux.domain.hub.write_errors",
+        error_module="punt_lux.wire.model.write_errors",
         error_name="ImmutableFieldError",
         keys='{"kind": "text", "id": "new"}',
         expected="id",
@@ -198,7 +198,7 @@ def test_reject_names_highest_precedence_structural_field() -> None:
 
     _assert_gate_names_field_under_adversarial_seed(
         set_name="_STRUCTURAL_FIELDS",
-        error_module="punt_lux.domain.hub.deferral_errors",
+        error_module="punt_lux.hub.deferral_errors",
         error_name="StructuralFieldWriteError",
         keys='{"tabs": [], "children": []}',
         expected="children",

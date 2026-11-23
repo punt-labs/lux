@@ -26,23 +26,23 @@ from typing import TYPE_CHECKING, Self, cast
 import pytest
 
 from punt_lux.bounded_send import TornStreamError
-from punt_lux.domain.hub.backoff_config import BackoffConfig
-from punt_lux.domain.hub.batch_sender import BatchSendError
-from punt_lux.domain.hub.connection_closed import HubRetiredError
-from punt_lux.domain.hub.crash_attribution import CrashAttribution
-from punt_lux.domain.hub.dirty_signal import DrainedBatch
-from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-from punt_lux.domain.hub.recovery import SendRecovery
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
+from punt_lux.hub.backoff_config import BackoffConfig
+from punt_lux.hub.batch_sender import BatchSendError
+from punt_lux.hub.connection_closed import HubRetiredError
+from punt_lux.hub.crash_attribution import CrashAttribution
+from punt_lux.hub.dirty_signal import DrainedBatch
+from punt_lux.hub.quarantine_record import QuarantineRecord
+from punt_lux.hub.recovery import SendRecovery
+from punt_lux.hub.respawn_backoff import RespawnBackoff
 from punt_lux.wire.model.ids import SceneId
 from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from punt_lux.domain.hub.dial_ref import DialRef
-    from punt_lux.domain.hub.dirty_signal import DirtySignal
-    from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
+    from punt_lux.hub.dial_ref import DialRef
+    from punt_lux.hub.dirty_signal import DirtySignal
+    from punt_lux.hub.replicator_ports import ClientProvider, DisplayLifecycle
 
 
 class _FakeProvider:
@@ -167,7 +167,7 @@ def _no_sleep(_seconds: float) -> None:
 def test_a_wedged_display_is_reaped_then_respawned_then_remarked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", _no_sleep)
     recovery, provider, lifecycle, signal, _attribution = _recovery()
     recovery.recover(_BATCH, BatchSendError(BlockingIOError(), _WEDGED))
     assert lifecycle.calls == ["reap"]  # kill; the service unit respawns it
@@ -202,7 +202,7 @@ def test_recovery_re_marks_the_menu_even_for_a_scene_only_batch(
     # no menu change) still re-marks the menu, so a display that came back blank gets
     # the agent bar re-pushed. The worker's fresh registry read at send time supplies
     # the current bar (or a harmless blank if none is set).
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", _no_sleep)
     recovery, _provider, _lifecycle, signal, _attribution = _recovery()
     recovery.recover(_BATCH, BatchSendError(BlockingIOError(), _WEDGED))
     assert signal.menu_marks == 1  # the menu is re-marked anyway
@@ -245,7 +245,7 @@ def test_restore_re_queues_the_menu_flag_the_batch_carried() -> None:
 
 def test_a_wedged_recovery_paces_the_respawn(monkeypatch: pytest.MonkeyPatch) -> None:
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", slept.append)
     recovery, _provider, _lifecycle, _signal, _attribution = _recovery()
     recovery.recover(_BATCH, BatchSendError(BlockingIOError(), _WEDGED))
     recovery.recover(_BATCH, BatchSendError(BlockingIOError(), _WEDGED))
@@ -259,7 +259,7 @@ def test_reset_backoff_if_stable_is_a_no_op_when_time_never_advances(
     # keeps climbing across respawns exactly as if reset_backoff_if_stable were
     # never called — proving it never resets early.
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", slept.append)
     recovery, _provider, _lifecycle, _signal, _attribution = _recovery()
     recovery.recover(_BATCH, BatchSendError(BlockingIOError(), _WEDGED))
     recovery.reset_backoff_if_stable()
@@ -310,7 +310,7 @@ def test_a_dial_recorded_unresponsive_is_reaped_whatever_exception_carried_it(
     monkeypatch: pytest.MonkeyPatch, cause: OSError
 ) -> None:
     """A torn write and an untouched one left the same record: the same recovery."""
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", _no_sleep)
     recovery, provider, lifecycle, _signal, _attribution = _recovery()
 
     recovery.recover(_BATCH, BatchSendError(cause, _WEDGED))
@@ -321,7 +321,7 @@ def test_a_dial_recorded_unresponsive_is_reaped_whatever_exception_carried_it(
 def test_the_dials_own_record_decides_not_the_exception_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", _no_sleep)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", _no_sleep)
     recovery, _provider, lifecycle, _signal, _attribution = _recovery()
 
     recovery.recover(_BATCH, BatchSendError(OSError("reset"), _WEDGED))  # recorded
@@ -336,7 +336,7 @@ def test_a_cross_host_dial_is_dropped_but_never_reaps_the_local_owner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     slept: list[float] = []
-    monkeypatch.setattr("punt_lux.domain.hub.recovery.time.sleep", slept.append)
+    monkeypatch.setattr("punt_lux.hub.recovery.time.sleep", slept.append)
     recovery, provider, lifecycle, _signal, _attribution = _recovery()
     remote = fake_dial("unresponsive", cross_host=True)
 

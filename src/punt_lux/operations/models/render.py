@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from punt_lux.domain.hub.scene_presentation import SceneLayout, ScenePresentation
+from punt_lux.hub.scene_presentation import SceneLayout, ScenePresentation
 from punt_lux.operations.models.common import OpError
 
 if TYPE_CHECKING:

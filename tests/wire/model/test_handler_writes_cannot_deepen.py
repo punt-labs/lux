@@ -50,7 +50,7 @@ _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
 
 # Callers that are not a handler: the seam and its realization, the display's own
 # replica of what the Hub sent (never the Hub's store), and elements' own overrides.
-_SEAM = frozenset({"domain/hub/field_realization.py", "domain/hub/write_seam.py"})
+_SEAM = frozenset({"hub/field_realization.py", "hub/write_seam.py"})
 _DISPLAY_REPLICA = frozenset({"display/replica/element_walk.py"})
 
 # The handlers that patch the Hub's copy of an element, with the fields each patches.
@@ -345,13 +345,13 @@ class TestOnlyAJudgedInteractionFiresAnEventOnTheHub:
         }
 
         assert firing == {
-            "domain/hub/element_invocation_resolver.py": ["self.element.fire"],
-            "domain/hub/hub_interaction_dispatch.py": ["resolved.fire"],
-            "domain/hub/departure_cascade.py": ["self._sinks.fire"],  # not an element
+            "hub/element_invocation_resolver.py": ["self.element.fire"],
+            "hub/hub_interaction_dispatch.py": ["resolved.fire"],
+            "hub/departure_cascade.py": ["self._sinks.fire"],  # not an element
         }
 
     def test_that_fire_runs_inside_the_judged_scope(self) -> None:
-        source = _sources()["domain/hub/element_invocation_resolver.py"]
+        source = _sources()["hub/element_invocation_resolver.py"]
 
         assert _fires_outside_a_judged_scope(source) == []
 

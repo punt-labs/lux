@@ -61,7 +61,7 @@ The difference is the whole diagnosis.
 ### The one path that works: the built-in Beads Browser
 
 At startup, luxd opens its own single connection to the display. On that
-connection it does two things (`domain/hub/clients.py`,
+connection it does two things (`hub/clients.py`,
 `ClientRegistry._setup_apps`):
 
 1. It declares the menu item `{"id": "app-beads", "label": "Beads Browser"}`.

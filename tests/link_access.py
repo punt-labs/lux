@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.dial_end import DialEnd
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.replicator_ports import DeathQueuePort
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.dial_end import DialEnd
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.replicator_ports import DeathQueuePort
+from punt_lux.hub.scene_presentation import ScenePresentation
 from tests.wire.model.display_double import until
 
 if TYPE_CHECKING:
@@ -24,14 +24,14 @@ if TYPE_CHECKING:
 
     import pytest
 
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.death_queue import DeathQueue
-    from punt_lux.domain.hub.dial_death import DialDeath
-    from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_dialer import DisplayDialer
-    from punt_lux.domain.hub.display_writer import DisplayWriter
-    from punt_lux.domain.hub.reader_slot import ReaderSlot
-    from punt_lux.domain.hub.suspect_book import SuspectBook
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.death_queue import DeathQueue
+    from punt_lux.hub.dial_death import DialDeath
+    from punt_lux.hub.dial_generation import DialGeneration
+    from punt_lux.hub.display_dialer import DisplayDialer
+    from punt_lux.hub.display_writer import DisplayWriter
+    from punt_lux.hub.reader_slot import ReaderSlot
+    from punt_lux.hub.suspect_book import SuspectBook
     from punt_lux.wire.model import Element, Message
 
 __all__ = [

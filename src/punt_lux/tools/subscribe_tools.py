@@ -16,7 +16,7 @@ from punt_lux.commands import (
     topic_subscribe as topic_subscribe_command,
     topic_unsubscribe as topic_unsubscribe_command,
 )
-from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
+from punt_lux.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest

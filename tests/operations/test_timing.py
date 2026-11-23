@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import OpError, RenderRequest, SceneShown
 from punt_lux.operations.display_reply import DisplayReplied

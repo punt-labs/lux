@@ -90,7 +90,7 @@ def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
     object.__setattr__(elem, "_session", "../legacy")
     assert elem.validate()
     with (
-        patch("punt_lux.domain.hub.clients.client_registry.asks") as asks,
+        patch("punt_lux.hub.clients.client_registry.asks") as asks,
         patch(
             "punt_lux.wire.model.elements.terminal.JsonTerminalDecoder.decode",
             return_value=elem,
@@ -107,7 +107,7 @@ def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
 
 def test_show_rejects_a_malformed_terminal_wire_before_submission() -> None:
     with (
-        patch("punt_lux.domain.hub.clients.client_registry.asks") as asks,
+        patch("punt_lux.hub.clients.client_registry.asks") as asks,
         pytest.raises(ToolError, match="identifier"),
     ):
         asks.return_value.is_connected = True

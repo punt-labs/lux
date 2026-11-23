@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`punt_lux.domain.hub.hub_factory`."""
+"""Unit tests for :mod:`punt_lux.hub.hub_factory`."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import hub
-from punt_lux.domain.hub.hub_factory import HubPublishSink, hub_element_factory
-from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
+from punt_lux.hub import hub
+from punt_lux.hub.hub_factory import HubPublishSink, hub_element_factory
+from punt_lux.hub.inbox import drain_inbox, ensure_writer
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element_factory import JsonElementFactory
 from punt_lux.wire.model.handlers.publish_sink import PublishSink
@@ -31,7 +31,7 @@ class TestHubPublishSink:
         # An interaction on a scene whose owner has departed publishes into a scope
         # with no writer: it must leave a trace rather than evaporate silently.
         sink = HubPublishSink(ConnectionId("conn-orphaned"))
-        with caplog.at_level(logging.INFO, logger="punt_lux.domain.hub.hub_factory"):
+        with caplog.at_level(logging.INFO, logger="punt_lux.hub.hub_factory"):
             sink("openTicket", {})
         assert "reached no subscribers" in caplog.text
 

@@ -297,7 +297,7 @@ explicit departure or expiry of the helper's 30 s lease runs
 `ClientLifecycle.depart`/`depart_lapsed` and releases ownership, registry,
 callbacks and subscriptions. **That cleanup does not remove scenes or frames**:
 `OwnerTracker.release_all` discards ownership records and leaves elements
-installed (`domain/hub/lifecycle.py`). Actual removal needs an explicit
+installed (`hub/lifecycle.py`). Actual removal needs an explicit
 element removal or unowned-claim reclaim; neither is performed by the new
 helper's owner-scoped clear. Automatic removal of old-instance terminal
 frames therefore remains an implementation gap, not a guarantee of lease
@@ -306,7 +306,7 @@ aliasing instance identities.
 
 Increment 2 adds the daemon instance id (generated at daemon start and reported
 in hello/list), includes it in the helper's Hub identity, and extends
-`domain/hub/client_identity.py`, `identity_headers.py` (both directions), and
+`hub/client_identity.py`, `identity_headers.py` (both directions), and
 `connection_identity.py`'s hashed fields so REST and WebSocket listen resolve
 the same instance-aware connection id. It adds the display-only host label
 and tests: two otherwise identical, same-labelled declarations with different

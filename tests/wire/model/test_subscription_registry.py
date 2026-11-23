@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import Hub, SubscriptionRegistry
+from punt_lux.hub import Hub, SubscriptionRegistry
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import Topic
 from punt_lux.wire.model.messages.observer import ObserverMessage

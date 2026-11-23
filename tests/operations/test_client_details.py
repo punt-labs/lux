@@ -13,15 +13,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
@@ -37,7 +37,7 @@ from punt_lux.wire.model.scope import Scope
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.hub.named_sessions import NamedSession
     from punt_lux.operations.client_facts import ClientFacts
 
 

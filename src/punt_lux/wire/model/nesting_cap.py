@@ -9,7 +9,7 @@ is derived from that same number (both live in :mod:`punt_lux.wire.model.json_pa
 
 The cap judges wire depth, never element kinds: whatever JSON an element's wire form
 carries counts, whether it holds elements or arbitrary data. Only
-:class:`~punt_lux.domain.hub.write_seam.WriteSeam` asks it, because every write to
+:class:`~punt_lux.hub.write_seam.WriteSeam` asks it, because every write to
 the store goes through that seam.
 """
 

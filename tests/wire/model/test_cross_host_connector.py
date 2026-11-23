@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.cross_host_connector import CrossHostConnector
-from punt_lux.domain.hub.cross_host_link import CrossHostEndpoint
-from punt_lux.domain.hub.handshake_outcome import DisplayNotConnectedError
+from punt_lux.hub.cross_host_connector import CrossHostConnector
+from punt_lux.hub.cross_host_link import CrossHostEndpoint
+from punt_lux.hub.handshake_outcome import DisplayNotConnectedError
 from punt_lux.trust import CertificateAuthority
 from punt_lux.wire.model import ConnectMessage, ReadyMessage, recv_message, send_message
 from punt_lux.wire.model.hub_id import HubId
@@ -272,7 +272,7 @@ class TestCrossHostFailure:
             return sock
 
         monkeypatch.setattr(
-            "punt_lux.domain.hub.cross_host_connector.socket.socket", _tracking_socket
+            "punt_lux.hub.cross_host_connector.socket.socket", _tracking_socket
         )
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.bind(("127.0.0.1", 0))

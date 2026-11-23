@@ -8,7 +8,7 @@ anticipated; DES-056 was claimed first by the scene-frame lifecycle ADR.
 DES-057 is the authoritative record of the shipped shape and has since
 evolved past one specific named here: the `kind` discriminator gained
 `"applet"` (DES-063), read `"mcp-session" | "cli" | "applet" | "app"` in
-current source (`domain/hub/client_identity.py`) — `"cli"` itself never
+current source (`hub/client_identity.py`) — `"cli"` itself never
 renamed, despite DES-057's own prose citing `"repo"`. A caller-declared
 lease TTL was added, which this document does not mention.
 What remains accurate and load-bearing is the *diagnosis* and the
@@ -127,7 +127,7 @@ the engine" ([one-code-path.md](one-code-path.md)).
 ## Ownership Is Per-Root, and a Scene Can Have Several Owners
 
 Ownership in Lux is recorded per installed root, not per scene. The `OwnerTracker`
-keys `(scene_id, element_id) → ConnectionId` (`domain/hub/owner_tracker.py`), so
+keys `(scene_id, element_id) → ConnectionId` (`hub/owner_tracker.py`), so
 one scene can hold roots installed by different connections, and each root has its
 own owner. The introspection model already reflects this: `SceneSummary.owners`
 is a list — "every distinct connection owning a root in the scene"
@@ -154,7 +154,7 @@ Here is the fact that reshapes the rest of this design. Today every scene is
 durable. When an MCP session disconnects, the cascade forgets the connection as a
 Hub client, tears down its subscription scope and its writer binding, and
 releases its inbox — and it deliberately leaves the scenes standing
-(`domain/hub/lifecycle.py`, `ClientLifecycle.depart` in `client_lifecycle.py`).
+(`hub/lifecycle.py`, `ClientLifecycle.depart` in `client_lifecycle.py`).
 The roots stay installed and stay owned by the departed connection id until a
 later explicit removal: the user closing the frame, an agent clearing, or a frame
 TTL expiring.
@@ -319,7 +319,7 @@ That is a strict subset of the identity record this design defines. The `repo`
 field is the same field. There must be **one** registry, and it holds the identity
 record.
 
-- **What is shared:** the Hub session registry (`domain/hub/hub_clients.py`, the
+- **What is shared:** the Hub session registry (`hub/hub_clients.py`, the
   `HubClientRegistry`) grows from holding a bare connect-time to holding the
   identity record, and `repo` is one field of it. Both designs populate it from
   the same act — the client declaring its identity when it connects.
@@ -348,7 +348,7 @@ others.
   frame removes the scenes it presented.
 - An **agent or command clears** it explicitly.
 - A **frame TTL expires**, if one was set when the frame was created. The TTL is
-  opt-in per frame (`domain/hub/frame_expiry.py`), not a background collector that
+  opt-in per frame (`hub/frame_expiry.py`), not a background collector that
   reaps orphans. A frame with no TTL is not swept.
 
 There is deliberately no automatic orphan collector for durable scenes. That is

@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.element_index import ElementIndex
-from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.element_index import ElementIndex
+from punt_lux.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element import Element
 from punt_lux.wire.model.elements import (

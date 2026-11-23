@@ -24,7 +24,7 @@ from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._link_reply import LinkReply
 from punt_lux.client._rest_display import _DisplayRestOps
 from punt_lux.client._rest_scenes import _SceneRestOps
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub_client import LuxHubClient
 from punt_lux.identity_headers import ClientHeaders
 from punt_lux.kernel.hub_paths import HubPaths

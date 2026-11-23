@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model import CollapsingHeaderElement

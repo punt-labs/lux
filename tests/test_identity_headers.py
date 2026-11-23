@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 
 

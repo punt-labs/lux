@@ -14,7 +14,7 @@ import logging
 from traceback import extract_tb
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub import disconnect_connection
+from punt_lux.hub import disconnect_connection
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.tools.tools import OPERATIONS
 

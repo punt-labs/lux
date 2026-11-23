@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING, Self
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.hub_interaction_dispatch import HubInteractionDispatch
-from punt_lux.domain.hub.reconnect_wait import ReconnectWait
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.reconnect_wait import ReconnectWait
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
 
@@ -239,8 +239,8 @@ def test_the_composition_root_wires_client_registry_to_the_real_replicator() -> 
     ``hub_replicator`` exists; this proves the bootstrap gap actually closes,
     not just that ``attach_replicator`` works when called directly.
     """
-    from punt_lux.domain.hub.clients import client_registry
-    from punt_lux.domain.hub.replicator_instance import hub_replicator
+    from punt_lux.hub.clients import client_registry
+    from punt_lux.hub.replicator_instance import hub_replicator
 
     assert client_registry._marker is hub_replicator  # test-only introspection
 
@@ -258,9 +258,9 @@ def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(
     reconcile never touches the introspection-only read — and checks that the
     quarantined scene does not appear in the marks the reconcile fired.
     """
-    from punt_lux.domain.hub import hub_display, hub_lifecycle
-    from punt_lux.domain.hub.clients import ClientRegistry
-    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+    from punt_lux.hub import hub_display, hub_lifecycle
+    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.quarantine_record import QuarantineRecord
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.elements.text import TextElement
 

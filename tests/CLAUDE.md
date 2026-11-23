@@ -69,8 +69,10 @@ elapsed time. Behavior assertions are stable; wall-clock bounds are not.
 
 ## Writing tests
 
-Shared model tests mirror `wire/model/` under `tests/wire/model/`; retained Hub
-and PTY packages still use `tests/domain/hub/` and `tests/protocol/pty/`.
+Shared model tests mirror `wire/model/` under `tests/wire/model/`; Hub tests
+mirror `hub/` under `tests/hub/`, and PTY tests remain in `tests/protocol/pty/`.
+`tests/hub/test_imports.py` imports every Hub module in a fresh interpreter
+with blocking DNS forbidden.
 `tests/wire/model/test_imports.py` imports each new model module in a fresh
 interpreter. Legacy Hub pickle-name compatibility is covered by
 `tests/wire/model/messages/test_pickled_element_codec.py`.
@@ -145,7 +147,7 @@ asymmetry went untested.)
 
 ### Level 3 — Hub/Display crossing (integration)
 
-Install the element into `HubDisplay` (the authoritative Hub store, `domain/hub/`)
+Install the element into `HubDisplay` (the authoritative Hub store, `hub/`)
 → push to the Display → assert the Display holds an equal replica. Use the real
 domain objects, not a stub. This proves UI state crosses the process boundary
 intact.

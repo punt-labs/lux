@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.domain.hub.crash_attribution import (
+from punt_lux.hub.crash_attribution import (
     ATTRIBUTION_THRESHOLD,
     ATTRIBUTION_WINDOW,
     STABLE_INTERVAL,
     CrashAttribution,
 )
-from punt_lux.domain.hub.quarantine_record import QuarantineRecord
+from punt_lux.hub.quarantine_record import QuarantineRecord
 from punt_lux.wire.model.ids import SceneId
 
 _A = SceneId("a")

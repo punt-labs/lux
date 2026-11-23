@@ -17,12 +17,12 @@
 % quarantined.
 %
 % Source of record (proposed by docs/architecture/display-crash-quarantine.md):
-%   domain/hub/recovery.py    -- SendRecovery: excludes quarantined scenes
+%   hub/recovery.py    -- SendRecovery: excludes quarantined scenes
 %                                from the post-crash re-mark; drives respawn
-%   domain/hub/replicator.py  -- HubReplicator: batching/isolation send modes
-%   domain/hub/crash_attribution.py -- per-scene tally, threshold, window,
+%   hub/replicator.py  -- HubReplicator: batching/isolation send modes
+%   hub/crash_attribution.py -- per-scene tally, threshold, window,
 %                                stable-interval exit, batched attribution
-%   domain/hub/hub_display.py -- quarantined state and QuarantineRecord on the
+%   hub/hub_display.py -- quarantined state and QuarantineRecord on the
 %                                scene entry; excluded from replication
 %
 % Type-check:  fuzz -t docs/display_crash_loop.tex

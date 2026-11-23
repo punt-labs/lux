@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.domain.hub.session_callback import (
+from punt_lux.hub.session_callback import (
     CallbackInvocation,
     MenuLeaf,
     SessionCallback,

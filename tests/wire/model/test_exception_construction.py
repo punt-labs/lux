@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
-from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
-from punt_lux.domain.hub.ownership_error import HubOwnershipError
-from punt_lux.domain.hub.write_errors import ImmutableFieldError, MalformedPatchError
-from punt_lux.domain.hub.write_refusals import NestingExceededError, UnheldTargetError
+from punt_lux.hub.deferral_errors import StructuralFieldWriteError
+from punt_lux.hub.element_index import UnknownElementError, UnknownSceneError
+from punt_lux.hub.ownership_error import HubOwnershipError
+from punt_lux.hub.write_refusals import NestingExceededError, UnheldTargetError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.interaction_errors import WrongKindError
+from punt_lux.wire.model.write_errors import ImmutableFieldError, MalformedPatchError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

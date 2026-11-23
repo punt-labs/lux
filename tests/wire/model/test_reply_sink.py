@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import ConnectionClosedError
-from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.hub.reply_waiters import ReplyOutOfOrderError
-from punt_lux.domain.hub.settlement import Settlement
+from punt_lux.hub.connection_closed import ConnectionClosedError
+from punt_lux.hub.reply_sink import ReplySink
+from punt_lux.hub.reply_waiters import ReplyOutOfOrderError
+from punt_lux.hub.settlement import Settlement
 from punt_lux.wire.model import AckMessage, PongMessage, QueryResponse
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.hub.connection_closed import RetireCause
 
 
 def _discard(sink: ReplySink, cause: RetireCause) -> Settlement:
@@ -388,7 +388,7 @@ class TestTheClosedFlagIsOneHoldWithTheDiscard:
             assert gate.wait(5.0)
             return real(*args)  # type: ignore[arg-type]  # the capture's own arguments
 
-        monkeypatch.setattr("punt_lux.domain.hub.reply_sink.Settlement", parked)
+        monkeypatch.setattr("punt_lux.hub.reply_sink.Settlement", parked)
 
         def deliver() -> None:
             try:

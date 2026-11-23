@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.details_frame import DetailsFrame
-from punt_lux.domain.hub.menu_frames import MenuFrames
-from punt_lux.domain.hub.session_callback import SessionCallback
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.details_frame import DetailsFrame
+from punt_lux.hub.menu_frames import MenuFrames
+from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 
 _CONN = ConnectionId("c1")

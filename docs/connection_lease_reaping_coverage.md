@@ -69,7 +69,7 @@ note follows it rather than erasing it.
 
 The design is the fix `docs/connection_lease_reaping.tex`'s `Read`,
 `Depart`, and `Claim` schemas specify, realized against the current code at
-`src/punt_lux/domain/hub/hub_clients.py` (`HubClientRegistry`),
+`src/punt_lux/hub/hub_clients.py` (`HubClientRegistry`),
 `client_session.py` (`ClientSession`), `session_lease.py` (`SessionLease`),
 `owner_tracker.py` (`OwnerTracker`), `owner.py` (`Owner`),
 `hub_display.py` (`HubDisplay.drop_connection`, `HubDisplay.apply`,

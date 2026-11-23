@@ -100,7 +100,7 @@ string the caller sent.
    through `SceneSubmission.of` (`operations/scene_submission.py:41`)
    unchanged into `SceneId(scene_id)`, and `SceneInstaller.install`
    (`operations/scene_installer.py:49`) passes that `SceneId` straight to
-   `HubDisplay.show_scene` (`domain/hub/hub_display.py:385`). Nothing between
+   `HubDisplay.show_scene` (`hub/hub_display.py:385`). Nothing between
    the wire and the store touches the string.
 
 2. **`replace_scene` evicts unconditionally, by whoever's roots are already
@@ -111,7 +111,7 @@ string the caller sent.
    caller's `Owner`. There is no "does anyone else already hold this
    `scene_id`" check anywhere in this path. The per-element ownership guard —
    `OwnerTracker.require_ownership`, keyed by `(scene_id, element_id)`
-   (`domain/hub/owner_tracker.py:58`) — only ever fires on `SetProperty` and
+   (`hub/owner_tracker.py:58`) — only ever fires on `SetProperty` and
    `RemoveElement` against an element that is *already installed*. It has
    nothing to say about who may install the *first* root under a given
    `scene_id`, because by the time it could check, `drop_scene_roots` has
@@ -131,10 +131,10 @@ string the caller sent.
 
 4. **The menu-callback system already closed the identical class of bug, by
    the identical mechanism I am proposing.** `SessionCallback.id`
-   (`domain/hub/session_callback.py:45`) is a caller-chosen label, exactly
+   (`hub/session_callback.py:45`) is a caller-chosen label, exactly
    like a `scene_id`. But a callback's raw `id` is never a Hub-wide dict key
    — it lives in `Mapping[str, SessionCallback]` scoped *inside* one
-   session's own `ListenerSlot` (`domain/hub/listener_slot.py:39`), so two
+   session's own `ListenerSlot` (`hub/listener_slot.py:39`), so two
    sessions' callback ids cannot collide by construction: they are different
    dicts. And where a callback *does* need one wire-unique id — the menu
    leaf a click fires on — `CallbackInvocation.menu_id`
@@ -216,7 +216,7 @@ choose.
 ### The class
 
 ```python
-# domain/hub/id_separator.py — new, tiny, shared
+# hub/id_separator.py — new, tiny, shared
 
 """The ASCII unit separator joining a connection id to a caller-local label.
 
@@ -231,7 +231,7 @@ ID_SEPARATOR: Final = "\x1f"
 ```
 
 ```python
-# domain/hub/connection_scoped_id.py — new
+# hub/connection_scoped_id.py — new
 
 """ConnectionScopedId — a caller-chosen id, namespaced to who chose it.
 
@@ -241,7 +241,7 @@ the same store key even when they submit the identical raw string — the
 collision is unrepresentable, not merely rejected.
 
 Mirrors CallbackInvocation's menu-leaf-id composition
-(domain/hub/session_callback.py), which closed the identical class of
+(hub/session_callback.py), which closed the identical class of
 collision for menu callbacks under DES-058/DES-067. This class exists
 because scene and frame ids never received the same treatment.
 """
@@ -362,7 +362,7 @@ caller updating "its own `music-player`" continues to update its own
 "its own" in a way that happens to also spell someone else's.
 
 **One other `SceneId(...)` construction exists outside this write-set —
-verified as not a gap.** `domain/hub/element_invocation_resolver.py:65`
+verified as not a gap.** `hub/element_invocation_resolver.py:65`
 constructs a raw `SceneId` from `RemoteEventHandlerInvocation.scene_id`.
 djb traced the full path: that field is a display-echo of a click, carrying
 the store's own (already-composed, post-design) id verbatim —
@@ -438,8 +438,8 @@ scope — no rate limiting exists anywhere in this codebase today).
 same caller-visible contract. `identify`'s three-field declaration
 (`kind`/`name`/`repo`/`agent`) is unchanged; this design adds no new field
 to `ClientIdentity` and derives nothing new from `identify`. The only new
-types are Hub-internal (`domain/hub/connection_scoped_id.py`,
-`domain/hub/id_separator.py`) — never serialized to a client, never
+types are Hub-internal (`hub/connection_scoped_id.py`,
+`hub/id_separator.py`) — never serialized to a client, never
 deserialized from one.
 
 **Hub↔Display.** `SceneMessage.id` and `ScenePresentation.frame_id`
@@ -500,7 +500,7 @@ frame sharing as a feature and found none — every renderer I traced
 (`show`, `show_table`, `show_dashboard`, `details_scene`) always composes
 its own `frame_id` from its own scene's data, never from another
 connection's. But I did not exhaustively trace the Clients-menu/menubar
-rendering paths (`domain/hub/callback_menu.py`, `menu_group_key.py`) for a
+rendering paths (`hub/callback_menu.py`, `menu_group_key.py`) for a
 deliberate multi-connection frame aggregation, and the mission's own
 scoping excludes the menu system from a full audit here. See Decision 2
 below.
@@ -528,7 +528,7 @@ every write operation's signature; there is no code path where `render`,
 `update`, or `clear` runs without one. Whether that `ConnectionId` came from
 a fully `identify()`-declared connection or one that never called
 `identify` (Owner.identity is `None` in that case,
-`domain/hub/owner.py:29`) does not matter to composition — `.scoped(owner)`
+`hub/owner.py:29`) does not matter to composition — `.scoped(owner)`
 only needs the `ConnectionId`, which every connection has from the moment
 it is registered (`HubDisplay.register_client`,
 `hub_display.py:170`), independent of whether an identity was ever
@@ -751,16 +751,16 @@ before implementation, per Decision 4 below.
 - Bead: `lux-ledm`.
 - Design mission: `m-2026-08-16-006`.
 - Files read to ground this design:
-  `src/punt_lux/domain/hub/client_identity.py`,
-  `src/punt_lux/domain/hub/client_session.py`,
-  `src/punt_lux/domain/hub/hub_display.py`,
-  `src/punt_lux/domain/hub/scene_writer.py`,
-  `src/punt_lux/domain/hub/owner.py`,
-  `src/punt_lux/domain/hub/owner_tracker.py`,
-  `src/punt_lux/domain/hub/applet_name_format.py`,
-  `src/punt_lux/domain/hub/menu_group_key.py`,
-  `src/punt_lux/domain/hub/session_callback.py`,
-  `src/punt_lux/domain/hub/callback_menu.py`,
+  `src/punt_lux/hub/client_identity.py`,
+  `src/punt_lux/hub/client_session.py`,
+  `src/punt_lux/hub/hub_display.py`,
+  `src/punt_lux/hub/scene_writer.py`,
+  `src/punt_lux/hub/owner.py`,
+  `src/punt_lux/hub/owner_tracker.py`,
+  `src/punt_lux/hub/applet_name_format.py`,
+  `src/punt_lux/hub/menu_group_key.py`,
+  `src/punt_lux/hub/session_callback.py`,
+  `src/punt_lux/hub/callback_menu.py`,
   `src/punt_lux/wire/model/ids.py`,
   `src/punt_lux/connection_identity.py`,
   `src/punt_lux/cli_identity.py`,

@@ -32,7 +32,7 @@ class LayerContract:
         "service": "service",
         "client": "client hub_client rest_transport rest_http_call rest_loopback "
         "rest_reply rest_error_body identity_headers header_value cli_identity",
-        "hub": "domain operations commands tools rest luxd mcp_transport "
+        "hub": "hub operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
         "transport_policy hub_composition hub_lifespan mcp_session_manager "
         "mcp_session_scope",
@@ -246,7 +246,9 @@ class LayerRatchet:
             return 1
         try:
             store = LayerBaseline(self._baseline)
-            baseline = store.read() if self._baseline.exists() else frozenset[str]()
+            baseline = (
+                store.read(base_ref) if self._baseline.exists() else frozenset[str]()
+            )
             if not self._baseline.exists() and not update:
                 raise ValueError("missing layer baseline; run make update-layers")
             store.check(baseline, base_ref)

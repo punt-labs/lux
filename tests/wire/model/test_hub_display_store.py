@@ -24,14 +24,14 @@ from typing import TYPE_CHECKING, Literal, Self
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.domain.hub.hub_display import (
+from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
+from punt_lux.hub.hub_display import (
     HubDisplay,
     HubOwnershipError,
     UnknownElementError,
 )
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_snapshot import SceneSnapshot
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_snapshot import SceneSnapshot
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.container_interaction import ModalClosed

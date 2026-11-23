@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.domain.hub.frame_expiry import FrameExpiry
+from punt_lux.hub.frame_expiry import FrameExpiry
 
 
 @final

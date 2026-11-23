@@ -12,18 +12,18 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.domain.hub import dial_socket, socket_line
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.liveness import DisplayLiveness
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub import dial_socket, socket_line
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.scene_presentation import ScenePresentation
 from tests.link_access import generation_of, writer_of
 from tests.wire.model.display_double import Display
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.dial_ref import DialRef
-    from punt_lux.domain.hub.display_requests import DisplayRequests
+    from punt_lux.hub.dial_ref import DialRef
+    from punt_lux.hub.display_requests import DisplayRequests
 
 _WINDOW = 0.2
 

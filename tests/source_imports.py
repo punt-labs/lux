@@ -23,8 +23,8 @@ def module_name(relpath: str) -> str:
 def resolved_imports(source: str, module: str, *, is_package: bool = False) -> set[str]:
     """Every dotted name ``source`` binds by import, relative imports resolved.
 
-    ``from . import presence_writes`` in ``punt_lux.domain.hub.x`` yields both the
-    package and ``punt_lux.domain.hub.presence_writes``, so a module is recognised
+    ``from . import presence_writes`` in ``punt_lux.hub.x`` yields both the
+    package and ``punt_lux.hub.presence_writes``, so a module is recognised
     whether it is imported as a module or by one of its names.
     """
     package = module.split(".") if is_package else module.split(".")[:-1]

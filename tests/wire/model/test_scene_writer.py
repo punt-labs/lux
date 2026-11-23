@@ -18,10 +18,10 @@ from typing import final
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.hub_display import UnknownElementError
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
+from punt_lux.hub.hub_display import UnknownElementError
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId
@@ -108,7 +108,7 @@ def test_absent_removal_skip_is_logged(
     hub_display = factory.display
     writer = HubSceneWriter(hub_display)
 
-    with caplog.at_level(logging.DEBUG, logger="punt_lux.domain.hub.scene_writer"):
+    with caplog.at_level(logging.DEBUG, logger="punt_lux.hub.scene_writer"):
         writer.apply(
             SceneScope(Scope.in_process(_OWNER), _SCENE),
             [{"id": "submit-buton", "remove": True}],

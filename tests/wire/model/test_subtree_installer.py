@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.domain.hub.child_index import ChildIndex
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.element_index import ElementIndex
-from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.hub.owner_tracker import OwnerTracker
-from punt_lux.domain.hub.root_registry import RootRegistry
-from punt_lux.domain.hub.subtree_installer import SubtreeInstaller
+from punt_lux.hub.child_index import ChildIndex
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.element_index import ElementIndex
+from punt_lux.hub.owner import Owner
+from punt_lux.hub.owner_tracker import OwnerTracker
+from punt_lux.hub.root_registry import RootRegistry
+from punt_lux.hub.subtree_installer import SubtreeInstaller
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import ButtonElement, GroupElement, TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId

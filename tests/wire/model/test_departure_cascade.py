@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.domain.hub.departure_cascade import DepartureCascade
-from punt_lux.domain.hub.departure_sinks import DepartureSink
-from punt_lux.domain.hub.hub import Hub
+from punt_lux.hub.departure_cascade import DepartureCascade
+from punt_lux.hub.departure_sinks import DepartureSink
+from punt_lux.hub.hub import Hub
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import Topic
 

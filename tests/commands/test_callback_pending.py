@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import CallbackPendingOps, Ctx, callback_pending
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Scope
 from tests.commands._family_stubs import StubCallbackOps

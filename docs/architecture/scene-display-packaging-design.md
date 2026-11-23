@@ -23,7 +23,7 @@ Two rounds of investigation in the same epic — the DomainPump/`Display`
 confusion, and the `SceneManager` question — each spent real effort untangling
 overlapping names before they could state their actual question. The overlap:
 
-- `HubDisplay` (`domain/hub/`) — the Hub's authoritative store.
+- `HubDisplay` (`hub/`) — the Hub's authoritative store.
 - `Display` (`wire/model/`) — a second store, test-only, being deleted.
 - `DisplayServer` (`display/`) — the ImGui render loop.
 - `SceneManager` (`scene/`) — the render loop's scene and frame bookkeeping.
@@ -86,7 +86,7 @@ home to anything.
 Confirmation by import graph, not by reading: every production importer of
 `punt_lux.scene` is under `display/`, or is one of the two top-level modules in
 §3.3 whose only importer is `display/server.py`. Nothing in `wire/model/`,
-`domain/hub/`, `operations/`, `rest/`, or `tools/` imports `scene/` at all.
+`hub/`, `operations/`, `rest/`, or `tools/` imports `scene/` at all.
 `scene/` is a Display-tier package wearing a top-level, tier-neutral name.
 
 ### 3.2 `display/` — the render loop and its collaborators
@@ -126,15 +126,15 @@ the package root, where the root reads as "shared by everything."
 
 | Module | Class | Status |
 |---|---|---|
-| `domain/hub/hub_display.py` | `HubDisplay` | The Hub-authoritative store. target.md names it. Stays. |
-| `domain/hub/scene_writer.py`, `scene_presentation.py`, `scene_snapshot.py` | Hub-side scene write/read | Stay. Note they prove `scene` is a two-tier noun. |
-| `domain/hub/replicator.py`, `display_workers.py` | The Hub→Display replication leg | Stay in `domain/hub/` — this is the Hub's outbound side, not the Display. |
+| `hub/hub_display.py` | `HubDisplay` | The Hub-authoritative store. target.md names it. Stays. |
+| `hub/scene_writer.py`, `scene_presentation.py`, `scene_snapshot.py` | Hub-side scene write/read | Stay. Note they prove `scene` is a two-tier noun. |
+| `hub/replicator.py`, `display_workers.py` | The Hub→Display replication leg | Stay in `hub/` — this is the Hub's outbound side, not the Display. |
 | `wire/model/display.py` | `Display` | **Being deleted** by a separate in-flight mission. Treated below as already gone. |
-| `display_client.py` (top level) | `DisplayClient` | The **Hub's** socket client of the display; constructed only in `domain/hub/clients.py`. Misfiled and misleadingly named — see §5.4. |
+| `display_client.py` (top level) | `DisplayClient` | The **Hub's** socket client of the display; constructed only in `hub/clients.py`. Misfiled and misleadingly named — see §5.4. |
 
 Layering is currently clean in the one direction that matters and has one
 wrinkle in the other: nothing under `wire/model/` imports `punt_lux.display.*`, and
-nothing under `display/` imports `domain.hub.*` — except
+nothing under `display/` imports `hub.*` — except
 `display/server.py`, which reaches into `punt_lux.display_client` for a
 `no_op_emit` helper. That is a Display-tier module importing a Hub-tier module
 for a two-line default. §5.4 removes it.
@@ -151,7 +151,7 @@ the reconstruction test in §2:
 
 | Package | Tier | Contains |
 |---|---|---|
-| `domain/hub/` | Hub | Authoritative state, ownership, handler dispatch, the replication leg |
+| `hub/` | Hub | Authoritative state, ownership, handler dispatch, the replication leg |
 | `wire/model/` (non-hub) | tier-neutral domain | Element ABC, events, validation — the vocabulary both tiers share |
 | `display/` | Display | The render loop, the replica it renders, input capture |
 | `wire/model/` | wire | Element and message types both tiers speak |
@@ -166,7 +166,7 @@ package, where the tier is already established by the path.
 ### N2 — A class names its job, never its tier
 
 A class in `display/` never needs `Display` in its name; a class in
-`domain/hub/` never needs `Hub`. The path already said it. When both a package
+`hub/` never needs `Hub`. The path already said it. When both a package
 and a class carry the tier, the reader learns nothing from the second one and,
 worse, starts to believe the two are different things — which is precisely how
 `Display`, `HubDisplay`, and `DisplayServer` came to mean three things.
@@ -256,13 +256,13 @@ work and is not folded in here. See open question Q3.
 ### 5.4 `display_client.py` moves to the Hub
 
 `DisplayClient` is the Hub's socket client of the display process. It is
-constructed only in `domain/hub/clients.py`. It is Hub-tier by the
+constructed only in `hub/clients.py`. It is Hub-tier by the
 reconstruction test and by topology.md's statement that the Hub "owns … the
 connection to one or more Displays."
 
 | From | To | Class rename |
 |---|---|---|
-| `display_client.py` | `domain/hub/display_link.py` | `DisplayClient` → `DisplayLink` |
+| `display_client.py` | `hub/display_link.py` | `DisplayClient` → `DisplayLink` |
 
 The `no_op_emit` helper that `display/server.py` currently imports from it moves
 to `display/replica/` as the Display-side default it actually is, which removes
@@ -272,7 +272,7 @@ the one Display→Hub import in the tree.
 
 Stated explicitly so an implementation mission does not go looking:
 
-- `domain/hub/` keeps its name, its layout, and `HubDisplay` (subject to Q1).
+- `hub/` keeps its name, its layout, and `HubDisplay` (subject to Q1).
   Its `scene_writer`, `scene_presentation`, and `scene_snapshot` modules stay
   where they are — they are the Hub's scene concern, and under N1 the path is
   what distinguishes them from `display/replica/scene_replica.py`.
@@ -317,10 +317,10 @@ Not in scope, but named so nobody has to rediscover them:
 Each has a recommendation. None is buried in the prose above.
 
 **Q1. Does `HubDisplay` keep its name?** Under N2 it should not — it is in
-`domain/hub/`, so the `Hub` prefix is redundant, and `Display` there means the
+`hub/`, so the `Hub` prefix is redundant, and `Display` there means the
 UI rather than the tier, which is the very ambiguity this design attacks. A
 consistent rename would be `UiStore` or `ElementStore` in
-`domain/hub/ui_store.py`.
+`hub/ui_store.py`.
 
 *Recommendation: keep `HubDisplay`, grandfathered, and say so in the rule.*
 target.md and topology.md name it repeatedly; renaming it invalidates the

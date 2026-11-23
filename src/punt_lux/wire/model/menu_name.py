@@ -16,7 +16,7 @@ number back out of a label it once wrote to know what ``lux (2)`` is a second
 
 Nothing here knows what a holder is beyond something to key names by. Who is
 still connected, and when a holder has gone, belong to
-:class:`~punt_lux.domain.hub.client_roster.ClientRoster` and the registry above
+:class:`~punt_lux.hub.client_roster.ClientRoster` and the registry above
 it — this only keeps the names it is told to keep.
 """
 

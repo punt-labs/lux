@@ -1,0 +1,68 @@
+"""Define the replicator's port for reading frame owner facts.
+
+The replicator's scene-send path is domain code and the dependency arrow runs
+operations -> domain, never back (mirrors ``ClientDetailsRenderer`` /
+``DetailsBinding`` for the retiring Details command, ``client_details_port.py``
+/ ``details_binding.py``). So the domain declares what it needs — a frame id
+in, the owning connection's :class:`FrameOwnership` (popup rows and scope
+label, empty when unowned) out — and the composition root binds the
+operations-layer implementation once it exists.
+
+Until bound, every frame resolves as unowned: the empty ownership is already
+the wire fields' own "no change / owner unknown" contract (PY-TS-14), so a
+send that races composition needs no special case.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, Self, final, runtime_checkable
+
+from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
+
+__all__ = ["FrameOwnerFactsBinding", "FrameOwnerFactsReader", "NoFrameOwnerFacts"]
+
+
+@runtime_checkable
+class FrameOwnerFactsReader(Protocol):
+    """Resolves a frame's senior owner into the popup's field/value rows."""
+
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        """Return the owner's rows and scope label, both empty if unowned."""
+        ...
+
+
+@final
+class NoFrameOwnerFacts:
+    """The Null Object: a send before anything bound the real reader."""
+
+    __slots__ = ()
+
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        """Report every frame as unowned — the honest answer before binding."""
+        _ = frame_id  # Null Object: the port's contract, unused by design
+        return UNOWNED
+
+
+@final
+class FrameOwnerFactsBinding:
+    """The reader the replicator asks on every send, replaceable at composition."""
+
+    _reader: FrameOwnerFactsReader
+    __slots__ = ("_reader",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._reader = NoFrameOwnerFacts()
+        return self
+
+    def bind(self, reader: FrameOwnerFactsReader) -> None:
+        """Install the reader every later send resolves owner facts through.
+
+        Last binding wins: luxd composes the operations facade at both the
+        MCP and REST roots over the same stores, and either may bind.
+        """
+        self._reader = reader
+
+    def facts_for_frame(self, frame_id: str) -> FrameOwnership:
+        """Delegate to the bound reader (or the Null Object before binding)."""
+        return self._reader.facts_for_frame(frame_id)

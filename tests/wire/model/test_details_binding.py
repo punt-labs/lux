@@ -10,9 +10,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.details_binding import DetailsBinding
-from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
-from punt_lux.domain.hub.details_renderer import (
+from punt_lux.hub.details_binding import DetailsBinding
+from punt_lux.hub.details_outcome import DetailsRefused, DetailsShown
+from punt_lux.hub.details_renderer import (
     ClientDetailsRenderer,
     NoDetailsRenderer,
 )
@@ -21,7 +21,7 @@ from punt_lux.kernel.connection_id import ConnectionId
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.details_outcome import DetailsOutcome
+    from punt_lux.hub.details_outcome import DetailsOutcome
 
 
 @final

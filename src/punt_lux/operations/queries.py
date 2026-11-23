@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
@@ -24,7 +24,7 @@ from punt_lux.operations.scene_listing import SceneListing
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.wire.model import Element as WireElement

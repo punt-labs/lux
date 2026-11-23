@@ -12,18 +12,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.finally_guard import FinallyGuard
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.liveness import DisplayLiveness
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.finally_guard import FinallyGuard
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.wire.model.elements import TableElement
 from punt_lux.wire.model.ids import Topic
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dial_ref import DialRef
-    from punt_lux.domain.hub.keepalive_ports import KeepaliveConnection
+    from punt_lux.hub.dial_ref import DialRef
+    from punt_lux.hub.keepalive_ports import KeepaliveConnection
     from punt_lux.wire.model.messages.observer import ObserverMessage
 
 _TOPIC = Topic("t")

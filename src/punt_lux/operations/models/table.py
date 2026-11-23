@@ -19,7 +19,7 @@ from punt_lux.wire.model.compositions import TableCompositionSpec
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.hub.scene_presentation import ScenePresentation
 
 __all__ = ["RenderTableRequest"]
 

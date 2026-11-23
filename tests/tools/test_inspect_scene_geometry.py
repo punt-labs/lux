@@ -10,16 +10,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.domain.hub import client_registry, hub
-from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.callback_menu import CallbackMenuReplica
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.inbox import ensure_writer, inbox_depth_for, next_event
-from punt_lux.domain.hub.menu_registry import HubMenuRegistry
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub import client_registry, hub
+from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.callback_menu import CallbackMenuReplica
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
+from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
@@ -38,7 +38,7 @@ from tests.dial_double import fake_dial
 if TYPE_CHECKING:
     import pytest
 
-    from punt_lux.domain.hub.dial_ref import DialRef
+    from punt_lux.hub.dial_ref import DialRef
 
 _GEOMETRY_REPLY: dict[str, object] = {
     "scene_id": "s1",
@@ -151,7 +151,7 @@ def test_inspect_scene_tool_carries_z_order_geometry(
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
-    monkeypatch.setattr("punt_lux.domain.hub.clients.client_registry.asks", _StubClient)
+    monkeypatch.setattr("punt_lux.hub.clients.client_registry.asks", _StubClient)
 
     result = read_tools.inspect_scene("s1", want_geometry=True)
 

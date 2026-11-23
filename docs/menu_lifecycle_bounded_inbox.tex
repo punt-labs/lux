@@ -5,7 +5,7 @@
 % leaf lock that serializes its drop-oldest overflow -- the concurrency axis
 % docs/menu_lifecycle.tex and docs/menu_lifecycle_delivery.tex leave abstract.
 % Bead lux-wk3p (branch chore/lux-m3xr-quality-followups); reviews the leaf-lock
-% fix gvr is building for src/punt_lux/domain/hub/inbox_queue.py's BoundedInbox.
+% fix gvr is building for src/punt_lux/hub/inbox_queue.py's BoundedInbox.
 %
 % WHY THIS MODEL EXISTS. lux-wk3p bounded the inbox: BoundedInbox.put drops the
 % oldest undelivered message when the queue is at capacity (INBOX_CAPACITY = 32),
@@ -70,7 +70,7 @@
 %     publish path acquires regLock WHILE holding boxLock. The one-way property
 %     is destroyed and ProB's deadlock check FINDS the cycle.
 %
-% Read first: src/punt_lux/domain/hub/inbox_queue.py (BoundedInbox.put,
+% Read first: src/punt_lux/hub/inbox_queue.py (BoundedInbox.put,
 % _drop_oldest), inbox.py (offer -- put under _inboxes_lock; _writer -- put
 % under _inboxes_lock too, as of the round-3 fix below; inbox_for, drop_session,
 % inbox_depth_for, drain_inbox), and the companions docs/menu_lifecycle.tex (M1,

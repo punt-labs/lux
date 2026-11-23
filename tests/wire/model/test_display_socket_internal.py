@@ -33,21 +33,21 @@ from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
 
-# domain/hub/display_link.py defines DisplayLink; domain/hub/clients.py owns luxd's one
-# lazy connection to the display; domain/hub/cross_host_link.py is the Hub-layer seam
+# hub/display_link.py defines DisplayLink; hub/clients.py owns luxd's one
+# lazy connection to the display; hub/cross_host_link.py is the Hub-layer seam
 # that builds a DisplayLink over the cross-host mTLS dialer (DES-090 W10). No other
 # module may import or reference it.
 _ALLOWED = frozenset(
     {
-        "domain/hub/display_link.py",
-        "domain/hub/clients.py",
-        "domain/hub/cross_host_link.py",
+        "hub/display_link.py",
+        "hub/clients.py",
+        "hub/cross_host_link.py",
     }
 )
 
-_MODULE = "display_link"  # last segment of punt_lux.domain.hub.display_link
+_MODULE = "display_link"  # last segment of punt_lux.hub.display_link
 _CLASS = "DisplayLink"
-_PROTECTED = "punt_lux.domain.hub.display_link"  # the one module this guards
+_PROTECTED = "punt_lux.hub.display_link"  # the one module this guards
 
 
 def _module_tail(node: ast.ImportFrom) -> str:
@@ -138,7 +138,7 @@ def test_the_hub_layer_is_the_client() -> None:
     # The positive side: the allowed registry does reach the client, so the guard
     # above is checking a live invariant, not an empty set. If the Hub connection
     # moves, this fails and the allowed set must be revisited.
-    clients = (_SRC / "domain/hub/clients.py").read_text(encoding="utf-8")
+    clients = (_SRC / "hub/clients.py").read_text(encoding="utf-8")
     assert _display_link_uses(clients), "the Hub client registry must own the socket"
 
 
@@ -147,13 +147,13 @@ def test_the_guard_flags_every_offending_form() -> None:
     # "no offender", not "the pattern never matches". The multi-line parenthesized
     # import is the form that slipped the old line-scoped regex.
     forms = (
-        "from punt_lux.domain.hub.display_link import DisplayLink\n",
-        "from punt_lux.domain.hub.display_link import (\n    DisplayLink,\n)\n",
+        "from punt_lux.hub.display_link import DisplayLink\n",
+        "from punt_lux.hub.display_link import (\n    DisplayLink,\n)\n",
         "from .display_link import DisplayLink as DC\n\nDC(sock)\n",
         "from ...display_link import DisplayLink\n",
         "from . import display_link\n",
-        "from punt_lux.domain.hub import display_link\n",
-        "import punt_lux.domain.hub.display_link as dc\n\ndc.DisplayLink(sock)\n",
+        "from punt_lux.hub import display_link\n",
+        "import punt_lux.hub.display_link as dc\n\ndc.DisplayLink(sock)\n",
         "with DisplayLink(sock) as c:\n    ...\n",
         "class Fake(display_link.DisplayLink):\n    pass\n",
     )
@@ -170,5 +170,5 @@ def test_the_guard_ignores_prose_and_value_imports() -> None:
     assert not _display_link_uses("# see DisplayLink for details\n")
     # Importing a plain value from the module is not opening the socket.
     assert not _display_link_uses(
-        "from punt_lux.domain.hub.display_link import DEFAULT_RECV_TIMEOUT\n"
+        "from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT\n"
     )

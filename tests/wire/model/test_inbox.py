@@ -10,9 +10,9 @@ from collections import deque
 from typing import Self, final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub import hub_lifecycle, inbox as inbox_mod
-from punt_lux.domain.hub.hub import hub
-from punt_lux.domain.hub.inbox import (
+from punt_lux.hub import hub_lifecycle, inbox as inbox_mod
+from punt_lux.hub.hub import hub
+from punt_lux.hub.inbox import (
     drain_inbox,
     drop_session,
     ensure_writer,
@@ -21,7 +21,7 @@ from punt_lux.domain.hub.inbox import (
     next_event,
     offer,
 )
-from punt_lux.domain.hub.inbox_queue import BoundedInbox
+from punt_lux.hub.inbox_queue import BoundedInbox
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import Topic
 from punt_lux.wire.model.messages.observer import ObserverMessage

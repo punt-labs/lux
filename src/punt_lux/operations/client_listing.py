@@ -15,11 +15,11 @@ from punt_lux.operations.models.query_clients import ClientList, HubClient
 from punt_lux.operations.scene_listing import SceneListing
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_session import ClientSession
-    from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.hub.client_session import ClientSession
+    from punt_lux.hub.hub import Hub
+    from punt_lux.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.hub_display import HubDisplay
+    from punt_lux.hub.named_sessions import NamedSession
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.hub_collaborators import InboxDepth
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.named_sessions import NamedSession
+from punt_lux.hub.named_sessions import NamedSession
 from punt_lux.operations.details_scene import DetailsScene
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.timing import Timed

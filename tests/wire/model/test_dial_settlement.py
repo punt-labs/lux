@@ -20,30 +20,30 @@ from typing import TYPE_CHECKING, Self, cast, final
 import pytest
 
 from punt_lux.bounded_send import TornStreamError
-from punt_lux.domain.hub import bounded_ask, dial_socket, socket_line
-from punt_lux.domain.hub.backoff_config import BackoffConfig
-from punt_lux.domain.hub.batch_sender import BatchSendError
-from punt_lux.domain.hub.bounded_ask import BoundedAsk
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub import bounded_ask, dial_socket, socket_line
+from punt_lux.hub.backoff_config import BackoffConfig
+from punt_lux.hub.batch_sender import BatchSendError
+from punt_lux.hub.bounded_ask import BoundedAsk
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
     UnresponsiveError,
 )
-from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.dial_generation import DialGeneration
-from punt_lux.domain.hub.dial_reader import DialReader
-from punt_lux.domain.hub.dial_socket import DialSocket
-from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_listener import DisplayListener
-from punt_lux.domain.hub.drain_result import DrainIncompleteError
-from punt_lux.domain.hub.recovery import SendRecovery
-from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.hub.respawn_backoff import RespawnBackoff
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
-from punt_lux.domain.hub.settler import Settler
-from punt_lux.domain.hub.suspect_book import SuspectBook
+from punt_lux.hub.dial_drain import DialDrain
+from punt_lux.hub.dial_generation import DialGeneration
+from punt_lux.hub.dial_reader import DialReader
+from punt_lux.hub.dial_socket import DialSocket
+from punt_lux.hub.dirty_signal import DirtySignal, DrainedBatch
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.display_listener import DisplayListener
+from punt_lux.hub.drain_result import DrainIncompleteError
+from punt_lux.hub.recovery import SendRecovery
+from punt_lux.hub.reply_sink import ReplySink
+from punt_lux.hub.respawn_backoff import RespawnBackoff
+from punt_lux.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.settler import Settler
+from punt_lux.hub.suspect_book import SuspectBook
 from punt_lux.wire.model import (
     AckMessage,
     PingMessage,
@@ -77,9 +77,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from types import TracebackType
 
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.reader_slot import ReaderSlot
-    from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.reader_slot import ReaderSlot
+    from punt_lux.hub.replicator_ports import ClientProvider, DisplayLifecycle
 
 
 @pytest.fixture

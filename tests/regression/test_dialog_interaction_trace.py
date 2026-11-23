@@ -24,8 +24,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.element import Element as WireElement
 from punt_lux.wire.model.element_abc import Element as AbcElement

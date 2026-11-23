@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.hub.owner_tracker import OwnerTracker
-from punt_lux.domain.hub.ownership_error import HubOwnershipError
+from punt_lux.hub.owner import Owner
+from punt_lux.hub.owner_tracker import OwnerTracker
+from punt_lux.hub.ownership_error import HubOwnershipError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId
 

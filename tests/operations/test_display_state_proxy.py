@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Self, final
 
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.display_state_proxy import DisplayStateProxy

@@ -15,8 +15,8 @@ from collections import deque
 
 import pytest
 
-from punt_lux.domain.hub import inbox_queue as inbox_queue_module
-from punt_lux.domain.hub.inbox_queue import INBOX_CAPACITY, BoundedInbox
+from punt_lux.hub import inbox_queue as inbox_queue_module
+from punt_lux.hub.inbox_queue import INBOX_CAPACITY, BoundedInbox
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.messages.observer import ObserverMessage
 
@@ -84,7 +84,7 @@ def test_a_full_inbox_warns_when_it_drops(caplog: pytest.LogCaptureFixture) -> N
     inbox = BoundedInbox(_CONN, capacity=1)
     inbox.put(_msg("first"))
 
-    with caplog.at_level(logging.WARNING, logger="punt_lux.domain.hub.inbox_queue"):
+    with caplog.at_level(logging.WARNING, logger="punt_lux.hub.inbox_queue"):
         inbox.put(_msg("second"))
 
     assert any(

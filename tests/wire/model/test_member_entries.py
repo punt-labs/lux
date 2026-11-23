@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_session import ClientSession
-from punt_lux.domain.hub.member_entries import MemberEntries
-from punt_lux.domain.hub.menu_frames import MenuFrames
-from punt_lux.domain.hub.named_sessions import NamedSession
-from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_session import ClientSession
+from punt_lux.hub.member_entries import MemberEntries
+from punt_lux.hub.menu_frames import MenuFrames
+from punt_lux.hub.named_sessions import NamedSession
+from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 
 _CONN = ConnectionId("c1")

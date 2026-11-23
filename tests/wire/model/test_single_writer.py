@@ -31,17 +31,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_requests import DisplayRequests
-from punt_lux.domain.hub.display_writer import DisplayWriter
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.display_requests import DisplayRequests
+from punt_lux.hub.display_writer import DisplayWriter
 from tests.class_references import ClassReferences, aliased_constructions
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
-_HUB = "domain/hub/"
+_HUB = "hub/"
 
 # The modules that name a ``DialGeneration``: the dial and what is built on it. A
 # module outside this set cannot hold a dial, so it cannot write or read on one.
@@ -395,9 +395,7 @@ class TestTheLinkIsTheRegistrysAlone:
     def test_a_second_declarer_and_a_second_naming_of_the_link_are_found(self) -> None:
         planted_declare = "def f(clients):\n    clients.link.desk.declare(())\n"
         planted_connect = "def f(link):\n    link.open_as_hub(m)\n"
-        planted_naming = (
-            "from punt_lux.domain.hub.display_link import DisplayLink as L\n"
-        )
+        planted_naming = "from punt_lux.hub.display_link import DisplayLink as L\n"
 
         assert _calls_of(planted_declare, "declare") == 1
         assert _declaring_connects(planted_connect) == 1
@@ -438,8 +436,8 @@ class TestOnlyTheDialModelCanHoldADial:
 
     def test_a_module_that_names_a_dial_in_any_spelling_is_found(self) -> None:
         for planted in (
-            "from punt_lux.domain.hub.dial_generation import DialGeneration\n",
-            "import punt_lux.domain.hub.dial_generation as g\nx = g.DialGeneration\n",
+            "from punt_lux.hub.dial_generation import DialGeneration\n",
+            "import punt_lux.hub.dial_generation as g\nx = g.DialGeneration\n",
             "def f(dial: DialGeneration) -> None:\n    dial.send(None)\n",
         ):
             assert "DialGeneration" in _names(planted), planted
@@ -453,7 +451,7 @@ class TestTheRulesCanFail:
 
     @pytest.mark.parametrize("name", ["DisplayWriter", "WriteSeat"])
     def test_an_aliased_construction_is_counted(self, name: str) -> None:
-        for planted in aliased_constructions("punt_lux.domain.hub.x", name):
+        for planted in aliased_constructions("punt_lux.hub.x", name):
             assert _constructions(planted, name) == 1, planted
 
     def test_a_second_seat_taker_is_found(self) -> None:

@@ -41,7 +41,7 @@ from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.route_deps import RouteDeps
     from punt_lux.rest.status import HttpErrorMap

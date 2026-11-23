@@ -4,7 +4,7 @@ Companion to `docs/menu_lifecycle_bounded_inbox.tex`, following the format of
 `docs/menu_lifecycle_coverage.md`. This is a **modeling-mission** artifact
 (bead `lux-wk3p`, branch `chore/lux-m3xr-quality-followups`): the model is the
 merge gate for the bounded-inbox leaf-lock fix gvr is building in parallel for
-`src/punt_lux/domain/hub/inbox_queue.py`, and the partitions below are the
+`src/punt_lux/hub/inbox_queue.py`, and the partitions below are the
 contract the fix's tests must cover. A partition left unchecked when the fix
 lands is a gap, not a missing row.
 
@@ -267,7 +267,7 @@ B1/B2 govern.
 
 Each row names a behaviour a test must exercise; the "Covering test" column
 names the real test in the file the fix landed in,
-`tests/wire/model/test_inbox_queue.py` (note: `wire/model/`, not `domain/hub/`).
+`tests/wire/model/test_inbox_queue.py` (note: `wire/model/`, not `hub/`).
 
 | Partition | Meaning | Covering test |
 |---|---|---|

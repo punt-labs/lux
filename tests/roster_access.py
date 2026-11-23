@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.client_roster import ClientRoster, RosterRelease
+from punt_lux.hub.client_roster import ClientRoster, RosterRelease
 
 __all__ = ["release_of"]
 

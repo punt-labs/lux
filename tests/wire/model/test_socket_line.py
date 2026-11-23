@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub import socket_line
-from punt_lux.domain.hub.lock_discipline_error import LockDisciplineError
-from punt_lux.domain.hub.socket_line import SocketLine
-from punt_lux.domain.hub.store_lock import StoreLock
+from punt_lux.hub import socket_line
+from punt_lux.hub.lock_discipline_error import LockDisciplineError
+from punt_lux.hub.socket_line import SocketLine
+from punt_lux.hub.store_lock import StoreLock
 from tests.wire.model.display_double import Call
 
 if TYPE_CHECKING:

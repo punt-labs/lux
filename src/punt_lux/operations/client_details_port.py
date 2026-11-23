@@ -17,17 +17,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.details_outcome import DetailsRefused, DetailsShown
+from punt_lux.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scene_installer import SceneInstaller
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.details_outcome import DetailsOutcome
-    from punt_lux.domain.hub.hub import Hub
-    from punt_lux.domain.hub.hub_clients import HubClientRegistry
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.details_outcome import DetailsOutcome
+    from punt_lux.hub.hub import Hub
+    from punt_lux.hub.hub_clients import HubClientRegistry
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.ports import DirtyMarker, HubPorts
 

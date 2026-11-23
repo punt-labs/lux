@@ -11,8 +11,8 @@ from punt_lux.operations.reserved_topics import RESERVED_TOPICS
 from punt_lux.wire.model.ids import Topic
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub import Hub
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub import Hub
     from punt_lux.operations.models.pubsub import PublishRequest
     from punt_lux.operations.ports import HubPorts
     from punt_lux.wire.model.scope import Scope

@@ -15,13 +15,13 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.departure_cascade import DepartureCascade
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.owner import Owner
-from punt_lux.domain.hub.ownership_error import HubOwnershipError
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.departure_cascade import DepartureCascade
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.owner import Owner
+from punt_lux.hub.ownership_error import HubOwnershipError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId, Topic
 from punt_lux.wire.model.scope import Scope
@@ -173,7 +173,7 @@ def test_replace_scene_removes_old_roots_and_installs_new() -> None:
     root_ids = {e.id for e in roots}
     assert root_ids == {"new"}
 
-    from punt_lux.domain.hub.element_index import UnknownElementError
+    from punt_lux.hub.element_index import UnknownElementError
 
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, ElementId("old"))
@@ -208,8 +208,8 @@ def test_reshow_from_a_new_connection_replaces_a_departed_sessions_roots() -> No
 
 def test_show_scene_snapshots_the_identity_onto_every_owner() -> None:
     """The connection's declared identity is recorded as each root's attribution."""
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.scene_presentation import ScenePresentation
 
     factory = HubStoreFactory()
     hub_display = factory.display
@@ -235,8 +235,8 @@ def test_departing_a_connection_releases_ownership_but_keeps_the_content() -> No
     the ordinary unowned-claim path — but nobody is attributed to it the
     moment it departs, identity declared or not.
     """
-    from punt_lux.domain.hub.client_identity import ClientIdentity
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.hub.scene_presentation import ScenePresentation
 
     factory = HubStoreFactory()
     hub_display = factory.display
@@ -265,7 +265,7 @@ def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None
     connection clearing its UI must not evict a root another connection still holds
     in the same scene.
     """
-    from punt_lux.domain.hub.scene_writer import HubSceneWriter
+    from punt_lux.hub.scene_writer import HubSceneWriter
 
     factory = HubStoreFactory()
     hub_display = factory.display

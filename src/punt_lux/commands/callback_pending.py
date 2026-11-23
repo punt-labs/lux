@@ -14,7 +14,7 @@ from punt_lux.commands._result import CommandResult
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import CallbackPendingOps, Ctx
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.operations import Scope
 
 

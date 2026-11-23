@@ -264,7 +264,7 @@ the field and the `__new__` parameter (`interaction.py:78`, `:87`), and refresh
 the PY-TS-14 justification comment to name the four types across three kinds
 (checkbox→bool, input_text→str, slider→float/int). The Hub-side dispatch guard
 that reconstructs the event from a wire invocation
-([`clients.py`](../../../src/punt_lux/domain/hub/clients.py)) widens the same
+([`clients.py`](../../../src/punt_lux/hub/clients.py)) widens the same
 way — the firing element re-validates the value's shape for its kind.
 `RemoteDispatchGroup`'s wire stamping already carries an opaque `value`, so no
 transport code changes.

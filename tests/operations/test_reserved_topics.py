@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.menu_event import MENU_TOPIC
+from punt_lux.hub.menu_event import MENU_TOPIC
 from punt_lux.operations.models import OpError
 from punt_lux.operations.reserved_topics import RESERVED_TOPICS, ReservedTopics
 

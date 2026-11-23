@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.display_connection import DisplayConnection
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.display_connection import DisplayConnection
 
 __all__ = ["FakeDial", "end_fake_dial", "fake_dial"]
 

@@ -57,15 +57,23 @@
 
 ### Changed
 
-- Hub↔Display handshake version is now `0.2` for the `wire.model` pickle
-  namespace. The Hub rejects an older or unversioned Display before sending
+- Hub↔Display handshake version is now `0.3` for the `wire.model` and top-level
+  `hub` pickle namespaces. The Hub rejects an older or unversioned Display before sending
   scenes, closes the connection, and logs an actionable error: restart
   `luxd-display` with `make restart` or `lux service restart`.
 
+- **Breaking Python import changes:** `punt_lux.domain.hub.*` is now
+  `punt_lux.hub.*`, and the empty `punt_lux.domain` package is removed.
+  Shared patch requests and validation errors move from `domain.hub.patch_batch`
+  and `domain.hub.write_errors` to `punt_lux.wire.model.patch_batch` and
+  `punt_lux.wire.model.write_errors`. There are no compatibility alias modules;
+  callers must update imports. The Display decoder remaps old Hub pickle paths,
+  including `HubPublishSink` carried by published element handlers.
+
 - **Breaking Python import changes:** shared `punt_lux.domain.*` and
   `punt_lux.protocol.*` models now live under `punt_lux.wire.model.*`, keeping
-  their relative module paths. `punt_lux.domain.hub.*` and
-  `punt_lux.protocol.pty.*` remain in place. `LeaseTerm` moves from
+  their relative module paths. `punt_lux.protocol.pty.*` remains in place.
+  `LeaseTerm` moves from
   `punt_lux.domain.hub.lease_term` to `punt_lux.wire.model.lease_term`,
   `ProgrammerError` moves to `punt_lux.kernel.programmer_error`,
   `ConnectionId` moves to `punt_lux.kernel.connection_id`, and display
@@ -592,7 +600,7 @@
   peer's write, kept all three live forever — and because connection ids
   are identity-derived, a same-identity reconnect could inherit a dead
   predecessor's stale subscriptions and be silently blocked from installing
-  its own fresh writer. A new `DepartureCascade` (`domain/hub/`) now runs
+  its own fresh writer. A new `DepartureCascade` (`hub/`) now runs
   all four legs — registry, ownership, subscriptions/writer, and each
   connection's registered `DepartureSink` (today, the inbox) — atomically,
   inside the same `StoreLock` hold, for every departure trigger alike.
@@ -1357,7 +1365,7 @@
   Follow-on bead.
 - **`frame_expire --in <seconds>`** — needs `FrameExpiry.set_deadline`
   exposed through `FrameLifecycle`, currently private to the presentation
-  re-show path in `domain/hub/`. Follow-on bead.
+  re-show path in `hub/`. Follow-on bead.
 
 ### Not shipped (by design, mechanical)
 
@@ -1656,7 +1664,7 @@
   `RenderLoop`.** A class in `display/` no longer needs `Display` in its name
   to say what tier it is on. Move and rename only — the module's own
   1,082-line decomposition is still owed, separately.
-- **`display_client.py` is `domain/hub/display_link.py`; `DisplayClient` is
+- **`display_client.py` is `hub/display_link.py`; `DisplayClient` is
   `DisplayLink`.** It is the Hub's socket client of the display, not
   Display-tier code, despite the old name and location — moving it closes the
   one Display→Hub import in the tree. The unrelated agent-side wire-decode
@@ -2699,7 +2707,7 @@ old paths or class names directly (outside this package) needs updating.
   client (luxd).
 - **Hub-side session logic relocated out of `tools/`.** The connection-scoped
   element decode (`hub_factory`) and the per-session inbox queues (`inbox`) moved
-  into `domain/hub`, where the rest of the Hub session machinery lives.
+  into `hub`, where the rest of the Hub session machinery lives.
 - **`ValueChanged.value` widened to `bool | int | float | str`** (from
   `bool | str`) so a slider commit can carry its `float` (or `int` for the
   integer variant) alongside a checkbox `bool` and an input_text `str`. The

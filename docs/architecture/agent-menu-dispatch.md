@@ -35,9 +35,9 @@ path when clicked. One works; one is dead. The split is the defect.
 display already honors it:
 
 - `MenuAction.frame_id` exists —
-  `src/punt_lux/domain/hub/menu_models.py:39`.
+  `src/punt_lux/hub/menu_models.py:39`.
 - `MenuAction.to_wire` emits it when present —
-  `src/punt_lux/domain/hub/menu_models.py:47`.
+  `src/punt_lux/hub/menu_models.py:47`.
 - The display's `WireAction.of_payload` reads it back —
   `src/punt_lux/display/menus/wire.py:113`.
 - The display raises the frame when it is present —
@@ -46,7 +46,7 @@ display already honors it:
 But the decode of an agent-supplied item never reads it.
 `Menu._entry_from_wire` builds a `MenuAction` from only
 `{id, label, shortcut, icon}` —
-`src/punt_lux/domain/hub/menu_models.py:111-139`. So every agent item is
+`src/punt_lux/hub/menu_models.py:111-139`. So every agent item is
 `frame_id=None` end to end, and the frame-raise branch never fires for it.
 
 ### 1.2 Gap (b) — a frameless agent click is dropped
@@ -56,14 +56,14 @@ The display always emits the same interaction for a menu click —
 `src/punt_lux/display/menus/wire_decode.py:85-96`. On the Hub the message
 lands in the DisplayLink listener and routes to `HubInteractionDispatch`:
 
-- `src/punt_lux/domain/hub/display_link.py:288-315` → `HubInteractionDispatch.dispatch`
-- `src/punt_lux/domain/hub/hub_interaction_dispatch.py:40-49` → `_dispatch_menu_callback`
-- `src/punt_lux/domain/hub/hub_interaction_dispatch.py:91-119`
+- `src/punt_lux/hub/display_link.py:288-315` → `HubInteractionDispatch.dispatch`
+- `src/punt_lux/hub/hub_interaction_dispatch.py:40-49` → `_dispatch_menu_callback`
+- `src/punt_lux/hub/hub_interaction_dispatch.py:91-119`
 
 `_dispatch_menu_callback` requires the leaf id to parse as a callback leaf —
 `CallbackInvocation.from_menu_id`, which demands the composite
 `connection_id<US>callback_id` shape
-(`src/punt_lux/domain/hub/session_callback.py:89-100`). An agent item's id is a
+(`src/punt_lux/hub/session_callback.py:89-100`). An agent item's id is a
 bare string (`run_btn`, `agent_smoke`); it has no unit separator; the parse
 raises `ValueError`; the code logs *"menu click for a non-callback leaf
 id; ignoring"* and returns. The click is dropped.
@@ -84,7 +84,7 @@ excuse):
 - **The agent bar is global, last-writer-wins.** `HubMenuRegistry` holds a
   flat `list[Menu]` and `set_menus` replaces it wholesale, with no record of
   which session registered it —
-  `src/punt_lux/domain/hub/menu_registry.py:45-48`. Two Claude sessions calling
+  `src/punt_lux/hub/menu_registry.py:45-48`. Two Claude sessions calling
   `menu_set` clobber each other. Routing a click to "the owning session" is
   impossible while the registry does not record an owner.
 - **A departed session's agent menus never leave.** The registry has no
@@ -254,7 +254,7 @@ a reserved-topic UI event, and the agent drains it with the `recv()` tool it
 already has. No new standing MCP tool. This makes the current `menu_set`
 docstring's promise — *"clicks arrive via recv()"* — true, and it spends
 machinery that already exists and is departure-correct: the per-connection
-`ObserverMessage` inbox (`domain/hub/inbox.py`) and the `topic_recv` drain
+`ObserverMessage` inbox (`hub/inbox.py`) and the `topic_recv` drain
 (`tools/subscribe_tools.py:86-96`).
 
 The event is an `ObserverMessage` on a **reserved `lux.menu` topic** the Hub
@@ -445,7 +445,7 @@ concrete surface each change lands on.
 
 ### 7.1 Gap (a) — frame binding
 
-- `src/punt_lux/domain/hub/menu_models.py` — add `MenuAction.from_wire` (reads
+- `src/punt_lux/hub/menu_models.py` — add `MenuAction.from_wire` (reads
   `frame_id`; the fix), `MenuSeparator.from_wire`; reduce `Menu._entry_from_wire`
   to a discriminator delegating to them; add the `runtime_checkable`
   `WireMenuEntry` Protocol; add `MenuAction` id-separator rejection (gap-b
@@ -458,18 +458,18 @@ concrete surface each change lands on.
 
 ### 7.2 Gap (b) — ownership, dispatch, delivery
 
-- `src/punt_lux/domain/hub/menu_registry.py` — session-key the registry:
+- `src/punt_lux/hub/menu_registry.py` — session-key the registry:
   `set_menus(connection_id, menus)`, `drop_session(connection_id)`, and
   `wire_snapshot()` stamping every leaf id `owner<US>item_id`. Closes the
   global-clobber and never-withdrawn bugs.
 - `src/punt_lux/operations/menus.py` — `MenuOperations.set_menu(request, *, scope)`
   records the owner and arms the session's inbox writer + departure sink
   (`ensure_writer`); a `drop_session` re-push mirroring `CallbackOperations`.
-- `src/punt_lux/domain/hub/hub_interaction_dispatch.py` — `_dispatch_menu_callback`
+- `src/punt_lux/hub/hub_interaction_dispatch.py` — `_dispatch_menu_callback`
   becomes the one menu path (§4.2): parse every leaf, `is_details` unchanged,
   fork by live-session capability (listener → `CallbackRouter`; inbox → enqueue;
   gone → `provider_gone` + re-push). Delete the bare-id drop.
-- `src/punt_lux/domain/hub/inbox.py` — the gated enqueue helper that puts a
+- `src/punt_lux/hub/inbox.py` — the gated enqueue helper that puts a
   reserved-topic `lux.menu` `ObserverMessage` on the owner's inbox, behind the
   live-session read (or a sibling `menu_event.py` if that keeps `inbox.py` under
   the size cap).
@@ -484,17 +484,17 @@ concrete surface each change lands on.
 
 ### 7.3 Tests
 
-- `tests/domain/hub/test_menu_models.py` — `MenuAction` round-trip with and
+- `tests/hub/test_menu_models.py` — `MenuAction` round-trip with and
   without `frame_id` (build → `to_wire` → `from_wire` → compare); `isinstance`
   against `WireMenuEntry` for the family; id-separator rejection; malformed
   `frame_id` rejected by name.
-- `tests/domain/hub/test_hub_interaction_dispatch.py` — **the gap-(b)
+- `tests/hub/test_hub_interaction_dispatch.py` — **the gap-(b)
   regression:** a frameless agent menu click for a live inbox session is
   *delivered* (the `lux.menu` event lands on the inbox / `recv` returns it), not
   dropped; a click for an applet (listener) session routes to the callback hold;
   a click for a departed session → `provider_gone`, *not delivered*; `Details`
   still runs; boundary — a malformed leaf id is an `invalid_request`, no crash.
-- `tests/domain/hub/test_menu_registry.py` — session-keyed set/drop/snapshot;
+- `tests/hub/test_menu_registry.py` — session-keyed set/drop/snapshot;
   two sessions do not clobber; a departed session's menus leave; leaf ids
   stamped with the owner.
 - A surface/integration test — `menu_set` from one identified session then

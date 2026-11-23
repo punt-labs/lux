@@ -186,21 +186,12 @@
       "type_ignore": 1,
       "file_level": 1
     },
-    "src/punt_lux/domain/handlers/remote_dispatch.py": {
-      "noqa": 1
-    },
-    "src/punt_lux/domain/hub/subtree_remover.py": {
+    "src/punt_lux/hub/subtree_remover.py": {
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
       "type_ignore": 1,
       "per_file_ignores": 1
-    },
-    "src/punt_lux/paths.py": {
-      "noqa": 2
-    },
-    "src/punt_lux/protocol/messages/unknown_message.py": {
-      "noqa": 1
     },
     "src/punt_lux/ptyd/pty_spawn.py": {
       "noqa": 1
@@ -213,10 +204,19 @@
       "pylint_disable": 1,
       "per_file_ignores": 2
     },
+    "src/punt_lux/service/display_paths.py": {
+      "noqa": 2
+    },
     "src/punt_lux/service/doctor_checks.py": {
       "noqa": 1
     },
     "src/punt_lux/trust/aws_private_ca_provider.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/wire/model/handlers/remote_dispatch.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/wire/model/messages/unknown_message.py": {
       "noqa": 1
     },
     "tools/*": {
@@ -282,7 +282,7 @@
     "src/punt_lux/tools/__init__.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/protocol/elements/*.py": {
+    "src/punt_lux/wire/model/elements/*.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/service/__init__.py": {
@@ -309,30 +309,30 @@
     "tests/e2e/test_binary_sweep.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/domain/event_handler_host.py": {
+    "src/punt_lux/wire/model/event_handler_host.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/domain/hub/hub_interaction_dispatch.py": {
+    "src/punt_lux/hub/hub_interaction_dispatch.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/domain/hub/element_index.py": {
+    "src/punt_lux/hub/element_index.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/domain/hub/builtin_callbacks.py": {
+    "src/punt_lux/hub/builtin_callbacks.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/protocol/element_factory.py": {
+    "src/punt_lux/wire/model/element_factory.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/protocol/elements/dialog_codec.py": {
+    "src/punt_lux/wire/model/elements/dialog_codec.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/protocol/messages/scene_codec.py": {
+    "src/punt_lux/wire/model/messages/scene_codec.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/protocol/messages/pickled_element_codec.py": {
+    "src/punt_lux/wire/model/messages/pickled_element_codec.py": {
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-22T19:49:55Z"
+  "updated_at": "2026-11-22T23:45:16Z"
 }

@@ -8,18 +8,18 @@ from typing import TYPE_CHECKING, cast, final
 import pytest
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
-from punt_lux.domain.hub import hub, hub_lifecycle
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory, hub_clients
-from punt_lux.domain.hub.inbox import (
+from punt_lux.hub import hub, hub_lifecycle
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_factory import hub_element_factory
+from punt_lux.hub.hub_store_factory import HubStoreFactory, hub_clients
+from punt_lux.hub.inbox import (
     drop_session,
     ensure_writer,
     inbox_depth_for,
     next_event,
     offer,
 )
-from punt_lux.domain.hub.menu_event import MENU_TOPIC, MenuSelection
+from punt_lux.hub.menu_event import MENU_TOPIC, MenuSelection
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.models import OpError

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.models.query_ownership import SceneOwner
 from punt_lux.operations.models.query_quarantine import QuarantineInfo
@@ -26,9 +26,9 @@ from punt_lux.operations.models.query_scenes import (
 )
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.quarantine_record import QuarantineRecord
-    from punt_lux.domain.hub.scene_presentation import ScenePresentation
+    from punt_lux.hub.hub_display import HubDisplay
+    from punt_lux.hub.quarantine_record import QuarantineRecord
+    from punt_lux.hub.scene_presentation import ScenePresentation
     from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
     from punt_lux.operations.models.inspect_scope import InspectScope
     from punt_lux.wire.model.ids import SceneId

@@ -27,7 +27,7 @@ from punt_lux.commands._ports import Ctx
 from punt_lux.commands.display_state_get import DisplayStateOps, display_state_get
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import (
         DisplayInfo,
         DisplayModeState,

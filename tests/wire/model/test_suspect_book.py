@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.settlement import Settlement
-from punt_lux.domain.hub.suspect_book import SuspectBook
+from punt_lux.hub.settlement import Settlement
+from punt_lux.hub.suspect_book import SuspectBook
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.connection_closed import RetireCause
+    from punt_lux.hub.connection_closed import RetireCause
 
 
 def _ids(*names: str) -> frozenset[SceneId]:

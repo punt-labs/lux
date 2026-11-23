@@ -4,7 +4,7 @@ A menu item is a session's callback. This concern owns the Hub-side move of the
 callback model that is a write: a push-reachable, identified session *registers*
 a callback (a menu write the replicator pushes). The *menu build*, which reads the
 live sessions into the uniform ``Clients`` tree, is the read of
-:class:`~punt_lux.domain.hub.callback_menu.CallbackMenuReplica`. Routing a click
+:class:`~punt_lux.hub.callback_menu.CallbackMenuReplica`. Routing a click
 to the owning session's live listener is the ``CallbackRouter``'s own move,
 driven from the interaction dispatch, not from this facade; this concern only
 *peeks* at what a router has buffered, through :meth:`pending_callbacks`.
@@ -23,14 +23,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import Ok
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.registry_outcomes import CallbackRegistration
+    from punt_lux.hub.callback_hold import CallbackRouter
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.registry_outcomes import CallbackRegistration
     from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.wire.model.scope import Scope

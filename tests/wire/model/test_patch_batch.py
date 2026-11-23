@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.patch_batch import PatchBatch
-from punt_lux.domain.hub.write_errors import MalformedPatchError
 from punt_lux.wire.model.ids import ElementId
+from punt_lux.wire.model.patch_batch import PatchBatch
+from punt_lux.wire.model.write_errors import MalformedPatchError
 
 
 def test_plain_removal_is_parsed() -> None:

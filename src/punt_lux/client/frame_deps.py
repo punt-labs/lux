@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import FrameOps
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Scope
 
 __all__ = ["FrameAccessorDeps"]

@@ -28,8 +28,8 @@ import pytest
 from punt_lux.display.renderers import input_number_renderer
 from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
 from punt_lux.display.replica.widget_state import WidgetState
-from punt_lux.domain.hub import hub_display
-from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.hub import hub_display
+from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.input_number import InputNumberElement
 from punt_lux.wire.model.ids import SceneId

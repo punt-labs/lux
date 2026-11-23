@@ -9,7 +9,7 @@ and a model dump (absent keys explicitly ``None``), and these pin that they agre
 from __future__ import annotations
 
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.identity_headers import ClientHeaders
 
 

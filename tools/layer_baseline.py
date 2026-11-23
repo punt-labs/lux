@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Self
 
+from tools.layer_renames import LayerRenames
+
 
 class LayerBaseline:
     """Reject baseline additions relative to a resolved base commit."""
@@ -18,8 +20,10 @@ class LayerBaseline:
         self._path = path
         return self
 
-    def read(self) -> frozenset[str]:
-        return self._decode(self._path.read_text(encoding="utf-8"))
+    def read(self, base_ref: str = "") -> frozenset[str]:
+        return self._normalize(
+            self._decode(self._path.read_text(encoding="utf-8")), base_ref
+        )
 
     def check(self, edges: frozenset[str], base_ref: str) -> None:
         if not base_ref:
@@ -34,12 +38,31 @@ class LayerBaseline:
         if not self._git("ls-tree", "--name-only", commit, "--", self._path.name):
             print(f"No layer baseline at {base_ref}; skipping baseline growth check.")
             return
-        added = edges - self._decode(self._git("show", f"{commit}:{self._path.name}"))
+        previous = self._decode(self._git("show", f"{commit}:{self._path.name}"))
+        added = edges - self._normalize(previous, commit)
         if added:
             raise ValueError(
                 f"layer baseline grew vs {base_ref}: {len(added)} added edges\n"
                 + "\n".join(f"  {edge}" for edge in sorted(added))
             )
+
+    def _normalize(self, edges: frozenset[str], base_ref: str) -> frozenset[str]:
+        if not base_ref:
+            try:
+                base_ref = self._git("merge-base", "origin/main", "HEAD").strip()
+            except subprocess.CalledProcessError:
+                return edges
+        renames = self._git(
+            "diff",
+            "--name-status",
+            "--find-renames",
+            "--diff-filter=R",
+            "-z",
+            base_ref,
+            "--",
+            "src",
+        )
+        return LayerRenames(renames).apply(edges)
 
     def _git(self, *args: str) -> str:
         return subprocess.run(

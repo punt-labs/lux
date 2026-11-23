@@ -16,7 +16,7 @@
 % re-derives Decision 5 against the code's real callers: the replicator's
 % un-awaited send_scene, a display that may answer twice, and several callers
 % contending for the request lock.  The code it governs:
-% src/punt_lux/domain/hub/{listener_thread,display_replies,display_connection,
+% src/punt_lux/hub/{listener_thread,display_replies,display_connection,
 % inbound_router,display_link,replicator,liveness}.py and
 % src/punt_lux/operations/display_connection.py.  ADRs: DES-093 (the Hub never
 % controls the display's process; pacing, backoff and the manifest reconcile

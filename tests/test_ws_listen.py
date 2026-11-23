@@ -28,20 +28,20 @@ from starlette.websockets import WebSocketDisconnect
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.connection_identity import connection_for
-from punt_lux.domain.hub.callback_hold import CallbackRouter
-from punt_lux.domain.hub.callback_menu import CallbackMenu
-from punt_lux.domain.hub.callback_ports import CallbackListener
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.departure_cascade import DepartureCascade
-from punt_lux.domain.hub.departure_sinks import DepartureSink
-from punt_lux.domain.hub.hub import Hub
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.menu_models import Menu, MenuAction
-from punt_lux.domain.hub.menu_presence import MarkMenusSink
-from punt_lux.domain.hub.session_callback import CallbackInvocation, SessionCallback
+from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.callback_menu import CallbackMenu
+from punt_lux.hub.callback_ports import CallbackListener
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.departure_cascade import DepartureCascade
+from punt_lux.hub.departure_sinks import DepartureSink
+from punt_lux.hub.hub import Hub
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_display import HubDisplay
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.menu_models import Menu, MenuAction
+from punt_lux.hub.menu_presence import MarkMenusSink
+from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic

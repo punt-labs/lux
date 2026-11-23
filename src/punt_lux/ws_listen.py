@@ -8,7 +8,7 @@ one per client lives in :mod:`punt_lux.ws_transport`.
 The session is the bridge between two worlds. Hub-side, ``publish`` and a menu
 click run on arbitrary threads (an MCP tool thread, the click-dispatch thread);
 the WebSocket lives on the server's event loop. So the pub-sub writer and the
-:class:`~punt_lux.domain.hub.callback_ports.CallbackListener` wake both hop onto
+:class:`~punt_lux.hub.callback_ports.CallbackListener` wake both hop onto
 the loop with ``call_soon_threadsafe`` and enqueue a frame the write task drains.
 Taking the listener slot and binding the writer run under the Hub store's write
 lock, nesting the client registry's own lock inside it exactly as
@@ -36,7 +36,7 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from punt_lux.client_host import ClientHost
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import Topic
 from punt_lux.wire.model.messages.listen import (
     CallbackFrame,
@@ -49,9 +49,9 @@ from punt_lux.wire.model.messages.listen import (
 )
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.callback_hold import CallbackRouter
-    from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-    from punt_lux.domain.hub.hub import Hub
+    from punt_lux.hub.callback_hold import CallbackRouter
+    from punt_lux.hub.client_lifecycle import ClientLifecycle
+    from punt_lux.hub.hub import Hub
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.messages.observer import ObserverMessage
 
@@ -68,7 +68,7 @@ _PROTOCOL_ERROR = 1002
 class HubListenSession:
     """One persistent connection: its identity, its outbound queue, and its bridges.
 
-    Implements the :class:`~punt_lux.domain.hub.callback_hold.CallbackListener`
+    Implements the :class:`~punt_lux.hub.callback_hold.CallbackListener`
     ``wake`` so a routed click pushes at once, and exposes ``deliver_event`` as this
     connection's Hub pub-sub writer. Both hop onto the loop and enqueue a frame.
     """

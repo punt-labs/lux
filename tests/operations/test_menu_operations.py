@@ -17,12 +17,12 @@ import pytest
 from pydantic import ValidationError
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.domain.hub.client_identity import ClientIdentity
-from punt_lux.domain.hub.client_lifecycle import ClientLifecycle
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
-from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_lifecycle import ClientLifecycle
+from punt_lux.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.menu_models import Menu, MenuAction, MenuSeparator
+from punt_lux.hub.menu_registry import HubMenuRegistry
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.menu_arming import MenuArming
 from punt_lux.operations.menu_arming_deps import MenuArmingDeps

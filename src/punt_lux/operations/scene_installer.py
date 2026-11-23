@@ -13,14 +13,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.write_refusals import NestingExceededError
+from punt_lux.hub.write_refusals import NestingExceededError
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.wire.model.submission_gate import SubmissionGate
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scene_submission import SceneSubmission
     from punt_lux.wire.model.scope import Scope

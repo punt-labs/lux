@@ -34,9 +34,9 @@ import anyio
 import pytest
 import uvicorn
 
-from punt_lux.domain.hub.hub_store_factory import hub_display
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.hub.hub_store_factory import hub_display
+from punt_lux.hub.replicator_instance import hub_callback_router
+from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.luxd import build_app
 
 pytestmark = pytest.mark.integration

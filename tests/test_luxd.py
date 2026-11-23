@@ -266,7 +266,7 @@ class TestPeriodicSweepLifespan:
     def test_cancels_and_awaits_the_task_on_exit(self) -> None:
         import asyncio
 
-        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+        from punt_lux.hub.expiry_sweep import ExpirySweep
         from punt_lux.hub_lifespan import _periodic_sweep_running
 
         sweep = ExpirySweep(_IdleFrames(), _SpyMarker())
@@ -282,7 +282,7 @@ class TestPeriodicSweepLifespan:
     def test_shutdown_is_clean_when_the_sweep_survives_a_raising_wait(self) -> None:
         import asyncio
 
-        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+        from punt_lux.hub.expiry_sweep import ExpirySweep
         from punt_lux.hub_lifespan import _periodic_sweep_running
 
         sweep = ExpirySweep(_RaisingWaitFrames(), _SpyMarker())

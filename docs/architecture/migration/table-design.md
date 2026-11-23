@@ -283,7 +283,7 @@ def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
    `elem.fire(event)`.
 4. **`fire` sends one remote invocation** — `RemoteDispatchGroup.__call__` grows one
    branch: `RowSelectionChanged → value = list(event.row_ids)`.
-5. **Hub re-dispatches** — `domain/hub/clients.py` grows one branch:
+5. **Hub re-dispatches** — `hub/clients.py` grows one branch:
    `"row_selection_changed" → RowSelectionChanged(..., row_ids=tuple(value), anchor=...)`,
    fires on the Hub copy; the built-in handler updates the element's selection (and,
    under a filter composition, the composition handler updates the full selection);
@@ -639,7 +639,7 @@ the composition (the composition builds chrome from real `input_text` / `combo` 
 **Amended (interaction wiring):**
 
 - `wire/model/interaction.py` (`EventKind` += `"row_selection_changed"`);
-  `wire/model/handlers/remote_dispatch.py`, `domain/hub/clients.py`,
+  `wire/model/handlers/remote_dispatch.py`, `hub/clients.py`,
   `wire/model/display.py` (one dispatch branch each);
   `wire/model/elements/abc_leaf_kinds.py` (`LeafKindSpec` for `table` + selection
   handler_builder); `wire/model/element_factory.py` (fork branch);

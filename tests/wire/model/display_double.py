@@ -12,7 +12,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.handshake_outcome import HandshakeResult
+from punt_lux.hub.handshake_outcome import HandshakeResult
 from punt_lux.wire.model import (
     AckMessage,
     FrameReader,

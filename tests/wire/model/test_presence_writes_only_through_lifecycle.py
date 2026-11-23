@@ -24,15 +24,15 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.hub.hub_clients import HubClientRegistry
 from tests.class_references import ClassReferences, aliased_constructions
 from tests.source_imports import module_name, resolved_imports
 
 _ROOT = Path(__file__).resolve().parents[3]
 _SRC = _ROOT / "src"
 _TESTS = _ROOT / "tests"
-_WRITES_MODULE = "punt_lux.domain.hub.presence_writes"
-_WRITES_FILE = _SRC / "punt_lux" / "domain" / "hub" / "presence_writes.py"
+_WRITES_MODULE = "punt_lux.hub.presence_writes"
+_WRITES_FILE = _SRC / "punt_lux" / "hub" / "presence_writes.py"
 
 # Every public method of ``PresenceWrites`` writes: the surface has no reads.
 _EXPECTED_WRITES = {
@@ -57,23 +57,23 @@ _DICT_MUTATORS = {
 }
 _SESSION_STATE = "_sessions"
 _ROSTER_STATE = "_roster"
-_ROSTER_FILE = _SRC / "punt_lux" / "domain" / "hub" / "client_roster.py"
-_ROSTER_REL = "src/punt_lux/domain/hub/client_roster.py"
-_NAMED_SESSIONS_REL = "src/punt_lux/domain/hub/named_sessions.py"
+_ROSTER_FILE = _SRC / "punt_lux" / "hub" / "client_roster.py"
+_ROSTER_REL = "src/punt_lux/hub/client_roster.py"
+_NAMED_SESSIONS_REL = "src/punt_lux/hub/named_sessions.py"
 # What the roster itself offers: to name connections, to read the names held, and to
 # hand its release away. The release is the one place a survivor is renumbered.
 _ROSTER_OWN = {"names_for", "held", "take_release"}
 # The roster's one write, private to it: the release is the only way to ask for it.
 _ROSTER_DROP = "_release_departed"
 # Who may name the release: its home and the writes that hold it.
-_RELEASE_NAMERS = {_ROSTER_REL, "src/punt_lux/domain/hub/presence_writes.py"}
+_RELEASE_NAMERS = {_ROSTER_REL, "src/punt_lux/hub/presence_writes.py"}
 
 # The registry hands the surface out and the lifecycle takes it.
 _IMPORTERS = {
-    "src/punt_lux/domain/hub/hub_clients.py",
-    "src/punt_lux/domain/hub/client_lifecycle.py",
+    "src/punt_lux/hub/hub_clients.py",
+    "src/punt_lux/hub/client_lifecycle.py",
 }
-_LIFECYCLE = "src/punt_lux/domain/hub/client_lifecycle.py"
+_LIFECYCLE = "src/punt_lux/hub/client_lifecycle.py"
 # The unit tests of the writes and of the lock order take a registry's writes on
 # their own, and this file plants violations to prove its own rules.
 _WRITE_UNIT_TESTS = {
@@ -83,8 +83,8 @@ _WRITE_UNIT_TESTS = {
 _THIS_FILE = "tests/wire/model/test_presence_writes_only_through_lifecycle.py"
 # The registry builds its own empty session map; nothing else outside the writes
 # may change it.
-_MAY_INITIALISE = ("src/punt_lux/domain/hub/hub_clients.py", "__new__")
-_WRITES_FILE_REL = "src/punt_lux/domain/hub/presence_writes.py"
+_MAY_INITIALISE = ("src/punt_lux/hub/hub_clients.py", "__new__")
+_WRITES_FILE_REL = "src/punt_lux/hub/presence_writes.py"
 _REGISTRY_FILE = _MAY_INITIALISE[0]
 
 
@@ -453,19 +453,19 @@ class TestTheRulesCanFail:
         ("source", "module"),
         [
             (
-                "from punt_lux.domain.hub.presence_writes import PresenceWrites",
+                "from punt_lux.hub.presence_writes import PresenceWrites",
                 "punt_lux.x",
             ),
-            ("from punt_lux.domain.hub import presence_writes", "punt_lux.x"),
+            ("from punt_lux.hub import presence_writes", "punt_lux.x"),
             (
-                "from punt_lux.domain.hub import presence_writes as pw",
+                "from punt_lux.hub import presence_writes as pw",
                 "punt_lux.x",
             ),
-            ("import punt_lux.domain.hub.presence_writes as pw", "punt_lux.x"),
-            ("from .presence_writes import PresenceWrites", "punt_lux.domain.hub.x"),
-            ("from . import presence_writes", "punt_lux.domain.hub.x"),
-            ("from ..hub import presence_writes", "punt_lux.domain.hub.x"),
-            ("import punt_lux.domain.hub as h\nh.presence_writes.PresenceWrites", "a"),
+            ("import punt_lux.hub.presence_writes as pw", "punt_lux.x"),
+            ("from .presence_writes import PresenceWrites", "punt_lux.hub.x"),
+            ("from . import presence_writes", "punt_lux.hub.x"),
+            ("from ..hub import presence_writes", "punt_lux.hub.x"),
+            ("import punt_lux.hub as h\nh.presence_writes.PresenceWrites", "a"),
             (
                 "import importlib\nimportlib.import_module("
                 + repr(_WRITES_MODULE)
@@ -482,8 +482,8 @@ class TestTheRulesCanFail:
     @pytest.mark.parametrize(
         ("source", "module"),
         [
-            ("from punt_lux.domain.hub import hub_clients", "punt_lux.x"),
-            ("from .hub_clients import HubClientRegistry", "punt_lux.domain.hub.x"),
+            ("from punt_lux.hub import hub_clients", "punt_lux.x"),
+            ("from .hub_clients import HubClientRegistry", "punt_lux.hub.x"),
             ("from .presence_writes import PresenceWrites", "punt_lux.other.x"),
         ],
     )
@@ -606,14 +606,14 @@ class TestTheRulesCanFail:
 
     def test_an_aliased_construction_of_the_release_is_counted(self) -> None:
         for source in aliased_constructions(
-            "punt_lux.domain.hub.client_roster", "RosterRelease"
+            "punt_lux.hub.client_roster", "RosterRelease"
         ):
             assert _constructions_of(source, "RosterRelease") == 1, source
 
     def test_a_module_that_names_the_release_in_any_spelling_is_found(self) -> None:
         for source in (
-            "from punt_lux.domain.hub.client_roster import RosterRelease\n",
-            "import punt_lux.domain.hub.client_roster as r\nx = r.RosterRelease\n",
+            "from punt_lux.hub.client_roster import RosterRelease\n",
+            "import punt_lux.hub.client_roster as r\nx = r.RosterRelease\n",
             "def f(release: RosterRelease) -> None:\n    release.release(())\n",
         ):
             assert "RosterRelease" in _names_in(source), source

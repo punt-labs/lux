@@ -13,8 +13,8 @@ import pytest
 
 pytest.importorskip("pyghostty")
 
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.hub.replicator_instance import hub_callback_router
+from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.protocol.pty.control import WIRE_VERSION
 from punt_lux.protocol.pty.hello import HelloRequest
 from punt_lux.protocol.pty.replies import SuccessReply

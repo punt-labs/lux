@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.display_linkage import DisplayLinkage
+from punt_lux.hub.display_linkage import DisplayLinkage
 
 
 @pytest.mark.parametrize(

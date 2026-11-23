@@ -16,19 +16,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.clients import ClientRegistry
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.display_busy import DisplayBusyError
-from punt_lux.domain.hub.display_connection import DisplayConnection
-from punt_lux.domain.hub.display_link import DisplayLink
-from punt_lux.domain.hub.display_listener import DisplayListener
-from punt_lux.domain.hub.display_replies import DisplayReplies
-from punt_lux.domain.hub.reply_sink import ReplySink
-from punt_lux.domain.hub.request_exchange import RequestExchange
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.hub.display_busy import DisplayBusyError
+from punt_lux.hub.display_connection import DisplayConnection
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.hub.display_listener import DisplayListener
+from punt_lux.hub.display_replies import DisplayReplies
+from punt_lux.hub.reply_sink import ReplySink
+from punt_lux.hub.request_exchange import RequestExchange
+from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.wire.model import (
     AckMessage,
     HubManifestMessage,
@@ -55,7 +55,7 @@ from tests.wire.model.display_double import Call, Display, until
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.dial_generation import DialGeneration
+    from punt_lux.hub.dial_generation import DialGeneration
     from punt_lux.wire.model import Message
 
 
@@ -1365,9 +1365,7 @@ class TestAPingIsStampedUnderItsLock:
         self, display: Display, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # A clock that stands still: the stamps must rise on their own.
-        monkeypatch.setattr(
-            "punt_lux.domain.hub.request_exchange.time.time", lambda: 5.0
-        )
+        monkeypatch.setattr("punt_lux.hub.request_exchange.time.time", lambda: 5.0)
         connection = DisplayConnection(display, 1.0, ask_settle=no_reader)
         exchange = RequestExchange(
             connection,

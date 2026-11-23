@@ -31,8 +31,8 @@ from tests.ptyd.wire_client import WireClient
 ROOT = Path(__file__).resolve().parents[2]
 HUB_DRIVER = """
 from punt_lux import luxd
-from punt_lux.domain.hub.replicator_instance import hub_callback_router
-from punt_lux.domain.hub.session_callback import CallbackInvocation
+from punt_lux.hub.replicator_instance import hub_callback_router
+from punt_lux.hub.session_callback import CallbackInvocation
 original=luxd.build_app
 def build(**kwargs):
     app=original(**kwargs)

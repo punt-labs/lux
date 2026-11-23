@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.domain.hub.backoff_config import BackoffConfig
-from punt_lux.domain.hub.crash_attribution import STABLE_INTERVAL
+from punt_lux.hub.backoff_config import BackoffConfig
+from punt_lux.hub.crash_attribution import STABLE_INTERVAL
 
 
 def test_defaults_match_the_crash_respawn_shape() -> None:

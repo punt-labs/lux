@@ -3,7 +3,7 @@
 Boots the session hub: it serves MCP over streamable HTTP at ``/mcp`` beside the
 typed REST API on one FastAPI app and uvicorn port, multiplexing MCP sessions
 (one per client, keyed by ``?session_key=``) onto a single display connection.
-Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
+Domain state lives in ``punt_lux.hub``; this module bootstraps transport.
 """
 
 from __future__ import annotations

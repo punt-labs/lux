@@ -1,0 +1,156 @@
+"""Hub-side dispatch of display interactions — the D21 return leg.
+
+The display wraps every handler in ``remote_dispatch`` and sends a
+:class:`RemoteEventHandlerInvocation` to the Hub. :class:`HubInteractionDispatch`
+is where that message lands: it routes a menu launch to the owning session's
+callback hold, and everything else to the scene-element fire on the Hub's
+authoritative copy. Kept out of the connection registry so "own the display
+connection" and "dispatch a display interaction" are each one responsibility.
+
+Closing a frame is not among them. Where a window sits is the Display's own
+business (DES-065 R8), so a close never reaches the Hub.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from punt_lux.tracing import trace
+
+if TYPE_CHECKING:
+    from punt_lux.hub.session_callback import MenuLeaf
+    from punt_lux.wire.model import RemoteEventHandlerInvocation
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["HubInteractionDispatch"]
+
+# A fired event's attribution when its element is unowned (a departure
+# released it) -- shaped like "__display__", never a real ConnectionId.
+_UNOWNED = "__unowned__"
+
+
+class HubInteractionDispatch:
+    """Route a display-originated interaction to its Hub-side handler."""
+
+    __slots__ = ()
+
+    @staticmethod
+    @trace
+    def dispatch(msg: RemoteEventHandlerInvocation) -> None:
+        """Route one display interaction by its action to the right Hub handler.
+
+        A ``menu`` launches the owning session's callback; everything else
+        fires the scene element on its authoritative copy.
+        """
+        if msg.action == "menu":
+            HubInteractionDispatch._dispatch_menu_click(msg)
+            return
+        HubInteractionDispatch._fire_scene_element(msg)
+
+    @staticmethod
+    def _fire_scene_element(msg: RemoteEventHandlerInvocation) -> None:
+        """Resolve the invocation's element and fire its typed event Hub-side.
+
+        Resolution and its several drop reasons live in
+        ``ElementInvocationResolver``; this method is the fire-or-drop decision
+        for whatever it hands back. The element builds its own typed event from
+        the wire payload (polymorphic dispatch on its ``RemoteDispatchSpec``s); a
+        kind the element does not fire is logged and dropped, never fired. The
+        handler runs on the Hub's authoritative copy, and the scene is marked
+        dirty so the replicator re-sends any mutation it made.
+        """
+        from punt_lux.hub import hub_display
+        from punt_lux.hub.element_invocation_resolver import (
+            ElementInvocationResolver,
+        )
+        from punt_lux.hub.replicator_instance import hub_replicator
+        from punt_lux.wire.model.ids import ClientId
+        from punt_lux.wire.model.interaction_errors import WrongKindError
+
+        resolved = ElementInvocationResolver(hub_display).resolve(msg)
+        if resolved is None:
+            return
+        raw_owner = str(resolved.owner) if resolved.owner is not None else _UNOWNED
+        owner_id = ClientId(raw_owner)
+        try:
+            event = resolved.element.build_remote_event(
+                event_kind=msg.event_kind,
+                scene_id=resolved.scene_id,
+                owner_id=owner_id,
+                value=msg.value,
+            )
+        except WrongKindError as exc:
+            logger.warning("hub dispatch denied element_id=%s: %s", msg.element_id, exc)
+            return
+        with hub_display.write_lock():  # handler writes walk the index show mutates
+            resolved.fire(event, hub_display.write_seam.transaction())
+        # A handler may have mutated the scene; the replicator (the sole display
+        # writer) resends it. mark_dirty is queue-only, so a click never blocks.
+        hub_replicator.mark_dirty(resolved.scene_id)
+
+    @staticmethod
+    def _dispatch_menu_click(msg: RemoteEventHandlerInvocation) -> None:
+        """Answer one clicked menu leaf, routing by the leaf's own KIND.
+
+        The leaf id names its kind (:class:`MenuLeaf`): a ``callback`` leaf routes
+        to the owning session's callback hold (the Hub's own Details is answered
+        here); a ``menu`` leaf is an agent ``menu_set`` item, delivered to that
+        session's inbox as a reserved ``lux.menu`` event a listening agent drains
+        with ``recv()``. Routing on the parsed kind — not on whether a callback
+        happens to exist — keeps a menu item and a same-named callback from being
+        confused. A malformed id is logged and dropped; a leaf that lands nowhere
+        (a departed session, an owner with no inbox, an unknown callback) re-pushes
+        the menu.
+        """
+        from punt_lux.hub.replicator_instance import hub_replicator
+        from punt_lux.hub.session_callback import MenuLeaf
+
+        try:
+            leaf = MenuLeaf.parse(msg.element_id)
+        except ValueError:
+            logger.info("malformed menu leaf id=%r; ignoring", msg.element_id)
+            return
+        landed = (
+            HubInteractionDispatch._answer_callback(leaf)
+            if leaf.kind == "callback"
+            else HubInteractionDispatch._deliver_menu_item(leaf, msg.value)
+        )
+        if not landed:
+            logger.info("menu click %r not delivered; re-pushing menu", msg.element_id)
+            hub_replicator.mark_menus()
+
+    @staticmethod
+    def _answer_callback(leaf: MenuLeaf) -> bool:
+        """Answer a ``callback``-kind leaf; say whether it landed.
+
+        The Hub's own Details command is answered here; every other callback routes
+        to its owning live session's hold. A departed session or an unregistered
+        callback is not ``routed`` and the caller re-pushes.
+        """
+        from punt_lux.hub.details_instance import hub_client_details
+        from punt_lux.hub.replicator_instance import hub_callback_router
+        from punt_lux.hub.session_callback import CallbackInvocation
+
+        invocation = CallbackInvocation(leaf.connection_id, leaf.local_id)
+        if invocation.is_details:
+            hub_client_details.run(invocation.connection_id)
+            return True
+        return hub_callback_router.route(invocation) == "routed"
+
+    @staticmethod
+    def _deliver_menu_item(leaf: MenuLeaf, value: object) -> bool:
+        """Deliver a ``menu``-kind leaf to its owner's inbox; say whether it landed.
+
+        The owner and the raw item id come straight off the parsed leaf — no
+        callback lookup — so a menu item is never mistaken for a same-named
+        callback. A departed owner, or one with no inbox, is not ``delivered``.
+        """
+        from punt_lux.hub.menu_event import MenuSelection
+        from punt_lux.hub.replicator_instance import hub_menu_event_router
+
+        selection = MenuSelection.of(leaf.local_id, value)
+        return (
+            hub_menu_event_router.deliver(leaf.connection_id, selection) == "delivered"
+        )

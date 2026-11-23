@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.batch_judge import BatchJudge
-from punt_lux.domain.hub.hub_store_factory import HubStoreFactory
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, SceneScope
-from punt_lux.domain.hub.write_refusals import NestingExceededError
-from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected
+from punt_lux.hub.batch_judge import BatchJudge
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
+from punt_lux.hub.write_refusals import NestingExceededError
+from punt_lux.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.wire.model.elements import ButtonElement, TableElement, TreeElement
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.interaction import ButtonClicked
@@ -36,7 +36,7 @@ from tests.wire.model.test_nesting_cap_at_the_seam import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.wire.model.element_abc import Element
 
 _OTHER = SceneId("other")

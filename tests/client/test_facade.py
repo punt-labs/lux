@@ -15,7 +15,7 @@ from punt_lux.client import (
     SceneAccessor,
     SessionAccessor,
 )
-from punt_lux.domain.hub.client_identity import ClientIdentity
+from punt_lux.hub.client_identity import ClientIdentity
 
 
 def _build_client() -> LuxClient:

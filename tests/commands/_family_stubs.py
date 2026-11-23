@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from punt_lux.operations import Ok
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.session_callback import CallbackInvocation
+    from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
         ClientList,
         DisplayInfo,

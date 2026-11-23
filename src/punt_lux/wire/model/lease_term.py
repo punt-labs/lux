@@ -13,7 +13,7 @@ so nothing downstream asks "is this one infinite?" before deciding what to
 print, and :class:`LeaseTerms` is the one place a length becomes a state.
 
 The arithmetic that decides whether a lease has lapsed stays on
-:class:`~punt_lux.domain.hub.session_lease.SessionLease`, where ``inf`` is a
+:class:`~punt_lux.hub.session_lease.SessionLease`, where ``inf`` is a
 perfectly good number to compare against. This is the shape that leaves the Hub.
 """
 

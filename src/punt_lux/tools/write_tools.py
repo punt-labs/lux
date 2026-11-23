@@ -26,7 +26,7 @@ from punt_lux.commands import (
     scene_update as scene_update_command,
     session_identify as session_identify_command,
 )
-from punt_lux.domain.hub.scene_presentation import SceneLayout
+from punt_lux.hub.scene_presentation import SceneLayout
 from punt_lux.operations import RenderRequest, UpdateRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal

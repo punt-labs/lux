@@ -15,13 +15,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.details_frame import DetailsFrame
+from punt_lux.hub.details_frame import DetailsFrame
 from punt_lux.operations.client_identity_facts import ClientIdentityFacts
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model.compositions.client_details import ClientDetailsComposition
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.named_sessions import NamedSession
+    from punt_lux.hub.named_sessions import NamedSession
     from punt_lux.operations.client_facts import ClientFacts
 
 __all__ = ["DetailsScene"]

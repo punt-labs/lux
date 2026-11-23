@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import inspect
 
-from punt_lux.domain.hub.request_desk import RequestDesk
+from punt_lux.hub.request_desk import RequestDesk
 
 
 def _public_names(cls: type) -> set[str]:

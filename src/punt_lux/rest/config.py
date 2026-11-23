@@ -20,7 +20,7 @@ from punt_lux.operations import DisplayModeState
 from punt_lux.rest.identity import resolve_identity
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.client_identity import ClientIdentity
+    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
 

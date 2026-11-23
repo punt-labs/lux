@@ -20,12 +20,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.domain.hub.connection_closed import (
+from punt_lux.hub.connection_closed import (
     ConnectionClosedError,
     HubRetiredError,
 )
-from punt_lux.domain.hub.dial_drain import DialDrain
-from punt_lux.domain.hub.reply_sink import ReplySink
+from punt_lux.hub.dial_drain import DialDrain
+from punt_lux.hub.reply_sink import ReplySink
 from punt_lux.wire.model import AckMessage
 from tests.link_access import deaths_of, generation_of, writer_of
 from tests.wire.model.display_double import Call, Display, until
@@ -39,9 +39,9 @@ from tests.wire.model.test_retire_cause import _linked, _scene
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from punt_lux.domain.hub.connection_closed import RetireCause
-    from punt_lux.domain.hub.dial_generation import DialGeneration
-    from punt_lux.domain.hub.display_link import DisplayLink
+    from punt_lux.hub.connection_closed import RetireCause
+    from punt_lux.hub.dial_generation import DialGeneration
+    from punt_lux.hub.display_link import DisplayLink
 
 
 @pytest.fixture
@@ -258,7 +258,7 @@ class TestAStopOrCloseRacingAnEndSomebodyRecorded:
         assert deaths_of(link) == ()  # the ack was read before the ledger was taken
 
 
-_SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux" / "domain" / "hub"
+_SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux" / "hub"
 
 
 def _calls_to(source: str, name: str) -> int:

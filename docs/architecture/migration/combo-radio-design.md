@@ -53,7 +53,7 @@ The `checkbox` atomic-selection path, end to end:
 - **D21 wire path** — `wire/model/event_handler_host.py`
   (`wrap_handlers_for_remote` iterates `_remote_dispatch_specs`, no `isinstance`
   branch), `wire/model/handlers/remote_dispatch.py` (`RemoteDispatchGroup` stamps the
-  `RemoteEventHandlerInvocation`), `domain/hub/clients.py`
+  `RemoteEventHandlerInvocation`), `hub/clients.py`
   (`_hub_interaction_dispatch` → `_typed_event` rebuilds the typed event on the
   Hub's authoritative copy and fires it once).
 - **Legacy combo/radio** — `wire/model/elements/combo.py`, `radio.py` (frozen
@@ -275,7 +275,7 @@ arm.**
   (`wire/model/interaction.py`). A selection index is an `int` — it rides the
   existing arm. The docstring's per-kind list (`checkbox→bool`, `input_text→str`,
   …) gains `combo`/`radio`→`int`, but the type does not change.
-- The Hub dispatch `_typed_event` (`domain/hub/clients.py`) already accepts any
+- The Hub dispatch `_typed_event` (`hub/clients.py`) already accepts any
   scalar for `value_changed` and rejects non-scalars — an `int` index is accepted
   with no code change.
 - `InteractionEventBuilder` (`wire/model/interaction_event_builder.py`) is the

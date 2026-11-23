@@ -324,7 +324,7 @@ long-term shape and is noted here as an explicit follow-on, to be taken up
 if `kind`'s branching grows beyond this one field — not passed over
 silently.
 
-`ClientRegistry.get()` (`domain/hub/clients.py`) is the one production
+`ClientRegistry.get()` (`hub/clients.py`) is the one production
 writer of a `kind="hub"` `ConnectMessage`; it constructs
 `hub_id=HubId.current().wire_token` in place of today's hardcoded
 `_DISPLAY_CLIENT_NAME` passed as `name`. `name` itself does not disappear
@@ -470,7 +470,7 @@ transport change unmodified, not merely by coincidence:
   connection *sharing the identical declared name* — never any `kind="hub"`
   fd. The only reason this reads as "single Hub" today is that every Hub
   process declares the identical hardcoded name, `_DISPLAY_CLIENT_NAME =
-  "lux-mcp"` (`domain/hub/clients.py`). Change what populates that field to
+  "lux-mcp"` (`hub/clients.py`). Change what populates that field to
   a real per-process identity, and the *existing* preemption code already
   does the right thing: a genuine reconnect (same identity) still
   preempts its own stale fd; two distinct Hubs (distinct identities) do
