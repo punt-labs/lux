@@ -105,6 +105,11 @@ update-layers: ## Shrink the layer baseline after removing violating import edge
 
 .PHONY: check-layers update-layers
 
+demo-class: ## Classify this branch's changed files for the demo gate (interactive / rendering / exempt)
+	uv run --extra display python -m tools.demo_class $(if $(BASE_REF),--base-ref $(BASE_REF),)
+
+.PHONY: demo-class
+
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display oo-ratchet coupling $(LUX_SOURCES) --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
 	uv run --extra display oo-ratchet coupling $(SERVICE_SOURCES) --check $(if $(BASE_REF),--base-ref $(BASE_REF),)

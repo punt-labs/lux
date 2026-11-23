@@ -245,9 +245,9 @@ function pr_loop(unit):
     push; create the PR (description carries the verification playbook)
     if the PR changes a file that is not demo_exempt:
         comment "demo confirmed: <head sha> interaction: operator|none"
-            # once step C passed on that head; the body names the files the
-            #   interactive(pr) grep matched (or "none matched"); "operator"
-            #   only when interactive(pr) and the operator confirmed it
+            # once step C passed on that head; the body pastes the make
+            #   demo-class summary; "operator" only when interactive(pr) and
+            #   the operator confirmed it
         # a later push that changes a non-exempt file repeats step C on the
         #   new head and posts a new "demo confirmed:" comment (demo_ok)
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
@@ -273,35 +273,23 @@ function pr_loop(unit):
 #     (verified_head / verified_ok); interaction feel is the human-judged part
 #     lux names. Its terms are defined here, under lux's names:
 #       interactive(pr) = the PR changes a file that reads input or decides
-#                      what input does. Decided per file by a grep the
-#                      leader records in the demo comment: a display file is
-#                      interactive when it calls an ImGui input query
-#                      (is_item_clicked, is_item_active, is_item_hovered,
-#                      is_window_hovered, is_mouse_*, get_mouse_pos,
-#                      is_key_*, set_keyboard_focus_here, begin_popup_modal,
-#                      or a widget call that returns a changed flag: button,
-#                      checkbox, slider_*, input_text, combo, radio_button,
-#                      selectable, color_edit, begin/end of a frame window),
-#                      or forwards an interaction (interaction_delivery,
-#                      pending_interactions, frame_commands, auto_click); a
-#                      wire/model/handlers/ or wire/model/compositions/
-#                      file always is (what a click or a selection does); a
-#                      hub/ file is when it dispatches a handler; a plugin/
-#                      file always is. A text, image, separator, progress or
-#                      spinner adapter, a socket, telemetry, or
-#                      framebuffer_capture file is not
+#                      what input does, as reported by make demo-class
+#                      (tools/demo_class.py); the demo comment quotes its
+#                      summary
 #       rendering(pr) = the PR changes a file under src/punt_lux/display/,
 #                      src/punt_lux/wire/model/elements/,
 #                      src/punt_lux/wire/model/compositions/, or
 #                      src/punt_lux/applets/ (which elements and layout are
-#                      sent) — what the Display paints
+#                      sent) — what the Display paints — as reported by
+#                      make demo-class (tools/demo_class.py); the demo
+#                      comment quotes its summary
 #       demoed_head  = the commit named in the leader's latest
 #                      "demo confirmed: <sha> interaction: operator|none" PR
 #                      comment, newer than any "demo failed:" comment; posted
 #                      once the demo passes on that commit: the leader drove
 #                      the entry point and the introspection tools, read the
-#                      screenshot back when rendering(pr), named the files the
-#                      interactive(pr) grep matched, and the comment says
+#                      screenshot back when rendering(pr), pasted the make
+#                      demo-class summary, and the comment says
 #                      "interaction: operator" only when the operator
 #                      confirmed interaction feel on that commit
 #       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/ (except

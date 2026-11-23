@@ -342,6 +342,10 @@ root = "src/punt_lux/tools"
 reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
+root = "tests/tools"
+extraPaths = ["."]
+
+[[tool.pyright.executionEnvironments]]
 root = "tests/oo_coupling"
 # Resolve top-level tools/ before the unrelated tests/tools/ package.
 extraPaths = ["."]

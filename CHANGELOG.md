@@ -9,6 +9,9 @@
   SDK, wire contracts, kernel and generic applet helpers, and `punt-service`
   provides product-neutral daemon management without Lux or third-party
   dependencies. The current version remains unchanged until release.
+- `make demo-class` (`tools/demo_class.py`) classifies the files a PR changes
+  as interactive, rendering, exempt or none by AST, and prints the summary the
+  demo comment quotes. It is not part of `make check`.
 
 - Report-only design ratchet: `make design-shadow` compares against
   `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
