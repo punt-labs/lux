@@ -9,7 +9,9 @@ one dial are equal, so whoever remembers a dial can tell it again.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, final
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from punt_lux.hub.connection_closed import RetireCause
@@ -20,25 +22,15 @@ __all__ = ["GenerationRef"]
 
 
 @final
+@dataclass(frozen=True, slots=True)
 class GenerationRef:
     """One dial generation, named and nothing more."""
 
     _generation: DialGeneration
-    __slots__ = ("_generation",)
+    _token: str = field(default_factory=lambda: uuid4().hex, compare=False)
 
-    def __new__(cls, generation: DialGeneration) -> Self:
-        self = super().__new__(cls)
-        self._generation = generation
-        return self
-
-    def __eq__(self, other: object) -> bool:
-        """Two references name the same dial when they name the same generation."""
-        if not isinstance(other, GenerationRef):
-            return NotImplemented
-        return self._generation is other._generation
-
-    def __hash__(self) -> int:
-        return id(self._generation)
+    def __str__(self) -> str:
+        return self._token
 
     @property
     # PY-TS-14 OK: None until a cause is recorded for the dial's end.
@@ -55,10 +47,5 @@ class GenerationRef:
         return not self._generation.is_tls
 
     def retire_in(self, connection: DisplayConnection, *, cause: RetireCause) -> bool:
-        """End this dial in ``connection`` if it is still the current one.
-
-        Whether this call did: a dial a redial replaced is already gone, and its
-        successor is not touched. A display end or an unresponsive end is settled by
-        the dial's reader, not here (see :meth:`DisplayConnection.retire`).
-        """
+        """Retire only the named dial, if the connection still owns it."""
         return connection.retire(self._generation, cause=cause)

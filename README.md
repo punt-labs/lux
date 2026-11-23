@@ -290,6 +290,29 @@ Most commands take the form `lux <noun> <verb>` and use the same names as the MC
 
 The installer runs `lux display install` for you. On macOS the window gets a Dock icon.
 
+`lux display restart` requires the new process and its owned socket, plus a
+successful Hub `GET /display` reply naming that same PID and its pinned
+`hub_connection_id`. It then requires matching replies on that same Hub dial
+and a live owned socket for three seconds, within the
+30-second readiness deadline. A crash during this window fails
+instead of accepting a replacement from a crash loop. The Hub must be reachable:
+start it first (`make restart` already does). Socket-only restart success is no
+longer accepted. A replacement Hub dial or a pending probe restarts the stability
+window; an inconclusive slow reply alone does not prove a crash. Hub restart
+readiness is unchanged.
+
+Local ownership probes make one connection within the remaining deadline.
+Hub probes share one budget across connection, headers, and body reads.
+The first reply starts a dial's stability window; later replies credit time only
+up to their request's send time, excluding response delivery and local-check time.
+
+Display readiness errors explain the missing connection or observed exit and,
+when available, include the last 12 lines (at most 4096 bytes) of
+`~/.punt-labs/lux/logs/luxd-display-stderr.log`, which can explain window startup
+failures such as an unavailable monitor while the screen is locked.
+This tail is best-effort: it reads an existing redirected stderr file; Lux's
+generated service configuration does not create that capture automatically.
+
 Restart readiness failures are recorded in `~/.punt-labs/lux/logs/lux.log`
 before the CLI reports failure. On macOS, the entry includes the service label
 and the exit status of a read-only `launchctl print gui/<uid>/<label>` probe,

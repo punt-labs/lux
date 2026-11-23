@@ -19,6 +19,7 @@ from punt_lux.service import (
 from punt_lux.service._backend_launchd import LaunchdBackend
 from punt_lux.service.display_restart import DisplayRestart
 from punt_lux.service.hub_restart import HubRestart
+from tests.service._probe_double import ProbeDouble
 
 
 @pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
@@ -126,11 +127,20 @@ def test_recovered_restart_waits_for_readiness(
     paths = MagicMock()
     paths.peer_pid.return_value = 102
     with (
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            side_effect=ProbeDouble.local,
+        ),
         patch("pathlib.Path.home", return_value=tmp_path),
         patch("punt_lux.service.detect_platform", return_value="macos"),
         patch("punt_lux.service._launchctl.subprocess.run") as run,
         patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
         patch.object(restart, "_polls", return_value=iter([None])),
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            return_value=True,
+        ),
+        patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),
     ):
         path = tmp_path / "Library/LaunchAgents" / f"{spec.launchd_label}.plist"
         path.parent.mkdir(parents=True)
