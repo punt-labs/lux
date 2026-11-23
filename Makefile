@@ -1,5 +1,6 @@
 LUX_SOURCES = --namespace punt_lux src/punt_lux packages/punt-lux-client/src/punt_lux
-SERVICE_SOURCES = --namespace punt_service packages/punt-service/src/punt_service
+SERVICE_ROOT = packages/punt-service/src/punt_service
+SERVICE_SOURCES = --namespace punt_service $(SERVICE_ROOT)
 PYTHON_SOURCES = src packages
 
 .PHONY: sync-workspace-version
@@ -116,7 +117,13 @@ export FILES REASON
 bless-coupling: override FILES := $(value FILES)
 bless-coupling: override REASON := $(value REASON)
 bless-coupling: ## Bounded coupling bless (FILES=src/punt_lux/a.py,src/punt_lux/b.py REASON="explanation")
-	uv run --extra display oo-ratchet coupling $(LUX_SOURCES) --rebaseline-files "$$FILES" --reason "$$REASON"
+	@test -n "$$FILES" || { echo "FILES is required" >&2; exit 1; }; \
+	set -f; IFS=,; for file in $$FILES; do \
+		case "/$$file" in \
+			*/$(SERVICE_ROOT)/*) uv run --extra display oo-ratchet coupling $(SERVICE_SOURCES) --rebaseline-files "$$file" --reason "$$REASON" ;; \
+			*) uv run --extra display oo-ratchet coupling $(LUX_SOURCES) --rebaseline-files "$$file" --reason "$$REASON" ;; \
+		esac || exit $$?; \
+	done
 
 .PHONY: bless-coupling
 
