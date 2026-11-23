@@ -6,10 +6,10 @@ entry leaves when its lease lapses whether or not the sweep has removed the sess
 
 from __future__ import annotations
 
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.menu_listing import MenuListing
 from punt_lux.hub.session_callback import SessionCallback
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 _FAR_FUTURE = 1_000_000.0  # past any kind's lease
 

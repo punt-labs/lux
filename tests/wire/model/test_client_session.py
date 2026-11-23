@@ -19,10 +19,10 @@ from typing import final
 
 import pytest
 
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.hub.session_lease import SessionLease
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.lease_term import ExpiringLease, PermanentLease
 
 

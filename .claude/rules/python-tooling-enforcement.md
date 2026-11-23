@@ -35,7 +35,7 @@ An agent MUST run these before reporting compliance.
 
 In Lux, Griffe checks docstring presence for classes and public members on the
 supported Python export surface (`punt_lux`, `punt_lux.client`, and
-`punt_lux.hub_client`). Ruff still checks their docstring style, while the AST
+`punt_lux.client.hub_client`). Ruff still checks their docstring style, while the AST
 gate requires a docstring for every registered MCP tool.
 
 See [Docstrings and API Reference](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md#docstrings-and-api-reference)

@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._rest_transport import _RestTransport
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.client.cli_identity import CliIdentity
+from punt_lux.client.rest_transport import HttpResponse, HubUnavailableError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.operations import (
@@ -31,7 +31,7 @@ from punt_lux.operations.models.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
 )
-from punt_lux.rest_transport import HttpResponse, HubUnavailableError
+from punt_lux.wire.model.client_identity import ClientIdentity
 from tests.rest._fakes import make_client
 
 if TYPE_CHECKING:
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
     from fastapi.testclient import TestClient
 
-    from punt_lux.rest_http_call import HttpCall
+    from punt_lux.client.rest_http_call import HttpCall
 
 _TEXT: dict[str, object] = {"kind": "text", "id": "t1", "content": "hi"}
 _IDENTITY = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")

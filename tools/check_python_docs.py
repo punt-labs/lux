@@ -47,7 +47,7 @@ _TRACKER_REFERENCE = re.compile(
     r"|\bgithub\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
 )
-_API_MODULES = ("punt_lux", "punt_lux.client", "punt_lux.hub_client")
+_API_MODULES = ("punt_lux", "punt_lux.client", "punt_lux.client.hub_client")
 _SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
 

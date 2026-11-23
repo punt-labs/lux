@@ -16,10 +16,10 @@ from dataclasses import dataclass
 from typing import Literal, Self, final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.lease_reap_sweep import LeaseReapSweep
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.update import AddElement

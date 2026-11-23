@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.hub.ownership_error import HubOwnershipError
 
 if TYPE_CHECKING:
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.client_session import ClientSession
     from punt_lux.wire.model import ConnectionId, ElementId, SceneId
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["Owner"]
 

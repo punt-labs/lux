@@ -212,6 +212,8 @@ re-dispatch.
 | `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, six concern routers, one `OpError`→HTTP table) |
 | `client/facade.py` | `LuxClient` — public library facade; its private REST transport serves the CLI and library |
+| `client/` | Client SDK: `hub_client.py` (WebSocket), `rest_transport.py` (HTTP contract), `_rest_transport.py` (private implementation), HTTP values and identity headers |
+| `wire/model/client_identity.py`, `wire/model/applet_name_format.py` | Shared client identity declaration and applet-name contract, independent of Hub behavior |
 | `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `hub/clients.py`, guard-enforced |

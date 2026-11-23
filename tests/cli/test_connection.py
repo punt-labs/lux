@@ -8,7 +8,7 @@ import pytest
 import typer
 
 from punt_lux.cli._connection import connect_client
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.client.rest_transport import HubUnavailableError
 
 
 def test_unavailable_hub_is_reported_as_a_cli_exit(

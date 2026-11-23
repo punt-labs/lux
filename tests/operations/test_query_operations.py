@@ -14,7 +14,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub import Hub
@@ -40,6 +39,7 @@ from punt_lux.operations.models.query_visibility import (
 )
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.element import Element as DomainElement
 from punt_lux.wire.model.ids import SceneId, Topic
 from punt_lux.wire.model.scope import Scope

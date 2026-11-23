@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from punt_lux.rest_http_call import HttpCall
+from punt_lux.client.rest_http_call import HttpCall
 
 _HEADERS = {"X-Lux-Client-Name": "vox"}
 

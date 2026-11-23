@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
+from punt_lux.client.rest_reply import RestReply
+from punt_lux.client.rest_transport import HttpResponse
 from punt_lux.operations import OpError, SceneShown
-from punt_lux.rest_reply import RestReply
-from punt_lux.rest_transport import HttpResponse
 
 
 def test_a_2xx_parses_into_the_expected_model() -> None:

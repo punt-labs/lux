@@ -8,7 +8,7 @@ change to the format lands both halves at once, and the round-trip test in
 
 from __future__ import annotations
 
-from punt_lux.hub.applet_name_format import format_name, session_pid_from_name
+from punt_lux.wire.model.applet_name_format import format_name, session_pid_from_name
 
 
 class TestFormatName:

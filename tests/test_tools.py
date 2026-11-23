@@ -452,9 +452,9 @@ class TestSetMenuTool:
         # item — so the caller identifies first. list_menus reads that same
         # registry, so it confirms the write.
         from punt_lux.hub import hub_lifecycle
-        from punt_lux.hub.client_identity import ClientIdentity
         from punt_lux.hub.replicator_instance import hub_menu_registry
         from punt_lux.tools import list_menus
+        from punt_lux.wire.model.client_identity import ClientIdentity
 
         conn = ConnectionId("local")  # the default MCP session key
         hub_lifecycle.identify(

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.replica import SceneReplica
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.frame_ownership import FrameOwnership
@@ -27,6 +26,7 @@ from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model import Element, SceneMessage
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope

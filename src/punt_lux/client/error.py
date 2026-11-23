@@ -9,8 +9,8 @@ from punt_lux.commands._ports import Ctx
 
 if TYPE_CHECKING:
     from punt_lux.commands._ports import ErrorOps
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import OpError, RecentErrors
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 @final

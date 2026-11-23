@@ -17,9 +17,9 @@ from punt_lux.hub.menu_listing import MenuListing
 
 if TYPE_CHECKING:
     from punt_lux.hub.callback_ports import CallbackListener
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.menu_listing import PresenceChange
     from punt_lux.hub.registry_outcomes import ListenerAttachment
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["Attachment", "SessionWrite"]
 

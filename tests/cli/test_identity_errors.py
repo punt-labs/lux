@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from punt_lux.cli._identity_errors import describe_identity_error
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 def test_maps_the_bad_field_to_its_flag_name() -> None:
