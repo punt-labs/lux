@@ -43,7 +43,7 @@ class DisplayReadiness:
 
     def pid(self) -> int | None:
         """Read the process identity without exceeding this attempt's deadline."""
-        return self._scope.pid(stabilizing=self._stability.started)
+        return self._scope.pid((self._pid, self._stability.started))
 
     def observe(self, pid: int | None) -> bool:
         """Accept only a stable Hub reply and local socket from the new process."""

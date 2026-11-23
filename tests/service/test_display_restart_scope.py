@@ -27,11 +27,30 @@ def test_query_starts_only_if_the_fixed_timeout_fits(
         assert scope.before == 501
         clock.return_value = 30 - remaining
         if queries:
-            assert scope.pid(stabilizing=False) == 502
+            assert scope.pid((None, False)) == 502
         else:
             with pytest.raises(ReadinessError, match="within 30s"):
-                scope.pid(stabilizing=False)
+                scope.pid((None, False))
         assert lookup.call_count == queries
+
+
+@pytest.mark.parametrize("elapsed", [28.5, 29.5, 30])
+def test_known_candidate_skips_lookup_but_never_the_deadline(elapsed: float) -> None:
+    with (
+        patch("punt_lux.service._readiness_http.time.monotonic") as clock,
+        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+    ):
+        clock.return_value = 0
+        scope = DisplayRestartScope(
+            RestartAttempt(DISPLAY_SPEC, 501, 0, 30), MagicMock()
+        )
+        clock.return_value = elapsed
+        if elapsed < 30:
+            assert scope.pid((502, True)) == 502
+        else:
+            with pytest.raises(ReadinessError, match="within 30s"):
+                scope.pid((502, True))
+        lookup.assert_not_called()
 
 
 @pytest.mark.parametrize("status", [503, 504, 500])

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import http.client
 import os
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Self
 
@@ -52,14 +51,14 @@ class DisplayRestartScope:
         except TimeoutError:
             self.timeout(stabilizing=stabilizing)
 
-    def pid(self, *, stabilizing: bool) -> int | None:
+    def pid(self, observation: tuple[int | None, bool]) -> int | None:
         """Start a process query only when its entire fixed timeout fits."""
+        candidate, stabilizing = observation
         if self.remaining(stabilizing=stabilizing) < _backends.PGREP_TIMEOUT:
-            self.timeout(stabilizing=stabilizing)
-        try:
-            return _backends.pgrep_pid(self._attempt.spec.process_name)
-        except subprocess.TimeoutExpired:
-            self.timeout(stabilizing=stabilizing)
+            if candidate is None:
+                self.timeout(stabilizing=stabilizing)
+            return candidate
+        return _backends.pgrep_pid(self._attempt.spec.process_name)
 
     def local(self, pid: int, *, stabilizing: bool) -> bool:
         connected = self._probe.local(pid, self.remaining(stabilizing=stabilizing))

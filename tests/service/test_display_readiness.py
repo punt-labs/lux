@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -57,6 +56,30 @@ def test_success_requires_three_seconds_of_matching_hub_facts(paths: MagicMock) 
         assert ready.observe(502)
     assert hub.call_args.args[0]._pid == 502
     assert hub.call_args.args[0]._timeout == 0.5
+
+
+def test_a_known_candidate_can_complete_stability_in_the_last_second(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._backends.pgrep_pid", return_value=502) as lookup,
+        patch(
+            "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
+            return_value="dial",
+        ),
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(
+            RestartAttempt(DISPLAY_SPEC, 501, time.time(), 30), paths
+        )
+        clock.return_value = 26.5
+        assert not ready.observe(ready.pid())
+        clock.return_value = 28.5
+        assert not ready.observe(ready.pid())
+        clock.return_value = 29.5
+        assert ready.observe(ready.pid())
+        lookup.assert_called_once_with(DISPLAY_SPEC.process_name)
 
 
 @pytest.mark.parametrize("replacement", [None, 503])
@@ -564,7 +587,7 @@ def test_pgrep_runs_only_when_its_fixed_timeout_fits(
         patch("punt_lux.service._backends.pgrep_pid") as pgrep,
     ):
         clock.return_value = 0
-        pgrep.side_effect = [501, subprocess.TimeoutExpired("pgrep", 2)]
+        pgrep.side_effect = [501, None]
 
         def polls() -> Iterator[None]:
             clock.return_value = 30 - remaining

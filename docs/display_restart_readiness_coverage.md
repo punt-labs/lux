@@ -19,7 +19,7 @@ make check-models
 | `Snapshot`, `StaleSnapshot`, `Receive` | `DisplayQuery.run` captures the pinned dial; delivery/body parsing can follow that capture |
 | `Finish` | `DisplayStability.observe` starts at first receipt, crediting only through each later request's send point |
 | `observedSince` | Independent ghost of the first consecutive receipt for the observed dial, even if the implementation timer fails to reset |
-| `Wait`, `Spend` | `DisplayReadiness.polls`, `_remaining`, and ordinary HTTP socket timeouts and an absolute-deadline shutdown watchdog |
+| `Wait`, `Spend` | `DisplayReadiness.polls`, `ProbeDeadline.remaining`, and ordinary HTTP socket timeouts and an absolute-deadline shutdown watchdog |
 | `ProbeError`, `TransportPending` | local witness loss fails; Hub transport failures reset stability and remain pending until the deadline |
 | `Finished` | return or raise; no further readiness probes |
 
@@ -62,7 +62,7 @@ Paths below are relative to `tests/`.
 | Connection-close body survives HTTPConnection closing its handle | `service/test_readiness_http.py`: both persistent and close replies, with bodies larger than the header buffer |
 | Slow body trickles cannot renew the absolute deadline | `service/test_readiness_http.py::test_slow_body_trickle_cannot_extend_the_absolute_deadline`: deterministic expiry interrupts real reads for persistent and close replies |
 | Failure diagnostics preserve reason, label and fresh bounded stderr | `service/test_display_readiness.py`: fresh mtime printed, stale file omitted; `service/test_restart_readiness.py` |
-| Connection first appears at 28s; polls stop at expiry; pgrep runs only when its fixed 2s timeout fits the remaining budget | `service/test_display_readiness.py`: late-connect, polling and bounded-process-query cases |
+| Connection first appears at 28s; polls stop at expiry; pgrep runs only when its fixed 2s timeout fits; a known candidate can finish through local/Hub witnesses in the final 1.5s | `service/test_display_readiness.py`: late-connect, polling, bounded-process-query and last-second stability cases; `service/test_display_restart_scope.py`: cached candidate and expiry cases |
 | Live PID with no owned socket | `service/test_display_readiness.py::test_live_pid_without_local_socket_names_the_missing_witness` |
 | Real readiness path without witness stubs | `service/test_display_restart_end_to_end.py`: actual pgrep, child PID, Unix peer credentials, local HTTP facts, immediate and refused-then-live Hub |
 | GET /display retains the pinned Hub dial name | `rest/test_display_routes.py::test_get_display_info_returns_the_typed_record` |
