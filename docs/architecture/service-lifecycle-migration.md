@@ -665,6 +665,10 @@ whose output states unambiguously whether the cure succeeded.
 
 ## Current failure diagnostics
 
+Every successful launchd bootout is logged centrally at INFO with its service
+target, including stop, uninstall, and changed-plist upgrade sweeps. Failed
+or absent-job bootouts do not produce a success record.
+
 Hub and Display restart wrappers log readiness timeouts at ERROR before raising
 their existing CLI-facing errors. On macOS, the diagnostic includes the exact
 service label and `launchctl list <label>` exit status. The read-only probe has

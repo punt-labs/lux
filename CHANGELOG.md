@@ -157,6 +157,9 @@
 
 ### Fixed
 
+- Successful launchd bootout commands now log their service target at INFO,
+  covering explicit stop, uninstall, and upgrade sweeps. Display stop help
+  correctly explains that launchd registration is unloaded, not retained.
 - Hub and Display restart readiness failures now reach the Lux log with the
   service label and a bounded macOS launchd status probe. Failed service
   bootstraps explicitly log the label and plist path; installation still

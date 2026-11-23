@@ -305,6 +305,10 @@ normal process and readiness witnesses. This recovery applies to both Hub
 and Display. A missing plist or any other kickstart failure still fails;
 restart never boots out another registration as a fallback.
 
+Every successful launchd bootout logs its service target at INFO, including
+explicit stop, uninstall, and changed-plist upgrades. Stop retains the plist
+but unloads the launchd registration.
+
 | Command | What it does |
 |---|---|
 | `lux ping` | Ping the window through `luxd` and print the round-trip time |
