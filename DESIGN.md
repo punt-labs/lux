@@ -558,7 +558,7 @@ Pin a minimum imgui-bundle version in `pyproject.toml` and remove the fallback.
 > **Superseded (v0.19.0):** `render_function` is not a registered element kind.
 > Interaction is Hub-side handler dispatch (the io-model — see DES-035/DES-036),
 > not agent-supplied Python executed in the display. Code-execution scaffolding
-> survives only in `src/punt_lux/runtime.py`; it is not the v0.19.0 interaction
+> survives only in `src/punt_lux/kernel/runtime.py`; it is not the v0.19.0 interaction
 > path.
 
 ### Context
@@ -1718,7 +1718,7 @@ except ModuleNotFoundError as exc:
 
 #### Public API cleanup
 
-`CodeExecutor` and `RenderContext` were removed from `punt_lux.__init__` exports. They're display-internal (only used by `display.py`) and remain importable from `punt_lux.runtime` directly. No external consumers exist.
+`CodeExecutor` and `RenderContext` were removed from `punt_lux.__init__` exports. They're display-internal (only used by `display.py`) and remain importable from `punt_lux.kernel.runtime` directly. No external consumers exist.
 
 #### CI impact
 

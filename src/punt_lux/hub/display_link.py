@@ -19,6 +19,7 @@ from punt_lux.hub.display_connection import DisplayConnection
 from punt_lux.hub.display_listener import DisplayListener
 from punt_lux.hub.handshake_connector import HandshakeConnector
 from punt_lux.hub.request_desk import RequestDesk
+from punt_lux.kernel.display_defaults import DEFAULT_RECV_TIMEOUT as _RECV_TIMEOUT
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -32,11 +33,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["DEFAULT_RECV_TIMEOUT", "DisplayLink"]
-
-# The Hub-side budget for one display round-trip (ping / recv). A CLI reaching
-# the display through luxd must keep its transport timeout above this.
-DEFAULT_RECV_TIMEOUT = 5.0
+__all__ = ["DisplayLink"]
 
 
 @final
@@ -59,7 +56,7 @@ class DisplayLink:
         dialer: DisplayDialer,
         *,
         connect_timeout: float = 5.0,
-        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+        recv_timeout: float = _RECV_TIMEOUT,
     ) -> Self:
         self = super().__new__(cls)
         self._connection = DisplayConnection(
@@ -85,7 +82,7 @@ class DisplayLink:
         kind: Literal["hub", "test"] = "test",
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
-        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
+        recv_timeout: float = _RECV_TIMEOUT,
     ) -> Self:
         """Make a link to the display's Unix socket (the default path if ``None``).
 

@@ -114,7 +114,7 @@ luxd-hub: HubInteractionDispatch -> real handler
 
 The applets' WebSocket leg listens for callbacks and topic events;
 REST carries their commands. The Hub's default port is defined in
-\modpath{luxd.py}; \modpath{mcp_transport.py} mounts \texttt{/mcp}.
+\modpath{kernel/hub_defaults.py}; \modpath{hub/mcp_transport.py} mounts \texttt{/mcp}.
 The public library facade is \texttt{LuxClient}
 (\modpath{client/facade.py}). Replication and return dispatch live in
 \modpath{hub/replicator.py}, \modpath{hub/display_link.py},
@@ -229,6 +229,26 @@ supervisor backends for non-Lux daemons as well as Lux's unchanged specs.
 The identity values do not cross in Hub-to-Display element pickles, so
 Ready remains version \texttt{0.3} with the existing legacy-name remapping.
 
+All 34 formerly top-level implementation modules now live inside their
+kernel, Hub, Display or CLI package, with filenames preserved. Only the pending
+root initializer and CLI entry module remain. Shared timing, logging, tracing,
+credentials and bounded I/O belong to \modpath{kernel/}; Hub transport and
+session composition belong to \modpath{hub/}. Commands stay at
+\modpath{commands/} as a separate layer depending only on kernel and wire;
+both Hub and CLI may import commands, with identical execution and output.
+The runtime layer baseline is empty. No moved implementation class crosses
+the shipped element-pickle or Ready boundary, so Ready remains \texttt{0.3}.
+
+Terminal registration and enablement belong to
+\modpath{service/terminal_service.py} and
+\modpath{service/terminal_enablement.py}, not PTY execution.
+The CLI's foreground display lifecycle uses
+\modpath{service/display_foreground.py} to exec
+\texttt{python -m punt\_lux.display} in the same environment with the same
+PID and terminal. Its renderer entry point is
+\modpath{display/luxd_display.py}; the shared round-trip budget lives in
+\modpath{kernel/display_defaults.py}. Removed paths have no import aliases.
+
 \begin{longtable}{p{2.6cm}p{3.3cm}p{8.2cm}}
 \toprule
 \textbf{Concern} & \textbf{File or package} & \textbf{Responsibility} \\
@@ -295,18 +315,18 @@ REST          & \modpath{rest/}                  & The typed FastAPI
                 \texttt{display\_link}, \texttt{frame}, \texttt{config});
                 \texttt{status.py} is the one
                 \texttt{OpError}-to-HTTP table. \\
-MCP transport & \modpath{mcp\_transport.py}      & luxd's MCP leg:
+MCP transport & \modpath{hub/mcp_transport.py}      & luxd's MCP leg:
                 streamable HTTP mounted at \texttt{/mcp} beside the REST
-                routes.  \texttt{mcp\_endpoint.py} resolves session
-                identity; \texttt{mcp\_session.py} runs the per-session
-                cleanup cascade; \texttt{session\_cleanup.py} tears down a
+                routes.  \texttt{hub/mcp\_endpoint.py} resolves session
+                identity; \texttt{hub/mcp\_session.py} runs the per-session
+                cleanup cascade; \texttt{hub/session\_cleanup.py} tears down a
                 departed session's Hub state. \\
 Client facade & \modpath{client/facade.py} & \texttt{LuxClient}
                 --- the public library and CLI client.
                 \modpath{client/\_rest\_transport.py} implements REST;
                 \modpath{client/rest\_loopback.py} is the in-process transport
                 tests use. \\
-Gateway       & \modpath{luxd.py}                & Builds the one FastAPI
+Gateway       & \modpath{hub/luxd.py}                & Builds the one FastAPI
                 app on uvicorn, mounts the MCP leg and the REST surface,
                 and starts the frame-expiry sweep on the event loop. \\
 Display client & \modpath{hub/display\_link.py}    & \texttt{DisplayLink}
@@ -2557,7 +2577,7 @@ live session count.
 
 \subsection{The MCP Leg: Streamable HTTP}
 
-luxd's MCP surface is streamable HTTP (\modpath{mcp\_transport.py}), the
+luxd's MCP surface is streamable HTTP (\modpath{hub/mcp_transport.py}), the
 MCP SDK's current transport, mounted as an ASGI application at \texttt{/mcp}
 on the same FastAPI app as the REST routes.  There is no separate WebSocket
 endpoint, and mcp-proxy no longer sits in lux's path: Claude Code connects
@@ -2565,11 +2585,11 @@ to \texttt{http://127.0.0.1:8430/mcp} directly through its native HTTP MCP
 configuration.
 
 Each MCP session has its own identity.  \texttt{McpAsgiApp}
-(\modpath{mcp\_endpoint.py}) resolves the session identity on each request
+(\modpath{hub/mcp_endpoint.py}) resolves the session identity on each request
 and refuses the reserved REST connection key.  Lux requires the stateful
-MCP handshake over HTTP.  Its middleware (\modpath{mcp\_session\_manager.py})
+MCP handshake over HTTP.  Its middleware (\modpath{hub/mcp_session_manager.py})
 registers Hub cleanup on the SDK connection's exit stack.  When the last
-session with a given key ends, \texttt{session\_cleanup.py} tears down its Hub-side
+session with a given key ends, \texttt{hub/session\_cleanup.py} tears down its Hub-side
 menu items, subscriptions, and inbox; its scenes stay behind (see
 \S\ref{sec:frames}, Scenes Survive Their Session).  A vanished
 client --- a killed process, a dropped socket --- is reaped 30 minutes
@@ -2581,7 +2601,7 @@ Session teardown is isolated: one session ending does not disturb another.
 luxd binds loopback by default and refuses a non-loopback \texttt{--host}
 at startup with a clear message, so the bind and the trust policy can never
 disagree.  One \texttt{LoopbackTransportPolicy}
-(\modpath{transport\_policy.py}) is the single source of the loopback
+(\modpath{hub/transport_policy.py}) is the single source of the loopback
 allowlist: it decides which hosts luxd starts on, and it projects the same
 allowlist into the SDK's transport security settings so the streamable-HTTP
 transport rejects a foreign \texttt{Host} header (DNS-rebinding) or
@@ -2731,7 +2751,7 @@ machinery exists. Thus \texttt{screenshot} returns \texttt{rejected}, which the 
 
 REST writes resolve caller identity and scope per request through
 \modpath{rest/identity.py}, rather than sharing one anonymous write scope.
-The companion WebSocket listen leg in \modpath{ws_listen.py} carries
+The companion WebSocket listen leg in \modpath{hub/ws_listen.py} carries
 callbacks and topic events. MCP exposes the subscribe/publish/recv tools.
 
 \subsection{The Command-Line Tool}
@@ -2865,7 +2885,7 @@ that historical execution path is not part of the current rendering API.
   \item The Display runs as a normal Dock app; the Dock icon and Cmd-Tab
     entry aid operational debugging.
   \item \texttt{set\_process\_title("luxd-display")} in
-    \modpath{luxd_display.py} names the renderer process in
+    \modpath{display/luxd_display.py} names the renderer process in
     \texttt{ps} and \texttt{top}; \tool{luxd-hub} names the Hub.
   \item Font discovery prefers Arial Unicode or Helvetica and merges Apple
     Symbols and STIX Two Math for mathematical glyphs.

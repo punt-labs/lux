@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal, Self, final
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.hub_composition import HubComposition
+from punt_lux.hub.hub_composition import HubComposition
 from punt_lux.rest.config import DisplayModeRoutes
 from punt_lux.rest.display import DisplayRoutes
 from punt_lux.rest.display_link import DisplayLinkRoutes

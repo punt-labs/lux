@@ -9,10 +9,10 @@ no orphan quarantine outlives its scene.
 
 from __future__ import annotations
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.quarantine_record import QuarantineRecord
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId

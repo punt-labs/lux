@@ -78,7 +78,7 @@ def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
     # marks the replicator: a session's scenes survive, nothing to repaint.)
     sync = SyncReplicator(rig)
     monkeypatch.setattr("punt_lux.hub.replicator_instance.hub_replicator", sync)
-    monkeypatch.setattr("punt_lux.hub_composition.hub_replicator", sync)
+    monkeypatch.setattr("punt_lux.hub.hub_composition.hub_replicator", sync)
     harness = LoopHarness(rig)
     yield harness
     harness.teardown()

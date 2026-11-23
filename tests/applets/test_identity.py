@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.applets.identity import AppletIdentity
-from punt_lux.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.wire.model.applet_name_format import format_name, session_pid_from_name
 from punt_lux.wire.model.client_identity import ClientIdentity
 

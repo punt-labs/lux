@@ -199,7 +199,7 @@ class TestTheHeldAcksShareOnePostSwapBudget:
             return ([], [], [])
 
         monkeypatch.setattr(
-            "punt_lux.bounded_send.select", SimpleNamespace(select=stalled)
+            "punt_lux.kernel.bounded_send.select", SimpleNamespace(select=stalled)
         )
         monkeypatch.setattr(client_sender, "_SWAP_SEND_BUDGET", 0.05)
         monkeypatch.setattr(client_sender, "_ONE_OFF_SEND_BUDGET", 5.0)

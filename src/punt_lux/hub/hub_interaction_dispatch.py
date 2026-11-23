@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.wire.model import RemoteEventHandlerInvocation

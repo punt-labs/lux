@@ -36,9 +36,9 @@ import uvicorn
 from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_loopback import LoopbackTransport
-from punt_lux.connection_identity import connection_for
+from punt_lux.hub.luxd import build_app
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.luxd import build_app
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.header_value import HeaderValue
 from punt_lux.wire.model.session_callback import CallbackInvocation

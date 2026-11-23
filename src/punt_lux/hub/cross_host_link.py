@@ -15,7 +15,8 @@ import ssl
 from typing import Self, final
 
 from punt_lux.hub.cross_host_connector import CrossHostConnector
-from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT, DisplayLink
+from punt_lux.hub.display_link import DisplayLink
+from punt_lux.kernel.display_defaults import DEFAULT_RECV_TIMEOUT
 
 __all__ = ["CrossHostEndpoint"]
 

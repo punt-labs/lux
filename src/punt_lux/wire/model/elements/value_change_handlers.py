@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal, Self, final
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.handler_decoder import FactoryRegistry, HandlerDecoder
 from punt_lux.wire.model.handlers import DecoratorRegistry
 

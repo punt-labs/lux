@@ -1,7 +1,7 @@
 {
-  "total": 172,
+  "total": 173,
   "by_category": {
-    "noqa": 21,
+    "noqa": 22,
     "type_ignore": 4,
     "pylint_disable": 2,
     "pyright_ignore": 4,
@@ -186,12 +186,12 @@
       "type_ignore": 1,
       "file_level": 1
     },
-    "src/punt_lux/hub/subtree_remover.py": {
-      "noqa": 1
-    },
-    "src/punt_lux/luxd.py": {
+    "src/punt_lux/hub/luxd.py": {
       "type_ignore": 1,
       "per_file_ignores": 1
+    },
+    "src/punt_lux/hub/subtree_remover.py": {
+      "noqa": 1
     },
     "src/punt_lux/pty/pty_spawn.py": {
       "noqa": 1
@@ -203,6 +203,9 @@
     "src/punt_lux/service/_backend_systemd.py": {
       "pylint_disable": 1,
       "per_file_ignores": 2
+    },
+    "src/punt_lux/service/display_foreground.py": {
+      "noqa": 1
     },
     "src/punt_lux/service/display_paths.py": {
       "noqa": 2
@@ -237,7 +240,7 @@
     "src/punt_lux/consent.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/runtime.py": {
+    "src/punt_lux/kernel/runtime.py": {
       "per_file_ignores": 2
     },
     "src/punt_lux/service/config.py": {
@@ -276,7 +279,7 @@
     "src/punt_lux/rest/identity.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/ws_transport.py": {
+    "src/punt_lux/hub/ws_transport.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/tools/__init__.py": {
@@ -334,5 +337,5 @@
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-23T10:08:31Z"
+  "updated_at": "2026-11-23T18:13:39Z"
 }

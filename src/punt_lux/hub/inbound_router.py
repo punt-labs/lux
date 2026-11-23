@@ -20,7 +20,7 @@ import queue
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.reply_sink import REPLY_TYPES
-from punt_lux.polled_event import PolledEvent
+from punt_lux.kernel.polled_event import PolledEvent
 from punt_lux.wire.model import ObserverMessage, RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:

@@ -13,7 +13,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.handler_failed_error import HandlerFailedError
 from punt_lux.wire.model.handler_writes import HandlerWrites, WriteRefusedError
 from punt_lux.wire.model.ids import ElementId

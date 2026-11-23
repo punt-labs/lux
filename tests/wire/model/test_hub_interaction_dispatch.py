@@ -6,10 +6,10 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, final
 from unittest.mock import MagicMock
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.button import ButtonElement
 from punt_lux.wire.model.elements.checkbox import CheckboxElement

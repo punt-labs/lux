@@ -17,9 +17,9 @@ from typing import Literal, Self
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements import (
     ButtonElement,

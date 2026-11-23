@@ -14,13 +14,13 @@ from typing import Literal, Self
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.departure_cascade import DepartureCascade
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.owner import Owner
 from punt_lux.hub.ownership_error import HubOwnershipError
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import ElementId, SceneId, Topic

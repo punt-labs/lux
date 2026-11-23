@@ -202,6 +202,13 @@ re-dispatch.
 | Module | Responsibility |
 |--------|---------------|
 | `service/` | Shared install and daemon lifecycle: supervisor backends, migration sweeps, service managers, project config, permissions, hook decisions and diagnostics |
+| `kernel/` | All shared implementation primitives now live inside the package: timing, tracing, bounded I/O, process/connection identity, credentials and code runtime; no root-module aliases |
+| `kernel/display_defaults.py` | Shared display round-trip timeout, independent of Hub implementation |
+| `hub/luxd.py`, `hub/mcp_*.py`, `hub/ws_*.py`, `hub/hub_{composition,lifespan}.py` | Hub gateway, transports, sessions and lifetime composition, moved physically into the Hub package |
+| `display/luxd_display.py`, `display/__main__.py` | Display renderer entry point and module executable; `service/display_foreground.py` owns foreground launch without a CLI-to-Display import |
+| `cli/hook_cli.py` | Headless hook CLI, no longer a root single-file module |
+| `service/terminal_service.py`, `service/terminal_enablement.py` | Terminal supervisor registration and opt-in lifecycle, independent of PTY execution |
+| `commands/` | Separate shared execution/formatting layer allowed to import only kernel and wire; both Hub and CLI may import it |
 | `kernel/hub_paths.py`, `kernel/hub_defaults.py` | Process-independent Hub metadata paths, liveness checks and default port, shared by lifecycle and transport clients |
 | `display/render_loop.py` | `RenderLoop` — ImGui render loop and coordinator — **778 lines, still over the 300-line target; remaining debt from the original `display.py`** |
 | `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
@@ -218,7 +225,7 @@ re-dispatch.
 | `client/` | Runtime-isolated SDK: WebSocket/HTTP transports and direct async operation-port accessors; no commands or Hub imports |
 | `wire/model/identity_headers.py`, `wire/model/header_value.py` | Shared identity-header contract and header encoding, used by both SDK and Hub adapters |
 | `wire/model/client_identity.py`, `wire/model/applet_name_format.py` | Shared client identity declaration and applet-name contract, independent of Hub behavior |
-| `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
+| `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `hub/mcp_transport.py` and `hub/mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads/` (`lux-beads` — the first bundled applet: `applet.py`, its service, the `bd` runner and board) |

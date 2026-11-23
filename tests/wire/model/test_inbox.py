@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections import deque
 from typing import Self, final
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub import hub_lifecycle, inbox as inbox_mod
 from punt_lux.hub.hub import hub
 from punt_lux.hub.inbox import (
@@ -22,6 +21,7 @@ from punt_lux.hub.inbox import (
     offer,
 )
 from punt_lux.hub.inbox_queue import BoundedInbox
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import Topic
 from punt_lux.wire.model.messages.observer import ObserverMessage

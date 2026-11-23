@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.polled_event import PolledEvent
+    from punt_lux.kernel.polled_event import PolledEvent
     from punt_lux.wire.model import RemoteEventHandlerInvocation
 
 __all__ = ["EventPort"]

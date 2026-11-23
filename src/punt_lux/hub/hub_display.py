@@ -52,7 +52,7 @@ from punt_lux.hub.scene_snapshot import SceneReader
 from punt_lux.hub.subtree_installer import SubtreeInstaller
 from punt_lux.hub.subtree_remover import SubtreeRemover
 from punt_lux.hub.write_seam import WriteSeam
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model import ConnectionId, ElementId, SceneId
 from punt_lux.wire.model.element import Element as WireElement
 from punt_lux.wire.model.update import AddElement, RemoveElement, SetProperty

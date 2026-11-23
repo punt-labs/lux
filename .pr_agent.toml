@@ -26,7 +26,7 @@ Do not grade PR titles, PR descriptions, commit messages, or CHANGELOG wording.
 Do not grade agent process rules from CLAUDE.md, AGENTS.md, or WORKFLOW.md (missions, beads, review cycles, delegation).
 """
 smart_router_extra_instructions = """
-High risk: src/punt_lux/trust/ (certificate authority, enrollment, key material), src/punt_lux/client/identity_headers.py, src/punt_lux/connection_identity.py,
+High risk: src/punt_lux/trust/ (certificate authority, enrollment, key material), src/punt_lux/wire/model/identity_headers.py, src/punt_lux/kernel/connection_identity.py,
 src/punt_lux/rest/identity.py, src/punt_lux/hub/ (client identity, session leases, ownership, handshake), src/punt_lux/display/identity_guard.py,
 src/punt_lux/display/cross_host_listener.py, src/punt_lux/display/cross_host_verification.py, src/punt_lux/service/_backend_launchd.py, src/punt_lux/service/_backend_systemd.py,
 plugin/hooks/*.sh, and install.sh.

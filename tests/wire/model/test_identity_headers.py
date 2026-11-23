@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
 

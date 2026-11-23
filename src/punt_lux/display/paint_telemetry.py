@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import final
 
 from punt_lux.display.paint_clock import PaintClock as PaintClock
-from punt_lux.usage import record_first_paint
+from punt_lux.kernel.usage import record_first_paint
 
 
 @final

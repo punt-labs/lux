@@ -16,10 +16,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.hub.write_result import WriteAccepted
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId

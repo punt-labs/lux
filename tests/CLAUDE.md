@@ -69,6 +69,17 @@ elapsed time. Behavior assertions are stable; wall-clock bounds are not.
 
 ## Writing tests
 
+Kernel implementation tests mirror `kernel/` under `tests/kernel/`; moved
+Hub transport/session tests live under `tests/hub/`, and hook CLI tests under
+`tests/cli/`. Terminal service and enablement tests belong in `tests/service/`,
+not `tests/pty/`. `tests/test_root_module_moves.py` uses `tests/fresh_imports.py`
+to import every moved module at its new path, reject every old path, enforce
+the two pending root entry modules, and isolate commands and lifecycle from
+daemon imports. `tests/root_module_moves.py` shares that move inventory with
+the shipped-element pickle regression tests. Display entry-point tests cover
+the renderer under `tests/display/`; foreground launch tests cover exec,
+missing extras, empty/default options and errors under `tests/service/`.
+
 Shared model tests mirror `wire/model/` under `tests/wire/model/`; Hub tests
 mirror `hub/` under `tests/hub/`. PTY execution tests mirror `pty/` under
 `tests/pty/`, including process-group tests; stream contract tests mirror

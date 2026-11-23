@@ -18,7 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.tracing import trace
+from punt_lux.kernel.tracing import trace
 from punt_lux.wire.model.container_interaction import (
     HeaderToggled,
     ModalClosed,

@@ -8,10 +8,10 @@ sessions never clobber and a departed session's bar leaves the composed snapshot
 
 from __future__ import annotations
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.menu_models import Menu, MenuAction

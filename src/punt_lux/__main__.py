@@ -15,8 +15,8 @@ from punt_lux.cli._shared import (
     configure_logging,
     run,
 )
+from punt_lux.cli.hook_cli import HookCommands
 from punt_lux.cli.registry import PLUGIN_ID, register_subcommands
-from punt_lux.hook_cli import HookCommands
 
 
 def _version_callback(value: bool) -> None:
@@ -134,7 +134,7 @@ def ping(
     from punt_lux.cli._shared import connect_client
     from punt_lux.client.cli_identity import CliIdentity
     from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
-    from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT
+    from punt_lux.kernel.display_defaults import DEFAULT_RECV_TIMEOUT
 
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT

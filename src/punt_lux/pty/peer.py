@@ -5,7 +5,7 @@ from __future__ import annotations
 import socket
 from typing import Self
 
-from punt_lux.socket_writer import SocketWriter
+from punt_lux.kernel.socket_writer import SocketWriter
 from punt_lux.wire.stream.frames import MAX_READ_BYTES, Frame, FrameDecoder
 
 

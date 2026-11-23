@@ -3,7 +3,7 @@
 An applet owns two legs into the Hub: the WebSocket it holds open for its menu
 clicks, and the REST calls it makes to push what those clicks produce. Both
 must resolve to one Hub connection, so both declare this identity, and
-:func:`~punt_lux.connection_identity.connection_for` derives the shared
+:func:`~punt_lux.kernel.connection_identity.connection_for` derives the shared
 connection id from its fields.
 
 The name reads as one uniform shape — ``lux · <repository> · #<session> ·
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.repo_root import RepoRoot
+from punt_lux.kernel.repo_root import RepoRoot
 from punt_lux.wire.model import applet_name_format
 from punt_lux.wire.model.client_identity import ClientIdentity
 

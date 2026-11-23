@@ -595,7 +595,7 @@ Engine:
 - `src/punt_lux/display/query_dispatcher.py` — `"display_state"` handler
 - `src/punt_lux/hub/inbox.py` — `inbox_depth_for`
 - `src/punt_lux/operations/ports.py` — `InboxDepth`, `HubPorts.inbox_depth`
-- `src/punt_lux/hub_composition.py` — wire the new port
+- `src/punt_lux/hub/hub_composition.py` — wire the new port
 - `src/punt_lux/wire/operations/display_state.py` — new module (§A.6)
 - `src/punt_lux/operations/display_state_proxy.py` — new module (§A.6)
 - `src/punt_lux/wire/operations/query_clients.py` — `HubClient` fields (§B.3)

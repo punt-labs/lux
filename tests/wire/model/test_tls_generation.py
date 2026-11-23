@@ -24,7 +24,7 @@ from punt_lux.hub.display_connection import DisplayConnection
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.drain_result import Drained
 from punt_lux.hub.handshake_outcome import HandshakeResult
-from punt_lux.send_timeout import (
+from punt_lux.kernel.send_timeout import (
     SCENE_WRITE_DEADLINE_SECONDS,
     SEND_TIMEOUT_CEILING_SECONDS,
 )

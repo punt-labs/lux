@@ -234,7 +234,8 @@ Every package lives under the one `punt_lux` namespace.
 | lux-service | `punt_lux.service` | Daemon lifecycle shared by every daemon: install, backends, sweeps, doctor, endpoints and process ownership |
 | lux-client | `punt_lux.client` | The spoke SDK: REST and listen legs, applet helpers, the Hub-carried terminal stream transport |
 | lux-terminal | `punt_lux.terminal` | Headless VT behind libghostty and the shared output and snapshot policy; no daemon code |
-| lux-hub | `punt_lux.hub` | The Hub: authoritative store, handlers, links, operations, commands, front doors; `mesh/` reserved |
+| lux-commands | `punt_lux.commands` | Shared command execution and output formatting over kernel and wire contracts; no Hub or client implementation imports |
+| lux-hub | `punt_lux.hub` | The Hub: authoritative store, handlers, links, operations and front doors; `mesh/` reserved |
 | lux-display | `punt_lux.display` | The Display peripheral: window, replica, menus, ImGui renderers, terminal view |
 | lux-pty | `punt_lux.pty` | luxd-pty: sessions, processes, viewers, stream server |
 | lux-cli | `punt_lux.cli` | The `lux` command, built on the client SDK and service lifecycle |
@@ -335,6 +336,30 @@ pickles; `HubPublishSink` still reduces to its unchanged class and `ConnectionId
 Every element kind and a Hub-bound publish handler have regression coverage
 for the absence of moved globals. No new Display-unpickler remap is necessary.
 
+Step 9a prepares package-directory ownership for a uv workspace: all 34
+remaining top-level implementation modules move into their existing kernel,
+Hub, Display or CLI layer, preserving filenames without collisions. Only
+`__init__.py` and `__main__.py` remain at the root; `commands`, `operations`,
+`tools` and `rest` retain their paths. The tracked `protocol/__init__.py`
+remains an empty namespace, not an alias. Old implementation imports fail in
+fresh interpreters; entry points, tests and callers use the package-owned paths.
+
+`kernel.display_defaults.DEFAULT_RECV_TIMEOUT` is the shared display-leg
+budget, independent of the Hub. Terminal supervisor registration and opt-in
+enablement move from `pty.service` and `pty.enablement` into
+`service.terminal_service` and `service.terminal_enablement`. Foreground display
+lifecycle belongs to `service.display_foreground`: `lux display serve` checks
+the display extra and execs `python -m punt_lux.display` in the same environment,
+retaining its PID, terminal and exit status without importing the renderer
+into the CLI. The renderer entry point lives in `display.luxd_display`.
+
+Commands are now a separate layer, allowed to import only kernel and wire.
+Both Hub and CLI may use commands; command execution and MCP/CLI output remain
+unchanged. The runtime dependency baseline is empty. No moved implementation
+class occurs in shipped Hub-to-Display element/handler pickles or the Ready
+handshake, whose fields are wire values and primitives. Ready remains `0.3`;
+no additional pickle-name remap is needed.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in
@@ -353,12 +378,13 @@ the PR merge base or the pre-push commit on main, with full git history.
 | kernel | nothing else in Lux |
 | wire, trust | kernel |
 | service, client | kernel, wire, trust |
+| commands | kernel, wire |
 | terminal | kernel, wire |
-| hub | kernel, wire, trust, service |
+| hub | kernel, wire, trust, service, commands |
 | display | kernel, wire, trust, service, terminal |
 | pty | kernel, wire, trust, service, client, terminal |
 | applets | kernel, wire, trust, service, client |
-| cli | kernel, wire, trust, service, client, applets |
+| cli | kernel, wire, trust, service, client, applets, commands |
 
 Display and pty may both use terminal's headless VT, but never each other.
 

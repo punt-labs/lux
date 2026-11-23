@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import final
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.session_write import Attachment, SessionWrite
+from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.session_callback import SessionCallback
 

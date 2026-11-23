@@ -20,7 +20,7 @@ def _plant_owned_shim(tmp_path: Path, bin_dir: Path, name: str) -> Path:
     tool_root = tmp_path / "uv-tools" / "punt-lux" / "bin"
     tool_root.mkdir(parents=True)
     shim = tool_root / name
-    shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.luxd import main\n")
+    shim.write_text("#!/fake/venv/bin/python3\nfrom punt_lux.hub.luxd import main\n")
     shim.chmod(0o755)
     link = bin_dir / name
     link.symlink_to(shim)

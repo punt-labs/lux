@@ -3,11 +3,13 @@
 A dial's socket is read by one reader at a time and written by one writer at a time,
 and a TLS socket forbids a read and a write at once, so both take this lock. Whether
 a lock held by a writer is a wedge or merely a slow peer is judged by the one clock of
-the bytes that move on the socket (:class:`~punt_lux.progress_clock.ProgressClock`):
+the bytes that move on the socket
+(:class:`~punt_lux.kernel.progress_clock.ProgressClock`):
 a wait for the lock, and the bounded write itself, are cut only after ``D`` with no
 byte moving, and so is the keepalive's verdict. A peer that stops reading cannot wedge
 a writer for ever: every write is one user-space bounded send
-(:class:`~punt_lux.bounded_send.BoundedSend`) on a socket made non-blocking for it.
+(:class:`~punt_lux.kernel.bounded_send.BoundedSend`) on a socket made
+non-blocking for it.
 ``SO_SNDTIMEO`` bounds only the handshake's blocking send, which the dialers set
 before the dial is handed over.
 """
@@ -20,11 +22,11 @@ import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.bounded_send import BoundedSend
 from punt_lux.hub.lock_discipline import LockDiscipline
-from punt_lux.progress_clock import ProgressClock
-from punt_lux.send_timeout import SCENE_WRITE_DEADLINE_SECONDS
-from punt_lux.write_progress import WriteProgress
+from punt_lux.kernel.bounded_send import BoundedSend
+from punt_lux.kernel.progress_clock import ProgressClock
+from punt_lux.kernel.send_timeout import SCENE_WRITE_DEADLINE_SECONDS
+from punt_lux.kernel.write_progress import WriteProgress
 
 if TYPE_CHECKING:
     import socket

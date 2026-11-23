@@ -762,7 +762,7 @@ before implementation, per Decision 4 below.
   `src/punt_lux/hub/session_callback.py`,
   `src/punt_lux/hub/callback_menu.py`,
   `src/punt_lux/wire/model/ids.py`,
-  `src/punt_lux/connection_identity.py`,
+  `src/punt_lux/kernel/connection_identity.py`,
   `src/punt_lux/client/cli_identity.py`,
   `src/punt_lux/applets/identity.py`,
   `src/punt_lux/tools/server.py`, `src/punt_lux/tools/tools.py`,

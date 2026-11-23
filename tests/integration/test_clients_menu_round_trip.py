@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.display.menus import Submenu
 from punt_lux.display.menus.menu_click import MenuHandlers
 from punt_lux.display.menus.wire import WireMenu
@@ -34,6 +33,7 @@ from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort

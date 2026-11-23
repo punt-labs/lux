@@ -16,11 +16,11 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.clients import ClientRegistry
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.reconnect_wait import ReconnectWait
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
 

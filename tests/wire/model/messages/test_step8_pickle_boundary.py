@@ -13,6 +13,7 @@ from punt_lux.wire.model.messages.pickled_element_codec import PickledElementCod
 from punt_lux.wire.model.messages.scene_codec import SceneCodec
 from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.operations import FrameSpec, RenderRequest
+from tests.root_module_moves import MOVED_MODULES
 
 _REQUIRED: dict[str, dict[str, object]] = {
     "image": {"path": "x.png"},
@@ -28,6 +29,7 @@ _MOVED = (
     b"punt_lux.wire.model.connection_scoped_id",
     b"punt_lux.wire.model.frame_ownership",
     b"punt_lux.wire.model.scene_presentation",
+    *(name.encode() for name in (*MOVED_MODULES, *MOVED_MODULES.values())),
 )
 
 

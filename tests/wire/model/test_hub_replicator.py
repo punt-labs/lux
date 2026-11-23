@@ -17,8 +17,6 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
-from punt_lux.bounded_send import TornStreamError
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.batch_sender import BatchSendError
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.connection_closed import (
@@ -37,6 +35,8 @@ from punt_lux.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
 )
+from punt_lux.kernel.bounded_send import TornStreamError
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.elements.text import TextElement

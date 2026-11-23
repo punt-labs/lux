@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from punt_lux.connection_identity import connection_for
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.id_separator import ID_SEPARATOR

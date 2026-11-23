@@ -712,7 +712,9 @@ class TestFrameSendBudget:
 
         from punt_lux.wire.model.identity import HubId
 
-        monkeypatch.setattr("punt_lux.bounded_send.select.select", _never_writable)
+        monkeypatch.setattr(
+            "punt_lux.kernel.bounded_send.select.select", _never_writable
+        )
         server = _make_server()
         slow = _mock_sock_fd(10)
         slow.send.side_effect = BlockingIOError(errno.EAGAIN, "would block")

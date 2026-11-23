@@ -426,7 +426,7 @@ mode — they aren't.
 
 **Every `"test"` connect logs to the display log at WARNING**, with
 the peer's pid where available (via the repo's existing
-`SocketOwner` class in `src/punt_lux/socket_owner.py`, which uses
+`SocketOwner` class in `src/punt_lux/kernel/socket_owner.py`, which uses
 `LOCAL_PEERPID` on macOS and `SO_PEERCRED` on Linux; unavailable on
 other platforms). The message is a
 single line naming the fd, the pid, and the `ConnectMessage.name`:

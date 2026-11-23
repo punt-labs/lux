@@ -39,8 +39,8 @@ from punt_lux.display.terminal.activity import TerminalActivity
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display.window_chrome import WindowChrome
 from punt_lux.display.window_settings import WindowSettings
+from punt_lux.kernel.tracing import trace
 from punt_lux.service.display_paths import DisplayPaths
-from punt_lux.tracing import trace
 from punt_lux.wire.model import (
     CallbackMenuMessage,
     ConnectMessage,

@@ -35,8 +35,8 @@ import pytest
 import uvicorn
 
 from punt_lux.hub.hub_store_factory import hub_display
+from punt_lux.hub.luxd import build_app
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.luxd import build_app
 from punt_lux.wire.model.session_callback import CallbackInvocation
 
 pytestmark = pytest.mark.integration

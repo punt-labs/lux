@@ -14,10 +14,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from unittest.mock import MagicMock
 
-from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation

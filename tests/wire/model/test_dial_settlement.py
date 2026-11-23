@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.bounded_send import TornStreamError
 from punt_lux.hub import bounded_ask, dial_socket, socket_line
 from punt_lux.hub.backoff_config import BackoffConfig
 from punt_lux.hub.batch_sender import BatchSendError
@@ -43,6 +42,7 @@ from punt_lux.hub.reply_sink import ReplySink
 from punt_lux.hub.respawn_backoff import RespawnBackoff
 from punt_lux.hub.settler import Settler
 from punt_lux.hub.suspect_book import SuspectBook
+from punt_lux.kernel.bounded_send import TornStreamError
 from punt_lux.wire.model import (
     AckMessage,
     PingMessage,

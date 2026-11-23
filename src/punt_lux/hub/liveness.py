@@ -17,9 +17,9 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.connection_timing import CONNECTION_TIMING
 from punt_lux.hub.liveness_pacing import LivenessPacing
 from punt_lux.hub.liveness_probe import LivenessProbe
+from punt_lux.kernel.connection_timing import CONNECTION_TIMING
 from punt_lux.kernel.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:

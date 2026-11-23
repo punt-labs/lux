@@ -191,7 +191,8 @@ class TestAHubThatDoesNotRead:
     @pytest.fixture(autouse=True)
     def _full_buffer(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "punt_lux.bounded_send.select", SimpleNamespace(select=_never_writable)
+            "punt_lux.kernel.bounded_send.select",
+            SimpleNamespace(select=_never_writable),
         )
 
     def test_an_ack_that_cannot_be_sent_severs_the_connection(self) -> None:
@@ -288,7 +289,8 @@ class TestADeferredEventIsNotAReply:
         loop._handle_message(sock, _scene("owned"))
         peer.block()
         monkeypatch.setattr(
-            "punt_lux.bounded_send.select", SimpleNamespace(select=_never_writable)
+            "punt_lux.kernel.bounded_send.select",
+            SimpleNamespace(select=_never_writable),
         )
         event = RemoteEventHandlerInvocation(
             element_id="b", action="click", scene_id="owned"

@@ -5,9 +5,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.logging_config import process_diagnostics
-from punt_lux.proctitle import set_process_title
-from punt_lux.usage import capture_usage
+from punt_lux.kernel.logging_config import process_diagnostics
+from punt_lux.kernel.proctitle import set_process_title
+from punt_lux.kernel.usage import capture_usage
 
 if TYPE_CHECKING:
     from collections.abc import Generator

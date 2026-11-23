@@ -23,13 +23,13 @@ from typing import TYPE_CHECKING, Annotated, Final, Self, cast, final
 from fastapi import Depends, HTTPException
 from starlette.requests import Request
 
-from punt_lux.client_host import ClientHost
 from punt_lux.commands import (
     Ctx as CommandCtx,
     SessionOps,
     session_identify as session_identify_command,
 )
-from punt_lux.connection_identity import connection_for
+from punt_lux.kernel.client_host import ClientHost
+from punt_lux.kernel.connection_identity import connection_for
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders

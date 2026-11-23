@@ -13,7 +13,7 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.cross_host_verification import CrossHostVerification
-from punt_lux.socket_owner import SocketOwner
+from punt_lux.kernel.socket_owner import SocketOwner
 from punt_lux.wire.model.identity import HubId, HubIdToken
 
 if TYPE_CHECKING:

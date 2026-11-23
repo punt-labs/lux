@@ -95,8 +95,8 @@
 % (`Hub.publish`, `SubscriptionRegistry.snapshot_subscribers` -- the
 % snapshot-then-invoke pattern), src/punt_lux/hub/writer_registry.py
 % (`WriterRegistry.bind`/`release` -- the identity-comparison mechanism a fix
-% can reuse for free), src/punt_lux/connection_identity.py and
-% src/punt_lux/session_key.py (both derive a `ConnectionId` that IS reused
+% can reuse for free), src/punt_lux/kernel/connection_identity.py and
+% src/punt_lux/hub/session_key.py (both derive a `ConnectionId` that IS reused
 % across a same-identity reconnect -- the precondition for this hazard to be
 % reachable at all), src/punt_lux/hub/departure_cascade.py
 % (`DepartureCascade.run` -- `on_disconnect` drops the writer binding under

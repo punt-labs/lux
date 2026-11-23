@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Self, get_args
 
-from punt_lux.client_host import UNOBSERVED, ClientHost
+from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["Provenance", "Scope"]

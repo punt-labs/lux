@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 import punt_lux.tools.server as server_module
-from punt_lux.mcp_transport import McpHttpTransport
+from punt_lux.hub.mcp_transport import McpHttpTransport
 
 if TYPE_CHECKING:
     import pytest
