@@ -39,21 +39,24 @@ done
 check() {
   local model="$1" label="$2" expected="$3" goal="${4:-}"
   local log="$LOG_DIR/$label.log"
-  local args=("$model" -model_check -p DEFAULT_SETSIZE 2 -p MAXINT 7)
+  local args=("$model" -model_check -v -p DEFAULT_SETSIZE 2 -p MAXINT 7)
   args+=(-p TIME_OUT 60000)
   if [[ -n "$goal" ]]; then
     args+=(-nodead -goal "$goal")
   fi
   "$PROBCLI" "${args[@]}" > "$log" 2>&1 || fail "$label ProB" "$log"
   local errors
-  errors="$(sed -nE 's/.*[Tt]otal[[:space:]]+[Ee]rrors[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$log" | tail -n 1)"
+  errors="$(sed -nE \
+    -e 's/.*[Tt]otal[[:space:]]+[Ee]rrors[[:space:]]*:[[:space:]]*([0-9]+)([[:space:]]*,.*|[[:space:]]*)$/\1/p' \
+    -e 's/.*Finished[[:space:]]+model_check[[:space:]]*\(errors=([0-9]+),[[:space:]]*warnings=[0-9]+,[[:space:]]*expected_errors=[0-9]+\)[[:space:]]*$/\1/p' \
+    "$log" | sort -u)"
   if [[ "$expected" == found ]]; then
     if ! { grep -Eq 'Found[[:space:]]+GOAL[[:space:]]+in[[:space:]]+state' "$log" &&
       [[ "$errors" == 1 ]] &&
       grep -Eq '![[:space:]]*goal_found' "$log"; }; then
       fail "$label expected defect witness" "$log"
     fi
-  elif ! { [[ "$errors" == 0 || -z "$errors" ]] &&
+  elif ! { [[ "$errors" == 0 ]] &&
     grep -Eq 'No counter[ -]?example found.*ALL states visited' "$log"; }; then
     fail "$label incomplete or unsafe" "$log"
   fi
