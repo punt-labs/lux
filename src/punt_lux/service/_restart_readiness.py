@@ -41,13 +41,9 @@ class RestartReadiness:
     def _status(spec: ServiceSpec) -> str:
         if platform.system() != "Darwin":
             return "launchd state unavailable on this platform"
-        command = f"launchctl list {spec.launchd_label}"
         try:
-            status = LaunchdBackend(spec).registration_status()
-        except subprocess.TimeoutExpired:
-            return (
-                f"{command}: timed out after {LaunchdBackend.STATUS_TIMEOUT_SECONDS:g}s"
-            )
+            return LaunchdBackend(spec).registration_status()
+        except subprocess.TimeoutExpired as error:
+            return f"launchctl print: timed out after {error.timeout}s"
         except OSError as error:
-            return f"{command}: unavailable ({type(error).__name__})"
-        return f"{command}: rc={status}"
+            return f"launchctl print: unavailable ({type(error).__name__})"

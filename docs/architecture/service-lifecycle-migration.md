@@ -671,7 +671,9 @@ or absent-job bootouts do not produce a success record.
 
 Hub and Display restart wrappers log readiness timeouts at ERROR before raising
 their existing CLI-facing errors. On macOS, the diagnostic includes the exact
-service label and `launchctl list <label>` exit status. The read-only probe has
+service label and `launchctl print gui/<uid>/<label>` exit status, querying the
+same explicit GUI domain targeted by restart rather than the caller's context.
+The read-only probe has
 a two-second timeout, discards command output, and records probe unavailability
 without replacing the original restart error. Successful restarts do not run
 the diagnostic probe. Other platforms log the failure without invoking launchctl.

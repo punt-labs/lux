@@ -50,15 +50,16 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         )
         return result.returncode == 0
 
-    def registration_status(self) -> int:
+    def registration_status(self) -> str:
         """Return a bounded launchd registration status without retaining output."""
-        return subprocess.run(
-            ["launchctl", "list", self._plist.spec.launchd_label],
+        status = subprocess.run(
+            ["launchctl", "print", self._plist.target],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
             timeout=LaunchdBackend.STATUS_TIMEOUT_SECONDS,
         ).returncode
+        return f"launchctl print {self._plist.target}: rc={status}"
 
     def install(self) -> bool:
         """Write the plist and bootstrap the service into launchd.
@@ -98,9 +99,8 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def restart(self) -> bool:
         """Kickstart a loaded job, or bootstrap its missing registration."""
-        target = self._plist.target
         result = subprocess.run(
-            ["launchctl", "kickstart", "-k", target],
+            ["launchctl", "kickstart", "-k", self._plist.target],
             capture_output=True,
             text=True,
             check=False,

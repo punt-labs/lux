@@ -23,6 +23,7 @@ def test_failure_logs_label_and_launchctl_status(
         patch(
             "punt_lux.service._restart_readiness.platform.system", return_value="Darwin"
         ),
+        patch("punt_lux.service._launchctl.os.getuid", return_value=501),
         patch("punt_lux.service._restart_readiness.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):
@@ -32,8 +33,9 @@ def test_failure_logs_label_and_launchctl_status(
     assert spec.launchd_label in caplog.text
     assert "readiness timed out" in caplog.text
     assert f"rc={returncode}" in caplog.text
+    assert f"launchctl print gui/501/{spec.launchd_label}" in caplog.text
     run.assert_called_once_with(
-        ["launchctl", "list", spec.launchd_label],
+        ["launchctl", "print", f"gui/501/{spec.launchd_label}"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,

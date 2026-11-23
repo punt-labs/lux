@@ -292,8 +292,8 @@ The installer runs `lux display install` for you. On macOS the window gets a Doc
 
 Restart readiness failures are recorded in `~/.punt-labs/lux/logs/lux.log`
 before the CLI reports failure. On macOS, the entry includes the service label
-and the exit status of a read-only `launchctl list <label>` probe, bounded to
-two seconds. A failed install bootstrap logs the label and plist path and
+and the exit status of a read-only `launchctl print gui/<uid>/<label>` probe,
+bounded to two seconds. A failed install bootstrap logs the label and plist path and
 leaves the requested configuration on disk. It does not automatically restore
 or boot out another job: bootstrap failure does not prove the replacement is
 unregistered. Inspect `launchctl print gui/$(id -u)/<label>` before choosing

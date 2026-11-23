@@ -157,6 +157,8 @@
 
 ### Fixed
 
+- Restart readiness diagnostics query the service's explicit launchd GUI domain,
+  avoiding misleading registration state outside the GUI session.
 - Successful launchd bootout commands now log their service target at INFO,
   covering explicit stop, uninstall, and upgrade sweeps. Display stop help
   correctly explains that launchd registration is unloaded, not retained.
