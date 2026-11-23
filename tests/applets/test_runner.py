@@ -14,19 +14,18 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.applets.applet_board import AppletBoard
-from punt_lux.applets.beads.bd_command import BdOutput, BdRun, BoardScope
-from punt_lux.applets.beads.bd_exit import BdCancelledError
-from punt_lux.applets.beads.beads_board import BeadsBoard
-from punt_lux.applets.beads.beads_service import BeadsService
-from punt_lux.applets.beads.browser import BeadsBrowser
-from punt_lux.applets.board_load import BoardLoad
-from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.applets.latency import ClickLatency
+from punt_lux.applets.process_exit import ProcessCancelledError
 from punt_lux.applets.runner import ServiceRunner
-
-from .board_doubles import RecordingClient
+from punt_lux.beads.applet_board import AppletBoard
+from punt_lux.beads.bd_command import BdOutput, BdRun, BoardScope
+from punt_lux.beads.beads_board import BeadsBoard
+from punt_lux.beads.beads_service import BeadsService
+from punt_lux.beads.board_load import BoardLoad
+from punt_lux.beads.board_slot import BoardSlot
+from punt_lux.beads.browser import BeadsBrowser
+from tests.beads.board_doubles import RecordingClient
 
 if TYPE_CHECKING:
     import pytest
@@ -61,7 +60,7 @@ class _BdBoundService:
             self._outcomes.append(
                 BdRun().completed(BoardScope.for_board(all_issues=False))
             )
-        except BdCancelledError as exc:
+        except ProcessCancelledError as exc:
             self._outcomes.append(exc)
         self._returned.set()
 
@@ -103,7 +102,7 @@ def test_cancelling_the_warm_up_ends_the_bd_it_waits_on(
     asyncio.run(leave_mid_query())
 
     assert service.returned.is_set()
-    assert isinstance(service.outcomes[0], BdCancelledError)
+    assert isinstance(service.outcomes[0], ProcessCancelledError)
 
 
 def test_a_cancelled_call_does_not_stop_the_next_from_running_bd(
@@ -165,7 +164,7 @@ def test_cancelling_one_call_leaves_the_other_calls_bd_to_answer(
 
     asyncio.run(cancel_one_of_two())
 
-    assert isinstance(cancelled.outcomes[0], BdCancelledError)
+    assert isinstance(cancelled.outcomes[0], ProcessCancelledError)
     assert isinstance(survivor.outcomes[0], BdOutput)
 
 

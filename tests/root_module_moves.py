@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 MOVED_MODULES = {
+    "punt_lux.__main__": "punt_lux.cli.__main__",
     **{
         f"punt_lux.{name}": f"punt_lux.kernel.{name}"
         for name in (

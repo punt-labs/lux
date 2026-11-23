@@ -21,9 +21,9 @@ this design reuses its shape and where it diverges.
 
 ```toml
 [project.scripts]
-lux = "punt_lux.__main__:app"
+lux = "punt_lux.cli.__main__:app"
 luxd = "punt_lux.hub.luxd:main"
-lux-beads = "punt_lux.applets.beads:app"
+lux-beads = "punt_lux.beads:app"
 ```
 
 `HUB_SPEC` (`service/service_spec.py:69-82`) already renamed the *process* to

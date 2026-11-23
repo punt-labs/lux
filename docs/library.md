@@ -25,7 +25,8 @@ vocabulary the CLI, MCP, and REST surfaces speak. IDE completion on
 ```python
 import asyncio
 
-from punt_lux import LuxClient, RenderRequest, SceneShown
+from punt_lux.client import LuxClient
+from punt_lux.wire.operations import RenderRequest, SceneShown
 
 # connect() locates a running luxd and derives this invocation's identity from
 # the git repository it runs in — so the scene below is owned by that repo.
@@ -104,7 +105,8 @@ stay gone.
 ```python
 import asyncio
 
-from punt_lux import ClientIdentity, LuxClient
+from punt_lux.client import LuxClient
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 # One identity for both legs: scene pushes over REST, the listen stream over
 # the WebSocket. A long-lived daemon declares an "app" identity — who it is,

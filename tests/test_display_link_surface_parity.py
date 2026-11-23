@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app as cli_app
+from punt_lux.cli.__main__ import app as cli_app
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.rest import RestSurface
 from punt_lux.tools.read_tools import get_display_link

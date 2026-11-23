@@ -47,7 +47,12 @@ _TRACKER_REFERENCE = re.compile(
     r"|\bgithub\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
 )
-_API_MODULES = ("punt_lux", "punt_lux.client", "punt_lux.client.hub_client")
+_API_MODULES = (
+    "punt_lux.client",
+    "punt_lux.client.hub_client",
+    "punt_lux.wire.model",
+    "punt_lux.wire.operations",
+)
 _SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
 
@@ -194,6 +199,8 @@ def public_doc_findings(source: Path, modules: tuple[str, ...]) -> list[str]:
             raise ValueError(f"{name}: expected a public export list")
         for symbol in sorted(module.exports):
             member = module[symbol]
+            if not (member.is_class or member.is_function):
+                continue
             if not member.has_docstring:
                 missing.add(member.canonical_path)
             if member.is_class:

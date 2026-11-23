@@ -32,8 +32,9 @@ class LayerContract:
         "display": "display",
         "terminal": "terminal",
         "pty": "pty",
-        "cli": "cli __main__",
+        "cli": "cli",
         "applets": "applets",
+        "beads": "beads",
     }
     _allowed: ClassVar[dict[str, set[str]]] = {
         "kernel": set(),
@@ -46,8 +47,18 @@ class LayerContract:
         "display": {"kernel", "wire", "trust", "service", "terminal"},
         "terminal": {"kernel", "wire"},
         "pty": {"kernel", "wire", "trust", "service", "client", "terminal"},
-        "cli": {"kernel", "wire", "trust", "service", "client", "applets", "commands"},
+        "cli": {
+            "kernel",
+            "wire",
+            "trust",
+            "service",
+            "client",
+            "applets",
+            "commands",
+            "beads",
+        },
         "applets": {"kernel", "wire", "trust", "service", "client"},
+        "beads": {"kernel", "wire", "trust", "service", "client", "applets"},
     }
 
     def classify(self, module: str) -> str:

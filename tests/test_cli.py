@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app
+from punt_lux.cli.__main__ import app
 from punt_lux.service.display_paths import DisplayPaths
 
 runner = CliRunner()
@@ -142,7 +142,7 @@ class TestPing:
         # With no --timeout the wait forwarded to the client is None — so the
         # route omits the param and luxd uses its standing budget — yet the HTTP
         # bound still sits a fixed margin above that budget so it never trips first.
-        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
+        from punt_lux.cli.__main__ import _PING_HTTP_MARGIN_SECONDS
         from punt_lux.kernel.display_defaults import DEFAULT_RECV_TIMEOUT
         from punt_lux.wire.operations import Pong
 
@@ -168,7 +168,7 @@ class TestPing:
         # HTTP bound stays a margin above it (the layers cannot invert), a slow
         # display reads "timeout" — not "luxd is not running" — and the wait
         # forwarded to the display leg is genuinely 1s.
-        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
+        from punt_lux.cli.__main__ import _PING_HTTP_MARGIN_SECONDS
         from punt_lux.wire.operations import OpError
 
         captured: dict[str, object] = {}

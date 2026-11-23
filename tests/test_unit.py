@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux import decode_frame, encode_frame
+from punt_lux.wire.model import decode_frame, encode_frame
 
 
 def test_encode_decode_roundtrip(simple_scene: dict[str, object]) -> None:

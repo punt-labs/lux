@@ -525,6 +525,21 @@ def _inspect():
     ]
 
 
+def test_public_docstrings_allow_exported_constants_and_type_aliases(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "example"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        "from typing import Literal\n"
+        'VERSION = "0.3"\n'
+        'Kind = Literal["scene", "menu"]\n'
+        '__all__ = ["VERSION", "Kind"]\n',
+        encoding="utf-8",
+    )
+    assert public_doc_findings(tmp_path, ("example",)) == []
+
+
 def test_missing_api_directive_is_detected() -> None:
     header = (
         b"# Sphinx inventory version 2\n"
@@ -533,6 +548,6 @@ def test_missing_api_directive_is_detected() -> None:
         b"# The remainder of this file is compressed using zlib.\n"
     )
     expected = missing_api_symbols(header + zlib.compress(b""))
-    assert "punt_lux.LuxClient" in expected
+    assert "punt_lux.client.LuxClient" in expected
     entries = "".join(f"{name} py:function 1 index.html#\x24 -\n" for name in expected)
     assert not missing_api_symbols(header + zlib.compress(entries.encode()))

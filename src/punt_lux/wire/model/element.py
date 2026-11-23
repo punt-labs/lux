@@ -17,13 +17,19 @@ class Element(Protocol):
     """
 
     @property
-    def id(self) -> str: ...  # stable identity within the enclosing Scene
+    def id(self) -> str:
+        """Return the stable identity within the enclosing Scene."""
+        ...
 
     @property
-    def kind(self) -> str: ...  # wire discriminator, e.g. "text", "image"
+    def kind(self) -> str:
+        """Return the wire discriminator, such as text or image."""
+        ...
 
     @property
-    def tooltip(self) -> str | None: ...  # PY-TS-14: None = no tooltip
+    def tooltip(self) -> str | None:
+        """Return the tooltip, or None when the element has none."""
+        ...
 
     def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""

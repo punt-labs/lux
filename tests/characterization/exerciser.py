@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from fastmcp.exceptions import ToolError
 
-from punt_lux import tools as tools_pkg
+import punt_lux.tools as tools_pkg
 from punt_lux.hub import client_registry, hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica

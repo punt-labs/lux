@@ -9,16 +9,16 @@
     "per_file_ignores": 89
   },
   "by_file": {
-    "src/punt_lux/__main__.py": {
+    "src/punt_lux/applets/process_child.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/beads/_beads_payload.py": {
+      "type_ignore": 1
+    },
+    "src/punt_lux/cli/__main__.py": {
       "noqa": 1,
       "pyright_ignore": 2,
       "per_file_ignores": 3
-    },
-    "src/punt_lux/applets/beads/_beads_payload.py": {
-      "type_ignore": 1
-    },
-    "src/punt_lux/applets/beads/bd_child.py": {
-      "noqa": 1
     },
     "src/punt_lux/cli/hub.py": {
       "noqa": 1
@@ -270,7 +270,7 @@
     "src/punt_lux/cli/*.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/applets/beads/browser.py": {
+    "src/punt_lux/beads/browser.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/tools/server.py": {
@@ -337,5 +337,5 @@
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-23T18:13:39Z"
+  "updated_at": "2026-11-23T22:05:08Z"
 }

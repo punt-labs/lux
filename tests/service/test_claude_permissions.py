@@ -171,7 +171,7 @@ class TestDisplayModeCommand:
     def test_mode_grants_and_writes_that_checkout(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from punt_lux.__main__ import app
+        from punt_lux.cli.__main__ import app
 
         result = CliRunner().invoke(
             app, ["display", "mode", "on", "--repo", str(tmp_path)]

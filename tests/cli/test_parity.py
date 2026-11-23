@@ -18,8 +18,8 @@ from typing import cast
 import typer.main
 from typer.core import TyperCommand, TyperGroup
 
-from punt_lux import commands
-from punt_lux.__main__ import app
+import punt_lux.commands as commands
+from punt_lux.cli.__main__ import app
 
 # Commands with no REST route by ratified design (tests/rest/test_app.py
 # _MCP_ONLY) -- delivery for these runs over the listen leg's push/drain,
@@ -48,7 +48,7 @@ def _command_singleton_names() -> set[str]:
 
 def _cli_source_text() -> str:
     """The concatenated source of every CLI module that can wire a command."""
-    paths = [*(_SRC_ROOT / "cli").glob("*.py"), _SRC_ROOT / "__main__.py"]
+    paths = sorted((_SRC_ROOT / "cli").glob("*.py"))
     return "\n".join(p.read_text() for p in paths)
 
 

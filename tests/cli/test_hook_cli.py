@@ -10,14 +10,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app
+from punt_lux.cli.__main__ import app
 from punt_lux.service.applet_event import AppletEvent
 
 
 @pytest.mark.parametrize("event", list(AppletEvent))
 def test_event_command_stdout_is_empty(tmp_path: Path, event: AppletEvent) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "punt_lux", "hook", "applet-event", event.value],
+        [
+            sys.executable,
+            "-P",
+            "-m",
+            "punt_lux.cli",
+            "hook",
+            "applet-event",
+            event.value,
+        ],
         env={**os.environ, "HOME": str(tmp_path)},
         capture_output=True,
         text=True,

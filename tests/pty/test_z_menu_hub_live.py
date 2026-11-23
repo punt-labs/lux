@@ -20,7 +20,7 @@ from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.wire.stream.session_requests import ListRequest
-from tests.applets.beads.test_beads_e2e import _get, _leaf_id, _running_luxd, _until
+from tests.beads.test_beads_e2e import _get, _leaf_id, _running_luxd, _until
 from tests.pty.wire_client import WireClient
 
 pytestmark = pytest.mark.integration

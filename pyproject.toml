@@ -113,11 +113,11 @@ docs = [
 ]
 
 [project.scripts]
-lux = "punt_lux.__main__:_entry"
+lux = "punt_lux.cli.__main__:_entry"
 luxd-hub = "punt_lux.hub.luxd:main"
 luxd-display = "punt_lux.display.luxd_display:DisplayEntryPoint.main"
 luxd-pty = "punt_lux.pty.__main__:PtyEntryPoint.main"
-lux-beads = "punt_lux.applets.beads.applet:app"
+lux-beads = "punt_lux.beads.applet:app"
 
 [project.urls]
 Homepage = "https://github.com/punt-labs/lux"
@@ -130,6 +130,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "punt_lux"
+namespace = true
 
 [tool.oo-ratchet.coupling]
 stateless-values = "any"
@@ -191,7 +192,7 @@ ignore = [
 "tests/e2e/test_legacy_sweep.py" = ["S101", "S603", "S607"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
-"src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
+"src/punt_lux/cli/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
 "src/punt_lux/kernel/runtime.py" = ["S102", "BLE001"]
 "src/punt_lux/service/config.py" = ["S607"]
@@ -208,7 +209,7 @@ ignore = [
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/cli/*.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/hub/luxd.py" = ["PLC0415"]
-"src/punt_lux/applets/beads/browser.py" = ["PLC0415"]
+"src/punt_lux/beads/browser.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 # FastAPI resolves the resolve_scope dependency's annotations at runtime to inject
 # Request/Response, so these are runtime imports despite being annotation-only (TC002).
@@ -269,7 +270,8 @@ known-first-party = ["punt_lux"]
 combine-as-imports = true
 
 [tool.mypy]
-mypy_path = "typings"
+mypy_path = ["typings", "src"]
+explicit_package_bases = true
 python_version = "3.13"
 strict = true
 warn_return_any = true
@@ -356,7 +358,7 @@ reportUnknownMemberType = false
 [tool.oo-ratchet.layers]
 entry = [
     "punt_lux",
-    "punt_lux.__main__",
+    "punt_lux.cli.__main__",
     "punt_lux.cli",
     "punt_lux.cli.*",
     "punt_lux.tools",
@@ -372,7 +374,7 @@ entry = [
     "punt_lux.pty.__main__",
     "punt_lux.pty.application",
     "punt_lux.pty.entry_runtime",
-    "punt_lux.applets.beads.applet",
+    "punt_lux.beads.applet",
     "punt_lux.hub.details_instance",
     "punt_lux.hub.frame_owner_facts_instance",
     "punt_lux.hub.replicator_instance",
@@ -475,10 +477,10 @@ adapters = [
     "punt_lux.pty.pty_spawn",
     "punt_lux.pty.server",
     "punt_lux.pty.terminal_child",
-    "punt_lux.applets.beads.bd_child",
-    "punt_lux.applets.beads.bd_command",
-    "punt_lux.applets.board_channel",
-    "punt_lux.applets.board_glass",
+    "punt_lux.applets.process_child",
+    "punt_lux.beads.bd_command",
+    "punt_lux.beads.board_channel",
+    "punt_lux.beads.board_glass",
     "punt_lux.applets.claim",
     "punt_lux.applets.watch",
 ]
@@ -538,6 +540,7 @@ application = [
     "punt_lux.operations.scene_deps",
     "punt_lux.operations.scene_installer",
     "punt_lux.operations.scene_listing",
+    "punt_lux.hub.scene_read_shapes",
     "punt_lux.operations.scene_submission",
     "punt_lux.operations.scenes",
     "punt_lux.operations.timing",
@@ -575,38 +578,39 @@ application = [
     "punt_lux.pty.session_birth",
     "punt_lux.pty.session_lifecycle",
     "punt_lux.pty.stream_output",
-    "punt_lux.applets.beads",
-    "punt_lux.applets.beads._beads_payload",
-    "punt_lux.applets.beads.browser",
-    "punt_lux.applets.beads.beads_board",
+    "punt_lux.beads",
+    "punt_lux.beads._beads_payload",
+    "punt_lux.beads.browser",
+    "punt_lux.beads.beads_board",
     "punt_lux.applets",
-    "punt_lux.applets.applet_board",
-    "punt_lux.applets.beads.beads_service",
-    "punt_lux.applets.beads.beads_source",
-    "punt_lux.applets.blank_board",
-    "punt_lux.applets.board_cache",
-    "punt_lux.applets.board_load",
+    "punt_lux.beads.applet_board",
+    "punt_lux.beads.beads_service",
+    "punt_lux.beads.beads_source",
+    "punt_lux.beads.blank_board",
+    "punt_lux.beads.board_cache",
+    "punt_lux.beads.board_load",
     "punt_lux.applets.board_ops",
-    "punt_lux.applets.board_run",
-    "punt_lux.applets.board_slot",
-    "punt_lux.applets.board_work",
-    "punt_lux.applets.held_board",
+    "punt_lux.beads.board_run",
+    "punt_lux.beads.board_slot",
+    "punt_lux.beads.board_work",
+    "punt_lux.beads.held_board",
     "punt_lux.applets.latency",
     "punt_lux.applets.leg",
-    "punt_lux.applets.loading_board",
+    "punt_lux.beads.loading_board",
     "punt_lux.applets.menu_entry",
-    "punt_lux.applets.no_board",
+    "punt_lux.beads.no_board",
     "punt_lux.applets.program",
     "punt_lux.applets.runner",
     "punt_lux.applets.service",
     "punt_lux.applets.serviced_click",
     "punt_lux.applets.single_flight",
     "punt_lux.applets.underway",
-    "punt_lux.applets.unreadable_board",
+    "punt_lux.beads.unreadable_board",
 ]
 domain = [
     "punt_lux.kernel.display_defaults",
     "punt_lux.kernel.client_host",
+    "punt_lux.kernel.peer_connection",
     "punt_lux.service._doctor_result",
     "punt_lux.service._service_errors",
     "punt_lux.service.service_spec",
@@ -626,7 +630,6 @@ domain = [
     "punt_lux.kernel.programmer_error",
     "punt_lux.hub",
     "punt_lux.hub.*",
-    "punt_lux.protocol",
     "punt_lux.wire.stream",
     "punt_lux.wire.stream.*",
     "punt_lux.wire",
@@ -652,16 +655,16 @@ domain = [
     "punt_lux.pty.viewer_flow",
     "punt_lux.pty.viewer_input",
     "punt_lux.pty.viewers",
-    "punt_lux.applets.beads.bd_exit",
-    "punt_lux.applets.beads.beads_detail",
-    "punt_lux.applets.beads.beads_load",
-    "punt_lux.applets.beads.beads_result",
-    "punt_lux.applets.board_order",
-    "punt_lux.applets.built_board",
+    "punt_lux.applets.process_exit",
+    "punt_lux.beads.beads_detail",
+    "punt_lux.beads.beads_load",
+    "punt_lux.beads.beads_result",
+    "punt_lux.beads.board_order",
+    "punt_lux.beads.built_board",
     "punt_lux.applets.figure",
     "punt_lux.applets.identity",
     "punt_lux.applets.stage_times",
-    "punt_lux.applets.board_read",
+    "punt_lux.beads.board_read",
 ]
 
 [tool.pytest.ini_options]

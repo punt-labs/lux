@@ -20,7 +20,7 @@ The bead names three leaks. All three are confirmed:
 1. **Importable.** `src/punt_lux/rest_client.py:66` declares `__all__ =
    ["LuxRestClient"]` and the class at line 70 is `@final class LuxRestClient`.
    `src/punt_lux/__init__.py` does not import it (confirmed: no `rest_client`
-   reference in that file's 116 lines), so `from punt_lux import LuxRestClient`
+   reference in that file's 116 lines), so importing `LuxRestClient` from the root
    already fails — but `from punt_lux.rest_client import LuxRestClient` still
    succeeds, because the *module* is a plain top-level module with no
    leading-underscore anywhere in its path. Removing a name from `__all__`
@@ -501,8 +501,8 @@ class BoardOps(SceneOps, FrameOps, Protocol):
 consumer, one beside its producer — stated explicitly rather than left for a
 reader to reconstruct.** `BoardOps` lives in `applets/board_ops.py`, inside
 the package that is its *only* consumer: `applets/service.py`,
-`applets/serviced_click.py`, `applets/board_channel.py`,
-`applets/board_work.py`, `applets/board_load.py`, `applets/applet_board.py`,
+`applets/serviced_click.py`, `beads/board_channel.py`,
+`beads/board_work.py`, `beads/board_load.py`, `beads/applet_board.py`,
 `applets/beads_service.py` — every one of the fourteen retyped sites in §1 is
 inside `applets/`. PY-IC-9's placement rule ("types and Protocols in their own
 module, close to where they are read") has one clear answer here because
@@ -533,8 +533,8 @@ Every applet-internal class that today spells `client: LuxRestClient` (the
 fourteen sites in §1, item 3) is retyped to `client: BoardOps`:
 `applets/service.py:22` (the `AppletService` Protocol's own `acknowledge`/
 `service` signatures), `applets/serviced_click.py:39,55,65,100,105`,
-`applets/board_channel.py:24,35,38`, `applets/board_work.py:19,28,34`,
-`applets/board_load.py:31,54,92`, `applets/applet_board.py:29,78`,
+`beads/board_channel.py:24,35,38`, `beads/board_work.py:19,28,34`,
+`beads/board_load.py:31,54,92`, `beads/applet_board.py:29,78`,
 `applets/beads_service.py:33,97,107`. Fourteen `LuxRestClient` references become
 fourteen `BoardOps` references, each a plain type-name substitution — no
 behavioral change, because `BoardOps`'s three methods are called with
@@ -875,8 +875,8 @@ demo is not "the unit tests pass" — it is driving the real entry points:
 - `src/punt_lux/rest_client.py`, `rest_client_scenes.py`,
   `rest_client_display.py`, `client/facade.py`, `client/*.py`,
   `wire/ops/__init__.py`, `applets/runner.py`, `applets/leg.py`,
-  `applets/service.py`, `applets/beads_service.py`, `applets/board_channel.py`,
-  `applets/board_load.py`, `applets/board_work.py`, `applets/serviced_click.py`,
-  `applets/applet_board.py`, `cli/_shared.py`, `cli/scene.py`, `cli/beads.py`,
+  `applets/service.py`, `applets/beads_service.py`, `beads/board_channel.py`,
+  `beads/board_load.py`, `beads/board_work.py`, `applets/serviced_click.py`,
+  `beads/applet_board.py`, `cli/_shared.py`, `cli/scene.py`, `cli/beads.py`,
   `cli/callback.py` — the current implementation this design extends or
   touches.

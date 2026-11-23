@@ -1,18 +1,4 @@
 {
-  "src/punt_lux/__init__.py": {
-    "efferent_coupling": 7.0,
-    "public_names": 49.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/__main__.py": {
-    "efferent_coupling": 3.0,
-    "public_names": 9.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
   "src/punt_lux/_atomic_write.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -146,187 +132,12 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/applets/applet_board.py": {
-    "efferent_coupling": 4.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.524,
-    "avg_lcom": 0.524
-  },
-  "src/punt_lux/applets/beads/__init__.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 0.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/_beads_payload.py": {
-    "efferent_coupling": 4.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/applet.py": {
-    "efferent_coupling": 7.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/bd_child.py": {
-    "efferent_coupling": 1.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.524,
-    "avg_lcom": 0.262
-  },
-  "src/punt_lux/applets/beads/bd_command.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 3.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.5,
-    "avg_lcom": 0.5
-  },
-  "src/punt_lux/applets/beads/bd_exit.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.4,
-    "avg_lcom": 0.4
-  },
-  "src/punt_lux/applets/beads/beads_board.py": {
-    "efferent_coupling": 5.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.6,
-    "avg_lcom": 0.6
-  },
-  "src/punt_lux/applets/beads/beads_detail.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/beads_load.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.267,
-    "avg_lcom": 0.267
-  },
-  "src/punt_lux/applets/beads/beads_result.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 3.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/beads_service.py": {
-    "efferent_coupling": 6.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.3,
-    "avg_lcom": 0.3
-  },
-  "src/punt_lux/applets/beads/beads_source.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/beads/browser.py": {
-    "efferent_coupling": 1.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/blank_board.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_cache.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_channel.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_glass.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_load.py": {
-    "efferent_coupling": 6.0,
-    "public_names": 2.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.476,
-    "avg_lcom": 0.476
-  },
   "src/punt_lux/applets/board_ops.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_order.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_read.py": {
-    "efferent_coupling": 1.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.333,
-    "avg_lcom": 0.333
-  },
-  "src/punt_lux/applets/board_run.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.7,
-    "avg_lcom": 0.7
-  },
-  "src/punt_lux/applets/board_slot.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/board_work.py": {
-    "efferent_coupling": 1.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.429,
-    "avg_lcom": 0.429
-  },
-  "src/punt_lux/applets/built_board.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.333,
-    "avg_lcom": 0.333
   },
   "src/punt_lux/applets/claim.py": {
     "efferent_coupling": 0.0,
@@ -341,13 +152,6 @@
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
-  },
-  "src/punt_lux/applets/held_board.py": {
-    "efferent_coupling": 2.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.857,
-    "avg_lcom": 0.857
   },
   "src/punt_lux/applets/identity.py": {
     "efferent_coupling": 4.0,
@@ -370,13 +174,6 @@
     "max_lcom": 0.667,
     "avg_lcom": 0.667
   },
-  "src/punt_lux/applets/loading_board.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
   "src/punt_lux/applets/menu_entry.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
@@ -384,12 +181,19 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/applets/no_board.py": {
-    "efferent_coupling": 5.0,
-    "public_names": 1.0,
+  "src/punt_lux/applets/process_child.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.857,
-    "avg_lcom": 0.857
+    "max_lcom": 0.524,
+    "avg_lcom": 0.262
+  },
+  "src/punt_lux/applets/process_exit.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.4,
+    "avg_lcom": 0.4
   },
   "src/punt_lux/applets/program.py": {
     "efferent_coupling": 0.0,
@@ -440,19 +244,201 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
-  "src/punt_lux/applets/unreadable_board.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.667,
-    "avg_lcom": 0.667
-  },
   "src/punt_lux/applets/watch.py": {
     "efferent_coupling": 0.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/__init__.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 0.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/_beads_payload.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/applet.py": {
+    "efferent_coupling": 7.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/applet_board.py": {
+    "efferent_coupling": 4.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.524,
+    "avg_lcom": 0.524
+  },
+  "src/punt_lux/beads/bd_command.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.5,
+    "avg_lcom": 0.5
+  },
+  "src/punt_lux/beads/beads_board.py": {
+    "efferent_coupling": 5.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.6,
+    "avg_lcom": 0.6
+  },
+  "src/punt_lux/beads/beads_detail.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/beads_load.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.267,
+    "avg_lcom": 0.267
+  },
+  "src/punt_lux/beads/beads_result.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/beads_service.py": {
+    "efferent_coupling": 6.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.3,
+    "avg_lcom": 0.3
+  },
+  "src/punt_lux/beads/beads_source.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/blank_board.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_cache.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_channel.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_glass.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_load.py": {
+    "efferent_coupling": 6.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.476,
+    "avg_lcom": 0.476
+  },
+  "src/punt_lux/beads/board_order.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_read.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
+  },
+  "src/punt_lux/beads/board_run.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.7,
+    "avg_lcom": 0.7
+  },
+  "src/punt_lux/beads/board_slot.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/board_work.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.429,
+    "avg_lcom": 0.429
+  },
+  "src/punt_lux/beads/browser.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/built_board.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
+  },
+  "src/punt_lux/beads/held_board.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.857,
+    "avg_lcom": 0.857
+  },
+  "src/punt_lux/beads/loading_board.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/beads/no_board.py": {
+    "efferent_coupling": 5.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.857,
+    "avg_lcom": 0.857
+  },
+  "src/punt_lux/beads/unreadable_board.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.667,
+    "avg_lcom": 0.667
   },
   "src/punt_lux/claude_permissions.py": {
     "efferent_coupling": 1.0,
@@ -464,6 +450,13 @@
   "src/punt_lux/cli/__init__.py": {
     "efferent_coupling": 0.0,
     "public_names": 0.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/cli/__main__.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 9.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -3471,6 +3464,13 @@
     "max_lcom": 0.0,
     "avg_lcom": 0.0
   },
+  "src/punt_lux/hub/scene_read_shapes.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_lux/hub/scene_snapshot.py": {
     "efferent_coupling": 0.0,
     "public_names": 2.0,
@@ -3726,6 +3726,13 @@
   "src/punt_lux/kernel/logging_config.py": {
     "efferent_coupling": 1.0,
     "public_names": 4.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/kernel/peer_connection.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -4095,7 +4102,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/operations/scene_listing.py": {
-    "efferent_coupling": 5.0,
+    "efferent_coupling": 4.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.267,
@@ -4132,13 +4139,6 @@
   "src/punt_lux/permission_rules.py": {
     "efferent_coupling": 0.0,
     "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_lux/protocol/__init__.py": {
-    "efferent_coupling": 0.0,
-    "public_names": 0.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0

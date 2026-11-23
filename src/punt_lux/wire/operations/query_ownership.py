@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
-
 from pydantic import BaseModel, ConfigDict
 
 from punt_lux.wire.model.client_identity import ClientIdentity
-
-if TYPE_CHECKING:
-    from punt_lux.hub.owner import Owner
 
 __all__ = ["SceneOwner"]
 
@@ -26,8 +21,3 @@ class SceneOwner(BaseModel):
 
     connection_id: str
     identity: ClientIdentity | None = None
-
-    @classmethod
-    def of(cls, owner: Owner) -> Self:
-        """Build the read shape from a Hub-side :class:`Owner` record."""
-        return cls(connection_id=str(owner.connection_id), identity=owner.identity)

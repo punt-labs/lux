@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app
+from punt_lux.cli.__main__ import app
 from punt_lux.wire.operations import Cleared, OpError, SceneList, SceneShown
 
 runner = CliRunner()

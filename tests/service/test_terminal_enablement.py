@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app
+from punt_lux.cli.__main__ import app
 from punt_lux.service._backend_launchd import LaunchdBackend
 from punt_lux.service._backend_systemd import SystemdBackend
 from punt_lux.service._backends import pgrep_pid

@@ -1,0 +1,69 @@
+"""The Hub end of a board: where a push failure stops.
+
+A push that could not be sent is logged rather than raised, because the board
+it carried has already cost a multi-second query and the caller is keeping it.
+Visibility -- raising a frame -- is no longer this channel's concern: DES-088
+makes that a Display-local gesture, never a client round trip.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from punt_lux.beads.beads_board import BeadsBoard
+from punt_lux.beads.beads_result import BeadsRows
+from punt_lux.beads.board_channel import BoardChannel
+
+from .board_doubles import ISSUE, RecordingClient
+
+if TYPE_CHECKING:
+    import pytest
+
+_BOARD = BeadsBoard.for_project("lux")
+
+
+def _channel(client: object) -> BoardChannel:
+    """A channel over a stand-in client, which is structural rather than typed."""
+    return BoardChannel(client)  # type: ignore[arg-type]  # structural stand-in
+
+
+def test_a_board_with_issues_goes_down_the_table_route() -> None:
+    """The Hub constructs the board's live chrome, so its data crosses as a table."""
+    client = RecordingClient()
+    _channel(client).send(_BOARD.request(BeadsRows.of([ISSUE])))
+
+    assert len(client.tables) == 1
+    assert client.scenes == []
+
+
+def test_a_message_goes_down_the_plain_scene_route() -> None:
+    client = RecordingClient()
+    _channel(client).send(_BOARD.failure("bd: command not found"))
+
+    assert client.tables == []
+    assert len(client.scenes) == 1
+
+
+def test_a_refusal_is_logged_where_it_cannot_be_rendered(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The render is what failed, so there is nowhere to show that it did."""
+    client = RecordingClient(refuse=True)
+
+    with caplog.at_level(logging.ERROR):
+        _channel(client).send(_BOARD.request(BeadsRows.of([ISSUE])))
+
+    assert "not shown" in caplog.text
+
+
+def test_a_hub_that_could_not_be_reached_ends_here(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raise here would cost its caller the board it just spent seconds loading."""
+    with caplog.at_level(logging.WARNING):
+        _channel(RecordingClient(unreachable=True)).send(
+            _BOARD.request(BeadsRows.of([ISSUE]))
+        )
+
+    assert "luxd unreachable" in caplog.text

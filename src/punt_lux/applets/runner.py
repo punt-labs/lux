@@ -21,8 +21,8 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.applets.beads.bd_child import BdLeash
 from punt_lux.applets.board_ops import ScopedBoardOps
+from punt_lux.applets.process_child import ProcessLeash
 from punt_lux.applets.serviced_click import ServicedClick
 from punt_lux.applets.single_flight import SingleFlight
 from punt_lux.client.facade import LuxClient
@@ -98,7 +98,7 @@ class ServiceRunner:
     async def _guarded(job: Callable[[], None], failure: str) -> None:
         """Run *job* as one call with its own ``bd`` leash; a failure is a log line."""
         try:
-            await BdLeash().served(job)
+            await ProcessLeash().served(job)
         except ProgrammerError:
             raise
         except Exception:

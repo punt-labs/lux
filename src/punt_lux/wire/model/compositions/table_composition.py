@@ -4,7 +4,7 @@ The one construction path for the ``show_table`` family: a basic grid alone
 without chrome, or a ``group`` of a search input, status combos, and a
 grid/detail split, with the Hub-side filter, selection-merge, and detail-binding
 handlers wired over a shared ``FilteredTableModel``. ``ConvenienceOperations``
-and ``applets.beads.browser`` share it, so there is one composition, not two.
+and ``beads.browser`` share it, so there is one composition, not two.
 """
 
 from __future__ import annotations

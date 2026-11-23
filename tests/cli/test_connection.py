@@ -33,7 +33,7 @@ def test_a_ping_without_luxd_leaves_a_durable_record(
 ) -> None:
     from typer.testing import CliRunner
 
-    from punt_lux.__main__ import app
+    from punt_lux.cli.__main__ import app
 
     with (
         patch(

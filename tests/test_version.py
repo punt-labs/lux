@@ -1,107 +1,79 @@
-"""Smoke test: package imports, version is set, the public client is exported."""
+"""Namespace ownership, direct public imports and distribution metadata."""
 
 from __future__ import annotations
 
+import importlib
 import subprocess
 import sys
+from importlib import metadata
 
 import pytest
+from typer.testing import CliRunner
 
-# The library surface a consumer imports to drive luxd — the public facade and
-# the request/result types it speaks, plus the one exceptional error. The
-# transport-flavoured names (the private REST transport, LuxHubClient) are not
-# in the public __all__: consumers hold LuxClient and reach its noun-grouped
-# accessors.
-_PUBLIC_CLIENT_API = (
-    "LuxClient",
-    "ClientIdentity",
-    "RenderRequest",
-    "RenderTableRequest",
-    "SceneShown",
-    "Pong",
-    "OpError",
-    "HubUnavailableError",
-)
+from punt_lux.cli.__main__ import app
 
 
-def test_version_matches_metadata():
-    from importlib.metadata import version
+def test_namespace_has_no_root_exports() -> None:
+    import punt_lux
 
-    from punt_lux import __version__
+    assert vars(punt_lux).get("__file__") is None
+    assert punt_lux.__spec__ is not None
+    assert punt_lux.__spec__.submodule_search_locations is not None
+    for name in ("__all__", "__version__", "LuxClient", "RenderRequest"):
+        assert not hasattr(punt_lux, name)
 
-    assert __version__
-    assert __version__ == version("punt-lux")
+
+@pytest.mark.parametrize("args", [["--version"], ["version"]])
+def test_version_matches_metadata(args: list[str]) -> None:
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0
+    assert result.stdout.strip() == f"lux {metadata.version('punt-lux')}"
 
 
-def test_missing_distribution_fails_import_rather_than_reporting_a_version(
+def test_missing_metadata_fails_version_not_namespace_import(
     monkeypatch: pytest.MonkeyPatch,
-):
-    # An uninstalled package is a broken environment: importing it must raise
-    # PackageNotFoundError, never yield a made-up "0.0.0".
-    import importlib
-    from importlib.metadata import PackageNotFoundError, version
-
+) -> None:
     import punt_lux
 
-    real_version = version("punt-lux")
+    def unavailable(distribution: str) -> str:
+        raise metadata.PackageNotFoundError(distribution)
 
-    def _not_installed(distribution_name: str) -> str:
-        raise PackageNotFoundError(distribution_name)
-
-    try:
-        with monkeypatch.context() as patched:
-            patched.setattr("importlib.metadata.version", _not_installed)
-            with pytest.raises(PackageNotFoundError):
-                importlib.reload(punt_lux)
-    finally:
-        # The failed reload ran with the patch in place; reload again unpatched
-        # so the module every other test shares is back in its normal state,
-        # even if the assertion above failed.
-        importlib.reload(punt_lux)
-    assert punt_lux.__version__ == real_version
+    monkeypatch.setattr(metadata, "version", unavailable)
+    importlib.reload(punt_lux)
+    assert vars(punt_lux).get("__file__") is None
+    result = CliRunner().invoke(app, ["--version"])
+    assert isinstance(result.exception, metadata.PackageNotFoundError)
 
 
-def test_package_imports():
-    import punt_lux
-
-    assert punt_lux.__all__ is not None
-
-
-def test_public_client_and_its_types_are_exported():
-    # LuxClient is the public library facade — consumers (vox and others) hold it
-    # and reach the Hub through its noun-grouped accessors. It and the types
-    # needed to call it fully typed are in __all__ and importable from the
-    # top-level package.
-    import punt_lux
-
-    for name in _PUBLIC_CLIENT_API:
-        assert name in punt_lux.__all__, name
-        assert hasattr(punt_lux, name), name
+def test_public_client_imports_without_display_extras_in_a_fresh_interpreter() -> None:
+    code = """
+import sys
+from punt_lux.client import LuxClient
+from punt_lux.client.rest_transport import HubUnavailableError
+from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import RenderRequest, RenderTableRequest, SceneShown
+from punt_lux.wire.operations import Pong, OpError
+assert all((LuxClient, HubUnavailableError, ClientIdentity, RenderRequest,
+            RenderTableRequest, SceneShown, Pong, OpError))
+forbidden = {'imgui_bundle', 'numpy', 'PIL', 'OpenGL', 'fastapi', 'starlette', 'mcp'}
+assert not forbidden & sys.modules.keys()
+"""
+    subprocess.run([sys.executable, "-P", "-c", code], check=True, capture_output=True)
 
 
-def test_public_import_pulls_no_display_extras():
-    # The library surface must import without the [display] extra, so a bare
-    # `import punt_lux` must not drag imgui/numpy/Pillow/OpenGL. Checked in a fresh
-    # interpreter because other tests in this process may already hold them.
-    code = (
-        "import punt_lux, sys; "
-        "print([m for m in ('imgui_bundle', 'numpy', 'PIL', 'OpenGL') "
-        "if m in sys.modules])"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=True
-    )
-    assert result.stdout.strip() == "[]", result.stdout
-
-
-def test_public_client_imports_without_display_extras_in_a_fresh_interpreter():
-    # A consumer's real call: `from punt_lux import LuxClient, ...` must succeed
-    # in an interpreter that never loaded the display stack.
-    names = ", ".join(_PUBLIC_CLIENT_API)
-    result = subprocess.run(
-        [sys.executable, "-c", f"from punt_lux import {names}"],
+def test_cli_module_is_executable_but_namespace_root_is_not() -> None:
+    cli = subprocess.run(
+        [sys.executable, "-P", "-m", "punt_lux.cli", "--help"],
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert cli.returncode == 0, cli.stderr
+    root = subprocess.run(
+        [sys.executable, "-P", "-m", "punt_lux"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert root.returncode != 0
+    assert "punt_lux.__main__" in root.stderr

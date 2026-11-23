@@ -1,0 +1,269 @@
+"""The stand-ins a board test drives: a source, a client, and the order of both.
+
+A board's tests run with no ``bd`` and no Hub. What they need instead is a source
+that returns a preset run, a client that records what was pushed to it, and a way
+to say which happened first — because the order is most of what these contracts
+are about, from "the user saw something before the database was asked" to "the
+board was kept even though the push never landed".
+
+They live here rather than in one test module because two modules drive the same
+pair: :mod:`tests.beads.test_beads_service` through the service, and
+:mod:`tests.applets.test_board_cache` through the cache underneath it.
+"""
+
+from __future__ import annotations
+
+import threading
+from typing import Self, final
+
+from punt_lux.beads.bd_command import BdOutput
+from punt_lux.beads.beads_load import BeadsLoad
+from punt_lux.beads.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.client.rest_transport import HubUnavailableError
+from punt_lux.wire.operations import OpError, RenderRequest, RenderTableRequest
+from punt_lux.wire.operations.scene_results import SceneShown
+
+__all__ = [
+    "BD_MS",
+    "GATE_SECONDS",
+    "ISSUE",
+    "PARSE_MS",
+    "SPAWN_MS",
+    "Gated",
+    "Journal",
+    "RecordingClient",
+    "Source",
+    "ThenFails",
+    "loaded",
+]
+
+ISSUE = {
+    "id": "lux-1",
+    "title": "a thing",
+    "status": "open",
+    "priority": 1,
+    "issue_type": "task",
+    "description": "why",
+    "owner": "",
+    "created_at": "2026-07-31",
+    "updated_at": "2026-07-31",
+}
+
+
+# The figures a stand-in run reports, chosen to be told apart on sight in a
+# line: the spawn, the wait on bd, and the parse are each a different order of
+# magnitude, so an assertion about one cannot pass on another's number.
+SPAWN_MS = 9.0
+BD_MS = 4820.0
+PARSE_MS = 44.0
+
+
+def loaded(result: BeadsResult) -> BeadsLoad:
+    """A completed run: the preset result, and figures for where its time went."""
+    return BeadsLoad(result, BdOutput("[]", SPAWN_MS, BD_MS), PARSE_MS)
+
+
+@final
+class Journal:
+    """The order things happened in — which is what a click's contract is about.
+
+    The client and the source write into one of these, so a test can assert that
+    the user saw something before the database was ever asked.
+    """
+
+    _steps: list[str]
+    __slots__ = ("_steps",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._steps = []
+        return self
+
+    def note(self, step: str) -> None:
+        self._steps.append(step)
+
+    @property
+    def steps(self) -> tuple[str, ...]:
+        return tuple(self._steps)
+
+
+@final
+class Source:
+    """A beads source returning a preset load result, or raising instead."""
+
+    _result: BeadsResult
+    _raises: bool
+    _journal: Journal
+    __slots__ = ("_journal", "_raises", "_result")
+
+    def __new__(
+        cls,
+        result: BeadsResult | None = None,
+        *,
+        raises: bool = False,
+        journal: Journal | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        # Absent means the empty board — the default this stands in for.
+        self._result = result if result is not None else BeadsRows.of([])
+        self._raises = raises
+        # Absent means a test that does not care about ordering; it still records.
+        self._journal = journal if journal is not None else Journal()
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
+        self._journal.note("load")
+        if self._raises:
+            raise RuntimeError("bd blew up in a way the loader does not model")
+        return loaded(self._result)
+
+
+@final
+class ThenFails:
+    """A source that reads once and then cannot — the shape a stale board is for.
+
+    The prefetch gets a board; every load after it fails. That is a ``bd`` that
+    worked at spawn and stopped working, which is the case the held board exists
+    to survive.
+    """
+
+    _first: BeadsResult
+    _loads: int
+    _journal: Journal
+    __slots__ = ("_first", "_journal", "_loads")
+
+    def __new__(cls, first: BeadsResult, journal: Journal) -> Self:
+        self = super().__new__(cls)
+        self._first = first
+        self._loads = 0
+        self._journal = journal
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
+        self._journal.note("load")
+        self._loads += 1
+        if self._loads > 1:
+            return loaded(BeadsFailure("bd: connection refused"))
+        return loaded(self._first)
+
+
+# How long a test waits on the other thread before giving up. Long enough that a
+# loaded machine cannot trip it, short enough that a genuine hang fails the run
+# rather than holding it.
+GATE_SECONDS = 5.0
+
+
+@final
+class Gated:
+    """A source whose first load hangs until released, while a later one overtakes.
+
+    The interleaving two loading threads can produce, made deterministic. One
+    load begins, hangs here, and is released only after the load that started
+    behind it has finished and stored — so the two arrive in the opposite order
+    to the one they began in, which is the order that decides between them.
+
+    What the gated load ends with says which case is under test. It fails by
+    default: a click whose ``bd`` died while the warm-up's board was landing.
+    Given rows instead, it is the load that began first and returned last, whose
+    issues are the older ones however late its board arrives.
+    """
+
+    _result: BeadsResult
+    _gated: BeadsResult
+    _loads: int
+    _reached: threading.Event
+    _released: threading.Event
+    __slots__ = ("_gated", "_loads", "_reached", "_released", "_result")
+
+    def __new__(cls, result: BeadsResult, gated: BeadsResult | None = None) -> Self:
+        self = super().__new__(cls)
+        self._result = result
+        # Absent means the gated load fails — the case the ordering rule was
+        # first written for, where nothing is held to write back.
+        self._gated = (
+            gated if gated is not None else BeadsFailure("bd: connection refused")
+        )
+        self._loads = 0
+        self._reached = threading.Event()
+        self._released = threading.Event()
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
+        """Hang the first run at the gate; answer every later one straight away."""
+        self._loads += 1
+        if self._loads > 1:
+            return loaded(self._result)
+        self._reached.set()
+        self._released.wait(timeout=GATE_SECONDS)
+        return loaded(self._gated)
+
+    @property
+    def loads(self) -> int:
+        """How many runs this source was asked for — one ``bd`` apiece, in life."""
+        return self._loads
+
+    def reached(self) -> None:
+        """Block until the gated run is in flight, so the next one crosses it."""
+        assert self._reached.wait(timeout=GATE_SECONDS), "the gated load never ran"
+
+    def release(self) -> None:
+        """Let the gated run finish — and fail."""
+        self._released.set()
+
+
+@final
+class RecordingClient:
+    """A ``BoardOps`` stand-in recording the scene writes a service makes.
+
+    Its two failure modes are the two a real client has, and they are not
+    interchangeable: a refusal is a Hub that answered no, and an unreachable
+    Hub is a push that raised before any answer.
+    """
+
+    _tables: list[RenderTableRequest]
+    _scenes: list[RenderRequest]
+    _refuse: bool
+    _unreachable: bool
+    _journal: Journal
+    __slots__ = ("_journal", "_refuse", "_scenes", "_tables", "_unreachable")
+
+    def __new__(
+        cls,
+        *,
+        refuse: bool = False,
+        unreachable: bool = False,
+        journal: Journal | None = None,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._tables = []
+        self._scenes = []
+        self._refuse = refuse
+        self._unreachable = unreachable
+        # Absent means a test that does not care about ordering; it still records.
+        self._journal = journal if journal is not None else Journal()
+        return self
+
+    def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
+        self._journal.note("render_table")
+        self._tables.append(request)
+        return self._reply(request.scene_id)
+
+    def render(self, request: RenderRequest) -> SceneShown | OpError:
+        self._journal.note("render")
+        self._scenes.append(request)
+        return self._reply(request.scene_id)
+
+    def _reply(self, scene_id: str) -> SceneShown | OpError:
+        if self._unreachable:
+            raise HubUnavailableError("luxd is not running on port 8430")
+        if self._refuse:
+            return OpError(code="rejected", reason="no")
+        return SceneShown(scene_id=scene_id)
+
+    @property
+    def tables(self) -> list[RenderTableRequest]:
+        return self._tables
+
+    @property
+    def scenes(self) -> list[RenderRequest]:
+        return self._scenes

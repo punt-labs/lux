@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from starlette.requests import HTTPConnection
+    from punt_lux.kernel.peer_connection import PeerConnection
 
 __all__ = ["NO_HOSTS", "UNOBSERVED", "ClientHost", "ClientHosts"]
 
@@ -51,7 +51,7 @@ class ClientHost:
         return UNOBSERVED if not host else cls(host)
 
     @classmethod
-    def of_connection(cls, connection: HTTPConnection) -> ClientHost:
+    def of_connection(cls, connection: PeerConnection) -> ClientHost:
         """Return the peer address reported by the transport at connection time."""
         client = connection.client
         return cls.of(None if client is None else client.host)

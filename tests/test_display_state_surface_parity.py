@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app as cli_app
+from punt_lux.cli.__main__ import app as cli_app
 from punt_lux.commands import Ctx
 from punt_lux.commands.display_state_get import display_state_get
 from punt_lux.operations.display_reply import DisplayReplied

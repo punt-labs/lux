@@ -57,10 +57,19 @@
 
 ### Changed
 
+- Prepare the 0.34.0 library boundary: `punt_lux` is a PEP 420 namespace with
+  no root exports. Import the client from `punt_lux.client` and public values
+  from `punt_lux.wire`; run the CLI as `python -P -m punt_lux.cli` rather than
+  `python -m punt_lux`. Distribution metadata supplies the version.
+- Move the bundled Beads product to `punt_lux.beads`, leaving generic applet
+  helpers and subprocess lifetime management in `punt_lux.applets`. Wire class
+  paths and Ready 0.3 remain unchanged. Client, wire, kernel and applet helpers
+  have no server dependency, including annotation-only imports.
+
 - **Breaking imports:** move all 34 top-level implementation modules into
   `punt_lux.kernel`, `punt_lux.hub`, `punt_lux.display` or `punt_lux.cli`,
-  retaining filenames without aliases. Only the root `__init__` and `__main__`
-  remain. Hub/Display console entry points use their new package locations;
+  retaining filenames without aliases. The namespace root holds only layer
+  packages. Hub/Display console entry points use their new package locations;
   hook callers use `punt_lux.cli.hook_cli`. Terminal lifecycle moves from
   `pty.service`/`pty.enablement` to `service.terminal_service` and
   `service.terminal_enablement`. The shared display timeout lives in
@@ -95,16 +104,12 @@
   Hub and Display. **Restarting the terminal owner ends all its terminal
   sessions.** `make reload` replaces the wheel and restarts only Hub, leaving
   the old PTY owner running.
-- **Breaking Python import changes:** `punt_lux.apps` is folded into
-  `punt_lux.applets.beads`. `apps.beads` becomes `applets.beads.browser`; the
-  other `apps.*` modules keep their names. `applets.beads` (the `lux-beads`
-  program) becomes `applets.beads.applet`, and `applets.beads_service` and
-  `applets.beads_source` move into the package. The `lux-beads` console script
-  is unchanged. No compatibility alias modules are provided. The board's import
-  from `operations.models` removes the direct static applets-to-Hub edge, but
-  `operations/__init__.py` still eagerly loads the Hub-owned facade at runtime,
-  including through the public root package's operations imports;
-  isolating those model imports remains operations-package debt.
+- **Breaking Python import changes:** the bundled Beads product lives in
+  `punt_lux.beads`, including its browser, applet entry point, services, sources
+  and board lifecycle. Generic applet helpers remain in `punt_lux.applets`.
+  The old `apps` and Beads-specific `applets` module paths are removed without
+  compatibility aliases. The `lux-beads` console script is unchanged; importing
+  applet helpers or their wire contracts does not load Hub code.
 
 - **Breaking Python import changes:** `punt_lux.hub_client`, `rest_transport`,
   `rest_http_call`, `rest_loopback`, `rest_reply`, `rest_error_body`,
@@ -2194,8 +2199,9 @@ old paths or class names directly (outside this package) needs updating.
   the caller's own hold), and a persistent daemon is **pushed** the click the
   instant it lands, over a new WebSocket listen leg at `/ws`. The persistent leg
   works click-to-handler end to end.
-- **`LuxHubClient` — the persistent hub client.** `from punt_lux import
-  LuxHubClient` (or `rest_client.listener(...)`, sharing one identity) holds a
+- **`LuxHubClient` — the persistent hub client.** Import it from
+  `punt_lux.client.hub_client` (or use `rest_client.listener(...)`, sharing one identity).
+  It holds a
   live WebSocket to `luxd`, subscribes to pub-sub topics, and dispatches both
   those events and the menu callbacks routed to its session to app handlers in a
   blocking receive loop that renews the lease on contact and reconnects on a
@@ -2208,8 +2214,8 @@ old paths or class names directly (outside this package) needs updating.
   built-ins stay permanent. Daemons identify explicitly via
   `LuxRestClient.for_identity(ClientIdentity(...))`; `connect()` remains the
   CLI's context-deriving path, and `ClientIdentity` is now a public export.
-- **`LuxRestClient` is the public Python library API.** `from punt_lux import
-  LuxRestClient` — typed requests and results, no display extras required, and
+- **`LuxRestClient` is the public Python library API.** Now imported as
+  `from punt_lux.client import LuxClient` — typed requests and results, no display extras required, and
   client identity built in. Python programs use the library; shell scripts and
   cron jobs may still call the REST routes directly.
 - **The CLI identifies itself on every run.** Identity derives from the git
