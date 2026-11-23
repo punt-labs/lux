@@ -9,20 +9,23 @@ import sys
 import tempfile
 import threading
 from collections.abc import Iterator
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
 from punt_lux.kernel.hub_paths import HubPaths
+from punt_lux.service import DISPLAY_SPEC
 from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.service.display_restart import DisplayRestart
 
 _DISPLAY = """
 import socket, sys, setproctitle
 path = sys.argv[1]
-setproctitle.setproctitle('luxd-display')
+setproctitle.setproctitle(sys.argv[2])
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
     server.bind(path)
     server.listen(16)
@@ -47,6 +50,8 @@ def test_restart_reads_real_http_facts_and_kernel_socket_ownership(
     refuse_first: bool,
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    process_name = f"lux-r-{uuid4().hex[:8]}"
+    spec = replace(DISPLAY_SPEC, process_name=process_name)
     paths = DisplayPaths(socket_path)
     children: list[subprocess.Popen[str]] = []
     now = 0.0
@@ -54,7 +59,7 @@ def test_restart_reads_real_http_facts_and_kernel_socket_ownership(
 
     def start_display() -> None:
         child = subprocess.Popen(
-            [sys.executable, "-c", _DISPLAY, str(paths.socket_path)],
+            [sys.executable, "-c", _DISPLAY, str(paths.socket_path), process_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -117,7 +122,7 @@ def test_restart_reads_real_http_facts_and_kernel_socket_ownership(
                     side_effect=advance,
                 ),
             ):
-                result = DisplayRestart(manager=manager, paths=paths).run()
+                result = DisplayRestart(spec=spec, manager=manager, paths=paths).run()
             assert f"pid {children[0].pid}" in result
             assert requests and set(requests) == {"/display"}
             assert now >= 3
