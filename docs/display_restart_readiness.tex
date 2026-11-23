@@ -268,8 +268,8 @@ bad transitions the fidelity model must exhibit.
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
   work \in \{rwidle, rwlocal, rwhub, rwwire, rwafter\} \land now < 6 \\
-  (BOUNDWORK = ztrue \land cost? \leq 1 \land now + cost? \leq 6)
-    \lor (BOUNDWORK = zfalse \land now + cost? \leq 7) \\
+  ((BOUNDWORK = ztrue \lor work = rwidle) \land cost? \leq 1 \land now + cost? \leq 6)
+    \lor (BOUNDWORK = zfalse \land work \neq rwidle \land now + cost? \leq 7) \\
   now' = now + cost? \\
   (now' < 6 \land phase' = phase \land work' = work) \lor
     (now' \geq 6 \land phase' = rsfailed \land work' = rwidle) \\
@@ -372,7 +372,9 @@ ready requires that process to remain the original pinned candidate.
 A separate model
 check enables deadlock detection. Terminal self-loops represent termination, not
 continued I/O. Removing \texttt{RESETDIAL} must reach a too-young ready dial;
-removing \texttt{BOUNDWORK} must reach tick seven. Disabling \texttt{SAMPLEBOUND}
+removing \texttt{BOUNDWORK} must reach tick seven during socket or Hub probe
+work. Idle PID lookup work remains bounded even in that mutant, so exceeding
+the deadline requires entering a probe stage. Disabling \texttt{SAMPLEBOUND}
 must exhibit an early ready caused by post-capture delivery. Negative inner
 intervals credit zero; the modeled threshold is strictly positive, so comparing
 the interval with three is equivalent to comparing its nonnegative credit.

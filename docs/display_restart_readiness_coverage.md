@@ -80,7 +80,9 @@ make a fidelity check meaningless. The verifier generates variants changing only
 one of `RESETDIAL`, `BOUNDWORK`, `SAMPLEBOUND`, `ACCEPTAFTER`, `MATCHHUBPID`,
 or `KEEPLOCALPID`. Disabling dial reset or crediting
 receipt-time delivery must reach ready on a dial younger than the window;
-unbounded work must reach tick seven. A two-tick acceptance threshold must reach
+unbounded probe work must reach tick seven. Idle PID lookup work remains
+deadline-bounded in that mutant, so only a socket or Hub probe can supply the
+deadline witness. A two-tick acceptance threshold must reach
 ready with less than three ticks of credited observation despite a dial age of
 at least three. The independent observation ghost never affects acceptance;
 checking its credit prevents age-only false confidence. The fixed model must exhaust
@@ -108,12 +110,12 @@ PASS: stale-pid fuzz
 PASS: second-pid fuzz
 PASS: I1-I7-safety not found (160126 states)
 PASS: deadlock not found (160126 states)
-PASS: reconnect-fidelity found (53970 states)
-PASS: deadline-fidelity found (53 states)
-PASS: delivery-fidelity found (49572 states)
-PASS: short-window-fidelity found (32192 states)
-PASS: stale-pid-fidelity found (26997 states)
-PASS: second-pid-fidelity found (85886 states)
+PASS: reconnect-fidelity found (48542 states)
+PASS: deadline-fidelity found (71 states)
+PASS: delivery-fidelity found (72491 states)
+PASS: short-window-fidelity found (27695 states)
+PASS: stale-pid-fidelity found (24947 states)
+PASS: second-pid-fidelity found (87984 states)
 PASS: all readiness model checks
 ```
 
