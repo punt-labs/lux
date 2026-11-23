@@ -62,7 +62,11 @@
   other `apps.*` modules keep their names. `applets.beads` (the `lux-beads`
   program) becomes `applets.beads.applet`, and `applets.beads_service` and
   `applets.beads_source` move into the package. The `lux-beads` console script
-  is unchanged. No compatibility alias modules are provided.
+  is unchanged. No compatibility alias modules are provided. The board's import
+  from `operations.models` removes the direct static applets-to-Hub edge, but
+  `operations/__init__.py` still eagerly loads the Hub-owned facade at runtime,
+  including through the public root package's operations imports;
+  isolating those model imports remains operations-package debt.
 
 - **Breaking Python import changes:** `punt_lux.hub_client`, `rest_transport`,
   `rest_http_call`, `rest_loopback`, `rest_reply`, `rest_error_body`,

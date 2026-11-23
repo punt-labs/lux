@@ -286,7 +286,12 @@ Step 6 folds the old `punt_lux.apps` package into `punt_lux.applets.beads`,
 which now holds the whole Beads applet: the `lux-beads` program
 (`applets/beads/applet.py`), its service and source, the `bd` runner, and the
 board that turns a load into a render request. The board builds those requests
-from `operations.models`, so the last applets-to-Hub edge is gone. Generic
+from `operations.models`, removing the last direct static applets-to-Hub edge.
+This does not yet isolate runtime imports: Python executes `operations/__init__.py`
+before loading `operations.models`, and that initializer eagerly loads the
+Hub-owned operations facade; the public root package imports operations too.
+Removing that transitive Hub load remains debt of
+the operations package, not part of this move. Generic
 applet machinery (leg, claim, watch, board cache and slots) stays in
 `punt_lux.applets`. No alias module remains at `punt_lux.apps`.
 
