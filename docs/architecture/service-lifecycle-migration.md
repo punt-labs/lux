@@ -663,6 +663,31 @@ becomes the documented way to confirm the machine reached a clean state
 after upgrading, replacing "run this shell command and hope" with a command
 whose output states unambiguously whether the cure succeeded.
 
+## Current failure diagnostics
+
+Hub and Display restart wrappers log readiness timeouts at ERROR before raising
+their existing CLI-facing errors. On macOS, the diagnostic includes the exact
+service label and `launchctl list <label>` exit status. The read-only probe has
+a two-second timeout, discards command output, and records probe unavailability
+without replacing the original restart error. Successful restarts do not run
+the diagnostic probe. Other platforms log the failure without invoking launchctl.
+
+Restart recovers a missing launchd registration only when kickstart returns
+rc=113 and its service plist still exists. It warns, bootstraps that plist,
+and retains the normal Hub/Display readiness wait. Missing configuration,
+other kickstart errors, and failed recovery bootstrap still fail. This path
+does not boot out, rewrite, or replace any job or configuration.
+
+A failed launchd install bootstrap explicitly logs the label and plist path.
+After a changed-plist upgrade has deregistered the old job, bootstrap failure
+can leave the service unloaded with the new plist still on disk. There is no
+automatic rollback: nonzero bootstrap status does not prove the new job is
+absent, and restoring old configuration can conflict with a partially loaded
+replacement. The old plist may also reference the same binary already replaced
+by a package upgrade. Installation continues to raise its migration error;
+operators inspect launchd state before retrying `start` or `install`. No extra
+bootout, bootstrap retry, or other destructive fallback is issued.
+
 ## Related Documents
 
 - Bead `lux-ehzy` — the incident and its immediate fix scope.

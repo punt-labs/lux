@@ -290,6 +290,21 @@ Most commands take the form `lux <noun> <verb>` and use the same names as the MC
 
 The installer runs `lux display install` for you. On macOS the window gets a Dock icon.
 
+Restart readiness failures are recorded in `~/.punt-labs/lux/logs/lux.log`
+before the CLI reports failure. On macOS, the entry includes the service label
+and the exit status of a read-only `launchctl list <label>` probe, bounded to
+two seconds. A failed install bootstrap logs the label and plist path and
+leaves the requested configuration on disk. It does not automatically restore
+or boot out another job: bootstrap failure does not prove the replacement is
+unregistered. Inspect `launchctl print gui/$(id -u)/<label>` before choosing
+the appropriate service `start` or `install` command to retry.
+
+If restart's kickstart reports that the launchd service is missing (rc=113),
+Lux logs a warning and bootstraps the installed plist, then waits for the
+normal process and readiness witnesses. This recovery applies to both Hub
+and Display. A missing plist or any other kickstart failure still fails;
+restart never boots out another registration as a fallback.
+
 | Command | What it does |
 |---|---|
 | `lux ping` | Ping the window through `luxd` and print the round-trip time |

@@ -17,16 +17,17 @@ Failure is raised as :class:`DisplayRestartError` with a human-worded reason.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.service import (
+    DISPLAY_SPEC,
     DisplayServiceManager,
     ServiceActionFailedError,
     ServiceNotInstalledError,
+    ServiceSpec,
 )
 from punt_lux.service._backends import pgrep_pid
-from punt_lux.service._service_spec import DISPLAY_SPEC, ServiceSpec
+from punt_lux.service._restart_readiness import RestartReadiness
 from punt_lux.service.display_paths import DisplayPaths
 
 if TYPE_CHECKING:
@@ -99,11 +100,10 @@ class DisplayRestart:
                 continue
             return f"display restarted (pid {pid}) at {self._paths.socket_path}"
         msg = f"display did not come back within {_WAIT_SECONDS:.0f}s"
+        RestartReadiness.failure(self._spec, msg)
         raise DisplayRestartError(msg)
 
     @staticmethod
     def _polls() -> Iterator[None]:
         """Yield the bounded sequence of restart poll delays."""
-        for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
-            time.sleep(_POLL_SECONDS)
-            yield
+        return RestartReadiness.polls(_WAIT_SECONDS, _POLL_SECONDS)
