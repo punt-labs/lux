@@ -65,9 +65,11 @@
   static PTY-to-Hub edge; the operations initializer's eager Hub load remains
   debt. `CreditWindow` no longer stores its unused redundant capacity field.
   **Upgrade:** restart a running `luxd-pty` after installing this release so
-  its menu helper uses the new module path. Use `make restart` (which also
-  restarts Hub and Display and ends existing terminal sessions); `make reload`
-  replaces the wheel and restarts only Hub, leaving the old PTY owner running.
+  its menu helper uses the new module path. For wheel installs, run
+  `lux terminal restart`. From a source checkout, `make restart` also restarts
+  Hub and Display. **Restarting the terminal owner ends all its terminal
+  sessions.** `make reload` replaces the wheel and restarts only Hub, leaving
+  the old PTY owner running.
 - **Breaking Python import changes:** `punt_lux.apps` is folded into
   `punt_lux.applets.beads`. `apps.beads` becomes `applets.beads.browser`; the
   other `apps.*` modules keep their names. `applets.beads` (the `lux-beads`
