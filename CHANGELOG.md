@@ -157,6 +157,11 @@
 
 ### Fixed
 
+- Display restart now requires Hub facts matching the new Display PID and a
+  three-second stable connection and owned socket, within the existing
+  30-second readiness deadline. Crashes, disconnects, and an unreachable Hub
+  fail with a logged reason and a bounded Display stderr tail when available,
+  rather than reporting success for a briefly listening crash-loop process.
 - Restart readiness diagnostics query the service's explicit launchd GUI domain,
   avoiding misleading registration state outside the GUI session.
 - Successful launchd bootout commands now log their service target at INFO,

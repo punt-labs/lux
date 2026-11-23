@@ -131,6 +131,11 @@ def test_recovered_restart_waits_for_readiness(
         patch("punt_lux.service._launchctl.subprocess.run") as run,
         patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
         patch.object(restart, "_polls", return_value=iter([None])),
+        patch(
+            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            return_value=True,
+        ),
+        patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),
     ):
         path = tmp_path / "Library/LaunchAgents" / f"{spec.launchd_label}.plist"
         path.parent.mkdir(parents=True)

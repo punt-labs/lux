@@ -145,6 +145,11 @@ def test_success_does_not_probe_launchd(
     with (
         patch(f"punt_lux.service.{module}.pgrep_pid", side_effect=[101, 102]),
         patch.object(restart, "_polls", return_value=iter([None])),
+        patch(
+            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            return_value=True,
+        ),
+        patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),
         patch("punt_lux.service._restart_readiness.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):

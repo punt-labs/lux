@@ -665,6 +665,29 @@ whose output states unambiguously whether the cure succeeded.
 
 ## Current failure diagnostics
 
+Display restart observes a single new PID, retaining the socket-owner check and
+requiring the Hub's existing read-only `GET /display` facts to name that PID.
+Those facts round-trip to the Display; a stale or different PID is not readiness.
+The connection and owned socket must remain observed for `_STABILITY_SECONDS`
+(three seconds), within the 30-second monotonic deadline shared by startup and
+stability. Probes use at most 0.5 seconds, capped by the remaining budget, and
+successful replies arriving after the deadline are rejected. Existing local
+socket probes and the failure-only launchd diagnostic have bounded I/O budgets.
+Hub restart readiness is unchanged.
+
+An observed process exit or replacement fails immediately, even before a Hub
+connection, rather than accepting launchd's next crash-loop generation. Loss of
+Hub connectivity or socket ownership during stability also fails. An unreachable
+Hub is an error: this command does not silently weaken to socket-only readiness;
+`make restart` restarts the Hub first. Failures retain `DisplayRestartError` and
+the existing ERROR diagnostic, with a reason and a best-effort bounded tail of
+`~/.punt-labs/lux/logs/luxd-display-stderr.log` (12 lines, 4096 bytes).
+The tail is conditional on an existing redirected stderr file; generated
+service configurations do not install stderr redirection. Missing or unreadable
+files do not replace the original readiness error. Slow initial Display round
+trips (HTTP 504 or a probe timeout) remain pending within the deadline, but fail
+if a previously observed stable connection is lost.
+
 Every successful launchd bootout is logged centrally at INFO with its service
 target, including stop, uninstall, and changed-plist upgrade sweeps. Failed
 or absent-job bootouts do not produce a success record.
