@@ -1,0 +1,242 @@
+% fuzz -t docs/display_restart_readiness.tex
+% Reproduce all checks, including fidelity: bash scripts/verify_readiness_model.sh
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\begin{document}
+\title{Display Restart Readiness}
+\author{A bounded model of the readiness observer}
+\date{November 2026}
+\maketitle
+
+\section{Boundary and refinement}
+The observer waits for a new process, then requires consecutive observations of
+one Hub dial for the stability window. A process can keep its PID while the Hub
+redials it. The generation is the pinned request port's opaque name, not a later
+read of the registry. This models \texttt{DisplayReadiness},
+\texttt{DisplayStability}, \texttt{ReadinessProbe}, and \texttt{ReadinessHTTP}.
+
+The carrier has two non-reused dial names, a three-tick stability window, and a
+six-tick total deadline. One tick conservatively permits more probe work than
+the implementation's half-second cap. The smaller total deadline keeps exhaustive
+exploration finite; it is not a claim to verify arbitrary real-valued clocks.
+All time, including waits and individual blocking reads, is explicit. Zero-time
+operations are local bookkeeping. The extra seventh tick is intentional: an
+unbounded probe must be able to violate the deadline, not be disabled by a type.
+
+\texttt{Snapshot} is the Hub reply's observation point. A later local ownership
+check cannot credit its elapsed time to that reply. A disconnect after the last
+sample cannot be ruled out by any observer; safety is about the age of the dial
+at the accepted sample, not a promise that the process will remain alive later.
+Kernel ownership and PID checks are abstracted as successful stage transitions
+or \texttt{Crash}/\texttt{ProbeError}; real socket tests audit that refinement.
+Failure-only logging and launchd diagnostics occur after this observer stops;
+their existing separate bounded budget is not readiness work.
+
+\section{Types and switches}
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse \\
+  RPHASE ::= rscandidate | rsstabilizing | rsready | rsfailed \\
+  RWORK ::= rwwait | rwidle | rwlocal | rwhub | rwafter \\
+  RPID ::= rpold | rpnew | rpgone \\
+  TICK == 0 \upto 7 \\
+  DIAL == 0 \upto 2
+\end{zed}
+\begin{axdef}
+  RESETDIAL, BOUNDWORK : ZBOOL
+\where
+  RESETDIAL = ztrue \\
+  BOUNDWORK = ztrue
+\end{axdef}
+Zero is no dial. Serial names increase even across \texttt{Drop}, excluding ABA
+reuse. The script generates fidelity variants by changing exactly one switch.
+
+\section{State}
+As in \texttt{board\_ordering.tex}, safety is checked by reachability goals,
+not inserted into the state predicate: doing the latter would disable the very
+bad transitions the fidelity model must exhibit.
+\begin{schema}{Readiness}
+  phase : RPHASE \\
+  work : RWORK \\
+  process : RPID \\
+  now, born, sampledBorn, sampledAt, started, age : TICK \\
+  generation, serial, seen, remembered : DIAL
+\end{schema}
+\begin{schema}{Init}
+  Readiness'
+\where
+  phase' = rscandidate \land work' = rwwait \land process' = rpold \\
+  now' = 0 \land born' = 0 \land sampledBorn' = 0 \\
+  sampledAt' = 0 \land started' = 0 \land age' = 0 \\
+  generation' = 0 \land serial' = 0 \land seen' = 0
+    \land remembered' = 0
+\end{schema}
+
+\section{Environment and polling}
+\begin{schema}{Spawn}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land process = rpold \\
+  process' = rpnew \land phase' = phase \land work' = work \\
+  now' = now \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{Dial}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land process = rpnew \\
+  serial < 2 \land now < 6 \\
+  serial' = serial + 1 \land generation' = serial' \land born' = now \\
+  phase' = phase \land work' = work \land process' = process \\
+  now' = now \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{Drop}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land generation > 0 \\
+  generation' = 0 \land serial' = serial \land born' = born \\
+  phase' = phase \land work' = work \land process' = process \\
+  now' = now \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{Wait}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwwait \land now < 6 \\
+  now' = now + 1 \land work' = rwidle \\
+  (now' < 6 \land phase' = phase) \lor
+    (now' = 6 \land phase' = rsfailed) \\
+  process' = process \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{NoCandidate}
+  \Delta Readiness
+\where
+  phase = rscandidate \land work = rwidle \land process = rpold \\
+  work' = rwwait \land phase' = phase \land process' = process \\
+  now' = now \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+
+\section{Probe stages}
+\begin{schema}{Begin}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwidle \\
+  process = rpnew \land now < 6 \land work' = rwlocal \\
+  phase' = phase \land process' = process \land now' = now \\
+  born' = born \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{LocalDone}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwlocal \\
+  work' = rwhub \land phase' = phase \land process' = process \land now' = now \\
+  born' = born \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{Snapshot}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwhub \\
+  work' = rwafter \land seen' = generation \\
+  sampledBorn' = born \land sampledAt' = now \\
+  phase' = phase \land process' = process \land now' = now \land born' = born \\
+  started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \land remembered' = remembered
+\end{schema}
+\begin{schema}{Finish}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwafter \land now < 6 \\
+  process' = process \land now' = now \land born' = born \\
+  sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  generation' = generation \land serial' = serial \land seen' = seen \\
+  (seen = 0 \land phase' = rscandidate \land remembered' = 0
+    \land started' = 0 \land age' = 0) \\
+  \quad~ \lor (seen > 0 \land remembered' = seen
+    \land age' = sampledAt - sampledBorn \\
+  \quad~ \land (((phase = rscandidate \lor
+    (RESETDIAL = ztrue \land remembered \neq seen))
+    \land started' = sampledAt) \\
+  \quad~ \lor (phase = rsstabilizing \land
+    (RESETDIAL = zfalse \lor remembered = seen) \land started' = started)) \\
+  \quad~ \land ((sampledAt - started' \geq 3 \land phase' = rsready) \\
+  \quad~ \lor (sampledAt - started' < 3 \land phase' = rsstabilizing))) \\
+  (phase' = rsready \land work' = rwidle) \lor
+    (phase' \neq rsready \land work' = rwwait)
+\end{schema}
+\begin{schema}{Spend}
+  \Delta Readiness \\
+  cost? : 1 \upto 2
+\where
+  phase \in \{rscandidate, rsstabilizing\} \\
+  work \in \{rwlocal, rwhub, rwafter\} \land now < 6 \\
+  (BOUNDWORK = ztrue \land cost? \leq 1 \land now + cost? \leq 6)
+    \lor (BOUNDWORK = zfalse \land now + cost? \leq 7) \\
+  now' = now + cost? \\
+  (now' < 6 \land phase' = phase \land work' = work) \lor
+    (now' \geq 6 \land phase' = rsfailed \land work' = rwidle) \\
+  process' = process \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\texttt{Spend} can occur repeatedly in any probe stage. Thus a slow trickle of
+HTTP header/body bytes is not collapsed into a single unbounded receive.
+
+\section{Failure and completion}
+\begin{schema}{Crash}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land process = rpnew \\
+  phase' = rsfailed \land work' = rwidle \land process' = rpgone \\
+  generation' = 0 \land serial' = serial \land now' = now \land born' = born \\
+  sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \land seen' = seen
+    \land remembered' = remembered
+\end{schema}
+\begin{schema}{ProbeError}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \\
+  work \in \{rwlocal, rwhub, rwafter\} \\
+  phase' = rsfailed \land work' = rwidle \land process' = process \\
+  now' = now \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
+\end{schema}
+\begin{schema}{Finished}
+  \Xi Readiness
+\where
+  phase \in \{rsready, rsfailed\}
+\end{schema}
+The terminal self-loop is explicit: a finished observer has no further work.
+Every nonterminal idle state enables \texttt{Begin} or \texttt{NoCandidate},
+every wait enables \texttt{Wait}, and every probe stage enables its completion.
+No synthetic error transition is needed to escape a blocked live state.
+
+\section{Verification and partitions}
+The verification script checks four safety invariants as unreachable goals:
+ready implies sampled dial age at least three; time never exceeds six;
+ready implies the new PID; ready occurs strictly before six. A separate model
+check enables deadlock detection. Terminal self-loops represent termination, not
+continued I/O. Removing \texttt{RESETDIAL} must reach a too-young ready dial;
+removing \texttt{BOUNDWORK} must reach tick seven. See the companion coverage
+audit for operation-to-code refinement and every test partition.
+\end{document}

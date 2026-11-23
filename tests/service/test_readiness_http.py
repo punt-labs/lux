@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 import socket
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from punt_lux.service._readiness_http import ReadinessHTTP
+
+
+def test_connection_uses_the_budgeted_response_factory_over_real_tcp() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        server.settimeout(2)
+
+        def serve() -> None:
+            connection, _ = server.accept()
+            with connection:
+                connection.settimeout(2)
+                connection.recv(4096)
+                connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            with (
+                patch(
+                    "punt_lux.service._readiness_http.HubPaths.read_port",
+                    return_value=server.getsockname()[1],
+                ),
+                ReadinessHTTP.open(2) as connection,
+            ):
+                connection.request("GET", "/display")
+                response = connection.getresponse()
+                assert response.status == 200
+                assert response.read(65536) == b"{}"
+        finally:
+            thread.join(timeout=2)
+        assert not thread.is_alive()
 
 
 def test_response_adapter_parses_real_headers_and_body() -> None:

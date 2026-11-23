@@ -256,6 +256,31 @@ def test_local_and_hub_probes_share_the_remaining_deadline(paths: MagicMock) -> 
         assert local.call_count == 2
 
 
+def test_local_probe_time_cannot_age_the_preceding_hub_sample(paths: MagicMock) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.local") as local,
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
+            return_value="dial",
+        ),
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        assert not ready.observe(502, 501)
+
+        def local_probe(_paths: MagicMock, _pid: int, _timeout: float) -> bool:
+            if local.call_count == 4:
+                clock.return_value = 3.1
+            return True
+
+        local.side_effect = local_probe
+        clock.return_value = 2.5
+        assert not ready.observe(502, 501)
+        clock.return_value = 3.2
+        assert ready.observe(502, 501)
+
+
 def test_stderr_tail_surfaces_monitor_error_and_is_bounded(tmp_path: Path) -> None:
     path = tmp_path / ".punt-labs/lux/logs/luxd-display-stderr.log"
     path.parent.mkdir(parents=True)
