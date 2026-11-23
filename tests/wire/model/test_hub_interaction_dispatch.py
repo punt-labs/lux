@@ -164,8 +164,8 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A callback-leaf menu click is held for the session that registered it."""
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -209,10 +209,10 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The Details command is the Hub's own: it runs here, and nothing is held."""
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.details_binding import DetailsBinding
     from punt_lux.hub.details_outcome import DetailsShown
     from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -370,7 +370,6 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
     and never reaches the inbox — the regression this proves.
     """
     from punt_lux.hub import hub_lifecycle
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.inbox import drain_inbox, ensure_writer
     from punt_lux.hub.replicator_instance import hub_callback_router
     from punt_lux.hub.session_callback import (
@@ -378,6 +377,7 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
         MenuLeaf,
         SessionCallback,
     )
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
     conn = ConnectionId("dual-owner")
     leg = _SilentLeg()
@@ -423,10 +423,10 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
     reserved ``lux.menu`` event carrying the agent's own item id.
     """
     from punt_lux.hub import hub_lifecycle
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.replicator_instance import hub_menu_registry
     from punt_lux.operations import Scope, SetMenuRequest
     from punt_lux.tools.tools import OPERATIONS
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
     conn = ConnectionId("surface-loop-1")
     scope = Scope.in_process(conn)

@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.hub.applet_name_format import format_name
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_roster import ClientRoster, RosterNames
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.applet_name_format import format_name
+from punt_lux.wire.model.client_identity import ClientIdentity
 from tests.roster_access import release_of
 
 

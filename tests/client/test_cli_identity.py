@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.cli_identity import CliIdentity
+from punt_lux.client.cli_identity import CliIdentity
 
 # A path with no ``.git`` in its ancestry, for the not-in-a-repository cases. The
 # repo's TMPDIR is ``.tmp/`` inside this very git repo, so a temp dir always has a

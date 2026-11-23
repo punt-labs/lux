@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
     from punt_lux.client_host import ClientHost
     from punt_lux.hub.callback_ports import CallbackListener
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.departure_cascade import DepartureCascade
     from punt_lux.hub.departure_sinks import DepartureSink
     from punt_lux.hub.hub_clients import HubClientRegistry
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.session_write import SessionWrite
     from punt_lux.hub.store_lock import StoreLock
     from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.model.scope import Scope
 
 __all__ = ["ClientLifecycle"]

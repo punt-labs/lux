@@ -217,7 +217,7 @@ The REST transport is now a private implementation detail of `LuxClient`
 (`punt_lux.client._rest_transport`, not importable by name from outside
 `client/`) -- consumers hold a `LuxClient` and reach its accessors, or its
 `.sync` property for a synchronous ops surface (an applet's worker thread,
-for example). `LuxHubClient` (`punt_lux.hub_client`) is unchanged and remains
+for example). `LuxHubClient` (`punt_lux.client.hub_client`) is unchanged and remains
 public for callers that hold the listen leg directly.
 
 | Old (transport-flavoured, synchronous) | New (facade, async) |

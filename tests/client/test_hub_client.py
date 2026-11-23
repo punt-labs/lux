@@ -14,10 +14,10 @@ from collections.abc import Callable, Mapping
 import pytest
 import websockets
 
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import LuxHubClient
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.client.hub_client import LuxHubClient
+from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.kernel.hub_paths import HubPaths
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.messages.listen import (
     CallbackFrame,
     EventFrame,

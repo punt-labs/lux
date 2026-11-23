@@ -9,9 +9,9 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.client.callback import CallbackAccessor
+from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.client.display import DisplayAccessor
 from punt_lux.client.error import ErrorAccessor
 from punt_lux.client.event import EventAccessor
@@ -26,15 +26,15 @@ from punt_lux.operations import Scope
 
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
-    from punt_lux.commands._ports import PingOps
-    from punt_lux.hub.client_identity import ClientIdentity
-    from punt_lux.hub_client import (
+    from punt_lux.client.hub_client import (
         CallbackHandler,
         ConnectHandler,
         EventHandler,
         LuxHubClient,
     )
+    from punt_lux.commands._ports import PingOps
     from punt_lux.operations import OpError, Pong
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 @final

@@ -4,7 +4,7 @@
 connection to luxd: it subscribes to pub-sub topics and receives, in a blocking
 receive loop, both those topics' events and the menu-callback clicks routed to its
 session, dispatching each to an app handler. It carries the same
-:class:`~punt_lux.hub.client_identity.ClientIdentity` a
+:class:`~punt_lux.wire.model.client_identity.ClientIdentity` a
 :class:`~punt_lux.client.facade.LuxClient` uses, so the daemon's scene pushes
 (over REST) and its listen stream (over this WebSocket) resolve to one connection —
 a callback the daemon registers over REST is delivered here.
@@ -29,10 +29,10 @@ from typing import TYPE_CHECKING, Self, final
 
 import websockets
 
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.client.identity_headers import ClientHeaders
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.rest_transport import HubUnavailableError
 from punt_lux.wire.model.messages.listen import (
     CallbackFrame,
     EventFrame,
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
     from websockets.asyncio.client import ClientConnection
 
-    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
 
@@ -287,13 +287,10 @@ class LuxHubClient:
     async def _dispatch(self, raw: str | bytes) -> None:
         """Route one server frame to its app handler; a stray ready frame is ignored."""
         frame = ServerFrames.validate_json(raw)
-        match frame:
-            case CallbackFrame(callback_id=callback_id):
-                await self._await_maybe(self._on_callback(callback_id))
-            case EventFrame(topic=topic, payload=payload):
-                await self._await_maybe(self._on_event(topic, payload))
-            case ReadyFrame():
-                pass  # only valid at handshake; a mid-stream ready is inert
+        if isinstance(frame, CallbackFrame):
+            await self._await_maybe(self._on_callback(frame.callback_id))
+        elif isinstance(frame, EventFrame):
+            await self._await_maybe(self._on_event(frame.topic, frame.payload))
 
     async def _renew_loop(self, connection: ClientConnection) -> None:
         """Send a keepalive each interval so a quiet app's lease never lapses."""

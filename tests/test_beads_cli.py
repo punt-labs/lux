@@ -19,13 +19,13 @@ from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.cli.beads import BeadsBoardCommand
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import (
     OpError,
     RenderRequest,
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.rest_transport import HubUnavailableError
 
 runner = CliRunner()
 

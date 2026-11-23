@@ -20,13 +20,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
-from punt_lux.cli_identity import CliIdentity
 from punt_lux.client._link_reply import LinkReply
 from punt_lux.client._rest_display import _DisplayRestOps
 from punt_lux.client._rest_scenes import _SceneRestOps
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import LuxHubClient
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.client.cli_identity import CliIdentity
+from punt_lux.client.hub_client import LuxHubClient
+from punt_lux.client.identity_headers import ClientHeaders
+from punt_lux.client.rest_http_call import HttpCall
+from punt_lux.client.rest_loopback import LoopbackTransport
+from punt_lux.client.rest_reply import RestReply
+from punt_lux.client.rest_transport import HttpTransport, HubUnavailableError
 from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.operations import (
     ClientList,
@@ -44,13 +47,10 @@ from punt_lux.operations import (
 from punt_lux.operations.models.callback_fields import CallbackFields
 from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.operations.models.identity import Identified
-from punt_lux.rest_http_call import HttpCall
-from punt_lux.rest_loopback import LoopbackTransport
-from punt_lux.rest_reply import RestReply
-from punt_lux.rest_transport import HttpTransport, HubUnavailableError
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
+    from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, EventHandler
     from punt_lux.operations import (
         Cleared,
         DisplayInfo,

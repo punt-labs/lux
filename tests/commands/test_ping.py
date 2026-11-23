@@ -13,8 +13,8 @@ import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands import Ctx, PingOps, ping
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.operations import OpError, Pong
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
     from punt_lux.commands._result import CommandResult

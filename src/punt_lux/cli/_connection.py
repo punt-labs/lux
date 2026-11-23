@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 import typer
 
 from punt_lux.client.facade import LuxClient
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.client.rest_transport import HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
-    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
 

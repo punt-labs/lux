@@ -28,7 +28,7 @@ from pydantic import (
 )
 
 from punt_lux.connection_identity import connection_for
-from punt_lux.hub.applet_name_format import APPLET_NAME_RE
+from punt_lux.wire.model.applet_name_format import APPLET_NAME_RE
 
 if TYPE_CHECKING:
     from punt_lux.kernel.connection_id import ConnectionId

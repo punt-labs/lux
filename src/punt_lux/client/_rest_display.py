@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import urlencode
 
+from punt_lux.client.rest_http_call import HttpCall
+from punt_lux.client.rest_reply import RestReply
 from punt_lux.operations import (
     DisplayInfo,
     DisplayModeState,
@@ -14,11 +16,9 @@ from punt_lux.operations import (
     ThemeState,
     WindowSettings,
 )
-from punt_lux.rest_http_call import HttpCall
-from punt_lux.rest_reply import RestReply
 
 if TYPE_CHECKING:
-    from punt_lux.rest_transport import HttpTransport
+    from punt_lux.client.rest_transport import HttpTransport
 
 __all__ = ["_DisplayRestOps"]
 

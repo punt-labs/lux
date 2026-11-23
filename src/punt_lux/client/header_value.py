@@ -14,9 +14,9 @@ whether or not the client knows to encode:
 * **On the way out**, a value is percent-encoded, so it is ASCII on either
   transport. Every printable ASCII character but ``%`` is left alone, so values
   that were already ASCII cross byte-for-byte as they always did.
-* **On the way in**, a value that arrived as raw bytes — from an older punt-lux, or
-  any client that does not use :class:`~punt_lux.identity_headers.ClientHeaders` —
-  is recovered. Bytes the server decoded as latin-1 that spell valid UTF-8 are
+* **On the way in**, raw bytes from an older client without
+  :class:`~punt_lux.client.identity_headers.ClientHeaders` are recovered.
+  Bytes the server decoded as latin-1 that spell valid UTF-8 are
   re-read as UTF-8: that is exactly the WebSocket leg's case, while the HTTP leg's
   latin-1 bytes do not spell valid UTF-8 and are kept as they are. The encoding
   side alone could not fix this, because it only governs clients we ship.

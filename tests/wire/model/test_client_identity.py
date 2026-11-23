@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 def test_full_identity_round_trips_through_its_wire_dict() -> None:

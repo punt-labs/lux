@@ -32,8 +32,8 @@ from punt_lux.hub.presence_writes import PresenceWrites
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["HubClientRegistry"]
 

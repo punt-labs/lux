@@ -41,10 +41,10 @@ from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.route_deps import RouteDeps
     from punt_lux.rest.status import HttpErrorMap
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 _CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 # A scoped read (e.g. display state) gets the same 401 challenge a write gets.

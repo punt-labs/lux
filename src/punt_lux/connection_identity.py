@@ -13,7 +13,7 @@ Both the REST caller and the WebSocket handshake resolve their connection throug
 
 An absent field is absent however it is spelled. A declaration read from headers
 omits the key entirely, while one dumped from a
-:class:`~punt_lux.hub.client_identity.ClientIdentity` carries an explicit
+:class:`~punt_lux.wire.model.client_identity.ClientIdentity` carries an explicit
 ``None`` — and both mean "this client declared no repository". They are folded to
 the same seed here, so one identity has one connection id no matter which shape a
 caller had it in.

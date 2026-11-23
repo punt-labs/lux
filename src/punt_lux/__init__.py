@@ -7,9 +7,9 @@ from importlib.metadata import version
 __version__ = version("punt-lux")
 
 from punt_lux.client import LuxClient
+from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, EventHandler
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.commands.ping import ping
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import CallbackHandler, ConnectHandler, EventHandler
 from punt_lux.operations import (
     OpError,
     Pong,
@@ -17,7 +17,6 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.rest_transport import HubUnavailableError
 from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.wire.model import (
     AckMessage,
@@ -58,6 +57,7 @@ from punt_lux.wire.model import (
     recv_message,
     send_message,
 )
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = [
     "AckMessage",

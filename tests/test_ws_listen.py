@@ -31,7 +31,6 @@ from punt_lux.connection_identity import connection_for
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.callback_ports import CallbackListener
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.departure_cascade import DepartureCascade
 from punt_lux.hub.departure_sinks import DepartureSink
@@ -43,6 +42,7 @@ from punt_lux.hub.menu_models import Menu, MenuAction
 from punt_lux.hub.menu_presence import MarkMenusSink
 from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
 from punt_lux.wire.model.messages.listen import CallbackFrame
