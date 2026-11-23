@@ -37,6 +37,8 @@ INTERACTIVE_REAL_FILES = [
     (S + "wire/model/selection_interaction.py", "references event RowSelectionChanged"),
     (S + "wire/model/standalone_button_handler.py", "references event ButtonClicked"),
     (S + "wire/model/elements/button.py", "references event ButtonClicked"),
+    (D + "menus/entries.py", "calls menu_item()"),
+    (D + "renderers/imgui/tree.py", "calls tree_node()"),
     (S + "wire/model/handlers/button_catalog.py", "interactive by path"),
     ("plugin/commands/display.screenshot.md", "interactive by path"),
 ]
@@ -295,3 +297,45 @@ def test_change_set_omits_uncommitted_changes(repo: Path) -> None:
 def test_change_set_reports_git_stderr(repo: Path) -> None:
     with pytest.raises(GitError, match="unknown-ref"):
         ChangeSet(repo, "unknown-ref").paths()
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "imgui.menu_item('x', '', False)",
+        "imgui.tree_node('x')",
+        "imgui.tree_node_ex('x', 0)",
+        "imgui.begin_menu('x')",
+        "imgui.collapsing_header('x')",
+        "imgui.begin_tab_item('x')",
+    ],
+)
+def test_consumed_container_widgets_are_interactive(tmp_path: Path, call: str) -> None:
+    demo, path = _probe(tmp_path, f"return {call}")
+    assert demo.classify(path).is_interactive
+
+
+def test_discarded_tree_node_is_not_interactive(tmp_path: Path) -> None:
+    demo, path = _probe(tmp_path, "imgui.tree_node('x')")
+    assert not demo.classify(path).is_interactive
+
+
+def test_head_verdict_ignores_uncommitted_edits(repo: Path) -> None:
+    source = repo / (S + "display/probe.py")
+    source.parent.mkdir(parents=True)
+    source.write_text("def f(h, e):\n    h.fire(e)\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "probe")
+    source.write_text("pass\n")
+    verdict = DemoClass(repo, at_head=True).classify(S + "display/probe.py")
+    assert "calls fire()" in verdict.reasons
+
+
+def test_path_absent_from_head_is_deleted(repo: Path) -> None:
+    (repo / "gone.py").unlink()
+    _git(repo, "rm", "-q", "--cached", "gone.py")
+    _git(repo, "commit", "-q", "-m", "rm")
+    (repo / (S + "display")).mkdir(parents=True)
+    (repo / (S + "display/new.py")).write_text("def f(h, e):\n    h.fire(e)\n")
+    verdict = DemoClass(repo, at_head=True).classify(S + "display/new.py")
+    assert verdict.reasons == ("deleted (not inspectable)",)

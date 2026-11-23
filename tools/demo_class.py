@@ -70,7 +70,21 @@ class ImguiInputScan(ast.NodeVisitor):
     # ``begin`` is a top-level window (begin_child, begin_table, begin_group are
     # different names, and ``clipper.begin(n)`` is not on ``imgui``).
     WIDGET_CALLS: ClassVar[frozenset[str]] = frozenset(
-        {"button", "checkbox", "combo", "radio_button", "selectable", "begin"}
+        {
+            "button",
+            "checkbox",
+            "combo",
+            "radio_button",
+            "selectable",
+            "begin",
+            "menu_item",
+            "begin_menu",
+            "tree_node",
+            "tree_node_ex",
+            "collapsing_header",
+            "begin_tab_item",
+            "tab_item_button",
+        }
     )
     WIDGET_PREFIXES: ClassVar[tuple[str, ...]] = (
         "slider_",
@@ -210,11 +224,14 @@ class DemoClass:
     STEM_WORDS: ClassVar[tuple[str, ...]] = ("click", "input", "interaction")
 
     _root: Path
+    _head: ChangeSet | None
     _scan: ImguiInputScan
 
-    def __new__(cls, root: Path) -> Self:
+    def __new__(cls, root: Path, *, at_head: bool = False) -> Self:
+        """Read sources from disk, or from the HEAD commit when ``at_head``."""
         self = super().__new__(cls)
         self._root = root
+        self._head = ChangeSet(root, "HEAD") if at_head else None
         self._scan = ImguiInputScan()
         return self
 
@@ -259,13 +276,18 @@ class DemoClass:
     def _ast_reasons(self, path: str) -> list[str]:
         reasons = self._module_reasons(path)
         try:
-            tree = ast.parse((self._root / path).read_text(encoding="utf-8"))
+            tree = ast.parse(self._source(path))
         except FileNotFoundError:
             # A deleted file cannot be inspected; a gate must not wave it through.
             return [*reasons, "deleted (not inspectable)"]
-        except (OSError, SyntaxError, UnicodeError) as error:
+        except (OSError, SyntaxError, UnicodeError, GitError) as error:
             return [*reasons, f"unreadable ({error.__class__.__name__})"]
         return [*reasons, *self._scan.scan(tree)]
+
+    def _source(self, path: str) -> str:
+        if self._head is not None:
+            return self._head.read_head(path)
+        return (self._root / path).read_text(encoding="utf-8")
 
     def _module_reasons(self, path: str) -> list[str]:
         stem = PurePosixPath(path).stem
@@ -303,6 +325,15 @@ class ChangeSet:
         diff = self._git("diff", "--name-only", "-z", "--no-renames", base, "HEAD")
         return [path for path in diff.split("\0") if path]
 
+    def read_head(self, path: str) -> str:
+        """Return the file as committed at HEAD; FileNotFoundError if absent there."""
+        try:
+            return self._git("show", f"HEAD:{path}")
+        except GitError as error:
+            if "in 'HEAD'" in str(error):
+                raise FileNotFoundError(path) from error
+            raise
+
     def _git(self, *args: str) -> str:
         done = subprocess.run(
             ["git", *args],
@@ -324,7 +355,8 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(__file__).resolve().parents[1]
     try:
         paths = args.paths or ChangeSet(root, args.base_ref).paths()
-        print(DemoClass(root).summarize(paths))
+        demo = DemoClass(root, at_head=not args.paths)
+        print(demo.summarize(paths))
     except (OSError, GitError, ValueError) as error:
         print(f"demo-class failed: {error}", file=sys.stderr)
         return 1
