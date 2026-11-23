@@ -267,7 +267,7 @@ bad transitions the fidelity model must exhibit.
   cost? : 1 \upto 2
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
-  work \in \{rwlocal, rwhub, rwwire, rwafter\} \land now < 6 \\
+  work \in \{rwidle, rwlocal, rwhub, rwwire, rwafter\} \land now < 6 \\
   (BOUNDWORK = ztrue \land cost? \leq 1 \land now + cost? \leq 6)
     \lor (BOUNDWORK = zfalse \land now + cost? \leq 7) \\
   now' = now + cost? \\

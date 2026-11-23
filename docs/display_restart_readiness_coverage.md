@@ -29,6 +29,9 @@ a three-tick window and six-tick deadline. The chosen candidate is pinned at
 changes the live local PID only after that choice. Ready requires the sample,
 live process and pinned candidate to agree.
 Tick seven is representable so deadline safety is tested, not assumed by typing.
+Idle work includes the bounded PID lookup: `Spend` advances time during that
+lookup, including failure at the deadline, before `TransportPending` can reset
+stability for a completed lookup timeout.
 This is bounded verification, not a proof of arbitrary clocks or future uptime.
 The invariant is about the connection at the accepted Hub sample. Crash/reconnect
 after that sample cannot be ruled out by an observer. OS scheduling, local
@@ -105,12 +108,12 @@ PASS: stale-pid fuzz
 PASS: second-pid fuzz
 PASS: I1-I7-safety not found (160126 states)
 PASS: deadlock not found (160126 states)
-PASS: reconnect-fidelity found (34521 states)
-PASS: deadline-fidelity found (297 states)
-PASS: delivery-fidelity found (68031 states)
-PASS: short-window-fidelity found (30818 states)
-PASS: stale-pid-fidelity found (20646 states)
-PASS: second-pid-fidelity found (71272 states)
+PASS: reconnect-fidelity found (53970 states)
+PASS: deadline-fidelity found (53 states)
+PASS: delivery-fidelity found (49572 states)
+PASS: short-window-fidelity found (32192 states)
+PASS: stale-pid-fidelity found (26997 states)
+PASS: second-pid-fidelity found (85886 states)
 PASS: all readiness model checks
 ```
 

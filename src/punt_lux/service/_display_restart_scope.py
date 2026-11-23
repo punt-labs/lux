@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import os
 from pathlib import Path
+from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, NoReturn, Self
 
 from punt_lux.service import _backends
@@ -56,10 +57,11 @@ class DisplayRestartScope:
         candidate, stabilizing = observation
         if self.remaining(stabilizing=stabilizing) < _backends.PGREP_TIMEOUT:
             return candidate
-        return _backends.pgrep_pid(self._attempt.spec.process_name)
-
-    def pending(self, message: str) -> None:
-        self._last_error = f"; {message}"
+        try:
+            return _backends.pgrep_pid(self._attempt.spec.process_name)
+        except TimeoutExpired as error:
+            self._last_error = f"; last PID lookup error: {error}"
+            raise
 
     def local(self, pid: int, *, stabilizing: bool) -> bool:
         connected = self._probe.local(pid, self.remaining(stabilizing=stabilizing))
@@ -78,7 +80,7 @@ class DisplayRestartScope:
                 pid, min(_PROBE_SECONDS, self.remaining(stabilizing=stabilizing))
             ).connected()
         except (OSError, http.client.HTTPException, ValueError) as error:
-            self.pending(f"last Hub transport error: {error}")
+            self._last_error = f"; last Hub transport error: {error}"
             return None
 
     def timeout(self, *, stabilizing: bool) -> NoReturn:

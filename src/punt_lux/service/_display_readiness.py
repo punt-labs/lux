@@ -51,10 +51,9 @@ class DisplayReadiness:
         try:
             pid = self.pid()
             return pid if self.observe(pid) else None
-        except TimeoutExpired as error:
-            self._scope.pending(f"last PID lookup error: {error}")
+        except TimeoutExpired:
             self._stability.observe(None, (0, 0))
-            self.remaining()
+            self._scope.remaining(stabilizing=False)
             return None
 
     def observe(self, pid: int | None) -> bool:
