@@ -96,7 +96,9 @@
   interaction (`docs/WORKFLOW.md`). `make screenshot`, `make screenshots`,
   `scripts/screenshot.sh` and `scripts/screenshot_macos.py` are removed: the
   external window capture existed only while the in-process capture was
-  believed broken (DES-091 superseded by DES-104).
+  believed broken (DES-091 superseded by DES-104). The terminal spike keeps
+  its own copy as `spikes/terminal/capture_macos.py`, with its
+  evidence-integrity tests under `tests/spikes/`.
 
 - **Breaking imports:** the PTY owner moves from `punt_lux.ptyd` to
   `punt_lux.pty` and its contracts move from `punt_lux.protocol.pty` to

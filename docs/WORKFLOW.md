@@ -273,13 +273,16 @@ function pr_loop(unit):
 #     lux names. Its terms are defined here, under lux's names:
 #       interactive(pr) = the PR changes a file under
 #                      src/punt_lux/display/ (rendering, input, focus, widget
-#                      state, menus, dialogs), src/punt_lux/hub/ handler
+#                      state, menus, dialogs), src/punt_lux/wire/model/handlers/
+#                      or src/punt_lux/wire/model/compositions/ (what a click
+#                      or a selection does), src/punt_lux/hub/ handler
 #                      dispatch, or plugin/ — the code that decides what a
 #                      click, drag, key, focus change, or dialog does. Decided
 #                      from the diff's paths, never from the leader's judgement
-#       rendering(pr) = the PR changes a file under src/punt_lux/display/ or
-#                      src/punt_lux/wire/model/elements/ — what the Display
-#                      paints
+#       rendering(pr) = the PR changes a file under src/punt_lux/display/,
+#                      src/punt_lux/wire/model/elements/, or
+#                      src/punt_lux/wire/model/compositions/ (which elements
+#                      and layout are sent) — what the Display paints
 #       demoed_head  = the commit named in the leader's latest
 #                      "demo confirmed: <sha> interaction: operator|none" PR
 #                      comment, newer than any "demo failed:" comment; posted
