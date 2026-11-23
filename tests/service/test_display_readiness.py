@@ -12,19 +12,24 @@ import pytest
 from punt_lux.service import DISPLAY_SPEC
 from punt_lux.service._display_readiness import DisplayReadiness, DisplayReadinessError
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
+from tests.service._probe_double import ProbeDouble
 
 
 @pytest.fixture
-def paths() -> MagicMock:
+def paths() -> Iterator[MagicMock]:
     result = MagicMock()
     result.peer_pid.return_value = 502
-    return result
+    with patch(
+        "punt_lux.service._display_readiness.ReadinessProbe.local",
+        side_effect=ProbeDouble.local,
+    ):
+        yield result
 
 
 def test_success_requires_three_seconds_of_matching_hub_facts(paths: MagicMock) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
@@ -45,7 +50,7 @@ def test_crash_before_hub_connect_fails_without_accepting_respawn(
     paths: MagicMock, replacement: int | None, caplog: pytest.LogCaptureFixture
 ) -> None:
     with patch(
-        "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+        "punt_lux.service._display_readiness.ReadinessProbe.connected",
         return_value=False,
     ):
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
@@ -64,7 +69,7 @@ def test_crash_or_disconnect_during_stability_fails(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
         hub.return_value = True
@@ -84,7 +89,7 @@ def test_same_pid_on_a_replacement_hub_dial_restarts_the_window(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
@@ -104,7 +109,7 @@ def test_a_pending_hub_probe_restarts_stability_without_claiming_a_disconnect(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
@@ -127,7 +132,7 @@ def test_hub_unreachable_is_logged_and_becomes_existing_cli_error(
         patch("punt_lux.service.display_restart.pgrep_pid", side_effect=[501, 502]),
         patch.object(DisplayRestart, "_polls", return_value=iter([None])),
         patch(
-            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
             side_effect=ConnectionError("Hub is not running"),
         ),
         pytest.raises(DisplayRestartError, match="Hub is not running"),
@@ -162,7 +167,7 @@ def test_restart_command_uses_the_full_stability_witness(
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
         patch("punt_lux.service.display_restart.pgrep_pid", side_effect=[501, *pids]),
         patch(
-            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
             side_effect=connections,
         ),
     ):
@@ -189,7 +194,7 @@ def test_restart_command_uses_the_full_stability_witness(
 def test_probe_cannot_turn_a_deadline_overrun_into_success(paths: MagicMock) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
     ):
         clock.return_value = 0
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
@@ -210,7 +215,7 @@ def test_timeout_without_hub_match_names_missing_witness(paths: MagicMock) -> No
     with (
         patch("punt_lux.service._display_readiness.time.monotonic", return_value=0),
         patch(
-            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
             return_value=False,
         ),
     ):
@@ -218,6 +223,37 @@ def test_timeout_without_hub_match_names_missing_witness(paths: MagicMock) -> No
         assert not ready.observe(502, 501)
         with pytest.raises(DisplayReadinessError, match="never connected to Hub"):
             ready.timeout()
+
+
+def test_local_and_hub_probes_share_the_remaining_deadline(paths: MagicMock) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.local") as local,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        clock.return_value = 29.8
+
+        def local_probe(paths: MagicMock, pid: int, timeout: float) -> bool:
+            assert pid == 502
+            assert timeout == pytest.approx(30 - clock.return_value)
+            clock.return_value += 0.05
+            return True
+
+        def hub_probe(pid: int, timeout: float) -> str:
+            assert timeout == pytest.approx(30 - clock.return_value)
+            clock.return_value += 0.05
+            return "dial"
+
+        local.side_effect = local_probe
+        hub.side_effect = hub_probe
+        assert not ready.observe(502, 501)
+        assert local.call_count == 2
+        clock.return_value = 30
+        with pytest.raises(DisplayReadinessError, match="within 30s"):
+            ready.observe(502, 501)
+        assert local.call_count == 2
 
 
 def test_stderr_tail_surfaces_monitor_error_and_is_bounded(tmp_path: Path) -> None:

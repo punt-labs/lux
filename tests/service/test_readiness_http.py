@@ -1,0 +1,37 @@
+"""One HTTP deadline includes header and body I/O, not a new budget per read."""
+
+from __future__ import annotations
+
+import socket
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from punt_lux.service._readiness_http import ReadinessHTTP
+
+
+def test_response_adapter_parses_real_headers_and_body() -> None:
+    left, right = socket.socketpair()
+    with left, right:
+        right.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+        with patch("punt_lux.service._readiness_http.time.monotonic", return_value=0):
+            response = ReadinessHTTP._response(left, deadline=1)
+            response.begin()
+            assert response.status == 200
+            assert response.read(65536) == b"{}"
+            response.close()
+
+
+def test_a_later_read_gets_only_the_remaining_budget_and_expiry_starts_no_io() -> None:
+    sock = MagicMock()
+    sock.recv_into.return_value = 1
+    reader = ReadinessHTTP(sock, 1)
+    with patch("punt_lux.service._readiness_http.time.monotonic") as clock:
+        clock.return_value = 0.9
+        assert reader.readinto(bytearray(1)) == 1
+        assert sock.settimeout.call_args.args[0] == pytest.approx(0.1)
+        clock.return_value = 1
+        with pytest.raises(TimeoutError):
+            reader.readinto(bytearray(1))
+    sock.recv_into.assert_called_once()
+    reader.close()

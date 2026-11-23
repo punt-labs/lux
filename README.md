@@ -301,6 +301,9 @@ longer accepted. A replacement Hub dial or a pending probe restarts the stabilit
 window; an inconclusive slow reply alone does not prove a crash. Hub restart
 readiness is unchanged.
 
+Local ownership probes make one connection within the remaining deadline.
+Hub probes share one budget across connection, headers, and body reads.
+
 Display readiness errors explain the missing connection or observed exit and,
 when available, include the last 12 lines (at most 4096 bytes) of
 `~/.punt-labs/lux/logs/luxd-display-stderr.log`, which can explain window startup

@@ -674,8 +674,12 @@ facts have no Hub identity; the readiness probe requires the Hub's metadata.
 The connection and owned socket must remain observed for `_STABILITY_SECONDS`
 (three seconds), within the 30-second monotonic deadline shared by startup and
 stability. Probes use at most 0.5 seconds, capped by the remaining budget, and
-successful replies arriving after the deadline are rejected. Existing local
-socket probes and the failure-only launchd diagnostic have bounded I/O budgets.
+successful replies arriving after the deadline are rejected. Local socket
+ownership is now one kernel-credential connection, not a separate handshake and
+retrying owner lookup. Both local probes cap their timeout to the remaining
+deadline. A Hub probe shares one shrinking budget across connect, send, response
+headers, and body reads. The failure-only launchd diagnostic retains its separate
+bounded I/O budget after readiness has failed.
 Hub restart readiness is unchanged.
 
 An observed process exit or replacement fails immediately, even before a Hub

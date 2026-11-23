@@ -9,6 +9,7 @@ import pytest
 
 from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
+from tests.service._probe_double import ProbeDouble
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +17,11 @@ def stable_hub_witness() -> Iterator[None]:
     """Isolate the local PID/socket cases from the separately tested Hub witness."""
     with (
         patch(
-            "punt_lux.service._display_readiness.HubDisplayProbe.connected",
+            "punt_lux.service._display_readiness.ReadinessProbe.local",
+            side_effect=ProbeDouble.local,
+        ),
+        patch(
+            "punt_lux.service._display_readiness.ReadinessProbe.connected",
             return_value=True,
         ),
         patch("punt_lux.service._display_readiness._STABILITY_SECONDS", 0),

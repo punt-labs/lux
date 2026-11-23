@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Self
 
 from punt_lux.service._display_stability import DisplayStability
-from punt_lux.service._hub_display_probe import HubDisplayProbe
+from punt_lux.service._readiness_probe import ReadinessProbe
 from punt_lux.service._restart_readiness import RestartReadiness
 
 if TYPE_CHECKING:
@@ -62,16 +62,14 @@ class DisplayReadiness:
         if not self._local_alive(candidate):
             return self._disconnected()
         try:
-            connected = HubDisplayProbe.connected(
+            connected = ReadinessProbe.connected(
                 candidate, min(_PROBE_SECONDS, self._remaining())
             )
         except ConnectionError as error:
             self._fail(str(error))
         observed_at = time.monotonic()
-        self._remaining()
         if not self._local_alive(candidate):
             return self._disconnected()
-        self._remaining()
         return self._stability.observe(connected, observed_at)
 
     def _candidate(self, pid: int | None, before: int | None) -> int | None:
@@ -96,7 +94,9 @@ class DisplayReadiness:
         self._fail(f"display did not come back within {self._wait:g}s: {reason}")
 
     def _local_alive(self, pid: int) -> bool:
-        return self._paths.is_running() and self._paths.peer_pid() == pid
+        connected = ReadinessProbe.local(self._paths, pid, self._remaining())
+        self._remaining()
+        return connected
 
     def _disconnected(self) -> bool:
         if self._stability.started:

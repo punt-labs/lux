@@ -167,6 +167,8 @@
 
 ### Fixed
 
+- Display readiness local ownership probes and every Hub HTTP read now share the
+  remaining deadline, rather than starting independent handshake/retry budgets.
 - Display restart stability now belongs to the Hub's pinned connection identity,
   not just the Display PID. Reconnects and inconclusive slow probes restart the
   full window instead of inheriting an old dial's interval or claiming a crash.
