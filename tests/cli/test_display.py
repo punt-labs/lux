@@ -284,6 +284,13 @@ class TestDisplayAdminVerbs:
         assert "display restarted" in result.output
         mock_cls.return_value.run.assert_called_once()
 
+    def test_stop_help_is_platform_neutral(self) -> None:
+        result = runner.invoke(app, ["display", "stop", "--help"])
+        assert result.exit_code == 0
+        assert "without deleting" in result.output
+        assert "configuration" in result.output
+        assert "launchd" not in result.output.lower()
+
     def test_stop_delegates(self) -> None:
         with patch("punt_lux.cli.display_service.ServiceManager") as mock_cls:
             mock_cls.for_display.return_value.stop.return_value = (

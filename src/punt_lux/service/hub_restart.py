@@ -18,17 +18,18 @@ worded for a human.
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.service import (
+    HUB_SPEC,
     HubServiceManager,
     ServiceActionFailedError,
     ServiceNotInstalledError,
+    ServiceSpec,
 )
 from punt_lux.service._backends import pgrep_pid
-from punt_lux.service._service_spec import HUB_SPEC, ServiceSpec
+from punt_lux.service._restart_readiness import RestartReadiness
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -99,11 +100,10 @@ class HubRestart:
             where = f"port {port}" if port is not None else "port file not yet written"
             return f"luxd restarted (pid {pid}, {where})"
         msg = f"luxd did not come back within {_WAIT_SECONDS:.0f}s"
+        RestartReadiness.failure(self._spec, msg)
         raise HubRestartError(msg)
 
     @staticmethod
     def _polls() -> Iterator[None]:
         """Yield the bounded sequence of restart poll delays."""
-        for _ in range(int(_WAIT_SECONDS / _POLL_SECONDS)):
-            time.sleep(_POLL_SECONDS)
-            yield
+        return RestartReadiness.polls(_WAIT_SECONDS, _POLL_SECONDS)

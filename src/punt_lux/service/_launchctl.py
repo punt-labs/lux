@@ -42,21 +42,20 @@ class LaunchctlSubsystem:
         verb: str,
         quiet_exits: frozenset[int] = frozenset(),
     ) -> bool:
-        """Run ``args``, log a warning on non-zero exit, and return success.
+        """Run ``args``, log bootouts and failures, and return success.
 
         ``quiet_exits`` names exit codes that carry information for the
         caller but no failure signal for the user — the caller still sees
         ``False`` and reacts accordingly, but no warning is logged.
         """
         result = subprocess.run(args, capture_output=True, text=True, check=False)
-        if result.returncode != 0 and result.returncode not in quiet_exits:
-            logger.warning(
-                "launchctl %s failed (rc=%d): %s",
-                verb,
-                result.returncode,
-                result.stderr.strip(),
-            )
-        return result.returncode == 0
+        rc = result.returncode
+        if (verb, rc) == ("bootout", 0):
+            logger.info("launchctl bootout succeeded for %s", args[-1])
+        elif rc not in quiet_exits | {0}:
+            stderr = result.stderr.strip()
+            logger.warning("launchctl %s failed (rc=%d): %s", verb, rc, stderr)
+        return rc == 0
 
     def probe(self, args: list[str], *, verb: str) -> bool:
         """Run an existence probe: ``False`` for "not registered" is expected.

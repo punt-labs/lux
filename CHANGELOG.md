@@ -178,6 +178,19 @@
 
 ### Fixed
 
+- Restart readiness diagnostics query the service's explicit launchd GUI domain,
+  avoiding misleading registration state outside the GUI session.
+- Successful launchd bootout commands now log their service target at INFO,
+  covering explicit stop, uninstall, and upgrade sweeps. Display stop help
+  accurately describes retaining installed configuration on both platforms.
+- Hub and Display restart readiness failures now reach the Lux log with the
+  service label and a bounded macOS launchd status probe. Failed service
+  bootstraps explicitly log the label and plist path; installation still
+  reports failure without an unsafe automatic rollback or destructive retry.
+- Hub and Display restart now recover launchd's service-not-found status
+  (rc=113) by bootstrapping an existing plist before the normal readiness wait.
+  Missing plists and other kickstart failures still fail without fallback.
+
 - **Hub startup no longer blocks on DNS:** importing `punt_lux.luxd` used to
   resolve the host FQDN while building the Display link, which could stall
   `luxd-hub` in a macOS mDNS reverse lookup before it started. The Hub
