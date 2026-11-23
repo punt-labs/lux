@@ -15,7 +15,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import ClassVar, Literal, Self
+from typing import ClassVar, Literal, Protocol, Self
 
 DemoKind = Literal["interactive", "rendering", "exempt", "none"]
 
@@ -199,6 +199,42 @@ class ImguiInputScan(ast.NodeVisitor):
         )
 
 
+class Source(Protocol):
+    """Where a changed file's text comes from."""
+
+    def read(self, path: str) -> str:
+        """Return the file's text; FileNotFoundError when it does not exist."""
+        ...
+
+
+class WorkingTree:
+    """Files as they are on disk."""
+
+    _root: Path
+
+    def __new__(cls, root: Path) -> Self:
+        self = super().__new__(cls)
+        self._root = root
+        return self
+
+    def read(self, path: str) -> str:
+        return (self._root / path).read_text(encoding="utf-8")
+
+
+class CommittedHead:
+    """Files as committed at HEAD, so the verdict is for the head the demo names."""
+
+    _changes: ChangeSet
+
+    def __new__(cls, changes: ChangeSet) -> Self:
+        self = super().__new__(cls)
+        self._changes = changes
+        return self
+
+    def read(self, path: str) -> str:
+        return self._changes.read_head(path)
+
+
 class DemoClass:
     """Decide interactive / rendering / exempt for repo-relative paths."""
 
@@ -223,17 +259,24 @@ class DemoClass:
     # A module named for input or clicks decides what input does.
     STEM_WORDS: ClassVar[tuple[str, ...]] = ("click", "input", "interaction")
 
-    _root: Path
-    _head: ChangeSet | None
+    _source: Source
     _scan: ImguiInputScan
 
-    def __new__(cls, root: Path, *, at_head: bool = False) -> Self:
-        """Read sources from disk, or from the HEAD commit when ``at_head``."""
+    def __new__(cls, source: Source) -> Self:
         self = super().__new__(cls)
-        self._root = root
-        self._head = ChangeSet(root, "HEAD") if at_head else None
+        self._source = source
         self._scan = ImguiInputScan()
         return self
+
+    @classmethod
+    def on_disk(cls, root: Path) -> Self:
+        """Classify the files as they are in the working tree."""
+        return cls(WorkingTree(root))
+
+    @classmethod
+    def at_head(cls, root: Path) -> Self:
+        """Classify the files as committed at HEAD."""
+        return cls(CommittedHead(ChangeSet(root, "HEAD")))
 
     def classify(self, path: str) -> DemoVerdict:
         reasons: list[str] = []
@@ -276,18 +319,13 @@ class DemoClass:
     def _ast_reasons(self, path: str) -> list[str]:
         reasons = self._module_reasons(path)
         try:
-            tree = ast.parse(self._source(path))
+            tree = ast.parse(self._source.read(path))
         except FileNotFoundError:
             # A deleted file cannot be inspected; a gate must not wave it through.
             return [*reasons, "deleted (not inspectable)"]
         except (OSError, SyntaxError, UnicodeError, GitError) as error:
             return [*reasons, f"unreadable ({error.__class__.__name__})"]
         return [*reasons, *self._scan.scan(tree)]
-
-    def _source(self, path: str) -> str:
-        if self._head is not None:
-            return self._head.read_head(path)
-        return (self._root / path).read_text(encoding="utf-8")
 
     def _module_reasons(self, path: str) -> list[str]:
         stem = PurePosixPath(path).stem
@@ -339,7 +377,8 @@ class ChangeSet:
             ["git", *args],
             cwd=self._root,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="strict",
             check=False,
         )
         if done.returncode:
@@ -355,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(__file__).resolve().parents[1]
     try:
         paths = args.paths or ChangeSet(root, args.base_ref).paths()
-        demo = DemoClass(root, at_head=not args.paths)
+        demo = DemoClass.on_disk(root) if args.paths else DemoClass.at_head(root)
         print(demo.summarize(paths))
     except (OSError, GitError, ValueError) as error:
         print(f"demo-class failed: {error}", file=sys.stderr)

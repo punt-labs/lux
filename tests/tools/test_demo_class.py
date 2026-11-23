@@ -58,7 +58,7 @@ DISPLAY_ONLY_REAL_FILES = [
 
 @pytest.fixture
 def demo() -> DemoClass:
-    return DemoClass(ROOT)
+    return DemoClass.on_disk(ROOT)
 
 
 @pytest.mark.parametrize(("path", "reason"), INTERACTIVE_REAL_FILES)
@@ -129,7 +129,7 @@ def _src_file(tmp_path: Path, relpath: str, body: str | bytes) -> tuple[DemoClas
         path.write_bytes(body)
     else:
         path.write_text(f"def f(imgui, io, h, e, clipper):\n    {body}\n")
-    return DemoClass(tmp_path), relpath
+    return DemoClass.on_disk(tmp_path), relpath
 
 
 def _probe(tmp_path: Path, body: str) -> tuple[DemoClass, str]:
@@ -210,7 +210,7 @@ def test_unreadable_files_are_not_waved_through(
 
 
 def test_deleted_file_is_interactive_and_says_deleted(tmp_path: Path) -> None:
-    verdict = DemoClass(tmp_path).classify(S + "hub/gone.py")
+    verdict = DemoClass.on_disk(tmp_path).classify(S + "hub/gone.py")
     assert (verdict.is_interactive, verdict.reasons) == (
         True,
         ("deleted (not inspectable)",),
@@ -327,7 +327,7 @@ def test_head_verdict_ignores_uncommitted_edits(repo: Path) -> None:
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "probe")
     source.write_text("pass\n")
-    verdict = DemoClass(repo, at_head=True).classify(S + "display/probe.py")
+    verdict = DemoClass.at_head(repo).classify(S + "display/probe.py")
     assert "calls fire()" in verdict.reasons
 
 
@@ -337,5 +337,28 @@ def test_path_absent_from_head_is_deleted(repo: Path) -> None:
     _git(repo, "commit", "-q", "-m", "rm")
     (repo / (S + "display")).mkdir(parents=True)
     (repo / (S + "display/new.py")).write_text("def f(h, e):\n    h.fire(e)\n")
-    verdict = DemoClass(repo, at_head=True).classify(S + "display/new.py")
+    verdict = DemoClass.at_head(repo).classify(S + "display/new.py")
     assert verdict.reasons == ("deleted (not inspectable)",)
+
+
+def test_git_output_is_decoded_as_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+    real_run = subprocess.run
+
+    def spy(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        return real_run(*args, **kwargs)  # type: ignore[call-overload,no-any-return]
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    ChangeSet(ROOT, "HEAD").read_head("tools/demo_class.py")
+    assert (seen["encoding"], seen["errors"]) == ("utf-8", "strict")
+
+
+def test_non_ascii_committed_source_is_read_at_head(repo: Path) -> None:
+    source = repo / (S + "display/gl_texture.py")
+    source.parent.mkdir(parents=True)
+    source.write_text("# caf\u00e9 \u2014 pixels\nx = 1\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "non-ascii")
+    verdict = DemoClass.at_head(repo).classify(S + "display/gl_texture.py")
+    assert (verdict.kind, verdict.reasons) == ("rendering", ())
