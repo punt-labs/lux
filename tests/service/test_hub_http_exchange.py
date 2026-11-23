@@ -110,3 +110,54 @@ def test_slow_body_trickle_cannot_extend_the_absolute_deadline(close: bool) -> N
         assert expired.is_set()
         timer.return_value.start.assert_called_once()
         timer.return_value.cancel.assert_called_once()
+
+
+@pytest.mark.parametrize("close", [False, True])
+def test_real_watchdog_interrupts_a_trickling_body_without_thread_errors(
+    monkeypatch: pytest.MonkeyPatch, close: bool
+) -> None:
+    errors: list[threading.ExceptHookArgs] = []
+    monkeypatch.setattr(threading, "excepthook", errors.append)
+    stopped = threading.Event()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        server.settimeout(5)
+
+        def serve() -> None:
+            connection, _ = server.accept()
+            with connection:
+                connection.settimeout(5)
+                connection.recv(4096)
+                connection.sendall(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n"
+                    + (b"Connection: close\r\n" if close else b"")
+                    + b"\r\n"
+                )
+                for _ in range(1000):
+                    if stopped.wait(0.01):
+                        break
+                    try:
+                        connection.sendall(b"x")
+                    except OSError:
+                        break
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        try:
+            with (
+                patch(
+                    "punt_lux.service._hub_http_exchange.HubPaths.read_port",
+                    return_value=server.getsockname()[1],
+                ),
+                pytest.raises(http.client.IncompleteRead) as interrupted,
+                ReadinessHTTP(2).open() as connection,
+            ):
+                connection.request("GET", "/display")
+                connection.getresponse().read()
+            assert 0 < len(interrupted.value.partial) < 1000
+        finally:
+            stopped.set()
+            thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert not errors
