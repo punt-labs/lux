@@ -3,7 +3,7 @@
 Where a window sits is not the Hub's to give (DES-088) — it is fetched from
 the running display when asked, the same bargain :class:`DisplayFactProxy`
 strikes for painted geometry. ``of_frames`` narrows into the discriminated
-states of :mod:`punt_lux.operations.models.query_visibility` -- a read-only
+states of :mod:`punt_lux.wire.operations.query_visibility` -- a read-only
 proxy; no client, including this one, writes a frame's visibility.
 """
 
@@ -12,8 +12,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.query_visibility import (
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.query_visibility import (
     FrameVisibilityState,
     VisibilityNotRequested,
     VisibilityPresent,
@@ -22,7 +22,7 @@ from punt_lux.operations.models.query_visibility import (
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.models.inspect_scope import InspectScope
+    from punt_lux.wire.operations.inspect_scope import InspectScope
 
 __all__ = ["FrameVisibilityProxy"]
 

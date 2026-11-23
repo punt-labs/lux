@@ -10,12 +10,12 @@ import pytest
 
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.operations import OpError, SceneShown
 from punt_lux.pty.lifetime import DaemonLifetime
 from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_listener import TerminalMenu
 from punt_lux.pty.menu_process import MenuProcess
 from punt_lux.pty.menu_projection import TerminalProjection
+from punt_lux.wire.operations import OpError, SceneShown
 
 
 class MenuDoubles:

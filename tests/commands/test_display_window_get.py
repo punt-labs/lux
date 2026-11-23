@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, WindowOps, display_window_get
-from punt_lux.operations import OpError, WindowSettings
+from punt_lux.wire.operations import OpError, WindowSettings
 from tests.commands._family_stubs import StubWindowOps
 from tests.commands._scene_stub import identity
 

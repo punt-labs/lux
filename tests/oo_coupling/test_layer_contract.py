@@ -24,7 +24,7 @@ class TestLayerContract:
             ("punt_lux", "root"),
             ("punt_lux.wire.model.elements", "wire"),
             ("punt_lux.hub.scene", "hub"),
-            ("punt_lux.operations.models.reply", "wire"),
+            ("punt_lux.wire.operations.reply", "wire"),
             ("punt_lux.operations.scene", "hub"),
             ("punt_lux.service._backend_systemd", "service"),
             ("punt_lux.service._legacy_sweep_disk", "service"),

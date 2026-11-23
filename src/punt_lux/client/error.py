@@ -1,16 +1,13 @@
-"""``client.error.*`` -- the Error accessor over the commands layer."""
+"""``client.error.*`` -- the Error accessor over the operation ports."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.commands import error_ls
-from punt_lux.commands._ports import Ctx
-
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import ErrorOps
-    from punt_lux.operations import OpError, RecentErrors
-    from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.operations import OpError, RecentErrors
+    from punt_lux.wire.ops import ErrorOps
 
 
 @final
@@ -18,17 +15,14 @@ class ErrorAccessor:
     """Read recent errors for this client identity."""
 
     _ops: ErrorOps
-    _identity: ClientIdentity
-    __slots__ = ("_identity", "_ops")
+    __slots__ = "_ops"
 
-    def __new__(cls, ops: ErrorOps, identity: ClientIdentity) -> Self:
+    def __new__(cls, ops: ErrorOps) -> Self:
         """Bind error queries to the caller's identity."""
         self = super().__new__(cls)
         self._ops = ops
-        self._identity = identity
         return self
 
     async def ls(self, count: int = 20) -> RecentErrors | OpError:
         """Return the last ``count`` errors for this caller."""
-        ctx: Ctx[ErrorOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await error_ls.execute(ctx, count)
+        return await asyncio.to_thread(self._ops.list_errors, count)

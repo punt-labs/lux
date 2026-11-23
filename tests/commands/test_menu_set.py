@@ -6,7 +6,7 @@ import asyncio
 
 from punt_lux.commands import Ctx, MenuOps, menu_set
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Ok, OpError, Scope, SetMenuRequest
+from punt_lux.wire.operations import Ok, OpError, Scope, SetMenuRequest
 from tests.commands._family_stubs import StubMenuOps
 from tests.commands._scene_stub import identity
 

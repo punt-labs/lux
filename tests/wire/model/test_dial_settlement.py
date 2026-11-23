@@ -41,7 +41,6 @@ from punt_lux.hub.drain_result import DrainIncompleteError
 from punt_lux.hub.recovery import SendRecovery
 from punt_lux.hub.reply_sink import ReplySink
 from punt_lux.hub.respawn_backoff import RespawnBackoff
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.hub.settler import Settler
 from punt_lux.hub.suspect_book import SuspectBook
 from punt_lux.wire.model import (
@@ -54,6 +53,7 @@ from punt_lux.wire.model import (
     encode_frame,
 )
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.dial_double import fake_dial
 from tests.link_access import (
     deaths_of,

@@ -147,7 +147,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
             {self._keep_alive_block()}
             </dict>
             </plist>
-        """)
+        """).lstrip()
 
     def _keep_alive_block(self) -> str:
         """Return the ``KeepAlive`` stanza: bare, or crash-only per the spec.

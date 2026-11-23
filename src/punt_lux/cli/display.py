@@ -38,7 +38,7 @@ from punt_lux.commands import (
 from punt_lux.commands.display_state_get import display_state_get
 
 if TYPE_CHECKING:
-    from punt_lux.commands.display_state_get import DisplayStateOps
+    from punt_lux.wire.ops.display_state import DisplayStateOps
 
 display_app = typer.Typer(
     name="display",

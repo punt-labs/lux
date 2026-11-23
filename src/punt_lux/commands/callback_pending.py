@@ -13,9 +13,9 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.commands._result import CommandResult
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import CallbackPendingOps, Ctx
-    from punt_lux.hub.session_callback import CallbackInvocation
-    from punt_lux.operations import Scope
+    from punt_lux.wire.model.session_callback import CallbackInvocation
+    from punt_lux.wire.operations import Scope
+    from punt_lux.wire.ops import CallbackPendingOps, Ctx
 
 
 @final

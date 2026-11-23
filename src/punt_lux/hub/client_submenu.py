@@ -11,11 +11,11 @@ from operator import attrgetter
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.member_entries import MemberEntries
-from punt_lux.hub.menu_models import Menu
+from punt_lux.wire.model.menu_models import Menu
 
 if TYPE_CHECKING:
-    from punt_lux.hub.menu_models import MenuEntry
     from punt_lux.hub.named_sessions import NamedSession
+    from punt_lux.wire.model.menu_models import MenuEntry
 
 __all__ = ["ClientSubmenu"]
 

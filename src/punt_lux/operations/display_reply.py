@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.hub_connection import HubConnection
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.hub_connection import HubConnection
 
 __all__ = [
     "DisplayErrored",

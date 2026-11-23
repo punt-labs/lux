@@ -22,9 +22,9 @@ from typing import TYPE_CHECKING, Self, final
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_state import (
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.display_state import (
     DisplayStateSnapshot,
     FramePresentation,
     WidgetSnapshot,

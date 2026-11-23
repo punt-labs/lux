@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from punt_lux.commands._topic_ports import TopicOps
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Published, Scope, Subscribed, Unsubscribed
-from punt_lux.operations.models.pubsub import PublishRequest, Received
+from punt_lux.wire.operations import Published, Scope, Subscribed, Unsubscribed
+from punt_lux.wire.operations.pubsub import PublishRequest, Received
+from punt_lux.wire.ops.topic import TopicOps
 
 
 class _Implementer:

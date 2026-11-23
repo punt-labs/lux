@@ -7,8 +7,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.operations.models.common import OpError
 from punt_lux.usage import record_operation as record_usage
+from punt_lux.wire.operations.common import OpError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

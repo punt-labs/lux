@@ -11,10 +11,10 @@ from typing import final
 from punt_lux.hub.client_roster import ClientRoster
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.named_sessions import NamedSessions
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.applet_name_format import format_name
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.session_callback import SessionCallback
 
 
 @final

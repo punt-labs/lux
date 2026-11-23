@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from punt_lux.hub.menu_event import MENU_TOPIC
-from punt_lux.operations.models import OpError
 from punt_lux.operations.reserved_topics import RESERVED_TOPICS, ReservedTopics
+from punt_lux.wire.operations import OpError
 
 
 def test_covers_reserved_prefix_and_menu_topic() -> None:

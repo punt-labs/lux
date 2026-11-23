@@ -21,13 +21,11 @@ from punt_lux.hub.frame_expiry import FrameExpiry
 from punt_lux.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.scene_presentation import (
-    ScenePresentation,
-    ScenePresentationRegistry,
-)
+from punt_lux.hub.scene_presentation import ScenePresentationRegistry
 from punt_lux.hub.store_lock import StoreLock
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
 
 _OWNER = ConnectionId("sweep-owner")

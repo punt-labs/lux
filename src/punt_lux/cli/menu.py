@@ -29,7 +29,7 @@ from punt_lux.cli._shared import (
     run,
 )
 from punt_lux.commands import Ctx, MenuOps, menu_ls, menu_set
-from punt_lux.operations import OpError, Scope, SetMenuRequest
+from punt_lux.wire.operations import OpError, Scope, SetMenuRequest
 
 menu_app = typer.Typer(
     name="menu",

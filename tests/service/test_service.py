@@ -43,7 +43,7 @@ class TestHubSpecExecArgs:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with (
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             pytest.raises(RuntimeError, match="Cannot find luxd-hub binary"),
         ):
             HUB_SPEC.resolve_exec_args()
@@ -56,7 +56,7 @@ class TestHubSpecExecArgs:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux.service._service_spec.Path.home", return_value=fake_home):
+        with patch("punt_lux.service.service_spec.Path.home", return_value=fake_home):
             args = HUB_SPEC.resolve_exec_args()
 
         assert args[0].endswith("luxd-hub")
@@ -72,7 +72,7 @@ class TestDisplaySpecExecArgs:
         (local_bin / "luxd-display").touch()
         (local_bin / "luxd-display").chmod(0o755)
 
-        with patch("punt_lux.service._service_spec.Path.home", return_value=fake_home):
+        with patch("punt_lux.service.service_spec.Path.home", return_value=fake_home):
             args = DISPLAY_SPEC.resolve_exec_args()
 
         assert args == [str(local_bin / "luxd-display")]
@@ -90,7 +90,7 @@ class TestLaunchdPlistContent:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             backend = LaunchdBackend(HUB_SPEC)
             content = backend._plist_content()
@@ -114,7 +114,7 @@ class TestLaunchdPlistContent:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             backend = LaunchdBackend(HUB_SPEC)
             content = backend._plist_content()
@@ -134,7 +134,7 @@ class TestLaunchdPlistContent:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             backend = LaunchdBackend(DISPLAY_SPEC)
             content = backend._plist_content()
@@ -157,7 +157,7 @@ class TestSystemdUnitContent:
             patch(
                 "punt_lux.service._backend_systemd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             backend = SystemdBackend(HUB_SPEC)
             content = backend._unit_content()
@@ -181,7 +181,7 @@ class TestSystemdUnitContent:
             patch(
                 "punt_lux.service._backend_systemd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             backend = SystemdBackend(HUB_SPEC)
             content = backend._unit_content()
@@ -315,7 +315,7 @@ class TestLegacyPlistCleanup:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
         ):
             mgr = ServiceManager.for_hub()
@@ -345,7 +345,7 @@ class TestLegacyPlistCleanup:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
         ):
             mgr = ServiceManager.for_display()
@@ -381,7 +381,7 @@ class TestInstallAndDoctorShareTheSameSweepObjects:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
         ):
             mgr = ServiceManager.for_hub()
@@ -427,7 +427,7 @@ class TestSystemdLegacyUnitCleanup:
             patch(
                 "punt_lux.service._backend_systemd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             mgr = ServiceManager.for_hub()
             with (
@@ -452,7 +452,7 @@ class TestSystemdLegacyUnitCleanup:
             patch(
                 "punt_lux.service._backend_systemd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             mgr = ServiceManager.for_display()
             with (
@@ -662,7 +662,7 @@ class TestLaunchdSelfUpgrade:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
             patch("punt_lux.service._launchctl.subprocess.run") as run,
         ):
@@ -693,7 +693,7 @@ class TestLaunchdSelfUpgrade:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
             patch("punt_lux.service._launchctl.subprocess.run") as run,
         ):
@@ -716,7 +716,7 @@ class TestLaunchdSelfUpgrade:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
             patch("punt_lux.service._launchctl.subprocess.run") as run,
         ):

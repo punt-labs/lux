@@ -30,7 +30,7 @@ import pytest
                 "_platform_dispatch",
                 "_port_guard",
                 "_service_errors",
-                "_service_spec",
+                "service_spec",
                 "_shim_ownership",
                 "applet_event",
                 "claude_permissions",

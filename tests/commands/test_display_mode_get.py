@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, DisplayModeOps, display_mode_get
-from punt_lux.operations import DisplayModeState, OpError
+from punt_lux.wire.operations import DisplayModeState, OpError
 from tests.commands._family_stubs import StubDisplayModeOps
 from tests.commands._scene_stub import identity
 

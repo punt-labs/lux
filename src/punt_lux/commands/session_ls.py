@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import OpError
+from punt_lux.wire.operations import OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, SessionOps
-    from punt_lux.operations import ClientList
+    from punt_lux.wire.operations import ClientList
+    from punt_lux.wire.ops import Ctx, SessionOps
 
 
 @final

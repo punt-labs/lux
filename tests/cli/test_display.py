@@ -8,13 +8,13 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     DisplayInfo,
     DisplayModeState,
     ThemeState,
     WindowSettings,
 )
-from punt_lux.operations.models.display_link import (
+from punt_lux.wire.operations.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
     DisplayLinkState,

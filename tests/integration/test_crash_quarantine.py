@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.hub.clients import ClientRegistry
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.crash_attribution import ATTRIBUTION_THRESHOLD
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
@@ -33,12 +32,13 @@ from punt_lux.hub.menu_registry import HubMenuRegistry
 from punt_lux.hub.quarantine_record import QuarantineRecord
 from punt_lux.hub.replicator import HubReplicator
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from tests.wire.model.display_double import Display, Responder
 
 if TYPE_CHECKING:

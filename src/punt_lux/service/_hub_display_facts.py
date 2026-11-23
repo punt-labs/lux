@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.operations.models.display_info import DisplayInfo
+from punt_lux.wire.operations.display_info import DisplayInfo
 
 if TYPE_CHECKING:
     import http.client

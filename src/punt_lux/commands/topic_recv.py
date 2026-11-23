@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.commands._result import CommandResult
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, TopicOps
-    from punt_lux.operations import Scope
-    from punt_lux.operations.models.pubsub import Received
+    from punt_lux.wire.operations import Scope
+    from punt_lux.wire.operations.pubsub import Received
+    from punt_lux.wire.ops import Ctx, TopicOps
 
 
 @final

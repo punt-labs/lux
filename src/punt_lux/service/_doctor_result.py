@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from punt_lux.service._binary_sweep import BinarySweep
     from punt_lux.service._legacy_sweep import LegacySweep
     from punt_lux.service._port_guard import PortGuard
-    from punt_lux.service._service_spec import ServiceSpec
+    from punt_lux.service.service_spec import ServiceSpec
 
 __all__ = ["DoctorCheckers", "DoctorResult"]
 

@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Annotated, Final, Self, cast, final
 from fastapi import Depends, HTTPException
 from starlette.requests import Request
 
-from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.client_host import ClientHost
 from punt_lux.commands import (
     Ctx as CommandCtx,
@@ -32,13 +31,14 @@ from punt_lux.commands import (
 )
 from punt_lux.connection_identity import connection_for
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.models.identity import Identified
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.identity_headers import ClientHeaders
 from punt_lux.wire.model.scope import Scope
 
 if TYPE_CHECKING:
-    from punt_lux.operations import Operations, OpError
+    from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
+    from punt_lux.wire.operations import Identified, OpError
 
 __all__ = [
     "ANONYMOUS_REST",

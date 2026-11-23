@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, ErrorOps, error_ls
-from punt_lux.operations import OpError
-from punt_lux.operations.models.query_errors import RecentErrors
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.query_errors import RecentErrors
 from tests.commands._family_stubs import StubErrorOps
 from tests.commands._scene_stub import identity
 

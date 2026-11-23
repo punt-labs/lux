@@ -24,7 +24,6 @@ from punt_lux.hub.display_connection import DisplayConnection
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.drain_result import Drained
 from punt_lux.hub.handshake_outcome import HandshakeResult
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.send_timeout import (
     SCENE_WRITE_DEADLINE_SECONDS,
     SEND_TIMEOUT_CEILING_SECONDS,
@@ -39,6 +38,7 @@ from punt_lux.wire.model import (
     SceneMessage,
     TextElement,
 )
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.display._mtls_harness import MtlsMaterial
 from tests.link_access import (
     bare_connection,

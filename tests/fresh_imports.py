@@ -35,6 +35,18 @@ def assert_not_importable(module: str) -> None:
     )
 
 
+def assert_isolated(module: str, forbidden: tuple[str, ...]) -> None:
+    _assert_fresh_code(
+        "import importlib, sys\n"
+        f"importlib.import_module({module!r})\n"
+        f"prefixes = {forbidden!r}\n"
+        "loaded = sorted(name for name in sys.modules if any(\n"
+        "    name == prefix or name.startswith(prefix + '.')\n"
+        "    for prefix in prefixes))\n"
+        "assert not loaded, f'Forbidden modules loaded: {loaded}'\n"
+    )
+
+
 def _assert_fresh_code(code: str) -> None:
     result = subprocess.run(
         [sys.executable, "-c", code],

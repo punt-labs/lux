@@ -19,9 +19,9 @@ from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_presence import MarkMenusSink
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.session_callback import SessionCallback
 
 if TYPE_CHECKING:
     from collections.abc import Callable

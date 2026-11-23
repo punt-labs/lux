@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from punt_lux.commands._frame_ports import FrameOps
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Ok, Scope
+from punt_lux.wire.operations import Ok, Scope
+from punt_lux.wire.ops.frame import FrameOps
 
 
 class _Implementer:

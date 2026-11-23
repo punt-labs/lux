@@ -16,15 +16,15 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.ids import SceneId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.hub.scene_presentation import ScenePresentation
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.element import Element as DomainElement
+    from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 __all__ = ["SceneSubmission"]
 

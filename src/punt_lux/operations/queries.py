@@ -4,31 +4,31 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.composition_boundary import CompositionBoundary
 from punt_lux.operations.display_facts import DisplayFactProxy
 from punt_lux.operations.display_state_proxy import DisplayStateProxy
 from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
-from punt_lux.operations.models.query_clients import ClientList
-from punt_lux.operations.models.query_errors import RecentErrors
-from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_inspection import (
+from punt_lux.operations.scene_listing import SceneListing
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.inspect_scope import HUB_ONLY, InspectScope
+from punt_lux.wire.operations.query_clients import ClientList
+from punt_lux.wire.operations.query_errors import RecentErrors
+from punt_lux.wire.operations.query_events import RecentEvents
+from punt_lux.wire.operations.query_inspection import (
     InspectedElement,
     SceneInspection,
 )
-from punt_lux.operations.models.query_scenes import SceneList
-from punt_lux.operations.scene_listing import SceneListing
-from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.operations.query_scenes import SceneList
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.models.display_state import DisplayStateSnapshot
     from punt_lux.wire.model import Element as WireElement
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.display_state import DisplayStateSnapshot
 
 __all__ = ["QueryOperations"]
 

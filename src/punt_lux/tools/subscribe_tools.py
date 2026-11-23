@@ -17,13 +17,13 @@ from punt_lux.commands import (
     topic_unsubscribe as topic_unsubscribe_command,
 )
 from punt_lux.hub.inbox import drain_inbox, inbox_for, next_event
-from punt_lux.operations import PublishRequest
-from punt_lux.operations.models.callback_fields import CallbackFields
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
 from punt_lux.tools.tools import scope
+from punt_lux.wire.operations import PublishRequest
+from punt_lux.wire.operations.callback_fields import CallbackFields
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 
 __all__ = [
     "drain_inbox",

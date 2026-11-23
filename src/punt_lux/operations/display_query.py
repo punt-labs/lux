@@ -12,7 +12,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
-from punt_lux.operations.models.hub_connection import HubConnection
+from punt_lux.wire.operations.hub_connection import HubConnection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

@@ -19,7 +19,7 @@ from punt_lux.service._service_errors import (
     ServiceMigrationError,
     ServiceNotInstalledError,
 )
-from punt_lux.service._service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
+from punt_lux.service.service_spec import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
 
 logger = logging.getLogger(__name__)
 

@@ -41,7 +41,7 @@ from tests.applets.board_doubles import (
 )
 
 if TYPE_CHECKING:
-    from punt_lux.operations import RenderTableRequest
+    from punt_lux.wire.operations import RenderTableRequest
 
 # Two boards a test can tell apart on sight, so that the id a later click
 # answers with says which of two overlapping loads the applet kept.

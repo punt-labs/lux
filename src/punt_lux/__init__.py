@@ -9,14 +9,6 @@ __version__ = version("punt-lux")
 from punt_lux.client import LuxClient
 from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, EventHandler
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.commands.ping import ping
-from punt_lux.operations import (
-    OpError,
-    Pong,
-    RenderRequest,
-    RenderTableRequest,
-    SceneShown,
-)
 from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.wire.model import (
     AckMessage,
@@ -58,6 +50,13 @@ from punt_lux.wire.model import (
     send_message,
 )
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import (
+    OpError,
+    Pong,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+)
 
 __all__ = [
     "AckMessage",
@@ -107,7 +106,6 @@ __all__ = [
     "encode_message",
     "message_from_dict",
     "message_to_dict",
-    "ping",
     "recv_message",
     "send_message",
 ]

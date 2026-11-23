@@ -13,26 +13,26 @@ from typing import TYPE_CHECKING, Self, cast
 from punt_lux.hub import client_registry, hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
-from punt_lux.operations.models.query_geometry import GeometryPresent
-from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.tools import read_tools
 from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.element import Element as DomainElement
 from punt_lux.wire.model.geometry import Rect
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.painted_geometry import ElementGeometry, FrameGeometry
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations.query_geometry import GeometryPresent
+from punt_lux.wire.operations.query_inspection import SceneInspection
 from tests.dial_double import fake_dial
 
 if TYPE_CHECKING:

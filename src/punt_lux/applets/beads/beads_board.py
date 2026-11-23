@@ -6,9 +6,9 @@ from typing import Self, final
 
 from punt_lux.applets.beads._beads_payload import BeadsPayloadBuilder
 from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult
-from punt_lux.operations.models import FrameSpec, RenderRequest, RenderTableRequest
 from punt_lux.repo_root import RepoRoot
 from punt_lux.wire.model import TextElement
+from punt_lux.wire.operations import FrameSpec, RenderRequest, RenderTableRequest
 
 # The board's table flags: borders and row striping, plus resize, sort, and
 # copy-id — the same chrome the board carried before the table route.

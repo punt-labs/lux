@@ -3,26 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import OpError
+from punt_lux.wire.operations import OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx
-    from punt_lux.operations import DisplayStateSnapshot, Scope
+    from punt_lux.wire.operations import DisplayStateSnapshot, Scope
+    from punt_lux.wire.ops import Ctx
+    from punt_lux.wire.ops.display_state import DisplayStateOps
 
-__all__ = ["DisplayStateOps", "display_state_get"]
-
-
-@runtime_checkable
-class DisplayStateOps(Protocol):
-    """The ops surface this module's command reads."""
-
-    def get_display_state(self, *, scope: Scope) -> DisplayStateSnapshot | OpError:
-        """Return the caller's own widget/frame state, proxied."""
-        ...
+__all__ = ["display_state_get"]
 
 
 @final

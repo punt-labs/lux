@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import OpError
-from punt_lux.operations.models.inspect_scope import HUB_ONLY
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.inspect_scope import HUB_ONLY
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, SceneOps
-    from punt_lux.operations import InspectScope, SceneInspection, Scope
+    from punt_lux.wire.operations import InspectScope, SceneInspection, Scope
+    from punt_lux.wire.ops import Ctx, SceneOps
 
 
 @final

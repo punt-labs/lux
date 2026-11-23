@@ -9,25 +9,20 @@ the Hub entirely.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
-from punt_lux.commands import (
+from punt_lux.wire.ops import (
     DisplayInfoOps,
     DisplayModeOps,
     ScreenshotOps,
     ThemeOps,
     WindowOps,
-    display_get_theme,
-    display_info,
-    display_mode_get,
-    display_screenshot,
-    display_window_get,
 )
-from punt_lux.commands._ports import Ctx
-from punt_lux.commands.display_state_get import DisplayStateOps, display_state_get
+from punt_lux.wire.ops.display_state import DisplayStateOps
 
 if TYPE_CHECKING:
-    from punt_lux.operations import (
+    from punt_lux.wire.operations import (
         DisplayInfo,
         DisplayModeState,
         DisplayStateSnapshot,
@@ -36,8 +31,7 @@ if TYPE_CHECKING:
         ThemeState,
         WindowSettings,
     )
-    from punt_lux.operations.models.display_probe import Screenshot
-    from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.operations.display_probe import Screenshot
 
 
 @runtime_checkable
@@ -63,44 +57,36 @@ class DisplayAccessor:
     """Query the display's configuration and state or capture a screenshot."""
 
     _ops: _DisplayOps
-    _identity: ClientIdentity
     _scope: Scope
-    __slots__ = ("_identity", "_ops", "_scope")
+    __slots__ = ("_ops", "_scope")
 
-    def __new__(cls, ops: _DisplayOps, identity: ClientIdentity, scope: Scope) -> Self:
+    def __new__(cls, ops: _DisplayOps, scope: Scope) -> Self:
         """Bind display operations to the caller's identity and scope."""
         self = super().__new__(cls)
         self._ops = ops
-        self._identity = identity
         self._scope = scope
         return self
 
     async def info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""
-        ctx: Ctx[DisplayInfoOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_info.execute(ctx)
+        return await asyncio.to_thread(self._ops.get_display_info)
 
     async def get_theme(self) -> ThemeState | OpError:
         """Return the active theme and the themes available to switch to."""
-        ctx: Ctx[ThemeOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_get_theme.execute(ctx)
+        return await asyncio.to_thread(self._ops.get_theme)
 
     async def get_window(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        ctx: Ctx[WindowOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_window_get.execute(ctx)
+        return await asyncio.to_thread(self._ops.get_window_settings)
 
     async def get_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read the display mode for ``repo``."""
-        ctx: Ctx[DisplayModeOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_mode_get.execute(ctx, repo)
+        return await asyncio.to_thread(self._ops.read_display_mode, repo)
 
     async def screenshot(self) -> Screenshot | OpError:
         """Capture the display framebuffer and return the image path."""
-        ctx: Ctx[ScreenshotOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_screenshot.execute(ctx)
+        return await asyncio.to_thread(self._ops.screenshot)
 
     async def get_state(self) -> DisplayStateSnapshot | OpError:
         """Return your own widget/frame state, for Hub-vs-Display comparison."""
-        ctx: Ctx[DisplayStateOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await display_state_get.execute(ctx, scope=self._scope)
+        return await asyncio.to_thread(self._ops.get_display_state, scope=self._scope)

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Literal, Self, final
 
-from punt_lux.operations.models.query_scenes import FrameSummary
-from punt_lux.operations.models.query_visibility import FrameVisibilityState
+from punt_lux.wire.operations.query_scenes import FrameSummary
+from punt_lux.wire.operations.query_visibility import FrameVisibilityState
 
 __all__ = ["FrameAccumulator"]
 

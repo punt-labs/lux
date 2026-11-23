@@ -27,7 +27,8 @@ from punt_lux.commands import (
     scene_update as scene_update_command,
     session_ls as session_ls_command,
 )
-from punt_lux.operations import (
+from punt_lux.rest.identity import CallerIdentity, OwningScope
+from punt_lux.wire.operations import (
     Cleared,
     ClientList,
     InspectScope,
@@ -40,7 +41,6 @@ from punt_lux.operations import (
     SceneShown,
     UpdateRequest,
 )
-from punt_lux.rest.identity import CallerIdentity, OwningScope
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations

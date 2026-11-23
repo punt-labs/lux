@@ -89,7 +89,7 @@ client_lifecycle,client_roster,menu_presence,owner_tracker,frame_owner_facts,
 scene_snapshot}.py`, `wire/model/hub_id.py`,
 `operations/{identity,scope,client_listing,client_identity_facts,
 frame_owner_facts,canonical_frame_owner,details_scene,client_details,
-client_details_port,ports}.py`, `operations/models/query_clients.py`,
+client_details_port,ports}.py`, `wire/operations/query_clients.py`,
 `rest/identity.py`, `ws_transport.py`, `ws_listen.py`, `mcp_endpoint.py`,
 `tools/{server,tools}.py`, `session_key.py`, `connection_identity.py`,
 `transport_policy.py`, `luxd.py`, `hub_composition.py`.
@@ -535,7 +535,7 @@ Grouped by commit (next section).
 
 ### Host rows
 
-- `operations/models/query_clients.py`, `operations/client_listing.py`,
+- `wire/operations/query_clients.py`, `operations/client_listing.py`,
   `operations/client_identity_facts.py`,
   `wire/model/compositions/client_details.py`, `operations/ports.py`,
   `hub_composition.py`.

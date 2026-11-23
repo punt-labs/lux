@@ -28,7 +28,6 @@ from punt_lux.hub.display_listener import DisplayListener
 from punt_lux.hub.display_replies import DisplayReplies
 from punt_lux.hub.reply_sink import ReplySink
 from punt_lux.hub.request_exchange import RequestExchange
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.wire.model import (
     AckMessage,
     HubManifestMessage,
@@ -43,6 +42,7 @@ from punt_lux.wire.model import (
     encode_frame,
 )
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.link_access import (
     drop_route,
     generation_of,

@@ -7,10 +7,10 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from punt_lux.commands._frame_remove_request import FrameRemoveRequest
-from punt_lux.commands._ports import Ctx, FrameOps
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Scope
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import Scope
+from punt_lux.wire.ops import Ctx, FrameOps
 
 from ._family_stubs import StubFrameOps
 

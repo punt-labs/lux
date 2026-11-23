@@ -75,8 +75,12 @@ mirror `hub/` under `tests/hub/`. PTY execution tests mirror `pty/` under
 `wire/stream/` under `tests/wire/stream/`. Each package's `test_imports.py`
 imports its modules in fresh interpreters and rejects its removed package path.
 Client SDK tests mirror `client/` under `tests/client/`, including the relocated
-WebSocket, HTTP contract and identity-header tests. Client identity and applet-name
-tests belong in `tests/wire/model/`. Beads applet tests mirror `applets/beads/` under
+WebSocket and HTTP contract tests. Identity headers, client identity and applet-name
+tests belong in `tests/wire/model/`. Public operation model tests mirror
+`wire/operations/` under `tests/wire/operations/`. `tests/test_package_isolation.py`
+uses the shared fresh-interpreter helper to reject removed contract paths and
+prove root/client/service imports load no Hub, commands, operations facade,
+Display or PTY modules. Beads applet tests mirror `applets/beads/` under
 `tests/applets/beads/`; `tests/applets/beads/test_imports.py` imports every
 module in a fresh interpreter and verifies the removed `punt_lux.apps` paths
 have no aliases. `tests/client/test_imports.py` imports every

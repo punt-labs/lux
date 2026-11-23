@@ -709,7 +709,7 @@ cannot claim to be `"connected_active"`, which the flat four-way `Literal`
 never prevented.
 
 ```python
-# operations/models/display_link.py
+# wire/operations/display_link.py
 from __future__ import annotations
 
 from typing import Literal
@@ -756,7 +756,7 @@ import socket
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.display_linkage import DisplayLinkage
-from punt_lux.operations.models.display_link import (
+from punt_lux.wire.operations.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
 )
@@ -886,14 +886,14 @@ specific file this design read.
    `_DISCONNECTED_PROBE_INTERVAL` constant, the `_disconnected: bool` field,
    `_run`'s adaptive interval, and `_probe`'s per-failure `WARNING` removed
    in favor of `check_once`'s one transition-only `INFO` log.
-7. **New** `operations/models/display_link.py` (`ConnectedLinkState`,
+7. **New** `wire/operations/display_link.py` (`ConnectedLinkState`,
    `DisconnectedLinkState`) and `operations/display_link.py`
    (`DisplayLinkOperations`), composed into `operations/facade.py`
    alongside the existing concern classes (§9).
 8. **New** MCP tool `display_link_get` (read-only, no arguments) and CLI
    verb `lux display link`, mirroring the existing `display_mode_get`/
    `lux display mode` read shape.
-9. **Modify** `src/punt_lux/service/_service_spec.py` — add
+9. **Modify** `src/punt_lux/service/service_spec.py` — add
    `restart_on_crash_only: bool = False` to `ServiceSpec`; set
    `restart_on_crash_only=True` on `DISPLAY_SPEC` only (§7). `HUB_SPEC` is
    not touched.
@@ -1106,5 +1106,5 @@ mandatory z-spec still applies.
   extends.
 - `src/punt_lux/hub/clients.py`, `replicator.py`, `recovery.py`,
   `respawn_backoff.py`, `liveness.py`, `hub_display.py`,
-  `service/_backend_launchd.py`, `service/_backend_systemd.py`, `service/_service_spec.py` — the
+  `service/_backend_launchd.py`, `service/_backend_systemd.py`, `service/service_spec.py` — the
   current implementation this design extends.

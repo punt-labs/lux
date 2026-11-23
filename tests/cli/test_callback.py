@@ -9,10 +9,10 @@ from typer.testing import CliRunner
 from punt_lux.__main__ import app
 from punt_lux.cli.callback import _CallbackRegisterAdapter
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Ok
-from punt_lux.operations.models.callback_fields import CallbackFields
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations import Ok
+from punt_lux.wire.operations.callback_fields import CallbackFields
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 
 runner = CliRunner()
 _SCOPE = Scope.in_process(ConnectionId("conn"))

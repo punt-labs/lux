@@ -17,12 +17,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.hub.scene_writer import HubSceneWriter, SceneScope
 from punt_lux.hub.write_refusals import NestingExceededError
 from punt_lux.hub.write_result import WriteAccepted, WriteRejected
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.operations.wire_tree import WireTreeDecoder
@@ -30,8 +28,10 @@ from punt_lux.wire.model.elements import ButtonElement, GroupElement, TreeElemen
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.json_payload import MAX_ELEMENT_NESTING
 from punt_lux.wire.model.nesting_cap import NestingCap
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.update import AddElement, SetProperty
+from punt_lux.wire.operations.common import OpError
 from tests.class_references import ClassReferences, aliased_constructions
 
 if TYPE_CHECKING:

@@ -15,7 +15,6 @@ from punt_lux.hub.connection_closed import ConnectionClosedError
 from punt_lux.hub.dial_generation import DialGeneration
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.display_not_connected import DisplayNotConnectedError
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.wire.model import (
     AckMessage,
     ConnectMessage,
@@ -32,6 +31,7 @@ from punt_lux.wire.model import (
 )
 from punt_lux.wire.model.hub_id import HubId
 from punt_lux.wire.model.messages.wire_vocabulary import CLIENT_VOCABULARY
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.link_access import generation_of, shown, socket_of, writer_of
 from tests.wire.model.display_double import until
 

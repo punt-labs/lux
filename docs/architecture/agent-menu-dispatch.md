@@ -452,7 +452,7 @@ concrete surface each change lands on.
   prerequisite). OO improvement carries the ratchet on this file.
 - `src/punt_lux/tools/display_write_tools.py` — `menu_set` docstring/schema
   documents the optional per-item `frame_id` and that clicks arrive via `recv()`.
-- `src/punt_lux/operations/models/menu_results.py` — verify `SetMenuRequest.parse`
+- `src/punt_lux/wire/operations/menu_results.py` — verify `SetMenuRequest.parse`
   flows the new decode through `Menu.from_wire` unchanged (no shape change; the
   owner arrives from scope at the operation, §7.2).
 

@@ -15,11 +15,11 @@ import asyncio
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import OpError, SceneShown
+from punt_lux.wire.operations import OpError, SceneShown
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, SceneOps
-    from punt_lux.operations import RenderRequest, Scope
+    from punt_lux.wire.operations import RenderRequest, Scope
+    from punt_lux.wire.ops import Ctx, SceneOps
 
 
 @final

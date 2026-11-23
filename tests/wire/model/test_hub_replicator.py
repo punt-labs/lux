@@ -28,24 +28,24 @@ from punt_lux.hub.dial_death import DialDeath
 from punt_lux.hub.dirty_signal import DrainedBatch
 from punt_lux.hub.display_not_connected import DisplayNotConnectedError
 from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
-from punt_lux.hub.frame_ownership import FrameOwnership
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.menu_models import Menu, MenuAction
 from punt_lux.hub.menu_registry import HubMenuRegistry
 from punt_lux.hub.reconnect_wait import ReconnectWait
 from punt_lux.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
 )
-from punt_lux.hub.scene_presentation import ScenePresentation
-from punt_lux.hub.session_callback import MenuLeaf
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.elements.text import TextElement
+from punt_lux.wire.model.frame_ownership import FrameOwnership
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.menu_models import Menu, MenuAction
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.session_callback import MenuLeaf
 from tests.dial_double import FakeDial, end_fake_dial, fake_dial
 from tests.link_access import deaths_of
 

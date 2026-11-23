@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
     from punt_lux.client._callback_ops import CallbackConvenienceOps
-    from punt_lux.operations import Ok, OpError
+    from punt_lux.wire.operations import Ok, OpError
 
 __all__ = ["MenuEntry"]
 

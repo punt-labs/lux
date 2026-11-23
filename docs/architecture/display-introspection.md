@@ -33,7 +33,7 @@ Hub-mediated proxy to the running Display, following the shape
    the Display side.
 2. **Hub-side per-connection lifecycle state is unobservable.**
    `list_clients` already reports `subscribed_topics` and `owned_scenes`
-   per session (`operations/models/query_clients.py:15-27`), but not
+   per session (`wire/operations/query_clients.py:15-27`), but not
    whether the connection currently has a writer bound
    (`Hub.has_writer`, `hub/hub.py:81-83`) or how deep its inbox
    queue is (`hub/inbox.py`'s per-connection `SimpleQueue`). Both
@@ -69,7 +69,7 @@ Hub-mediated proxy to the running Display, following the shape
 
 - **(a) Extend the two existing proxied-fact flags.** Add
   `want_widget_state` to `InspectScope`
-  (`operations/models/inspect_scope.py`) so `inspect_scene` returns
+  (`wire/operations/inspect_scope.py`) so `inspect_scene` returns
   per-element widget state beside `resolved_props`, and extend the frame
   block `FrameVisibilityProxy` already fetches
   (`operations/frame_visibility_proxy.py:53-65`) with `active_tab` and
@@ -205,7 +205,7 @@ for the whole `QueryRouter` surface, not specially for this handler.)
 
 ### A.6 Hub side — models and proxy
 
-New module `operations/models/display_state.py`:
+New module `wire/operations/display_state.py`:
 
 ```python
 from __future__ import annotations
@@ -214,7 +214,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from punt_lux.operations.models.query_visibility import FrameVisibility
+from punt_lux.wire.operations.query_visibility import FrameVisibility
 
 __all__ = ["DisplayStateSnapshot", "FramePresentation", "WidgetSnapshot"]
 
@@ -347,7 +347,7 @@ means.
 
 ## Part B — Hub-Side Connection Lifecycle: Writer Binding and Inbox Depth
 
-`list_clients` (`operations/models/query_clients.py:15-27`) already
+`list_clients` (`wire/operations/query_clients.py:15-27`) already
 reports `subscribed_topics` and `owned_scenes` per session — the
 subscription half of the gap is closed. What is missing is whether a
 writer is bound, and how deep the connection's inbox queue is.
@@ -427,7 +427,7 @@ hub)` call at `operations/queries.py:58`).
 
 ### B.3 `HubClient` gains two fields — no new operation, no new tool
 
-`operations/models/query_clients.py:15-27` gains:
+`wire/operations/query_clients.py:15-27` gains:
 
 ```python
 class HubClient(BaseModel):
@@ -596,9 +596,9 @@ Engine:
 - `src/punt_lux/hub/inbox.py` — `inbox_depth_for`
 - `src/punt_lux/operations/ports.py` — `InboxDepth`, `HubPorts.inbox_depth`
 - `src/punt_lux/hub_composition.py` — wire the new port
-- `src/punt_lux/operations/models/display_state.py` — new module (§A.6)
+- `src/punt_lux/wire/operations/display_state.py` — new module (§A.6)
 - `src/punt_lux/operations/display_state_proxy.py` — new module (§A.6)
-- `src/punt_lux/operations/models/query_clients.py` — `HubClient` fields (§B.3)
+- `src/punt_lux/wire/operations/query_clients.py` — `HubClient` fields (§B.3)
 - `src/punt_lux/operations/client_listing.py` — populate the new fields
 - `src/punt_lux/operations/queries.py` — wire `DisplayStateProxy`, thread `inbox_depth`
 - `src/punt_lux/operations/facade.py` — `get_display_state()`

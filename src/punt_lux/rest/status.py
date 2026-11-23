@@ -14,7 +14,7 @@ from typing import ClassVar, Self, final
 
 from fastapi import HTTPException
 
-from punt_lux.operations.models.common import OpError, OpErrorCode
+from punt_lux.wire.operations.common import OpError, OpErrorCode
 
 __all__ = ["HttpErrorMap"]
 

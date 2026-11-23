@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Self, final
 
 from fastapi import APIRouter
 
-from punt_lux.operations import Ok
 from punt_lux.rest.identity import OwningScope
+from punt_lux.wire.operations import Ok
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations

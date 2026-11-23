@@ -59,8 +59,6 @@ client, listener, and exported request and wire types.
         - recv_message
         - send_message
 
-::: punt_lux.ping
-
 ## Client and accessors
 
 ::: punt_lux.client

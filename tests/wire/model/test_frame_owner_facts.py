@@ -16,7 +16,7 @@ from punt_lux.hub.frame_owner_facts import (
     FrameOwnerFactsReader,
     NoFrameOwnerFacts,
 )
-from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
+from punt_lux.wire.model.frame_ownership import UNOWNED, FrameOwnership
 
 
 @final

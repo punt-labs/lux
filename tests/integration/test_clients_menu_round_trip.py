@@ -28,23 +28,23 @@ from punt_lux.display.menus.wire_field import WireField
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.client_lifecycle import ClientLifecycle
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.details_binding import DetailsBinding
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_details_port import ClientDetailsPort
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.elements.table import TableElement
 from punt_lux.wire.model.identity import HubId
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.session_callback import SessionCallback
 from tests.menu_doubles import FakeImGui, ignore
 
 if TYPE_CHECKING:

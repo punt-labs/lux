@@ -19,14 +19,14 @@ from punt_lux.operations.display_reply import (
     DisplayReplied,
     DisplayReply,
 )
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_frames import FrameStates
-from punt_lux.operations.models.display_info import DisplayInfo
-from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import FrameStatePatch
-from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.models.theme import ThemeState
-from punt_lux.operations.models.window import WindowSettings
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.display_frames import FrameStates
+from punt_lux.wire.operations.display_info import DisplayInfo
+from punt_lux.wire.operations.display_probe import Pong, Screenshot
+from punt_lux.wire.operations.display_write import FrameStatePatch
+from punt_lux.wire.operations.menu_results import Ok
+from punt_lux.wire.operations.theme import ThemeState
+from punt_lux.wire.operations.window import WindowSettings
 
 # The exact payload the display's ``_query_get_display_info`` returns today.
 _LIVE_DISPLAY_INFO: dict[str, object] = {

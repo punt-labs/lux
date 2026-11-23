@@ -8,16 +8,16 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.operations import (
+from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.lease_term import PermanentLease
+from punt_lux.wire.operations import (
     ClientList,
     Identified,
     OpError,
     RecentErrors,
     RecentEvents,
 )
-from punt_lux.operations.models.query_clients import HubClient
-from punt_lux.wire.model.client_identity import ClientIdentity
-from punt_lux.wire.model.lease_term import PermanentLease
+from punt_lux.wire.operations.query_clients import HubClient
 
 runner = CliRunner()
 

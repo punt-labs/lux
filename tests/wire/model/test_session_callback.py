@@ -11,12 +11,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.hub.session_callback import (
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.session_callback import (
     CallbackInvocation,
     MenuLeaf,
     SessionCallback,
 )
-from punt_lux.kernel.connection_id import ConnectionId
 
 
 def test_a_callback_carries_a_non_empty_id_and_label() -> None:

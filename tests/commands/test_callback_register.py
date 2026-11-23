@@ -6,9 +6,9 @@ import asyncio
 
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Ok, OpError, Scope
-from punt_lux.operations.models.callback_fields import CallbackFields
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+from punt_lux.wire.operations import Ok, OpError, Scope
+from punt_lux.wire.operations.callback_fields import CallbackFields
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 from tests.commands._family_stubs import StubCallbackOps
 from tests.commands._scene_stub import identity
 

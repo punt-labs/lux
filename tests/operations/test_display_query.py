@@ -13,9 +13,9 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
-from punt_lux.operations.models.hub_connection import HubConnection
 from punt_lux.service._display_stability import DisplayStability
 from punt_lux.wire.model import QueryResponse
+from punt_lux.wire.operations.hub_connection import HubConnection
 
 if TYPE_CHECKING:
     from punt_lux.hub.display_requests import DisplayRequests

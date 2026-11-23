@@ -210,10 +210,13 @@ re-dispatch.
 | `display/idle_screen.py` | Idle splash when no scene is active |
 | `wire/model/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
 | `wire/model/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
-| `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
+| `operations/` | Hub-owned `Operations` facade, `HubPorts`, and concern classes; public request/result values live in `wire/operations/` |
+| `wire/operations/`, `wire/ops/` | Public operation requests/results and per-family operation Protocols, shared by SDK and commands without loading the Hub |
+| `service/service_spec.py` | Public `ServiceSpec`, exported from `punt_lux.service`, configures reusable launchd/systemd backends; Lux's Hub/Display specs are unchanged |
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, six concern routers, one `OpError`→HTTP table) |
 | `client/facade.py` | `LuxClient` — public library facade; its private REST transport serves the CLI and library |
-| `client/` | Client SDK: `hub_client.py` (WebSocket), `rest_transport.py` (HTTP contract), `_rest_transport.py` (private implementation), HTTP values and identity headers |
+| `client/` | Runtime-isolated SDK: WebSocket/HTTP transports and direct async operation-port accessors; no commands or Hub imports |
+| `wire/model/identity_headers.py`, `wire/model/header_value.py` | Shared identity-header contract and header encoding, used by both SDK and Hub adapters |
 | `wire/model/client_identity.py`, `wire/model/applet_name_format.py` | Shared client identity declaration and applet-name contract, independent of Hub behavior |
 | `tools/server.py` | FastMCP instance and per-session identity binding; transport lifecycle lives in `mcp_transport.py` and `mcp_session.py` |
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |

@@ -1,0 +1,384 @@
+"""The request/result models: never-raising parse and the error contract."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+import pytest
+from pydantic import ValidationError
+
+from punt_lux.wire.operations import (
+    DisplayModeRequest,
+    OpError,
+    RenderDashboardRequest,
+    RenderRequest,
+    RenderTableRequest,
+    UpdateRequest,
+)
+from punt_lux.wire.operations.display_state import (
+    DisplayStateSnapshot,
+    FramePresentation,
+    WidgetSnapshot,
+)
+from punt_lux.wire.operations.patches import RemovePatch, SetPatch
+from punt_lux.wire.operations.render import FrameSpec
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+
+def test_parse_reports_a_bad_layout_as_its_legacy_message() -> None:
+    result = RenderRequest.parse({"scene_id": "s", "elements": [], "layout": "x"})
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert result.reason == "layout must be single/rows/columns/grid, got 'x'"
+
+
+def test_parse_reports_a_bad_frame_layout_as_its_legacy_message() -> None:
+    result = RenderRequest.parse(
+        {"scene_id": "s", "elements": [], "frame": {"layout": "grid"}}
+    )
+    assert isinstance(result, OpError)
+    assert result.reason == "frame_layout must be 'tab' or 'stack', got 'grid'"
+
+
+def test_parse_reports_a_bad_frame_size_as_its_legacy_message() -> None:
+    result = RenderRequest.parse(
+        {"scene_id": "s", "elements": [], "frame": {"size": [800]}}
+    )
+    assert isinstance(result, OpError)
+    assert result.reason == "frame_size must be [width, height]"
+
+
+def test_parse_reports_a_non_positive_frame_ttl_as_its_message() -> None:
+    result = RenderRequest.parse(
+        {"scene_id": "s", "elements": [], "frame": {"ttl_seconds": 0}}
+    )
+    assert isinstance(result, OpError)
+    assert result.reason == "frame_ttl_seconds must be a positive number, got 0"
+
+
+def test_parse_accepts_a_valid_request() -> None:
+    result = RenderRequest.parse({"scene_id": "s", "elements": []})
+    assert isinstance(result, RenderRequest)
+
+
+def test_frame_ttl_is_none_without_a_frame() -> None:
+    request = RenderRequest(scene_id="s", elements=[])
+    assert request.frame_ttl() is None
+
+
+def test_frame_ttl_is_none_for_a_permanent_frame() -> None:
+    request = RenderRequest(scene_id="s", elements=[], frame=FrameSpec())
+    assert request.frame_ttl() is None
+
+
+def test_frame_ttl_carries_a_positive_lifetime() -> None:
+    request = RenderRequest(scene_id="s", elements=[], frame=FrameSpec(ttl_seconds=2.5))
+    assert request.frame_ttl() == 2.5
+
+
+def test_presentation_defaults_the_frame_from_the_scene_id() -> None:
+    request = RenderRequest(scene_id="scene", elements=[], frame=FrameSpec())
+    presentation = request.presentation()
+    assert presentation.frame_id == "scene"
+    assert presentation.frame_title == "scene"
+
+
+def test_presentation_synthesizes_a_frame_when_none_is_named() -> None:
+    # THE RULE: a request that carries no frame at all still renders framed —
+    # the engine synthesizes one at frame_id = scene_id.
+    request = RenderRequest(scene_id="scene", elements=[])
+    assert request.frame is None
+    presentation = request.presentation()
+    assert presentation.frame_id == "scene"
+    assert presentation.frame_title == "scene"
+
+
+def test_presentation_frame_title_defaults_to_the_scene_title() -> None:
+    request = RenderRequest(scene_id="scene", elements=[], title="Dashboard")
+    presentation = request.presentation()
+    assert presentation.frame_id == "scene"
+    assert presentation.frame_title == "Dashboard"
+
+
+def test_presentation_keeps_an_explicit_frame_id_and_title() -> None:
+    request = RenderRequest(
+        scene_id="scene",
+        elements=[],
+        title="ignored-title",
+        frame=FrameSpec(frame_id="dash", frame_title="Metrics"),
+    )
+    presentation = request.presentation()
+    assert presentation.frame_id == "dash"
+    assert presentation.frame_title == "Metrics"
+
+
+def test_update_parse_maps_wire_shapes_to_variants() -> None:
+    result = UpdateRequest.parse(
+        [{"id": "a", "set": {"x": 1}}, {"id": "b", "remove": True}]
+    )
+    assert isinstance(result, UpdateRequest)
+    assert result.patches == [SetPatch(id="a", set={"x": 1}), RemovePatch(id="b")]
+    assert result.to_wire() == [
+        {"id": "a", "set": {"x": 1}},
+        {"id": "b", "remove": True},
+    ]
+
+
+def test_update_parse_reports_a_malformed_patch_as_the_writer_would() -> None:
+    result = UpdateRequest.parse([{"id": "hdr"}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "hdr" in result.reason
+
+
+def test_display_mode_parse_maps_y_and_n() -> None:
+    on = DisplayModeRequest.parse("y", str(Path.cwd()))
+    off = DisplayModeRequest.parse("n", str(Path.cwd()))
+    assert isinstance(on, DisplayModeRequest)
+    assert isinstance(off, DisplayModeRequest)
+    assert (on.mode, off.mode) == ("on", "off")
+
+
+def test_display_mode_parse_rejects_an_unknown_mode_without_raising() -> None:
+    result = DisplayModeRequest.parse("maybe", str(Path.cwd()))
+    assert isinstance(result, OpError)
+    assert result.reason == "Invalid mode 'maybe'. Use 'y' or 'n'."
+
+
+def test_display_mode_parse_rejects_a_relative_repo_without_raising() -> None:
+    result = DisplayModeRequest.parse("y", "relative/path")
+    assert isinstance(result, OpError)
+    assert "absolute path" in result.reason
+
+
+def test_display_mode_parse_reports_an_embedded_nul_repo_without_raising() -> None:
+    # A NUL byte is a classic path-injection value; parse must report it as an
+    # invalid_request, never let a ValueError escape the never-raises contract.
+    result = DisplayModeRequest.parse("y", "/tmp/lux\x00project")
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
+def test_op_error_is_a_discriminated_error() -> None:
+    error = OpError(code="timeout", reason="slow")
+    assert error.kind == "error"
+    assert error.code == "timeout"
+
+
+# --- The never-raising matrix: parse yields an OpError, never an exception. ---
+
+
+def test_render_parse_falls_back_on_wrong_typed_frame_flags() -> None:
+    result = RenderRequest.parse(
+        {"scene_id": "s", "elements": [], "frame": {"flags": "not-a-mapping"}}
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert result.reason
+
+
+def test_render_parse_falls_back_on_wrong_typed_scene_id() -> None:
+    result = RenderRequest.parse({"scene_id": 123, "elements": []})
+    assert isinstance(result, OpError)
+    assert result.reason
+
+
+def test_render_parse_falls_back_on_wrong_typed_elements() -> None:
+    result = RenderRequest.parse({"scene_id": "s", "elements": "nope"})
+    assert isinstance(result, OpError)
+    assert result.reason
+
+
+def test_render_parse_falls_back_on_empty_mapping() -> None:
+    result = RenderRequest.parse({})
+    assert isinstance(result, OpError)
+    assert result.reason
+
+
+def test_render_parse_falls_back_on_non_mapping_input() -> None:
+    result = RenderRequest.parse(cast("Mapping[str, object]", "not-a-mapping"))
+    assert isinstance(result, OpError)
+    assert result.reason
+
+
+def test_update_parse_falls_back_on_missing_id() -> None:
+    result = UpdateRequest.parse([{"set": {"a": 1}}])
+    assert isinstance(result, OpError)
+    assert "id" in result.reason
+
+
+def test_update_parse_falls_back_on_non_boolean_remove() -> None:
+    result = UpdateRequest.parse([{"id": "x", "remove": "yes"}])
+    assert isinstance(result, OpError)
+    assert "x" in result.reason
+
+
+def test_render_table_parse_falls_back_on_missing_columns() -> None:
+    result = RenderTableRequest.parse({"scene_id": "s", "rows": []})
+    assert isinstance(result, OpError)
+    assert result.reason
+
+
+def test_render_table_to_spec_defaults_key_column_and_table_id() -> None:
+    request = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["ID", "Name"], "rows": [["1", "a"]]}
+    )
+    assert isinstance(request, RenderTableRequest)
+    spec = request.to_spec()
+    assert spec.key_column == 0
+    assert spec.table_id == "table"
+
+
+def test_render_table_to_spec_resolves_a_key_column_name_to_its_index() -> None:
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": "Name",
+            "table_id": "issues",
+        }
+    )
+    assert isinstance(request, RenderTableRequest)
+    spec = request.to_spec()
+    assert spec.key_column == 1  # "Name" is column index 1
+    assert spec.table_id == "issues"
+
+
+def test_render_table_to_spec_keeps_an_int_key_column() -> None:
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": 1,
+        }
+    )
+    assert isinstance(request, RenderTableRequest)
+    assert request.to_spec().key_column == 1
+
+
+def test_render_table_parse_rejects_a_key_column_name_absent_from_columns() -> None:
+    result = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": "Missing",
+        }
+    )
+    assert isinstance(result, OpError)
+    assert "does not name a column" in result.reason
+
+
+def test_render_table_parse_rejects_an_empty_table_id() -> None:
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": ""}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
+def test_render_table_parse_rejects_a_whitespace_table_id() -> None:
+    # None synthesizes "table"; an explicit blank would make the table anonymous.
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": "   "}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
+def test_render_table_parse_rejects_a_bool_key_column() -> None:
+    # bool subclasses int, so Pydantic would coerce True -> column index 1; a
+    # before-validator rejects it outright.
+    result = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": True,
+        }
+    )
+    assert isinstance(result, OpError)
+    assert "bool" in result.reason
+
+
+def test_render_dashboard_parse_falls_back_and_names_the_missing_field() -> None:
+    result = RenderDashboardRequest.parse(
+        {"scene_id": "s", "metrics": [{"label": "x"}]}
+    )
+    assert isinstance(result, OpError)
+    # The fallback carries the location path so the missing field is named.
+    assert result.reason == "metrics.0.value: Field required"
+
+
+def test_render_dashboard_parse_rejects_rows_without_columns() -> None:
+    result = RenderDashboardRequest.parse({"scene_id": "s", "table_rows": [["a"]]})
+    assert isinstance(result, OpError)
+    assert result.reason == "table_rows requires table_columns"
+
+
+def test_widget_snapshot_holds_every_wire_scalar_shape() -> None:
+    values: dict[str, str | float | bool | tuple[str, ...] | tuple[float, ...]] = {
+        "count": 3.0,
+        "label": "hi",
+        "on": True,
+        "tags": ("a", "b"),
+        "swatch": (0.1, 0.2, 0.3, 1.0),
+    }
+    snapshot = WidgetSnapshot(values=values)
+    assert snapshot.values == values
+
+
+def test_widget_snapshot_round_trips_a_color_pickers_rgba_tuple() -> None:
+    # The Hub-side WireScalar must admit exactly what the Display side emits
+    # (display/replica/widget_state.py's WireScalar) -- a color picker's RGBA
+    # slot -- or a value that validates on the Display fails decoding here.
+    dumped = WidgetSnapshot(values={"swatch": (0.1, 0.2, 0.3, 1.0)}).model_dump(
+        mode="json"
+    )
+    restored = WidgetSnapshot.model_validate(dumped)
+    assert restored.values == {"swatch": (0.1, 0.2, 0.3, 1.0)}
+
+
+def test_widget_snapshot_is_frozen() -> None:
+    snapshot = WidgetSnapshot(values={})
+    with pytest.raises(ValidationError):
+        snapshot.values = {"x": 1.0}
+
+
+def test_frame_presentation_preserves_a_none_active_tab() -> None:
+    frame = FramePresentation(
+        frame_id="f1", visibility="closed", active_tab=None, cascade_index=0
+    )
+    assert frame.active_tab is None
+
+
+def test_frame_presentation_rejects_a_negative_cascade_index() -> None:
+    with pytest.raises(ValidationError):
+        FramePresentation(
+            frame_id="f1", visibility="on_screen", active_tab=None, cascade_index=-1
+        )
+
+
+def test_display_state_snapshot_round_trips_through_json() -> None:
+    snapshot = DisplayStateSnapshot(
+        scenes={"s1": WidgetSnapshot(values={"checkbox1": True})},
+        frames=[
+            FramePresentation(
+                frame_id="f1",
+                visibility="on_screen",
+                active_tab="s1",
+                cascade_index=0,
+            )
+        ],
+    )
+
+    dumped = snapshot.model_dump(mode="json")
+    restored = DisplayStateSnapshot.model_validate(dumped)
+
+    assert restored == snapshot
+    assert dumped["kind"] == "ok"

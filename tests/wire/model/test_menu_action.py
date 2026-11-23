@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.hub.menu_action import MenuAction
-from punt_lux.hub.menu_models import Menu, MenuSeparator, WireMenuEntry
-from punt_lux.hub.session_callback import MenuLeaf
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.menu_action import MenuAction
+from punt_lux.wire.model.menu_models import Menu, MenuSeparator, WireMenuEntry
+from punt_lux.wire.model.session_callback import MenuLeaf
 
 
 def test_round_trips_without_a_frame_id() -> None:

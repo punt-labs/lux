@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model import CollapsingHeaderElement
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 _OWNER = ConnectionId("session-a")
 

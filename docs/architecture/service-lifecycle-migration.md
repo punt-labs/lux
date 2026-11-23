@@ -101,7 +101,7 @@ implementation to inherit).
 
 ### 2.2 `ServiceSpec` gains the legacy identity as data
 
-`ServiceSpec` (`service/_service_spec.py:22-35`) is a frozen dataclass; it already
+`ServiceSpec` (`service/service_spec.py:22-35`) is a frozen dataclass; it already
 carries `launchd_label` and `systemd_unit` as this service's *current*
 platform identity. It gains two more fields for its *historical* identity:
 
@@ -124,7 +124,7 @@ special-case anywhere (§5.2 rejects that shape, which is what
 
 A future rename train (the disk-binary rename `luxd` → `luxd-hub` the
 operator has already flagged as separate scope) adds one label to one
-tuple in `service/_service_spec.py`. No sweep class, no backend, and no call site
+tuple in `service/service_spec.py`. No sweep class, no backend, and no call site
 changes.
 
 ### 2.3 `LegacySweepReport` — a value type, not a bare bool
@@ -396,7 +396,7 @@ in favor of the `ServiceSpec` fields in §2.2, because:
 - A string-equality special case inside the sweep class is exactly the kind
   of hardcoded backend logic PY-IC-7 (Open-Closed) flags: adding the next
   legacy label means editing sweep-class logic. A tuple field means editing
-  one line of data in `service/_service_spec.py`, with `DISPLAY_SPEC`'s empty tuple
+  one line of data in `service/service_spec.py`, with `DISPLAY_SPEC`'s empty tuple
   requiring no special case at all — it is data that happens to be empty,
   not a branch that happens to `return`.
 - It generalizes for free to the disk-binary rename train the operator has
@@ -733,7 +733,7 @@ bootout, bootstrap retry, or other destructive fallback is issued.
 
 - Bead `lux-ehzy` — the incident and its immediate fix scope.
 - `src/punt_lux/service/__init__.py`, `service/_backend_launchd.py`, `service/_backend_systemd.py`,
-  `service/_backends.py`, `service/_service_spec.py`, `service/_launchctl.py` — the current
+  `service/_backends.py`, `service/service_spec.py`, `service/_launchctl.py` — the current
   implementation this design extends.
 - `docs/architecture/target/target.md` — unrelated to this design; service
   lifecycle is outside the Hub/Display protocol boundary.

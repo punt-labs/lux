@@ -41,7 +41,6 @@ from punt_lux.hub.frame_owner_facts import NoFrameOwnerFacts
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.recovery import SendRecovery
 from punt_lux.hub.respawn_backoff import RespawnBackoff
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import (
     AckMessage,
@@ -51,6 +50,7 @@ from punt_lux.wire.model import (
     encode_frame,
 )
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
 from tests.link_access import deaths_of, generation_of, writer_of
 from tests.wire.model.display_double import Call, Display, Responder, until

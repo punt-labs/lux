@@ -37,7 +37,10 @@ from punt_lux.commands import (
 from punt_lux.commands.display_state_get import (
     display_state_get as display_state_get_command,
 )
-from punt_lux.operations import (
+from punt_lux.tools import tools as _core
+from punt_lux.tools._signal import signal
+from punt_lux.tools.server import mcp
+from punt_lux.wire.operations import (
     ClientList,
     DisplayInfo,
     DisplayStateSnapshot,
@@ -52,13 +55,10 @@ from punt_lux.operations import (
     ThemeState,
     WindowSettings,
 )
-from punt_lux.operations.models.display_link import DisplayLinkState
-from punt_lux.tools import tools as _core
-from punt_lux.tools._signal import signal
-from punt_lux.tools.server import mcp
+from punt_lux.wire.operations.display_link import DisplayLinkState
 
 if TYPE_CHECKING:
-    from punt_lux.commands.display_state_get import DisplayStateOps
+    from punt_lux.wire.ops.display_state import DisplayStateOps
 
 __all__ = [
     "get_display_info",

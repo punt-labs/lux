@@ -10,10 +10,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.id_separator import ID_SEPARATOR
+from punt_lux.wire.model.session_callback import SessionCallback
 
 
 def test_it_is_the_ascii_unit_separator() -> None:

@@ -47,10 +47,7 @@ from punt_lux.hub.quarantine_registry import QuarantineRegistry
 from punt_lux.hub.root_registry import RootRegistry
 from punt_lux.hub.root_removal_router import RootRemovalRouter
 from punt_lux.hub.scene_eviction import SceneEviction
-from punt_lux.hub.scene_presentation import (
-    ScenePresentation,
-    ScenePresentationRegistry,
-)
+from punt_lux.hub.scene_presentation import ScenePresentationRegistry
 from punt_lux.hub.scene_snapshot import SceneReader
 from punt_lux.hub.subtree_installer import SubtreeInstaller
 from punt_lux.hub.subtree_remover import SubtreeRemover
@@ -68,6 +65,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.owner_tracker import OwnerTracker
     from punt_lux.hub.quarantine_record import QuarantineRecord
     from punt_lux.hub.store_lock import StoreGuard, StoreLock
+    from punt_lux.wire.model.scene_presentation import ScenePresentation
     from punt_lux.wire.model.scope import Scope
 
     QuarantineClearedObserver = Callable[[SceneId], None]

@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 
     from punt_lux.hub.client_roster import RosterNames
     from punt_lux.hub.client_session import ClientSession
-    from punt_lux.hub.session_callback import SessionCallback
     from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.session_callback import SessionCallback
 
 __all__ = ["NamedGroup", "NamedSession", "NamedSessions"]
 

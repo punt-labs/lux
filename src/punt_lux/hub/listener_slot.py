@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.hub.callback_ports import CallbackListener
-    from punt_lux.hub.session_callback import SessionCallback
+    from punt_lux.wire.model.session_callback import SessionCallback
 
 __all__ = ["ListenerSlot"]
 

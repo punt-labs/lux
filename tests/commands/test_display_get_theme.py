@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, ThemeOps, display_get_theme
-from punt_lux.operations import OpError, ThemeState
+from punt_lux.wire.operations import OpError, ThemeState
 from tests.commands._family_stubs import StubThemeOps
 from tests.commands._scene_stub import identity
 

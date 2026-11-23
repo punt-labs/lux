@@ -25,7 +25,8 @@ from punt_lux.commands import (
     ping as ping_command,
 )
 from punt_lux.commands.display_state_get import display_state_get as state_get_command
-from punt_lux.operations import (
+from punt_lux.rest.identity import CallerIdentity, OwningScope, WritingIdentity
+from punt_lux.wire.operations import (
     DisplayInfo,
     DisplayStateSnapshot,
     FrameStates,
@@ -36,13 +37,12 @@ from punt_lux.operations import (
     ThemeState,
     WindowSettings,
 )
-from punt_lux.rest.identity import CallerIdentity, OwningScope, WritingIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.commands.display_state_get import DisplayStateOps
     from punt_lux.operations import Operations
     from punt_lux.rest.route_deps import RouteDeps
     from punt_lux.rest.status import HttpErrorMap
+    from punt_lux.wire.ops.display_state import DisplayStateOps
 
 # A scoped read (e.g. display state) gets the same 401 challenge a write gets.
 

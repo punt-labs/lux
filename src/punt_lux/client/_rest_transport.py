@@ -25,13 +25,14 @@ from punt_lux.client._rest_display import _DisplayRestOps
 from punt_lux.client._rest_scenes import _SceneRestOps
 from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.client.hub_client import LuxHubClient
-from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.client.rest_http_call import HttpCall
 from punt_lux.client.rest_loopback import LoopbackTransport
 from punt_lux.client.rest_reply import RestReply
 from punt_lux.client.rest_transport import HttpTransport, HubUnavailableError
 from punt_lux.kernel.hub_paths import HubPaths
-from punt_lux.operations import (
+from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.identity_headers import ClientHeaders
+from punt_lux.wire.operations import (
     ClientList,
     FrameStates,
     MenuList,
@@ -44,14 +45,13 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.operations.models.callback_fields import CallbackFields
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
-from punt_lux.operations.models.identity import Identified
-from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations.callback_fields import CallbackFields
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
+from punt_lux.wire.operations.identity import Identified
 
 if TYPE_CHECKING:
     from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, EventHandler
-    from punt_lux.operations import (
+    from punt_lux.wire.operations import (
         Cleared,
         DisplayInfo,
         DisplayModeState,
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
         UpdateRequest,
         WindowSettings,
     )
-    from punt_lux.operations.models.display_link import DisplayLinkState
+    from punt_lux.wire.operations.display_link import DisplayLinkState
 
 __all__ = ["_RestTransport"]
 
@@ -151,7 +151,7 @@ class _RestTransport:
     ) -> SceneShown | OpError:
         """Install a whole scene through ``PUT /scenes/{scene_id}``.
 
-        ``scope`` satisfies :class:`~punt_lux.commands._ports.SceneOps`'s call
+        ``scope`` satisfies :class:`~punt_lux.wire.ops.SceneOps`'s call
         signature -- unused over REST, which composes scope from headers.
         """
         return self._scenes.render(request, scope=scope)
@@ -258,7 +258,7 @@ class _RestTransport:
     ) -> Ok | OpError:
         """Replace the Hub-owned menu bar through ``PUT /menus``.
 
-        ``scope`` satisfies :class:`~punt_lux.commands._ports.MenuOps`'s call
+        ``scope`` satisfies :class:`~punt_lux.wire.ops.MenuOps`'s call
         signature -- unused over REST, which composes scope from headers.
         """
         del scope  # REST composes scope from headers, same as identify()

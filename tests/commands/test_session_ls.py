@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, SessionOps, session_ls
-from punt_lux.operations import ClientList, OpError
+from punt_lux.wire.operations import ClientList, OpError
 from tests.commands._family_stubs import StubSessionOps
 from tests.commands._scene_stub import identity
 

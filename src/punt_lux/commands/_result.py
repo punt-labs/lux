@@ -2,7 +2,7 @@
 
 Vox's ``../vox/src/punt_vox/commands/_result.py`` is the shape this module
 copies verbatim: ``frozen``, ``slots``, four fields. ``Ctx`` and the
-per-family ops Protocols live in :mod:`punt_lux.commands._ports`.
+per-family ops Protocols live in :mod:`punt_lux.wire.ops`.
 """
 
 from __future__ import annotations

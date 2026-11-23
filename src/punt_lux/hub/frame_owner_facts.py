@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Protocol, Self, final, runtime_checkable
 
-from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
+from punt_lux.wire.model.frame_ownership import UNOWNED, FrameOwnership
 
 __all__ = ["FrameOwnerFactsBinding", "FrameOwnerFactsReader", "NoFrameOwnerFacts"]
 

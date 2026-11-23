@@ -12,7 +12,7 @@ import socket
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.operations.display_link import DisplayLinkOperations
-from punt_lux.operations.models.display_link import (
+from punt_lux.wire.operations.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
 )

@@ -6,7 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from punt_lux.client._callback_ops import CallbackConvenienceOps
 from punt_lux.client._display_link_ops import DisplayLinkOps
-from punt_lux.commands._ports import (
+from punt_lux.wire.ops import (
     DisplayInfoOps,
     DisplayModeOps,
     ErrorOps,
@@ -20,7 +20,7 @@ from punt_lux.commands._ports import (
     ThemeOps,
     WindowOps,
 )
-from punt_lux.commands.display_state_get import DisplayStateOps
+from punt_lux.wire.ops.display_state import DisplayStateOps
 
 __all__ = ["CallbackConvenienceOps", "SyncOps"]
 

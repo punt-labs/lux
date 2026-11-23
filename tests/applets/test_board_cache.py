@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     import pytest
 
     from punt_lux.applets.board_cache import CachedBoard
-    from punt_lux.operations import RenderTableRequest
+    from punt_lux.wire.operations import RenderTableRequest
 
 
 @final

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from fastapi import APIRouter
 
-from punt_lux.operations.models.display_link import DisplayLinkState
+from punt_lux.wire.operations.display_link import DisplayLinkState
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations

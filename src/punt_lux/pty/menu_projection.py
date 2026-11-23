@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Self
 
-from punt_lux.operations.models import OpError, RenderRequest
 from punt_lux.pty.menu_clients import TerminalClients
+from punt_lux.wire.operations import OpError, RenderRequest
 
 logger = logging.getLogger(__name__)
 

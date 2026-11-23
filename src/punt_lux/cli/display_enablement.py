@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Self, final
 
 import typer
 
-from punt_lux.operations.models.config import DisplayModeRequest
 from punt_lux.service.claude_permissions import ProjectPermissions
 from punt_lux.service.config import ConfigManager
 from punt_lux.service.display_mode_store import DisplayModeStore
+from punt_lux.wire.operations.config import DisplayModeRequest
 
 if TYPE_CHECKING:
     from punt_lux.cli._shared import OutputFlags

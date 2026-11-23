@@ -96,7 +96,7 @@ string the caller sent.
 ## Current mechanics (what actually happens today, traced 2026-08-16)
 
 1. **The client-submitted `scene_id` becomes the literal store key.**
-   `RenderRequest.scene_id: str` (`operations/models/render.py:54`) flows
+   `RenderRequest.scene_id: str` (`wire/operations/render.py:54`) flows
    through `SceneSubmission.of` (`operations/scene_submission.py:41`)
    unchanged into `SceneId(scene_id)`, and `SceneInstaller.install`
    (`operations/scene_installer.py:49`) passes that `SceneId` straight to
@@ -120,7 +120,7 @@ string the caller sent.
 3. **`frame_id` has the identical shape, with no ownership check at any
    granularity.** `FrameSpec.frame_id: str | None = None` defaults to the
    scene id when the caller names none (`RenderRequest.presentation`,
-   `operations/models/render.py:107`).
+   `wire/operations/render.py:107`).
    `ScenePresentationRegistry`/`FrameLifecycle` (referenced from
    `hub_display.py:44-58`) key by `frame_id` with no owner field in
    `ScenePresentation` at all — I grepped `frame_lifecycle.py` and
@@ -284,7 +284,7 @@ djb read that site end to end and found it wraps a **pydantic**
 path only — it has nothing to do with `render`/`show`/`update`/`clear`, and
 no catch site for `ConnectionScopedId`'s plain-dataclass `ValueError` exists
 anywhere on those paths today. Nor is the empty-`local_id` case theoretical:
-`RenderRequest.scene_id: str` (`operations/models/render.py:54`) carries no
+`RenderRequest.scene_id: str` (`wire/operations/render.py:54`) carries no
 `Field(min_length=1)`, so `show(scene_id="")` reaches `__post_init__`'s
 raise with nothing between it and the tool boundary.
 
@@ -294,7 +294,7 @@ call sites this design introduces: `SceneInstaller.install`,
 `.scoped(...)`/`ConnectionScopedId.compose` call with
 `except ValueError as exc: return OpError(code="invalid_request",
 reason=str(exc))` — the same shape `RenderRequest.parse` already uses for
-its own pydantic `ValidationError` (`operations/models/render.py:66-69`).
+its own pydantic `ValidationError` (`wire/operations/render.py:66-69`).
 This is a mechanical, three-site addition, not a design change: a
 construction this design specifies as fail-*closed* must also fail
 *clean* — into the same bounded `OpError` surface every other boundary
@@ -454,7 +454,7 @@ it treats every scene id as an opaque comparison key already; see Impacts on
 Other ADRs below.
 
 **Introspection is the one place a wire-adjacent shape actually changes**,
-additively. `SceneSummary` (`operations/models/query_scenes.py`) gains one
+additively. `SceneSummary` (`wire/operations/query_scenes.py`) gains one
 field:
 
 ```python
@@ -471,7 +471,7 @@ class SceneSummary(BaseModel):
 strip its own `ConnectionId` prefix off `scene_id` to recognize "this is the
 scene I called `music-player`." `owners[].identity` already carries the
 structured `ClientIdentity` (kind/name/repo/agent) of whoever owns a scene's
-roots (`operations/models/query_ownership.py:17`) — that already answers
+roots (`wire/operations/query_ownership.py:17`) — that already answers
 "whose scene is this" in human terms; `local_id` answers "what did they call
 it." Together they make the composed `scene_id` string legible without an
 agent ever needing to parse `ConnectionScopedId`'s own separator convention.
@@ -625,7 +625,7 @@ sessions, without collision.
 ## Introspection
 
 Covered above under Wire-Protocol Change: `SceneSummary` gains `local_id:
-str`. `FrameSummary` (`operations/models/query_scenes.py:32`) is left
+str`. `FrameSummary` (`wire/operations/query_scenes.py:32`) is left
 alone — a frame's `frame_id: str` is already opaque there and frames do not
 carry an `owners` field the way scenes do (frame ownership is not tracked
 anywhere in the code today, and this design does not add tracking for it,
@@ -730,7 +730,7 @@ before implementation, per Decision 4 below.
 
 - `make check-oo` must show improvement on every touched file, per the
   ratchet. `operations/scene_submission.py` and
-  `operations/models/render.py` are small, clean modules already; the two
+  `wire/operations/render.py` are small, clean modules already; the two
   new classes (`ConnectionScopedId`, and the `ID_SEPARATOR` extraction from
   `session_callback.py`) are themselves an OO-positive move — a composite-id
   concept promoted from one inline literal into a real, validated,
@@ -773,9 +773,9 @@ before implementation, per Decision 4 below.
   `src/punt_lux/operations/scene_clearing.py`,
   `src/punt_lux/operations/scene_submission.py`,
   `src/punt_lux/operations/identity.py`,
-  `src/punt_lux/operations/models/render.py`,
-  `src/punt_lux/operations/models/query_scenes.py`,
-  `src/punt_lux/operations/models/query_ownership.py`,
+  `src/punt_lux/wire/operations/render.py`,
+  `src/punt_lux/wire/operations/query_scenes.py`,
+  `src/punt_lux/wire/operations/query_ownership.py`,
   `src/punt_lux/wire/model/messages/scene.py`,
   `src/punt_lux/wire/model/messages/lifecycle.py`,
   `docs/architecture/target/target.md`,

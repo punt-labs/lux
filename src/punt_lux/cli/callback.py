@@ -28,12 +28,12 @@ from punt_lux.cli._shared import (
     scope_for,
 )
 from punt_lux.commands import CallbackRegisterOps, Ctx, callback_register
-from punt_lux.operations.models.callback_fields import CallbackFields
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
+from punt_lux.wire.operations.callback_fields import CallbackFields
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
     from punt_lux.client._callback_ops import CallbackConvenienceOps
-    from punt_lux.operations import Ok, OpError, Scope
+    from punt_lux.wire.operations import Ok, OpError, Scope
 
 callback_app = typer.Typer(
     name="callback",

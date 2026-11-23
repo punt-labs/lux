@@ -18,7 +18,8 @@ from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.client.rest_transport import HttpResponse, HubUnavailableError
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.kernel.hub_paths import HubPaths
-from punt_lux.operations import (
+from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import (
     Ok,
     OpError,
     Pong,
@@ -27,11 +28,10 @@ from punt_lux.operations import (
     SceneShown,
     Scope,
 )
-from punt_lux.operations.models.display_link import (
+from punt_lux.wire.operations.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
 )
-from punt_lux.wire.model.client_identity import ClientIdentity
 from tests.rest._fakes import make_client
 
 if TYPE_CHECKING:

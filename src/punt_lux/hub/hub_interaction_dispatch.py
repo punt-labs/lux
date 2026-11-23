@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from punt_lux.hub.session_callback import MenuLeaf
     from punt_lux.wire.model import RemoteEventHandlerInvocation
+    from punt_lux.wire.model.session_callback import MenuLeaf
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ class HubInteractionDispatch:
         the menu.
         """
         from punt_lux.hub.replicator_instance import hub_replicator
-        from punt_lux.hub.session_callback import MenuLeaf
+        from punt_lux.wire.model.session_callback import MenuLeaf
 
         try:
             leaf = MenuLeaf.parse(msg.element_id)
@@ -131,7 +131,7 @@ class HubInteractionDispatch:
         """
         from punt_lux.hub.details_instance import hub_client_details
         from punt_lux.hub.replicator_instance import hub_callback_router
-        from punt_lux.hub.session_callback import CallbackInvocation
+        from punt_lux.wire.model.session_callback import CallbackInvocation
 
         invocation = CallbackInvocation(leaf.connection_id, leaf.local_id)
         if invocation.is_details:

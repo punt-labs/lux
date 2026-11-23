@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_fault
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import Ok, OpError
+from punt_lux.wire.operations import Ok, OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, MenuOps
-    from punt_lux.operations import Scope, SetMenuRequest
+    from punt_lux.wire.operations import Scope, SetMenuRequest
+    from punt_lux.wire.ops import Ctx, MenuOps
 
 
 @final

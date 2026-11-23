@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import ClassVar, Self, final
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 __all__ = ["DetailsFrame"]
 

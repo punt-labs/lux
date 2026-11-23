@@ -15,7 +15,7 @@ import pytest
 from punt_lux.hub import dial_socket, socket_line
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.liveness import DisplayLiveness
-from punt_lux.hub.scene_presentation import ScenePresentation
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.link_access import generation_of, writer_of
 from tests.wire.model.display_double import Display
 

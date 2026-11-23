@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.hub.details_outcome import DetailsRefused, DetailsShown
 from punt_lux.operations.client_details import ClientDetailsOperations
 from punt_lux.operations.client_listing import ClientListing
-from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.wire.operations.common import OpError
 
 if TYPE_CHECKING:
     from punt_lux.hub.details_outcome import DetailsOutcome

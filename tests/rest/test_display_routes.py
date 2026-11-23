@@ -16,7 +16,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
-from punt_lux.operations.models.hub_connection import HubConnection
+from punt_lux.wire.operations.hub_connection import HubConnection
 
 from ._fakes import StubPort, make_client
 

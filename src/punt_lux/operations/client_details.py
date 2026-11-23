@@ -20,15 +20,15 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.named_sessions import NamedSession
 from punt_lux.operations.details_scene import DetailsScene
-from punt_lux.operations.models.common import OpError
 from punt_lux.operations.timing import Timed
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations.common import OpError
 
 if TYPE_CHECKING:
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.client_listing import ClientListing
-    from punt_lux.operations.models.scene_results import SceneShown
     from punt_lux.operations.scene_installer import SceneInstaller
+    from punt_lux.wire.operations.scene_results import SceneShown
 
 __all__ = ["ClientDetailsOperations"]
 

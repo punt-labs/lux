@@ -28,12 +28,10 @@ from punt_lux.kernel.programmer_error import ProgrammerError
 
 if TYPE_CHECKING:
     from punt_lux.hub.frame_expiry import FrameExpiry
-    from punt_lux.hub.scene_presentation import (
-        ScenePresentation,
-        ScenePresentationRegistry,
-    )
+    from punt_lux.hub.scene_presentation import ScenePresentationRegistry
     from punt_lux.hub.store_lock import StoreLock
     from punt_lux.wire.model import ConnectionId, SceneId
+    from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 __all__ = ["FrameLifecycle", "SceneRootRemover"]
 
