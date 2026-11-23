@@ -303,6 +303,8 @@ readiness is unchanged.
 
 Local ownership probes make one connection within the remaining deadline.
 Hub probes share one budget across connection, headers, and body reads.
+The first reply starts a dial's stability window; later replies credit time only
+up to their request's send time, excluding response delivery and local-check time.
 
 Display readiness errors explain the missing connection or observed exit and,
 when available, include the last 12 lines (at most 4096 bytes) of

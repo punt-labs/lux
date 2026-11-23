@@ -71,4 +71,4 @@ def test_real_dial_names_survive_query_resolution_and_reset_stability() -> None:
         identity = reply.payload["hub_connection_id"]
         assert isinstance(identity, str)
         assert identity == str(dial)
-        assert window.observe(identity, now) is expected
+        assert window.observe(identity, (now, now)) is expected

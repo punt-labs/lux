@@ -15,8 +15,8 @@ bash scripts/verify_readiness_model.sh
 | `Spawn`, `NoCandidate`, `Crash` | `_candidate`: new PID required; a later missing/replaced candidate fails |
 | `generation`, `Dial`, `Drop` | `DialGeneration.ref`, immutable `GenerationRef` token, `ClientRegistry.asks` reconnect |
 | `Begin`, `LocalDone` | `ReadinessProbe.local`: one Unix connection plus kernel peer credentials |
-| `Snapshot` | `DisplayQuery.run` attaches the pinned request port's `hub_connection_id`; `HubDisplayProbe` validates PID |
-| `Finish` | `DisplayStability.observe` uses the Hub reply timestamp, not the later local-probe completion time |
+| `Snapshot`, `Receive` | `DisplayQuery.run` captures the pinned dial; delivery/body parsing can follow that capture |
+| `Finish` | `DisplayStability.observe` starts at first receipt, crediting only through each later request's send point |
 | `Wait`, `Spend` | `DisplayReadiness.polls`, `_remaining`, and `ReadinessHTTP` per-raw-read deadlines |
 | `ProbeError` | local witness loss, unreachable/malformed Hub, and readiness-error logging |
 | `Finished` | return or raise; no further readiness probes |
@@ -49,9 +49,11 @@ Paths below are relative to `tests/`.
 | Hub absent, refused, unexpected status | `service/test_hub_display_probe.py`: actionable errors and connection cleanup |
 | Every local/Hub probe receives remaining budget; no work after expiry | `service/test_display_readiness.py::test_local_and_hub_probes_share_the_remaining_deadline` |
 | Local post-check cannot age a Hub sample | `service/test_display_readiness.py::test_local_probe_time_cannot_age_the_preceding_hub_sample` |
+| Delivery after capture cannot finish stability; first connection cannot inherit pre-request time | `service/test_display_readiness.py::test_reply_delivery_time_cannot_finish_the_window`; `service/test_display_stability.py::test_only_time_between_first_receipt_and_latest_send_is_credited` |
 | Response arrives beyond total deadline | `service/test_display_readiness.py::test_probe_cannot_turn_a_deadline_overrun_into_success` |
 | Real live owner / wrong owner / absent socket / connect error | `service/test_readiness_probe.py`; live-owner test uses real Unix socket credentials |
 | HTTP header/body parser uses budgeted reader | `service/test_readiness_http.py`: real socketpair plus real TCP connection through the response factory |
+| Connection-close body survives HTTPConnection closing its handle | `service/test_readiness_http.py`: both persistent and close replies, with bodies larger than the header buffer |
 | Later raw reads shrink budget; exhausted read starts no I/O | `service/test_readiness_http.py::test_a_later_read_gets_only_the_remaining_budget_and_expiry_starts_no_io` |
 | Failure diagnostics preserve reason, label and bounded stderr | `service/test_display_readiness.py`, `service/test_restart_readiness.py` |
 
@@ -60,8 +62,9 @@ Paths below are relative to `tests/`.
 Safety is checked as unreachable bad-state goals, following `board_ordering.tex`:
 putting safety into the state predicate would disable defective transitions and
 make a fidelity check meaningless. The verifier generates variants changing only
-the `RESETDIAL` or `BOUNDWORK` axiom. The former must reach ready on a dial younger
-than the window; the latter must reach tick seven. The fixed model must exhaust
+one of `RESETDIAL`, `BOUNDWORK`, or `SAMPLEBOUND`. Disabling dial reset or crediting
+receipt-time delivery must reach ready on a dial younger than the window;
+unbounded work must reach tick seven. The fixed model must exhaust
 all states without either defect or a deadlock. Terminal self-loops model a
 finished observer, not continued I/O.
 
@@ -78,10 +81,12 @@ outside this change; the tail is explicitly best-effort.
 PASS: display_restart_readiness fuzz
 PASS: no-reset fuzz
 PASS: unbounded fuzz
-PASS: I1-I4-safety not found (12820 states)
-PASS: deadlock not found (12820 states)
-PASS: reconnect-fidelity found (1135 states)
-PASS: deadline-fidelity found (60 states)
+PASS: receipt-credit fuzz
+PASS: I1-I4-safety not found (80579 states)
+PASS: deadlock not found (80579 states)
+PASS: reconnect-fidelity found (6145 states)
+PASS: deadline-fidelity found (145 states)
+PASS: delivery-fidelity found (20520 states)
 PASS: all readiness model checks
 ```
 
@@ -90,3 +95,9 @@ The reconnect trace first samples dial 1 at tick 1, then samples replacement dia
 ready with age zero. The deadline trace starts probe work at tick 1 and performs
 three two-tick spends with bounding disabled, reaching tick 7. These are expected
 bad-state witnesses, not failures of the fixed observer.
+
+The delivery witness receives the first dial-2 sample at tick 2. A later request
+is sent at tick 3, captures the same dial at tick 4, and arrives at tick 5.
+Receipt-time credit reaches ready with sampled age 2; send-time credit does not.
+The deterministic runtime regression exercises the same pattern with a 0.4s
+delivery delay, within the real probe cap, and the actual three-second window.

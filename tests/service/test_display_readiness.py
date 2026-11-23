@@ -281,6 +281,28 @@ def test_local_probe_time_cannot_age_the_preceding_hub_sample(paths: MagicMock) 
         assert ready.observe(502, 501)
 
 
+def test_reply_delivery_time_cannot_finish_the_window(paths: MagicMock) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.ReadinessProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        hub.return_value = "dial"
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        assert not ready.observe(502, 501)
+
+        def delayed_reply(_pid: int, _timeout: float) -> str:
+            clock.return_value = 3.2
+            return "dial"
+
+        clock.return_value = 2.8
+        hub.side_effect = delayed_reply
+        assert not ready.observe(502, 501)
+        clock.return_value = 3.3
+        hub.side_effect = None
+        assert ready.observe(502, 501)
+
+
 def test_stderr_tail_surfaces_monitor_error_and_is_bounded(tmp_path: Path) -> None:
     path = tmp_path / ".punt-labs/lux/logs/luxd-display-stderr.log"
     path.parent.mkdir(parents=True)

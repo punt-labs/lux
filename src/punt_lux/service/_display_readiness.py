@@ -61,6 +61,7 @@ class DisplayReadiness:
             return False
         if not self._local_alive(candidate):
             return self._disconnected()
+        sent_at = time.monotonic()
         try:
             connected = ReadinessProbe.connected(
                 candidate, min(_PROBE_SECONDS, self._remaining())
@@ -70,15 +71,13 @@ class DisplayReadiness:
         observed_at = time.monotonic()
         if not self._local_alive(candidate):
             return self._disconnected()
-        return self._stability.observe(connected, observed_at)
+        return self._stability.observe(connected, (sent_at, observed_at))
 
     def _candidate(self, pid: int | None, before: int | None) -> int | None:
         if self._pid is not None and pid != self._pid:
             self._lost("exited")
-        if pid is None or pid == before:
-            return None
-        self._pid = pid
-        return pid
+        self._pid = pid if pid != before else None
+        return self._pid
 
     def _remaining(self) -> float:
         remaining = self._deadline - time.monotonic()

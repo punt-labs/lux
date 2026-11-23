@@ -167,6 +167,8 @@
 
 ### Fixed
 
+- Display readiness stability excludes response-delivery time: it starts at the
+  first reply receipt and credits only through a later request's send time.
 - Raw Display identity facts are immutable, matching the inherited DisplayInfo
   contract and the repository's model policy.
 - Display readiness can read a connection-close HTTP reply after its headers;

@@ -681,6 +681,10 @@ deadline. A Hub probe shares one shrinking budget across connect, send, response
 headers, and body reads. The failure-only launchd diagnostic retains its separate
 bounded I/O budget after readiness has failed.
 Hub restart readiness is unchanged.
+The first receipt starts a dial's window, while later samples credit time only
+up to their request send point. This excludes response delivery and post-reply
+local-check time, and avoids crediting time before a newly dialed connection
+actually answered the first request.
 
 An observed process exit or replacement fails immediately, even before a Hub
 connection, rather than accepting launchd's next crash-loop generation. Loss of

@@ -22,14 +22,14 @@ class DisplayStability:
     def started(self) -> bool:
         return self._witness is not None
 
-    def observe(self, identity: str | None, now: float) -> bool:
-        """Credit only observations since this dial's first consecutive reply."""
+    def observe(self, identity: str | None, interval: tuple[float, float]) -> bool:
+        """Credit the interval from the first receipt through the latest send."""
         if not identity:
             self._witness = None
             return False
         if self._witness is None or self._witness[0] != identity:
-            self._witness = (identity, now)
-        return now - self._witness[1] >= self._seconds
+            self._witness = (identity, interval[1])
+        return max(0, interval[0] - self._witness[1]) >= self._seconds
 
     def phase(self, now: float) -> str:
         if self._witness is None:

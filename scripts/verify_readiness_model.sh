@@ -14,6 +14,7 @@ echo "Verification logs: $LOG_DIR"
 MODEL="$ROOT/docs/display_restart_readiness.tex"
 sed 's/^  RESETDIAL = ztrue/  RESETDIAL = zfalse/' "$MODEL" > "$LOG_DIR/no-reset.tex"
 sed 's/^  BOUNDWORK = ztrue/  BOUNDWORK = zfalse/' "$MODEL" > "$LOG_DIR/unbounded.tex"
+sed 's/^  SAMPLEBOUND = ztrue/  SAMPLEBOUND = zfalse/' "$MODEL" > "$LOG_DIR/receipt-credit.tex"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -21,7 +22,7 @@ fail() {
   exit 1
 }
 
-for model in "$MODEL" "$LOG_DIR/no-reset.tex" "$LOG_DIR/unbounded.tex"; do
+for model in "$MODEL" "$LOG_DIR/no-reset.tex" "$LOG_DIR/unbounded.tex" "$LOG_DIR/receipt-credit.tex"; do
   label="$(basename "$model" .tex)"
   log="$LOG_DIR/$label-fuzz.log"
   "$FUZZ" -t "$model" > "$log" 2>&1 || fail "$label fuzz" "$log"
@@ -55,4 +56,5 @@ check "$MODEL" I1-I4-safety 'not found' "$SAFETY"
 check "$MODEL" deadlock 'not found'
 check "$LOG_DIR/no-reset.tex" reconnect-fidelity found 'phase=rsready & age<3'
 check "$LOG_DIR/unbounded.tex" deadline-fidelity found 'now>6'
+check "$LOG_DIR/receipt-credit.tex" delivery-fidelity found 'phase=rsready & age<3'
 echo 'PASS: all readiness model checks'

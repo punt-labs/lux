@@ -24,8 +24,12 @@ All time, including waits and individual blocking reads, is explicit. Zero-time
 operations are local bookkeeping. The extra seventh tick is intentional: an
 unbounded probe must be able to violate the deadline, not be disabled by a type.
 
-\texttt{Snapshot} is the Hub reply's observation point. A later local ownership
-check cannot credit its elapsed time to that reply. A disconnect after the last
+\texttt{Snapshot} is the Hub reply's observation point. \texttt{Receive} is
+separate: delivery and body parsing consume time after the Hub captured the dial.
+The first receipt starts a dial's window; later samples credit time only up to
+their request's send point. Using send time at both ends would incorrectly
+credit a connection created during the first request. A later local ownership
+check cannot credit its elapsed time either. A disconnect after the last
 sample cannot be ruled out by any observer; safety is about the age of the dial
 at the accepted sample, not a promise that the process will remain alive later.
 Kernel ownership and PID checks are abstracted as successful stage transitions
@@ -37,19 +41,21 @@ their existing separate bounded budget is not readiness work.
 \begin{zed}
   ZBOOL ::= ztrue | zfalse \\
   RPHASE ::= rscandidate | rsstabilizing | rsready | rsfailed \\
-  RWORK ::= rwwait | rwidle | rwlocal | rwhub | rwafter \\
+  RWORK ::= rwwait | rwidle | rwlocal | rwhub | rwwire | rwafter \\
   RPID ::= rpold | rpnew | rpgone \\
   TICK == 0 \upto 7 \\
   DIAL == 0 \upto 2
 \end{zed}
 \begin{axdef}
-  RESETDIAL, BOUNDWORK : ZBOOL
+  RESETDIAL, BOUNDWORK, SAMPLEBOUND : ZBOOL
 \where
   RESETDIAL = ztrue \\
-  BOUNDWORK = ztrue
+  BOUNDWORK = ztrue \\
+  SAMPLEBOUND = ztrue
 \end{axdef}
 Zero is no dial. Serial names increase even across \texttt{Drop}, excluding ABA
 reuse. The script generates fidelity variants by changing exactly one switch.
+\texttt{SAMPLEBOUND} disables receipt-time credit on later samples.
 
 \section{State}
 As in \texttt{board\_ordering.tex}, safety is checked by reachability goals,
@@ -59,7 +65,7 @@ bad transitions the fidelity model must exhibit.
   phase : RPHASE \\
   work : RWORK \\
   process : RPID \\
-  now, born, sampledBorn, sampledAt, started, age : TICK \\
+  now, born, sampledBorn, sampledAt, started, age, sentAt, receivedAt : TICK \\
   generation, serial, seen, remembered : DIAL
 \end{schema}
 \begin{schema}{Init}
@@ -69,7 +75,8 @@ bad transitions the fidelity model must exhibit.
   now' = 0 \land born' = 0 \land sampledBorn' = 0 \\
   sampledAt' = 0 \land started' = 0 \land age' = 0 \\
   generation' = 0 \land serial' = 0 \land seen' = 0
-    \land remembered' = 0
+    \land remembered' = 0 \\
+  sentAt' = 0 \land receivedAt' = 0
 \end{schema}
 
 \section{Environment and polling}
@@ -81,7 +88,8 @@ bad transitions the fidelity model must exhibit.
   now' = now \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Dial}
   \Delta Readiness
@@ -92,7 +100,8 @@ bad transitions the fidelity model must exhibit.
   phase' = phase \land work' = work \land process' = process \\
   now' = now \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Drop}
   \Delta Readiness
@@ -102,7 +111,8 @@ bad transitions the fidelity model must exhibit.
   phase' = phase \land work' = work \land process' = process \\
   now' = now \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Wait}
   \Delta Readiness
@@ -114,7 +124,8 @@ bad transitions the fidelity model must exhibit.
   process' = process \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{NoCandidate}
   \Delta Readiness
@@ -124,7 +135,8 @@ bad transitions the fidelity model must exhibit.
   now' = now \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 
 \section{Probe stages}
@@ -137,7 +149,8 @@ bad transitions the fidelity model must exhibit.
   born' = born \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{LocalDone}
   \Delta Readiness
@@ -147,17 +160,30 @@ bad transitions the fidelity model must exhibit.
   born' = born \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = now \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Snapshot}
   \Delta Readiness
 \where
   phase \in \{rscandidate, rsstabilizing\} \land work = rwhub \\
-  work' = rwafter \land seen' = generation \\
+  work' = rwwire \land seen' = generation \\
   sampledBorn' = born \land sampledAt' = now \\
   phase' = phase \land process' = process \land now' = now \land born' = born \\
   started' = started \land age' = age \\
-  generation' = generation \land serial' = serial \land remembered' = remembered
+  generation' = generation \land serial' = serial \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
+\end{schema}
+\begin{schema}{Receive}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwwire \\
+  work' = rwafter \land receivedAt' = now \land sentAt' = sentAt \\
+  phase' = phase \land process' = process \land now' = now \land born' = born \\
+  sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \\
+  seen' = seen \land remembered' = remembered
 \end{schema}
 \begin{schema}{Finish}
   \Delta Readiness
@@ -172,20 +198,25 @@ bad transitions the fidelity model must exhibit.
     \land age' = sampledAt - sampledBorn \\
   \quad~ \land (((phase = rscandidate \lor
     (RESETDIAL = ztrue \land remembered \neq seen))
-    \land started' = sampledAt) \\
+    \land started' = receivedAt) \\
   \quad~ \lor (phase = rsstabilizing \land
     (RESETDIAL = zfalse \lor remembered = seen) \land started' = started)) \\
-  \quad~ \land ((sampledAt - started' \geq 3 \land phase' = rsready) \\
-  \quad~ \lor (sampledAt - started' < 3 \land phase' = rsstabilizing))) \\
+  \quad~ \land ((((SAMPLEBOUND = ztrue \land sentAt - started' \geq 3)
+    \lor (SAMPLEBOUND = zfalse \land receivedAt - started' \geq 3))
+    \land phase' = rsready) \\
+  \quad~ \lor (((SAMPLEBOUND = ztrue \land sentAt - started' < 3)
+    \lor (SAMPLEBOUND = zfalse \land receivedAt - started' < 3))
+    \land phase' = rsstabilizing))) \\
   (phase' = rsready \land work' = rwidle) \lor
-    (phase' \neq rsready \land work' = rwwait)
+    (phase' \neq rsready \land work' = rwwait) \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Spend}
   \Delta Readiness \\
   cost? : 1 \upto 2
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
-  work \in \{rwlocal, rwhub, rwafter\} \land now < 6 \\
+  work \in \{rwlocal, rwhub, rwwire, rwafter\} \land now < 6 \\
   (BOUNDWORK = ztrue \land cost? \leq 1 \land now + cost? \leq 6)
     \lor (BOUNDWORK = zfalse \land now + cost? \leq 7) \\
   now' = now + cost? \\
@@ -194,7 +225,8 @@ bad transitions the fidelity model must exhibit.
   process' = process \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \texttt{Spend} can occur repeatedly in any probe stage. Thus a slow trickle of
 HTTP header/body bytes is not collapsed into a single unbounded receive.
@@ -208,18 +240,20 @@ HTTP header/body bytes is not collapsed into a single unbounded receive.
   generation' = 0 \land serial' = serial \land now' = now \land born' = born \\
   sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \land seen' = seen
-    \land remembered' = remembered
+    \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{ProbeError}
   \Delta Readiness
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
-  work \in \{rwlocal, rwhub, rwafter\} \\
+  work \in \{rwlocal, rwhub, rwwire, rwafter\} \\
   phase' = rsfailed \land work' = rwidle \land process' = process \\
   now' = now \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
-  seen' = seen \land remembered' = remembered
+  seen' = seen \land remembered' = remembered \\
+  sentAt' = sentAt \land receivedAt' = receivedAt
 \end{schema}
 \begin{schema}{Finished}
   \Xi Readiness
@@ -237,6 +271,10 @@ ready implies sampled dial age at least three; time never exceeds six;
 ready implies the new PID; ready occurs strictly before six. A separate model
 check enables deadlock detection. Terminal self-loops represent termination, not
 continued I/O. Removing \texttt{RESETDIAL} must reach a too-young ready dial;
-removing \texttt{BOUNDWORK} must reach tick seven. See the companion coverage
+removing \texttt{BOUNDWORK} must reach tick seven. Disabling \texttt{SAMPLEBOUND}
+must exhibit an early ready caused by post-capture delivery. Negative inner
+intervals credit zero; the modeled threshold is strictly positive, so comparing
+the interval with three is equivalent to comparing its nonnegative credit.
+See the companion coverage
 audit for operation-to-code refinement and every test partition.
 \end{document}
