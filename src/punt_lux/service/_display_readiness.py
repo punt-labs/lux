@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, Self
 
+from punt_lux.service._display_stability import DisplayStability
 from punt_lux.service._hub_display_probe import HubDisplayProbe
 from punt_lux.service._restart_readiness import RestartReadiness
 
@@ -26,13 +27,13 @@ class DisplayReadinessError(RuntimeError):
 class DisplayReadiness:
     """Bound startup and require continuous observations of the same Display."""
 
-    __slots__ = ("_connected_at", "_deadline", "_paths", "_pid", "_spec", "_wait")
+    __slots__ = ("_deadline", "_paths", "_pid", "_spec", "_stability", "_wait")
     _spec: ServiceSpec
     _paths: DisplayPaths
     _wait: float
     _deadline: float
     _pid: int | None
-    _connected_at: float | None
+    _stability: DisplayStability
 
     def __new__(cls, spec: ServiceSpec, paths: DisplayPaths, wait: float) -> Self:
         self = super().__new__(cls)
@@ -41,7 +42,7 @@ class DisplayReadiness:
         self._wait = wait
         self._deadline = time.monotonic() + wait
         self._pid = None
-        self._connected_at = None
+        self._stability = DisplayStability(_STABILITY_SECONDS)
         return self
 
     @staticmethod
@@ -66,14 +67,12 @@ class DisplayReadiness:
             )
         except ConnectionError as error:
             self._fail(str(error))
-        if not connected or not self._local_alive(candidate):
+        observed_at = time.monotonic()
+        self._remaining()
+        if not self._local_alive(candidate):
             return self._disconnected()
-        now = time.monotonic()
-        if now >= self._deadline:
-            self.timeout()
-        if self._connected_at is None:
-            self._connected_at = now
-        return now - self._connected_at >= _STABILITY_SECONDS
+        self._remaining()
+        return self._stability.observe(connected, observed_at)
 
     def _candidate(self, pid: int | None, before: int | None) -> int | None:
         if self._pid is not None and pid != self._pid:
@@ -92,7 +91,7 @@ class DisplayReadiness:
     def timeout(self) -> NoReturn:
         """Explain which startup witness never became stable."""
         reason = "never connected to Hub with the new PID"
-        if self._connected_at is not None:
+        if self._stability.started:
             reason = "did not complete the Hub connection stability window"
         self._fail(f"display did not come back within {self._wait:g}s: {reason}")
 
@@ -100,16 +99,12 @@ class DisplayReadiness:
         return self._paths.is_running() and self._paths.peer_pid() == pid
 
     def _disconnected(self) -> bool:
-        if self._connected_at is not None:
+        if self._stability.started:
             self._lost("disconnected from Hub or lost its socket")
         return False
 
     def _lost(self, reason: str) -> NoReturn:
-        phase = "before connecting to Hub"
-        if self._connected_at is not None:
-            phase = (
-                f"after {time.monotonic() - self._connected_at:.1f}s connected to Hub"
-            )
+        phase = self._stability.phase(time.monotonic())
         self._fail(f"display pid {self._pid} {reason} {phase}")
 
     def _fail(self, message: str) -> NoReturn:

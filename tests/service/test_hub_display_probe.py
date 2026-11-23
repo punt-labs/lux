@@ -10,8 +10,10 @@ import pytest
 from punt_lux.service._hub_display_probe import HubDisplayProbe
 
 
-@pytest.mark.parametrize("reported,expected", [(502, True), (501, False)])
-def test_hub_facts_must_name_the_new_process(reported: int, expected: bool) -> None:
+@pytest.mark.parametrize("reported,expected", [(502, "dial-1"), (501, None)])
+def test_hub_facts_must_name_the_new_process(
+    reported: int, expected: str | None
+) -> None:
     payload = {
         "backend": "opengl",
         "window_width": 800,
@@ -21,6 +23,7 @@ def test_hub_facts_must_name_the_new_process(reported: int, expected: bool) -> N
         "uptime_seconds": 1,
         "protocol_version": "1",
         "element_kinds": 25,
+        "hub_connection_id": "dial-1",
     }
     with (
         patch(
@@ -33,7 +36,7 @@ def test_hub_facts_must_name_the_new_process(reported: int, expected: bool) -> N
         response = connect.return_value.getresponse.return_value
         response.status = 200
         response.read.return_value = json.dumps(payload).encode()
-        assert HubDisplayProbe.connected(502, 0.25) is expected
+        assert HubDisplayProbe.connected(502, 0.25) == expected
     connect.assert_called_once_with("127.0.0.1", 8430, timeout=0.25)
     connect.return_value.request.assert_called_once_with("GET", "/display")
     connect.return_value.close.assert_called_once()

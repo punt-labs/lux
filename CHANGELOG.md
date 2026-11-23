@@ -167,6 +167,9 @@
 
 ### Fixed
 
+- Display restart stability now belongs to the Hub's pinned connection identity,
+  not just the Display PID. Reconnects and inconclusive slow probes restart the
+  full window instead of inheriting an old dial's interval or claiming a crash.
 - Display restart now requires Hub facts matching the new Display PID and a
   three-second stable connection and owned socket, within the existing
   30-second readiness deadline. Crashes, disconnects, and an unreachable Hub

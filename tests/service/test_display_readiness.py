@@ -58,7 +58,7 @@ def test_crash_before_hub_connect_fails_without_accepting_respawn(
     assert caplog.records[-1].levelno == logging.ERROR
 
 
-@pytest.mark.parametrize("loss", ["pid", "hub", "socket"])
+@pytest.mark.parametrize("loss", ["pid", "socket"])
 def test_crash_or_disconnect_during_stability_fails(
     paths: MagicMock, loss: str
 ) -> None:
@@ -71,14 +71,53 @@ def test_crash_or_disconnect_during_stability_fails(
         ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
         assert not ready.observe(502, 501)
         clock.return_value = 1.5
-        if loss == "hub":
-            hub.return_value = False
         if loss == "socket":
             paths.is_running.return_value = False
         with pytest.raises(
             DisplayReadinessError, match=r"after 1\.5s connected to Hub"
         ):
             ready.observe(None if loss == "pid" else 502, 501)
+
+
+def test_same_pid_on_a_replacement_hub_dial_restarts_the_window(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        hub.return_value = "first-dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 2.9
+        hub.return_value = "replacement-dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 3
+        assert not ready.observe(502, 501)
+        clock.return_value = 5.9
+        assert ready.observe(502, 501)
+
+
+def test_a_pending_hub_probe_restarts_stability_without_claiming_a_disconnect(
+    paths: MagicMock,
+) -> None:
+    with (
+        patch("punt_lux.service._display_readiness.time.monotonic") as clock,
+        patch("punt_lux.service._display_readiness.HubDisplayProbe.connected") as hub,
+    ):
+        clock.return_value = 0
+        ready = DisplayReadiness(DISPLAY_SPEC, paths, 30)
+        hub.return_value = "dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 2
+        hub.return_value = None
+        assert not ready.observe(502, 501)
+        clock.return_value = 3
+        hub.return_value = "dial"
+        assert not ready.observe(502, 501)
+        clock.return_value = 6
+        assert ready.observe(502, 501)
 
 
 def test_hub_unreachable_is_logged_and_becomes_existing_cli_error(
