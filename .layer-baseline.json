@@ -2,7 +2,6 @@
   "punt_lux.__main__ \u2192 punt_lux.commands",
   "punt_lux.__main__ \u2192 punt_lux.commands.ping",
   "punt_lux.__main__ \u2192 punt_lux.hub.display_link",
-  "punt_lux.apps.beads_board \u2192 punt_lux.operations",
   "punt_lux.cli._shared \u2192 punt_lux.operations",
   "punt_lux.cli.beads \u2192 punt_lux.operations",
   "punt_lux.cli.callback \u2192 punt_lux.commands",

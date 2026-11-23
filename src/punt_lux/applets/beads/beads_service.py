@@ -16,11 +16,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.applets.applet_board import AppletBoard
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.menu_entry import MenuEntry
-from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.apps.beads_board import BeadsBoard
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_ops import BoardOps

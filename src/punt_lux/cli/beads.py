@@ -18,10 +18,10 @@ from typing import Self, final
 
 import typer
 
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_result import BeadsFailure
+from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.applets.board_ops import BoardOps, ScopedBoardOps
-from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_result import BeadsFailure
 from punt_lux.client.facade import LuxClient
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest

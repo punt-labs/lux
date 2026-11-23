@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from punt_lux.apps._beads_payload import BeadsLoader
+from punt_lux.applets.beads._beads_payload import BeadsLoader
 
 if TYPE_CHECKING:
-    from punt_lux.apps.beads_load import BeadsLoad
+    from punt_lux.applets.beads.beads_load import BeadsLoad
 
 
 class BeadsBrowser:

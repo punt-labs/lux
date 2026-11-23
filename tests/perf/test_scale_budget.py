@@ -112,7 +112,7 @@ class TableScaleFixture:
 
     Each scenario builds a fresh composition via ``TableComposition.build``
     — the real production entry point (``operations/conveniences.py`` and
-    ``apps.beads`` both call it) — so the measured cost is the same
+    ``applets.beads.browser`` share it) — so the measured cost is the same
     ``FilteredTableModel`` / ``TableElement`` path a live show_table call
     exercises, not a hand-rolled stand-in.
     """

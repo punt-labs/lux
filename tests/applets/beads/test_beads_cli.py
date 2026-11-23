@@ -13,11 +13,11 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
-from punt_lux.apps._beads_payload import BeadsPayloadBuilder
-from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.apps.beads_board import BeadsBoard
-from punt_lux.apps.beads_load import BeadsLoad
-from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.applets.beads._beads_payload import BeadsPayloadBuilder
+from punt_lux.applets.beads.beads_board import BeadsBoard
+from punt_lux.applets.beads.beads_load import BeadsLoad
+from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.cli.beads import BeadsBoardCommand
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import (
@@ -81,7 +81,7 @@ def _end_fake_group(pid: int, _signal: int) -> None:
 
 @pytest.fixture(autouse=True)
 def fake_group_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("punt_lux.apps.bd_child.os.killpg", _end_fake_group)
+    monkeypatch.setattr("punt_lux.applets.beads.bd_child.os.killpg", _end_fake_group)
 
 
 @final
@@ -157,7 +157,9 @@ def _bd_wrote(issues: list[dict[str, Any]]) -> _FakeProcess:
 
 def _spawns(process: _FakeProcess) -> Any:  # the patch context manager
     """Patch the spawn so ``bd`` is never really run, and return the process."""
-    return patch("punt_lux.apps.bd_command.subprocess.Popen", return_value=process)
+    return patch(
+        "punt_lux.applets.beads.bd_command.subprocess.Popen", return_value=process
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +254,7 @@ class TestLoadBeads:
     ) -> None:
         wrote = _FakeProcess(json.dumps([{"id": "beads-001", "title": "ok"}, "x", 42]))
         with (
-            caplog.at_level("WARNING", logger="punt_lux.apps._beads_payload"),
+            caplog.at_level("WARNING", logger="punt_lux.applets.beads._beads_payload"),
             _spawns(wrote),
         ):
             outcome = BeadsBrowser().load().result
@@ -285,7 +287,7 @@ class TestLoadBeads:
 
     def test_bd_not_found_returns_empty(self) -> None:
         with patch(
-            "punt_lux.apps.bd_command.subprocess.Popen",
+            "punt_lux.applets.beads.bd_command.subprocess.Popen",
             side_effect=FileNotFoundError("bd not found"),
         ):
             outcome = BeadsBrowser().load().result
@@ -534,7 +536,7 @@ class TestBeadsBoard:
         project = tmp_path.name
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
         with patch(
-            "punt_lux.apps.bd_command.subprocess.Popen",
+            "punt_lux.applets.beads.bd_command.subprocess.Popen",
             return_value=_bd_wrote(active),
         ):
             request, note = BeadsBoardCommand().request(all_issues=False)
@@ -560,7 +562,7 @@ class TestBeadsBoard:
         monkeypatch.chdir(inside)
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
         with patch(
-            "punt_lux.apps.bd_command.subprocess.Popen",
+            "punt_lux.applets.beads.bd_command.subprocess.Popen",
             return_value=_bd_wrote(active),
         ):
             request, _note = BeadsBoardCommand().request(all_issues=False)
@@ -573,7 +575,7 @@ class TestBeadsBoard:
         # (not a table), so the CLI reports the reason instead of "0 issues".
         monkeypatch.chdir(tmp_path)
         with patch(
-            "punt_lux.apps.bd_command.subprocess.Popen",
+            "punt_lux.applets.beads.bd_command.subprocess.Popen",
             return_value=_FakeProcess("", "db locked", 1),
         ):
             request, note = BeadsBoardCommand().request(all_issues=False)
@@ -591,7 +593,7 @@ class TestBeadsCLI:
         client = _RecordingClient()
         with (
             patch(
-                "punt_lux.apps.bd_command.subprocess.Popen",
+                "punt_lux.applets.beads.bd_command.subprocess.Popen",
                 return_value=_FakeProcess("", "db locked", 1),
             ),
             patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
@@ -617,7 +619,7 @@ class TestBeadsCLI:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
         with (
             patch(
-                "punt_lux.apps.bd_command.subprocess.Popen",
+                "punt_lux.applets.beads.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(active),
             ),
             patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
@@ -642,7 +644,7 @@ class TestBeadsCLI:
         client = _RejectingClient("duplicate element id 'table'")
         with (
             patch(
-                "punt_lux.apps.bd_command.subprocess.Popen",
+                "punt_lux.applets.beads.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
             patch("punt_lux.cli.beads.LuxClient.connect", return_value=client),
@@ -665,7 +667,7 @@ class TestBeadsCLI:
         monkeypatch.chdir(tmp_path)
         with (
             patch(
-                "punt_lux.apps.bd_command.subprocess.Popen",
+                "punt_lux.applets.beads.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
             patch("punt_lux.kernel.hub_paths.HubPaths.read_port", return_value=None),
@@ -690,7 +692,7 @@ class TestBeadsCLI:
         monkeypatch.chdir(tmp_path)
         with (
             patch(
-                "punt_lux.apps.bd_command.subprocess.Popen",
+                "punt_lux.applets.beads.bd_command.subprocess.Popen",
                 return_value=_bd_wrote(_ISSUES),
             ),
             patch(

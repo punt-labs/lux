@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.applets.beads_source import BoardUnavailableError
+from punt_lux.applets.beads.beads_source import BoardUnavailableError
 from punt_lux.applets.board_glass import BoardGlass
 from punt_lux.applets.board_work import BoardWork
 from punt_lux.applets.held_board import HeldBoard

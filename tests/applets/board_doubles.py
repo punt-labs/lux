@@ -7,7 +7,7 @@ are about, from "the user saw something before the database was asked" to "the
 board was kept even though the push never landed".
 
 They live here rather than in one test module because two modules drive the same
-pair: :mod:`tests.applets.test_beads_service` through the service, and
+pair: :mod:`tests.applets.beads.test_beads_service` through the service, and
 :mod:`tests.applets.test_board_cache` through the cache underneath it.
 """
 
@@ -16,9 +16,9 @@ from __future__ import annotations
 import threading
 from typing import Self, final
 
-from punt_lux.apps.bd_command import BdOutput
-from punt_lux.apps.beads_load import BeadsLoad
-from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.applets.beads.bd_command import BdOutput
+from punt_lux.applets.beads.beads_load import BeadsLoad
+from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown

@@ -117,7 +117,7 @@ lux = "punt_lux.__main__:_entry"
 luxd-hub = "punt_lux.luxd:main"
 luxd-display = "punt_lux.luxd_display:DisplayEntryPoint.main"
 luxd-pty = "punt_lux.ptyd.__main__:PtyEntryPoint.main"
-lux-beads = "punt_lux.applets.beads:app"
+lux-beads = "punt_lux.applets.beads.applet:app"
 
 [project.urls]
 Homepage = "https://github.com/punt-labs/lux"
@@ -208,7 +208,7 @@ ignore = [
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/cli/*.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/luxd.py" = ["PLC0415"]
-"src/punt_lux/apps/beads.py" = ["PLC0415"]
+"src/punt_lux/applets/beads/browser.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 # FastAPI resolves the resolve_scope dependency's annotations at runtime to inject
 # Request/Response, so these are runtime imports despite being annotation-only (TC002).
@@ -371,7 +371,7 @@ entry = [
     "punt_lux.ptyd.__main__",
     "punt_lux.ptyd.application",
     "punt_lux.ptyd.entry_runtime",
-    "punt_lux.applets.beads",
+    "punt_lux.applets.beads.applet",
     "punt_lux.hub.details_instance",
     "punt_lux.hub.frame_owner_facts_instance",
     "punt_lux.hub.replicator_instance",
@@ -473,8 +473,8 @@ adapters = [
     "punt_lux.ptyd.pty_spawn",
     "punt_lux.ptyd.server",
     "punt_lux.ptyd.terminal_child",
-    "punt_lux.apps.bd_child",
-    "punt_lux.apps.bd_command",
+    "punt_lux.applets.beads.bd_child",
+    "punt_lux.applets.beads.bd_command",
     "punt_lux.applets.board_channel",
     "punt_lux.applets.board_glass",
     "punt_lux.applets.claim",
@@ -573,14 +573,14 @@ application = [
     "punt_lux.ptyd.session_birth",
     "punt_lux.ptyd.session_lifecycle",
     "punt_lux.ptyd.stream_output",
-    "punt_lux.apps",
-    "punt_lux.apps._beads_payload",
-    "punt_lux.apps.beads",
-    "punt_lux.apps.beads_board",
+    "punt_lux.applets.beads",
+    "punt_lux.applets.beads._beads_payload",
+    "punt_lux.applets.beads.browser",
+    "punt_lux.applets.beads.beads_board",
     "punt_lux.applets",
     "punt_lux.applets.applet_board",
-    "punt_lux.applets.beads_service",
-    "punt_lux.applets.beads_source",
+    "punt_lux.applets.beads.beads_service",
+    "punt_lux.applets.beads.beads_source",
     "punt_lux.applets.blank_board",
     "punt_lux.applets.board_cache",
     "punt_lux.applets.board_load",
@@ -647,10 +647,10 @@ domain = [
     "punt_lux.ptyd.viewer_flow",
     "punt_lux.ptyd.viewer_input",
     "punt_lux.ptyd.viewers",
-    "punt_lux.apps.bd_exit",
-    "punt_lux.apps.beads_detail",
-    "punt_lux.apps.beads_load",
-    "punt_lux.apps.beads_result",
+    "punt_lux.applets.beads.bd_exit",
+    "punt_lux.applets.beads.beads_detail",
+    "punt_lux.applets.beads.beads_load",
+    "punt_lux.applets.beads.beads_result",
     "punt_lux.applets.board_order",
     "punt_lux.applets.built_board",
     "punt_lux.applets.figure",
