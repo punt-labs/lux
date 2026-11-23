@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import pytest
@@ -12,6 +14,19 @@ from punt_lux.service._service_errors import PortConflictError
 
 
 class TestPortGuardCheck:
+    def test_timed_out_process_lookup_fails_closed_on_an_occupied_port(self) -> None:
+        with (
+            patch(
+                "punt_lux.service._backends.subprocess.run",
+                side_effect=[
+                    CompletedProcess("lsof", 0, stdout="4242\n"),
+                    subprocess.TimeoutExpired("pgrep", 2),
+                ],
+            ),
+            pytest.raises(PortConflictError, match=r"port.*held by pid 4242"),
+        ):
+            PortGuard(HUB_SPEC).guard()
+
     def test_no_fixed_port_reports_free(self) -> None:
         guard = PortGuard(DISPLAY_SPEC)
         assert guard.check() == PortGuardResult(status="free", pid=None)

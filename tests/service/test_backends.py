@@ -11,10 +11,10 @@ from punt_lux.service._backends import PGREP_TIMEOUT, pgrep_pid
 
 
 @pytest.mark.parametrize(
-    "output,expected", [("502\n", 502), ("", None), ("bad\n", None), ("-5\n", None)]
+    "output,expected", [(b"502\n", 502), (b"", None), (b"bad\n", None), (b"-5\n", None)]
 )
 def test_pgrep_is_bounded_and_preserves_absence(
-    output: str, expected: int | None
+    output: bytes, expected: int | None
 ) -> None:
     with patch("punt_lux.service._backends.subprocess.run") as run:
         run.return_value.stdout = output
@@ -22,12 +22,9 @@ def test_pgrep_is_bounded_and_preserves_absence(
     assert run.call_args.kwargs["timeout"] == PGREP_TIMEOUT
 
 
-def test_pgrep_timeout_is_not_confused_with_an_absent_process() -> None:
-    with (
-        patch(
-            "punt_lux.service._backends.subprocess.run",
-            side_effect=subprocess.TimeoutExpired("pgrep", PGREP_TIMEOUT),
-        ),
-        pytest.raises(subprocess.TimeoutExpired),
+def test_pgrep_timeout_cannot_claim_process_ownership() -> None:
+    with patch(
+        "punt_lux.service._backends.subprocess.run",
+        side_effect=subprocess.TimeoutExpired("pgrep", PGREP_TIMEOUT),
     ):
-        pgrep_pid("luxd-display")
+        assert pgrep_pid("luxd-display") is None

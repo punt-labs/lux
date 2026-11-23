@@ -20,7 +20,7 @@ PGREP_TIMEOUT = 2.0
 
 
 def pgrep_pid(process_name: str) -> int | None:
-    """Return the pid of the running process, or ``None`` if none is up.
+    """Return the verified process PID, or ``None`` on absence or lookup timeout.
 
     ``pgrep -x`` matches the ``setproctitle`` name — the same string that
     shows in ``ps`` and Activity Monitor. Answers on both macOS and Linux
@@ -28,14 +28,14 @@ def pgrep_pid(process_name: str) -> int | None:
     cannot expose one) or a pid file (the daemon may not yet have written
     it). Absence is the documented contract when nothing is up.
     """
-    result = subprocess.run(
-        ["pgrep", "-x", process_name],
-        capture_output=True,
-        text=True,
-        timeout=PGREP_TIMEOUT,
-    )
-    pid = result.stdout.strip().partition("\n")[0].strip()
-    return int(pid) if pid.isdecimal() else None
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", process_name], capture_output=True, timeout=PGREP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    pid = result.stdout.strip().partition(b"\n")[0].strip()
+    return int(pid) if pid.isdigit() else None
 
 
 class ServiceBackend(ABC):
