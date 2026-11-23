@@ -7,7 +7,7 @@
 | 1 — Unit | *(none)* | yes | `make test` | Protocol serialization, scene management, element builders, widget state, display client |
 | 2 — Integration | `@pytest.mark.integration` | yes (blocking) | `make test-integration` | Socket IPC, cross-component state, multi-element scenes, the tests/e2e/ business-event-loop harness |
 | 3 — E2E | `@pytest.mark.e2e` | no | `make test-e2e` | CLI args, process lifecycle, wire protocol end-to-end |
-| 4 — Visual | manual | no | run lux, look at it | ImGui rendering correctness — cannot be automated without a display |
+| 4 — Visual | manual | no | `lux display screenshot`, read the PNG | ImGui rendering correctness — needs a running display, read back from the capture |
 | Slow — Timing | `@pytest.mark.slow` | yes (non-blocking) | `make test-slow` | Latency/frame-budget smokes whose absolute wall-clock bound tracks machine load |
 
 `make test` runs tier 1 (unit) only. The default `addopts` marker filter in
@@ -112,7 +112,7 @@ Levels 1–5 against the real boundary, never a stub.
 
 **Scene tests verify composition.** Multi-element scenes, tab switching,
 window management, and detail panels must be tested at the scene level
-even though visual correctness is manual.
+even though visual correctness is verified at Level 6 from the screenshot.
 
 **Test the failure path.** Every public function should have at least one
 test for invalid input, one for a missing/unavailable dependency, and one
@@ -127,7 +127,8 @@ regression tests.
 Every element kind must survive the full round trip — agent → wire → Hub →
 Display → (interaction) → Hub — verified at each level. This is the **migration
 gate**: an element kind is not "migrated" until every level passes and Level 6 is
-operator-confirmed. Levels 1–2 are pure serialization roundtrips (unit tests, no
+confirmed from the screenshot (and by the operator, for an element that takes
+input). Levels 1–2 are pure serialization roundtrips (unit tests, no
 process boundary); Levels 3–5 exercise the **real** Hub/Display boundary and must
 never stub it. The levels build on each other; run every level each cycle. A green
 Level 1 over a stubbed Level 4 is the exact failure mode that has bitten this
@@ -219,12 +220,16 @@ Note: Hub-authoritative post-interaction state is a Batch-2 concern — the
 display-side query reads the display snapshot, not luxd's `HubDisplay`, so do not
 assert Hub authority from the display side.
 
-### Level 6 — Manual visual confirmation (tier 4, required for rendering)
+### Level 6 — Live visual confirmation (tier 4, required for rendering)
 
-`make restart`, render the element live, confirm it looks right. Introspection
-confirms the scene was received; a human eye confirms fidelity. Capture the
-introspection snapshot (`inspect_scene`, `list_recent_events`) and get operator
-confirmation before calling the element done.
+`make restart`, render the element live, capture it with `lux display
+screenshot`, and read the PNG back against the written expectation.
+Introspection confirms the scene was received; the screenshot confirms
+fidelity. Capture the introspection snapshot (`inspect_scene`,
+`list_recent_events`) with it. For an element that takes input (a button, a
+checkbox, a dialog), the operator also drives the interaction and confirms its
+feel (`interactive(pr)` in `docs/WORKFLOW.md`); an element whose adapter reads
+no input (text, image, separator, progress, spinner) needs no operator step.
 
 ## Conventions
 
@@ -332,8 +337,8 @@ though it does not verify pixel-level rendering fidelity.
 (`FramebufferCapture`, sized from the live `io.display_framebuffer_scale`),
 so an e2e test can read back real pixels, not only the scene tree.
 
-**Manual verification (required for rendering fidelity).** When changing
-rendering code, run `make install` and exercise the affected element
-visually. The introspection API confirms the scene was received; a human
-eye confirms it looks right. Until `display/render_loop.py` is decomposed into
-smaller testable units, there is no substitute for this step.
+**Live verification (required for rendering fidelity).** When changing
+rendering code, run `make restart`, exercise the affected element, and read
+the screenshot back. The introspection API confirms the scene was received;
+the screenshot confirms it looks right. Until `display/render_loop.py` is
+decomposed into smaller testable units, there is no substitute for this step.

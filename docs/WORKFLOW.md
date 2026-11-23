@@ -245,10 +245,11 @@ function pr_loop(unit):
     push; create the PR (description carries the verification playbook)
     if the PR changes a file that is not demo_exempt:
         comment "demo confirmed: <head sha> interaction: operator|none"
-                                               # once step C passed on that
-                                               #   head; "operator" only when
-                                               #   interactive(pr) and the
-                                               #   operator confirmed it
+            # once step C passed on that head; the body names the files the
+            #   interactive(pr) grep matched (or "none matched"); "operator"
+            #   only when interactive(pr) and the operator confirmed it
+        # a later push that changes a non-exempt file repeats step C on the
+        #   new head and posts a new "demo confirmed:" comment (demo_ok)
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open (Cursor dashboard: once per PR) — no
         #   "bugbot run" comment for round 1
@@ -271,25 +272,37 @@ function pr_loop(unit):
 #   - the demo gate is lux's form of pr-review.md's verification step
 #     (verified_head / verified_ok); interaction feel is the human-judged part
 #     lux names. Its terms are defined here, under lux's names:
-#       interactive(pr) = the PR changes a file under
-#                      src/punt_lux/display/ (rendering, input, focus, widget
-#                      state, menus, dialogs), src/punt_lux/wire/model/handlers/
-#                      or src/punt_lux/wire/model/compositions/ (what a click
-#                      or a selection does), src/punt_lux/hub/ handler
-#                      dispatch, or plugin/ — the code that decides what a
-#                      click, drag, key, focus change, or dialog does. Decided
-#                      from the diff's paths, never from the leader's judgement
+#       interactive(pr) = the PR changes a file that reads input or decides
+#                      what input does. Decided per file by a grep the
+#                      leader records in the demo comment: a display file is
+#                      interactive when it calls an ImGui input query
+#                      (is_item_clicked, is_item_active, is_item_hovered,
+#                      is_window_hovered, is_mouse_*, get_mouse_pos,
+#                      is_key_*, set_keyboard_focus_here, begin_popup_modal,
+#                      or a widget call that returns a changed flag: button,
+#                      checkbox, slider_*, input_text, combo, radio_button,
+#                      selectable, color_edit, begin/end of a frame window),
+#                      or forwards an interaction (interaction_delivery,
+#                      pending_interactions, frame_commands, auto_click); a
+#                      wire/model/handlers/ or wire/model/compositions/
+#                      file always is (what a click or a selection does); a
+#                      hub/ file is when it dispatches a handler; a plugin/
+#                      file always is. A text, image, separator, progress or
+#                      spinner adapter, a socket, telemetry, or
+#                      framebuffer_capture file is not
 #       rendering(pr) = the PR changes a file under src/punt_lux/display/,
-#                      src/punt_lux/wire/model/elements/, or
-#                      src/punt_lux/wire/model/compositions/ (which elements
-#                      and layout are sent) — what the Display paints
+#                      src/punt_lux/wire/model/elements/,
+#                      src/punt_lux/wire/model/compositions/, or
+#                      src/punt_lux/applets/ (which elements and layout are
+#                      sent) — what the Display paints
 #       demoed_head  = the commit named in the leader's latest
 #                      "demo confirmed: <sha> interaction: operator|none" PR
 #                      comment, newer than any "demo failed:" comment; posted
 #                      once the demo passes on that commit: the leader drove
 #                      the entry point and the introspection tools, read the
-#                      screenshot back when rendering(pr), and the comment
-#                      says "interaction: operator" only when the operator
+#                      screenshot back when rendering(pr), named the files the
+#                      interactive(pr) grep matched, and the comment says
+#                      "interaction: operator" only when the operator
 #                      confirmed interaction feel on that commit
 #       demo_exempt(f) = f is *.md, under docs/, tests/, or .github/ (except
 #                      .github/workflows/), or a ratchet baseline or audit
@@ -297,8 +310,9 @@ function pr_loop(unit):
 #                      agents, and hooks there are behavior even when Markdown,
 #                      because Claude Code executes them, and a workflow under
 #                      .github/workflows/ is behavior that runs in CI
-#       demo_confirmed(pr) = demoed_head exists and, when interactive(pr),
-#                      its comment says "interaction: operator"
+#       demo_confirmed(pr) = every file the PR changes is demo_exempt; or
+#                      demoed_head exists and, when interactive(pr), its
+#                      comment says "interaction: operator"
 #       demo_ok(pr)  = every file the PR changes is demo_exempt, or
 #                      demo_confirmed(pr) and demoed_head is the head or an
 #                      ancestor of it and every file changed since it is
@@ -325,8 +339,11 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ localReviewClean(pr)                  -- a local round that left nothing
                                           --   to fix, BEFORE the PR opened and
                                           --   before every fix push
-  ∧ demoConfirmed(pr)                     -- demo_confirmed held BEFORE the
-                                          --   PR opened
+  ∧ demoConfirmed(pr)                     -- vacuous when every changed file
+                                          --   is demo_exempt; otherwise the
+                                          --   demo passed BEFORE the PR opened
+                                          --   and demoed_head is the head or
+                                          --   an ancestor (demo_ok)
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ demoOk(pr)                            -- demo_ok held at the merge
