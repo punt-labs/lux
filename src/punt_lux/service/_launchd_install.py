@@ -33,7 +33,7 @@ class LaunchdInstallation:
         """Replace changed configuration, returning whether installation was a no-op."""
         label = self._plist.spec.launchd_label
         if active:
-            if self._plist.installed_content() == content:
+            if self._plist.installed_content().lstrip() == content.lstrip():
                 logger.info("%s already installed and up to date; no-op", label)
                 return True
             LaunchdLegacySweep(

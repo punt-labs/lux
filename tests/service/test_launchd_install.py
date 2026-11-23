@@ -14,6 +14,28 @@ from punt_lux.service._backend_launchd import LaunchdBackend
 
 
 @pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
+def test_leading_whitespace_does_not_restart_an_active_service(
+    spec: ServiceSpec, tmp_path: Path
+) -> None:
+    with (
+        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(ServiceSpec, "resolve_exec_args", return_value=["/bin/service"]),
+        patch.object(LaunchdBackend, "is_active", return_value=True),
+        patch("punt_lux.service._launchctl.subprocess.run") as run,
+    ):
+        backend = LaunchdBackend(spec)
+        path = backend.config_path()
+        path.parent.mkdir(parents=True)
+        previous = "\n   \t" + backend._plist_content()
+        path.write_text(previous)
+
+        assert backend.install() is True
+
+    run.assert_not_called()
+    assert path.read_text() == previous
+
+
+@pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
 @pytest.mark.parametrize("active", [False, True])
 def test_failed_bootstrap_logs_label_and_retains_new_plist(
     spec: ServiceSpec,
