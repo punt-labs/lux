@@ -22,7 +22,6 @@ from punt_lux.rest.identity import CallerIdentity
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
-    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["DisplayModeRoutes"]
 
