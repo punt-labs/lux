@@ -31,3 +31,10 @@ def test_a_zero_length_window_still_requires_a_reply() -> None:
     window = DisplayStability(0)
     assert not window.observe(None, (0, 0.1))
     assert window.observe("dial", (0.2, 0.3))
+
+
+def test_a_preexisting_dial_still_needs_a_full_observation_window() -> None:
+    window = DisplayStability(3)
+    assert not window.observe("preexisting", (99.5, 100))
+    assert not window.observe("preexisting", (102.99, 103.1))
+    assert window.observe("preexisting", (103, 103.2))

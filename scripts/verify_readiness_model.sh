@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check readiness safety, deadlock freedom, and both defect witnesses.
+# Check readiness safety, deadlock freedom, and all defect witnesses.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +15,7 @@ MODEL="$ROOT/docs/display_restart_readiness.tex"
 sed 's/^  RESETDIAL = ztrue/  RESETDIAL = zfalse/' "$MODEL" > "$LOG_DIR/no-reset.tex"
 sed 's/^  BOUNDWORK = ztrue/  BOUNDWORK = zfalse/' "$MODEL" > "$LOG_DIR/unbounded.tex"
 sed 's/^  SAMPLEBOUND = ztrue/  SAMPLEBOUND = zfalse/' "$MODEL" > "$LOG_DIR/receipt-credit.tex"
+sed 's/^  ACCEPTAFTER = 3/  ACCEPTAFTER = 2/' "$MODEL" > "$LOG_DIR/short-window.tex"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -22,7 +23,7 @@ fail() {
   exit 1
 }
 
-for model in "$MODEL" "$LOG_DIR/no-reset.tex" "$LOG_DIR/unbounded.tex" "$LOG_DIR/receipt-credit.tex"; do
+for model in "$MODEL" "$LOG_DIR/no-reset.tex" "$LOG_DIR/unbounded.tex" "$LOG_DIR/receipt-credit.tex" "$LOG_DIR/short-window.tex"; do
   label="$(basename "$model" .tex)"
   log="$LOG_DIR/$label-fuzz.log"
   "$FUZZ" -t "$model" > "$log" 2>&1 || fail "$label fuzz" "$log"
@@ -51,10 +52,11 @@ check() {
 }
 
 # A union of bad states is unreachable iff every constituent invariant holds.
-SAFETY='(phase=rsready & age<3) or now>6 or (phase=rsready & process/=rpnew) or (phase=rsready & now>=6)'
-check "$MODEL" I1-I4-safety 'not found' "$SAFETY"
+SAFETY='(phase=rsready & age<3) or now>6 or (phase=rsready & process/=rpnew) or (phase=rsready & now>=6) or (phase=rsready & sentAt-observedSince<3)'
+check "$MODEL" I1-I5-safety 'not found' "$SAFETY"
 check "$MODEL" deadlock 'not found'
 check "$LOG_DIR/no-reset.tex" reconnect-fidelity found 'phase=rsready & age<3'
 check "$LOG_DIR/unbounded.tex" deadline-fidelity found 'now>6'
 check "$LOG_DIR/receipt-credit.tex" delivery-fidelity found 'phase=rsready & age<3'
+check "$LOG_DIR/short-window.tex" short-window-fidelity found 'phase=rsready & sentAt-observedSince<3 & age>=3'
 echo 'PASS: all readiness model checks'

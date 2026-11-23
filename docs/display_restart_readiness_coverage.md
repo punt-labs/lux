@@ -1,7 +1,7 @@
 # Display restart readiness: partitions and refinement audit
 
 Companion: [Z model](display_restart_readiness.tex). Reproduce type checks,
-exhaustive safety/deadlock checks, and both fidelity witnesses with:
+exhaustive safety/deadlock checks, and every fidelity witness with:
 
 ```bash
 bash scripts/verify_readiness_model.sh
@@ -17,6 +17,7 @@ bash scripts/verify_readiness_model.sh
 | `Begin`, `LocalDone` | `ReadinessProbe.local`: one Unix connection plus kernel peer credentials |
 | `Snapshot`, `Receive` | `DisplayQuery.run` captures the pinned dial; delivery/body parsing can follow that capture |
 | `Finish` | `DisplayStability.observe` starts at first receipt, crediting only through each later request's send point |
+| `observedSince` | Independent ghost of the first consecutive receipt for the observed dial, even if the implementation timer fails to reset |
 | `Wait`, `Spend` | `DisplayReadiness.polls`, `_remaining`, and `ReadinessHTTP` per-raw-read deadlines |
 | `ProbeError` | local witness loss, unreachable/malformed Hub, and readiness-error logging |
 | `Finished` | return or raise; no further readiness probes |
@@ -38,7 +39,7 @@ Paths below are relative to `tests/`.
 | No new candidate; old PID persists | `service/test_display_restart.py`: unchanged PID timeout and fresh-install success |
 | Candidate exits before first Hub reply | `service/test_display_readiness.py::test_crash_before_hub_connect_fails_without_accepting_respawn` |
 | Candidate exits or loses ownership during stability | `service/test_display_readiness.py::test_crash_or_disconnect_during_stability_fails` |
-| One dial, elapsed below / exactly at window | `service/test_display_readiness.py::test_success_requires_three_seconds_of_matching_hub_facts` |
+| One dial, elapsed below / exactly at window; an old dial cannot shorten observation | `service/test_display_readiness.py::test_success_requires_three_seconds_of_matching_hub_facts`; `service/test_display_stability.py::test_a_preexisting_dial_still_needs_a_full_observation_window` |
 | Same PID, different dial mid-window | `service/test_display_readiness.py::test_same_pid_on_a_replacement_hub_dial_restarts_the_window` |
 | Dial names are real, stable and distinct | `hub/test_generation_ref.py`; UUID creation is not stubbed |
 | Real names survive query-to-window pipeline | `operations/test_display_query.py::test_real_dial_names_survive_query_resolution_and_reset_stability` |
@@ -62,9 +63,12 @@ Paths below are relative to `tests/`.
 Safety is checked as unreachable bad-state goals, following `board_ordering.tex`:
 putting safety into the state predicate would disable defective transitions and
 make a fidelity check meaningless. The verifier generates variants changing only
-one of `RESETDIAL`, `BOUNDWORK`, or `SAMPLEBOUND`. Disabling dial reset or crediting
+one of `RESETDIAL`, `BOUNDWORK`, `SAMPLEBOUND`, or `ACCEPTAFTER`. Disabling dial reset or crediting
 receipt-time delivery must reach ready on a dial younger than the window;
-unbounded work must reach tick seven. The fixed model must exhaust
+unbounded work must reach tick seven. A two-tick acceptance threshold must reach
+ready with less than three ticks of credited observation despite a dial age of
+at least three. The independent observation ghost never affects acceptance;
+checking its credit prevents age-only false confidence. The fixed model must exhaust
 all states without either defect or a deadlock. Terminal self-loops model a
 finished observer, not continued I/O.
 
@@ -82,11 +86,13 @@ PASS: display_restart_readiness fuzz
 PASS: no-reset fuzz
 PASS: unbounded fuzz
 PASS: receipt-credit fuzz
-PASS: I1-I4-safety not found (80579 states)
+PASS: short-window fuzz
+PASS: I1-I5-safety not found (80579 states)
 PASS: deadlock not found (80579 states)
-PASS: reconnect-fidelity found (6145 states)
-PASS: deadline-fidelity found (145 states)
-PASS: delivery-fidelity found (20520 states)
+PASS: reconnect-fidelity found (5578 states)
+PASS: deadline-fidelity found (20 states)
+PASS: delivery-fidelity found (12377 states)
+PASS: short-window-fidelity found (8464 states)
 PASS: all readiness model checks
 ```
 
@@ -101,3 +107,9 @@ is sent at tick 3, captures the same dial at tick 4, and arrives at tick 5.
 Receipt-time credit reaches ready with sampled age 2; send-time credit does not.
 The deterministic runtime regression exercises the same pattern with a 0.4s
 delivery delay, within the real probe cap, and the actual three-second window.
+
+The shortened-window goal also requires dial age at least three. Its witness
+therefore satisfies the old age-only requirement while violating the new
+observation-credit invariant. The runtime regression rejects 2.99s of credit
+on a preexisting dial and accepts exactly 3s; production supplies the unchanged
+three-second constant to `DisplayStability`.
