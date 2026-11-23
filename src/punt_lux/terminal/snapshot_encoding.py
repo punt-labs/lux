@@ -5,7 +5,6 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Self
 
-from punt_lux.protocol.pty.control_fields import ControlError
 from punt_lux.terminal.ffi import Terminal
 from punt_lux.terminal.snapshot import (
     VtSnapshot,
@@ -13,6 +12,7 @@ from punt_lux.terminal.snapshot import (
     restore_binary,
     tracked_terminal,
 )
+from punt_lux.wire.stream.control_fields import ControlError
 
 
 class SnapshotEncoding(StrEnum):

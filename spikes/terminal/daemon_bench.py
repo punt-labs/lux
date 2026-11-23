@@ -24,7 +24,7 @@ from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
 from punt_lux.terminal.ffi_snapshot import NativeSnapshotCodec
-from tests.ptyd.test_autostart_live import StartedDaemon
+from tests.pty.test_autostart_live import StartedDaemon
 
 
 class Measurements:

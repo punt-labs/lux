@@ -23,7 +23,7 @@ class ModelUnpickler(pickle.Unpickler):
         ("punt_lux.domain.hub.write_errors", "punt_lux.wire.model.write_errors"),
         ("punt_lux.domain.hub", "punt_lux.hub"),
         ("punt_lux.domain", "punt_lux.wire.model"),
-        ("punt_lux.protocol.pty", "punt_lux.protocol.pty"),
+        ("punt_lux.wire.stream", "punt_lux.wire.stream"),
         ("punt_lux.protocol", "punt_lux.wire.model"),
     )
 

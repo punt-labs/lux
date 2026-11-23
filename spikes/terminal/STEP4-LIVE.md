@@ -16,7 +16,7 @@ lazy startup, multiple-viewer-era protocol and actual rendered restart proof.
 
 ## Procedure
 
-1. Start `python -m punt_lux.ptyd --socket <private path>`.
+1. Start `python -m punt_lux.pty --socket <private path>`.
 2. Start `luxd-hub --port 18531` and `luxd-display --socket <display path>`.
 3. Submit a scene through `lux scene show` with a `terminal` element.
    The program prints a marker and waits for input.

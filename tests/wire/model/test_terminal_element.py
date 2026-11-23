@@ -7,12 +7,12 @@ from unittest.mock import Mock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control_fields import ControlError
 from punt_lux.tools import show
 from punt_lux.wire.model.elements import element_to_dict
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.wire.model.elements.terminal import TerminalElement
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control_fields import ControlError
 
 
 def test_terminal_round_trip_keeps_every_public_property() -> None:

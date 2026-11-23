@@ -42,7 +42,7 @@
   "punt_lux.cli.session \u2192 punt_lux.commands.session_identify",
   "punt_lux.cli.session \u2192 punt_lux.commands.session_ls",
   "punt_lux.cli.session \u2192 punt_lux.operations",
-  "punt_lux.cli.terminal \u2192 punt_lux.ptyd.service",
+  "punt_lux.cli.terminal \u2192 punt_lux.pty.service",
   "punt_lux.client._rest_display \u2192 punt_lux.operations",
   "punt_lux.client._rest_scenes \u2192 punt_lux.operations",
   "punt_lux.client._rest_transport \u2192 punt_lux.operations",
@@ -92,7 +92,7 @@
   "punt_lux.operations.models.callbacks \u2192 punt_lux.hub.session_callback",
   "punt_lux.operations.models.menu_results \u2192 punt_lux.hub.menu_models",
   "punt_lux.operations.models.render \u2192 punt_lux.hub.scene_presentation",
-  "punt_lux.ptyd.menu_projection \u2192 punt_lux.operations",
+  "punt_lux.pty.menu_projection \u2192 punt_lux.operations",
   "punt_lux.rest.identity \u2192 punt_lux.client.identity_headers",
   "punt_lux.ws_transport \u2192 punt_lux.client.identity_headers"
 ]

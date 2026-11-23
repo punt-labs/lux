@@ -12,10 +12,10 @@ from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.view import TerminalView
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control_fields import ControlFields
-from punt_lux.protocol.pty.frames import Frame, FrameKind
 from punt_lux.terminal.transfer import SnapshotTransfer
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control_fields import ControlFields
+from punt_lux.wire.stream.frames import Frame, FrameKind
 
 
 class RemoteSession:

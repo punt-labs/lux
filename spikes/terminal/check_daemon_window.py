@@ -21,14 +21,14 @@ import time
 from contextlib import ExitStack
 from pathlib import Path
 
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control import WIRE_VERSION
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import SuccessReply
-from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import SuccessReply
+from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 from punt_lux.terminal.snapshot import snapshot_version
-from tests.ptyd.wire_client import WireClient
+from tests.pty.wire_client import WireClient
 from spikes.terminal.proof_signals import ProofSignals
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,7 +60,7 @@ def daemon_pid(path):
         fields = line.strip().split(None, 1)
         if (
             len(fields) == 2
-            and "-m punt_lux.ptyd --socket " in fields[1]
+            and "-m punt_lux.pty --socket " in fields[1]
             and fields[1].endswith(str(path))
         ):
             candidates.append(int(fields[0]))

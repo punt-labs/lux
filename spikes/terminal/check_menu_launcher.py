@@ -19,14 +19,14 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control import WIRE_VERSION
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import SuccessReply
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.terminal.snapshot import snapshot_version
 from spikes.terminal.check_two_windows import WindowProof
-from tests.ptyd.wire_client import WireClient
+from tests.pty.wire_client import WireClient
 
 ROOT = Path(__file__).resolve().parents[2]
 HUB_DRIVER = """
@@ -127,7 +127,7 @@ class LauncherProof:
                 WindowProof.wait(lambda: display_path.exists())
                 assert not pty.exists(), "Display must not enable a machine owner"
                 owner = start(
-                    "owner", [sys.executable, "-m", "punt_lux.ptyd", "--socket", str(pty)]
+                    "owner", [sys.executable, "-m", "punt_lux.pty", "--socket", str(pty)]
                 )
                 WindowProof.wait(lambda: pty.exists())
                 WindowProof.wait(lambda: LauncherProof.leaf(request("/menus")["menus"]) is not None)

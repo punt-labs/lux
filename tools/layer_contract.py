@@ -37,7 +37,7 @@ class LayerContract:
         "mcp_session_scope",
         "display": "display luxd_display",
         "terminal": "terminal",
-        "pty": "ptyd",
+        "pty": "pty",
         "cli": "cli __main__ hook_cli",
         "applets": "applets",
     }

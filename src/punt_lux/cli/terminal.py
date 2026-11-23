@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import typer
 
-from punt_lux.ptyd.service import TerminalService
+from punt_lux.pty.service import TerminalService
 
 
 class TerminalCommands:

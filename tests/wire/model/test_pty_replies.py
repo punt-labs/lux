@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol.pty.control_fields import ControlError
-from punt_lux.protocol.pty.replies import FailureReply, Reply, ReplyCodec, SuccessReply
+from punt_lux.wire.stream.control_fields import ControlError
+from punt_lux.wire.stream.replies import FailureReply, Reply, ReplyCodec, SuccessReply
 
 
 @pytest.mark.parametrize(

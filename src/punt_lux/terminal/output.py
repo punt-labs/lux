@@ -6,9 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Self
 
-from punt_lux.protocol.pty.control_fields import ControlError, ControlFields
 from punt_lux.terminal.ffi import Terminal
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
+from punt_lux.wire.stream.control_fields import ControlError, ControlFields
 
 
 @dataclass(frozen=True, slots=True)

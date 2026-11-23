@@ -6,19 +6,19 @@ import json
 
 import pytest
 
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control import (
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control import (
     WIRE_VERSION,
     ControlCodec,
     ControlRequest,
     Request,
 )
-from punt_lux.protocol.pty.control_fields import ControlError
-from punt_lux.protocol.pty.control_json import MAX_CONTROL_BYTES
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.new_request import NewRequest
-from punt_lux.protocol.pty.session_events import SessionEvent, WatchRequest
-from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+from punt_lux.wire.stream.control_fields import ControlError
+from punt_lux.wire.stream.control_json import MAX_CONTROL_BYTES
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.new_request import NewRequest
+from punt_lux.wire.stream.session_events import SessionEvent, WatchRequest
+from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 
 
 def test_wire_version_stays_compatible_with_running_daemon() -> None:

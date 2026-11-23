@@ -83,7 +83,7 @@ def test_unpickler_resolves_moved_globals(
 
 def test_retained_pty_package_is_not_remapped() -> None:
     with pytest.raises(AttributeError, match=r"punt_lux\.protocol\.pty"):
-        ModelUnpickler(io.BytesIO()).find_class("punt_lux.protocol.pty", "NoSuchClass")
+        ModelUnpickler(io.BytesIO()).find_class("punt_lux.wire.stream", "NoSuchClass")
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["current", "legacy-hub"])

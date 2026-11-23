@@ -13,8 +13,8 @@ pytest.importorskip("imgui_bundle")
 from punt_lux.display.terminal.remote import RemoteSession
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.replies import ReplyCodec, SuccessReply
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.replies import ReplyCodec, SuccessReply
 
 
 def _pool() -> RemotePool:

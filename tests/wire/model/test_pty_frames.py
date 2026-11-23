@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from punt_lux.protocol.pty.frames import (
+from punt_lux.wire.stream.frames import (
     MAX_PAYLOAD_BYTES,
     MAX_READ_BYTES,
     Frame,

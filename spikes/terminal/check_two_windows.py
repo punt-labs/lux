@@ -21,14 +21,14 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, cast
 
-from punt_lux.protocol.pty.attach import AttachRequest
-from punt_lux.protocol.pty.control import WIRE_VERSION
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.hello import HelloRequest
-from punt_lux.protocol.pty.replies import SuccessReply
-from punt_lux.protocol.pty.session_requests import KillRequest, ListRequest
+from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.hello import HelloRequest
+from punt_lux.wire.stream.replies import SuccessReply
+from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 from punt_lux.terminal.snapshot import snapshot_version
-from tests.ptyd.wire_client import WireClient
+from tests.pty.wire_client import WireClient
 from spikes.terminal.proof_signals import ProofSignals
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,7 +73,7 @@ class WindowProof:
             parts = line.strip().split(None, 1)
             if (
                 len(parts) == 2
-                and "-m punt_lux.ptyd --socket " in parts[1]
+                and "-m punt_lux.pty --socket " in parts[1]
                 and parts[1].endswith(str(path))
             ):
                 matches.append(int(parts[0]))

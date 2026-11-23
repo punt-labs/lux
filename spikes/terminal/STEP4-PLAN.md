@@ -87,7 +87,7 @@ Framed, binary, on a Unix stream socket. Every frame is
   `SNAPSHOT` instead of the backlog.
 
 This is herdr-core's framing with fewer kinds. It is kept in
-`src/punt_lux/protocol/pty/` so a later client can reuse it, but no later
+`src/punt_lux/wire/stream/` so a later client can reuse it, but no later
 client is built here.
 
 ## Snapshot
@@ -133,13 +133,13 @@ of scope here.
 
 ```
 src/punt_lux/
-  protocol/pty/
+  wire/stream/
     __init__.py
     frames.py        framing: encode/decode, kinds, size cap          (pure, tested)
     messages.py      control messages as dataclasses + JSON codec      (pure, tested)
-  ptyd/
+  pty/
     __init__.py
-    __main__.py      `python -m punt_lux.ptyd` / the `luxd-pty` entry point
+    __main__.py      `python -m punt_lux.pty` / the `luxd-pty` entry point
     holder.py        PTY ownership: spawn, read, write, resize, reap, tail
     core.py          sessions, Ghostty per session, snapshots, viewers, credit
     server.py        the socket: listen, peer check, frame dispatch, lifecycle
@@ -147,7 +147,7 @@ src/punt_lux/
     paths.py         socket path, state dir, permission checks
   display/terminal/
     remote.py        the Display's client: attach, feed the replica, send keys
-    (sessions.py and pty.py move to ptyd/; the rest is unchanged)
+    (sessions.py and pty.py move to pty/; the rest is unchanged)
 ```
 
 The `terminal/ffi*.py` modules are the shared pyghostty boundary, without
@@ -180,7 +180,7 @@ Each stage ends with a measurable result written into this file's log.
 
 Pure code, no daemon, no socket.
 
-- `ptyd/snapshot.py`: `encode_binary`, `restore_binary`, `paint_vt`,
+- `pty/snapshot.py`: `encode_binary`, `restore_binary`, `paint_vt`,
   and the version check.
 - `ffi.py`: the formatter and snapshot calls.
 - Tests: snapshot a terminal in each known state into a fresh terminal and
@@ -195,10 +195,10 @@ round-trip an unfinished sequence; callers must wait for parser ground.
 
 ### Stage 2: daemon with one session, Display as client
 
-- `protocol/pty/`: framing and messages, with tests.
-- `ptyd/holder.py`: `pty.py` moved and given the pump loop, without a frame
+- `wire/stream/`: framing and messages, with tests.
+- `pty/holder.py`: `pty.py` moved and given the pump loop, without a frame
   budget (the daemon has no frames).
-- `ptyd/core.py`, `ptyd/server.py`, `ptyd/paths.py`: one session, one
+- `pty/core.py`, `pty/server.py`, `pty/paths.py`: one session, one
   viewer, no credit yet.
 - `display/terminal/remote.py`: the Display attaches and feeds its replica.
   `TerminalSessions` and `_pump_terminals` removed.
@@ -327,7 +327,7 @@ private lock/log state is not claimed as a transient leak.
 
 ### Stage 2 — held-process and core checkpoint
 
-- Moved PTY ownership out of the Display package into `ptyd/holder.py`.
+- Moved PTY ownership out of the Display package into `pty/holder.py`.
   The existing in-Display stand-in uses this holder until remote attachment
   replaces it; this module move alone does not yet preserve shells on restart.
 - Added bounded input buffering for short writes/EAGAIN, explicit child

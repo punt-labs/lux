@@ -57,6 +57,13 @@
 
 ### Changed
 
+- **Breaking imports:** the PTY owner moves from `punt_lux.ptyd` to
+  `punt_lux.pty` and its contracts move from `punt_lux.protocol.pty` to
+  `punt_lux.wire.stream`, without aliases. `luxd-pty`, PTY behavior, and wire
+  formats are unchanged. Tests mirror the new packages. The menu projection
+  now imports wire contracts from `operations.models`, removing the direct
+  static PTY-to-Hub edge; the operations initializer's eager Hub load remains
+  debt. `CreditWindow` no longer stores its unused redundant capacity field.
 - **Breaking Python import changes:** `punt_lux.apps` is folded into
   `punt_lux.applets.beads`. `apps.beads` becomes `applets.beads.browser`; the
   other `apps.*` modules keep their names. `applets.beads` (the `lux-beads`
@@ -93,7 +100,7 @@
 
 - **Breaking Python import changes:** shared `punt_lux.domain.*` and
   `punt_lux.protocol.*` models now live under `punt_lux.wire.model.*`, keeping
-  their relative module paths. `punt_lux.protocol.pty.*` remains in place.
+  their relative module paths. `punt_lux.wire.stream.*` remains in place.
   `LeaseTerm` moves from
   `punt_lux.domain.hub.lease_term` to `punt_lux.wire.model.lease_term`,
   `ProgrammerError` moves to `punt_lux.kernel.programmer_error`,

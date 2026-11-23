@@ -54,7 +54,7 @@ class DaemonLauncher:
 
     def _argv(self) -> list[str]:
         """Run the terminal daemon in the current Python environment."""
-        return [sys.executable, "-m", "punt_lux.ptyd", "--socket", str(self._path)]
+        return [sys.executable, "-m", "punt_lux.pty", "--socket", str(self._path)]
 
     def poll(self) -> None:
         self._poll()

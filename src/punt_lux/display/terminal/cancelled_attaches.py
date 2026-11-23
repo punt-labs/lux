@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Self
 
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.replies import Reply, SuccessReply
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.replies import Reply, SuccessReply
 
 
 class CancelledAttaches:

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from punt_lux.display.terminal.cancelled_attaches import CancelledAttaches
-from punt_lux.protocol.pty.frames import Frame, FrameKind
-from punt_lux.protocol.pty.replies import FailureReply, SuccessReply
+from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.replies import FailureReply, SuccessReply
 
 
 def _cancelled(*ids: int) -> tuple[CancelledAttaches, list[Frame]]:
