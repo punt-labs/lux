@@ -463,9 +463,9 @@ PR review follows punt-kit/standards/pr-review.md: local review (qodo review + s
 Two lux-specific operational facts the loops rely on:
 
 - **`make restart` is the only correct way to pick up code changes** — it
-  rebuilds, installs, and restarts BOTH luxd AND the display. `launchctl
-  kickstart` and `lux ensure-hub --restart` restart only luxd and leave the
-  display running stale code.
+  rebuilds, installs, and restarts the Hub, Display, and running terminal
+  daemon. Restarting `luxd-pty` ends the terminal sessions it owns.
+  Use `make reload` for Hub-only changes.
 - **Docs-only changes have no entry point to run**; markdownlint plus a
   read-through is their verification at the demo gate.
 

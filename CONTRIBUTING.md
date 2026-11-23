@@ -160,12 +160,17 @@ New features should have unit tests at minimum.
 
 ### Running Your Changes
 
-Reinstall the package and restart `luxd` and the Lux window through their
-services, so they pick up your code changes:
+Reinstall the package and restart the Hub, Display, and any running
+`luxd-pty` service so they pick up your code changes:
 
 ```bash
 make restart
 ```
+
+Run `make restart` from outside Lux's terminal. Restarting `luxd-pty` ends
+all sessions it owns. For Hub-only changes, `make reload` leaves the Display
+and terminal sessions running. To restart both the Hub and Display without
+touching terminal sessions, run `make reload && lux display restart`.
 
 The Claude Code plugin (its `plugin.json`, the `/lux` command, the session
 hooks, and the skills) lives in `plugin/`, separate from the Python package in
