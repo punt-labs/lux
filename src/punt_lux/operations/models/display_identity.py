@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 
-class DisplayIdentity(BaseModel):
+class DisplayIdentity(BaseModel, frozen=True):
     """The process lifetime is distinct from any connection the Hub makes to it."""
 
     pid: int

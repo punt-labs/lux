@@ -17,7 +17,7 @@ from punt_lux.operations.models.display_identity import DisplayIdentity
 __all__ = ["DisplayInfo"]
 
 
-class DisplayInfo(DisplayIdentity):
+class DisplayInfo(DisplayIdentity, frozen=True):
     """The running display's backend, geometry, frame rate, and identity."""
 
     model_config = ConfigDict(frozen=True)

@@ -167,6 +167,8 @@
 
 ### Fixed
 
+- Raw Display identity facts are immutable, matching the inherited DisplayInfo
+  contract and the repository's model policy.
 - Display readiness can read a connection-close HTTP reply after its headers;
   the bounded reader retains its own socket until the response closes.
 - Display readiness local ownership probes and every Hub HTTP read now share the
