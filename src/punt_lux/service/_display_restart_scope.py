@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import http.client
 import os
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, NoReturn, Self
@@ -20,6 +22,23 @@ if TYPE_CHECKING:
     from punt_lux.service.display_paths import DisplayPaths
 
 _PROBE_SECONDS = 0.5
+type _Observe = Callable[[str | None, tuple[float, float]], bool]
+
+
+@dataclass(frozen=True)
+class _ProbeConnected:
+    hub_connection_id: str
+
+    def observe(self, observer: _Observe, interval: tuple[float, float]) -> bool:
+        return observer(self.hub_connection_id, interval)
+
+
+@dataclass(frozen=True)
+class _ProbePending:
+    reason: str
+
+    def observe(self, observer: _Observe, interval: tuple[float, float]) -> bool:
+        return observer(None, interval)
 
 
 class DisplayRestartScope:
@@ -74,14 +93,20 @@ class DisplayRestartScope:
             )
         return connected
 
-    def connected(self, pid: int, *, stabilizing: bool) -> str | None:
+    def connected(
+        self, pid: int, *, stabilizing: bool
+    ) -> _ProbeConnected | _ProbePending:
         try:
-            return HubDisplayProbe(
+            identity = HubDisplayProbe(
                 pid, min(_PROBE_SECONDS, self.remaining(stabilizing=stabilizing))
             ).connected()
+            return (
+                _ProbeConnected(identity) if identity else _ProbePending(self._pending)
+            )
         except (OSError, http.client.HTTPException, ValueError) as error:
-            self._last_error = f"; last Hub transport error: {error}"
-            return None
+            pending = _ProbePending(f"last Hub transport error: {error}")
+            self._last_error = f"; {pending.reason}"
+            return pending
 
     def timeout(self, *, stabilizing: bool) -> NoReturn:
         reason = self._pending

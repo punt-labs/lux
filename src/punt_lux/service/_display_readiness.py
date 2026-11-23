@@ -71,7 +71,7 @@ class DisplayReadiness:
         observed_at = time.monotonic()
         if not self._scope.local(candidate, stabilizing=self._stability.started):
             return self._disconnected()
-        return self._stability.observe(connected, (sent_at, observed_at))
+        return connected.observe(self._stability.observe, (sent_at, observed_at))
 
     def _candidate(self, pid: int | None) -> int | None:
         if self._pid is not None and pid != self._pid:

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from punt_lux.service import DISPLAY_SPEC
 from punt_lux.service._display_restart_attempt import ReadinessError, RestartAttempt
-from punt_lux.service._display_restart_scope import DisplayRestartScope
+from punt_lux.service._display_restart_scope import (
+    DisplayRestartScope,
+    _ProbeConnected,
+    _ProbePending,
+)
 
 
 @pytest.mark.parametrize("remaining,queries", [(1, 0), (2, 1)])
@@ -65,7 +70,35 @@ def test_http_status_errors_remain_pending_until_the_deadline(status: int) -> No
         scope = DisplayRestartScope(
             RestartAttempt(DISPLAY_SPEC, 501, 0, 30), MagicMock()
         )
-        assert scope.connected(502, stabilizing=False) is None
+        assert scope.connected(502, stabilizing=False) == _ProbePending(
+            f"last Hub transport error: Hub Display probe returned HTTP {status}"
+        )
         clock.return_value = 30
-        with pytest.raises(ReadinessError, match=f"HTTP {status}"):
+        with pytest.raises(ReadinessError) as failure:
             scope.remaining(stabilizing=False)
+        assert str(failure.value).split("\n")[0] == (
+            "display did not come back within 30s: "
+            "never connected to Hub with the new PID; "
+            f"last Hub transport error: Hub Display probe returned HTTP {status}"
+        )
+
+
+@pytest.mark.parametrize("identity", [None, "", "hub-dial"])
+def test_connected_result_distinguishes_waiting_from_a_pinned_dial(
+    identity: str | None,
+) -> None:
+    with patch(
+        "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
+        return_value=identity,
+    ):
+        scope = DisplayRestartScope(
+            RestartAttempt(DISPLAY_SPEC, 501, 0, 30), MagicMock()
+        )
+        result = scope.connected(502, stabilizing=False)
+    assert result == (
+        _ProbeConnected(identity)
+        if identity
+        else _ProbePending("never connected to Hub with the new PID")
+    )
+    with pytest.raises(FrozenInstanceError):
+        setattr(result, next(iter(result.__dataclass_fields__)), "replacement")

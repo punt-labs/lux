@@ -303,3 +303,4 @@
 {"ts":"2026-11-23T08:23:30Z","commit":"492ae710","source":null,"files_scored":982,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-23T08:55:13Z","commit":"99a1fe4d","source":null,"files_scored":982,"files_improved":1,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{"src/punt_lux/service/_display_readiness.py":{"max_lcom":[0.036,0.028],"avg_lcom":[0.036,0.028]}}}
 {"ts":"2026-11-23T08:59:55Z","commit":"ca68e492","source":null,"files_scored":982,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/service/_display_restart_scope.py":{"max_lcom":[0.444,0.417],"avg_lcom":[0.444,0.417]}}}
+{"ts":"2026-11-23T09:39:01Z","commit":"e8ed17e6","source":null,"files_scored":982,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/service/_display_restart_scope.py":{"max_lcom":[0.417,0.389],"avg_lcom":[0.417,0.389]}}}
