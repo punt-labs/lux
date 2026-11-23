@@ -19,11 +19,11 @@ from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.operations.identity import IdentityOperations
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.identity import Identified
 
 
 class _ForbiddenPort:

@@ -38,7 +38,7 @@ from punt_lux.applets.underway import Underway
 from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.operations.models import OpError
+from punt_lux.wire.operations import OpError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

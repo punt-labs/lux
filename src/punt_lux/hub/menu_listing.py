@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Literal, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.hub.client_session import ClientSession
-    from punt_lux.hub.session_callback import SessionCallback
     from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.model.session_callback import SessionCallback
 
 __all__ = ["MenuListing", "PresenceChange"]
 

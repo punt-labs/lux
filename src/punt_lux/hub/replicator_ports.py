@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from punt_lux.hub.disconnected_retry import ReconnectWaiter
-from punt_lux.hub.scene_presentation import ScenePusher
+from punt_lux.wire.model.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

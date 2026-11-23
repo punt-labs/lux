@@ -18,17 +18,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.display_reply import DisplayReplied
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_frames import FrameStates
-from punt_lux.operations.models.display_info import DisplayInfo
-from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import (
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.display_frames import FrameStates
+from punt_lux.wire.operations.display_info import DisplayInfo
+from punt_lux.wire.operations.display_probe import Pong, Screenshot
+from punt_lux.wire.operations.display_write import (
     FrameStateAck,
     FrameStatePatch,
 )
-from punt_lux.operations.models.menu_results import Ok
-from punt_lux.operations.models.theme import ThemeState
-from punt_lux.operations.models.window import WindowSettings
+from punt_lux.wire.operations.menu_results import Ok
+from punt_lux.wire.operations.theme import ThemeState
+from punt_lux.wire.operations.window import WindowSettings
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort

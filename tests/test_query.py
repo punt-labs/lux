@@ -429,8 +429,8 @@ class TestTier1DisplayTools:
         # string; a display that is not running is a display_unavailable error.
         from unittest.mock import patch
 
-        from punt_lux.operations import OpError
         from punt_lux.tools import get_display_info
+        from punt_lux.wire.operations import OpError
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = get_display_info()
@@ -440,8 +440,8 @@ class TestTier1DisplayTools:
     def test_get_window_settings_not_running(self) -> None:
         from unittest.mock import patch
 
-        from punt_lux.operations import OpError
         from punt_lux.tools import get_window_settings
+        from punt_lux.wire.operations import OpError
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = get_window_settings()
@@ -451,8 +451,8 @@ class TestTier1DisplayTools:
     def test_get_theme_not_running(self) -> None:
         from unittest.mock import patch
 
-        from punt_lux.operations import OpError
         from punt_lux.tools import get_theme
+        from punt_lux.wire.operations import OpError
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = get_theme()
@@ -473,8 +473,8 @@ class TestTier1ClientMenuTools:
         # display does not make it fail — it returns the (possibly empty) list.
         from unittest.mock import patch
 
-        from punt_lux.operations import ClientList
         from punt_lux.tools import list_clients
+        from punt_lux.wire.operations import ClientList
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = list_clients()
@@ -485,8 +485,8 @@ class TestTier1ClientMenuTools:
         # does not make it fail — it returns the (possibly empty) menu bar.
         from unittest.mock import patch
 
-        from punt_lux.operations import MenuList
         from punt_lux.tools import list_menus
+        from punt_lux.wire.operations import MenuList
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = list_menus()
@@ -506,8 +506,8 @@ class TestTier1EventErrorTools:
         # display_unavailable OpError, not a status string.
         from unittest.mock import patch
 
-        from punt_lux.operations import OpError
         from punt_lux.tools import list_recent_events
+        from punt_lux.wire.operations import OpError
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = list_recent_events()
@@ -517,8 +517,8 @@ class TestTier1EventErrorTools:
     def test_list_errors_not_running(self) -> None:
         from unittest.mock import patch
 
-        from punt_lux.operations import OpError
         from punt_lux.tools import list_errors
+        from punt_lux.wire.operations import OpError
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
             result = list_errors()

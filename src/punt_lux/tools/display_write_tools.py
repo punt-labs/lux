@@ -15,10 +15,10 @@ from punt_lux.commands import (
     menu_set as menu_set_command,
 )
 from punt_lux.commands._frame_remove_request import FrameRemoveRequest
-from punt_lux.operations import Ok, OpError, SetMenuRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
+from punt_lux.wire.operations import Ok, OpError, SetMenuRequest
 
 __all__ = ["display_mode", "frame_remove", "set_menu"]
 

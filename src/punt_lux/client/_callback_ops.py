@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from punt_lux.operations import Ok, OpError
+    from punt_lux.wire.operations import Ok, OpError
 
 __all__ = ["CallbackConvenienceOps"]
 
@@ -19,7 +19,7 @@ __all__ = ["CallbackConvenienceOps"]
 class CallbackConvenienceOps(Protocol):
     """The bare-args ``register_callback`` shape every production caller depends on.
 
-    Distinct from :class:`~punt_lux.commands._ports.CallbackRegisterOps`, whose
+    Distinct from :class:`~punt_lux.wire.ops.CallbackRegisterOps`, whose
     Protocol shape is ``register_callback(request, *, scope)`` for the
     in-process ``Operations`` facade. ``_RestTransport`` carries this shape
     instead, since ``applets/leg.py`` already calls it bare; see

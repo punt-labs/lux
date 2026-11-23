@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from punt_lux.wire.model.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
-    from punt_lux.operations import (
+    from punt_lux.wire.operations import (
         Cleared,
         InspectScope,
         OpError,

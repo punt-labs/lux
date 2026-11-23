@@ -21,7 +21,7 @@ from punt_lux.applets.beads.beads_source import BoardUnavailableError
 from punt_lux.applets.board_order import BoardOrder
 from punt_lux.applets.board_read import BoardRead
 from punt_lux.applets.menu_entry import MenuEntry
-from punt_lux.operations.models import RenderRequest, RenderTableRequest
+from punt_lux.wire.operations import RenderRequest, RenderTableRequest
 
 if TYPE_CHECKING:
     from punt_lux.applets.beads.beads_board import BeadsBoard

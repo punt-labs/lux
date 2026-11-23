@@ -57,6 +57,19 @@
 
 ### Changed
 
+- Prepare reusable client and service packages: move operation contracts to
+  `punt_lux.wire.operations`, operation ports to `punt_lux.wire.ops`, and shared
+  identity headers and menu/presentation values to `punt_lux.wire.model`.
+  Client accessors call ports directly; importing the library, SDK or service
+  no longer initializes Hub, commands, Display or PTY code. Old module paths
+  and the root `ping` command re-export are removed without aliases.
+  Consumers, including vox and z-spec, must migrate their old operations
+  imports before upgrading to this layout; their current `<0.34` pins do
+  not protect them from a breaking release on the `0.33` line.
+- Publish `punt_lux.service.ServiceSpec` from `service.service_spec` so other
+  daemons can reuse the launchd/systemd installation backends. Existing Lux
+  service identities and wire/Ready formats are unchanged.
+
 - **Breaking imports:** the PTY owner moves from `punt_lux.ptyd` to
   `punt_lux.pty` and its contracts move from `punt_lux.protocol.pty` to
   `punt_lux.wire.stream`, without aliases. `luxd-pty`, PTY behavior, and wire

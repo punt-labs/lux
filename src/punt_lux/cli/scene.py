@@ -35,7 +35,7 @@ from punt_lux.commands import (
     scene_table,
     scene_update,
 )
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     InspectScope,
     OpError,
     RenderDashboardRequest,

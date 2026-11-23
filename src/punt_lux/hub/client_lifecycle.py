@@ -31,12 +31,12 @@ if TYPE_CHECKING:
         ListenerDetachment,
     )
     from punt_lux.hub.replicator_ports import DirtyMarker
-    from punt_lux.hub.session_callback import SessionCallback
     from punt_lux.hub.session_write import SessionWrite
     from punt_lux.hub.store_lock import StoreLock
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.model.session_callback import SessionCallback
 
 __all__ = ["ClientLifecycle"]
 

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.menu_listing import MenuListing
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.session_callback import SessionCallback
 
 _FAR_FUTURE = 1_000_000.0  # past any kind's lease
 

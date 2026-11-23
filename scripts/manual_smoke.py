@@ -58,8 +58,6 @@ from PIL import Image, UnidentifiedImageError
 
 from punt_lux.client.facade import LuxClient
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations import OpError, RenderRequest
-from punt_lux.operations.models.render import FrameSpec
 from punt_lux.wire.model import Element
 from punt_lux.wire.model.elements import (
     ButtonElement,
@@ -100,6 +98,8 @@ from punt_lux.wire.model.elements.table_flags import TableFlags
 from punt_lux.wire.model.elements.tree_node import TreeNode
 from punt_lux.wire.model.elements.window_chrome import WindowPlacement
 from punt_lux.wire.model.validation_walk import HasChildElements
+from punt_lux.wire.operations import OpError, RenderRequest
+from punt_lux.wire.operations.render import FrameSpec
 
 
 @dataclass(frozen=True, slots=True)

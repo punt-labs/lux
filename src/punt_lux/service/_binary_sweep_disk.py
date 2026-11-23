@@ -16,8 +16,8 @@ from typing import Self, final
 
 from punt_lux.service._binary_sweep import BinarySweepReport, DiskBinaryOutcome
 from punt_lux.service._service_errors import ServiceMigrationError
-from punt_lux.service._service_spec import ServiceSpec
 from punt_lux.service._shim_ownership import ShimOwnership
+from punt_lux.service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 

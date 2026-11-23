@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, MenuOps, menu_ls
-from punt_lux.operations import MenuList, OpError
+from punt_lux.wire.operations import MenuList, OpError
 from tests.commands._family_stubs import StubMenuOps
 from tests.commands._scene_stub import identity
 

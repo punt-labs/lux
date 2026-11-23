@@ -9,19 +9,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.operations.models.common import OpError
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model.compositions import TableComposition
+from punt_lux.wire.operations.common import OpError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.operations.models.dashboard import RenderDashboardRequest
-    from punt_lux.operations.models.scene_results import SceneShown
-    from punt_lux.operations.models.table import RenderTableRequest
     from punt_lux.operations.scenes import SceneOperations
     from punt_lux.wire.model.element import Element as DomainElement
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.dashboard import RenderDashboardRequest
+    from punt_lux.wire.operations.scene_results import SceneShown
+    from punt_lux.wire.operations.table import RenderTableRequest
 
 __all__ = ["ConvenienceOperations"]
 

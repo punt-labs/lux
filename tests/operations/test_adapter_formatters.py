@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from punt_lux.operations import OpError, SceneShown
 from punt_lux.tools.tools import _format_render, _format_update
+from punt_lux.wire.operations import OpError, SceneShown
 
 
 def test_format_render_renders_success() -> None:

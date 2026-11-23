@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from punt_lux.operations.composition_boundary import CompositionBoundary
-from punt_lux.operations.models.common import OpError
+from punt_lux.wire.operations.common import OpError
 
 
 def test_compose_or_reject_returns_the_composed_value_on_success() -> None:

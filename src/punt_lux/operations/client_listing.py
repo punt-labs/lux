@@ -11,8 +11,8 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.client_facts import ClientFacts
-from punt_lux.operations.models.query_clients import ClientList, HubClient
 from punt_lux.operations.scene_listing import SceneListing
+from punt_lux.wire.operations.query_clients import ClientList, HubClient
 
 if TYPE_CHECKING:
     from punt_lux.hub.client_session import ClientSession

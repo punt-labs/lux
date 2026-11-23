@@ -13,12 +13,10 @@ from typing import Literal
 import pytest
 
 from punt_lux.display.replica import SceneReplica
-from punt_lux.hub.scene_presentation import (
-    ScenePresentation,
-    ScenePresentationRegistry,
-)
+from punt_lux.hub.scene_presentation import ScenePresentationRegistry
 from punt_lux.wire.model import Element, SceneMessage, TextElement
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 type _Step = tuple[Literal["show", "blank"], str, str]
 

@@ -40,7 +40,7 @@ class TestLaunchdInstallIdempotency:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
             patch("punt_lux.service._launchctl.subprocess.run") as run,
         ):
@@ -71,7 +71,7 @@ class TestLaunchdInstallIdempotency:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
             patch("punt_lux.service._launchctl.subprocess.run") as run,
         ):
@@ -111,7 +111,7 @@ class TestKeepAliveRendering:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             plist = LaunchdBackend(HUB_SPEC)._plist_content()
         lines = [line.strip() for line in plist.splitlines()]
@@ -130,7 +130,7 @@ class TestKeepAliveRendering:
             patch(
                 "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
             ),
-            patch("punt_lux.service._service_spec.Path.home", return_value=fake_home),
+            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
         ):
             plist = LaunchdBackend(DISPLAY_SPEC)._plist_content()
         lines = [line.strip() for line in plist.splitlines()]

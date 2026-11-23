@@ -15,35 +15,35 @@ from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.hub.client_lifecycle import ClientLifecycle
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.quarantine_record import QuarantineRecord
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.inspect_scope import InspectScope
-from punt_lux.operations.models.query_clients import ClientList
-from punt_lux.operations.models.query_errors import RecentErrors
-from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_geometry import GeometryPresent
-from punt_lux.operations.models.query_inspection import SceneInspection
-from punt_lux.operations.models.query_scenes import SceneList
-from punt_lux.operations.models.query_visibility import (
+from punt_lux.operations.queries import QueryOperations
+from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.element import Element as DomainElement
+from punt_lux.wire.model.ids import SceneId, Topic
+from punt_lux.wire.model.scene_presentation import ScenePresentation
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.inspect_scope import InspectScope
+from punt_lux.wire.operations.query_clients import ClientList
+from punt_lux.wire.operations.query_errors import RecentErrors
+from punt_lux.wire.operations.query_events import RecentEvents
+from punt_lux.wire.operations.query_geometry import GeometryPresent
+from punt_lux.wire.operations.query_inspection import SceneInspection
+from punt_lux.wire.operations.query_scenes import SceneList
+from punt_lux.wire.operations.query_visibility import (
     VisibilityNotRequested,
     VisibilityPresent,
     VisibilityUnavailable,
 )
-from punt_lux.operations.queries import QueryOperations
-from punt_lux.wire.model.agent_factory import agent_element_factory
-from punt_lux.wire.model.client_identity import ClientIdentity
-from punt_lux.wire.model.element import Element as DomainElement
-from punt_lux.wire.model.ids import SceneId, Topic
-from punt_lux.wire.model.scope import Scope
-from punt_lux.wire.model.update import AddElement
 
 if TYPE_CHECKING:
     import pytest

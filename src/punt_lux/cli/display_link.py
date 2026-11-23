@@ -21,12 +21,12 @@ from punt_lux.cli._shared import (
 from punt_lux.cli.display import display_app
 from punt_lux.commands import CommandResult, Ctx
 from punt_lux.commands._faults import render_error
-from punt_lux.operations import OpError
-from punt_lux.operations.models.display_link import ConnectedLinkState
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.display_link import ConnectedLinkState
 
 if TYPE_CHECKING:
     from punt_lux.client._display_link_ops import DisplayLinkOps
-    from punt_lux.operations.models.display_link import DisplayLinkState
+    from punt_lux.wire.operations.display_link import DisplayLinkState
 
 __all__: list[str] = []
 

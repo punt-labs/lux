@@ -14,8 +14,8 @@ import pytest
 pytest.importorskip("pyghostty")
 
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.terminal.snapshot import snapshot_version
+from punt_lux.wire.model.session_callback import CallbackInvocation
 from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply

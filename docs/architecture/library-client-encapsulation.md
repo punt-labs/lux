@@ -85,7 +85,7 @@ name — so question 4's answer for them is "already absorbed": they are private
 implementation-detail collaborators `LuxRestClient.__new__` composes
 (`rest_client.py:93-94`), not a second public surface.
 
-The one omission is `TopicOps` (`commands/_ports.py:180-199`: `publish`,
+The one omission is `TopicOps` (`wire/ops/__init__.py:180-199`: `publish`,
 `subscribe`, `unsubscribe`, `receive`) — `LuxClient` has no `client.topic`
 accessor and `LuxRestClient` never implemented `TopicOps` either (the pub-sub
 commands `topic_publish`/`topic_recv`/`topic_subscribe`/`topic_unsubscribe`
@@ -142,7 +142,7 @@ beside the facade that composes it — one package, one cohesive unit (PL-MD-2)
 imported by the first package on every use. **Naming convention: leading
 underscore on the *filename*** (`_rest_transport.py`, not
 `rest_transport_private.py` or a `_private/` subdirectory), matching the
-existing convention already in this codebase for `commands/_ports.py`,
+existing convention already in this codebase for `wire/ops/__init__.py`,
 `commands/_result.py`, `commands/_faults.py`, `applets/board_ops.py`'s sibling
 `_`-prefixed modules, and `client/facade.py:56-60`'s own private attributes.
 Python enforces nothing about leading-underscore *modules* — the enforcement is
@@ -256,7 +256,7 @@ def sync(self) -> SyncOps:
 (`facade.py:57`, renamed from today's `LuxRestClient`); the property's
 *declared* return type is `SyncOps`, a `Protocol` (§4.3) — Python permits
 returning a concrete private type from a method whose annotation names only a
-public structural type, exactly as `commands/_ports.py`'s `SceneOps` Protocol
+public structural type, exactly as `wire/ops/__init__.py`'s `SceneOps` Protocol
 is already satisfied structurally by `LuxRestClient` with no inheritance
 declared anywhere (`rest_client.py`'s class header is `class LuxRestClient:`,
 no base). This is the *existing* pattern in this codebase, not a new one.
@@ -269,7 +269,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from punt_lux.commands._ports import (
+from punt_lux.wire.ops import (
     CallbackRegisterOps,
     DisplayInfoOps,
     DisplayModeOps,
@@ -308,7 +308,7 @@ class SyncOps(
     """Every synchronous Hub operation ``LuxClient.sync`` exposes at once.
 
     A Protocol extending every per-family Ops Protocol in
-    ``commands/_ports.py`` -- satisfied structurally by ``_RestTransport``
+    ``wire/ops/__init__.py`` -- satisfied structurally by ``_RestTransport``
     (renamed from ``LuxRestClient``) purely because that class already has
     every one of these methods; extending this Protocol adds no new
     requirement on it. Its purpose is narrower than "expose the transport":
@@ -318,7 +318,7 @@ class SyncOps(
     """
 ```
 
-`SyncOps` lives in `client/` (not `commands/_ports.py`) because it is not read
+`SyncOps` lives in `client/` (not `wire/ops/__init__.py`) because it is not read
 by any command — `_ports.py`'s own docstring scopes it to *"the ops surface the
 […] commands read"* — `SyncOps` is a client-side convenience type whose only
 consumer is `LuxClient.sync`'s signature and, transitively, the CLI and
@@ -467,8 +467,8 @@ Applet-internal classes (`BoardChannel`, `ServicedClick`, `BoardLoad`,
 object they are handed: `.raise_frame(frame_id)` (`board_channel.py:53`),
 `.render(request)` and `.render_table(request)` (`board_channel.py:79-80`).
 `SceneOps` already declares `render`/`render_table`
-(`commands/_ports.py:63-72,83-88`) and `FrameOps` already declares
-`raise_frame`/`close_frame` (`commands/_ports.py:110-116`) — no new
+(`wire/ops/__init__.py:63-72,83-88`) and `FrameOps` already declares
+`raise_frame`/`close_frame` (`wire/ops/__init__.py:110-116`) — no new
 single-family Protocol is needed, only their combination, because no single
 existing Protocol has both:
 
@@ -478,7 +478,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from punt_lux.commands._ports import FrameOps, SceneOps
+from punt_lux.wire.ops import FrameOps, SceneOps
 
 __all__ = ["BoardOps"]
 
@@ -625,7 +625,7 @@ Same one-line pattern (`connect_client(...).sync` instead of
 `cli/menu.py`, `cli/frame.py`, `cli/session.py`, `cli/display.py`,
 `cli/event.py`, `cli/error.py`. `cli/callback.py:60,63` (`_client: LuxRestClient`,
 `__new__(cls, client: LuxRestClient)`) retypes to `CallbackRegisterOps`
-(`commands/_ports.py:148-162`, the exact single-family Protocol its one method
+(`wire/ops/__init__.py:148-162`, the exact single-family Protocol its one method
 needs — no reason to widen to `SyncOps` when the narrower Protocol already
 exists and is already imported by that file's sibling command).
 `cli/beads.py:29,66,86` (`LuxRestClient.connect()` used directly, plus a
@@ -697,7 +697,7 @@ changes.
 - Every `LuxClient` accessor's existing async surface (`scene`, `frame`,
   `menu`, `session`, `callback`, `display`, `event`, `error`, `ping`,
   `listener`) — zero signature changes. `.sync` is additive.
-- `commands/_ports.py`'s thirteen existing per-family Protocols — zero edits;
+- `wire/ops/__init__.py`'s thirteen existing per-family Protocols — zero edits;
   `SyncOps` and `BoardOps` both import and extend them, adding no new method
   requirement to any of them.
 
@@ -874,7 +874,7 @@ demo is not "the unit tests pass" — it is driving the real entry points:
   `menu`, …) rather than inventing a parallel one.
 - `src/punt_lux/rest_client.py`, `rest_client_scenes.py`,
   `rest_client_display.py`, `client/facade.py`, `client/*.py`,
-  `commands/_ports.py`, `applets/runner.py`, `applets/leg.py`,
+  `wire/ops/__init__.py`, `applets/runner.py`, `applets/leg.py`,
   `applets/service.py`, `applets/beads_service.py`, `applets/board_channel.py`,
   `applets/board_load.py`, `applets/board_work.py`, `applets/serviced_click.py`,
   `applets/applet_board.py`, `cli/_shared.py`, `cli/scene.py`, `cli/beads.py`,

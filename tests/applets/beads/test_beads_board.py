@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from punt_lux.applets.beads.beads_board import BeadsBoard
 from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsRows
-from punt_lux.operations.models import RenderRequest, RenderTableRequest
+from punt_lux.wire.operations import RenderRequest, RenderTableRequest
 from tests.applets.board_doubles import ISSUE
 
 

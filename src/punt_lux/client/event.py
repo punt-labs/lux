@@ -1,16 +1,13 @@
-"""``client.event.*`` -- the Event accessor over the commands layer."""
+"""``client.event.*`` -- the Event accessor over the operation ports."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.commands import event_ls
-from punt_lux.commands._ports import Ctx
-
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import EventOps
-    from punt_lux.operations import OpError, RecentEvents
-    from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.operations import OpError, RecentEvents
+    from punt_lux.wire.ops import EventOps
 
 
 @final
@@ -18,17 +15,14 @@ class EventAccessor:
     """Read recent events for this client identity."""
 
     _ops: EventOps
-    _identity: ClientIdentity
-    __slots__ = ("_identity", "_ops")
+    __slots__ = "_ops"
 
-    def __new__(cls, ops: EventOps, identity: ClientIdentity) -> Self:
+    def __new__(cls, ops: EventOps) -> Self:
         """Bind event queries to the caller's identity."""
         self = super().__new__(cls)
         self._ops = ops
-        self._identity = identity
         return self
 
     async def ls(self, count: int = 50) -> RecentEvents | OpError:
         """Return the last ``count`` events for this caller."""
-        ctx: Ctx[EventOps] = Ctx(ops=self._ops, identity=self._identity)
-        return await event_ls.execute(ctx, count)
+        return await asyncio.to_thread(self._ops.list_recent_events, count)

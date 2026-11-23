@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
-    from punt_lux.operations.models.query_clients import HubClient
+    from punt_lux.wire.operations.query_clients import HubClient
 
 __all__ = ["ClientFacts"]
 

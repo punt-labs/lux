@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from punt_lux.service._backends import ServiceBackend
     from punt_lux.service._legacy_sweep import LegacySweep
-    from punt_lux.service._service_spec import ServiceSpec
+    from punt_lux.service.service_spec import ServiceSpec
 
 __all__ = ["PlatformClasses", "detect_platform", "platform_classes"]
 

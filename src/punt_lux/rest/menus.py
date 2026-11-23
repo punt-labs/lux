@@ -20,9 +20,9 @@ from punt_lux.commands import (
     menu_ls as menu_ls_command,
     menu_set as menu_set_command,
 )
-from punt_lux.operations import MenuList, Ok, SetMenuRequest
-from punt_lux.operations.models.callbacks import RegisterCallbackRequest
 from punt_lux.rest.identity import CallerIdentity, OwningScope, RestCaller
+from punt_lux.wire.operations import MenuList, Ok, SetMenuRequest
+from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations

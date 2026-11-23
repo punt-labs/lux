@@ -16,7 +16,7 @@ from punt_lux.wire.model.compositions.client_details import ClientDetails
 
 if TYPE_CHECKING:
     from punt_lux.operations.client_facts import ClientFacts
-    from punt_lux.operations.models.query_clients import HubClient
+    from punt_lux.wire.operations.query_clients import HubClient
 
 __all__ = ["ClientIdentityFacts"]
 

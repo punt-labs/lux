@@ -15,7 +15,6 @@ from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_presence import MarkMenusSink
-from punt_lux.hub.session_callback import SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.client_listing import ClientListing
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
@@ -23,6 +22,7 @@ from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.session_callback import SessionCallback
 
 _CONN = ConnectionId("c1")
 _OTHER = ConnectionId("c2")

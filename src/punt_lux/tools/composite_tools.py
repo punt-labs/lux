@@ -20,10 +20,10 @@ from punt_lux.commands import (
     scene_dashboard as scene_dashboard_command,
     scene_table as scene_table_command,
 )
-from punt_lux.operations import RenderDashboardRequest, RenderTableRequest
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
 from punt_lux.tools.server import mcp
+from punt_lux.wire.operations import RenderDashboardRequest, RenderTableRequest
 
 __all__ = ["show_dashboard", "show_table"]
 

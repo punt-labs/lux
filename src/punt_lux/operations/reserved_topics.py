@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import final
 
-from punt_lux.operations.models import OpError
+from punt_lux.wire.operations import OpError
 
 __all__ = ["RESERVED_TOPICS", "ReservedTopics"]
 

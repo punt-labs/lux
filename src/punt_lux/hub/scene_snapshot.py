@@ -25,13 +25,10 @@ if TYPE_CHECKING:
     from punt_lux.hub.element_index import ElementIndex
     from punt_lux.hub.frame_lifecycle import FrameLifecycle
     from punt_lux.hub.frame_owner_facts import FrameOwnerFactsReader
-    from punt_lux.hub.scene_presentation import (
-        ScenePresentation,
-        ScenePusher,
-    )
     from punt_lux.hub.store_lock import StoreLock
     from punt_lux.wire.model.element import Element as WireElement
     from punt_lux.wire.model.ids import SceneId
+    from punt_lux.wire.model.scene_presentation import ScenePresentation, ScenePusher
 
 __all__ = ["SceneReader", "SceneSnapshot"]
 

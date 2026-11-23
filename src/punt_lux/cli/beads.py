@@ -24,8 +24,8 @@ from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.applets.board_ops import BoardOps, ScopedBoardOps
 from punt_lux.client.facade import LuxClient
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
-from punt_lux.operations.models.scene_results import SceneShown
+from punt_lux.wire.operations import OpError, RenderRequest, RenderTableRequest
+from punt_lux.wire.operations.scene_results import SceneShown
 
 __all__ = ["beads"]
 

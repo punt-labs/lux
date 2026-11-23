@@ -10,7 +10,6 @@ from punt_lux.client_host import UNOBSERVED
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.button import ButtonElement
 from punt_lux.wire.model.elements.checkbox import CheckboxElement
@@ -18,6 +17,7 @@ from punt_lux.wire.model.elements.group import GroupElement
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.interaction import ButtonClicked, ValueChanged
 from punt_lux.wire.model.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.update import AddElement
 
@@ -164,8 +164,8 @@ def test_menu_click_routes_the_callback_to_its_owning_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A callback-leaf menu click is held for the session that registered it."""
-    from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
     from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -193,7 +193,7 @@ def test_menu_click_for_a_departed_session_repushes_the_menu(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A callback click for a session that never registered re-pushes, no crash."""
-    from punt_lux.hub.session_callback import CallbackInvocation
+    from punt_lux.wire.model.session_callback import CallbackInvocation
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     menu_id = CallbackInvocation(ConnectionId("gone"), "music").menu_id
@@ -211,8 +211,8 @@ def test_a_details_click_is_answered_by_the_hub_not_routed_to_the_client(
     """The Details command is the Hub's own: it runs here, and nothing is held."""
     from punt_lux.hub.details_binding import DetailsBinding
     from punt_lux.hub.details_outcome import DetailsShown
-    from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
     from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 
     factory, router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("vox-1")
@@ -250,7 +250,7 @@ def test_a_details_click_for_a_client_that_never_registered_still_reaches_the_hu
     """The Hub owns the command, so it answers whether or not the client is there."""
     from punt_lux.hub.details_binding import DetailsBinding
     from punt_lux.hub.details_outcome import DetailsRefused
-    from punt_lux.hub.session_callback import CallbackInvocation
+    from punt_lux.wire.model.session_callback import CallbackInvocation
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("gone")
@@ -308,7 +308,7 @@ def test_frameless_agent_menu_click_is_delivered_to_the_owning_inbox_session() -
     """
     from punt_lux.hub import hub_lifecycle
     from punt_lux.hub.inbox import drain_inbox, ensure_writer
-    from punt_lux.hub.session_callback import MenuLeaf
+    from punt_lux.wire.model.session_callback import MenuLeaf
 
     conn = ConnectionId("agent-menu-inbox-1")
     ensure_writer(
@@ -343,7 +343,7 @@ def test_a_departed_agent_menu_click_is_not_delivered_and_repushes(
     agent-path counterpart to the callback-path departed test above.
     """
     from punt_lux.hub.inbox import drain_inbox
-    from punt_lux.hub.session_callback import MenuLeaf
+    from punt_lux.wire.model.session_callback import MenuLeaf
 
     _registry, _router, replicator = _isolated_router(monkeypatch)
     conn = ConnectionId("agent-departed")  # never registered → not live
@@ -372,12 +372,12 @@ def test_a_same_named_callback_and_menu_item_route_apart() -> None:
     from punt_lux.hub import hub_lifecycle
     from punt_lux.hub.inbox import drain_inbox, ensure_writer
     from punt_lux.hub.replicator_instance import hub_callback_router
-    from punt_lux.hub.session_callback import (
+    from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.model.session_callback import (
         CallbackInvocation,
         MenuLeaf,
         SessionCallback,
     )
-    from punt_lux.wire.model.client_identity import ClientIdentity
 
     conn = ConnectionId("dual-owner")
     leg = _SilentLeg()
@@ -424,9 +424,9 @@ def test_agent_menu_set_click_round_trips_from_set_to_recv() -> None:
     """
     from punt_lux.hub import hub_lifecycle
     from punt_lux.hub.replicator_instance import hub_menu_registry
-    from punt_lux.operations import Scope, SetMenuRequest
     from punt_lux.tools.tools import OPERATIONS
     from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.operations import Scope, SetMenuRequest
 
     conn = ConnectionId("surface-loop-1")
     scope = Scope.in_process(conn)

@@ -24,12 +24,12 @@ from punt_lux.operations.menus import (
     MenuOperations,
     MenuOperationsDeps,
 )
-from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.timing import Timed
+from punt_lux.wire.operations.inspect_scope import HUB_ONLY, InspectScope
 
 if TYPE_CHECKING:
     from punt_lux.hub.callback_hold import CallbackRouter
@@ -38,10 +38,13 @@ if TYPE_CHECKING:
     from punt_lux.hub.hub_clients import HubClientRegistry
     from punt_lux.hub.hub_display import HubDisplay
     from punt_lux.hub.menu_registry import HubMenuRegistry
-    from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.display_link import ReplicatorLink
-    from punt_lux.operations.models import (
+    from punt_lux.operations.ports import HubPorts
+    from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.model.session_callback import CallbackInvocation
+    from punt_lux.wire.operations import (
         Cleared,
         DisplayModeState,
         OpError,
@@ -56,24 +59,21 @@ if TYPE_CHECKING:
         Unsubscribed,
         UpdateRequest,
     )
-    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
-    from punt_lux.operations.models.display_frames import FrameStates
-    from punt_lux.operations.models.display_info import DisplayInfo
-    from punt_lux.operations.models.display_link import DisplayLinkState
-    from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_state import DisplayStateSnapshot
-    from punt_lux.operations.models.identity import Identified
-    from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-    from punt_lux.operations.models.query_clients import ClientList
-    from punt_lux.operations.models.query_errors import RecentErrors
-    from punt_lux.operations.models.query_events import RecentEvents
-    from punt_lux.operations.models.query_inspection import SceneInspection
-    from punt_lux.operations.models.query_scenes import SceneList
-    from punt_lux.operations.models.theme import ThemeState
-    from punt_lux.operations.models.window import WindowSettings
-    from punt_lux.operations.ports import HubPorts
-    from punt_lux.wire.model.client_identity import ClientIdentity
-    from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
+    from punt_lux.wire.operations.display_frames import FrameStates
+    from punt_lux.wire.operations.display_info import DisplayInfo
+    from punt_lux.wire.operations.display_link import DisplayLinkState
+    from punt_lux.wire.operations.display_probe import Pong, Screenshot
+    from punt_lux.wire.operations.display_state import DisplayStateSnapshot
+    from punt_lux.wire.operations.identity import Identified
+    from punt_lux.wire.operations.menu_results import MenuList, Ok, SetMenuRequest
+    from punt_lux.wire.operations.query_clients import ClientList
+    from punt_lux.wire.operations.query_errors import RecentErrors
+    from punt_lux.wire.operations.query_events import RecentEvents
+    from punt_lux.wire.operations.query_inspection import SceneInspection
+    from punt_lux.wire.operations.query_scenes import SceneList
+    from punt_lux.wire.operations.theme import ThemeState
+    from punt_lux.wire.operations.window import WindowSettings
 
 __all__ = ["Operations"]
 

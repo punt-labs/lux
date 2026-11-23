@@ -6,6 +6,7 @@ by the client is delivered through a listener made by that same client.
 
 from __future__ import annotations
 
+import asyncio
 from functools import cached_property
 from typing import TYPE_CHECKING, Self, final
 
@@ -20,9 +21,7 @@ from punt_lux.client.frame_deps import FrameAccessorDeps
 from punt_lux.client.menu import MenuAccessor
 from punt_lux.client.scene import SceneAccessor
 from punt_lux.client.session import SessionAccessor
-from punt_lux.commands import ping as ping_command
-from punt_lux.commands._ports import Ctx
-from punt_lux.operations import Scope
+from punt_lux.wire.operations import Scope
 
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
@@ -32,9 +31,8 @@ if TYPE_CHECKING:
         EventHandler,
         LuxHubClient,
     )
-    from punt_lux.commands._ports import PingOps
-    from punt_lux.operations import OpError, Pong
     from punt_lux.wire.model.client_identity import ClientIdentity
+    from punt_lux.wire.operations import OpError, Pong
 
 
 @final
@@ -84,7 +82,7 @@ class LuxClient:
     @cached_property
     def scene(self) -> SceneAccessor:
         """The ``client.scene.*`` verbs."""
-        return SceneAccessor(self._transport, self._identity, self._scope)
+        return SceneAccessor(self._transport, self._scope)
 
     @cached_property
     def frame(self) -> FrameAccessor:
@@ -95,12 +93,12 @@ class LuxClient:
     @cached_property
     def menu(self) -> MenuAccessor:
         """The ``client.menu.*`` verbs."""
-        return MenuAccessor(self._transport, self._identity, self._scope)
+        return MenuAccessor(self._transport, self._scope)
 
     @cached_property
     def session(self) -> SessionAccessor:
         """The ``client.session.*`` verbs."""
-        return SessionAccessor(self._transport, self._identity, self._scope)
+        return SessionAccessor(self._transport, self._scope)
 
     @cached_property
     def callback(self) -> CallbackAccessor:
@@ -110,17 +108,17 @@ class LuxClient:
     @cached_property
     def display(self) -> DisplayAccessor:
         """The ``client.display.*`` verbs."""
-        return DisplayAccessor(self._transport, self._identity, self._scope)
+        return DisplayAccessor(self._transport, self._scope)
 
     @cached_property
     def event(self) -> EventAccessor:
         """The ``client.event.*`` verbs."""
-        return EventAccessor(self._transport, self._identity)
+        return EventAccessor(self._transport)
 
     @cached_property
     def error(self) -> ErrorAccessor:
         """The ``client.error.*`` verbs."""
-        return ErrorAccessor(self._transport, self._identity)
+        return ErrorAccessor(self._transport)
 
     @cached_property
     def sync(self) -> SyncOps:
@@ -134,8 +132,7 @@ class LuxClient:
 
     async def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping (top-level diagnostics verb)."""
-        ctx: Ctx[PingOps] = Ctx(ops=self._transport, identity=self._identity)
-        return await ping_command.execute(ctx, wait)
+        return await asyncio.to_thread(self._transport.ping, wait)
 
     def listener(
         self,

@@ -16,8 +16,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.query_geometry import (
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.query_geometry import (
     GeometryNotRequested,
     GeometryPresent,
     GeometryUnavailable,
@@ -26,7 +26,7 @@ from punt_lux.operations.models.query_geometry import (
 
 if TYPE_CHECKING:
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.models.inspect_scope import InspectScope
+    from punt_lux.wire.operations.inspect_scope import InspectScope
 
 __all__ = ["DisplayFactProxy"]
 

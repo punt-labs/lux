@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 
 from punt_lux.hub.display_link import DisplayLink
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.wire.model import ButtonElement, RemoteEventHandlerInvocation, TextElement
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.link_access import generation_of, shown
 
 

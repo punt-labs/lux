@@ -13,12 +13,12 @@ import socket
 from typing import TYPE_CHECKING, Literal, Protocol, Self, final, runtime_checkable
 
 from punt_lux.hub.display_linkage import DisplayLinkage
-from punt_lux.operations.models.display_link import (
+from punt_lux.operations.ports import DirtyMarker
+from punt_lux.wire.operations.display_link import (
     ConnectedLinkState,
     DisconnectedLinkState,
     DisplayLinkState,
 )
-from punt_lux.operations.ports import DirtyMarker
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub_display import HubDisplay

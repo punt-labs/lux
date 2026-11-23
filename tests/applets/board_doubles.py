@@ -20,8 +20,8 @@ from punt_lux.applets.beads.bd_command import BdOutput
 from punt_lux.applets.beads.beads_load import BeadsLoad
 from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult, BeadsRows
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
-from punt_lux.operations.models.scene_results import SceneShown
+from punt_lux.wire.operations import OpError, RenderRequest, RenderTableRequest
+from punt_lux.wire.operations.scene_results import SceneShown
 
 __all__ = [
     "BD_MS",

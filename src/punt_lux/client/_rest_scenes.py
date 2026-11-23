@@ -7,7 +7,7 @@ share one :class:`~punt_lux.client.rest_transport.HttpTransport` and one identit
 header set; :class:`_SceneRestOps` never constructs its own.
 
 Every write method accepts (and ignores) a ``scope`` keyword to satisfy
-:class:`~punt_lux.commands._ports.SceneOps`'s call signature -- the
+:class:`~punt_lux.wire.ops.SceneOps`'s call signature -- the
 in-process ``Operations`` facade that Protocol also serves needs the caller's
 scope explicitly, but a REST request already composes its scope from the
 ``X-Lux-Client-*`` headers stamped on every call (``RestCaller.resolve``), so
@@ -21,7 +21,7 @@ from urllib.parse import quote, urlencode
 
 from punt_lux.client.rest_http_call import HttpCall
 from punt_lux.client.rest_reply import RestReply
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     Cleared,
     OpError,
     RenderDashboardRequest,
@@ -35,7 +35,7 @@ from punt_lux.operations import (
 
 if TYPE_CHECKING:
     from punt_lux.client.rest_transport import HttpTransport
-    from punt_lux.operations import InspectScope, Scope
+    from punt_lux.wire.operations import InspectScope, Scope
 
 __all__ = ["_SceneRestOps"]
 

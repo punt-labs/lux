@@ -16,8 +16,8 @@ from punt_lux.commands import (
     DisplayModeOps,
     display_mode_get as display_mode_get_command,
 )
-from punt_lux.operations import DisplayModeState
 from punt_lux.rest.identity import CallerIdentity
+from punt_lux.wire.operations import DisplayModeState
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations

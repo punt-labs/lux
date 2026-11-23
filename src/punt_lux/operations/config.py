@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.operations.models import DisplayModeRequest, DisplayModeState, OpError
 from punt_lux.service import display_mode_store
+from punt_lux.wire.operations import DisplayModeRequest, DisplayModeState, OpError
 
 __all__ = ["DisplayModeOperations"]
 

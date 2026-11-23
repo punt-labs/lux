@@ -15,7 +15,7 @@ from typing import Literal, Self, final
 
 from punt_lux.service._backends import pgrep_pid
 from punt_lux.service._service_errors import PortConflictError
-from punt_lux.service._service_spec import ServiceSpec
+from punt_lux.service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 

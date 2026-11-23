@@ -8,7 +8,7 @@ from typing import Self, final
 from punt_lux.commands._faults import render_fault
 from punt_lux.commands._frame_remove_request import FrameRemoveRequest
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import Ok, OpError
+from punt_lux.wire.operations import Ok, OpError
 
 
 @final

@@ -15,20 +15,13 @@ from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.hub import client_registry, hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
-from punt_lux.hub.scene_presentation import SceneLayout
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import (
-    Operations,
-    OpError,
-    SceneInspection,
-    SceneList,
-)
+from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.service.display_mode_store import DisplayModeStore
@@ -72,10 +65,13 @@ from punt_lux.wire.model import (
     WindowElement,
 )
 from punt_lux.wire.model.agent_factory import agent_element_factory
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.element import Element as DomainElement
 from punt_lux.wire.model.ids import ElementId, SceneId
 from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.scene_presentation import SceneLayout
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations import OpError, SceneInspection, SceneList
 
 
 class TestElementFromDict:

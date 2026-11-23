@@ -6,9 +6,9 @@ import asyncio
 
 from punt_lux.commands import Ctx, SessionOps, session_identify
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import OpError, Scope
-from punt_lux.operations.models.identity import Identified
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import OpError, Scope
+from punt_lux.wire.operations.identity import Identified
 from tests.commands._family_stubs import StubSessionOps
 from tests.commands._scene_stub import identity
 

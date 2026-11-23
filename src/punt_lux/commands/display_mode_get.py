@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
-from punt_lux.operations import DisplayModeState, OpError
+from punt_lux.wire.operations import DisplayModeState, OpError
 
 if TYPE_CHECKING:
-    from punt_lux.commands._ports import Ctx, DisplayModeOps
+    from punt_lux.wire.ops import Ctx, DisplayModeOps
 
 
 @final

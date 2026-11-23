@@ -8,33 +8,33 @@ from typing import TYPE_CHECKING
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
 from punt_lux.hub import field_realization
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.quarantine_record import QuarantineRecord
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import (
+from punt_lux.operations.scene_deps import SceneOperationsDeps
+from punt_lux.operations.scene_installer import SceneInstaller
+from punt_lux.operations.scene_submission import SceneSubmission
+from punt_lux.operations.scenes import SceneOperations
+from punt_lux.wire.model import CollapsingHeaderElement
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.elements import GroupElement, TreeElement
+from punt_lux.wire.model.ids import ElementId, SceneId, Topic
+from punt_lux.wire.model.json_payload import MAX_ELEMENT_NESTING
+from punt_lux.wire.model.messages.observer import ObserverMessage
+from punt_lux.wire.model.nesting_cap import NestingCap
+from punt_lux.wire.model.scene_presentation import ScenePresentation
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.update import AddElement
+from punt_lux.wire.operations import (
     Cleared,
     OpError,
     RenderRequest,
     SceneShown,
     UpdateRequest,
 )
-from punt_lux.operations.scene_deps import SceneOperationsDeps
-from punt_lux.operations.scene_installer import SceneInstaller
-from punt_lux.operations.scene_submission import SceneSubmission
-from punt_lux.operations.scenes import SceneOperations
-from punt_lux.wire.model import CollapsingHeaderElement
-from punt_lux.wire.model.elements import GroupElement, TreeElement
-from punt_lux.wire.model.ids import ElementId, SceneId, Topic
-from punt_lux.wire.model.json_payload import MAX_ELEMENT_NESTING
-from punt_lux.wire.model.messages.observer import ObserverMessage
-from punt_lux.wire.model.nesting_cap import NestingCap
-from punt_lux.wire.model.scope import Scope
-from punt_lux.wire.model.update import AddElement
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

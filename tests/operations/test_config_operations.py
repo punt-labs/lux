@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from punt_lux.operations import DisplayModeState, OpError
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.service.display_mode_store import DisplayModeStore
+from punt_lux.wire.operations import DisplayModeState, OpError
 
 
 def _ops() -> DisplayModeOperations:

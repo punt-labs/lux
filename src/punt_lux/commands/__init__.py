@@ -2,24 +2,6 @@
 
 from __future__ import annotations
 
-from punt_lux.commands._ports import (
-    CallbackPendingOps,
-    CallbackRegisterOps,
-    Ctx,
-    DisplayInfoOps,
-    DisplayModeOps,
-    ErrorOps,
-    EventOps,
-    FrameOps,
-    MenuOps,
-    PingOps,
-    SceneOps,
-    ScreenshotOps,
-    SessionOps,
-    ThemeOps,
-    TopicOps,
-    WindowOps,
-)
 from punt_lux.commands._result import CommandResult
 from punt_lux.commands.callback_pending import callback_pending
 from punt_lux.commands.callback_register import callback_register
@@ -48,6 +30,24 @@ from punt_lux.commands.topic_publish import topic_publish
 from punt_lux.commands.topic_recv import topic_recv
 from punt_lux.commands.topic_subscribe import topic_subscribe
 from punt_lux.commands.topic_unsubscribe import topic_unsubscribe
+from punt_lux.wire.ops import (
+    CallbackPendingOps,
+    CallbackRegisterOps,
+    Ctx,
+    DisplayInfoOps,
+    DisplayModeOps,
+    ErrorOps,
+    EventOps,
+    FrameOps,
+    MenuOps,
+    PingOps,
+    SceneOps,
+    ScreenshotOps,
+    SessionOps,
+    ThemeOps,
+    TopicOps,
+    WindowOps,
+)
 
 __all__ = [
     "CallbackPendingOps",

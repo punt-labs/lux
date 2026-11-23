@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx, ScreenshotOps, display_screenshot
-from punt_lux.operations import OpError
-from punt_lux.operations.models.display_probe import Screenshot
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.display_probe import Screenshot
 from tests.commands._family_stubs import StubScreenshotOps
 from tests.commands._scene_stub import identity
 

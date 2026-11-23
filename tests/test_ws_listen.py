@@ -38,15 +38,15 @@ from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.menu_models import Menu, MenuAction
 from punt_lux.hub.menu_presence import MarkMenusSink
-from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
+from punt_lux.wire.model.menu_models import Menu, MenuAction
 from punt_lux.wire.model.messages.listen import CallbackFrame
 from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.ws_listen import HubListenSession
 from punt_lux.ws_transport import HubListenTransport
 

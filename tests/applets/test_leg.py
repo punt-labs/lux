@@ -37,9 +37,9 @@ from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations import Ok, OpError
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.messages.listen import CallbackFrame, ReadyFrame
+from punt_lux.wire.operations import Ok, OpError
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, RecordingClient
 

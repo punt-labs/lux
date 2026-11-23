@@ -20,7 +20,7 @@ from punt_lux.applets.beads.beads_result import BeadsFailure, BeadsResult, Beads
 from punt_lux.applets.beads.browser import BeadsBrowser
 from punt_lux.cli.beads import BeadsBoardCommand
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     OpError,
     RenderRequest,
     RenderTableRequest,

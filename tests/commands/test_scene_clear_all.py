@@ -6,7 +6,7 @@ import asyncio
 
 from punt_lux.commands import Ctx, SceneOps, scene_clear_all
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Cleared, OpError, Scope
+from punt_lux.wire.operations import Cleared, OpError, Scope
 from tests.commands._scene_stub import StubSceneOps, identity
 
 _SCOPE = Scope.in_process(ConnectionId("test-conn"))

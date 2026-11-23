@@ -30,14 +30,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.client_submenu import ClientSubmenu
-from punt_lux.hub.menu_models import Menu
+from punt_lux.wire.model.menu_models import Menu
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from punt_lux.hub.hub_clients import HubClientRegistry
-    from punt_lux.hub.menu_models import MenuEntry
     from punt_lux.hub.named_sessions import NamedSessions
+    from punt_lux.wire.model.menu_models import MenuEntry
 
 __all__ = ["CallbackMenu", "CallbackMenuReplica"]
 

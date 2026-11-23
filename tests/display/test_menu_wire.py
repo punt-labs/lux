@@ -31,14 +31,14 @@ from punt_lux.display.replica.frame_book import FrameBook
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.client_roster import ClientRoster
 from punt_lux.hub.client_session import ClientSession
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
-from punt_lux.hub.menu_models import Menu, MenuAction
 from punt_lux.hub.named_sessions import NamedSessions
-from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage, TextElement
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.identity import HubId
+from punt_lux.wire.model.menu_models import Menu, MenuAction
+from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 from tests.menu_doubles import FakeImGui, ignore
 
 _BAR: dict[str, Any] = {

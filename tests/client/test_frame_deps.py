@@ -8,8 +8,8 @@ import pytest
 
 from punt_lux.client.frame_deps import FrameAccessorDeps
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import Ok, Scope
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import Ok, Scope
 
 _IDENTITY = ClientIdentity(kind="cli", name="frame-deps-test")
 _SCOPE = Scope.in_process(ConnectionId("c1"))

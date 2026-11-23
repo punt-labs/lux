@@ -24,7 +24,7 @@ from punt_lux.cli._shared import (
     scope_for,
 )
 from punt_lux.commands import Ctx, SessionOps, session_identify, session_ls
-from punt_lux.operations import OpError
+from punt_lux.wire.operations import OpError
 
 session_app = typer.Typer(
     name="session",

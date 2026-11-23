@@ -23,7 +23,6 @@ import pytest
 
 from punt_lux.hub.connection_closed import ConnectionClosedError
 from punt_lux.hub.display_link import DisplayLink
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.service.display_paths import DisplayPaths, SocketLiveness
 from punt_lux.wire.model import (
     HEADER_FORMAT,
@@ -36,6 +35,7 @@ from punt_lux.wire.model import (
 )
 from punt_lux.wire.model.json_payload import MAX_NESTING, JsonPayload
 from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.link_access import writer_of
 
 if TYPE_CHECKING:

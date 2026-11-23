@@ -95,7 +95,7 @@ class TestPing:
         assert "lux hub install" in result.stderr
 
     def test_ping_reports_round_trip(self) -> None:
-        from punt_lux.operations import Pong
+        from punt_lux.wire.operations import Pong
 
         with patch(
             "punt_lux.client.facade.LuxClient.connect",
@@ -117,7 +117,7 @@ class TestPing:
         # The CLI converges on the shared command's three-way status line — the
         # same one the MCP tool and REST route report — rather than a bespoke
         # two-way mapping of its own.
-        from punt_lux.operations import OpError
+        from punt_lux.wire.operations import OpError
 
         with patch(
             "punt_lux.client.facade.LuxClient.connect",
@@ -145,7 +145,7 @@ class TestPing:
         # bound still sits a fixed margin above that budget so it never trips first.
         from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
         from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT
-        from punt_lux.operations import Pong
+        from punt_lux.wire.operations import Pong
 
         captured: dict[str, object] = {}
 
@@ -170,7 +170,7 @@ class TestPing:
         # display reads "timeout" — not "luxd is not running" — and the wait
         # forwarded to the display leg is genuinely 1s.
         from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
-        from punt_lux.operations import OpError
+        from punt_lux.wire.operations import OpError
 
         captured: dict[str, object] = {}
 

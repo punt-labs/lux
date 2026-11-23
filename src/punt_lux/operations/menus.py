@@ -14,20 +14,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, Self, final
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menu_results import MenuList, Ok
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.menu_results import MenuList, Ok
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractContextManager
 
-    from punt_lux.hub.menu_models import Menu
     from punt_lux.hub.menu_registry import HubMenuRegistry
     from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations.menu_arming import MenuArming
-    from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.ports import DirtyMarker
+    from punt_lux.wire.model.menu_models import Menu
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.menu_results import SetMenuRequest
 
 __all__ = [
     "CallbackMenuSource",

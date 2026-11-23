@@ -216,9 +216,16 @@ neither move adds compatibility aliases or facade re-exports.
 Shared client identity and applet-name formatting live in
 \modpath{wire/model/client\_identity.py} and
 \modpath{wire/model/applet\_name\_format.py}, not the Hub.
-Applets use the shared \modpath{operations/models/} contracts rather
-than the operations facade.  Client facade dependencies on
-\modpath{commands/} remain migration debt pending a design decision.
+Applets and clients use the shared \modpath{wire/operations/} contracts rather
+than the operations facade. Client accessors call \modpath{wire/ops/}
+operation ports directly through \texttt{asyncio.to\_thread}; MCP and CLI
+commands retain their execution and formatting. Identity headers are shared
+values in \modpath{wire/model/identity\_headers.py} and
+\modpath{wire/model/header\_value.py}.
+Importing the public root, client SDK or service package loads no Hub,
+commands, operations facade, Display or PTY modules. The public
+\texttt{ServiceSpec} in \modpath{service/service\_spec.py} configures both
+supervisor backends for non-Lux daemons as well as Lux's unchanged specs.
 The identity values do not cross in Hub-to-Display element pickles, so
 Ready remains version \texttt{0.3} with the existing legacy-name remapping.
 
@@ -241,7 +248,7 @@ Operations    & \modpath{operations/}            & The engine's front of
                 \texttt{FrameRemover}, and \texttt{DisplayLinkOperations}.
                 Each method takes a typed request and returns a typed
                 result or an \texttt{OpError}.  Models live in
-                \modpath{operations/models/}. \\
+                \modpath{wire/operations/}. \\
 Hub domain    & \modpath{hub/}            & The authoritative
                 engine core.  \texttt{HubDisplay} is the store;
                 \texttt{HubReplicator} is the sole writer to the Display;
@@ -358,7 +365,7 @@ the rendering differs by surface.
 \subsubsection{The Error Contract}
 
 Every operation may return \texttt{OpError}
-(\modpath{operations/models/common.py}), a frozen model tagged
+(\modpath{wire/operations/common.py}), a frozen model tagged
 \texttt{kind="error"} so a result cannot be both a success and a failure.
 The \field{code} is a closed set the caller branches on; the \field{reason}
 is the human sentence for logs and messages.
@@ -482,9 +489,10 @@ including process-group management; its shared stream contracts live in
 \modpath{protocol/pty/} imports are removed without aliases. The
 \texttt{luxd-pty} executable, process behavior, and stream formats are unchanged.
 The terminal menu projection imports request values from
-\modpath{operations/models/}, removing the direct static PTY-to-Hub edge.
-The operations initializer still eagerly loads Hub code; runtime import
-isolation remains operations-package debt.
+\modpath{wire/operations/}, removing the direct static PTY-to-Hub edge.
+The operations initializer exports only the Hub-owned facade and its ports;
+public operation values now live in \modpath{wire/operations/}, outside that
+initializer. The public root no longer re-exports the Hub's ping command.
 The pickle decoder resolves old stream globals at their new namespace without
 import aliases. Ready remains version \texttt{0.3}: terminal element pickles
 carry primitive placement fields, not stream contracts or PTY execution

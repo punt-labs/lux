@@ -131,7 +131,7 @@ keys `(scene_id, element_id) → ConnectionId` (`hub/owner_tracker.py`), so
 one scene can hold roots installed by different connections, and each root has its
 own owner. The introspection model already reflects this: `SceneSummary.owners`
 is a list — "every distinct connection owning a root in the scene"
-(`operations/models/query_scenes.py`).
+(`wire/operations/query_scenes.py`).
 
 This design changes the *value* recorded as an owner, not the granularity. The
 per-root owner becomes the identity record instead of a bare `ConnectionId`. A
@@ -253,8 +253,8 @@ identity and the scenes it holds a root in. The operator can now read ownership
 straight off the introspection output.
 
 Concretely, each entry in `SceneSummary.owners`
-(`operations/models/query_scenes.py`) changes from an owner string to the
-structured identity, and `HubClient` (`operations/models/query_clients.py`) gains
+(`wire/operations/query_scenes.py`) changes from an owner string to the
+structured identity, and `HubClient` (`wire/operations/query_clients.py`) gains
 an `identity` field. These are the read shapes; the per-root owner value above is
 what fills them.
 

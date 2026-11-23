@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 if TYPE_CHECKING:
     from punt_lux.client._sync_ops import SyncOps
     from punt_lux.client.facade import LuxClient
-    from punt_lux.operations import (
+    from punt_lux.wire.operations import (
         OpError,
         RenderRequest,
         RenderTableRequest,

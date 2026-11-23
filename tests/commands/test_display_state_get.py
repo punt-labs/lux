@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 
 from punt_lux.commands import Ctx
-from punt_lux.commands.display_state_get import DisplayStateOps, display_state_get
+from punt_lux.commands.display_state_get import display_state_get
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import DisplayStateSnapshot, OpError, Scope
-from punt_lux.operations.models.display_state import FramePresentation
+from punt_lux.wire.operations import DisplayStateSnapshot, OpError, Scope
+from punt_lux.wire.operations.display_state import FramePresentation
+from punt_lux.wire.ops.display_state import DisplayStateOps
 from tests.commands._family_stubs import StubDisplayStateOps
 from tests.commands._scene_stub import identity
 

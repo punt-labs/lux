@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 
 
 def test_two_distinct_connections_compose_distinct_keys_from_one_local_id() -> None:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from pydantic import ValidationError
 
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     DisplayModeRequest,
     OpError,
     RenderDashboardRequest,
@@ -16,13 +16,13 @@ from punt_lux.operations import (
     RenderTableRequest,
     UpdateRequest,
 )
-from punt_lux.operations.models.display_state import (
+from punt_lux.wire.operations.display_state import (
     DisplayStateSnapshot,
     FramePresentation,
     WidgetSnapshot,
 )
-from punt_lux.operations.models.patches import RemovePatch, SetPatch
-from punt_lux.operations.models.render import FrameSpec
+from punt_lux.wire.operations.patches import RemovePatch, SetPatch
+from punt_lux.wire.operations.render import FrameSpec
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

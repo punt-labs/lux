@@ -27,7 +27,7 @@ class LayerContract:
         "connection_identity "
         "paths log_level proctitle repo_root runtime logging_config usage "
         "credentials socket_writer wire_queue",
-        "wire": "wire protocol operations.models",
+        "wire": "wire protocol",
         "trust": "trust",
         "service": "service",
         "client": "client",

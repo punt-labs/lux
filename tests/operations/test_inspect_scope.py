@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.operations.models.inspect_scope import InspectScope
+from punt_lux.wire.operations.inspect_scope import InspectScope
 
 
 def test_default_requests_no_fact() -> None:

@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from punt_lux.operations import OpError
-    from punt_lux.operations.models.display_link import DisplayLinkState
+    from punt_lux.wire.operations import OpError
+    from punt_lux.wire.operations.display_link import DisplayLinkState
 
 __all__ = ["DisplayLinkOps"]
 

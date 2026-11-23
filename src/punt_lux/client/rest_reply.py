@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING, Self, final
 from pydantic import BaseModel, ValidationError
 
 from punt_lux.client.rest_error_body import ErrorBody
-from punt_lux.operations import OpError
+from punt_lux.wire.operations import OpError
 
 if TYPE_CHECKING:
     from punt_lux.client.rest_transport import HttpResponse
-    from punt_lux.operations.models.common import OpErrorCode
+    from punt_lux.wire.operations.common import OpErrorCode
 
 __all__ = ["RestReply"]
 

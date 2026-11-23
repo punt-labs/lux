@@ -17,8 +17,8 @@ if TYPE_CHECKING:
         CallbackRegistration,
         ListenerDetachment,
     )
-    from punt_lux.hub.session_callback import SessionCallback
     from punt_lux.hub.session_write import SessionWrite
+    from punt_lux.wire.model.session_callback import SessionCallback
 
 __all__ = ["Detachment", "Registration"]
 

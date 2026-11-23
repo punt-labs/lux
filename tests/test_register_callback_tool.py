@@ -26,9 +26,7 @@ from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
-from punt_lux.hub.menu_models import Menu, MenuAction
 from punt_lux.hub.menu_registry import HubMenuRegistry
-from punt_lux.hub.session_callback import CallbackInvocation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
@@ -37,6 +35,8 @@ from punt_lux.service.display_paths import DisplayPaths
 from punt_lux.tools import subscribe_tools, write_tools
 from punt_lux.tools.server import _session_key
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.menu_models import Menu, MenuAction
+from punt_lux.wire.model.session_callback import CallbackInvocation
 
 _SESSION = "test-register-callback"
 

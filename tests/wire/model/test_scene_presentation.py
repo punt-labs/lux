@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from punt_lux.hub.frame_ownership import FrameOwnership
-from punt_lux.hub.scene_presentation import (
-    ScenePresentation,
-    ScenePresentationRegistry,
-)
+from punt_lux.hub.scene_presentation import ScenePresentationRegistry
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model import SceneMessage
+from punt_lux.wire.model.frame_ownership import FrameOwnership
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 
 
 class _RecordingPusher:

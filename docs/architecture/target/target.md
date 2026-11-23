@@ -310,6 +310,31 @@ contain model elements with primitive placement fields, not stream contracts or
 PTY execution objects. PTY control and stream frames use JSON/binary codecs,
 not pickle; no PTY execution pickle-name remapping is needed.
 
+Step 8 prepares extraction of `lux-service` and `lux-client`: public operation
+requests and results move from `operations.models` to `wire.operations`, and
+the per-family operation Protocols and command context move from `commands`
+to `wire.ops`. Client accessors call their operation ports directly through
+`asyncio.to_thread`; commands retain their MCP/CLI execution and formatting.
+Client identity headers and their encoded values now live in `wire.model`.
+Pure menu/callback values, connection-scoped IDs, frame ownership facts and
+scene presentations also live there; the mutable presentation registry remains
+Hub-owned. No old-path alias or compatibility facade is retained.
+
+The operations initializer exports only `Operations` and `HubPorts`. The root
+package no longer re-exports the Hub's `ping` command. Fresh-interpreter tests
+prove that importing `punt_lux`, `punt_lux.client` or `punt_lux.service` loads
+no Hub, commands, operations facade, Display or PTY modules. Client static
+layer violations are zero. `service.service_spec.ServiceSpec`, exported by
+`punt_lux.service`, is public; both existing supervisor backends can install
+a non-Lux daemon without changing `HUB_SPEC` or `DISPLAY_SPEC`.
+
+Ready remains `0.3`. Operation requests/results are REST/MCP JSON, menus are
+wire dictionaries, and presentation/ownership values become primitive scene
+fields. None of the moved classes is captured by the shipped element/handler
+pickles; `HubPublishSink` still reduces to its unchanged class and `ConnectionId`.
+Every element kind and a Hub-bound publish handler have regression coverage
+for the absence of moved globals. No new Display-unpickler remap is necessary.
+
 A package may import only from itself and the packages listed for it.
 `tools/layer_contract.py` holds the same table and `make check-layers`
 reports every runtime import edge that breaks it. The checked-in

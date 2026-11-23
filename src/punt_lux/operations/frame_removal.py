@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menu_results import Ok
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub_display import HubDisplay

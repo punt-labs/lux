@@ -7,9 +7,9 @@ from typing import get_args
 import pytest
 from fastapi import HTTPException
 
-from punt_lux.operations.models.common import OpError, OpErrorCode
-from punt_lux.operations.models.scene_results import SceneShown
 from punt_lux.rest.status import HttpErrorMap
+from punt_lux.wire.operations.common import OpError, OpErrorCode
+from punt_lux.wire.operations.scene_results import SceneShown
 
 _EXPECTED = {
     "invalid_request": 422,

@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.operations.models import OpError
-from punt_lux.operations.models.pubsub import BusEvent, Received
-from punt_lux.operations.models.pubsub_acks import Published, Subscribed, Unsubscribed
 from punt_lux.operations.reserved_topics import RESERVED_TOPICS
 from punt_lux.wire.model.ids import Topic
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.pubsub import BusEvent, Received
+from punt_lux.wire.operations.pubsub_acks import Published, Subscribed, Unsubscribed
 
 if TYPE_CHECKING:
     from punt_lux.hub.client_lifecycle import ClientLifecycle
     from punt_lux.hub.hub import Hub
-    from punt_lux.operations.models.pubsub import PublishRequest
     from punt_lux.operations.ports import HubPorts
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.pubsub import PublishRequest
 
 __all__ = ["PubSubOperations"]
 

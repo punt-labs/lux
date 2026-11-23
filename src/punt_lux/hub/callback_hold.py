@@ -45,8 +45,8 @@ if TYPE_CHECKING:
 
     from punt_lux.hub.callback_ports import CallbackListener, LiveSessions
     from punt_lux.hub.client_session import ClientSession
-    from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.session_callback import CallbackInvocation
 
 logger = logging.getLogger(__name__)
 

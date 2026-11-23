@@ -33,7 +33,7 @@ from punt_lux.applets.board_load import BoardLoad
 from punt_lux.applets.board_slot import BoardSlot
 from punt_lux.applets.board_work import BoardWork
 from punt_lux.applets.latency import ClickLatency
-from punt_lux.operations.models.scene_results import SceneShown
+from punt_lux.wire.operations.scene_results import SceneShown
 from tests.class_references import ClassReferences
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from punt_lux.applets.beads.beads_load import BeadsLoad
     from punt_lux.applets.beads.beads_result import BeadsResult
-    from punt_lux.operations import RenderRequest, RenderTableRequest
+    from punt_lux.wire.operations import RenderRequest, RenderTableRequest
 
 # Two boards a test can tell apart on sight, so the id that landed says which of
 # two overlapping loads the display ended up showing.
@@ -393,7 +393,7 @@ def _board_write_verbs() -> frozenset[str]:
     cleared (inspection answers with neither).
     """
     board = _methods_of(_SRC_PACKAGE / "applets" / "board_ops.py", "BoardOps")
-    scene = _methods_of(_SRC_PACKAGE / "commands" / "_ports.py", "SceneOps")
+    scene = _methods_of(_SRC_PACKAGE / "wire" / "ops" / "__init__.py", "SceneOps")
     writes = {
         name
         for name, method in scene.items()

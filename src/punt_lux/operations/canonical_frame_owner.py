@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast, final
 
-from punt_lux.hub.frame_ownership import UNOWNED, FrameOwnership
 from punt_lux.operations.frame_owner_facts import FrameOwnerFacts
+from punt_lux.wire.model.frame_ownership import UNOWNED, FrameOwnership
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub import Hub

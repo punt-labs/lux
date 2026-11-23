@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.hub.menu_frames import MenuFrames
-from punt_lux.hub.menu_models import MenuAction
-from punt_lux.hub.session_callback import CallbackInvocation
+from punt_lux.wire.model.menu_models import MenuAction
+from punt_lux.wire.model.session_callback import CallbackInvocation
 
 if TYPE_CHECKING:
     from punt_lux.hub.named_sessions import NamedSession

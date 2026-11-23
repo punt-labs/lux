@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 from punt_lux.client.rest_http_call import HttpCall
 from punt_lux.client.rest_reply import RestReply
-from punt_lux.operations import (
+from punt_lux.wire.operations import (
     DisplayInfo,
     DisplayModeState,
     DisplayStateSnapshot,

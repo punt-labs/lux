@@ -6,8 +6,8 @@ import asyncio
 
 from punt_lux.commands import Ctx, TopicOps, topic_subscribe
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import OpError, Scope
-from punt_lux.operations.models.pubsub_acks import Subscribed
+from punt_lux.wire.operations import OpError, Scope
+from punt_lux.wire.operations.pubsub_acks import Subscribed
 from tests.commands._family_stubs import StubTopicOps
 from tests.commands._scene_stub import identity
 

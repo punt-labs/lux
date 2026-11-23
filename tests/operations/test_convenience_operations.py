@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_display import HubDisplay
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import (
+from punt_lux.operations.conveniences import ConvenienceOperations
+from punt_lux.operations.scene_deps import SceneOperationsDeps
+from punt_lux.operations.scenes import SceneOperations
+from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
+from punt_lux.wire.model.ids import ElementId, SceneId
+from punt_lux.wire.model.scope import Scope
+from punt_lux.wire.operations import (
     OpError,
     RenderDashboardRequest,
     RenderTableRequest,
     SceneShown,
 )
-from punt_lux.operations.conveniences import ConvenienceOperations
-from punt_lux.operations.scene_deps import SceneOperationsDeps
-from punt_lux.operations.scenes import SceneOperations
-from punt_lux.wire.model.ids import ElementId, SceneId
-from punt_lux.wire.model.scope import Scope
 
 _CONNECTION = ConnectionId("local")
 _LOCAL = Scope.in_process(_CONNECTION)

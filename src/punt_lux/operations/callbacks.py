@@ -23,17 +23,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.hub.session_callback import CallbackInvocation
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menu_results import Ok
+from punt_lux.wire.model.session_callback import CallbackInvocation
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.menu_results import Ok
 
 if TYPE_CHECKING:
     from punt_lux.hub.callback_hold import CallbackRouter
     from punt_lux.hub.client_lifecycle import ClientLifecycle
     from punt_lux.hub.registry_outcomes import CallbackRegistration
-    from punt_lux.operations.models.callbacks import RegisterCallbackRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.wire.model.scope import Scope
+    from punt_lux.wire.operations.callbacks import RegisterCallbackRequest
 
 __all__ = ["CallbackOperations"]
 

@@ -15,7 +15,7 @@ from punt_lux.hub.dial_end import DialEnd
 from punt_lux.hub.display_connection import DisplayConnection
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.replicator_ports import DeathQueuePort
-from punt_lux.hub.scene_presentation import ScenePresentation
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from tests.wire.model.display_double import until
 
 if TYPE_CHECKING:

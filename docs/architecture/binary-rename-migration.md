@@ -2,7 +2,7 @@
 
 **Status:** historical record. Design shipped in PR #383 (lux-j169); the
 implementation lives in `service/_binary_sweep.py`, `service/_binary_sweep_disk.py`,
-`service/_shim_ownership.py`, and the current `service/_service_spec.py`. Sections below
+`service/_shim_ownership.py`, and the current `service/service_spec.py`. Sections below
 describe the state of the tree *before* the rename shipped — read as the
 motivating snapshot, not as the current codebase.
 
@@ -26,13 +26,13 @@ luxd = "punt_lux.luxd:main"
 lux-beads = "punt_lux.applets.beads:app"
 ```
 
-`HUB_SPEC` (`service/_service_spec.py:69-82`) already renamed the *process* to
+`HUB_SPEC` (`service/service_spec.py:69-82`) already renamed the *process* to
 `luxd-hub` (`process_name="luxd-hub"`, set via `setproctitle` — see
 `pyproject.toml:38-42`'s comment) and the *supervisor identity* to
 `com.punt-labs.luxd-hub` / `luxd-hub` (`launchd_label`, `systemd_unit`).
-`binary_name` still reads `"luxd"` (`service/_service_spec.py:74`) — the disk
+`binary_name` still reads `"luxd"` (`service/service_spec.py:74`) — the disk
 artifact never followed the rename. `resolve_exec_args()`
-(`service/_service_spec.py:42-58`) resolves `~/.local/bin/luxd`, and every `uv tool
+(`service/service_spec.py:42-58`) resolves `~/.local/bin/luxd`, and every `uv tool
 install` reports:
 
 ```text
@@ -78,7 +78,7 @@ Three facts this design relies on, all verified above rather than assumed:
 1. **`~/.local/bin/luxd` is a real symlink** (`lrwxr-xr-x`, `@` suffix,
    `readlink -f` resolves it) — one hop, `~/.local/bin/luxd →
    ~/.local/share/uv/tools/punt-lux/bin/luxd`. The comment at
-   `service/_service_spec.py:45` ("the uv-tool install symlink") is accurate for
+   `service/service_spec.py:45` ("the uv-tool install symlink") is accurate for
    the current uv version on this platform.
 2. **The target under `.../tools/punt-lux/bin/` is itself a regular file**
    — a small generated Python launcher with a shebang pointing at the
@@ -156,7 +156,7 @@ hub doctor` render today (`service-lifecycle-migration.md` §6, §2.3).
 **2. The actual hazard for a disk binary is identity, not ordering** — and
 `LegacySweep` has no field for it. Deleting the wrong `launchctl` label is
 not a live risk: `spec.legacy_launchd_labels`
-(`service/_service_spec.py:36`) names labels *this codebase itself registered*
+(`service/service_spec.py:36`) names labels *this codebase itself registered*
 under `com.punt-labs.*` — there is no ambiguity about who owns
 `com.punt-labs.lux`. `~/.local/bin/luxd` carries no such built-in
 namespace. Any operator could have a **hand-installed script** named
@@ -383,7 +383,7 @@ class ServiceSpec:
     def resolve_exec_args(self) -> list[str]:
         # binary_name changes from "luxd" to "luxd-hub" -- a plain data
         # edit, not part of this design; resolve_exec_args()'s logic
-        # (service/_service_spec.py:42-58) is unaffected.
+        # (service/service_spec.py:42-58) is unaffected.
         ...
 ```
 
@@ -393,12 +393,12 @@ scope — not a design decision, a data edit). `DISPLAY_SPEC` leaves the
 field at its empty-tuple default: its `binary_name="lux"` was never
 renamed, so `DiskBinaryLegacySweep(DISPLAY_SPEC)` iterates zero names and
 `sweep()`/`is_clean()` are no-ops by construction, exactly like
-`LegacySweep` on `DISPLAY_SPEC` today (`service/_service_spec.py:85-95`, empty
+`LegacySweep` on `DISPLAY_SPEC` today (`service/service_spec.py:85-95`, empty
 `legacy_launchd_labels`/`legacy_systemd_units`).
 
 A future rename train — the mission's own framing, "the same class of
 stale-state-on-rename hazard" — adds one name to one tuple in
-`service/_service_spec.py`. No new sweep class, no new call site.
+`service/service_spec.py`. No new sweep class, no new call site.
 
 ## 4. Invocation Point
 
@@ -620,7 +620,7 @@ argument, stated plainly:
 ```bash
 uv run python -c "
 from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux.service._service_spec import HUB_SPEC
+from punt_lux.service.service_spec import HUB_SPEC
 report = DiskBinaryLegacySweep(HUB_SPEC).diagnose()
 print(report.describe() or 'clean')
 "
@@ -904,7 +904,7 @@ exact failure mode the mission's evaluator brief names explicitly
   migration-path reasoning) are each cited above.
 - Bead `lux-ehzy` — the launchd/systemd incident and its fix scope.
 - Bead `lux-j169` — this design's scope.
-- `src/punt_lux/service/_service_spec.py`, `service/_legacy_sweep.py`,
+- `src/punt_lux/service/service_spec.py`, `service/_legacy_sweep.py`,
   `service/_legacy_sweep_launchd.py`, `service/_legacy_sweep_systemd.py`,
   `service/_platform_dispatch.py`, `service/_doctor_result.py`, `service/_service_errors.py`,
   `service/__init__.py`, `cli/hub.py`, `pyproject.toml`, `install.sh` — the current

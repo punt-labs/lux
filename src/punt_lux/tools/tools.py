@@ -16,13 +16,9 @@ from collections.abc import Callable
 
 from punt_lux.hub_composition import HubComposition
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.operations import (
-    OpError,
-    SceneShown,
-    Scope,
-)
 from punt_lux.tools.server import _session_key, current_client_host
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.operations import OpError, SceneShown, Scope
 
 __all__ = [
     "OPERATIONS",

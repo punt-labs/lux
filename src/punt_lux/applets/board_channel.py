@@ -16,12 +16,12 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.client.rest_transport import HubUnavailableError
-from punt_lux.operations.models import OpError, RenderTableRequest
+from punt_lux.wire.operations import OpError, RenderTableRequest
 
 if TYPE_CHECKING:
     from punt_lux.applets.board_load import BoardRequest
     from punt_lux.applets.board_ops import BoardOps
-    from punt_lux.operations.models import SceneShown
+    from punt_lux.wire.operations import SceneShown
 
 logger = logging.getLogger(__name__)
 

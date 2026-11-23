@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.display_frames import FrameState, FrameStates
+from punt_lux.wire.operations.common import OpError
+from punt_lux.wire.operations.display_frames import FrameState, FrameStates
 
 _VALID_FRAME = {
     "frame_id": "f1",

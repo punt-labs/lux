@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Self, final
 
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.hub.scene_presentation import ScenePresentation
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations.scene_installer import SceneInstaller
 from punt_lux.operations.scene_submission import SceneSubmission
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId
+from punt_lux.wire.model.scene_presentation import ScenePresentation
 from punt_lux.wire.model.scope import Scope
 
 _OWNER = ConnectionId("c1")
