@@ -11,7 +11,11 @@ from __future__ import annotations
 import os
 import socket
 
-from punt_lux.operations.display_reply import DisplayFault, DisplayReplied
+from punt_lux.operations.display_reply import (
+    DisplayErrored,
+    DisplayFault,
+    DisplayReplied,
+)
 from punt_lux.operations.models.hub_connection import HubConnection
 
 from ._fakes import StubPort, make_client
@@ -109,13 +113,18 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
     }
 
 
-def test_screenshot_unsupported_is_409() -> None:
-    # DES-028: framebuffer capture is unsolved, so the operation refuses up front
-    # with a rejection (409); the display is never reached (StubPort is inert).
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.get("/display/screenshot")
+def test_screenshot_returns_the_path_the_display_painted() -> None:
+    port = StubPort(DisplayReplied({"path": "/tmp/lux-screenshots/a.png"}))
+    resp = make_client(display_port=port).get("/display/screenshot")
+    assert resp.status_code == 200
+    assert resp.json() == {"kind": "ok", "path": "/tmp/lux-screenshots/a.png"}
+
+
+def test_screenshot_refused_by_the_display_is_409() -> None:
+    port = StubPort(DisplayErrored("a screenshot is already waiting"))
+    resp = make_client(display_port=port).get("/display/screenshot")
     assert resp.status_code == 409
-    assert "DES-028" in resp.json()["detail"]
+    assert "already waiting" in resp.json()["detail"]
 
 
 def test_ping() -> None:

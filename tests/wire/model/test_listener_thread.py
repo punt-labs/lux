@@ -808,9 +808,12 @@ class TestARaisingRoute:
             with caplog.at_level(logging.ERROR):
                 made.listener.start()
                 made.display.peer.send_raw(_event("ts-marker"))
-                assert until(lambda: bool(caplog.records))
-
-            assert "ts-marker" in caplog.text
+                # Wait on the record's own message: caplog.text is rendered by
+                # the handler after the record is appended, so a wait on the
+                # record count can read an empty text under load.
+                assert until(
+                    lambda: any("ts-marker" in r.getMessage() for r in caplog.records)
+                )
         finally:
             made.close()
 

@@ -1,9 +1,4 @@
-"""``display screenshot`` -- refuse cleanly; framebuffer capture is unsupported.
-
-The underlying ``ctx.ops.screenshot`` always returns ``OpError(rejected)``
-because framebuffer capture is unresolved below the message layer. The
-command preserves that behavior: it does not invent an implementation.
-"""
+"""``display screenshot`` -- capture the display's next painted frame to a PNG."""
 
 from __future__ import annotations
 
@@ -21,7 +16,7 @@ if TYPE_CHECKING:
 
 @final
 class DisplayScreenshotCommand:
-    """Refuse a screenshot request; capture is unsupported below the message layer."""
+    """Capture the next painted frame; the result names the PNG on the display host."""
 
     __slots__ = ()
 
@@ -29,16 +24,14 @@ class DisplayScreenshotCommand:
         return super().__new__(cls)
 
     async def execute(self, ctx: Ctx[ScreenshotOps]) -> Screenshot | OpError:
-        """Return the typed screenshot -- which is always an ``OpError`` today."""
+        """Return the typed screenshot, or the error the display answered with."""
         return await asyncio.to_thread(ctx.ops.screenshot)
 
     async def __call__(self, ctx: Ctx[ScreenshotOps]) -> CommandResult:
         """Run :meth:`execute` and render its outcome into the shared envelope.
 
-        Renders every outcome through :func:`render_fault` -- the shipped tool
-        line for the unsupported case is ``"error: <reason>"`` (the fault
-        vocabulary's generic branch), and any future success path will land
-        with a proper path field the adapters can render separately.
+        A failure renders through :func:`render_fault` as ``"error: <reason>"``;
+        a capture renders as its path, which is on the display's host.
         """
         result = await self.execute(ctx)
         if isinstance(result, OpError):

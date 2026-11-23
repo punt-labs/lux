@@ -7,9 +7,7 @@ injected :class:`DisplayPort`; the reach-around that is gone is a tool talking
 to the display directly, so there is still one code path.
 
 Every operation answers with a typed result: a reply the result type does not
-recognize is an ``OpError(rejected)``, never a fabricated success.
-``screenshot`` is the lone operation that never reaches the display —
-framebuffer capture is unsupported (DES-028), so it refuses up front. Frame
+recognize is an ``OpError(rejected)``, never a fabricated success. Frame
 visibility (raising a frame) is never one of these operations at all — that
 is a Display-local, user-gesture-only concern (DES-088); no client op reaches
 around to move a frame.
@@ -71,13 +69,20 @@ class DisplayControlOperations:
         data = self._port.query("get_window_settings", {}).resolve()
         return data if isinstance(data, OpError) else WindowSettings.from_payload(data)
 
-    @staticmethod
-    def screenshot() -> Screenshot | OpError:
-        """Refuse cleanly: framebuffer capture is unsupported (DES-028)."""
-        return OpError(
-            code="rejected",
-            reason="screenshot capture is not supported by the display; see DES-028",
-        )
+    def screenshot(self) -> Screenshot | OpError:
+        """Capture the display's next painted frame to a PNG on the display host.
+
+        The display answers this query one frame late, after the swap that paints
+        it, so a bounded reply is the frame as presented. The path is on the
+        display's host; a caller on another machine cannot open it.
+        """
+        payload = self._port.query("screenshot", {}).resolve()
+        if isinstance(payload, OpError):
+            return payload
+        path = payload.get("path")
+        if not isinstance(path, str) or not path:
+            return OpError(code="fault", reason="screenshot reply carried no path")
+        return Screenshot(path=path)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a ping bounded by ``wait`` seconds; return the elapsed time.

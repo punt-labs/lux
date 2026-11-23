@@ -13,8 +13,6 @@ __all__ = [
     "ListScenesResponse",
     "QueryRequest",
     "QueryResponse",
-    "ScreenshotRequest",
-    "ScreenshotResponse",
     "register_codecs",
 ]
 
@@ -89,22 +87,6 @@ class ListScenesResponse:
 
 
 @dataclass(frozen=True, slots=True)
-class ScreenshotRequest:
-    """Request a screenshot of the current display."""
-
-    type: Literal["screenshot_request"] = "screenshot_request"
-
-
-@dataclass(frozen=True, slots=True)
-class ScreenshotResponse:
-    """Response with path to the captured screenshot."""
-
-    path: str = ""
-    type: Literal["screenshot_response"] = "screenshot_response"
-    error: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class QueryRequest:
     """Generic introspection/control request."""
 
@@ -142,17 +124,6 @@ def _list_scenes_request_to_dict(m: ListScenesRequest) -> dict[str, Any]:
     return {"type": m.type}
 
 
-def _screenshot_request_to_dict(m: ScreenshotRequest) -> dict[str, Any]:
-    return {"type": m.type}
-
-
-def _screenshot_response_to_dict(m: ScreenshotResponse) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": m.type, "path": m.path}
-    if m.error is not None:
-        d["error"] = m.error
-    return d
-
-
 def _query_request_to_dict(m: QueryRequest) -> dict[str, Any]:
     d: dict[str, Any] = {"type": m.type, "method": m.method}
     if m.params:
@@ -181,17 +152,6 @@ def _introspect_response_from_dict(d: dict[str, Any]) -> IntrospectResponse:
 
 def _list_scenes_request_from_dict(_d: dict[str, Any]) -> ListScenesRequest:
     return ListScenesRequest()
-
-
-def _screenshot_request_from_dict(_d: dict[str, Any]) -> ScreenshotRequest:
-    return ScreenshotRequest()
-
-
-def _screenshot_response_from_dict(d: dict[str, Any]) -> ScreenshotResponse:
-    return ScreenshotResponse(
-        path=d.get("path", ""),
-        error=d.get("error"),
-    )
 
 
 def _query_request_from_dict(d: dict[str, Any]) -> QueryRequest:
@@ -237,18 +197,6 @@ def register_codecs(register: _Register) -> None:
         ListScenesResponse,
         ListScenesResponse.to_dict,
         ListScenesResponse.from_dict,
-    )
-    register(
-        "screenshot_request",
-        ScreenshotRequest,
-        _screenshot_request_to_dict,
-        _screenshot_request_from_dict,
-    )
-    register(
-        "screenshot_response",
-        ScreenshotResponse,
-        _screenshot_response_to_dict,
-        _screenshot_response_from_dict,
     )
     register(
         "query_request", QueryRequest, _query_request_to_dict, _query_request_from_dict

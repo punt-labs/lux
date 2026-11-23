@@ -115,7 +115,7 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.list_frames())
 
     def screenshot(self, identity: _CallerIdentity) -> Screenshot:
-        """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
+        """Capture the next painted frame; the path is on the display host."""
         ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
         result = asyncio.run(display_screenshot_command.execute(ctx))
         return self._errors.respond(result)

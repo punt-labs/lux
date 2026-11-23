@@ -1,9 +1,10 @@
 """ScreenshotQueue -- the one screenshot waiting for the next swap, and its requester.
 
-A screenshot can only be taken after a buffer swap, so a request waits until the
-next one. One waits at a time; a request that arrives while another waits is
-answered at once with an error, never allowed to replace it: the requester of a
-replaced request would wait out its whole timeout for a reply that never comes.
+A screenshot can only be taken after a buffer swap, so the ``screenshot`` query
+waits until the next one. One waits at a time; a request that arrives while
+another waits is answered at once with an error, never allowed to replace it:
+the requester of a replaced request would wait out its whole timeout for a
+reply that never comes.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.display.framebuffer_capture import FramebufferCapture
-from punt_lux.wire.model import ScreenshotResponse
+from punt_lux.wire.model import QueryResponse
 
 if TYPE_CHECKING:
     import socket
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     from punt_lux.display.display_log import ErrorRecorder
 
 __all__ = ["ScreenshotQueue"]
+
+_METHOD = "screenshot"
 
 
 @final
@@ -38,21 +41,12 @@ class ScreenshotQueue:
         self._waiting = None
         return self
 
-    @staticmethod
-    def refuse_generic_query(**_kwargs: object) -> dict[str, object]:
-        """Answer the generic ``screenshot`` query: it cannot be deferred to a swap.
-
-        A capture needs the GL context after a buffer swap, which the generic
-        query path cannot wait for; the dedicated request message is queued here.
-        """
-        msg = "Use the dedicated screenshot_request message"
-        raise RuntimeError(msg)
-
     def request(self, sock: socket.socket) -> None:
         """Take a screenshot for ``sock`` at the next swap, or refuse it at once."""
         if self._waiting is not None:
-            busy = ScreenshotResponse(
-                error="a screenshot is already waiting for the next frame"
+            busy = QueryResponse(
+                method=_METHOD,
+                error="a screenshot is already waiting for the next frame",
             )
             self._sender.reply_to_client(sock, busy)
             return

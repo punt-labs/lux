@@ -153,7 +153,7 @@ def screenshot(
     verbose: VerboseFlag = False,
     quiet: QuietFlag = False,
 ) -> None:
-    """Capture the display framebuffer; currently unsupported (DES-028)."""
+    """Capture the next painted frame to a PNG on the display host."""
     flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
     ctx: Ctx[ScreenshotOps] = _ambient_ctx()
     run(display_screenshot(ctx), flags)
