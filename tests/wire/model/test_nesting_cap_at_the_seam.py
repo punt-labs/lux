@@ -33,6 +33,7 @@ from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.update import AddElement, SetProperty
 from punt_lux.wire.operations.common import OpError
 from tests.class_references import ClassReferences, aliased_constructions
+from tools.source_tree import SourceTree
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub_display import HubDisplay
@@ -284,8 +285,8 @@ class TestATreeTooDeepToDecodeOrPatch:
 def _constructions_of(name: str) -> set[str]:
     """The modules (relative to the package) that build a ``name`` instance."""
     return {
-        path.relative_to(_SRC).as_posix()
-        for path in _SRC.rglob("*.py")
+        rel
+        for rel, path in SourceTree(_SRC.parent).files().items()
         if _builds(path.read_text(encoding="utf-8"), name)
     }
 
@@ -311,7 +312,8 @@ class TestTheCapIsAskedAtTheSeamAlone:
 
     def test_the_cap_has_no_per_kind_declaration_left(self) -> None:
         text = "\n".join(
-            path.read_text(encoding="utf-8") for path in _SRC.rglob("*.py")
+            path.read_text(encoding="utf-8")
+            for path in SourceTree(_SRC.parent).modules().values()
         )
 
         assert "NESTING_FIELDS" not in text

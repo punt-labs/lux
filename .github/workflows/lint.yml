@@ -25,8 +25,8 @@ jobs:
       - run: uv run --extra display ruff check .
       - run: uv run --extra display ruff format --check .
       - run: make check-comments check-docstrings
-      - run: uv run --extra display mypy src/ tests/
-      - run: uv run --extra display pyright src/ tests/
+      - run: uv run --extra display mypy src/ packages/ tests/
+      - run: uv run --extra display pyright src/ packages/ tests/
       # The plugin surface has to stand alone: a marketplace install fetches
       # only plugin/, so a path resolving outside it passes every check above
       # — they run against the full tree, where the target is present — and

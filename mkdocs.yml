@@ -6,7 +6,7 @@ plugins:
       enable_inventory: true
       handlers:
         python:
-          paths: [src]
+          paths: [src, packages/punt-lux-client/src, packages/punt-service/src]
           options:
             docstring_style: google
             show_signature_annotations: true

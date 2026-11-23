@@ -14,12 +14,12 @@ import urllib.request
 import typer
 
 from punt_lux.kernel.hub_paths import HubPaths
-from punt_lux.service import (
+from punt_lux.service import HubServiceManager
+from punt_lux.service.hub_restart import HubRestart, HubRestartError
+from punt_service import (
     ServiceActionFailedError,
-    ServiceManager,
     ServiceNotInstalledError,
 )
-from punt_lux.service.hub_restart import HubRestart, HubRestartError
 
 hub_app = typer.Typer(
     name="hub",
@@ -33,13 +33,13 @@ __all__ = ["hub_app"]
 @hub_app.command("install")
 def install() -> None:
     """Register luxd as a system service (launchd on macOS, systemd on Linux)."""
-    typer.echo(ServiceManager.for_hub().install())
+    typer.echo(HubServiceManager().install())
 
 
 @hub_app.command("uninstall")
 def uninstall() -> None:
     """Remove the luxd system service registration."""
-    typer.echo(ServiceManager.for_hub().uninstall())
+    typer.echo(HubServiceManager().uninstall())
 
 
 @hub_app.command("start")
@@ -52,7 +52,7 @@ def start() -> None:
         typer.echo(label)
         return
     try:
-        typer.echo(ServiceManager.for_hub().start())
+        typer.echo(HubServiceManager().start())
     except (ServiceNotInstalledError, ServiceActionFailedError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
@@ -62,7 +62,7 @@ def start() -> None:
 def stop() -> None:
     """Stop luxd, leaving the service registration in place."""
     try:
-        typer.echo(ServiceManager.for_hub().stop())
+        typer.echo(HubServiceManager().stop())
     except ServiceActionFailedError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
@@ -87,7 +87,7 @@ def doctor(
     ),
 ) -> None:
     """Diagnose (or repair, with --fix) legacy registrations and port conflicts."""
-    mgr = ServiceManager.for_hub()
+    mgr = HubServiceManager()
     if fix:
         typer.echo("Repairing...")
         result = mgr.doctor_fix()

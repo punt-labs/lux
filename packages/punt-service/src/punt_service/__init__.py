@@ -1,0 +1,157 @@
+"""Product-neutral daemon lifecycle via launchd and systemd."""
+
+from __future__ import annotations
+
+import os
+from typing import ClassVar, Self
+
+from punt_service._backends import ServiceBackend
+from punt_service._binary_sweep import BinarySweep
+from punt_service._doctor_result import DoctorCheckers, DoctorResult
+from punt_service._empty_binary_sweep import EmptyBinarySweep
+from punt_service._legacy_sweep import LegacySweep
+from punt_service._platform_dispatch import detect_platform, platform_classes
+from punt_service._port_guard import PortGuard
+from punt_service._service_errors import (
+    PortConflictError,
+    ServiceActionFailedError,
+    ServiceMigrationError,
+    ServiceNotInstalledError,
+)
+from punt_service.service_spec import ServiceSpec
+
+__all__ = [
+    "DoctorResult",
+    "PortConflictError",
+    "ServiceActionFailedError",
+    "ServiceManager",
+    "ServiceMigrationError",
+    "ServiceNotInstalledError",
+    "ServiceSpec",
+    "detect_platform",
+]
+
+
+class ServiceManager:
+    """Coordinate one service's lifecycle; subclasses fix ``_SPEC``."""
+
+    _SPEC: ClassVar[ServiceSpec]
+
+    __slots__ = ("_backend", "_binary_sweep", "_legacy_sweep", "_port_guard")
+    _backend: ServiceBackend
+    _binary_sweep: BinarySweep
+    _legacy_sweep: LegacySweep
+    _port_guard: PortGuard
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Reject a subclass that forgets to fix ``_SPEC``, at definition time."""
+        super().__init_subclass__(**kwargs)
+        if "_SPEC" not in cls.__dict__:
+            msg = (
+                f"{cls.__name__} must set _SPEC "
+                "(one service specification per subclass)"
+            )
+            raise TypeError(msg)
+
+    def __new__(cls, *, binary_sweep: BinarySweep | None = None) -> Self:
+        """Discover the platform's service backend."""
+        if "_SPEC" not in cls.__dict__:
+            msg = f"{cls.__name__} is abstract — instantiate a subclass with _SPEC"
+            raise TypeError(msg)
+        self = super().__new__(cls)
+        classes = platform_classes(detect_platform())
+        self._backend = classes.backend(cls._SPEC)
+        self._legacy_sweep = classes.legacy_sweep(cls._SPEC)
+        self._binary_sweep = (
+            binary_sweep if binary_sweep is not None else EmptyBinarySweep()
+        )
+        self._port_guard = PortGuard(cls._SPEC)
+        return self
+
+    def install(self) -> str:
+        """Cure any legacy registration and port conflict, then install."""
+        self._legacy_sweep.sweep()
+        self._binary_sweep.sweep()
+        if self._SPEC.health_port is not None:
+            self._port_guard.guard()
+        already_up_to_date = self._backend.install()
+        is_running = self._backend.is_active()
+        exec_display = " ".join(self._SPEC.resolve_exec_args())
+        if already_up_to_date:
+            status_label = "already installed and up to date"
+        elif is_running:
+            status_label = "running"
+        else:
+            status_label = "installed (not yet running)"
+        lines = [
+            f"{self._SPEC.display_name} {status_label}.",
+            f"  Service: {self._backend.config_path()}",
+            f"  Command: {exec_display}",
+        ]
+        if warning := self._backend.linger_warning():
+            lines.append(warning)
+        return os.linesep.join(lines)
+
+    def uninstall(self) -> str:
+        """Remove the service and return a status message."""
+        path = self._backend.config_path()
+        self._backend.uninstall()
+        return f"{self._SPEC.display_name} uninstalled. Removed {path}."
+
+    def stop(self) -> str:
+        """Stop the service; raise if the supervisor call itself failed."""
+        if not self._backend.stop():
+            msg = self._SPEC.failure_message("stop")
+            raise ServiceActionFailedError(msg)
+        return f"{self._SPEC.display_name} stopped."
+
+    def start(self) -> str:
+        """Start an already-installed, stopped service."""
+        self._require_installed()
+        if not self._backend.start():
+            msg = self._SPEC.failure_message("start")
+            raise ServiceActionFailedError(msg)
+        return f"{self._SPEC.display_name} started."
+
+    def restart(self) -> str:
+        """Atomically restart via the supervisor -- no pid file, no signal-and-wait."""
+        self._require_installed()
+        if not self._backend.restart():
+            msg = self._SPEC.failure_message("restart")
+            raise ServiceActionFailedError(msg)
+        return f"{self._SPEC.display_name} restarted."
+
+    def _require_installed(self) -> None:
+        """Raise :class:`ServiceNotInstalledError` unless the config exists."""
+        if not self._backend.config_path().exists():
+            msg = (
+                f"{self._SPEC.display_name} is not installed. "
+                f"Run '{self._SPEC.cli_name} {self._SPEC.cli_verb} install' first."
+            )
+            raise ServiceNotInstalledError(msg)
+
+    @property
+    def is_active(self) -> bool:
+        """Return whether the service is currently running."""
+        return self._backend.is_active()
+
+    @property
+    def spec(self) -> ServiceSpec:
+        """Return the spec identifying this managed service."""
+        return self._SPEC
+
+    def doctor(self) -> DoctorResult:
+        """Diagnose this service, read-only (``service <verb> doctor``)."""
+        return DoctorResult.diagnose(self._checkers())
+
+    def doctor_fix(self) -> DoctorResult:
+        """Repair this service, same objects :meth:`install` uses (``--fix``)."""
+        return DoctorResult.repair(self._checkers())
+
+    def _checkers(self) -> DoctorCheckers:
+        return DoctorCheckers(
+            legacy_sweep=self._legacy_sweep,
+            binary_sweep=self._binary_sweep,
+            port_guard=self._port_guard,
+            spec=self._SPEC,
+        )

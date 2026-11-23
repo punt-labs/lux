@@ -33,5 +33,6 @@ class LayerRenames:
 
     @staticmethod
     def _module(path: str) -> str:
-        parts = PurePosixPath(path).relative_to("src").with_suffix("").parts
+        physical = PurePosixPath(path).with_suffix("").parts
+        parts = physical[physical.index("src") + 1 :]
         return ".".join(parts).removesuffix(".__init__")

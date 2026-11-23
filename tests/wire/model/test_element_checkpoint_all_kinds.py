@@ -19,6 +19,7 @@ from punt_lux.wire.model.element_checkpoint import ElementCheckpoint
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.wire.model.setter_priority import SetterPriority
 from tests.conftest import _build_test_factory
+from tools.source_tree import SourceTree
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -102,8 +103,8 @@ def _in_place_writes(source: str) -> list[str]:
 
 def test_no_setter_in_the_source_mutates_a_field_in_place() -> None:
     found = {
-        path.relative_to(_SRC).as_posix(): writes
-        for path in sorted(_SRC.rglob("*.py"))
+        rel: writes
+        for rel, path in SourceTree(_SRC.parent).files().items()
         if (writes := _in_place_writes(path.read_text("utf-8")))
     }
 

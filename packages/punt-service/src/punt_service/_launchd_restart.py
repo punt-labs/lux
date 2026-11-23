@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Self
 if TYPE_CHECKING:
     from subprocess import CompletedProcess
 
-    from punt_lux.service._launchd_plist import LaunchdPlist
+    from punt_service._launchd_plist import LaunchdPlist
 
 logger = logging.getLogger(__name__)
 

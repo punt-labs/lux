@@ -1,4 +1,4 @@
-"""Linux systemd user-unit backend for Lux service lifecycle (hub or display)."""
+"""Linux systemd user-unit backend for daemon lifecycle."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.service._atomic_write import write_config_atomic
-from punt_lux.service._backends import ServiceBackend, has_linger
+from punt_service._atomic_write import write_config_atomic
+from punt_service._backends import ServiceBackend, has_linger
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceSpec
+    from punt_service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 

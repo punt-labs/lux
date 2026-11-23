@@ -1,8 +1,9 @@
-"""The platform-agnostic daemon lifecycle strategy for luxd.
+"""The platform-agnostic daemon lifecycle strategy for daemon.
 
 Concrete backends live in their own modules --
-:class:`~punt_lux.LaunchdBackend` in ``_backend_launchd.py``,
-:class:`~punt_lux.SystemdBackend` in ``_backend_systemd.py`` -- so each
+:class:`~punt_service._backend_launchd.LaunchdBackend` in ``_backend_launchd.py``,
+:class:`~punt_service._backend_systemd.SystemdBackend` in ``_backend_systemd.py``.
+Each
 platform's plist/unit-file generation and process-management logic stays
 under the 300-line module target.
 """

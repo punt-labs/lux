@@ -9,6 +9,7 @@ import pytest
 
 import punt_lux.wire.model as protocol
 import punt_lux.wire.model.elements as elements
+from tools.source_tree import SourceTree
 
 # Guard the obsolete module paths, not the replica that owns placement.
 _DELETED_MODULES = (
@@ -91,9 +92,9 @@ def test_no_forbidden_legacy_pattern_in_source() -> None:
     them, and is not under ``src``.
     """
     hits: list[str] = []
-    for path in _SRC_ROOT.rglob("*.py"):
+    for path in SourceTree(_SRC_ROOT.parent).modules().values():
         text = path.read_text(encoding="utf-8")
-        rel = path.relative_to(_SRC_ROOT)
+        rel = path
         hits.extend(
             f"{rel}: {pattern!r}"
             for pattern in _FORBIDDEN_SOURCE_PATTERNS

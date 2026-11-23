@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Protocol, Self, cast, final
 
 import pytest
 
+import punt_lux
 import punt_lux.applets as applets_package
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.beads.applet_board import AppletBoard
@@ -318,9 +319,10 @@ def _joined(*threads: threading.Thread) -> None:
 
 def _package_sources() -> dict[str, str]:
     """Every module under ``src/punt_lux``, by path relative to it."""
-    root = Path(next(iter(applets_package.__path__))).parent
+    roots = [Path(part) for part in punt_lux.__path__]
     return {
         path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for root in roots
         for path in root.rglob("*.py")
     }
 

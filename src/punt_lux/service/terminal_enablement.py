@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.service import ServiceActionFailedError
+from punt_service import ServiceActionFailedError
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceManager
-    from punt_lux.service._backends import ServiceBackend
+    from punt_service import ServiceManager
+    from punt_service._backends import ServiceBackend
 
 
 class TerminalEnablement:

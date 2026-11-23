@@ -9,15 +9,15 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
-from punt_lux.service._port_guard import PortGuard, PortGuardResult
-from punt_lux.service._service_errors import PortConflictError
+from punt_service._port_guard import PortGuard, PortGuardResult
+from punt_service._service_errors import PortConflictError
 
 
 class TestPortGuardCheck:
     def test_timed_out_process_lookup_fails_closed_on_an_occupied_port(self) -> None:
         with (
             patch(
-                "punt_lux.service._backends.subprocess.run",
+                "punt_service._backends.subprocess.run",
                 side_effect=[
                     CompletedProcess("lsof", 0, stdout="4242\n"),
                     subprocess.TimeoutExpired("pgrep", 2),
@@ -36,7 +36,7 @@ class TestPortGuardCheck:
     @pytest.mark.parametrize("stdout", ["", " \n\t "])
     def test_no_holder_reports_free(self, stdout: str) -> None:
         guard = PortGuard(HUB_SPEC)
-        with patch("punt_lux.service._port_guard.subprocess.run") as run:
+        with patch("punt_service._port_guard.subprocess.run") as run:
             run.return_value.returncode = 1
             run.return_value.stdout = stdout
             result = guard.check()
@@ -46,8 +46,8 @@ class TestPortGuardCheck:
     def test_our_pid_reports_ours(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=4242),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=4242),
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = "4242\n"
@@ -58,8 +58,8 @@ class TestPortGuardCheck:
     def test_foreign_pid_reports_foreign(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=None),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=None),
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = "14100\n"
@@ -71,8 +71,8 @@ class TestPortGuardCheck:
         """lsof -t can list multiple pids; one foreign pid fails closed."""
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=4242),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=4242),
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = "4242\n14100\n"
@@ -83,8 +83,8 @@ class TestPortGuardCheck:
     def test_all_pids_ours_reports_ours(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=4242),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=4242),
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = "4242\n4242\n"
@@ -95,7 +95,7 @@ class TestPortGuardCheck:
     def test_lsof_real_error_reports_unknown_not_free(self) -> None:
         """rc > 1 is a real lsof failure, not a fail-open 'no matches'."""
         guard = PortGuard(HUB_SPEC)
-        with patch("punt_lux.service._port_guard.subprocess.run") as run:
+        with patch("punt_service._port_guard.subprocess.run") as run:
             run.return_value.returncode = 2
             run.return_value.stdout = ""
             result = guard.check()
@@ -106,7 +106,7 @@ class TestPortGuardCheck:
         """A query that cannot determine the answer reports that as data."""
         guard = PortGuard(HUB_SPEC)
         with patch(
-            "punt_lux.service._port_guard.subprocess.run", side_effect=FileNotFoundError
+            "punt_service._port_guard.subprocess.run", side_effect=FileNotFoundError
         ):
             result = guard.check()
         assert result.status == "unknown"
@@ -116,7 +116,7 @@ class TestPortGuardCheck:
 class TestPortGuardGuard:
     def test_free_passes(self) -> None:
         guard = PortGuard(HUB_SPEC)
-        with patch("punt_lux.service._port_guard.subprocess.run") as run:
+        with patch("punt_service._port_guard.subprocess.run") as run:
             run.return_value.returncode = 1
             run.return_value.stdout = ""
             guard.guard()  # must not raise
@@ -124,8 +124,8 @@ class TestPortGuardGuard:
     def test_ours_passes(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=4242),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=4242),
         ):
             run.return_value.returncode = 0
             run.return_value.stdout = "4242\n"
@@ -134,8 +134,8 @@ class TestPortGuardGuard:
     def test_foreign_raises(self) -> None:
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
-            patch("punt_lux.service._port_guard.pgrep_pid", return_value=None),
+            patch("punt_service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.pgrep_pid", return_value=None),
             pytest.raises(PortConflictError, match="14100"),
         ):
             run.return_value.returncode = 0
@@ -146,7 +146,7 @@ class TestPortGuardGuard:
         """rc > 1 is fail-closed through guard() too, not treated as free."""
         guard = PortGuard(HUB_SPEC)
         with (
-            patch("punt_lux.service._port_guard.subprocess.run") as run,
+            patch("punt_service._port_guard.subprocess.run") as run,
             pytest.raises(PortConflictError, match="lsof"),
         ):
             run.return_value.returncode = 2
@@ -158,7 +158,7 @@ class TestPortGuardGuard:
         guard = PortGuard(HUB_SPEC)
         with (
             patch(
-                "punt_lux.service._port_guard.subprocess.run",
+                "punt_service._port_guard.subprocess.run",
                 side_effect=FileNotFoundError,
             ),
             pytest.raises(PortConflictError, match="lsof"),

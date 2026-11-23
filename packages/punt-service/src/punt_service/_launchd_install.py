@@ -7,11 +7,11 @@ from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux.service._service_errors import ServiceMigrationError
+from punt_service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_service._service_errors import ServiceMigrationError
 
 if TYPE_CHECKING:
-    from punt_lux.service._launchd_plist import LaunchdPlist
+    from punt_service._launchd_plist import LaunchdPlist
 
 logger = logging.getLogger(__name__)
 

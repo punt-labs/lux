@@ -1,0 +1,15 @@
+[project]
+name = "punt-service"
+version = "0.33.1"
+description = "Product-neutral daemon management for launchd and systemd."
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "Punt Labs" }]
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "punt_service"

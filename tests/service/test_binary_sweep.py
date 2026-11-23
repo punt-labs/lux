@@ -10,7 +10,7 @@ import pytest
 
 from punt_lux.service import HUB_SPEC
 from punt_lux.service._binary_sweep_disk import DiskBinaryLegacySweep
-from punt_lux.service._service_errors import ServiceMigrationError
+from punt_service._service_errors import ServiceMigrationError
 
 _SPEC = replace(HUB_SPEC, legacy_binary_names=("luxd",))
 

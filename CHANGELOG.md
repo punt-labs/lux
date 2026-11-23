@@ -4,6 +4,12 @@
 
 ### Added
 
+- Three synchronized distributions for the planned 0.34.0 release:
+  `punt-lux` installs the full product, `punt-lux-client` installs the headless
+  SDK, wire contracts, kernel and generic applet helpers, and `punt-service`
+  provides product-neutral daemon management without Lux or third-party
+  dependencies. The current version remains unchanged until release.
+
 - Report-only design ratchet: `make design-shadow` compares against
   `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
   verdict to the job summary even after a gate fails. Explicit architecture

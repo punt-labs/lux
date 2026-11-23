@@ -10,12 +10,12 @@ from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, NoReturn, Self
 
-from punt_lux.service import _backends
 from punt_lux.service._display_restart_attempt import ReadinessError
 from punt_lux.service._hub_display_probe import HubDisplayProbe
 from punt_lux.service._readiness_http import ProbeDeadline
 from punt_lux.service._readiness_probe import ReadinessProbe
 from punt_lux.service._restart_readiness import RestartReadiness
+from punt_service import _backends
 
 if TYPE_CHECKING:
     from punt_lux.service._display_restart_attempt import RestartAttempt

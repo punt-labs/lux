@@ -61,7 +61,7 @@ class ShimOwnership:
 
         Absence of ``uv`` on ``PATH`` means "cannot verify," which means
         "do not remove" -- the same fail-closed posture
-        :meth:`~punt_lux.service._port_guard.PortGuard.guard` takes for a missing
+        :meth:`~punt_service._port_guard.PortGuard.guard` takes for a missing
         ``lsof``.
         """
         try:

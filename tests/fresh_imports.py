@@ -6,13 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.source_tree import SourceTree
+
 _SRC = Path(__file__).resolve().parents[1] / "src"
 
 
 def package_modules(package: str) -> list[str]:
     modules = sorted(
-        ".".join(path.relative_to(_SRC).with_suffix("").parts).removesuffix(".__init__")
-        for path in _SRC.joinpath(*package.split(".")).rglob("*.py")
+        name
+        for name in SourceTree(_SRC).modules()
+        if name == package or name.startswith(package + ".")
     )
     assert modules, f"No Python modules found for {package}"
     return modules

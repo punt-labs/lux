@@ -59,3 +59,6 @@
 {"ts":"2026-11-23T18:13:39Z","verdict":"rebaseline","before":172,"total":173,"by_category":{"noqa":22,"type_ignore":4,"pylint_disable":2,"pyright_ignore":4,"file_level":52,"per_file_ignores":89},"reason":"User-approved step 9a: exactly one new S606 call-site exception in service/display_foreground.py for os.execv with a fixed Python interpreter, literal display module, argv-only options, no shell, preserving foreground PID/terminal/exit status. Total 172 to 173; existing suppressions unchanged apart from requested path rekeys.","source":null,"commit":"af93e934"}
 {"ts":"2026-11-23T21:43:02Z","total":173,"by_category":{"noqa":22,"type_ignore":4,"pylint_disable":2,"pyright_ignore":4,"file_level":52,"per_file_ignores":89}}
 {"ts":"2026-11-23T22:05:08Z","total":173,"by_category":{"noqa":22,"type_ignore":4,"pylint_disable":2,"pyright_ignore":4,"file_level":52,"per_file_ignores":89}}
+{"ts":"2026-11-23T22:50:37Z","total":171,"by_category":{"noqa":22,"type_ignore":4,"pylint_disable":0,"pyright_ignore":4,"file_level":52,"per_file_ignores":89}}
+{"ts":"2026-11-23T22:50:37Z","total":91,"by_category":{"noqa":0,"type_ignore":0,"pylint_disable":2,"pyright_ignore":0,"file_level":0,"per_file_ignores":89}}
+{"ts":"2026-11-23T22:55:17Z","total":171,"by_category":{"noqa":22,"type_ignore":4,"pylint_disable":0,"pyright_ignore":4,"file_level":52,"per_file_ignores":89}}

@@ -22,15 +22,10 @@ from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.kernel.hub_paths import HubPaths
-from punt_lux.service import (
-    HUB_SPEC,
-    HubServiceManager,
-    ServiceActionFailedError,
-    ServiceNotInstalledError,
-    ServiceSpec,
-)
-from punt_lux.service._backends import pgrep_pid
+from punt_lux.service import HUB_SPEC, HubServiceManager
 from punt_lux.service._restart_readiness import RestartReadiness
+from punt_service import ServiceActionFailedError, ServiceNotInstalledError, ServiceSpec
+from punt_service._backends import pgrep_pid
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

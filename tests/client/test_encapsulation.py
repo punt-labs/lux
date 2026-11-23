@@ -5,14 +5,17 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tools.source_tree import SourceTree
+
 _SRC = Path(__file__).parents[2] / "src" / "punt_lux"
+_MODULES = SourceTree(_SRC.parent).modules()
 _PRIVATE_NAMES = frozenset({"_RestTransport", "_SceneRestOps", "_DisplayRestOps"})
 _PRIVATE_MODULE_STEMS = frozenset({"_rest_transport", "_rest_scenes", "_rest_display"})
 
 
 def test_private_transport_module_not_importable_from_init() -> None:
     """No __init__.py anywhere in the package re-exports a private name."""
-    for init_py in _SRC.rglob("__init__.py"):
+    for init_py in (p for p in _MODULES.values() if p.name == "__init__.py"):
         tree = ast.parse(init_py.read_text())
         imported = {
             alias.asname or alias.name
@@ -27,7 +30,7 @@ def test_private_transport_module_not_importable_from_init() -> None:
 
 def test_no_module_outside_client_imports_the_private_transport() -> None:
     """Only client/'s own modules (and its own tests) may import the transport."""
-    for py_file in _SRC.rglob("*.py"):
+    for py_file in _MODULES.values():
         if py_file.parent.name == "client":
             continue
         tree = ast.parse(py_file.read_text())

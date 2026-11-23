@@ -3,8 +3,8 @@
 ``launchctl unload -w`` can silently leave a
 ``bootstrap``-registered service, and the plist was deleted regardless
 (docs/architecture/service-lifecycle-migration.md §1, §7). These tests patch
-the actual call site (``punt_lux.service._launchctl.subprocess.run`` /
-``punt_lux.service._legacy_sweep_systemd.subprocess.run``), never a module-level
+the actual call site (``punt_service._launchctl.subprocess.run`` /
+``punt_service._legacy_sweep_systemd.subprocess.run``), never a module-level
 ``subprocess`` re-import, per the existing pattern in test_service.py's
 ``TestBackendStartStopSymmetry``.
 """
@@ -18,9 +18,9 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.service import HUB_SPEC
-from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux.service._legacy_sweep_systemd import SystemdLegacySweep
-from punt_lux.service._service_errors import ServiceMigrationError
+from punt_service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_service._legacy_sweep_systemd import SystemdLegacySweep
+from punt_service._service_errors import ServiceMigrationError
 
 
 def _spec_with_labels(*labels: str):
@@ -59,11 +59,11 @@ class TestLaunchdLegacySweepVerbs:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch(
-            "punt_lux.service._legacy_sweep_launchd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_launchd.Path.home", return_value=fake_home
         ):
             sweep = LaunchdLegacySweep(_spec_with_labels("com.punt-labs.lux"))
 
-        with patch("punt_lux.service._launchctl.subprocess.run") as run:
+        with patch("punt_service._launchctl.subprocess.run") as run:
             # First print (pre-check): registered. bootout: succeeds. Second
             # print (post-check): now gone.
             run.side_effect = [
@@ -84,11 +84,11 @@ class TestLaunchdLegacySweepVerbs:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch(
-            "punt_lux.service._legacy_sweep_launchd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_launchd.Path.home", return_value=fake_home
         ):
             sweep = LaunchdLegacySweep(_spec_with_labels("com.punt-labs.lux"))
 
-        with patch("punt_lux.service._launchctl.subprocess.run") as run:
+        with patch("punt_service._launchctl.subprocess.run") as run:
             run.return_value = _result(1)  # print -> not found -> already clean
             report = sweep.sweep()
 
@@ -110,11 +110,11 @@ class TestLaunchdLegacySweepOrderingFidelity:
         plist.write_text("<plist/>")
 
         with patch(
-            "punt_lux.service._legacy_sweep_launchd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_launchd.Path.home", return_value=fake_home
         ):
             sweep = LaunchdLegacySweep(_spec_with_labels("com.punt-labs.lux"))
 
-        with patch("punt_lux.service._launchctl.subprocess.run") as run:
+        with patch("punt_service._launchctl.subprocess.run") as run:
             # print always reports "found" -- before AND after bootout --
             # simulating a supervisor call that silently failed to
             # deregister (the exact cross-domain no-op the operator hit).
@@ -133,13 +133,13 @@ class TestLaunchdLegacySweepNonShortCircuit:
         fake_home = tmp_path / "home"
         fake_home.mkdir()
         with patch(
-            "punt_lux.service._legacy_sweep_launchd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_launchd.Path.home", return_value=fake_home
         ):
             sweep = LaunchdLegacySweep(
                 _spec_with_labels("com.punt-labs.lux-a", "com.punt-labs.lux-b")
             )
 
-        with patch("punt_lux.service._launchctl.subprocess.run") as run:
+        with patch("punt_service._launchctl.subprocess.run") as run:
             # Both labels: print says "found" always (never clean, bootout
             # never resolves it) -- both must be attempted, both must be
             # named in the raised error.
@@ -165,11 +165,11 @@ class TestLaunchdLegacySweepDiagnose:
         plist.write_text("<plist/>")
 
         with patch(
-            "punt_lux.service._legacy_sweep_launchd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_launchd.Path.home", return_value=fake_home
         ):
             sweep = LaunchdLegacySweep(_spec_with_labels("com.punt-labs.lux"))
 
-        with patch("punt_lux.service._launchctl.subprocess.run") as run:
+        with patch("punt_service._launchctl.subprocess.run") as run:
             run.return_value = _result(0)  # registered
             report = sweep.diagnose()
 
@@ -190,11 +190,11 @@ class TestSystemdLegacySweepVerbs:
         unit_file.write_text("[Unit]")
 
         with patch(
-            "punt_lux.service._legacy_sweep_systemd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_systemd.Path.home", return_value=fake_home
         ):
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
-        with patch("punt_lux.service._legacy_sweep_systemd.subprocess.run") as run:
+        with patch("punt_service._legacy_sweep_systemd.subprocess.run") as run:
             run.side_effect = [
                 _active(),  # is-active -> active (not clean)
                 _ok(),  # disable --now -> succeeds
@@ -225,11 +225,11 @@ class TestSystemdLegacySweepOrderingFidelity:
         unit_file.write_text("[Unit]")
 
         with patch(
-            "punt_lux.service._legacy_sweep_systemd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_systemd.Path.home", return_value=fake_home
         ):
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
-        with patch("punt_lux.service._legacy_sweep_systemd.subprocess.run") as run:
+        with patch("punt_service._legacy_sweep_systemd.subprocess.run") as run:
             # ``is-active`` always reports "active" -- the unit is still
             # running, so the file must survive to keep systemd able to stop it.
             run.return_value = _active()
@@ -260,11 +260,11 @@ class TestSystemdLegacySweepOrderingFidelity:
         unit_file.write_text("[Unit]")
 
         with patch(
-            "punt_lux.service._legacy_sweep_systemd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_systemd.Path.home", return_value=fake_home
         ):
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
-        with patch("punt_lux.service._legacy_sweep_systemd.subprocess.run") as run:
+        with patch("punt_service._legacy_sweep_systemd.subprocess.run") as run:
             # Only the ``is-active`` probes see the bus error -- ``disable``
             # itself succeeds. This proves the safety comes from ``_is_active``,
             # not from ``disable`` accidentally failing.
@@ -293,11 +293,11 @@ class TestSystemdLegacySweepOrderingFidelity:
         unit_file.write_text("[Unit]")
 
         with patch(
-            "punt_lux.service._legacy_sweep_systemd.Path.home", return_value=fake_home
+            "punt_service._legacy_sweep_systemd.Path.home", return_value=fake_home
         ):
             sweep = SystemdLegacySweep(_spec_with_units("lux"))
 
-        with patch("punt_lux.service._legacy_sweep_systemd.subprocess.run") as run:
+        with patch("punt_service._legacy_sweep_systemd.subprocess.run") as run:
             run.side_effect = [
                 _inactive(),  # is-active -> inactive (file present -> not clean)
                 _ok(),  # disable --now -> idempotent success

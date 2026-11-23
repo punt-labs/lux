@@ -9,10 +9,10 @@ import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from punt_lux.service._backend_launchd import LaunchdBackend
+from punt_service._backend_launchd import LaunchdBackend
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceSpec
+    from punt_service import ServiceSpec
 
 logger = logging.getLogger(__name__)
 

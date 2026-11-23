@@ -5,11 +5,11 @@ A ``[project.scripts]`` rename leaves the old shim behind in
 under the new name -- ``uv`` only reconciles entrypoints it currently
 declares, so it has no reason to remove a file it no longer manages
 (``docs/architecture/binary-rename-migration.md``). This is a sibling of
-:class:`~punt_lux.service._legacy_sweep.LegacySweep`, not a subtype: a disk shim has
+:class:`~punt_service._legacy_sweep.LegacySweep`, not a subtype: a disk shim has
 no registration/config split to order around, and its central hazard is
 identity (is this file even ours?), not sequencing -- see
 ``docs/architecture/binary-rename-migration.md`` §2.1.
-:class:`~punt_lux.service._binary_sweep_disk.DiskBinaryLegacySweep` satisfies this
+Product-provided disk migration strategies satisfy this
 ``Protocol`` structurally; see ``punt-kit/standards/oo.md`` "Families share
 by protocol, not base class."
 """
@@ -48,7 +48,7 @@ class DiskBinaryOutcome:
         if not self.ownership_verified:
             not_verified = (
                 f"  legacy binary {self.path}: present but NOT verified as "
-                "a punt-lux shim"
+                "an owned tool shim"
             )
             not_removed = (
                 "    this file was left in place -- verify by hand before removing it"
@@ -95,7 +95,7 @@ class BinarySweep(Protocol):
 
         Attempts every name to completion -- never short-circuits on the
         first failure -- then raises
-        :class:`~punt_lux.service._service_errors.ServiceMigrationError` once,
+        :class:`~punt_service._service_errors.ServiceMigrationError` once,
         carrying the complete report, if any name is still not clean. A
         refusal (ownership could not be verified) is fatal, the same as an
         outright removal failure -- never a silent skip.
@@ -109,7 +109,7 @@ class BinarySweep(Protocol):
     def diagnose(self) -> BinarySweepReport:
         """Return a full report of every binary's current state, without mutating.
 
-        The non-mutating counterpart to :meth:`sweep` -- ``lux hub doctor``
+        The non-mutating counterpart to :meth:`sweep` -- ``service doctor``
         (no ``--fix``) calls this so it can render the same
         :meth:`BinarySweepReport.describe` text a failed ``sweep()`` would
         have raised, with zero side effects.

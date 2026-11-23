@@ -13,8 +13,8 @@ __all__ = ["write_config_atomic"]
 class AtomicConfigWriter:
     """Write file content atomically via a same-directory temp file + rename.
 
-    Shared by :class:`~punt_lux.service._backend_launchd.LaunchdBackend` and
-    :class:`~punt_lux.service._backend_systemd.SystemdBackend` -- both need the same
+    Shared by :class:`~punt_service._backend_launchd.LaunchdBackend` and
+    :class:`~punt_service._backend_systemd.SystemdBackend` -- both need the same
     guarantee (readers never observe a partially-written plist or unit file)
     and had identical bodies before this extraction.
     """

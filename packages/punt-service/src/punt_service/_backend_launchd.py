@@ -1,4 +1,4 @@
-"""macOS launchd backend for Lux service lifecycle (hub or display)."""
+"""macOS launchd backend for daemon lifecycle."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Self, final
 from xml.sax.saxutils import escape as _xml_escape
 
-from punt_lux.service._backends import ServiceBackend
-from punt_lux.service._launchctl import launchctl
-from punt_lux.service._launchd_install import LaunchdInstallation
-from punt_lux.service._launchd_plist import LaunchdPlist
-from punt_lux.service._launchd_restart import LaunchdRestart
+from punt_service._backends import ServiceBackend
+from punt_service._launchctl import launchctl
+from punt_service._launchd_install import LaunchdInstallation
+from punt_service._launchd_plist import LaunchdPlist
+from punt_service._launchd_restart import LaunchdRestart
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceSpec
+    from punt_service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
         return self._plist.path
 
     def is_active(self) -> bool:
-        """Return whether the luxd launchd service is loaded."""
+        """Return whether the daemon launchd service is loaded."""
         result = subprocess.run(
             ["launchctl", "list", self._plist.spec.launchd_label],
             capture_output=True,

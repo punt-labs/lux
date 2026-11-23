@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.service._atomic_write import write_config_atomic
-from punt_lux.service._launchctl import launchctl
+from punt_service._atomic_write import write_config_atomic
+from punt_service._launchctl import launchctl
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceSpec
+    from punt_service.service_spec import ServiceSpec
 
 
 class LaunchdPlist:

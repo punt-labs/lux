@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
+from punt_service import ServiceActionFailedError, ServiceNotInstalledError
 from tests.service._probe_double import ProbeDouble
 
 
@@ -73,7 +73,7 @@ class TestDisplayRestartSuccess:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_fake_pgrep(series),
             ),
         ):
@@ -96,7 +96,7 @@ class TestDisplayRestartSuccess:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_fake_pgrep(series),
             ),
         ):
@@ -123,7 +123,7 @@ class TestDisplayRestartSuccess:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_fake_pgrep(pgrep_series),
             ),
         ):
@@ -153,7 +153,7 @@ class TestDisplayRestartSuccess:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_fake_pgrep(pgrep_series),
             ),
         ):
@@ -169,7 +169,7 @@ class TestDisplayRestartSuccess:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_fake_pgrep(series),
             ),
         ):
@@ -203,7 +203,7 @@ class TestDisplayRestartFailure:
         with (
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
-            patch("punt_lux.service._backends.pgrep_pid", return_value=500),
+            patch("punt_service._backends.pgrep_pid", return_value=500),
             pytest.raises(DisplayRestartError, match="did not come back"),
         ):
             DisplayRestart(manager=manager, paths=_paths_stub()).run()
@@ -220,7 +220,7 @@ class TestDisplayRestartFailure:
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_pid_after(500, 501),
             ),
             pytest.raises(DisplayRestartError, match="did not come back"),
@@ -238,7 +238,7 @@ class TestDisplayRestartFailure:
             patch("punt_lux.service.display_restart._POLL_SECONDS", 0.001),
             patch("punt_lux.service.display_restart._WAIT_SECONDS", 0.01),
             patch(
-                "punt_lux.service._backends.pgrep_pid",
+                "punt_service._backends.pgrep_pid",
                 side_effect=_pid_after(500, 501),
             ),
             pytest.raises(DisplayRestartError, match="did not come back"),

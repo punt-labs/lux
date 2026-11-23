@@ -65,7 +65,7 @@ def test_a_known_candidate_can_complete_stability_in_the_last_second(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid", return_value=502) as lookup,
+        patch("punt_service._backends.pgrep_pid", return_value=502) as lookup,
         patch(
             "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
             return_value="dial",
@@ -90,7 +90,7 @@ def test_lookup_timeout_is_pending_and_restarts_the_stability_window(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+        patch("punt_service._backends.pgrep_pid") as lookup,
         patch(
             "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
             return_value="dial",
@@ -119,7 +119,7 @@ def test_lookup_timeouts_wait_for_the_deadline_and_name_the_last_error(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+        patch("punt_service._backends.pgrep_pid") as lookup,
     ):
         clock.return_value = 0
         lookup.side_effect = chain([501], repeat(subprocess.TimeoutExpired("pgrep", 2)))
@@ -239,7 +239,7 @@ def test_hub_unreachable_is_logged_and_becomes_existing_cli_error(
     paths: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
     with (
-        patch("punt_lux.service._backends.pgrep_pid", side_effect=[501, 502]),
+        patch("punt_service._backends.pgrep_pid", side_effect=[501, 502]),
         patch.object(DisplayRestart, "_polls", return_value=iter([None])),
         patch(
             "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
@@ -361,7 +361,7 @@ def test_restart_command_uses_the_full_stability_witness(
             return_value=log.stat().st_mtime,
         ),
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid", side_effect=[501, *pids]),
+        patch("punt_service._backends.pgrep_pid", side_effect=[501, *pids]),
         patch(
             "punt_lux.service._hub_display_probe.HubDisplayProbe.connected",
             side_effect=connections,
@@ -644,7 +644,7 @@ def test_pgrep_runs_only_when_its_fixed_timeout_fits(
 ) -> None:
     with (
         patch("punt_lux.service._display_readiness.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid") as pgrep,
+        patch("punt_service._backends.pgrep_pid") as pgrep,
     ):
         clock.return_value = 0
         pgrep.side_effect = [501, None]

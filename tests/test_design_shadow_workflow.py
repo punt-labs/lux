@@ -24,7 +24,7 @@ def test_full_report_includes_non_gating_design_scan() -> None:
         .split("\nreport:", 1)[1]
         .split("\nformat:", 1)[0]
     )
-    assert "\t-uv run --extra display oo-ratchet design src/punt_lux/\n" in report
+    assert "\t-uv run --extra display oo-ratchet design $(LUX_SOURCES)\n" in report
 
 
 @pytest.mark.parametrize(
@@ -45,7 +45,7 @@ def test_full_report_includes_non_gating_design_scan() -> None:
         ("punt_lux.wire.ops.frame", "domain"),
         ("punt_lux.wire.ops.display_state", "domain"),
         ("punt_lux.display.render_loop", "adapters"),
-        ("punt_lux.service._backends", "adapters"),
+        ("punt_service._backends", "adapters"),
         ("punt_lux.kernel.bounded_send", "adapters"),
         ("punt_lux.client.cli_identity", "adapters"),
         ("punt_lux.kernel.log_level", "adapters"),
@@ -150,7 +150,8 @@ def test_shadow_publishes_success_empty_and_error_reports(
     )
     assert result.returncode == 0, result.stderr
     assert argv_log.read_text().strip() == (
-        "run --extra display oo-ratchet design src/punt_lux "
+        "run --extra display oo-ratchet design --namespace punt_lux "
+        "src/punt_lux packages/punt-lux-client/src/punt_lux "
         "--shadow-check origin/other-base"
     )
     report = summary.read_text()

@@ -1,20 +1,20 @@
-"""DoctorResult -- the outcome of ``lux hub doctor`` / ``lux display doctor``."""
+"""DoctorResult -- the outcome of ``service doctor`` / ``service doctor``."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.service._binary_sweep import BinarySweepReport
-from punt_lux.service._legacy_sweep import LegacySweepReport
-from punt_lux.service._port_guard import PortGuardResult
-from punt_lux.service._service_errors import PortConflictError, ServiceMigrationError
+from punt_service._binary_sweep import BinarySweepReport
+from punt_service._legacy_sweep import LegacySweepReport
+from punt_service._port_guard import PortGuardResult
+from punt_service._service_errors import PortConflictError, ServiceMigrationError
 
 if TYPE_CHECKING:
-    from punt_lux.service._binary_sweep import BinarySweep
-    from punt_lux.service._legacy_sweep import LegacySweep
-    from punt_lux.service._port_guard import PortGuard
-    from punt_lux.service.service_spec import ServiceSpec
+    from punt_service._binary_sweep import BinarySweep
+    from punt_service._legacy_sweep import LegacySweep
+    from punt_service._port_guard import PortGuard
+    from punt_service.service_spec import ServiceSpec
 
 __all__ = ["DoctorCheckers", "DoctorResult"]
 
@@ -49,7 +49,7 @@ class DoctorResult:
     def diagnose(cls, checkers: DoctorCheckers) -> Self:
         """Build a result from the non-mutating query methods only.
 
-        The ``lux <verb> doctor`` (no ``--fix``) branch -- zero mutating
+        The ``service <verb> doctor`` (no ``--fix``) branch -- zero mutating
         calls, safe to run repeatedly.
         """
         spec = checkers.spec
@@ -67,7 +67,7 @@ class DoctorResult:
     def repair(cls, checkers: DoctorCheckers) -> Self:
         """Build a result by curing what's dirty, same objects `install()` uses.
 
-        The ``lux <verb> doctor --fix`` branch. A failed cure is folded into
+        The ``service <verb> doctor --fix`` branch. A failed cure is folded into
         ``repair_failed`` rather than propagated -- the CLI renders and
         chooses its exit code from the result, it never catches here.
         """
@@ -129,7 +129,7 @@ class DoctorResult:
         return 0 if self.is_clean else 1
 
     def render(self) -> str:
-        """Render the multi-line report `lux <verb> doctor` echoes."""
+        """Render the multi-line report `service <verb> doctor` echoes."""
         header = f"{self.display_name}: {'clean' if self.is_clean else 'DIRTY'}"
         if self.repair_failed:
             header += " -- automatic repair failed"

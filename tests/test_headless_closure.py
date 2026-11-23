@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
-_SOURCE = Path(__file__).resolve().parents[1] / "src"
+from tools.source_tree import SourceTree
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SOURCE = _ROOT / "packages/punt-lux-client/src"
 _PACKAGES = {"client", "wire", "kernel", "applets"}
 _FORBIDDEN = {
     *(
@@ -33,6 +36,7 @@ _FORBIDDEN = {
     "mcp",
     "mcp_types",
     "fastmcp",
+    "punt_service",
 }
 
 
@@ -66,7 +70,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_headless_static_import_closure_includes_type_checking_branches() -> None:
-    modules = {_module(p): p for p in (_SOURCE / "punt_lux").rglob("*.py")}
+    modules = SourceTree(_ROOT / "src").modules()
     pending = {name for name in modules if name.split(".")[1] in _PACKAGES}
     assert pending
     visited: set[str] = set()

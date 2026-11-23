@@ -1,0 +1,136 @@
+{
+  "stage1": {
+    "commit": "5fa6f1337948cb29d44fa8d174939c70d6dc03a8",
+    "modules": 987,
+    "edges": 2471
+  },
+  "post_extraction_and_workspace": {
+    "modules": 990,
+    "edges": 2480
+  },
+  "renamed_modules": {
+    "punt_lux.service": "punt_service",
+    "punt_lux.service._atomic_write": "punt_service._atomic_write",
+    "punt_lux.service._backend_launchd": "punt_service._backend_launchd",
+    "punt_lux.service._backend_systemd": "punt_service._backend_systemd",
+    "punt_lux.service._backends": "punt_service._backends",
+    "punt_lux.service._binary_sweep": "punt_service._binary_sweep",
+    "punt_lux.service._doctor_result": "punt_service._doctor_result",
+    "punt_lux.service._launchctl": "punt_service._launchctl",
+    "punt_lux.service._launchd_install": "punt_service._launchd_install",
+    "punt_lux.service._launchd_plist": "punt_service._launchd_plist",
+    "punt_lux.service._launchd_restart": "punt_service._launchd_restart",
+    "punt_lux.service._legacy_sweep": "punt_service._legacy_sweep",
+    "punt_lux.service._legacy_sweep_launchd": "punt_service._legacy_sweep_launchd",
+    "punt_lux.service._legacy_sweep_systemd": "punt_service._legacy_sweep_systemd",
+    "punt_lux.service._platform_dispatch": "punt_service._platform_dispatch",
+    "punt_lux.service._port_guard": "punt_service._port_guard",
+    "punt_lux.service._service_errors": "punt_service._service_errors",
+    "punt_lux.service.service_spec": "punt_service.service_spec"
+  },
+  "added_nodes_after_renaming": [
+    {
+      "module": "punt_lux.service",
+      "reason": "Keep the existing Lux name for product-owned adapters/specifications after renaming its generic portion."
+    },
+    {
+      "module": "punt_lux.service.service_spec",
+      "reason": "Keep the existing Lux name for product-owned adapters/specifications after renaming its generic portion."
+    },
+    {
+      "module": "punt_service._empty_binary_sweep",
+      "reason": "Isolate the neutral no-op migration policy in its own module, within class-count caps."
+    }
+  ],
+  "removed_nodes": [],
+  "removed_edges": [
+    {
+      "source": "punt_lux.operations.config",
+      "target": "punt_service",
+      "reason": "The display-mode store and its parent initializer stay product-owned; the old composite initializer was mapped to the neutral engine."
+    },
+    {
+      "source": "punt_lux.service._binary_sweep_disk",
+      "target": "punt_service.service_spec",
+      "reason": "The Lux disk sweep imports the neutral ServiceSpec through the public punt_service API."
+    },
+    {
+      "source": "punt_service",
+      "target": "punt_lux.service._binary_sweep_disk",
+      "reason": "Remove the neutral engine dependency on Lux uv-tool ownership; the Lux adapter injects this strategy instead."
+    },
+    {
+      "source": "punt_service.service_spec",
+      "target": "punt_lux.kernel.hub_defaults",
+      "reason": "Move the concrete Hub default-port dependency into the Lux-only specification module."
+    }
+  ],
+  "added_edges": [
+    {
+      "source": "punt_lux.cli.display_service",
+      "target": "punt_lux.service",
+      "reason": "Use the concrete Lux manager constructor rather than the removed product-specific factory on the generic manager."
+    },
+    {
+      "source": "punt_lux.cli.hub",
+      "target": "punt_lux.service",
+      "reason": "Use the concrete Lux manager constructor rather than the removed product-specific factory on the generic manager."
+    },
+    {
+      "source": "punt_lux.operations.config",
+      "target": "punt_lux.service",
+      "reason": "The display-mode store and its parent initializer stay product-owned; the old composite initializer was mapped to the neutral engine."
+    },
+    {
+      "source": "punt_lux.service",
+      "target": "punt_lux.service._binary_sweep_disk",
+      "reason": "The Lux manager injects the product-owned disk migration."
+    },
+    {
+      "source": "punt_lux.service",
+      "target": "punt_lux.service.service_spec",
+      "reason": "The Lux managers select Lux Hub and Display specifications."
+    },
+    {
+      "source": "punt_lux.service",
+      "target": "punt_service",
+      "reason": "The Lux adapters subclass the neutral service manager."
+    },
+    {
+      "source": "punt_lux.service._binary_sweep_disk",
+      "target": "punt_service",
+      "reason": "The Lux disk sweep imports the neutral ServiceSpec through the public punt_service API."
+    },
+    {
+      "source": "punt_lux.service.display_restart",
+      "target": "punt_lux.service",
+      "reason": "Use the concrete Lux manager constructor rather than the removed product-specific factory on the generic manager."
+    },
+    {
+      "source": "punt_lux.service.hub_restart",
+      "target": "punt_lux.service",
+      "reason": "Use the concrete Lux manager constructor rather than the removed product-specific factory on the generic manager."
+    },
+    {
+      "source": "punt_lux.service.service_spec",
+      "target": "punt_lux.kernel.hub_defaults",
+      "reason": "The product-owned specifications combine the unchanged Hub default port with the neutral ServiceSpec type."
+    },
+    {
+      "source": "punt_lux.service.service_spec",
+      "target": "punt_service",
+      "reason": "The product-owned specifications combine the unchanged Hub default port with the neutral ServiceSpec type."
+    },
+    {
+      "source": "punt_service",
+      "target": "punt_service._empty_binary_sweep",
+      "reason": "Use the no-op disk policy when a product supplies no legacy binary migration."
+    },
+    {
+      "source": "punt_service._empty_binary_sweep",
+      "target": "punt_service._binary_sweep",
+      "reason": "Construct the existing neutral BinarySweepReport for the no-op policy."
+    }
+  ],
+  "workspace_move_proof": "The final extraction layout was reconstructed with one merged punt_lux source tree plus the neutral root. Its module inventory, edge set and per-module SHA-256 map exactly match the actual two punt_lux portions plus punt_service. All 351 client-member Python modules are byte-identical to Stage 1."
+}

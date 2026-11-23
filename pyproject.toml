@@ -18,6 +18,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 dependencies = [
+    "punt-lux-client==0.33.1",
+    "punt-service==0.33.1",
     "typer>=0.15.0,<1",
     "rich>=15,<16",
     # Floor past the fastmcp GHSA fixed in 3.4.10 (vox Dependabot alert #60).
@@ -86,7 +88,7 @@ aws = [
 [dependency-groups]
 dev = [
     "httpx>=0.28,<1",
-    "punt-oo-ratchet==0.4.0",
+    "punt-oo-ratchet",
     "ruff>=0.13.0",
     "mypy>=1.18.1",
     "pyright>=1.1.400",
@@ -131,6 +133,15 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "punt_lux"
 namespace = true
+
+[tool.uv.workspace]
+members = ["packages/punt-lux-client", "packages/punt-service"]
+
+[tool.uv.sources]
+punt-lux-client = { workspace = true }
+punt-service = { workspace = true }
+# Before merge, replace this Git source with punt-oo-ratchet==0.6.0 once released.
+punt-oo-ratchet = { git = "https://github.com/punt-labs/python-oo-ratchet.git", rev = "8341b5c317e42b5c14627e35dc1fbdffbf0e0b50" }
 
 [tool.oo-ratchet.coupling]
 stateless-values = "any"
@@ -194,7 +205,7 @@ ignore = [
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/cli/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
-"src/punt_lux/kernel/runtime.py" = ["S102", "BLE001"]
+"packages/punt-lux-client/src/punt_lux/kernel/runtime.py" = ["S102", "BLE001"]
 "src/punt_lux/service/config.py" = ["S607"]
 "src/punt_lux/service/hooks.py" = ["S607"]
 "src/punt_lux/display/render_loop.py" = ["PLC0415"]
@@ -223,28 +234,28 @@ ignore = [
 # it matches the wire format ({"kind":"text","id":...}), the spike, and 55+
 # existing call sites. Shadowing the builtin is the established convention
 # for this directory; A002 is suppressed for wire/model/elements/ only.
-"src/punt_lux/wire/model/elements/*.py" = ["A002"]
+"packages/punt-lux-client/src/punt_lux/wire/model/elements/*.py" = ["A002"]
 "src/punt_lux/service/__init__.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/service/_backends.py" = ["S603", "S607"]
-"src/punt_lux/service/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
-"src/punt_lux/service/_backend_systemd.py" = ["S603", "S607"]
-"src/punt_lux/service/_launchctl.py" = ["S603"]
-"src/punt_lux/service/_port_guard.py" = ["S603", "S607"]
-"src/punt_lux/service/_legacy_sweep_launchd.py" = ["S603", "S607"]
-"src/punt_lux/service/_legacy_sweep_systemd.py" = ["S603", "S607"]
+"packages/punt-service/src/punt_service/_backends.py" = ["S603", "S607"]
+"packages/punt-service/src/punt_service/_backend_launchd.py" = ["S603", "S607", "PLC0415"]
+"packages/punt-service/src/punt_service/_backend_systemd.py" = ["S603", "S607"]
+"packages/punt-service/src/punt_service/_launchctl.py" = ["S603"]
+"packages/punt-service/src/punt_service/_port_guard.py" = ["S603", "S607"]
+"packages/punt-service/src/punt_service/_legacy_sweep_launchd.py" = ["S603", "S607"]
+"packages/punt-service/src/punt_service/_legacy_sweep_systemd.py" = ["S603", "S607"]
 "src/punt_lux/service/_shim_ownership.py" = ["S603", "S607"]
 "tests/e2e/test_binary_sweep.py" = ["S101", "S603", "S607"]
 # Lazy imports to break circular dependency chains in model and Hub layers
-"src/punt_lux/wire/model/event_handler_host.py" = ["PLC0415"]
+"packages/punt-lux-client/src/punt_lux/wire/model/event_handler_host.py" = ["PLC0415"]
 "src/punt_lux/hub/hub_interaction_dispatch.py" = ["PLC0415"]
 "src/punt_lux/hub/element_index.py" = ["PLC0415"]
 "src/punt_lux/hub/builtin_callbacks.py" = ["PLC0415"]
-"src/punt_lux/wire/model/element_factory.py" = ["PLC0415"]
-"src/punt_lux/wire/model/elements/dialog_codec.py" = ["PLC0415"]
+"packages/punt-lux-client/src/punt_lux/wire/model/element_factory.py" = ["PLC0415"]
+"packages/punt-lux-client/src/punt_lux/wire/model/elements/dialog_codec.py" = ["PLC0415"]
 # Lazy import of SceneMessage inside decode() breaks a codec↔message cycle
-"src/punt_lux/wire/model/messages/scene_codec.py" = ["PLC0415"]
+"packages/punt-lux-client/src/punt_lux/wire/model/messages/scene_codec.py" = ["PLC0415"]
 # Native serialization for Hub→Display element transport (trusted IPC)
-"src/punt_lux/wire/model/messages/pickled_element_codec.py" = ["S301"]
+"packages/punt-lux-client/src/punt_lux/wire/model/messages/pickled_element_codec.py" = ["S301"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
@@ -266,11 +277,11 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ruff.lint.isort]
-known-first-party = ["punt_lux"]
+known-first-party = ["punt_lux", "punt_service"]
 combine-as-imports = true
 
 [tool.mypy]
-mypy_path = ["typings", "src"]
+mypy_path = ["typings", "src", "packages/punt-lux-client/src", "packages/punt-service/src"]
 explicit_package_bases = true
 python_version = "3.13"
 strict = true
@@ -324,7 +335,8 @@ pythonVersion = "3.13"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
-include = ["src", "tests"]
+include = ["src", "packages", "tests"]
+extraPaths = [".", "src", "packages/punt-lux-client/src", "packages/punt-service/src"]
 reportMissingTypeStubs = false
 
 [[tool.pyright.executionEnvironments]]
@@ -345,7 +357,16 @@ root = "tests/test_python_docs.py"
 extraPaths = ["."]
 
 [[tool.pyright.executionEnvironments]]
-root = "tests"
+root = "src"
+
+[[tool.pyright.executionEnvironments]]
+root = "packages"
+
+[[tool.pyright.executionEnvironments]]
+root = "tools"
+
+[[tool.pyright.executionEnvironments]]
+root = "."
 # The repo root, so a test importing a fixture from a sibling test package by its
 # full path (`tests.rest._fakes`) resolves the same way pytest and mypy resolve
 # it. Without it the root is `tests/` and only relative imports resolve.
@@ -381,7 +402,7 @@ entry = [
 ]
 adapters = [
     "punt_lux.service.display_foreground",
-    "punt_lux.service._backends",
+    "punt_service._backends",
     "punt_lux.kernel.bounded_send",
     "punt_lux.client.cli_identity",
     "punt_lux.kernel.log_level",
@@ -392,13 +413,13 @@ adapters = [
     "punt_lux.pty.input_buffer",
     "punt_lux.pty.leader_status",
     "punt_lux.hub.handshake_outcome",
-    "punt_lux.service._atomic_write",
-    "punt_lux.service._backend_*",
-    "punt_lux.service._launchctl",
-    "punt_lux.service._launchd_plist",
+    "punt_service._atomic_write",
+    "punt_service._backend_*",
+    "punt_service._launchctl",
+    "punt_service._launchd_plist",
     "punt_lux.service._binary_sweep_disk",
-    "punt_lux.service._legacy_sweep_launchd",
-    "punt_lux.service._legacy_sweep_systemd",
+    "punt_service._legacy_sweep_launchd",
+    "punt_service._legacy_sweep_systemd",
     "punt_lux.service._shim_ownership",
     "punt_lux.service.claude_permissions",
     "punt_lux.client",
@@ -485,10 +506,10 @@ adapters = [
     "punt_lux.applets.watch",
 ]
 application = [
-    "punt_lux.service._binary_sweep",
-    "punt_lux.service._legacy_sweep",
-    "punt_lux.service._platform_dispatch",
-    "punt_lux.service._port_guard",
+    "punt_service._binary_sweep",
+    "punt_service._legacy_sweep",
+    "punt_service._platform_dispatch",
+    "punt_service._port_guard",
     "punt_lux.cli.display_enablement",
     "punt_lux.service.display_restart",
     "punt_lux.service.hooks",
@@ -611,8 +632,8 @@ domain = [
     "punt_lux.kernel.display_defaults",
     "punt_lux.kernel.client_host",
     "punt_lux.kernel.peer_connection",
-    "punt_lux.service._doctor_result",
-    "punt_lux.service._service_errors",
+    "punt_service._doctor_result",
+    "punt_service._service_errors",
     "punt_lux.service.service_spec",
     "punt_lux.service.applet_event",
     "punt_lux.kernel.connection_identity",
@@ -679,7 +700,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["src"]
+source = ["src", "packages/punt-lux-client/src", "packages/punt-service/src"]
 omit = ["tests/*", "*/test_*.py"]
 
 [tool.coverage.report]

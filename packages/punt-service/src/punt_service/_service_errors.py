@@ -21,7 +21,7 @@ class ServiceActionFailedError(RuntimeError):
 class ServiceMigrationError(RuntimeError):
     """A legacy launchd label or systemd unit could not be fully cleaned up.
 
-    Carries the full :class:`~punt_lux.service._legacy_sweep.LegacySweepReport`
+    Carries the full :class:`~punt_service._legacy_sweep.LegacySweepReport`
     text -- every failing identifier's repair line, not just the first.
     """
 

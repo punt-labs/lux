@@ -68,7 +68,7 @@ class LegacySweep(Protocol):
 
         Attempts every identifier to completion -- never short-circuits on
         the first failure -- then raises
-        :class:`~punt_lux.service._service_errors.ServiceMigrationError` once,
+        :class:`~punt_service._service_errors.ServiceMigrationError` once,
         carrying the complete report, if any identifier is still not clean.
         """
         ...
@@ -80,7 +80,7 @@ class LegacySweep(Protocol):
     def diagnose(self) -> LegacySweepReport:
         """Return a full report of every identifier's current state, without mutating.
 
-        The non-mutating counterpart to :meth:`sweep` -- ``lux hub doctor``
+        The non-mutating counterpart to :meth:`sweep` -- ``service doctor``
         (no ``--fix``) calls this so it can render the same
         :meth:`LegacySweepReport.describe` text a failed ``sweep()`` would
         have raised, with zero side effects.

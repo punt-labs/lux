@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tools.source_tree import SourceTree
+
 _SRC = Path(__file__).resolve().parent.parent / "src" / "punt_lux"
 _BROAD = {"Exception", "BaseException"}
 
@@ -116,8 +118,8 @@ class TestTheScan:
 
 @pytest.mark.parametrize(
     "path",
-    sorted(_SRC.rglob("*.py")),
-    ids=lambda p: p.relative_to(_SRC).as_posix(),
+    sorted(SourceTree(_SRC.parent).modules().values()),
+    ids=lambda p: p.name,
 )
 def test_every_broad_catch_in_src_lets_a_programmer_error_through(path: Path) -> None:
     lines = unguarded_catches(path.read_text(encoding="utf-8"))

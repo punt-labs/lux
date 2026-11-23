@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Self, final
 
 import pytest
 
+from tools.source_tree import SourceTree
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -101,8 +103,7 @@ class References:
 def _everywhere(name: str) -> dict[str, int]:
     """References to ``name`` across ``src/punt_lux``, keyed by file and function."""
     found: dict[str, int] = {}
-    for path in sorted(_SRC.rglob("*.py")):
-        rel = path.relative_to(_SRC).as_posix()
+    for rel, path in SourceTree(_SRC.parent).files().items():
         for function, count in References(
             path.read_text("utf-8"), name
         ).by_function.items():

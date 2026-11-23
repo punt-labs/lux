@@ -3,7 +3,7 @@
 A legacy launchd label or systemd unit isn't the only way a stale process
 can hold a service's port: a manually-started process with no plist or
 unit at all can too. ``PortGuard`` is the second, independent check --
-:class:`~punt_lux.service._legacy_sweep.LegacySweep` covers the labeled/unit case.
+:class:`~punt_service._legacy_sweep.LegacySweep` covers the labeled/unit case.
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ import subprocess
 from dataclasses import dataclass
 from typing import Literal, Self, final
 
-from punt_lux.service._backends import pgrep_pid
-from punt_lux.service._service_errors import PortConflictError
-from punt_lux.service.service_spec import ServiceSpec
+from punt_service._backends import pgrep_pid
+from punt_service._service_errors import PortConflictError
+from punt_service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class PortGuard:
 
         A service with no fixed port (``health_port is None``) reports
         ``"free"`` -- there is nothing to guard, the same no-op-on-absent-data
-        posture :class:`~punt_lux.service._legacy_sweep.LegacySweep` takes for an
+        posture :class:`~punt_service._legacy_sweep.LegacySweep` takes for an
         empty identifier tuple.
         """
         port = self._spec.health_port

@@ -7,9 +7,9 @@ import subprocess
 from pathlib import Path
 from typing import Self, final
 
-from punt_lux.service._legacy_sweep import LegacyServiceOutcome, LegacySweepReport
-from punt_lux.service._service_errors import ServiceMigrationError
-from punt_lux.service.service_spec import ServiceSpec
+from punt_service._legacy_sweep import LegacyServiceOutcome, LegacySweepReport
+from punt_service._service_errors import ServiceMigrationError
+from punt_service.service_spec import ServiceSpec
 
 logger = logging.getLogger(__name__)
 

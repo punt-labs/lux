@@ -31,6 +31,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tools.source_tree import SourceTree
+
 _SRC = Path(__file__).resolve().parents[3] / "src" / "punt_lux"
 
 # hub/display_link.py defines DisplayLink; hub/clients.py owns luxd's one
@@ -115,9 +117,8 @@ def _scan() -> tuple[list[str], int]:
     """Return (offenders, files_scanned) over the package source."""
     offenders: list[str] = []
     scanned = 0
-    for path in _SRC.rglob("*.py"):
+    for rel, path in SourceTree(_SRC.parent).files().items():
         scanned += 1
-        rel = path.relative_to(_SRC).as_posix()
         if rel in _ALLOWED:
             continue
         source = path.read_text(encoding="utf-8")
