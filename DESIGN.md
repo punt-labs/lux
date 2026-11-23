@@ -1933,7 +1933,7 @@ DES-022's rejected alternative — "Server-side frame creation: the display coul
 ## DES-028: Screenshot Capture — Framebuffer Access
 
 **Date:** 2026-05-12
-**Status:** IN PROGRESS
+**Status:** SUPERSEDED by DES-104 (the root cause recorded here was wrong)
 **Topic:** How the display server captures its own rendered output as a PNG for agent introspection
 
 ### Motivation
@@ -8386,3 +8386,100 @@ Two further problems surfaced in the same discussion.
   the element's wire form; there is no shim). This closes the gap PL-1179
   records, where any scene could start any program as the daemon user.
 - `luxd-pty` exports `LUX_TERM_SESSION` into every shell it starts.
+
+## DES-104: In-Process Screenshot Works — DES-028 Mis-Diagnosed a Scale Bug as Render-Loop Timing
+
+**Date:** 2026-11-22
+**Status:** SHIPPED
+**Topic:** Why `lux display screenshot` never produced an image, and the one-line
+cause; the `screenshot` query answered a frame late instead of a dedicated
+message pair
+
+### Relationship to DES-028 and DES-091
+
+DES-028 concluded that no callback in hello_imgui's render loop fires between
+`ImGui_ImplOpenGL3_RenderDrawData` and `SwapBuffers`, so `glReadPixels` from
+Python always reads an empty or half-composited buffer, and recorded the
+observation "GL_FRONT after swap captures the window background, frame borders
+and the watermark but not ImGui widget content". DES-091 took that conclusion
+as given and built the external-capture path (`make screenshot`) for Linux;
+`scripts/screenshot_macos.py` later did the same for macOS. Both external
+tools stay. This entry corrects DES-028's diagnosis and ships the in-process
+capture it set out to build.
+
+### What was actually wrong
+
+`FramebufferCapture` sized its `glReadPixels` read from
+`hello_imgui.final_app_window_screenshot_framebuffer_scale()`. That function
+returns a global that stays **1.0 until `run()` exits**
+(`hello_imgui_screenshot.cpp`, `gFinalAppWindowScreenshotFramebufferScale`,
+set once at teardown). The live value is `io.display_framebuffer_scale`,
+which is 2.0 on a Retina display. So the read covered a 1x-sized rectangle of
+a 2x buffer: the bottom-left quarter in GL's bottom-up coordinates. On a fresh
+window that quarter holds the clear colour and the watermark and no widgets,
+which is exactly the "chrome but not widgets" DES-028 observed and attributed
+to timing.
+
+A standalone hello_imgui probe (480x320 points, Retina, imgui-bundle
+1.92.900) reproduced DES-028's result with the exit-only scale: every pixel of
+every read was the clear colour `(30, 31, 33)`. With `io.display_framebuffer_scale`
+the same reads returned 960x640 with full widget content, from `before_swap`
+reading `GL_BACK`, from `after_swap` reading `GL_FRONT`, and from `after_swap`
+reading `GL_BACK`: three byte-identical images. Timing was never the
+constraint. hello_imgui's own `OpenglScreenshotRgb()` does the same read from
+the default framebuffer sized by `DrawData->FramebufferScale`.
+
+`BeforeSwap`, the callback DES-028 asked for, was added to hello_imgui on
+2026-08-09 and is bound in the imgui-bundle lux ships. On macOS it makes no
+difference, but review of the first cut (PR #607) ran a native GLX probe on
+Mesa under Xvfb: there `GL_FRONT` after the swap reads back `(0, 0, 0, 0)`
+with no GL error, so an after-swap read returns a successful blank PNG on
+Linux CI. The read therefore happens in `before_swap` from `GL_BACK`, which
+holds the drawn frame on both platforms.
+
+### Decision
+
+1. `FramebufferCapture` is the GL read alone: `read_frame()` reads `GL_BACK`
+   sized from `io.display_framebuffer_scale` and raises on failure. It holds
+   no state.
+2. The Hub sends the ordinary `QueryRequest(method="screenshot")` through the
+   existing `DisplayPort.query` route; `DisplayControlOperations.screenshot`
+   narrows the reply to `Screenshot(path=...)`. The hard-coded refusal is gone.
+3. The display answers that one query **a frame late**, in two steps.
+   `ClientQueries` hands the requester's socket to `ScreenshotQueue` instead of
+   the router. In `before_swap` the queue reads the frame while the back buffer
+   still holds it; a read that fails is answered at once with its error, since
+   nothing waits for the swap. In `after_swap`, after the acks the swap
+   releases, the queue writes the PNG and sends the `QueryResponse`. The Hub
+   matches a query reply by order and holds one query in flight (DES-102), so
+   a reply one swap later is still the reply to that query; a second
+   `screenshot` while one waits is refused at once, so no requester waits out
+   a timeout for a reply that never comes.
+4. The PNG is written into the display's own runtime directory
+   (`<socket dir>/screenshots`, so `/tmp/lux-$USER/screenshots` or
+   `$XDG_RUNTIME_DIR/lux/screenshots`), created at mode 0700 by the display
+   and refused if another user owns it, and opened once by descriptor. A
+   shared temporary root would let another local user pre-create the
+   directory and redirect the write (review finding on PR #607). Over REST
+   the route takes the owning-scope dependency every write route takes: a
+   capture writes a file on the display host, so an identity-less caller is
+   challenged (401, `X-Lux-Identification-Required`) and a malformed one
+   rejected (422) before the display is asked; the identity is validated but
+   no Hub session is recorded, because the capture owns no UI and a
+   capture-only app under the never-expiring app lease would otherwise outlive
+   its process in `lux session ls`. No file is retained by the display: the
+   path is returned to the caller, who owns it from then on.
+5. The dedicated `ScreenshotRequest` / `ScreenshotResponse` wire messages are
+   removed. They existed only because the generic query path was believed
+   unable to defer; it can, and one reply type (`QueryResponse`) keeps the
+   Hub's `ReplyWaiters` and `REPLY_TYPES` unchanged.
+
+### Scope
+
+The PNG path is on the display's host, as before. External capture
+(`make screenshot`, DES-091) remains the tool for a window the display
+process is not running in, and for pixels after window-server composition;
+the in-process capture is tied to one painted frame, needs no Screen
+Recording permission, and works with the window occluded or on another Space.
+Captures are not retained or pruned by lux; the directory is the user's own
+runtime directory and the files are theirs to remove.

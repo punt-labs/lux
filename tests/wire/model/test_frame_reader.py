@@ -123,7 +123,6 @@ class TestAcceptedVocabulary:
             "pong",
             "introspect_response",
             "list_scenes_response",
-            "screenshot_response",
             "query_response",
         }
 

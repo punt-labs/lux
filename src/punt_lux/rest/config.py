@@ -7,9 +7,9 @@ config is a repo file the operation reads and writes; the route only translates.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Annotated, Self, final
+from typing import TYPE_CHECKING, Self, final
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
@@ -17,16 +17,13 @@ from punt_lux.commands import (
     display_mode_get as display_mode_get_command,
 )
 from punt_lux.operations import DisplayModeState
-from punt_lux.rest.identity import resolve_identity
+from punt_lux.rest.identity import CallerIdentity
 
 if TYPE_CHECKING:
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
-    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["DisplayModeRoutes"]
-
-_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 
 
 @final
@@ -58,7 +55,7 @@ class DisplayModeRoutes:
         return self._router
 
     def read_display_mode(
-        self, repo: str, identity: _CallerIdentity
+        self, repo: str, identity: CallerIdentity
     ) -> DisplayModeState:
         """Read a project's display mode; ``repo`` is its absolute path."""
         ctx: CommandCtx[DisplayModeOps] = CommandCtx(ops=self._ops, identity=identity)

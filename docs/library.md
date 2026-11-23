@@ -67,7 +67,7 @@ The library facade exposes eight accessors:
 | `client.menu` | `ls`, `set` |
 | `client.session` | `ls`, `identify` |
 | `client.callback` | `register` |
-| `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `get_state`, `screenshot` (currently unsupported) |
+| `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `get_state`, `screenshot` |
 | `client.event` | `ls` |
 | `client.error` | `ls` |
 

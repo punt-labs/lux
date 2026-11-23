@@ -18,9 +18,9 @@ pretending to be luxd — so a command's ``ctx.identity`` is never a stale globa
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Final, Self, cast, final
+from typing import TYPE_CHECKING, Annotated, Final, Self, cast, final
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from starlette.requests import Request
 
 from punt_lux.client.identity_headers import ClientHeaders
@@ -31,43 +31,27 @@ from punt_lux.commands import (
     session_identify as session_identify_command,
 )
 from punt_lux.connection_identity import connection_for
+from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.identity import Identified
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.scope import Scope
 
 if TYPE_CHECKING:
-    from punt_lux.kernel.connection_id import ConnectionId
     from punt_lux.operations import Operations, OpError
     from punt_lux.rest.status import HttpErrorMap
 
-__all__ = ["ANONYMOUS_REST", "RestCaller", "resolve_identity", "resolve_scope"]
+__all__ = [
+    "ANONYMOUS_REST",
+    "CallerIdentity",
+    "OwningScope",
+    "RestCaller",
+    "WritingIdentity",
+]
 
 # The honestly-labelled fallback identity a read route with no declaration gets.
 # Reads take no scope, so a command whose Ctx wraps this identity never attributes
 # a write to it -- the label surfaces plainly in introspection instead.
 ANONYMOUS_REST: Final = ClientIdentity(kind="cli", name="rest-anonymous")
-
-
-def resolve_scope(request: Request) -> Scope:
-    """FastAPI dependency: the owning scope for a write route, from its identity.
-
-    The mounted :class:`RestSurface` stores its :class:`RestCaller` on ``app.state``,
-    so every write route shares one resolver as a single ``scope`` parameter rather
-    than threading the resolver through each route and taking the raw request.
-    """
-    caller = cast("RestCaller", request.app.state.rest_caller)
-    return caller.resolve(request)
-
-
-def resolve_identity(request: Request) -> ClientIdentity:
-    """FastAPI dependency: the caller's declared identity, or the anonymous fallback.
-
-    A route that declares this dependency without also declaring ``resolve_scope``
-    accepts an anonymous caller (a read); a write route pairs it with the scope
-    dependency, so the write is refused before this ever returns a stand-in.
-    """
-    parsed = ClientHeaders.identity_from(request.headers)
-    return parsed if parsed is not None else ANONYMOUS_REST
 
 
 _CHALLENGE_REASON: Final = "declare an identity to own the writes this request makes"
@@ -87,6 +71,42 @@ class RestCaller:
         self._errors = errors
         return self
 
+    @staticmethod
+    def resolve_identity(request: Request) -> ClientIdentity:
+        """FastAPI dependency: the declared identity, or the anonymous fallback.
+
+        A route that declares this dependency alone accepts an anonymous caller
+        (a read); a write route pairs it with :meth:`resolve_scope`, so the write
+        is refused before this ever returns a stand-in.
+        """
+        parsed = ClientHeaders.identity_from(request.headers)
+        return parsed if parsed is not None else ANONYMOUS_REST
+
+    @staticmethod
+    def resolve_scope(request: Request) -> Scope:
+        """FastAPI dependency: the owning scope for a write route, from its identity.
+
+        The mounted :class:`RestSurface` stores its :class:`RestCaller` on
+        ``app.state``, so every write route shares one resolver as a single
+        ``scope`` parameter rather than threading it through each route.
+        """
+        caller = cast("RestCaller", request.app.state.rest_caller)
+        return caller.resolve(request)
+
+    @staticmethod
+    def resolve_writer(request: Request) -> ClientIdentity:
+        """FastAPI dependency: the declared identity of a write that owns no UI.
+
+        A write that leaves nothing in the Hub store -- a screenshot writes a
+        file on the display host -- still needs a named, well-formed caller, but
+        records no session: a capture-only app under the never-expiring app
+        lease would otherwise outlive its process in the session list. The
+        challenge and the malformed-identity rejection are the ones a scoped
+        write gets.
+        """
+        caller = cast("RestCaller", request.app.state.rest_caller)
+        return caller.declared(request)
+
     def resolve(self, request: Request) -> Scope:
         """Return the scope this request's writes own, or reject an unidentified one.
 
@@ -95,16 +115,16 @@ class RestCaller:
         runs -- so a future check added to the command fires for both surfaces.
         A request that carries no identity is refused with the
         ``identification_required`` challenge before the command ever runs.
+
+        The headers are read through the one shared :class:`ClientHeaders`
+        contract, so the header names live in a single place both the client and
+        the Hub read; the connection id comes from :func:`connection_for`, shared
+        with the WebSocket listen leg, so a caller that registers a callback over
+        REST and listens over the WebSocket resolves to one connection on both.
         """
         declaration = self._declaration(request)
-        if declaration is None:
-            raise HTTPException(
-                status_code=self._errors.status_for("identification_required"),
-                detail=_CHALLENGE_REASON,
-                headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
-            )
         scope = Scope.observed(
-            self._connection_for(declaration), ClientHost.of_connection(request)
+            connection_for(declaration), ClientHost.of_connection(request)
         )
         ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=ANONYMOUS_REST)
         outcome: Identified | OpError = asyncio.run(
@@ -113,23 +133,32 @@ class RestCaller:
         self._errors.respond(outcome)
         return scope
 
-    @staticmethod
-    def _declaration(request: Request) -> dict[str, object] | None:
-        """Read this request's identity headers into a declaration, or ``None``.
+    def declared(self, request: Request) -> ClientIdentity:
+        """Return the request's validated identity without recording a session.
 
-        RestCaller is the HTTP adapter: it pulls the headers off the starlette
-        request and hands their shape to the one shared :class:`ClientHeaders`
-        contract, so ``resolve`` never touches ``request.headers`` directly and the
-        header names live in a single place both the client and the Hub read.
+        The challenge for a missing declaration and the named rejection for a
+        malformed one are the same ones :meth:`resolve` raises; only the
+        ``identify`` that binds a session is skipped.
         """
-        return ClientHeaders.declaration_from(request.headers)
+        return self._errors.respond(
+            IdentityOperations.validate(self._declaration(request))
+        )
 
-    @staticmethod
-    def _connection_for(declaration: dict[str, object]) -> ConnectionId:
-        """Derive the stable connection id the declared identity owns.
+    def _declaration(self, request: Request) -> dict[str, object]:
+        """Read the identity headers, or raise the identification challenge."""
+        declaration = ClientHeaders.declaration_from(request.headers)
+        if declaration is None:
+            raise HTTPException(
+                status_code=self._errors.status_for("identification_required"),
+                detail=_CHALLENGE_REASON,
+                headers={ClientHeaders.CHALLENGE: _CHALLENGE_REASON},
+            )
+        return declaration
 
-        Shared with the WebSocket listen leg through :func:`connection_for`, so a
-        caller that registers a callback over REST and listens over the WebSocket
-        under the same identity resolves to one connection on both.
-        """
-        return connection_for(declaration)
+
+# The route-parameter forms of the three dependencies, declared once for every
+# router: a read takes CallerIdentity; a write that owns UI takes OwningScope
+# (with CallerIdentity for its Ctx); a write that owns no UI takes WritingIdentity.
+CallerIdentity = Annotated[ClientIdentity, Depends(RestCaller.resolve_identity)]
+OwningScope = Annotated[Scope, Depends(RestCaller.resolve_scope)]
+WritingIdentity = Annotated[ClientIdentity, Depends(RestCaller.resolve_writer)]

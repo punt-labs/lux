@@ -188,8 +188,7 @@ kind is **Level-4 green** when it has a passing `Scenario` in that harness;
 adding a migrated kind is one more `Scenario` value, not new assertion code. The
 harness injects by firing the replica's own wrapped handler — the exact call
 `ButtonRenderer.render` makes on a real click — so the crossed invocation is
-byte-identical to a real click's; only the GLFW pixel hit-test is deferred (with
-the screenshot layer, DES-028).
+byte-identical to a real click's; only the GLFW pixel hit-test is deferred.
 
 ### Level 5 — Introspection verification (integration)
 
@@ -314,9 +313,10 @@ scenes sent via the protocol appear correctly in the display's state.
 This catches protocol-to-renderer wiring bugs without a human in the loop,
 though it does not verify pixel-level rendering fidelity.
 
-`screenshot` capture is currently in progress (DES-028) — the correct
-capture timing in the ImGui render loop is unresolved. Once working, it
-enables screenshot-based regression tests as part of the e2e tier.
+`display_screenshot` captures the frame painted after the next buffer swap
+(`FramebufferCapture`, sized from the live `io.display_framebuffer_scale`),
+so an e2e test can read back real pixels, not only the scene tree. On macOS
+`make screenshot` captures the same window from outside the process.
 
 **Manual verification (required for rendering fidelity).** When changing
 rendering code, run `make install` and exercise the affected element

@@ -226,7 +226,7 @@ Clients use the stateful MCP `initialize` handshake; clients that support automa
 | `display_mode_get(repo)` | Whether Lux display mode is on or off for a project; pass the project's absolute path. Set it with `lux display mode on --repo <path>` or `off` |
 | `display_state_get()` | Widget and frame state for the scenes you own |
 | `display_link_get()` | Whether a window is connected and, if not, how many scenes the Hub is holding, the current retry delay, and the Hub's host and PID |
-| `display_screenshot()` | Currently unsupported; returns an error rather than an image |
+| `display_screenshot()` | Capture the next painted frame to a PNG; returns its path on the display host |
 | `list_frames()` | The window's frames and whether each is on screen, docked, or closed |
 | **Introspection** | |
 | `scene_inspect(scene_id)` | Element tree of a scene you own |
@@ -273,7 +273,7 @@ Most commands take the form `lux <noun> <verb>` and use the same names as the MC
 | `lux frame` | `remove` |
 | `lux menu` | `ls`, `set` |
 | `lux session` | `ls`, `inspect`, `identify` |
-| `lux display` | `info`, `theme`, `state`, `mode`, `window`, `link`, `screenshot` (currently unsupported) |
+| `lux display` | `info`, `theme`, `state`, `mode`, `window`, `link`, `screenshot` |
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |

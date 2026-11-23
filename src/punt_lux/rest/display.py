@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from punt_lux.commands import (
     Ctx as CommandCtx,
@@ -32,23 +32,19 @@ from punt_lux.operations import (
     Pong,
     RecentErrors,
     RecentEvents,
-    Scope,
     Screenshot,
     ThemeState,
     WindowSettings,
 )
-from punt_lux.rest.identity import resolve_identity, resolve_scope
+from punt_lux.rest.identity import CallerIdentity, OwningScope, WritingIdentity
 
 if TYPE_CHECKING:
     from punt_lux.commands.display_state_get import DisplayStateOps
     from punt_lux.operations import Operations
     from punt_lux.rest.route_deps import RouteDeps
     from punt_lux.rest.status import HttpErrorMap
-    from punt_lux.wire.model.client_identity import ClientIdentity
 
-_CallerIdentity = Annotated["ClientIdentity", Depends(resolve_identity)]
 # A scoped read (e.g. display state) gets the same 401 challenge a write gets.
-_OwningScope = Annotated[Scope, Depends(resolve_scope)]
 
 __all__ = ["DisplayRoutes"]
 
@@ -94,17 +90,17 @@ class DisplayRoutes:
         """The router to mount on the app."""
         return self._router
 
-    def get_display_info(self, identity: _CallerIdentity) -> DisplayInfo:
+    def get_display_info(self, identity: CallerIdentity) -> DisplayInfo:
         """Return the display's backend, geometry, frame rate, and identity."""
         ctx: CommandCtx[DisplayInfoOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(asyncio.run(display_info_command.execute(ctx)))
 
-    def get_theme(self, identity: _CallerIdentity) -> ThemeState:
+    def get_theme(self, identity: CallerIdentity) -> ThemeState:
         """Return the active theme and the themes available to switch to."""
         ctx: CommandCtx[ThemeOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(asyncio.run(display_get_theme_command.execute(ctx)))
 
-    def get_window_settings(self, identity: _CallerIdentity) -> WindowSettings:
+    def get_window_settings(self, identity: CallerIdentity) -> WindowSettings:
         """Return the window's opacity, font scale, decoration, and idle rate."""
         ctx: CommandCtx[WindowOps] = CommandCtx(ops=self._ops, identity=identity)
         result = asyncio.run(display_window_get_command.execute(ctx))
@@ -114,14 +110,18 @@ class DisplayRoutes:
         """List the display's frames and where each one is currently shown."""
         return self._errors.respond(self._ops.list_frames())
 
-    def screenshot(self, identity: _CallerIdentity) -> Screenshot:
-        """Refuse the screenshot: framebuffer capture is unsupported (DES-028)."""
+    def screenshot(self, identity: WritingIdentity) -> Screenshot:
+        """Capture the next painted frame; the path is on the display host.
+
+        A capture writes a file there, so the caller is resolved as a writer:
+        an identity-less request is challenged before the display is asked.
+        """
         ctx: CommandCtx[ScreenshotOps] = CommandCtx(ops=self._ops, identity=identity)
         result = asyncio.run(display_screenshot_command.execute(ctx))
         return self._errors.respond(result)
 
     def get_display_state(
-        self, identity: _CallerIdentity, scope: _OwningScope
+        self, identity: CallerIdentity, scope: OwningScope
     ) -> DisplayStateSnapshot:
         """Return the caller's own widget/frame state, proxied (DES-086 scoped)."""
         ctx: CommandCtx[DisplayStateOps] = CommandCtx(ops=self._ops, identity=identity)
@@ -129,21 +129,21 @@ class DisplayRoutes:
         return self._errors.respond(result)
 
     async def ping(
-        self, identity: _CallerIdentity, timeout: _PingTimeout = None
+        self, identity: CallerIdentity, timeout: _PingTimeout = None
     ) -> Pong:
         """Round-trip a ping; an unidentified caller resolves to ``ANONYMOUS_REST``."""
         ctx: CommandCtx[PingOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(await ping_command.execute(ctx, timeout))
 
     def list_recent_events(
-        self, identity: _CallerIdentity, count: _EventCount = 50
+        self, identity: CallerIdentity, count: _EventCount = 50
     ) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
         ctx: CommandCtx[EventOps] = CommandCtx(ops=self._ops, identity=identity)
         return self._errors.respond(asyncio.run(event_ls_command.execute(ctx, count)))
 
     def list_errors(
-        self, identity: _CallerIdentity, count: _ErrorCount = 20
+        self, identity: CallerIdentity, count: _ErrorCount = 20
     ) -> RecentErrors:
         """Return the display's recent errors, proxied."""
         ctx: CommandCtx[ErrorOps] = CommandCtx(ops=self._ops, identity=identity)

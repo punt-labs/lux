@@ -519,3 +519,44 @@ class TestTheQueriesTheLoopRegisters:
 
         assert response.error is None
         assert response.result == server._menus.inventory_report()
+
+
+class TestTheRunnerCallbacksAreBound:
+    def test_the_capture_hooks_are_the_turns_before_and_after_swap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The frame-turn ordering test drives before_swap/after_swap by hand; this
+        # proves the native runner is handed those exact bound methods, so the
+        # capture hook is not a method nothing ever calls.
+        import tempfile
+        from pathlib import Path
+        from typing import Any
+
+        from imgui_bundle import immapp
+
+        from punt_lux.display.socket_server import SocketListener
+        from punt_lux.service.display_paths import DisplayPaths
+
+        captured: list[Any] = []  # runner params: imgui_bundle ships no stubs
+
+        def fake_run(params: Any, _addons: Any) -> None:  # untyped third party
+            captured.append(params)
+
+        def claimed(_listener: SocketListener, _path: Path) -> bool:
+            return True
+
+        def no_pid(_paths: DisplayPaths) -> None:
+            return None
+
+        monkeypatch.setattr(immapp, "run", fake_run)
+        monkeypatch.setattr(SocketListener, "setup", claimed)
+        monkeypatch.setattr(DisplayPaths, "write_pid", no_pid)
+        sock = Path(tempfile.mkdtemp(prefix="lux-")) / "d.sock"
+        loop = RenderLoop(str(sock))
+
+        loop.run()
+
+        (params,) = captured
+        turn = loop._turn
+        assert params.callbacks.before_swap == turn.before_swap
+        assert params.callbacks.after_swap == turn.after_swap

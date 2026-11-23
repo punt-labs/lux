@@ -211,6 +211,7 @@ class RenderLoop:
             scenes=self._scenes,
             geometry=self._imgui_renderer_factory.geometry.recorder,
             settings=self._settings,
+            screenshot_dir=self._socket_path.parent / "screenshots",
         )
         self._turn = FrameTurn.standard(
             sockets=self._socket_listener,
@@ -263,11 +264,12 @@ class RenderLoop:
         from imgui_bundle import immapp
 
         runner_params = DisplaySetup.parameters()
-        runner_params.callbacks.show_menus = self._show_menus
+        runner_params.callbacks.show_menus = self._menus.show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = functools.partial(
             self._turn.run, self._pump_terminals, self._render_scene, self._flush_events
         )
+        runner_params.callbacks.before_swap = self._turn.before_swap
         runner_params.callbacks.after_swap = self._turn.after_swap
         runner_params.callbacks.before_exit = self._on_exit
         self._exit_signal = ExitSignal(runner_params)
@@ -316,9 +318,6 @@ class RenderLoop:
         logger.info("Display server stopped")
 
     # -- menu bar ----------------------------------------------------------
-
-    def _show_menus(self) -> None:
-        self._menus.show_menus()
 
     # -- socket callbacks ---------------------------------------------------
 

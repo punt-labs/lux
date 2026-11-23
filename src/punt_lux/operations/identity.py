@@ -52,12 +52,24 @@ class IdentityOperations:
         front door received; a malformed one is rejected by field name. On success
         the identity is bound to the caller's connection and echoed back.
         """
-        try:
-            identity = ClientIdentity.model_validate(declaration)
-        except ValidationError as exc:
-            return OpError.from_validation(exc)
+        identity = self.validate(declaration)
+        if isinstance(identity, OpError):
+            return identity
         self._lifecycle.identify(scope.connection_id, identity, scope.client_host)
         return Identified(identity=identity)
+
+    @staticmethod
+    def validate(declaration: dict[str, object]) -> ClientIdentity | OpError:
+        """Validate ``declaration`` into an identity and record nothing.
+
+        The validate-only half of :meth:`identify`, for a caller that must be
+        named and well-formed but owns no UI and so gets no session: a
+        malformed declaration is the same ``invalid_request`` by field name.
+        """
+        try:
+            return ClientIdentity.model_validate(declaration)
+        except ValidationError as exc:
+            return OpError.from_validation(exc)
 
     def current(self, scope: Scope) -> ClientIdentity | None:
         """Return the identity already declared for ``scope``'s connection, if any.

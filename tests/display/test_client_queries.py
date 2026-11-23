@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
-
-import pytest
 
 from punt_lux.display.client_queries import ClientQueries
 from punt_lux.display.window_settings import WindowSettings
@@ -19,13 +18,13 @@ from punt_lux.wire.model import (
     PongMessage,
     QueryRequest,
     QueryResponse,
-    ScreenshotRequest,
-    ScreenshotResponse,
     UnknownMessage,
 )
 
 if TYPE_CHECKING:
     import socket
+
+    import pytest
 
 
 _SOCK = cast("socket.socket", object())
@@ -46,6 +45,7 @@ def _queries(
         scenes=MagicMock(),
         geometry=MagicMock(),
         settings=WindowSettings(),
+        screenshot_dir=Path("/nonexistent/never-written"),
     )
     return queries, sender, router
 
@@ -62,7 +62,6 @@ class TestTheHandlersItRegisters:
 
         assert registered == {
             "inspect_scene",
-            "screenshot",
             "get_display_info",
             "get_window_settings",
             "get_theme",
@@ -138,17 +137,25 @@ class TestEveryAnswerLeavesByTheReplyDoor:
 
 
 class TestTheQuestionsThatAreNotAnswered:
-    def test_a_screenshot_waits_for_the_next_swap_a_second_is_refused_at_once(
+    def test_a_screenshot_query_waits_for_the_next_swap_not_the_router(
         self,
     ) -> None:
+        queries, sender, router = _queries()
+
+        queries.handle(_SOCK, QueryRequest(method="screenshot"))
+
+        sender.reply_to_client.assert_not_called()
+        router.handle_query.assert_not_called()
+
+    def test_a_second_screenshot_while_one_waits_is_refused_at_once(self) -> None:
         queries, sender, _router = _queries()
 
-        queries.handle(_SOCK, ScreenshotRequest())
-        sender.reply_to_client.assert_not_called()
-        queries.handle(_SOCK, ScreenshotRequest())
+        queries.handle(_SOCK, QueryRequest(method="screenshot"))
+        queries.handle(_SOCK, QueryRequest(method="screenshot"))
 
         ((_, busy),) = [c.args for c in sender.reply_to_client.call_args_list]
-        assert isinstance(busy, ScreenshotResponse)
+        assert isinstance(busy, QueryResponse)
+        assert busy.method == "screenshot"
         assert busy.error is not None
 
     def test_an_unknown_kind_is_ignored_and_logged_at_debug(
@@ -161,14 +168,3 @@ class TestTheQuestionsThatAreNotAnswered:
 
         sender.reply_to_client.assert_not_called()
         assert "mystery" in caplog.text
-
-
-class TestTheGenericScreenshotQuery:
-    def test_is_refused_the_dedicated_request_message_is_required(self) -> None:
-        _, _sender, router = _queries()
-        handlers = {
-            c.args[0]: c.args[1] for c in router.register_handler.call_args_list
-        }
-
-        with pytest.raises(RuntimeError, match="screenshot_request"):
-            handlers["screenshot"]()

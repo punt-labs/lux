@@ -18,8 +18,7 @@ Interactions originate at the Display replica's own ``Element.fire`` — the
 exact call ``ButtonRenderer.render`` makes on a real click — so the
 ``RemoteEventHandlerInvocation`` that crosses the wire is byte-identical
 to a real click's by construction, not reconstructed. The only omitted
-step is the GLFW pixel hit-test, explicitly deferred with the
-screenshot layer (DES-028).
+step is the GLFW pixel hit-test.
 """
 
 from __future__ import annotations

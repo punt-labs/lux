@@ -153,10 +153,16 @@ def list_frames() -> FrameStates | OpError:
 
 @mcp.tool(name="display_screenshot")
 def screenshot() -> str:
-    """Report that display screenshot capture is unsupported.
+    """Capture the display's next painted frame to a PNG and return its path.
+
+    Use it to see the rendered pixels, not just the installed content
+    (``scene_inspect``). The display answers after the next buffer swap, so
+    the image is a frame as presented. The path is on the display's host.
 
     Raises:
-        ToolError: Always. Use ``scene_inspect`` to verify installed content.
+        ToolError: the display is not running, did not answer in time, or
+            could not read its framebuffer; a second capture requested while
+            one is still waiting for its frame.
     """
     ctx: CommandCtx[ScreenshotOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

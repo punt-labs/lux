@@ -297,7 +297,7 @@ class TestEveryReplySiteGoesThroughReplyToClient:
 
         makers = ReplyMakers(_reply_names(sources), sources).names
 
-        assert "capture" in makers  # FramebufferCapture.capture returns the reply
+        assert "_failed_screenshot" in makers  # ScreenshotQueue builds its own reply
 
     def test_no_display_module_replies_any_other_way(self) -> None:
         sources = _display_sources()
@@ -454,18 +454,22 @@ class TestTheGuardFailsOnAPlantedViolation:
         assert scan.violations(planted, "render_loop") != []
 
     def test_a_reply_a_caller_discards(self) -> None:
-        makers = frozenset({"AckMessage", "PongMessage", "QueryResponse", "capture"})
+        makers = frozenset(
+            {"AckMessage", "PongMessage", "QueryResponse", "_failed_screenshot"}
+        )
         scan = ReplySiteScan(self._SCAN._replies, makers)
-        planted = "def handle(self, sock):\n    self._capture.capture()\n"
+        planted = "def handle(self, sock):\n    self._failed_screenshot(exc)\n"
 
         assert scan.violations(planted, "render_loop") != []
 
     def test_a_reply_a_caller_hands_to_the_door_is_clean(self) -> None:
-        makers = frozenset({"AckMessage", "PongMessage", "QueryResponse", "capture"})
+        makers = frozenset(
+            {"AckMessage", "PongMessage", "QueryResponse", "_failed_screenshot"}
+        )
         scan = ReplySiteScan(self._SCAN._replies, makers)
         planted = (
             "def handle(self, sock):\n"
-            "    self._listener.reply_to_client(sock, self._capture.capture())\n"
+            "    self._listener.reply_to_client(sock, self._failed_screenshot(exc))\n"
         )
 
         assert scan.violations(planted, "render_loop") == []

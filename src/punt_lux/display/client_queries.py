@@ -1,14 +1,15 @@
 # pyright: reportMissingModuleSource=false
 """ClientQueries -- answers the questions a client asks the display.
 
-A ping, an introspection, a scene listing, a screenshot and a generic query change no
-scene the display holds: each is a question, and each answer goes back through the one
-door replies leave by (``ClientSender.reply_to_client``), so a reply the client misses
+A ping, an introspection, a scene listing and a generic query change no scene the
+display holds: each is a question, and each answer goes back through the one door
+replies leave by (``ClientSender.reply_to_client``), so a reply the client misses
 ends its connection instead of shifting every later one. This owns the handlers that
 answer the generic queries too: the router is told, once, which object answers
-``inspect_scene``, ``screenshot``, the window and theme facts, and a frame's dock
-state. Extracted from :class:`~punt_lux.display.render_loop.RenderLoop`, which keeps
-the messages that mutate scenes, menus and identity.
+``inspect_scene``, the window and theme facts, and a frame's dock state. The
+``screenshot`` query alone is held for the next swap, since its answer is the frame
+about to be painted. Extracted from :class:`~punt_lux.display.render_loop.RenderLoop`,
+which keeps the messages that mutate scenes, menus and identity.
 """
 
 from __future__ import annotations
@@ -31,13 +32,13 @@ from punt_lux.wire.model import (
     PingMessage,
     PongMessage,
     QueryRequest,
-    ScreenshotRequest,
     UnknownMessage,
 )
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 
 if TYPE_CHECKING:
     import socket
+    from pathlib import Path
 
     from punt_lux.display.client_sender import ClientSender
     from punt_lux.display.geometry import GeometryRecorder
@@ -49,6 +50,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["ClientQueries"]
+
+_SCREENSHOT = "screenshot"
 
 
 @final
@@ -69,17 +72,17 @@ class ClientQueries:
         scenes: SceneReplica,
         geometry: GeometryRecorder,
         settings: WindowSettings,
+        screenshot_dir: Path,
     ) -> Self:
         self = super().__new__(cls)
         self._sender = sender
         self._query_router = query_router
-        self._screenshots = ScreenshotQueue(query_router.record_error, sender)
+        self._screenshots = ScreenshotQueue(
+            query_router.record_error, sender, screenshot_dir
+        )
         self._start_time = time.time()
         query_router.register_handler(
             "inspect_scene", SceneInspector(scenes=scenes, geometry=geometry).inspect
-        )
-        query_router.register_handler(
-            "screenshot", self._screenshots.refuse_generic_query
         )
         query_router.register_handler("get_display_info", self._display_info)
         query_router.register_handler("get_window_settings", settings.window_report)
@@ -98,12 +101,14 @@ class ClientQueries:
             self._introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
             self._list_scenes(sock)
-        elif isinstance(msg, ScreenshotRequest):
-            self._screenshots.request(sock)
         elif isinstance(msg, QueryRequest):
             self._query(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
+
+    def before_swap(self) -> None:
+        """Read the frame just drawn for the queued screenshot, if any."""
+        self._screenshots.before_swap()
 
     def after_swap(self) -> None:
         """Answer the queued screenshot, if any, now the frame has been swapped."""
@@ -149,6 +154,14 @@ class ClientQueries:
         self._sender.reply_to_client(sock, resp)
 
     def _query(self, sock: socket.socket, msg: QueryRequest) -> None:
-        """Dispatch a generic QueryRequest to the registered handler."""
+        """Dispatch a generic QueryRequest to the registered handler.
+
+        ``screenshot`` is the one query answered a frame late: its reply is the
+        frame about to be painted, so the requester waits for the next swap
+        (:class:`ScreenshotQueue`) instead of being answered here.
+        """
+        if msg.method == _SCREENSHOT:
+            self._screenshots.request(sock)
+            return
         resp = self._query_router.handle_query(msg.method, msg.params)
         self._sender.reply_to_client(sock, resp)

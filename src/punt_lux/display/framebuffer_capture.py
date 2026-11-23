@@ -1,73 +1,52 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
-"""FramebufferCapture -- the PNG of what the display just painted."""
+"""FramebufferCapture -- the frame the display is about to present, as an image."""
 
 from __future__ import annotations
 
-import logging
-import os
-import tempfile
-from pathlib import Path
-from typing import TYPE_CHECKING, Self, final
+from typing import final
 
 import OpenGL.GL as GL
-from imgui_bundle import hello_imgui, imgui
+from imgui_bundle import imgui
 from PIL import Image
-
-from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.wire.model import ScreenshotResponse
-
-if TYPE_CHECKING:
-    from punt_lux.display.display_log import ErrorRecorder
-
-logger = logging.getLogger(__name__)
 
 __all__ = ["FramebufferCapture"]
 
 
 @final
 class FramebufferCapture:
-    """Reads the OpenGL framebuffer into a PNG and says where it was saved."""
+    """Read the drawn frame out of the back buffer.
 
-    _record_error: ErrorRecorder
-    __slots__ = ("_record_error",)
+    Runs on the render thread between ImGui's draw and the buffer swap, so
+    ``GL_BACK`` holds the complete frame about to be presented. A read of
+    ``GL_FRONT`` after the swap is blank on Mesa/GLX. The read is sized from
+    the live framebuffer scale (``io.display_framebuffer_scale``, 2.0 on a
+    Retina display); the ``final_app_window_screenshot_framebuffer_scale``
+    global is 1.0 until ``run()`` exits and sizing from it reads one quarter of
+    the buffer.
+    """
 
-    def __new__(cls, record_error: ErrorRecorder) -> Self:
-        self = super().__new__(cls)
-        self._record_error = record_error
-        return self
+    __slots__ = ()
 
-    def capture(self) -> ScreenshotResponse:
-        """Capture the framebuffer after a swap; a failure is an error response.
+    @staticmethod
+    def read_frame() -> Image.Image:
+        """Read the whole back buffer at the live framebuffer scale, top row first.
 
-        Called after the buffer swap so GL_FRONT holds the fully rendered frame.
-        Uses ``glReadPixels`` with the Retina scale factor.
+        Raises:
+            Exception: whatever the GL binding or the image decode raises; the
+                caller turns it into the query's error reply.
         """
-        try:
-            scale = hello_imgui.final_app_window_screenshot_framebuffer_scale()
-            io = imgui.get_io()
-            fb_width = int(io.display_size.x * scale)
-            fb_height = int(io.display_size.y * scale)
-            GL.glReadBuffer(GL.GL_FRONT)
-            GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
-            data = GL.glReadPixels(
-                0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
-            )
-
-            image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
-            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-
-            tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
-            tmp_dir.mkdir(parents=True, exist_ok=True)
-            fd, path = tempfile.mkstemp(
-                suffix=".png", prefix="lux-screenshot-", dir=str(tmp_dir)
-            )
-            os.close(fd)
-            image.save(path)
-        except ProgrammerError:
-            raise
-        except Exception as exc:
-            logger.exception("Screenshot capture failed")
-            self._record_error("error", str(exc), "screenshot")
-            return ScreenshotResponse(error=str(exc))
-        return ScreenshotResponse(path=path)
+        io = imgui.get_io()
+        scale_x, scale_y = (
+            io.display_framebuffer_scale.x,
+            io.display_framebuffer_scale.y,
+        )
+        fb_width = int(io.display_size.x * scale_x)
+        fb_height = int(io.display_size.y * scale_y)
+        GL.glReadBuffer(GL.GL_BACK)
+        GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
+        data = GL.glReadPixels(
+            0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
+        )
+        image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
+        return image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)

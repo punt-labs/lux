@@ -61,6 +61,7 @@ from punt_lux.wire.model import (
     PlotElement,
     PongMessage,
     ProgressElement,
+    QueryResponse,
     SelectableElement,
     SliderElement,
     SpinnerElement,
@@ -1913,18 +1914,34 @@ class TestListScenesTool:
 class TestScreenshotTool:
     @patch("punt_lux.hub.clients.client_registry.asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_screenshot_reports_unsupported(
+    def test_screenshot_returns_the_path_the_display_painted(
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
-        # DES-028: framebuffer capture is unsolved, so the tool refuses cleanly
-        # and never reaches the display — even with a display running.
-        with pytest.raises(ToolError) as _exc:
-            screenshot()
-        result = str(_exc.value)
-        assert result == (
-            "error: screenshot capture is not supported by the display; see DES-028"
+        client = _mock_client()
+        client.asks().connection_id = "d1"  # the dial the reply is attributed to
+        client.asks().query.return_value = QueryResponse(
+            method="screenshot", result={"path": "/tmp/lux-screenshots/a.png"}
         )
-        mock_get.assert_not_called()
+        mock_get.return_value = client.asks()
+
+        assert screenshot() == "/tmp/lux-screenshots/a.png"
+        client.asks().query.assert_called_once()
+        assert client.asks().query.call_args.args[0] == "screenshot"
+
+    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    def test_screenshot_relays_the_displays_refusal(
+        self, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        client = _mock_client()
+        client.asks().connection_id = "d1"
+        client.asks().query.return_value = QueryResponse(
+            method="screenshot", error="a screenshot is already waiting"
+        )
+        mock_get.return_value = client.asks()
+
+        with pytest.raises(ToolError, match="already waiting"):
+            screenshot()
 
 
 class TestSessionKey:

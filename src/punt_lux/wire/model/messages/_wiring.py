@@ -15,8 +15,6 @@ from punt_lux.wire.model.messages.introspect import (
     ListScenesResponse,
     QueryRequest,
     QueryResponse,
-    ScreenshotRequest,
-    ScreenshotResponse,
     register_codecs as _register_introspect,
 )
 from punt_lux.wire.model.messages.lifecycle import (
@@ -66,8 +64,6 @@ __all__ = [
     "ReadyMessage",
     "RemoteEventHandlerInvocation",
     "SceneMessage",
-    "ScreenshotRequest",
-    "ScreenshotResponse",
     "ThemeMessage",
     "UnknownMessage",
     "message_from_dict",
@@ -84,7 +80,6 @@ ClientMessage = (
     | PingMessage
     | IntrospectRequest
     | ListScenesRequest
-    | ScreenshotRequest
     | MenuMessage
     | CallbackMenuMessage
     | ThemeMessage
@@ -102,7 +97,6 @@ DisplayMessage = (
     | PongMessage
     | IntrospectResponse
     | ListScenesResponse
-    | ScreenshotResponse
     | QueryResponse
 )
 Message = ClientMessage | DisplayMessage | UnknownMessage

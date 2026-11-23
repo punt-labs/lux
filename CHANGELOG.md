@@ -209,6 +209,15 @@
 - Hub and Display restart now recover launchd's service-not-found status
   (rc=113) by bootstrapping an existing plist before the normal readiness wait.
   Missing plists and other kickstart failures still fail without fallback.
+- `display_screenshot` (MCP), `lux display screenshot` and `GET
+  /display/screenshot` now capture the display's next painted frame to a PNG.
+  The in-process capture read a 1x rectangle out of the 2x Retina framebuffer,
+  which is the empty bottom-left quarter; it is now sized from the live
+  framebuffer scale. The Hub sends the ordinary `screenshot` query and the
+  display answers it one frame late, after the swap; the dedicated
+  `screenshot_request`/`screenshot_response` wire messages are removed. The
+  PNG lands in the display's own 0700 runtime directory, and the REST route
+  refuses an identity-less caller the way every write route does.
 
 - **Hub startup no longer blocks on DNS:** importing `punt_lux.luxd` used to
   resolve the host FQDN while building the Display link, which could stall

@@ -22,6 +22,7 @@ from punt_lux.operations.identity import IdentityOperations
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.identity import Identified
 from punt_lux.operations.queries import QueryOperations
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.scope import Scope
 
 
@@ -77,6 +78,30 @@ def test_identify_a_headless_cli_without_a_repo() -> None:
     )
     assert isinstance(result, Identified)
     assert result.identity.repo is None
+
+
+def test_validate_returns_the_identity_and_records_nothing() -> None:
+    # A capture-only writer needs a well-formed identity but no session: the
+    # validate-only half of identify leaves the registry untouched.
+    factory = HubStoreFactory()
+    clients = factory.clients
+    ops = IdentityOperations(factory.lifecycle, clients)
+
+    result = ops.validate({"kind": "app", "name": "snapshot-check"})
+
+    assert isinstance(result, ClientIdentity)
+    assert result.name == "snapshot-check"
+    assert clients.live_sessions() == {}
+
+
+def test_validate_rejects_a_malformed_declaration_by_field() -> None:
+    factory = HubStoreFactory()
+    result = IdentityOperations(factory.lifecycle, factory.clients).validate(
+        {"kind": "daemon", "name": "x"}
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "kind" in result.reason
 
 
 def test_bad_kind_is_invalid_request_and_records_nothing() -> None:

@@ -83,7 +83,7 @@ class RestSurface:
     def mount(self, app: FastAPI) -> None:
         """Include every router, and publish the per-request identity resolver.
 
-        Write routes read the caller off ``app.state`` via ``resolve_scope``.
+        Write routes read the caller off ``app.state`` via ``RestCaller.resolve_scope``.
         """
         app.state.rest_caller = self._caller
         for router in self._routers:

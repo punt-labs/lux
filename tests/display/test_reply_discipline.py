@@ -29,8 +29,6 @@ from punt_lux.wire.model import (
     ReadyMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
-    ScreenshotRequest,
-    ScreenshotResponse,
     TextElement,
 )
 from punt_lux.wire.model.messages.wire_vocabulary import DISPLAY_VOCABULARY
@@ -41,6 +39,7 @@ if TYPE_CHECKING:
     from punt_lux.wire.model import Message
 
 _FD = 4711
+_SCREENSHOT = QueryRequest(method="screenshot")
 
 
 @final
@@ -168,22 +167,23 @@ class TestAScreenshotIsNeverOverwritten:
         self,
     ) -> None:
         loop, peer, sock = _hub_client()
-        loop._handle_message(sock, ScreenshotRequest())
+        loop._handle_message(sock, _SCREENSHOT)
 
-        loop._handle_message(sock, ScreenshotRequest())
+        loop._handle_message(sock, _SCREENSHOT)
 
-        answered = [r for r in peer.replies() if isinstance(r, ScreenshotResponse)]
+        answered = [r for r in peer.replies() if isinstance(r, QueryResponse)]
         assert len(answered) == 1, "the superseded request is answered at once"
         assert answered[0].error is not None
 
     def test_the_first_request_is_still_answered_after_the_swap(self) -> None:
         loop, peer, sock = _hub_client()
-        loop._handle_message(sock, ScreenshotRequest())
-        loop._handle_message(sock, ScreenshotRequest())
+        loop._handle_message(sock, _SCREENSHOT)
+        loop._handle_message(sock, _SCREENSHOT)
 
+        loop._turn.before_swap()
         loop._turn.after_swap()
 
-        answered = [r for r in peer.replies() if isinstance(r, ScreenshotResponse)]
+        answered = [r for r in peer.replies() if isinstance(r, QueryResponse)]
         assert len(answered) == 2, "one reply per request, none dropped"
 
 
@@ -244,8 +244,9 @@ class TestAHubThatDoesNotRead:
         self,
     ) -> None:
         loop, peer, sock = _hub_client(blocked=True)
-        loop._handle_message(sock, ScreenshotRequest())
+        loop._handle_message(sock, _SCREENSHOT)
 
+        loop._turn.before_swap()
         loop._turn.after_swap()
 
         assert peer.closed

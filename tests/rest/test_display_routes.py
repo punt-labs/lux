@@ -11,7 +11,11 @@ from __future__ import annotations
 import os
 import socket
 
-from punt_lux.operations.display_reply import DisplayFault, DisplayReplied
+from punt_lux.operations.display_reply import (
+    DisplayErrored,
+    DisplayFault,
+    DisplayReplied,
+)
 from punt_lux.operations.models.hub_connection import HubConnection
 
 from ._fakes import StubPort, make_client
@@ -109,13 +113,46 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
     }
 
 
-def test_screenshot_unsupported_is_409() -> None:
-    # DES-028: framebuffer capture is unsolved, so the operation refuses up front
-    # with a rejection (409); the display is never reached (StubPort is inert).
-    client = make_client(display_port=StubPort(DisplayReplied({})))
-    resp = client.get("/display/screenshot")
+def test_screenshot_returns_the_path_the_display_painted() -> None:
+    port = StubPort(DisplayReplied({"path": "/tmp/lux-screenshots/a.png"}))
+    resp = make_client(display_port=port).get("/display/screenshot")
+    assert resp.status_code == 200
+    assert resp.json() == {"kind": "ok", "path": "/tmp/lux-screenshots/a.png"}
+
+
+def test_anonymous_screenshot_is_rejected_with_the_challenge() -> None:
+    # A screenshot writes a file on the display host, so like every other write
+    # it needs a named caller: an identity-less request is challenged and the
+    # display is never asked.
+    # No display port: the default ForbiddenPort fails the test if it is reached.
+    resp = make_client(identity={}).get("/display/screenshot")
+    assert resp.status_code == 401
+    assert "X-Lux-Identification-Required" in resp.headers
+
+
+def test_a_named_screenshot_registers_no_session() -> None:
+    # The capture needs a named caller but owns no UI, so it must not record a
+    # Hub session: a capture-only app with the never-expiring app lease would
+    # otherwise stay in the session list after it exits.
+    port = StubPort(DisplayReplied({"path": "/tmp/lux-screenshots/a.png"}))
+    client = make_client(display_port=port)
+    assert client.get("/display/screenshot").status_code == 200
+    assert client.get("/clients").json()["clients"] == []
+
+
+def test_a_malformed_identity_on_screenshot_is_422_not_anonymous() -> None:
+    # A writer must declare a valid identity: a garbled lease is a named
+    # rejection, not a fall-through to the anonymous reader.
+    headers = {"X-Lux-Client-Name": "demo", "X-Lux-Client-Lease-Ttl": "soon"}
+    resp = make_client(identity=headers).get("/display/screenshot")
+    assert resp.status_code == 422
+
+
+def test_screenshot_refused_by_the_display_is_409() -> None:
+    port = StubPort(DisplayErrored("a screenshot is already waiting"))
+    resp = make_client(display_port=port).get("/display/screenshot")
     assert resp.status_code == 409
-    assert "DES-028" in resp.json()["detail"]
+    assert "already waiting" in resp.json()["detail"]
 
 
 def test_ping() -> None:
