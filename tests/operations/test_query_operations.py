@@ -444,7 +444,7 @@ def test_list_scenes_survives_a_display_that_cannot_be_asked() -> None:
     store = factory.display
     clients = factory.clients
     _seed_scene(store, lifecycle, scene="s1", connection="c1")
-    port = _StubPort(DisplayFault(code="display_unavailable"))
+    port = _StubPort(DisplayFault.UNAVAILABLE)
 
     result = QueryOperations(
         store, port, ClientListing(store, clients, Hub(), _zero_inbox_depth)
@@ -750,9 +750,7 @@ def test_list_errors_maps_a_down_display_to_op_error() -> None:
     store = factory.display
     clients = factory.clients
     listing = ClientListing(store, clients, Hub(), _zero_inbox_depth)
-    ops = QueryOperations(
-        store, _StubPort(DisplayFault(code="display_unavailable")), listing
-    )
+    ops = QueryOperations(store, _StubPort(DisplayFault.UNAVAILABLE), listing)
     result = ops.list_errors(20)
     assert isinstance(result, OpError)
     assert result.code == "display_unavailable"

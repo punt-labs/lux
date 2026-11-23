@@ -9,9 +9,7 @@ one dial are equal, so whoever remembers a dial can tell it again.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, final
-from uuid import uuid4
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.hub.connection_closed import RetireCause
@@ -22,15 +20,25 @@ __all__ = ["GenerationRef"]
 
 
 @final
-@dataclass(frozen=True, slots=True)
 class GenerationRef:
     """One dial generation, named and nothing more."""
 
     _generation: DialGeneration
-    _token: str = field(default_factory=lambda: uuid4().hex, compare=False)
+    __slots__ = ("_generation",)
 
-    def __str__(self) -> str:
-        return self._token
+    def __new__(cls, generation: DialGeneration) -> Self:
+        self = super().__new__(cls)
+        self._generation = generation
+        return self
+
+    def __eq__(self, other: object) -> bool:
+        """Two references name the same dial when they name the same generation."""
+        if not isinstance(other, GenerationRef):
+            return NotImplemented
+        return self._generation is other._generation
+
+    def __hash__(self) -> int:
+        return id(self._generation)
 
     @property
     # PY-TS-14 OK: None until a cause is recorded for the dial's end.

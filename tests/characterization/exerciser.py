@@ -130,6 +130,10 @@ class _StubClient:
     _spec: Mapping[str, Mapping[str, Any]]
 
     @property
+    def connection_id(self) -> str:
+        return "characterization-stub-dial"
+
+    @property
     def dial(self) -> DialRef:
         """The dial a failed request would name; the stub has no real one."""
         return fake_dial()

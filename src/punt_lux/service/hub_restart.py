@@ -18,6 +18,7 @@ worded for a human.
 
 from __future__ import annotations
 
+from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.kernel.hub_paths import HubPaths
@@ -73,12 +74,19 @@ class HubRestart:
 
     def run(self) -> str:
         """Restart luxd and return the line describing the Hub that came back."""
-        before = pgrep_pid(self._spec.process_name)
+        before = self._pid(self._spec.process_name)
         try:
             self._manager.restart()
         except (ServiceActionFailedError, ServiceNotInstalledError) as exc:
             raise HubRestartError(str(exc)) from exc
         return self._await_ready(before)
+
+    @staticmethod
+    def _pid(process_name: str) -> int | None:
+        try:
+            return pgrep_pid(process_name)
+        except TimeoutExpired as error:
+            raise HubRestartError(str(error)) from error
 
     def _await_ready(self, before: int | None) -> str:
         """Wait for a new pid AND a live port, and describe it.
@@ -91,7 +99,7 @@ class HubRestart:
         line is safe to hand to the next ``curl :8430``.
         """
         for _ in self._polls():
-            pid = pgrep_pid(self._spec.process_name)
+            pid = self._pid(self._spec.process_name)
             if pid is None or pid == before:
                 continue
             if not self._paths.is_running():

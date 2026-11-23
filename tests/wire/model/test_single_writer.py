@@ -50,6 +50,7 @@ _DIAL_MODEL = frozenset(
         _HUB + "bounded_ask.py",
         _HUB + "dial_drain.py",
         _HUB + "dial_generation.py",
+        _HUB + "dial_identity.py",
         _HUB + "dial_reader.py",
         _HUB + "generation_ref.py",
         _HUB + "display_connection.py",
@@ -259,7 +260,7 @@ class TestAWriterIsMadeAtOneSiteAndGivenAwayOnce:
         }
 
         assert set(built) <= _DIAL_MODEL | {_HUB + "generation_ref.py"}
-        assert built == {_HUB + "dial_generation.py": 1}
+        assert built == {_HUB + "dial_identity.py": 1}
 
     def test_the_seat_is_taken_only_where_it_is_handed_on(self) -> None:
         # The registry takes it from its link's desk; the replicator from the registry.

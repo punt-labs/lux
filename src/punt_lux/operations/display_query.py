@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.hub.connection_closed import ConnectionClosedError
 from punt_lux.hub.display_busy import DisplayBusyError
@@ -12,6 +12,7 @@ from punt_lux.operations.display_reply import (
     DisplayFault,
     DisplayReplied,
 )
+from punt_lux.operations.models.hub_connection import HubConnection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -24,38 +25,39 @@ if TYPE_CHECKING:
 class DisplayQuery:
     """Turn one pinned query into an operation reply without redialing."""
 
-    @staticmethod
-    def exchange[T](
-        clients: ClientRegistry, call: Callable[[DisplayRequests], T]
-    ) -> T | DisplayFault:
+    _clients: ClientRegistry
+
+    def __new__(cls, clients: ClientRegistry) -> Self:
+        self = super().__new__(cls)
+        self._clients = clients
+        return self
+
+    def exchange[T](self, call: Callable[[DisplayRequests], T]) -> T | DisplayFault:
         """Pin before calling; a failure retires only the dial that failed."""
         try:
-            port = clients.asks()
+            port = self._clients.asks()
         except (DisplayNotConnectedError, ConnectionClosedError):
-            return DisplayFault(code="display_unavailable")
+            return DisplayFault.UNAVAILABLE
         except OSError:
-            return DisplayFault(code="timeout")
+            return DisplayFault.TIMEOUT
         try:
             return call(port)
-        except DisplayBusyError:
-            return DisplayFault(code="timeout")
-        except ConnectionClosedError:
-            clients.drop(port.dial)
-            return DisplayFault(code="display_unavailable")
-        except OSError:
-            clients.drop(port.dial)
-            return DisplayFault(code="timeout")
+        except (DisplayBusyError, ConnectionClosedError, OSError) as error:
+            if not isinstance(error, DisplayBusyError):
+                self._clients.drop(port.dial)
+            return (
+                DisplayFault.UNAVAILABLE
+                if isinstance(error, ConnectionClosedError)
+                else DisplayFault.TIMEOUT
+            )
 
     @staticmethod
     def run(
         port: DisplayRequests, method: str, params: Mapping[str, object]
     ) -> DisplayReply:
-        response = port.query(method, dict(params))
-        if response is None:
-            return DisplayFault(code="timeout")
-        if response.error:
-            return DisplayErrored(message=response.error)
-        payload = response.result
-        if method == "get_display_info":
-            payload = {**payload, "hub_connection_id": str(port.dial)}
-        return DisplayReplied(payload=payload)
+        reply = port.query(method, dict(params))
+        if reply is None:
+            return DisplayFault.TIMEOUT
+        if reply.error:
+            return DisplayErrored(message=reply.error)
+        return DisplayReplied(reply.result, HubConnection.observed(port.connection_id))

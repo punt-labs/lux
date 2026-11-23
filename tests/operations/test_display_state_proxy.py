@@ -243,7 +243,7 @@ def test_snapshot_preserves_none_active_tab_as_no_scenes_shown() -> None:
 
 
 def test_snapshot_passes_through_a_display_fault_as_an_operror() -> None:
-    proxy = DisplayStateProxy(_StubPort(DisplayFault(code="display_unavailable")))
+    proxy = DisplayStateProxy(_StubPort(DisplayFault.UNAVAILABLE))
 
     result = proxy.snapshot(_SCOPE_1)
 

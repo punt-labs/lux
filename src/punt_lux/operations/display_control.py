@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_frames import FrameStates
 from punt_lux.operations.models.display_info import DisplayInfo
@@ -53,24 +54,22 @@ class DisplayControlOperations:
 
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""
-        payload = self._port.query("get_display_info", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return DisplayInfo.from_payload(payload)
+        reply = self._port.query("get_display_info", {})
+        if isinstance(reply, DisplayReplied):
+            return DisplayInfo.from_payload(
+                {**reply.payload, "hub_connection_id": reply.connection}
+            )
+        return reply.resolve()
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme and the themes available to switch to."""
-        payload = self._port.query("get_theme", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return ThemeState.from_payload(payload)
+        data = self._port.query("get_theme", {}).resolve()
+        return data if isinstance(data, OpError) else ThemeState.from_payload(data)
 
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        payload = self._port.query("get_window_settings", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return WindowSettings.from_payload(payload)
+        data = self._port.query("get_window_settings", {}).resolve()
+        return data if isinstance(data, OpError) else WindowSettings.from_payload(data)
 
     @staticmethod
     def screenshot() -> Screenshot | OpError:
@@ -129,7 +128,5 @@ class DisplayControlOperations:
         Hub has. Here it sits beside :meth:`set_frame_state`, the other
         operation over the same state.
         """
-        payload = self._port.query("list_scenes", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        return FrameStates.from_payload(payload)
+        data = self._port.query("list_scenes", {}).resolve()
+        return data if isinstance(data, OpError) else FrameStates.from_payload(data)

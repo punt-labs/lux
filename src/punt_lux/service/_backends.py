@@ -16,9 +16,11 @@ from pathlib import Path
 
 __all__ = ["ServiceBackend", "has_linger", "pgrep_pid"]
 
+PGREP_TIMEOUT = 2.0
+
 
 def pgrep_pid(process_name: str) -> int | None:
-    """Return the pid of the running process, or ``None`` if none is up.
+    """Return the process PID, or ``None`` on absence; propagate lookup failures.
 
     ``pgrep -x`` matches the ``setproctitle`` name — the same string that
     shows in ``ps`` and Activity Monitor. Answers on both macOS and Linux
@@ -27,15 +29,10 @@ def pgrep_pid(process_name: str) -> int | None:
     it). Absence is the documented contract when nothing is up.
     """
     result = subprocess.run(
-        ["pgrep", "-x", process_name],
-        capture_output=True,
-        text=True,
-        check=False,
+        ["pgrep", "-x", process_name], capture_output=True, timeout=PGREP_TIMEOUT
     )
-    try:
-        return int(result.stdout.strip().splitlines()[0])
-    except (ValueError, IndexError):
-        return None
+    pid = result.stdout.strip().partition(b"\n")[0].strip()
+    return int(pid) if pid.isdigit() else None
 
 
 class ServiceBackend(ABC):

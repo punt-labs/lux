@@ -87,7 +87,13 @@ class PortGuard:
         pids = [int(line) for line in result.stdout.split()]
         if not pids:
             return PortGuardResult(status="free", pid=None)
-        ours = pgrep_pid(self._spec.process_name)
+        return self._ownership(pids)
+
+    def _ownership(self, pids: list[int]) -> PortGuardResult:
+        try:
+            ours = pgrep_pid(self._spec.process_name)
+        except subprocess.TimeoutExpired as error:
+            return PortGuardResult(status="unknown", pid=None, reason=str(error))
         # lsof -t can list multiple pids (SO_REUSEPORT, multiple listeners);
         # any pid that isn't ours means the port isn't exclusively ours.
         foreign = next((pid for pid in pids if pid != ours), None)
