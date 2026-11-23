@@ -120,6 +120,16 @@ def test_screenshot_returns_the_path_the_display_painted() -> None:
     assert resp.json() == {"kind": "ok", "path": "/tmp/lux-screenshots/a.png"}
 
 
+def test_anonymous_screenshot_is_rejected_with_the_challenge() -> None:
+    # A screenshot writes a file on the display host, so like every other write
+    # it needs a named caller: an identity-less request is challenged and the
+    # display is never asked.
+    # No display port: the default ForbiddenPort fails the test if it is reached.
+    resp = make_client(identity={}).get("/display/screenshot")
+    assert resp.status_code == 401
+    assert "X-Lux-Identification-Required" in resp.headers
+
+
 def test_screenshot_refused_by_the_display_is_409() -> None:
     port = StubPort(DisplayErrored("a screenshot is already waiting"))
     resp = make_client(display_port=port).get("/display/screenshot")

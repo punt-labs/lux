@@ -8460,7 +8460,12 @@ holds the drawn frame on both platforms.
    `$XDG_RUNTIME_DIR/lux/screenshots`), created at mode 0700 by the display
    and refused if another user owns it, and opened once by descriptor. A
    shared temporary root would let another local user pre-create the
-   directory and redirect the write (review finding on PR #607).
+   directory and redirect the write (review finding on PR #607). Over REST
+   the route takes the owning-scope dependency every write route takes: a
+   capture writes a file on the display host, so an identity-less caller is
+   challenged (401, `X-Lux-Identification-Required`) before the display is
+   asked. No file is retained by the display: the path is returned to the
+   caller, who owns it from then on.
 5. The dedicated `ScreenshotRequest` / `ScreenshotResponse` wire messages are
    removed. They existed only because the generic query path was believed
    unable to defer; it can, and one reply type (`QueryResponse`) keeps the

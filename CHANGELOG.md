@@ -215,7 +215,9 @@
   which is the empty bottom-left quarter; it is now sized from the live
   framebuffer scale. The Hub sends the ordinary `screenshot` query and the
   display answers it one frame late, after the swap; the dedicated
-  `screenshot_request`/`screenshot_response` wire messages are removed.
+  `screenshot_request`/`screenshot_response` wire messages are removed. The
+  PNG lands in the display's own 0700 runtime directory, and the REST route
+  refuses an identity-less caller the way every write route does.
 
 - **Hub startup no longer blocks on DNS:** importing `punt_lux.luxd` used to
   resolve the host FQDN while building the Display link, which could stall

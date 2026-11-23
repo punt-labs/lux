@@ -4698,7 +4698,7 @@
   },
   "src/punt_lux/rest/identity.py": {
     "efferent_coupling": 8.0,
-    "public_names": 4.0,
+    "public_names": 5.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
