@@ -55,7 +55,7 @@ zero while they stand, so §6 below designs their migration alongside the
 applets'.
 
 Two more references are prose-only, not imports, and need only a text edit:
-`hub_client.py:8` (a docstring cross-reference) and
+`client/hub_client.py:8` (a docstring cross-reference) and
 `operations/callbacks.py:48` (an error-message string literal).
 
 ## 2. What `LuxClient` Already Covers — No Gaps
@@ -104,21 +104,21 @@ The bead's own text distinguishes two families and only one of them is in
 scope. **Out of scope, unchanged, verified by grep to have zero domain
 vocabulary in their public surface:**
 
-- `rest_transport.py` (`HttpTransport` Protocol, `HttpResponse`, `HubUnavailableError`)
+- `client/rest_transport.py` (`HttpTransport` Protocol, `HttpResponse`, `HubUnavailableError`)
   — the bead states this explicitly ("stays as-is ... legitimate primitive").
-- `rest_http_call.py` (`HttpCall`) and `rest_reply.py` (`RestReply`) — generic
+- `client/rest_http_call.py` (`HttpCall`) and `client/rest_reply.py` (`RestReply`) — generic
   request-building and reply-reading value types. Grep confirms their only
   importers are `rest_client.py`, `rest_client_scenes.py`, `rest_client_display.py`,
-  and their own test files (`tests/test_rest_http_call.py`,
-  `tests/test_rest_reply.py`). Neither type knows about scenes, menus, or any
+  and their own test files (`tests/client/test_rest_http_call.py`,
+  `tests/client/test_rest_reply.py`). Neither type knows about scenes, menus, or any
   `punt_lux` domain noun — their public API is `verb`, `path`, `body`,
   `headers`, `status` — the same class of thing `HttpTransport` is, which the
   bead already carves out. Moving them would be scope creep with no
   encapsulation benefit: nothing outside the transport family reaches them
   today, and after the rename nothing will either.
-- `rest_loopback.py` (`LoopbackTransport`, the concrete `HttpTransport` over the
+- `client/rest_loopback.py` (`LoopbackTransport`, the concrete `HttpTransport` over the
   local port) — same reasoning: zero importers outside the transport family
-  and its own `tests/test_rest_loopback.py`.
+  and its own `tests/client/test_rest_loopback.py`.
 
 **In scope, renamed and moved** — the three modules that carry `punt_lux`
 domain vocabulary (scene, menu, frame, theme, display-mode) and that the bead
@@ -381,13 +381,13 @@ instead of a thread-pool one-shot), not a new class of hazard.
    `.read`/`.post`/`.command`, never indexed-and-assigned). Two threads
    reading the same never-mutated dict concurrently is safe under the GIL
    and needs no lock.
-2. **Every HTTP round trip opens its own connection.** `rest_loopback.py:34-54`
+2. **Every HTTP round trip opens its own connection.** `client/rest_loopback.py:34-54`
    — `LoopbackTransport.request()` constructs a fresh
    `http.client.HTTPConnection` inside the method body, uses it, and closes
    it in a `finally` block, every call. There is no persistent socket, no
    connection pool, and no `self._connection`-style shared handle on
    `LoopbackTransport` (its `__slots__` are `_port`, `_timeout` only,
-   `rest_loopback.py:32`, both set once in `__new__` and never reassigned).
+   `client/rest_loopback.py:32`, both set once in `__new__` and never reassigned).
    Two threads calling `.request()` concurrently each get their own
    independent socket; there is nothing to race over.
 3. **The port is re-read per `for_identity()` call, not cached on the
@@ -398,7 +398,7 @@ instead of a thread-pool one-shot), not a new class of hazard.
    independent file-descriptor operations with no shared in-process state
    to corrupt.
 4. **`HttpCall` (the one object built per request) is a frozen dataclass.**
-   `rest_http_call.py:24-31` — `@dataclass(frozen=True, slots=True)`, every
+   `client/rest_http_call.py:24-31` — `@dataclass(frozen=True, slots=True)`, every
    field set at construction, no method mutates it. A value object built
    fresh on each call, handed to `LoopbackTransport.request()`, and never
    retained — nothing for a second thread to observe mid-mutation.
@@ -658,7 +658,7 @@ the transport through exactly one typed, public door.
 Two references outside the fourteen-plus-CLI sites are prose, not imports, and
 are one-line docstring/message edits:
 
-- `hub_client.py:8` — a Sphinx-style cross-reference
+- `client/hub_client.py:8` — a Sphinx-style cross-reference
   (`:class:`~punt_lux.rest_client.LuxRestClient``) in `LuxHubClient`'s module
   docstring, explaining why both legs share one identity. Becomes
   `:class:`~punt_lux.client.facade.LuxClient``, since after this design the
@@ -686,13 +686,13 @@ changes.
 
 ## 8. What Stays Exactly As It Is
 
-- `rest_transport.py`, `rest_http_call.py`, `rest_reply.py`, `rest_loopback.py`
+- `client/rest_transport.py`, `client/rest_http_call.py`, `client/rest_reply.py`, `client/rest_loopback.py`
   — §3.1, unchanged paths, unchanged names, unchanged public status.
   `HubUnavailableError` stays re-exported from `punt_lux/__init__.py:63,80` —
   it is the one exception type every consumer (CLI, applets, external callers)
   legitimately needs to catch, and the bead's own text names it a "legitimate
   primitive."
-- `LuxHubClient` (`hub_client.py`) — the bead's stated non-scope, confirmed
+- `LuxHubClient` (`client/hub_client.py`) — the bead's stated non-scope, confirmed
   untouched except the one docstring cross-reference in §7.
 - Every `LuxClient` accessor's existing async surface (`scene`, `frame`,
   `menu`, `session`, `callback`, `display`, `event`, `error`, `ping`,
@@ -803,7 +803,7 @@ behavior — behavior is covered by §10.3.
 and `UnraisableClient` as **hand-written stand-ins satisfying the ops
 Protocol structurally** — confirmed: the file imports zero names from
 `rest_client.py` (grep of its import block, lines 19-24), only
-`punt_lux.operations` and `punt_lux.rest_transport.HubUnavailableError`. These
+`punt_lux.operations` and `punt_lux.client.rest_transport.HubUnavailableError`. These
 tests already exercise the target design's Protocol-based contract and
 require **no behavioral change** — only their annotations (if any name
 `LuxRestClient` explicitly rather than relying on structural duck-typing)

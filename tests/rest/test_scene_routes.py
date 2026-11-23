@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from punt_lux.client_host import UNOBSERVED, ClientHost
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.connection_scoped_id import ConnectionScopedId
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import RenderTableRequest
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.operations.models.query_clients import ClientList
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.compositions import TableComposition, TableCompositionSpec
 from punt_lux.wire.model.element import Element as WireElement
 from punt_lux.wire.model.element_abc import Element as AbcElement

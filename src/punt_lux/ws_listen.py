@@ -36,7 +36,7 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from punt_lux.client_host import ClientHost
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.ids import Topic
 from punt_lux.wire.model.messages.listen import (
     CallbackFrame,

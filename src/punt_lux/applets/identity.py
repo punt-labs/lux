@@ -18,16 +18,16 @@ the listen client renews well inside that window, so a live session never
 lapses and a dead one is gone within the minute.
 
 The name is composed here and parsed by
-:mod:`~punt_lux.hub.applet_name_format`; the round-trip test pins both.
+:mod:`~punt_lux.wire.model.applet_name_format`; the round-trip test pins both.
 """
 
 from __future__ import annotations
 
 from typing import Self, final
 
-from punt_lux.hub import applet_name_format
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.repo_root import RepoRoot
+from punt_lux.wire.model import applet_name_format
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["AppletIdentity"]
 

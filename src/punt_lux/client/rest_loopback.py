@@ -1,6 +1,6 @@
 """The production HTTP transport: one loopback round-trip to luxd.
 
-The one shipped implementation of the :mod:`punt_lux.rest_transport` contract, in
+The one shipped implementation of the :mod:`punt_lux.client.rest_transport` contract, in
 its own module so the urllib socket work stays out of the contract and client.
 """
 
@@ -9,10 +9,10 @@ from __future__ import annotations
 import http.client
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.rest_transport import HttpResponse, HubUnavailableError
+from punt_lux.client.rest_transport import HttpResponse, HubUnavailableError
 
 if TYPE_CHECKING:
-    from punt_lux.rest_http_call import HttpCall
+    from punt_lux.client.rest_http_call import HttpCall
 
 __all__ = ["LoopbackTransport"]
 

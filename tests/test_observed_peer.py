@@ -21,7 +21,6 @@ from starlette.requests import Request
 from punt_lux.client_host import UNOBSERVED, ClientHost, ClientHosts
 from punt_lux.connection_identity import connection_for
 from punt_lux.hub.callback_hold import CallbackRouter
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_store_factory import HubStoreFactory
@@ -36,6 +35,7 @@ from punt_lux.tools.server import (
     current_session,
     unbind_session,
 )
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope

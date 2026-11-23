@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.client.facade import LuxClient
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import CallbackHandler, ConnectHandler, LuxHubClient
+from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, LuxHubClient
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 class TerminalClients:

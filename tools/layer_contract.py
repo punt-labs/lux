@@ -30,8 +30,7 @@ class LayerContract:
         "wire": "wire protocol operations.models",
         "trust": "trust",
         "service": "service",
-        "client": "client hub_client rest_transport rest_http_call rest_loopback "
-        "rest_reply rest_error_body identity_headers header_value cli_identity",
+        "client": "client",
         "hub": "hub operations commands tools rest luxd mcp_transport "
         "mcp_endpoint mcp_session session_cleanup session_key ws_transport ws_listen "
         "transport_policy hub_composition hub_lifespan mcp_session_manager "

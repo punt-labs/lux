@@ -15,8 +15,8 @@ import pytest
 
 from punt_lux.applets.identity import AppletIdentity
 from punt_lux.connection_identity import connection_for
-from punt_lux.hub.applet_name_format import format_name, session_pid_from_name
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.wire.model.applet_name_format import format_name, session_pid_from_name
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 # A path with no ``.git`` in its ancestry — the repo's TMPDIR is inside this git
 # repo, so the headless cases patch ``cwd`` rather than using a temp directory.

@@ -35,10 +35,10 @@ from punt_lux.applets.menu_entry import MenuEntry
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.apps.beads_board import BeadsBoard
 from punt_lux.apps.beads_result import BeadsRows
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.hub_client import LuxHubClient
+from punt_lux.client.hub_client import LuxHubClient
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import Ok, OpError
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.messages.listen import CallbackFrame, ReadyFrame
 
 from .board_doubles import GATE_SECONDS, ISSUE, Gated, RecordingClient

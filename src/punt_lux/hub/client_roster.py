@@ -39,8 +39,8 @@ from punt_lux.wire.model.menu_name import MenuNames
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
 
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.kernel.connection_id import ConnectionId
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["ClientRoster", "RosterNames", "RosterRelease"]
 

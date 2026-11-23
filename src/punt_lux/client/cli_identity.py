@@ -14,8 +14,8 @@ from __future__ import annotations
 import os
 from typing import final
 
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.repo_root import RepoRoot
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["CliIdentity"]
 

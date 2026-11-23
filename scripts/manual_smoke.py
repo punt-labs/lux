@@ -57,9 +57,9 @@ from typing import Final, Self, cast
 from PIL import Image, UnidentifiedImageError
 
 from punt_lux.client.facade import LuxClient
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import OpError, RenderRequest
 from punt_lux.operations.models.render import FrameSpec
-from punt_lux.rest_transport import HubUnavailableError
 from punt_lux.wire.model import Element
 from punt_lux.wire.model.elements import (
     ButtonElement,

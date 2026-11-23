@@ -14,9 +14,7 @@ from __future__ import annotations
 from typing import final
 
 from punt_lux.client_host import UNOBSERVED
-from punt_lux.hub.applet_name_format import format_name
 from punt_lux.hub.callback_menu import CallbackMenu, CallbackMenuReplica
-from punt_lux.hub.client_identity import ClientIdentity, ClientKind
 from punt_lux.hub.client_roster import ClientRoster
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.connection_scoped_id import ConnectionScopedId
@@ -25,6 +23,8 @@ from punt_lux.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.hub.named_sessions import NamedSessions
 from punt_lux.hub.session_callback import CallbackInvocation, SessionCallback
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.applet_name_format import format_name
+from punt_lux.wire.model.client_identity import ClientIdentity, ClientKind
 from tests.roster_access import release_of
 
 

@@ -35,16 +35,16 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.applets.latency import ClickLatency
 from punt_lux.applets.runner import ServiceRunner
 from punt_lux.applets.underway import Underway
-from punt_lux.hub_client import LuxHubClient
+from punt_lux.client.hub_client import LuxHubClient
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.operations import OpError
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.operations.models import OpError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.applets.service import AppletService
-    from punt_lux.hub.client_identity import ClientIdentity
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 logger = logging.getLogger(__name__)
 

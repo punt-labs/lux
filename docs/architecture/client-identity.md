@@ -8,7 +8,7 @@ anticipated; DES-056 was claimed first by the scene-frame lifecycle ADR.
 DES-057 is the authoritative record of the shipped shape and has since
 evolved past one specific named here: the `kind` discriminator gained
 `"applet"` (DES-063), read `"mcp-session" | "cli" | "applet" | "app"` in
-current source (`hub/client_identity.py`) — `"cli"` itself never
+current source (`wire/model/client_identity.py`) — `"cli"` itself never
 renamed, despite DES-057's own prose citing `"repo"`. A caller-declared
 lease TTL was added, which this document does not mention.
 What remains accurate and load-bearing is the *diagnosis* and the

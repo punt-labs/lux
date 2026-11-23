@@ -8,9 +8,9 @@ and a model dump (absent keys explicitly ``None``), and these pin that they agre
 
 from __future__ import annotations
 
+from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.connection_identity import connection_for
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 def _from_headers(identity: ClientIdentity) -> str:

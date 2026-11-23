@@ -19,9 +19,9 @@ from typing import Self, final
 from punt_lux.apps.bd_command import BdOutput
 from punt_lux.apps.beads_load import BeadsLoad
 from punt_lux.apps.beads_result import BeadsFailure, BeadsResult, BeadsRows
+from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.operations import OpError, RenderRequest, RenderTableRequest
 from punt_lux.operations.models.scene_results import SceneShown
-from punt_lux.rest_transport import HubUnavailableError
 
 __all__ = [
     "BD_MS",

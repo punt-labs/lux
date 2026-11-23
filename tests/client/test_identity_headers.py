@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
+from punt_lux.client.identity_headers import ClientHeaders
 from punt_lux.connection_identity import connection_for
-from punt_lux.hub.client_identity import ClientIdentity
-from punt_lux.identity_headers import ClientHeaders
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 def test_to_wire_carries_kind_name_repo_and_agent() -> None:

@@ -132,7 +132,7 @@ def ping(
     status the MCP tool and REST route share on one code path.
     """
     from punt_lux.cli._shared import connect_client
-    from punt_lux.cli_identity import CliIdentity
+    from punt_lux.client.cli_identity import CliIdentity
     from punt_lux.commands import Ctx as CommandCtx, PingOps, ping as ping_command
     from punt_lux.hub.display_link import DEFAULT_RECV_TIMEOUT
 

@@ -306,7 +306,7 @@ aliasing instance identities.
 
 Increment 2 adds the daemon instance id (generated at daemon start and reported
 in hello/list), includes it in the helper's Hub identity, and extends
-`hub/client_identity.py`, `identity_headers.py` (both directions), and
+`wire/model/client_identity.py`, `client/identity_headers.py` (both directions), and
 `connection_identity.py`'s hashed fields so REST and WebSocket listen resolve
 the same instance-aware connection id. It adds the display-only host label
 and tests: two otherwise identical, same-labelled declarations with different

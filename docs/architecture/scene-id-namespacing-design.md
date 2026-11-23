@@ -378,7 +378,7 @@ reader does not re-open it.
 Three adversaries, per the mission's framing, under the **same-user-localhost
 trust model** this codebase already operates under: the Hub verifies
 well-formedness of a declared identity, not the identity's truth
-(`client_identity.py:1-14`). Composition does not change that trust model —
+(`wire/model/client_identity.py:1-14`). Composition does not change that trust model —
 it changes what a client's honest-or-dishonest *string choice* can do to
 another client's state.
 
@@ -402,7 +402,7 @@ because both calls compose to the identical key.
 hijack a scene another applet or agent owns.** **Defended against the
 specific act of writing under another connection's key — not defended
 against everything a hostile local process could do.** The trust model this
-codebase already accepts (`client_identity.py`: "under the same-user-
+codebase already accepts (`wire/model/client_identity.py`: "under the same-user-
 localhost trust model the Hub records the declaration and verifies nothing;
 identity here is for attribution, not access control") means a hostile
 process on the same machine, as the same user, can already: open its own
@@ -555,11 +555,11 @@ can still collapse two genuinely different connections onto one
 `connection_for` (`connection_identity.py:39`) hashes `(kind, name, repo,
 agent)` — no `session_pid` in it. For `applet` connections this is already
 closed: `ClientIdentity._validate_applet_shape`
-(`client_identity.py:126`) rejects any applet whose `name` does not embed a
+(`wire/model/client_identity.py:126`) rejects any applet whose `name` does not embed a
 session pid via `applet_name_format.format_name`, so two Claude Code
 sessions running the same applet program always declare different `name`s
 and hence different `ConnectionId`s. For `cli` connections it is *not*
-closed: `CliIdentity.resolve` (`cli_identity.py:36`) sets `name = override
+closed: `CliIdentity.resolve` (`client/cli_identity.py:36`) sets `name = override
 or repo.name` — two unrelated terminal invocations of bare `lux show
 <id>`, in the same repo, with no `--as`/`LUX_CLIENT` override, declare
 identical `(kind, name, repo, agent)` and therefore share one
@@ -600,7 +600,7 @@ extension to scene ids, not as accepting a coincidence between well-meaning
 scripts.
 
 **Applet-kind narrows the same class without closing it.**
-`APPLET_NAME_RE` (`client_identity.py:126-145`) forces an applet's declared
+`APPLET_NAME_RE` (`wire/model/client_identity.py:126-145`) forces an applet's declared
 name to embed its own session pid, so two honest applet instances never
 collide by accident. A hostile process can still read that pid from `ps` on
 the same machine as the same user and declare it deliberately — a higher
@@ -751,19 +751,19 @@ before implementation, per Decision 4 below.
 - Bead: `lux-ledm`.
 - Design mission: `m-2026-08-16-006`.
 - Files read to ground this design:
-  `src/punt_lux/hub/client_identity.py`,
+  `src/punt_lux/wire/model/client_identity.py`,
   `src/punt_lux/hub/client_session.py`,
   `src/punt_lux/hub/hub_display.py`,
   `src/punt_lux/hub/scene_writer.py`,
   `src/punt_lux/hub/owner.py`,
   `src/punt_lux/hub/owner_tracker.py`,
-  `src/punt_lux/hub/applet_name_format.py`,
+  `src/punt_lux/wire/model/applet_name_format.py`,
   `src/punt_lux/hub/menu_group_key.py`,
   `src/punt_lux/hub/session_callback.py`,
   `src/punt_lux/hub/callback_menu.py`,
   `src/punt_lux/wire/model/ids.py`,
   `src/punt_lux/connection_identity.py`,
-  `src/punt_lux/cli_identity.py`,
+  `src/punt_lux/client/cli_identity.py`,
   `src/punt_lux/applets/identity.py`,
   `src/punt_lux/tools/server.py`, `src/punt_lux/tools/tools.py`,
   `src/punt_lux/tools/write_tools.py`,

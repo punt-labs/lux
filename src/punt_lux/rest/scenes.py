@@ -44,9 +44,9 @@ from punt_lux.operations import (
 from punt_lux.rest.identity import resolve_identity, resolve_scope
 
 if TYPE_CHECKING:
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.operations import Operations
     from punt_lux.rest.status import HttpErrorMap
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["SceneRoutes"]
 

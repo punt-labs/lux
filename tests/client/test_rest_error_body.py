@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from punt_lux.rest_error_body import ErrorBody
+from punt_lux.client.rest_error_body import ErrorBody
 
 
 def test_a_semantic_op_error_detail_is_the_reason() -> None:

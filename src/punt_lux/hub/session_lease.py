@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
-    from punt_lux.hub.client_identity import ClientKind
+    from punt_lux.wire.model.client_identity import ClientKind
 
 __all__ = ["SessionLease"]
 

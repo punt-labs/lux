@@ -27,9 +27,9 @@ from __future__ import annotations
 import logging
 from typing import Self, final
 
-from punt_lux.hub.applet_name_format import session_pid_from_name
-from punt_lux.hub.client_identity import ClientIdentity
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.model.applet_name_format import session_pid_from_name
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 __all__ = ["MenuGroupKey"]
 

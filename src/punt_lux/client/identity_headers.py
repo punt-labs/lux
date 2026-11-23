@@ -8,7 +8,7 @@ back into the declaration the ``identify`` operation validates — defining the
 contract once keeps the client's write and the server's read from drifting apart.
 
 This class owns the header names and which fields are present; how one value
-survives the wire belongs to :class:`~punt_lux.header_value.HeaderValue`.
+survives the wire belongs to :class:`~punt_lux.client.header_value.HeaderValue`.
 
 The challenge header is the response side of the same contract: the Hub stamps it
 on a write that arrived without an identity — the HTTP analogue of a 401 challenge.
@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import ValidationError
 
-from punt_lux.header_value import HeaderValue
-from punt_lux.hub.client_identity import ClientIdentity
+from punt_lux.client.header_value import HeaderValue
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -74,7 +74,7 @@ class ClientHeaders:
     def _rendered(identity: ClientIdentity) -> tuple[tuple[str, str], ...]:
         """Each header and the text this identity gives it; ``""`` means absent.
 
-        Values cross as the ASCII :class:`~punt_lux.header_value.HeaderValue`
+        Values cross as the ASCII :class:`~punt_lux.client.header_value.HeaderValue`
         renders, so a non-ASCII name or repository path reaches the Hub as the same
         bytes on every transport. The TTL is a number, not a declared label, so it
         is formatted rather than encoded.
@@ -132,8 +132,9 @@ class ClientHeaders:
         The mirror of :meth:`to_wire`'s rule, and the same one absence spelling: a
         missing header and a blank one both mean the caller declared no such field,
         so neither reaches ``identify`` (which rejects a blank repo or agent).
-        Each value comes back through :class:`~punt_lux.header_value.HeaderValue`,
-        which undoes what :meth:`to_wire` wrote and recovers a raw value the
+        Each value comes back through
+        :class:`~punt_lux.client.header_value.HeaderValue`, which undoes what
+        :meth:`to_wire` wrote and recovers a raw value the
         transport garbled — so both of a session's legs read one identity whichever
         way their client encoded it.
         """

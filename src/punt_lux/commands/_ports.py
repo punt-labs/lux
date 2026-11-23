@@ -9,7 +9,6 @@ from punt_lux.commands._frame_ports import FrameOps as FrameOps
 from punt_lux.commands._topic_ports import TopicOps as TopicOps
 
 if TYPE_CHECKING:
-    from punt_lux.hub.client_identity import ClientIdentity
     from punt_lux.hub.session_callback import CallbackInvocation
     from punt_lux.operations import (
         Cleared,
@@ -38,6 +37,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.models.query_errors import RecentErrors
     from punt_lux.operations.models.query_events import RecentEvents
+    from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 @runtime_checkable
