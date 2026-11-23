@@ -178,22 +178,12 @@
 
 ### Fixed
 
-- Display readiness stability excludes response-delivery time: it starts at the
-  first reply receipt and credits only through a later request's send time.
-- Raw Display identity facts are immutable, matching the inherited DisplayInfo
-  contract and the repository's model policy.
-- Display readiness can read a connection-close HTTP reply after its headers;
-  the bounded reader retains its own socket until the response closes.
-- Display readiness local ownership probes and every Hub HTTP read now share the
-  remaining deadline, rather than starting independent handshake/retry budgets.
-- Display restart stability now belongs to the Hub's pinned connection identity,
-  not just the Display PID. Reconnects and inconclusive slow probes restart the
-  full window instead of inheriting an old dial's interval or claiming a crash.
-- Display restart now requires Hub facts matching the new Display PID and a
-  three-second stable connection and owned socket, within the existing
-  30-second readiness deadline. Crashes, disconnects, and an unreachable Hub
-  fail with a logged reason and a bounded Display stderr tail when available,
-  rather than reporting success for a briefly listening crash-loop process.
+- Display restart requires a new PID, a live owned socket, and three seconds of
+  observed connectivity on the same Hub dial within a 30-second deadline.
+  Transport errors remain pending and reset stability; crashes and replacement
+  processes fail readiness. Diagnostics name missing witnesses and the last Hub
+  transport error, with a timestamped, bounded stderr tail from this restart.
+  Hub facts carry an immutable process identity and a process-scoped dial serial.
 - Restart readiness diagnostics query the service's explicit launchd GUI domain,
   avoiding misleading registration state outside the GUI session.
 - Successful launchd bootout commands now log their service target at INFO,

@@ -42,18 +42,20 @@ their existing separate bounded budget is not readiness work.
   ZBOOL ::= ztrue | zfalse \\
   RPHASE ::= rscandidate | rsstabilizing | rsready | rsfailed \\
   RWORK ::= rwwait | rwidle | rwlocal | rwhub | rwwire | rwafter \\
-  RPID ::= rpold | rpnew | rpgone \\
+  RPID ::= rpold | rpnew | rpnext | rpgone \\
   TICK == 0 \upto 7 \\
   DIAL == 0 \upto 2
 \end{zed}
 \begin{axdef}
-  RESETDIAL, BOUNDWORK, SAMPLEBOUND : ZBOOL \\
+  RESETDIAL, BOUNDWORK, SAMPLEBOUND, MATCHHUBPID, KEEPLOCALPID : ZBOOL \\
   ACCEPTAFTER : 2 \upto 3
 \where
   RESETDIAL = ztrue \\
   BOUNDWORK = ztrue \\
   SAMPLEBOUND = ztrue \\
-  ACCEPTAFTER = 3
+  ACCEPTAFTER = 3 \\
+  MATCHHUBPID = ztrue \\
+  KEEPLOCALPID = ztrue
 \end{axdef}
 Zero is no dial. Serial names increase even across \texttt{Drop}, excluding ABA
 reuse. The script generates fidelity variants by changing exactly one switch.
@@ -73,7 +75,8 @@ bad transitions the fidelity model must exhibit.
   process : RPID \\
   now, born, sampledBorn, sampledAt, started, age, sentAt, receivedAt : TICK \\
   observedSince : TICK \\
-  generation, serial, seen, remembered : DIAL
+  generation, serial, seen, remembered : DIAL \\
+  candidate, sampledPid : RPID
 \end{schema}
 \begin{schema}{Init}
   Readiness'
@@ -83,7 +86,8 @@ bad transitions the fidelity model must exhibit.
   sampledAt' = 0 \land started' = 0 \land age' = 0 \\
   generation' = 0 \land serial' = 0 \land seen' = 0
     \land remembered' = 0 \\
-  sentAt' = 0 \land receivedAt' = 0 \land observedSince' = 0
+  sentAt' = 0 \land receivedAt' = 0 \land observedSince' = 0 \\
+  candidate' = rpold \land sampledPid' = rpold
 \end{schema}
 
 \section{Environment and polling}
@@ -97,12 +101,13 @@ bad transitions the fidelity model must exhibit.
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Dial}
   \Delta Readiness
 \where
-  phase \in \{rscandidate, rsstabilizing\} \land process = rpnew \\
+  phase \in \{rscandidate, rsstabilizing\} \land process \in \{rpnew, rpnext\} \\
   serial < 2 \land now < 6 \\
   serial' = serial + 1 \land generation' = serial' \land born' = now \\
   phase' = phase \land work' = work \land process' = process \\
@@ -110,7 +115,8 @@ bad transitions the fidelity model must exhibit.
   started' = started \land age' = age \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Drop}
   \Delta Readiness
@@ -122,7 +128,8 @@ bad transitions the fidelity model must exhibit.
   started' = started \land age' = age \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Wait}
   \Delta Readiness
@@ -136,7 +143,8 @@ bad transitions the fidelity model must exhibit.
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{NoCandidate}
   \Delta Readiness
@@ -148,7 +156,8 @@ bad transitions the fidelity model must exhibit.
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 
 \section{Probe stages}
@@ -156,14 +165,17 @@ bad transitions the fidelity model must exhibit.
   \Delta Readiness
 \where
   phase \in \{rscandidate, rsstabilizing\} \land work = rwidle \\
-  process = rpnew \land now < 6 \land work' = rwlocal \\
+  process \in \{rpnew, rpnext\} \land now < 6 \land work' = rwlocal \\
   phase' = phase \land process' = process \land now' = now \\
   born' = born \land sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  ((candidate = rpold \land candidate' = process) \lor
+  \quad~ (candidate \neq rpold \land candidate' = candidate)) \\
+  sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{LocalDone}
   \Delta Readiness
@@ -175,7 +187,8 @@ bad transitions the fidelity model must exhibit.
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = now \land receivedAt' = receivedAt
+  sentAt' = now \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Snapshot}
   \Delta Readiness
@@ -187,7 +200,23 @@ bad transitions the fidelity model must exhibit.
   started' = started \land age' = age \\
   generation' = generation \land serial' = serial \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = process
+\end{schema}
+\begin{schema}{StaleSnapshot}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land work = rwhub \\
+  work' = rwwire \\
+  ((MATCHHUBPID = ztrue \land seen' = 0) \lor
+  \quad~ (MATCHHUBPID = zfalse \land seen' = generation)) \\
+  sampledBorn' = born \land sampledAt' = now \\
+  phase' = phase \land process' = process \land now' = now \land born' = born \\
+  started' = started \land age' = age \\
+  generation' = generation \land serial' = serial \land remembered' = remembered \\
+  observedSince' = observedSince \\
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = rpold
 \end{schema}
 \begin{schema}{Receive}
   \Delta Readiness
@@ -199,7 +228,8 @@ bad transitions the fidelity model must exhibit.
   started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
-  observedSince' = observedSince
+  observedSince' = observedSince \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Finish}
   \Delta Readiness
@@ -229,7 +259,8 @@ bad transitions the fidelity model must exhibit.
     \land phase' = rsstabilizing))) \\
   (phase' = rsready \land work' = rwidle) \lor
     (phase' \neq rsready \land work' = rwwait) \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Spend}
   \Delta Readiness \\
@@ -247,7 +278,8 @@ bad transitions the fidelity model must exhibit.
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \texttt{Spend} can occur repeatedly in any probe stage. Thus a slow trickle of
 HTTP header/body bytes is not collapsed into a single unbounded receive.
@@ -256,27 +288,58 @@ HTTP header/body bytes is not collapsed into a single unbounded receive.
 \begin{schema}{Crash}
   \Delta Readiness
 \where
-  phase \in \{rscandidate, rsstabilizing\} \land process = rpnew \\
+  phase \in \{rscandidate, rsstabilizing\} \land process \in \{rpnew, rpnext\} \\
   phase' = rsfailed \land work' = rwidle \land process' = rpgone \\
   generation' = 0 \land serial' = serial \land now' = now \land born' = born \\
   sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
   started' = started \land age' = age \land seen' = seen
     \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
+\end{schema}
+\begin{schema}{Replace}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \land process = rpnew \land candidate = rpnew \\
+  ((KEEPLOCALPID = ztrue \land phase' = rsfailed \land work' = rwidle) \lor
+  \quad~ (KEEPLOCALPID = zfalse \land phase' = phase \land work' = work)) \\
+  process' = rpnext \\
+  generation' = 0 \land serial' = serial \land now' = now \land born' = born \\
+  sampledBorn' = sampledBorn \land sampledAt' = sampledAt \\
+  started' = started \land age' = age \land seen' = seen
+    \land remembered' = remembered \\
+  observedSince' = observedSince \\
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{ProbeError}
   \Delta Readiness
 \where
   phase \in \{rscandidate, rsstabilizing\} \\
-  work \in \{rwlocal, rwhub, rwwire, rwafter\} \\
+  work \in \{rwlocal, rwafter\} \\
   phase' = rsfailed \land work' = rwidle \land process' = process \\
   now' = now \land born' = born \land sampledBorn' = sampledBorn \\
   sampledAt' = sampledAt \land started' = started \land age' = age \\
   generation' = generation \land serial' = serial \\
   seen' = seen \land remembered' = remembered \\
   observedSince' = observedSince \\
-  sentAt' = sentAt \land receivedAt' = receivedAt
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
+\end{schema}
+\begin{schema}{TransportPending}
+  \Delta Readiness
+\where
+  phase \in \{rscandidate, rsstabilizing\} \\
+  work \in \{rwhub, rwwire, rwafter\} \\
+  phase' = rscandidate \land work' = rwwait \land process' = process \\
+  now' = now \land born' = born \land sampledBorn' = sampledBorn \\
+  sampledAt' = sampledAt \land started' = 0 \land age' = 0 \\
+  generation' = generation \land serial' = serial \\
+  seen' = 0 \land remembered' = 0 \\
+  observedSince' = 0 \\
+  sentAt' = sentAt \land receivedAt' = receivedAt \\
+  candidate' = candidate \land sampledPid' = sampledPid
 \end{schema}
 \begin{schema}{Finished}
   \Xi Readiness
@@ -287,6 +350,16 @@ The terminal self-loop is explicit: a finished observer has no further work.
 Every nonterminal idle state enables \texttt{Begin} or \texttt{NoCandidate},
 every wait enables \texttt{Wait}, and every probe stage enables its completion.
 No synthetic error transition is needed to escape a blocked live state.
+
+\section{PID witnesses}
+\texttt{candidate} pins the first locally observed new PID. \texttt{Replace}
+models a crash-loop successor after that choice, including before the first
+Hub reply. It fails the fixed observer; disabling \texttt{KEEPLOCALPID} lets
+that successor continue. \texttt{StaleSnapshot} represents the Hub still
+reporting the old PID, independent of the live local process.
+\texttt{MATCHHUBPID} makes that sample pending and resets its window.
+The extra invariants require ready to name the sampled PID and the original
+candidate, not a replacement. Each disabled check must have its own witness.
 
 \section{Verification and partitions}
 The verification script checks five safety invariants as unreachable goals:
