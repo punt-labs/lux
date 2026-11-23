@@ -23,7 +23,9 @@ class TestPortGuardCheck:
                     subprocess.TimeoutExpired("pgrep", 2),
                 ],
             ),
-            pytest.raises(PortConflictError, match=r"port.*held by pid 4242"),
+            pytest.raises(
+                PortConflictError, match=r"cannot verify port.*pgrep.*timed out"
+            ),
         ):
             PortGuard(HUB_SPEC).guard()
 

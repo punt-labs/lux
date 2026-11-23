@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.service import (
@@ -71,7 +72,7 @@ class DisplayRestart:
                 if readiness.observe(pid):
                     return f"display restarted (pid {pid}) at {self._paths.socket_path}"
             readiness.timeout()
-        except ReadinessError as error:
+        except (ReadinessError, TimeoutExpired) as error:
             raise DisplayRestartError(str(error)) from error
 
     @staticmethod
