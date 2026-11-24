@@ -171,6 +171,18 @@ def test_claim_refuses_a_nonprivate_session_directory(
         SessionClaim.for_session("lux-beads", 4321)
 
 
+def test_claim_accepts_private_sessions_under_a_setgid_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "lux"
+    root.mkdir()
+    root.chmod(0o2700)
+    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(root))
+
+    assert SessionClaim.for_session("lux-beads", 4321).take() is True
+    assert (root / "sessions").stat().st_mode & 0o777 == 0o700
+
+
 def test_claim_refuses_a_writable_parent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
