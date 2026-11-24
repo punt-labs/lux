@@ -23,9 +23,20 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-@pytest.mark.parametrize("existing_root", [False, True], ids=["fresh", "legacy"])
+@pytest.mark.parametrize(
+    ("existing_root", "claim_first"),
+    [
+        pytest.param(False, False, id="fresh"),
+        pytest.param(True, True, id="legacy-claim-first"),
+        pytest.param(True, False, id="legacy-hub-first"),
+    ],
+)
 def test_hub_and_claim_share_a_private_root(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, existing_root: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    existing_root: bool,
+    claim_first: bool,
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     paths = HubPaths()
@@ -35,8 +46,10 @@ def test_hub_and_claim_share_a_private_root(
             paths.dir.mkdir(parents=True)
             assert stat.S_IMODE(paths.dir.parent.stat().st_mode) == 0o775
             assert stat.S_IMODE(paths.dir.stat().st_mode) == 0o775
+        if claim_first:
             assert SessionClaim.for_session("lux-beads", 4321).take()
         assert HubLifespan(paths).record_listening(8430) == os.getpid()
+        assert paths.read_port() == 8430
         assert stat.S_IMODE(paths.dir.parent.stat().st_mode) == 0o700
         assert stat.S_IMODE(paths.dir.stat().st_mode) == 0o700
         assert SessionClaim.for_session("lux-beads", 4321).take()
