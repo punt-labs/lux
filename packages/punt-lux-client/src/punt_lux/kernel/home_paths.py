@@ -7,6 +7,8 @@ import stat
 from pathlib import Path
 from typing import Self, final
 
+_NAMESPACE = ".punt-labs"
+
 
 @final
 class LuxHome:
@@ -26,7 +28,7 @@ class LuxHome:
         home = Path.home()
         if not home.is_absolute():
             raise RuntimeError("Lux requires an absolute home directory")
-        return cls(home / ".punt-labs" / "lux")
+        return cls(home / _NAMESPACE / "lux")
 
     @property
     def root(self) -> Path:
@@ -64,18 +66,38 @@ class LuxHome:
         """Use an explicit socket without requiring a home directory."""
         return Path(override) if override is not None else cls.resolve().pty_socket
 
-    def session_claim(self, program: str, session_pid: int) -> Path:
-        """Provision the private session directory and return the claim path."""
+    def prepare_root(self) -> Path:
+        """Create the Lux root or tighten an existing root owned by this user."""
         namespace = self._root.parent
         home = namespace.parent.resolve(strict=True)
         for parent in reversed((home, *home.parents)):
             self._require_claim_parent(parent)
         namespace = home / namespace.name
+        namespace.mkdir(exist_ok=True, mode=0o700)
+        if namespace.name == _NAMESPACE:
+            self._secure_owned_directory(namespace)
+        else:
+            self._require_claim_parent(namespace)
         root = namespace / self._root.name
-        for parent in (namespace, root):
-            parent.mkdir(exist_ok=True, mode=0o700)
-            self._require_claim_parent(parent)
-        sessions = root / "sessions"
+        root.mkdir(exist_ok=True, mode=0o700)
+        self._secure_owned_directory(root)
+        return root
+
+    @staticmethod
+    def _secure_owned_directory(directory: Path) -> None:
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise PermissionError(
+                f"Lux state path is not an owned directory: {directory}"
+            )
+        mode = stat.S_IMODE(info.st_mode)
+        private_mode = 0o700 | (mode & stat.S_ISGID)
+        if mode != private_mode:
+            directory.chmod(private_mode)
+
+    def session_claim(self, program: str, session_pid: int) -> Path:
+        """Provision the private session directory and return the claim path."""
+        sessions = self.prepare_root() / "sessions"
         sessions.mkdir(exist_ok=True, mode=0o700)
         info = sessions.lstat()
         if (

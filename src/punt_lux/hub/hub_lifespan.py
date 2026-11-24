@@ -72,8 +72,8 @@ class HubLifespan:
 
     def record_listening(self, port: int) -> int:
         """Publish the bound port and process ID, then return the process ID."""
+        self._paths.prepare()
         port_path = self._paths.port_path
-        port_path.parent.mkdir(parents=True, exist_ok=True)
         port_path.write_text(str(port))
         logger.info("Wrote port file: %s (port %d)", port_path, port)
         pid = os.getpid()

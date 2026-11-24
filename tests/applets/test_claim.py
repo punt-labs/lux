@@ -233,14 +233,14 @@ def test_claim_accepts_private_sessions_under_a_setgid_root(
 def test_claim_refuses_a_writable_parent(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    root = tmp_path / "lux"
-    root.mkdir()
-    root.chmod(0o770)
-    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(root))
+    parent = tmp_path / "home"
+    parent.mkdir()
+    parent.chmod(0o770)
+    monkeypatch.setenv("HOME", str(parent))
 
     with pytest.raises(PermissionError, match="session ancestor is writable"):
         SessionClaim.for_session("lux-beads", 4321)
-    assert not (root / "sessions").exists()
+    assert not (parent / ".punt-labs").exists()
 
 
 def test_a_hand_run_applet_claims_nothing() -> None:
