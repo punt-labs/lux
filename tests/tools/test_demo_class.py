@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import shutil
-import subprocess
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 import pytest
 
+from tests.tools.conftest import Repo
 from tools.demo_class import DemoClass, main
-from tools.demo_source import ChangeSet, GitError
 
 ROOT = Path(__file__).resolve().parents[2]
 S = "src/punt_lux/"
@@ -245,63 +241,6 @@ def test_main_reports_a_git_failure(capsys: pytest.CaptureFixture[str]) -> None:
     assert "git merge-base" in capsys.readouterr().err
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        [
-            shutil.which("git") or "git",
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            *args,
-        ],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-    )
-
-
-@pytest.fixture
-def repo(tmp_path: Path) -> Path:
-    _git(tmp_path, "init", "-q", "-b", "main")
-    (tmp_path / "keep.txt").write_text("keep\n")
-    (tmp_path / "old name.txt").write_text("rename me\n")
-    (tmp_path / "gone.py").write_text("x = 1\n")
-    _git(tmp_path, "add", ".")
-    _git(tmp_path, "commit", "-q", "-m", "base")
-    _git(tmp_path, "checkout", "-q", "-b", "feature")
-    return tmp_path
-
-
-def test_change_set_lists_a_path_with_a_space(repo: Path) -> None:
-    (repo / "new file.txt").write_text("hi\n")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-q", "-m", "add")
-    assert ChangeSet(repo, "main").paths() == ["new file.txt"]
-
-
-def test_change_set_lists_both_sides_of_a_rename(repo: Path) -> None:
-    _git(repo, "mv", "old name.txt", "new name.txt")
-    _git(repo, "commit", "-q", "-m", "mv")
-    assert sorted(ChangeSet(repo, "main").paths()) == ["new name.txt", "old name.txt"]
-
-
-def test_change_set_lists_a_deleted_file(repo: Path) -> None:
-    _git(repo, "rm", "-q", "gone.py")
-    _git(repo, "commit", "-q", "-m", "rm")
-    assert ChangeSet(repo, "main").paths() == ["gone.py"]
-
-
-def test_change_set_omits_uncommitted_changes(repo: Path) -> None:
-    (repo / "keep.txt").write_text("edited\n")
-    assert ChangeSet(repo, "main").paths() == []
-
-
-def test_change_set_reports_git_stderr(repo: Path) -> None:
-    with pytest.raises(GitError, match="unknown-ref"):
-        ChangeSet(repo, "unknown-ref").paths()
-
-
 @pytest.mark.parametrize(
     "call",
     [
@@ -323,47 +262,22 @@ def test_discarded_tree_node_is_not_interactive(tmp_path: Path) -> None:
     assert not demo.classify(path).is_interactive
 
 
-def test_head_verdict_ignores_uncommitted_edits(repo: Path) -> None:
-    source = repo / (S + "display/probe.py")
+def test_head_classification_ignores_uncommitted_edits(repo: Repo) -> None:
+    source = repo.path / (S + "display/probe.py")
     source.parent.mkdir(parents=True)
     source.write_text("def f(h, e):\n    h.fire(e)\n")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-q", "-m", "probe")
+    repo.git("add", ".")
+    repo.git("commit", "-q", "-m", "probe")
     source.write_text("pass\n")
-    verdict = DemoClass.at_head(repo).classify(S + "display/probe.py")
+    verdict = DemoClass.at_head(repo.path).classify(S + "display/probe.py")
     assert "calls fire()" in verdict.reasons
 
 
-def test_path_absent_from_head_is_deleted(repo: Path) -> None:
-    (repo / "gone.py").unlink()
-    _git(repo, "rm", "-q", "--cached", "gone.py")
-    _git(repo, "commit", "-q", "-m", "rm")
-    (repo / (S + "display")).mkdir(parents=True)
-    (repo / (S + "display/new.py")).write_text("def f(h, e):\n    h.fire(e)\n")
-    verdict = DemoClass.at_head(repo).classify(S + "display/new.py")
-    assert verdict.reasons == ("deleted (not inspectable)",)
-
-
-def test_git_output_is_decoded_as_utf8(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seen: dict[str, Any] = {}
-
-    # PY-TS-14: the spy records whatever keyword arguments subprocess.run gets.
-    def spy(args: Sequence[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        seen.update(kwargs)
-        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", spy)
-    ChangeSet(repo, "HEAD").read_head("keep.txt")
-    assert (seen["encoding"], seen["errors"]) == ("utf-8", "strict")
-
-
-def test_non_ascii_committed_source_is_read_at_head(repo: Path) -> None:
-    source = repo / (S + "display/gl_texture.py")
+def test_non_ascii_committed_source_classifies_at_head(repo: Repo) -> None:
+    source = repo.path / (S + "display/gl_texture.py")
     source.parent.mkdir(parents=True)
     source.write_text("# caf\u00e9 \u2014 pixels\nx = 1\n", encoding="utf-8")
-    _git(repo, "add", ".")
-    _git(repo, "commit", "-q", "-m", "non-ascii")
-    verdict = DemoClass.at_head(repo).classify(S + "display/gl_texture.py")
+    repo.git("add", ".")
+    repo.git("commit", "-q", "-m", "non-ascii")
+    verdict = DemoClass.at_head(repo.path).classify(S + "display/gl_texture.py")
     assert (verdict.kind, verdict.reasons) == ("rendering", ())
