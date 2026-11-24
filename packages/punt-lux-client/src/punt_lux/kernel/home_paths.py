@@ -83,20 +83,16 @@ class LuxHome:
             self._require_claim_parent(namespace)
             return namespace
         namespace, mode = self._owned_directory(namespace)
-        root = namespace / self._root.name
-        self._require_trusted_link(root, mode)
         self._make_private(namespace, mode)
-        try:
-            self._require_trusted_link(root, mode)
-        except PermissionError:
-            namespace.chmod(mode)
-            raise
+        self._require_trusted_link(namespace / self._root.name, mode)
         return namespace
 
     @classmethod
     def _owned_directory(cls, directory: Path) -> tuple[Path, int]:
         if directory.is_symlink():
             cls._require_trusted_link(directory, directory.parent.lstat().st_mode)
+            if directory.lstat().st_uid not in (0, os.getuid()):
+                raise PermissionError(f"Lux state symlink is not trusted: {directory}")
             directory = directory.resolve(strict=True)
             cls._require_claim_ancestors(directory)
         else:

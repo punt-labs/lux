@@ -82,5 +82,32 @@ def test_prepare_root_rejects_a_link_inserted_during_namespace_repair(
     monkeypatch.setattr(Path, "chmod", insert_link)
     with pytest.raises(PermissionError, match="symlink in a writable directory"):
         home.prepare_root()
-    assert stat.S_IMODE(namespace.stat().st_mode) == 0o775
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
     assert stat.S_IMODE(target.stat().st_mode) == 0o755
+
+
+def test_prepare_root_still_rejects_a_foreign_link_after_repair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home = LuxHome.resolve()
+    namespace = home.root.parent
+    namespace.mkdir()
+    namespace.chmod(0o775)
+    target = tmp_path / "unrelated"
+    target.mkdir(mode=0o700)
+    home.root.symlink_to(target, target_is_directory=True)
+    lstat = Path.lstat
+
+    def foreign_link(path: Path) -> os.stat_result:
+        info = lstat(path)
+        if path == home.root:
+            return os.stat_result((*info[:4], os.getuid() + 1, *info[5:]))
+        return info
+
+    monkeypatch.setattr(Path, "lstat", foreign_link)
+    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+        home.prepare_root()
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
+    with pytest.raises(PermissionError, match="symlink is not trusted"):
+        home.prepare_root()
