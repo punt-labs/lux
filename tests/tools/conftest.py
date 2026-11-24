@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -14,7 +15,7 @@ class Repo:
 
     _path: Path
 
-    def __new__(cls, path: Path) -> Repo:
+    def __new__(cls, path: Path) -> Self:
         self = super().__new__(cls)
         self._path = path
         return self

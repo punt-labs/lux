@@ -281,3 +281,18 @@ def test_non_ascii_committed_source_classifies_at_head(repo: Repo) -> None:
     repo.git("commit", "-q", "-m", "non-ascii")
     verdict = DemoClass.at_head(repo.path).classify(S + "display/gl_texture.py")
     assert (verdict.kind, verdict.reasons) == ("rendering", ())
+
+
+def test_file_deleted_in_a_later_commit_is_interactive_at_head(repo: Repo) -> None:
+    source = repo.path / (S + "display/gone.py")
+    source.parent.mkdir(parents=True)
+    source.write_text("x = 1\n")
+    repo.git("add", ".")
+    repo.git("commit", "-q", "-m", "add")
+    repo.git("rm", "-q", S + "display/gone.py")
+    repo.git("commit", "-q", "-m", "delete")
+    verdict = DemoClass.at_head(repo.path).classify(S + "display/gone.py")
+    assert (verdict.is_interactive, verdict.reasons) == (
+        True,
+        ("deleted (not inspectable)",),
+    )
