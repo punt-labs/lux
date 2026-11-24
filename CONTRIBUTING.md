@@ -186,53 +186,23 @@ the wheel ships `src/punt_lux` and never contained the plugin surface.
 
 ### Visual Verification
 
-Capture the running Lux window to `.tmp/lux-screenshot.png`:
+Capture the running Lux window's next painted frame to a PNG:
 
 ```bash
-make screenshot
+lux display screenshot
 ```
 
-Write the capture somewhere else:
+It prints the path, under `/tmp/lux-$USER/screenshots` (or
+`$XDG_RUNTIME_DIR/lux/screenshots`), a directory only your user can read. The
+`display_screenshot` MCP tool and `GET /display/screenshot` return the same
+path. The capture is the framebuffer the display just drew, so it needs no
+Screen Recording permission, works with the window occluded or on another
+Space, and matches what ImGui painted rather than what the window server
+composited. Read the PNG back to check the widgets at the demo gate
+(`docs/WORKFLOW.md`).
 
-```bash
-SCREENSHOT_OUT=/tmp/out.png make screenshot
-```
-
-This is for visual checks at the demo gate (`docs/WORKFLOW.md`). On Linux it
-was verified on Ubuntu with a Wayland session running XWayland
-(`DISPLAY` pointing at the X11 socket). It needs `import` and `convert`
-(ImageMagick), `xwininfo` and `xprop` (x11-utils), `xdotool`, and
-`systemd-inhibit` (systemd) on `PATH`. `scripts/screenshot.sh` finds the real
-`luxd-display` window by matching `_NET_WM_PID`, not by title, and rejects a
-capture that is almost a single color, such as the black image a locked
-session produces. It is not part of `make check`; CI has no display to
-capture.
-
-On macOS, `make screenshot` runs `scripts/screenshot_macos.py` instead. It
-needs `ffmpeg` (`brew install ffmpeg`) and the `display` extra. Grant your
-terminal app **Screen Recording** permission (System Settings > Privacy &
-Security > Screen Recording); a terminal that is still running may need a
-restart before it applies. Raising the window uses System Events, which asks
-once for Automation permission.
-
-The macOS script keeps the same contract as the Linux one:
-
-- It finds the window by the `luxd-display` PID, never by title.
-- It removes the output file first and only writes a verified capture.
-- It rejects a blank capture.
-
-It captures what is on screen: `ffmpeg -f avfoundation` grabs the display the
-window is on, then crops the window out. So it raises the window first, and
-fails if another window still covers it, or if the window spans two displays.
-
-For a series of captures at a fixed interval:
-
-```bash
-make screenshots SCREENSHOT_INTERVAL=5 SCREENSHOT_COUNT=12
-```
-
-By default this writes `.tmp/lux-screenshot-0001.png`,
-`.tmp/lux-screenshot-0002.png`, and so on.
+The display cannot create its window while the screen is locked or asleep;
+`caffeinate -d` keeps the screen awake for a long demo.
 
 ## Code Standards
 

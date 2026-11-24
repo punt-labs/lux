@@ -86,7 +86,7 @@ proof.
 Run the macOS check with the reviewed capture helper from Lux main (read-only):
 
 ```sh
-LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py \
+LUX_CAPTURE_SCRIPT=spikes/terminal/capture_macos.py \
   timeout 110 .venv/bin/python -m spikes.terminal.check_daemon_window
 ```
 

@@ -1,6 +1,6 @@
 """Two isolated real Displays share one PTY owner; one can crash independently.
 
-Run with LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py timeout 120
+Run with LUX_CAPTURE_SCRIPT=spikes/terminal/capture_macos.py timeout 120
 .venv/bin/python -m spikes.terminal.check_two_windows. Capture tool is read-only;
 only owned Display PIDs are selected. Requires macOS capture permission/ffmpeg/OCR.
 """

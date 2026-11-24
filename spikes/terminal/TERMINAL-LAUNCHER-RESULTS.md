@@ -60,7 +60,7 @@ Raw report: `results/menu-launcher.json`. Screenshots: `menu-launched.png`,
 `menu-restored.png`. Reproduce without touching normal services:
 
 ```sh
-LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py \
+LUX_CAPTURE_SCRIPT=spikes/terminal/capture_macos.py \
   timeout 120 .venv/bin/python -m spikes.terminal.check_menu_launcher
 ```
 

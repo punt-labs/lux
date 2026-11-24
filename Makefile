@@ -5,7 +5,7 @@ PYTHON_SOURCES = src packages
 
 .PHONY: sync-workspace-version
 
-.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload prove-reaping screenshot screenshots
+.PHONY: help test test-integration test-e2e test-e2e-gui test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling check-plugin-surface report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload prove-reaping
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -105,6 +105,11 @@ update-layers: ## Shrink the layer baseline after removing violating import edge
 
 .PHONY: check-layers update-layers
 
+demo-class: ## Classify this branch's committed changes for the demo gate (interactive / rendering / exempt)
+	uv run --extra display python -m tools.demo_class $(if $(BASE_REF),--base-ref $(BASE_REF),)
+
+.PHONY: demo-class
+
 check-coupling: ## Coupling ratchet — must not regress against .oo-coupling-baseline.json
 	uv run --extra display oo-ratchet coupling $(LUX_SOURCES) --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
 	uv run --extra display oo-ratchet coupling $(SERVICE_SOURCES) --check $(if $(BASE_REF),--base-ref $(BASE_REF),)
@@ -159,23 +164,6 @@ restart: install ## Install + restart Hub, Display, and a running luxd-pty (ends
 reload: install ## Install + restart luxd only (display keeps running)
 	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
 	@echo "luxd restarted through the service supervisor"
-
-SCREENSHOT_OUT ?= .tmp/lux-screenshot.png
-SCREENSHOT_INTERVAL ?= 5
-SCREENSHOT_COUNT ?= 12
-# Exported so recipes read "$$SCREENSHOT_*" from the environment, never a splice.
-export SCREENSHOT_OUT SCREENSHOT_INTERVAL SCREENSHOT_COUNT
-
-screenshot: ## Capture the running lux-display window to a PNG (dev/verification only, not in `check`)
-	@if [ "$$(uname -s)" = Darwin ]; then \
-		path="$$(uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT")"; \
-	else \
-		path="$$(bash scripts/screenshot.sh "$$SCREENSHOT_OUT")"; \
-	fi && echo "screenshot: $$path"
-
-screenshots: ## Capture the lux-display window every SCREENSHOT_INTERVAL s, SCREENSHOT_COUNT times (macOS)
-	@uv run --quiet --extra display python scripts/screenshot_macos.py "$$SCREENSHOT_OUT" \
-		--interval "$$SCREENSHOT_INTERVAL" --count "$$SCREENSHOT_COUNT"
 
 prove-reaping: ## Manual regression demo for dead-connection reaping (lux-d84d) — needs a running luxd on branch code (`lux hub restart`); takes ~2 minutes
 	@echo "prove-reaping: requires luxd already running the branch's code — run 'lux hub restart' first if unsure"

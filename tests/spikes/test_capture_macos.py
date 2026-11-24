@@ -1,4 +1,9 @@
-"""Evidence-integrity tests for scripts/screenshot_macos.py (no display needed)."""
+"""Evidence-integrity tests for spikes/terminal/capture_macos.py (no display needed).
+
+The terminal spike's external window capture: the spike scripts locate and raise
+the Display window by PID, which the in-process ``lux display screenshot`` does
+not do, so the helper and these tests live on with the spike.
+"""
 
 from __future__ import annotations
 
@@ -11,11 +16,16 @@ from typing import Any
 import pytest
 from PIL import Image
 
-_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "screenshot_macos.py"
-_spec = importlib.util.spec_from_file_location("screenshot_macos", _SCRIPT)
+_SCRIPT = (
+    Path(__file__).resolve().parent.parent.parent
+    / "spikes"
+    / "terminal"
+    / "capture_macos.py"
+)
+_spec = importlib.util.spec_from_file_location("capture_macos", _SCRIPT)
 assert _spec is not None and _spec.loader is not None
 sm: Any = importlib.util.module_from_spec(_spec)
-sys.modules["screenshot_macos"] = sm
+sys.modules["capture_macos"] = sm
 _spec.loader.exec_module(sm)
 
 
@@ -366,9 +376,7 @@ def test_non_positive_count_is_rejected_and_writes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: str
 ) -> None:
     out = tmp_path / "shot.png"
-    monkeypatch.setattr(
-        sys, "argv", ["screenshot_macos.py", str(out), "--count", count]
-    )
+    monkeypatch.setattr(sys, "argv", ["capture_macos.py", str(out), "--count", count])
     with pytest.raises(SystemExit) as exc:
         sm.main()
     assert exc.value.code != 0
@@ -389,7 +397,7 @@ def test_shorter_series_clears_stale_higher_numbers(
         return path
 
     monkeypatch.setattr(sm, "capture", fake_capture)
-    monkeypatch.setattr(sys, "argv", ["screenshot_macos.py", str(out), "--count", "2"])
+    monkeypatch.setattr(sys, "argv", ["capture_macos.py", str(out), "--count", "2"])
     assert sm.main() == 0
     names = sorted(p.name for p in tmp_path.iterdir())
     assert names == ["other-0003.png", "shot-0001.png", "shot-0002.png"]
