@@ -6,10 +6,10 @@ import http.client
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import TYPE_CHECKING, NoReturn, Self
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.service._display_restart_attempt import ReadinessError
 from punt_lux.service._hub_display_probe import HubDisplayProbe
 from punt_lux.service._readiness_http import ProbeDeadline
@@ -124,9 +124,8 @@ class DisplayRestartScope:
 
     def stderr_tail(self) -> str:
         """Attach a bounded tail only when the captured file is fresh."""
-        path = Path.home() / ".punt-labs/lux/logs/luxd-display-stderr.log"
         try:
-            with path.open("rb") as stream:
+            with LuxHome.resolve().display_stderr.open("rb") as stream:
                 mtime = os.fstat(stream.fileno()).st_mtime
                 if mtime < self._attempt.started_at:
                     return (
@@ -136,7 +135,7 @@ class DisplayRestartScope:
                 stream.seek(0, 2)
                 stream.seek(max(0, stream.tell() - 4096))
                 tail = stream.read(4096).decode("utf-8", errors="replace")
-        except OSError:
+        except (OSError, RuntimeError):
             return ""
         lines = tail.splitlines()[-12:]
         if not lines:

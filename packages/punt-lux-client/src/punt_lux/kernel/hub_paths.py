@@ -13,6 +13,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Self, final
 
+from punt_lux.kernel.home_paths import LuxHome
+
 logger = logging.getLogger(__name__)
 _PORT_FILE = "hub.port"
 _PID_FILE = "hub.pid"
@@ -31,7 +33,7 @@ class HubPaths:
     def __new__(cls, root: Path | None = None) -> Self:
         """Resolve metadata paths under the specified or default Hub root."""
         self = super().__new__(cls)
-        self._dir = root or Path.home() / ".punt-labs" / "lux"
+        self._dir = root or LuxHome.resolve().root
         return self
 
     @property
@@ -52,10 +54,9 @@ class HubPaths:
     # None return = port file absent/unwritten — genuine absence contract (PY-TS-14).
     def read_port(self) -> int | None:
         """Read the hub port from the port file, or None if not available."""
-        path = self._dir / _PORT_FILE
         try:
             with suppress(FileNotFoundError):
-                return int(path.read_text().strip())
+                return int((self._dir / _PORT_FILE).read_text().strip())
         except (ValueError, OSError):
             logger.warning("Could not read Hub port file")
         return None

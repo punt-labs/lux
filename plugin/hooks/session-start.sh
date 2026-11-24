@@ -77,7 +77,7 @@ fi
 # fire it again against the same process — and a session gets one applet: a
 # second one would take the first's callbacks and the menu entry would flap
 # between them. The applet refuses a second start itself, under a lock on
-# $TMPDIR/lux-beads-$SESSION_WATCH_PID.pid; this check is what saves the
+# ~/.punt-labs/lux/sessions/lux-beads-$SESSION_WATCH_PID.pid; this check saves the
 # pointless spawn. The applet writes its own durable diagnostics.
 # Both `ps` calls are allowed to fail — a vanished parent between resolving the
 # pid and querying its comm is a real race, however rare, and under `set -e` an

@@ -6,12 +6,14 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.kernel.hub_paths import HubPaths
 
 
 class TestHubPaths:
-    def test_dir_defaults_to_home(self):
-        assert HubPaths().dir == Path.home() / ".punt-labs" / "lux"
+    def test_dir_defaults_to_home(self, tmp_path: Path):
+        with patch.object(LuxHome, "resolve", return_value=LuxHome(tmp_path)):
+            assert HubPaths().dir == tmp_path
 
     def test_dir_honors_root_override(self, tmp_path: Path):
         assert HubPaths(tmp_path).dir == tmp_path

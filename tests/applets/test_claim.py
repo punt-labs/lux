@@ -8,16 +8,16 @@ decide.
 
 from __future__ import annotations
 
+import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+
+import pytest
 
 from punt_lux.applets.claim import AppletClaim, NoClaim, SessionClaim
-
-if TYPE_CHECKING:
-    import pytest
+from punt_lux.kernel.home_paths import LuxHome
 
 # One applet, in its own process: take the claim on the path it was given, say
 # what it got, and hold whatever it took until its parent closes its input.
@@ -137,11 +137,51 @@ def test_only_one_of_several_applets_starting_at_once_takes_the_claim(
 def test_a_session_claim_is_named_after_the_program_and_its_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The claim sits beside the log, under the same name, in the same directory."""
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    """Changing TMPDIR does not create a second lock for the same applet."""
+    root = tmp_path / "lux"
+    old_temp = tmp_path / "old"
+    old_temp.mkdir()
+    old_claim = old_temp / "lux-beads-4321.pid"
+    old_claim.write_text("old claim\n")
+    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(root))
+    monkeypatch.setenv("TMPDIR", str(old_temp))
+    monkeypatch.setattr(tempfile, "tempdir", None)
 
-    assert SessionClaim.for_session("lux-beads", 4321).take() is True
-    assert (tmp_path / "lux-beads-4321.pid").exists()
+    claim = SessionClaim.for_session("lux-beads", 4321)
+    assert claim.take() is True
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+    assert SessionClaim.for_session("lux-beads", 4321).take() is False
+
+    sessions = root / "sessions"
+    assert stat.S_IMODE(sessions.stat().st_mode) == 0o700
+    assert stat.S_IMODE((sessions / "lux-beads-4321.pid").stat().st_mode) == 0o600
+    assert old_claim.read_text() == "old claim\n"
+
+
+def test_claim_refuses_a_nonprivate_session_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(tmp_path))
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    sessions.chmod(0o755)
+
+    with pytest.raises(PermissionError, match="session directory is not private"):
+        SessionClaim.for_session("lux-beads", 4321)
+
+
+def test_claim_refuses_a_writable_parent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "lux"
+    root.mkdir()
+    root.chmod(0o770)
+    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(root))
+
+    with pytest.raises(PermissionError, match="session ancestor is writable"):
+        SessionClaim.for_session("lux-beads", 4321)
+    assert not (root / "sessions").exists()
 
 
 def test_a_hand_run_applet_claims_nothing() -> None:

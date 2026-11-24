@@ -438,6 +438,7 @@ adapters = [
     "punt_lux.client.session",
     "punt_lux.service.config",
     "punt_lux.kernel.credentials",
+    "punt_lux.kernel.home_paths",
     "punt_lux.service.doctor_checks",
     "punt_lux.client.hub_client",
     "punt_lux.kernel.hub_paths",

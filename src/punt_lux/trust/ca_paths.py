@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self, final
 
+from punt_lux.kernel.home_paths import LuxHome
+
 __all__ = ["CaPaths"]
 
 
@@ -23,7 +25,7 @@ class CaPaths:
     @classmethod
     def default(cls) -> Self:
         """Return the standard CA root: ``~/.punt-labs/lux/ca/``."""
-        return cls(Path.home() / ".punt-labs" / "lux" / "ca")
+        return cls(LuxHome.resolve().ca)
 
     @property
     def dir(self) -> Path:
@@ -46,5 +48,4 @@ class CaPaths:
 
     def ensure_dir(self) -> None:
         """Create the CA directory as ``0700`` if it does not already exist."""
-        self._dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._dir.chmod(0o700)
+        LuxHome.prepare_ca(self._dir)

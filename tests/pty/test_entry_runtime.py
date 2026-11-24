@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_lux.display.terminal.remote_pool import RemotePool
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.pty.entry_runtime import DaemonOptions, TerminalRuntime
 
 if TYPE_CHECKING:
@@ -23,8 +25,30 @@ def test_daemon_options_read_the_socket_and_environment(
     socket = tmp_path / "terminal.sock"
     monkeypatch.setattr("sys.argv", ["luxd-pty", "--socket", str(socket)])
     monkeypatch.setenv("LUX_PTY_NO_MENU", "1")
+    monkeypatch.setenv("HOME", "relative-home")
 
     assert DaemonOptions.parse(ArgumentParser()) == DaemonOptions(socket, False)
+
+
+def test_terminal_daemon_and_display_share_the_default_socket(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("sys.argv", ["luxd-pty"])
+    monkeypatch.setattr(LuxHome, "resolve", lambda: LuxHome(tmp_path))
+    monkeypatch.delenv("LUX_PTY_SOCKET", raising=False)
+
+    socket = DaemonOptions.parse(ArgumentParser()).socket
+    assert socket == tmp_path / "pty/luxd-pty.sock"
+    assert RemotePool.default()._path == socket
+
+
+def test_display_keeps_its_socket_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    override = tmp_path / "override.sock"
+    monkeypatch.setenv("LUX_PTY_SOCKET", str(override))
+
+    assert RemotePool.default()._path == override
 
 
 def test_missing_terminal_extra_logs_a_safe_durable_cause(
