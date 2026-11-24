@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from runpy import run_path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from typing import cast
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 import punt_lux.hub as hub_module
 import punt_lux.hub.clients as clients_module
 import punt_lux.hub.hub_composition as composition
+import punt_lux.hub.peripherals as peripherals_module
 from punt_lux.hub.clients import ClientRegistry
+from punt_lux.hub.display_peripheral_port import DisplayPeripheralPort
 from punt_lux.hub.peripheral_key import PeripheralKey
 from punt_lux.hub.peripheral_registry import PeripheralRegistry
 from punt_lux.hub.peripherals import DISPLAY
@@ -26,6 +30,26 @@ from punt_lux.wire.operations.query_geometry import GeometryUnavailable
 @dataclass(frozen=True, slots=True)
 class _Audio:
     is_connected: bool = True
+
+
+def test_composition_registers_exactly_one_display_under_the_display_key() -> None:
+    source = peripherals_module.__file__
+    assert source is not None
+    with patch.object(
+        PeripheralRegistry,
+        "register",
+        autospec=True,
+        side_effect=PeripheralRegistry.register,
+    ) as register:
+        namespace = run_path(source)
+    registry = cast("PeripheralRegistry", namespace["peripherals"])
+    key = cast("PeripheralKey[DisplayPeripheralPort]", namespace["DISPLAY"])
+    endpoint = registry.require(key)
+    assert key.kind == "display"
+    assert key.capability == "ui-replica"
+    assert isinstance(endpoint, ClientRegistry)
+    assert not endpoint.is_connected
+    register.assert_called_once_with(registry, key, endpoint)
 
 
 @pytest.mark.parametrize("connected", [True, False])
