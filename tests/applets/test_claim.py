@@ -166,6 +166,7 @@ def test_a_session_claim_is_named_after_the_program_and_its_session(
     assert old_claim.read_text() == "old claim\n"
 
 
+@pytest.mark.slow
 def test_concurrent_starters_resolve_one_claim_from_separate_tmpdirs(
     tmp_path: Path,
 ) -> None:
