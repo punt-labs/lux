@@ -328,5 +328,8 @@ def test_rendering_paths_match_in_any_source_root(demo: DemoClass, path: str) ->
     assert demo.classify(path).is_rendering
 
 
-def test_bundled_beads_board_is_not_interactive(demo: DemoClass) -> None:
-    assert not demo.classify(S + "beads/beads_board.py").is_interactive
+def test_bundled_beads_board_is_rendering_with_no_reason(demo: DemoClass) -> None:
+    path = S + "beads/beads_board.py"
+    assert (ROOT / path).is_file()
+    verdict = demo.classify(path)
+    assert (verdict.kind, verdict.reasons) == ("rendering", ())

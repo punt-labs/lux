@@ -282,12 +282,13 @@ function pr_loop(unit):
 #                      It prints one kind per path, by precedence: exempt,
 #                      then interactive, then rendering
 #       rendering(pr) = the PR changes a file under display/,
-#                      wire/model/elements/, wire/model/compositions/, or
-#                      applets/ of the punt_lux package, in any source root
-#                      (src/ or packages/<dist>/src/) (which elements and
-#                      layout are sent) — what the Display paints — as reported by
-#                      make demo-class (tools/demo_class.py); the demo
-#                      comment quotes its summary
+#                      wire/model/elements/, wire/model/compositions/,
+#                      applets/, or beads/ of the punt_lux package, in any
+#                      source root (src/ or packages/<dist>/src/) (which
+#                      elements and layout are sent) — what the Display
+#                      paints — as reported by make demo-class
+#                      (tools/demo_class.py); the demo comment quotes its
+#                      summary
 #       demoed_head  = the commit named in the leader's latest
 #                      "demo confirmed: <sha> interaction: operator|none" PR
 #                      comment, newer than any "demo failed:" comment; posted

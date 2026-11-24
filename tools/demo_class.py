@@ -220,6 +220,7 @@ class DemoClass:
         "wire/model/elements/",
         "wire/model/compositions/",
         "applets/",
+        "beads/",
     )
     INTERACTIVE_PREFIXES: ClassVar[tuple[str, ...]] = (
         "wire/model/handlers/",
