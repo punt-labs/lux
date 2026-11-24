@@ -19,6 +19,7 @@ import pytest
 from punt_lux.hub.clients import ClientRegistry
 from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.hub.reconnect_wait import ReconnectWait
 from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.wire.model.ids import SceneId
@@ -235,14 +236,15 @@ class TestConnectAndReconcile:
 def test_the_composition_root_wires_client_registry_to_the_real_replicator() -> None:
     """``replicator_instance`` attaches itself at import time, not left null.
 
-    The production ``client_registry`` singleton is built before
+    The production Display endpoint is registered before
     ``hub_replicator`` exists; this proves the bootstrap gap actually closes,
     not just that ``attach_replicator`` works when called directly.
     """
-    from punt_lux.hub.clients import client_registry
     from punt_lux.hub.replicator_instance import hub_replicator
 
-    assert client_registry._marker is hub_replicator  # test-only introspection
+    endpoint = peripherals.require(DISPLAY)
+    assert isinstance(endpoint, ClientRegistry)
+    assert endpoint._marker is hub_replicator  # test-only introspection
 
 
 def test_reconcile_reads_live_scene_ids_so_quarantined_scenes_never_leak(

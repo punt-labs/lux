@@ -50,13 +50,14 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from fastmcp.exceptions import ToolError
 
 import punt_lux.tools as tools_pkg
-from punt_lux.hub import client_registry, hub
+from punt_lux.hub import hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
@@ -270,7 +271,7 @@ class ToolExerciser:
         inbox_empty = setup.get("inbox_empty")
         display_port = HubDisplayConnection(
             is_running=lambda: DisplayPaths().is_running(),
-            clients=client_registry,
+            clients=peripherals.require(DISPLAY),
         )
         if inbox_event is None and not inbox_empty:
             return HubPorts(
@@ -360,13 +361,14 @@ class ToolExerciser:
         )
         # All tools resolve the DisplayLink through the Hub-side
         # ClientRegistry singleton in ``punt_lux.hub``. Patching
-        # ``client_registry.asks`` substitutes the stub for every tool —
+        # The registered Display ask port substitutes the stub for every tool —
         # both hand-written @mcp.tool ones and the @_query_tool decorator
         # family — without two separate patches.
         stubs: list[contextlib.AbstractContextManager[Any]] = [
             mock.patch.object(DisplayPaths, "is_running", return_value=running),
-            mock.patch(
-                "punt_lux.hub.clients.client_registry.asks",
+            mock.patch.object(
+                peripherals.require(DISPLAY),
+                "asks",
                 return_value=stub_client,
             ),
             mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),

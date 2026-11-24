@@ -19,6 +19,7 @@ from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.agent_factory import agent_element_factory
@@ -36,8 +37,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.wire.model import QueryResponse
-
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 def _decode(wire: Mapping[str, object]) -> object:
@@ -263,7 +262,7 @@ class TestSelfValidation:
 
 
 class TestShowRejectsInvalidSlider:
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_inverted_range(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -274,7 +273,7 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_out_of_range_value(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -288,7 +287,7 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_nan_value(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -299,7 +298,7 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_bad_format(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -310,7 +309,7 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'sl']" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_slider_nested_in_group(self, mock_get: MagicMock) -> None:
         """A bad slider nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
@@ -334,7 +333,7 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'bad']" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_slider_nested_in_collapsing_header(
         self, mock_get: MagicMock
     ) -> None:

@@ -25,7 +25,7 @@ from punt_lux.operations.display_reply import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.display_peripheral_port import DisplayPeripheralPort
     from punt_lux.hub.display_requests import DisplayRequests
     from punt_lux.operations.display_reply import DisplayReply
 
@@ -37,11 +37,11 @@ class HubDisplayConnection:
     """Proxy display queries over the Hub's one connection, bounded and typed."""
 
     _is_running: Callable[[], bool]
-    _clients: ClientRegistry
+    _clients: DisplayPeripheralPort
     __slots__ = ("_clients", "_is_running")
 
     def __new__(
-        cls, *, is_running: Callable[[], bool], clients: ClientRegistry
+        cls, *, is_running: Callable[[], bool], clients: DisplayPeripheralPort
     ) -> Self:
         self = super().__new__(cls)
         self._is_running = is_running

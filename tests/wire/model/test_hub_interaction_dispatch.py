@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.hub_interaction_dispatch import HubInteractionDispatch
 from punt_lux.hub.hub_store_factory import HubStoreFactory
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.elements.button import ButtonElement
@@ -543,7 +544,7 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
 
     fake_registry = SimpleNamespace(asks=MagicMock())
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
-    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
+    monkeypatch.setattr(peripherals.require(DISPLAY), "asks", fake_registry.asks)
 
     HubInteractionDispatch.dispatch(
         RemoteEventHandlerInvocation(

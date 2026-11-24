@@ -8489,3 +8489,40 @@ grant, and failed whenever another window covered lux. The demo gate in
 judges interaction feel only. Captures are not retained or pruned by lux; the
 directory is the user's own runtime directory and the files are theirs to
 remove.
+
+## DES-105: Typed Hub Peripheral Registry, Display Semantics Stay Local
+
+**Status:** Accepted. Step 10 of the layer restructure.
+
+The Hub registers one endpoint per kind in a private `PeripheralRegistry`.
+`PeripheralKey[P]` is an immutable, identity-bearing typed key with a kind and
+capability label. Lookup returns the exact endpoint instance without I/O; a
+same-spelling replacement key cannot assert a different endpoint type. Missing
+keys, duplicate kinds, duplicate worker binding and incomplete lifecycle wiring
+are errors, not disconnected peripherals. Wiring freezes when lifecycle begins.
+
+Workers bind after endpoint/replicator bootstrap, start in endpoint registration
+order and stop in reverse. The registry propagates worker failures without
+retry, rollback or alternate shutdown. The existing Display worker pair retains
+its start/stop order and expiry sweeps finish before worker shutdown.
+
+`docs/peripheral_registry_lifecycle.tex` models open/sealed composition,
+uniqueness, registered-only binding, frozen wiring, complete lifecycle binding
+and forward/reverse dispatch independently of binding order. `make check-models`
+runs fuzz, exhaustive ProB safety and deadlock checks, and seven defect witnesses.
+The model documents the code refinement, bounded scope and test partitions.
+
+`hub/peripherals.py` registers the existing `ClientRegistry` under
+`DISPLAY` (`display/ui-replica`). Replication, liveness and operation composition
+resolve this same endpoint instead of importing a Display singleton. The
+Display-specific driver still owns lazy connect, authentication, Ready 0.3,
+manifest reconciliation, pickles, menu-before-scene replication, the write seat,
+generation-scoped replies and death attribution. Screenshots, introspection,
+unavailable/error text and the restart PID/dial proof remain Display-specific.
+No layer contract or wire change is needed.
+
+There is no discovery, hot replacement, multi-Display selection, generic
+broadcast or aggregate availability. Fake audio coexistence tests prove a
+second kind can register independently without changing Display code. This
+defines no audio protocol, moves no playback ownership from Vox, and changes
+no downstream repository.

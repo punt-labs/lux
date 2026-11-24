@@ -1,7 +1,7 @@
 """Connection registry: owns the lazy DisplayLink and reconnect policy.
 
-Single process-wide: the ``DisplayLink``, its connect/reconnect lock, and
-the per-process menu-app guard.
+Owns one ``DisplayLink`` and its connect/reconnect lock. The peripheral
+composition registers this Display-specific endpoint once per process.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.display_writer import WriteSeat
     from punt_lux.hub.replicator_ports import DirtyMarker
 
-__all__ = ["ClientRegistry", "client_registry"]
+__all__ = ["ClientRegistry"]
 
 # What luxd calls itself on the one socket connection it holds to the display.
 _DISPLAY_CLIENT_NAME = "lux-mcp"
@@ -141,6 +141,3 @@ class ClientRegistry:
         self._marker.mark_menus()
         self._reconnects.reconnected()
         return client
-
-
-client_registry = ClientRegistry()

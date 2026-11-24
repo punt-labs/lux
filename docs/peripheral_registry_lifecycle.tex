@@ -1,0 +1,134 @@
+% fuzz -t docs/peripheral_registry_lifecycle.tex
+% PROBCLI=/opt/prob/probcli bash scripts/verify_peripheral_registry_model.sh
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\begin{document}
+\title{Hub Peripheral Registry Lifecycle}
+\author{A bounded model of static endpoint and worker composition}
+\date{}
+\maketitle
+
+\section{Boundary and refinement}
+The model represents two peripheral kinds, not an audio protocol. Each kind
+abstracts its endpoint's opaque key; exact key identity and port typing are
+checked separately by the mirrored key and protocol tests. Registration and
+binding are separate sequences, so workers can bind in a different order.
+The bound of two entries includes a duplicate kind in the uniqueness mutant.
+Safety properties are reachability goals, not state predicates that could
+silently disable incorrect transitions.
+
+\texttt{Register} refines \texttt{PeripheralRegistry.register};
+\texttt{Bind} refines \texttt{bind\_workers}. \texttt{Start} and \texttt{Stop}
+validate complete binding before sealing, then record their dispatch plan.
+An implementation worker can raise and truncate that plan to a prefix; there
+is no retry or rollback. Worker completion, thread scheduling and Display
+transport are outside this composition model. Repeated start/stop, including
+stop before start and an empty registry, remain allowed as in the implementation.
+Rejected operations have no transition: their error types are unit-tested.
+
+\section{Types and fidelity switches}
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse \\
+  RGKIND ::= rkdisplay | rkaudio \\
+  RGPHASE ::= rgopen | rgsealed \\
+  RGACTION ::= rgnone | rgregister | rgbind | rgstart | rgstop
+\end{zed}
+\begin{axdef}
+  UNIQUE, REGISTERED, FROZEN, COMPLETE, STARTORDER, STOPORDER : ZBOOL
+\where
+  UNIQUE = ztrue \\
+  REGISTERED = ztrue \\
+  FROZEN = ztrue \\
+  COMPLETE = ztrue \\
+  STARTORDER = ztrue \\
+  STOPORDER = ztrue
+\end{axdef}
+
+\section{State and operations}
+\texttt{previous} and \texttt{action} are observational ghosts. The no-mutation
+goal checks the pre-state of register/bind, not merely a sealed post-state.
+\begin{schema}{Registry}
+  registration, bindings, dispatch : \seq RGKIND \\
+  phase, previous : RGPHASE \\
+  action : RGACTION
+\where
+  \# registration \leq 2 \\
+  \# bindings \leq 2 \\
+  \# dispatch \leq 2
+\end{schema}
+\begin{schema}{Init}
+  Registry
+\where
+  registration = \langle \rangle \land bindings = \langle \rangle \\
+  dispatch = \langle \rangle \\
+  phase = rgopen \land previous = rgopen \land action = rgnone
+\end{schema}
+\begin{schema}{Register}
+  \Delta Registry \\
+  kind? : RGKIND
+\where
+  FROZEN = zfalse \lor phase = rgopen \\
+  \# registration < 2 \\
+  UNIQUE = zfalse \lor kind? \notin \ran registration \\
+  registration' = registration \cat \langle kind? \rangle \\
+  bindings' = bindings \land dispatch' = dispatch \\
+  phase' = phase \land previous' = phase \land action' = rgregister
+\end{schema}
+\begin{schema}{Bind}
+  \Delta Registry \\
+  kind? : RGKIND
+\where
+  FROZEN = zfalse \lor phase = rgopen \\
+  \# bindings < 2 \land kind? \notin \ran bindings \\
+  REGISTERED = zfalse \lor kind? \in \ran registration \\
+  bindings' = bindings \cat \langle kind? \rangle \\
+  registration' = registration \land dispatch' = dispatch \\
+  phase' = phase \land previous' = phase \land action' = rgbind
+\end{schema}
+\begin{schema}{Start}
+  \Delta Registry
+\where
+  COMPLETE = zfalse \lor \ran bindings = \ran registration \\
+  phase' = rgsealed \land previous' = phase \land action' = rgstart \\
+  registration' = registration \land bindings' = bindings \\
+  (STARTORDER = ztrue \land dispatch' = registration) \lor
+  \quad~ (STARTORDER = zfalse \land dispatch' = bindings)
+\end{schema}
+\begin{schema}{Stop}
+  \Delta Registry
+\where
+  COMPLETE = zfalse \lor \ran bindings = \ran registration \\
+  phase' = rgsealed \land previous' = phase \land action' = rgstop \\
+  registration' = registration \land bindings' = bindings \\
+  (STOPORDER = ztrue \land dispatch' =
+  \quad~ \{ i : 1 \upto \# registration @
+    i \mapsto registration(\# registration + 1 - i) \}) \lor
+  \quad~ (STOPORDER = zfalse \land dispatch' = registration)
+\end{schema}
+
+\section{Verification and partitions}
+The gate exhaustively excludes duplicate registered kinds, bindings without
+endpoints, register/bind from a sealed pre-state, incomplete lifecycle dispatch,
+start in anything but registration order, and stop in anything but reverse
+registration order. It separately checks deadlock freedom: an open registry
+can bind a missing worker; a completely bound registry can start or stop.
+There is no synthetic escape operation.
+
+Each switch has a defect witness: duplicate registration, unregistered binding,
+post-seal registration, incomplete start, incomplete stop, start in binding
+order, and stop in forward order. Disabling the bind seal guard alone cannot
+enable a successful bind in a reachable sealed state: complete binding and
+duplicate-binding rejection also prevent it. The explicit guard is retained,
+and its wrong-state rejection is covered directly by unit tests.
+
+The partitions in \texttt{tests/hub/test\_peripheral\_registry.py} cover missing
+and exact-key lookup; duplicate kinds with the same or different capability;
+unknown and duplicate worker binding; incomplete start/stop before any worker
+runs; frozen registration/binding after either lifecycle operation; reverse
+binding order; and propagated worker exceptions.
+\texttt{tests/hub/test\_display\_workers.py} covers the real Display facade's
+four-event trace. Empty and repeated lifecycle dispatch are covered by the
+model; the empty case is also unit-tested. This is a bounded composition proof,
+not a claim about arbitrary transport behavior or worker thread completion.
+\end{document}

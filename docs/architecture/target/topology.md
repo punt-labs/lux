@@ -46,6 +46,21 @@ replicas from more than one Hub at once — see
 Topology" (DES-089) for how the Display keeps each Hub's content distinct
 once more than one is connected.
 
+### Hub-local peripheral composition
+
+Each Hub currently registers one Display endpoint under the typed
+`display/ui-replica` key in `hub/peripherals.py`. `PeripheralRegistry` selects
+endpoints and starts/stops their bound workers; it does not route wire messages.
+Operations and the replicator resolve the same Display endpoint. Display workers
+still start replication before liveness and stop liveness before replication,
+after expiry and lease sweeps have finished.
+
+There is one endpoint per kind, with no discovery or multi-Display selector.
+A future audio kind can register a separate contract and lifecycle without
+receiving UI scenes or menus. Audio availability cannot make the Display appear
+connected or satisfy the exact Display PID/dial restart proof. No audio protocol
+or playback daemon is introduced here; Vox continues to own its playback.
+
 ## Clients
 
 The architecture allows multiple front doors into the Hub.

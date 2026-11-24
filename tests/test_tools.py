@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
-from punt_lux.hub import client_registry, hub
+from punt_lux.hub import hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.hub_display import HubDisplay
@@ -19,6 +19,7 @@ from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
@@ -535,7 +536,7 @@ class TestShowTool:
         assert presentation.frame_id == str(_scoped("s1"))
         assert presentation.frame_title == "s1"  # never composed — a human label
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:
         # An out-of-set layout is rejected at the wire boundary before anything is
         # installed — the error names the allowed values and the client is never
@@ -573,7 +574,7 @@ class TestShowTool:
         assert result == "shown:s1"
         assert client.replicator.dirtied == [_scoped("s1")]
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_table_with_mismatched_row(self, mock_get: MagicMock) -> None:
         # Demonstration (b): a short row collects an actionable error and the
         # tree is NOT rendered — the client is never called.
@@ -599,7 +600,7 @@ class TestShowTool:
         assert "3 column(s)" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_collects_error_from_table_nested_in_group(
         self, mock_get: MagicMock
     ) -> None:
@@ -633,7 +634,7 @@ class TestShowTool:
         assert "1 validation error(s):" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_bad_table_nested_in_window(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -654,7 +655,7 @@ class TestShowTool:
         assert "[table 'in_window']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_bad_table_nested_in_tab_bar(
         self, mock_get: MagicMock
     ) -> None:
@@ -677,7 +678,7 @@ class TestShowTool:
         assert "[table 'in_tab']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_bad_table_nested_in_collapsing_header(
         self, mock_get: MagicMock
     ) -> None:
@@ -701,7 +702,7 @@ class TestShowTool:
         assert "[table 'in_header']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_bad_table_nested_in_modal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -723,7 +724,7 @@ class TestShowTool:
         assert "[table 'in_modal']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_tree_with_malformed_node(self, mock_get: MagicMock) -> None:
         # A tree's nodes are a typed value family, not elements — a non-mapping
         # node is rejected at the wire boundary (like a malformed draw command),
@@ -741,7 +742,7 @@ class TestShowTool:
         assert "nodes[0] must be a mapping" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_recurses_three_levels_deep(self, mock_get: MagicMock) -> None:
         # container -> container -> bad leaf: the walk reaches a table two
         # containers down and still collects its error.
@@ -771,7 +772,7 @@ class TestShowTool:
         assert "[table 'deep']" in result
         client.show.assert_not_called()
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_aggregates_two_bad_tables(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -991,13 +992,13 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, factory: HubStoreFactory) -> Ma
             inbox_depth=inbox_depth_for,
             display_port=HubDisplayConnection(
                 is_running=lambda: DisplayPaths().is_running(),
-                clients=client_registry,
+                clients=peripherals.require(DISPLAY),
             ),
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
     client = _mock_client()
-    monkeypatch.setattr("punt_lux.hub.clients.client_registry.asks", lambda: client)
+    monkeypatch.setattr(peripherals.require(DISPLAY), "asks", lambda: client)
     client.replicator = spy
     return client
 
@@ -1031,7 +1032,7 @@ def _bind_pubsub(
             inbox_depth=inbox_depth_for,
             display_port=HubDisplayConnection(
                 is_running=lambda: DisplayPaths().is_running(),
-                clients=client_registry,
+                clients=peripherals.require(DISPLAY),
             ),
         ),
     )
@@ -1663,7 +1664,7 @@ class TestClearTool:
 
 class TestPingTool:
     @patch("punt_lux.operations.display_connection.time")
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
         self,
@@ -1681,7 +1682,7 @@ class TestPingTool:
         result = asyncio.run(ping())
         assert result == "pong rtt=0.042s"
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_timeout(self, mock_running: MagicMock, mock_get: MagicMock) -> None:
         client = _mock_client()
@@ -1786,7 +1787,7 @@ class TestClearIsDisplayIndependent:
     the replicator alone deals with the display in the background.
     """
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_clear_never_probes_or_reaches_the_display(
         self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1816,7 +1817,7 @@ class TestClearIsDisplayIndependent:
         assert store.elements_owned_by(ConnectionId("local")) == ()
         assert client.replicator.dirtied == [_scoped("s1")]
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_clear_returns_cleared_even_with_an_empty_store(
         self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1831,7 +1832,7 @@ class TestClearIsDisplayIndependent:
 
 
 class TestPingNoAutoSpawn:
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_ping_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -1841,7 +1842,7 @@ class TestPingNoAutoSpawn:
         mock_get.assert_not_called()
 
     @patch("punt_lux.operations.display_connection.time")
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
         self,
@@ -1908,7 +1909,7 @@ class TestListScenesTool:
 
 
 class TestScreenshotTool:
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_returns_the_path_the_display_painted(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -1924,7 +1925,7 @@ class TestScreenshotTool:
         client.asks().query.assert_called_once()
         assert client.asks().query.call_args.args[0] == "screenshot"
 
-    @patch("punt_lux.hub.clients.client_registry.asks")
+    @patch.object(peripherals.require(DISPLAY), "asks")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_relays_the_displays_refusal(
         self, mock_running: MagicMock, mock_get: MagicMock

@@ -18,6 +18,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from punt_lux.hub import hub_display
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model.elements import (
     CollapsingHeaderElement,
@@ -31,7 +32,6 @@ from punt_lux.wire.model.error import DuplicateIdError
 from punt_lux.wire.model.id_uniqueness import DuplicateIdScanner
 from punt_lux.wire.model.ids import ElementId, SceneId
 
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 _SCENE = SceneId("id-uniqueness-scene")
 
 
@@ -158,7 +158,7 @@ class TestDuplicateIdScanner:
 
 
 class TestShowRejectsDuplicateIds:
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_root_id_reused_as_child(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -183,7 +183,7 @@ class TestShowRejectsDuplicateIds:
         client.show.assert_not_called()
         assert hub_display.scene_roots(SceneId(scene)) == []
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_two_roots_sharing_an_id(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -220,7 +220,7 @@ def _assert_show_rejects_dup(
 class TestShowRejectsNestedDuplicates:
     """A duplicate buried in every child-bearing container is rejected."""
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_dup_in_abc_tab_bar_tab(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -246,7 +246,7 @@ class TestShowRejectsNestedDuplicates:
             "dup",
         )
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_dup_in_tab_bar_tab(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -276,7 +276,7 @@ class TestShowRejectsNestedDuplicates:
             "dup",
         )
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_dup_in_collapsing_header(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -297,7 +297,7 @@ class TestShowRejectsNestedDuplicates:
             "dup",
         )
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_dup_across_nested_groups(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client

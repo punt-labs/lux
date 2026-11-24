@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import cast
 
+from punt_lux.hub.clients import ClientRegistry
 from punt_lux.hub.display_workers import DisplayWorkers
 from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.peripheral_key import PeripheralKey
+from punt_lux.hub.peripheral_registry import PeripheralRegistry
 from punt_lux.hub.replicator import HubReplicator
 
 
@@ -26,6 +29,26 @@ class _Recorder:
 
     def stop(self) -> None:
         self._log.append(f"{self._name}.stop")
+
+
+def test_registry_preserves_single_display_worker_trace() -> None:
+    log: list[str] = []
+    workers = DisplayWorkers(
+        cast("HubReplicator", _Recorder("replicator", log)),
+        cast("DisplayLiveness", _Recorder("liveness", log)),
+    )
+    registry = PeripheralRegistry()
+    key = PeripheralKey[ClientRegistry]("display", "ui-replica")
+    registry.register(key, ClientRegistry())
+    registry.bind_workers(key, workers)
+    registry.start()
+    registry.stop()
+    assert log == [
+        "replicator.start",
+        "liveness.start",
+        "liveness.stop",
+        "replicator.stop",
+    ]
 
 
 class TestDisplayWorkers:

@@ -8,7 +8,7 @@ transport adapter that calls into this package; no state lives there.
 
 from __future__ import annotations
 
-from punt_lux.hub.clients import ClientRegistry, client_registry
+from punt_lux.hub.clients import ClientRegistry
 from punt_lux.hub.element_index import ElementIndex
 from punt_lux.hub.hub import Hub, hub
 from punt_lux.hub.hub_clients import HubClientRegistry
@@ -33,7 +33,6 @@ __all__ = [
     "RootRegistry",
     "SubscriptionRegistry",
     "WriterRegistry",
-    "client_registry",
     "disconnect_connection",
     "hub",
     "hub_clients",

@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING, cast
 
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
-from punt_lux.hub.clients import client_registry
 from punt_lux.hub.frame_owner_facts_instance import hub_frame_owner_facts
 from punt_lux.hub.hub_store_factory import hub_clients, hub_display
 from punt_lux.hub.inbox import offer as inbox_offer
 from punt_lux.hub.menu_event import MenuEventRouter
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.hub.replicator import HubReplicator
 from punt_lux.service.display_paths import DisplayPaths
 
@@ -59,14 +59,14 @@ hub_replicator = HubReplicator(
     hub_display.reader,
     hub_menu_registry,
     hub_callback_menus,
-    cast("ClientProvider", client_registry),
+    cast("ClientProvider", peripherals.require(DISPLAY)),
     DisplayPaths(),
     hub_display,
     hub_frame_owner_facts,
 )
 
-# Closes the bootstrap ordering gap: client_registry (clients.py) is built
+# Closes the bootstrap ordering gap: the Display endpoint is registered
 # before this replicator exists, so its connect-success hook (DES-068)
 # starts with a no-op marker until this wiring runs, right here at import
 # time, before any surface starts serving.
-client_registry.attach_replicator(hub_replicator)
+peripherals.require(DISPLAY).attach_replicator(hub_replicator)

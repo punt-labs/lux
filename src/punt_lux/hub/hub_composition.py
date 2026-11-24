@@ -15,7 +15,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, final
 
 from punt_lux.hub import (
-    client_registry,
     hub,
     hub_clients,
     hub_display,
@@ -25,6 +24,7 @@ from punt_lux.hub.details_instance import hub_client_details
 from punt_lux.hub.frame_owner_facts_instance import hub_frame_owner_facts
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.hub.replicator_instance import (
     hub_callback_menus,
     hub_callback_router,
@@ -114,5 +114,5 @@ class HubComposition:
         """Build luxd's one bounded connection to the display for proxied ops."""
         return HubDisplayConnection(
             is_running=lambda: DisplayPaths().is_running(),
-            clients=client_registry,
+            clients=peripherals.require(DISPLAY),
         )

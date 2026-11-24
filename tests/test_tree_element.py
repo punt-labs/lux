@@ -24,6 +24,7 @@ from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.agent_factory import agent_element_factory
@@ -41,8 +42,6 @@ if TYPE_CHECKING:
 
     from punt_lux.wire.model import QueryResponse
     from punt_lux.wire.model.elements import Element
-
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 # -- helpers ----------------------------------------------------------------
@@ -281,7 +280,7 @@ class TestNodeBoundaryValidation:
 
 
 class TestShowRejectsMalformedTree:
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_label_less_node(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -292,7 +291,7 @@ class TestShowRejectsMalformedTree:
         assert "label" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_malformed_tree_nested_in_group(
         self, mock_get: MagicMock
     ) -> None:
@@ -322,7 +321,7 @@ class TestShowGatesOnSelectionValidation:
     not a decode error, so it must ALSO gate ``show()`` — mirroring
     ``TestShowRejectsMalformedTree``'s node-shape coverage above."""
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_a_selected_id_naming_no_node(
         self, mock_get: MagicMock
     ) -> None:
@@ -346,7 +345,7 @@ class TestShowGatesOnSelectionValidation:
         assert "names no node" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_a_selection_invalid_tree_nested_in_group(
         self, mock_get: MagicMock
     ) -> None:

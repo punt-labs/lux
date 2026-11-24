@@ -90,7 +90,7 @@ class InProcessLoop:
         """Return the client double the Hub re-push resolves to.
 
         ``HubInteractionDispatch.dispatch`` re-pushes the mutated scene through
-        ``client_registry.asks()``; the conftest points ``get`` at this
+        the registered Display ask port; the conftest points ``get`` at this
         double so the handler-driven re-push lands in the same replica the
         agent's own ``update`` re-pushes to — hermetic, no socket.
         """

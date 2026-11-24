@@ -17,7 +17,7 @@ from punt_lux.wire.operations.hub_connection import HubConnection
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from punt_lux.hub.clients import ClientRegistry
+    from punt_lux.hub.display_peripheral_port import DisplayPeripheralPort
     from punt_lux.hub.display_requests import DisplayRequests
     from punt_lux.operations.display_reply import DisplayReply
 
@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 class DisplayQuery:
     """Turn one pinned query into an operation reply without redialing."""
 
-    _clients: ClientRegistry
+    _clients: DisplayPeripheralPort
 
-    def __new__(cls, clients: ClientRegistry) -> Self:
+    def __new__(cls, clients: DisplayPeripheralPort) -> Self:
         self = super().__new__(cls)
         self._clients = clients
         return self

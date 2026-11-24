@@ -27,6 +27,7 @@ from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.plot import ImGuiPlotRenderer, _BarSeriesPlotter
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.agent_factory import agent_element_factory
@@ -44,8 +45,6 @@ if TYPE_CHECKING:
 
     from punt_lux.wire.model import QueryResponse
     from punt_lux.wire.model.elements import Element
-
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 # -- helpers ----------------------------------------------------------------
@@ -186,7 +185,7 @@ class TestCrashDefectRejectedAtHub:
     def test_valid_plot_passes_the_tree_walk(self) -> None:
         assert ElementTreeValidator().validate_tree([_plot()]).ok
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_the_crash_payload_that_killed_the_display(
         self, mock_get: MagicMock
     ) -> None:
@@ -209,7 +208,7 @@ class TestCrashDefectRejectedAtHub:
         assert "label must be a string" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_ragged_series(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client

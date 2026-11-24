@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.hub.clients import client_registry
 from punt_lux.hub.liveness import DisplayLiveness
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.hub.replicator_instance import hub_replicator
 
 if TYPE_CHECKING:
@@ -55,4 +55,7 @@ class DisplayWorkers:
 
 # The registry satisfies the keepalive's ``KeepaliveClients`` port structurally:
 # its link's ``requests`` has ``ping``, its link names the current ``dial``.
-display_workers = DisplayWorkers(hub_replicator, DisplayLiveness(client_registry))
+display_workers = DisplayWorkers(
+    hub_replicator, DisplayLiveness(peripherals.require(DISPLAY))
+)
+peripherals.bind_workers(DISPLAY, display_workers)

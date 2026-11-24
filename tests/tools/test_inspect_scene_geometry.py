@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.hub import client_registry, hub
+from punt_lux.hub import hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.hub_display import HubDisplay
@@ -18,6 +18,7 @@ from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
@@ -150,12 +151,12 @@ def test_inspect_scene_tool_carries_z_order_geometry(
             next_event=next_event,
             inbox_depth=inbox_depth_for,
             display_port=HubDisplayConnection(
-                is_running=lambda: True, clients=client_registry
+                is_running=lambda: True, clients=peripherals.require(DISPLAY)
             ),
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
-    monkeypatch.setattr("punt_lux.hub.clients.client_registry.asks", _StubClient)
+    monkeypatch.setattr(peripherals.require(DISPLAY), "asks", _StubClient)
 
     result = read_tools.inspect_scene("s1", want_geometry=True)
 
