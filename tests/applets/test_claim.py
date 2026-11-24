@@ -9,10 +9,12 @@ decide.
 from __future__ import annotations
 
 import os
+import select
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -167,7 +169,7 @@ def test_a_session_claim_is_named_after_the_program_and_its_session(
 def test_concurrent_starters_resolve_one_claim_from_separate_tmpdirs(
     tmp_path: Path,
 ) -> None:
-    applets: list[subprocess.Popen[str]] = []
+    applets: list[subprocess.Popen[bytes]] = []
     try:
         for index in range(4):
             scratch = tmp_path / f"tmp-{index}"
@@ -177,25 +179,29 @@ def test_concurrent_starters_resolve_one_claim_from_separate_tmpdirs(
                     [sys.executable, "-c", _APPLET, "--session"],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    text=True,
                     env={**os.environ, "HOME": str(tmp_path), "TMPDIR": str(scratch)},
                 )
             )
         for proc in applets:
             assert proc.stdin is not None
-            proc.stdin.write("start\n")
+            proc.stdin.write(b"start\n")
             proc.stdin.flush()
-        verdicts = [
-            proc.stdout.readline().strip()
-            for proc in applets
-            if proc.stdout is not None
-        ]
-        assert sorted(verdicts) == ["refused", "refused", "refused", "taken"]
+        deadline = time.monotonic() + 10
+        verdicts = []
+        for proc in applets:
+            assert proc.stdout is not None
+            readable, _, _ = select.select(
+                [proc.stdout], [], [], max(0.0, deadline - time.monotonic())
+            )
+            assert readable, f"applet {proc.pid} did not report its claim result"
+            verdicts.append(os.read(proc.stdout.fileno(), 64).strip())
+        assert sorted(verdicts) == [b"refused", b"refused", b"refused", b"taken"]
         assert (tmp_path / ".punt-labs/lux/sessions/lux-beads-7.pid").is_file()
     finally:
         for proc in applets:
             assert proc.stdin is not None
             proc.stdin.close()
+        for proc in applets:
             proc.wait(timeout=30)
 
 
