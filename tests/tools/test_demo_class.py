@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from tools.demo_class import ChangeSet, DemoClass, GitError, main
+from tools.demo_class import DemoClass, main
+from tools.demo_source import ChangeSet, GitError
 
 ROOT = Path(__file__).resolve().parents[2]
 S = "src/punt_lux/"
@@ -341,16 +344,18 @@ def test_path_absent_from_head_is_deleted(repo: Path) -> None:
     assert verdict.reasons == ("deleted (not inspectable)",)
 
 
-def test_git_output_is_decoded_as_utf8(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: dict[str, object] = {}
-    real_run = subprocess.run
+def test_git_output_is_decoded_as_utf8(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
 
-    def spy(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+    # PY-TS-14: the spy records whatever keyword arguments subprocess.run gets.
+    def spy(args: Sequence[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         seen.update(kwargs)
-        return real_run(*args, **kwargs)  # type: ignore[call-overload,no-any-return]
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", spy)
-    ChangeSet(ROOT, "HEAD").read_head("tools/demo_class.py")
+    ChangeSet(repo, "HEAD").read_head("keep.txt")
     assert (seen["encoding"], seen["errors"]) == ("utf-8", "strict")
 
 
