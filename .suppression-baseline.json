@@ -1,24 +1,30 @@
 {
-  "total": 173,
+  "total": 171,
   "by_category": {
     "noqa": 22,
     "type_ignore": 4,
-    "pylint_disable": 2,
+    "pylint_disable": 0,
     "pyright_ignore": 4,
     "file_level": 52,
     "per_file_ignores": 89
   },
   "by_file": {
-    "src/punt_lux/__main__.py": {
+    "packages/punt-lux-client/src/punt_lux/applets/process_child.py": {
+      "noqa": 1
+    },
+    "packages/punt-lux-client/src/punt_lux/wire/model/handlers/remote_dispatch.py": {
+      "noqa": 1
+    },
+    "packages/punt-lux-client/src/punt_lux/wire/model/messages/unknown_message.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/beads/_beads_payload.py": {
+      "type_ignore": 1
+    },
+    "src/punt_lux/cli/__main__.py": {
       "noqa": 1,
       "pyright_ignore": 2,
       "per_file_ignores": 3
-    },
-    "src/punt_lux/applets/beads/_beads_payload.py": {
-      "type_ignore": 1
-    },
-    "src/punt_lux/applets/beads/bd_child.py": {
-      "noqa": 1
     },
     "src/punt_lux/cli/hub.py": {
       "noqa": 1
@@ -196,14 +202,6 @@
     "src/punt_lux/pty/pty_spawn.py": {
       "noqa": 1
     },
-    "src/punt_lux/service/_backend_launchd.py": {
-      "pylint_disable": 1,
-      "per_file_ignores": 3
-    },
-    "src/punt_lux/service/_backend_systemd.py": {
-      "pylint_disable": 1,
-      "per_file_ignores": 2
-    },
     "src/punt_lux/service/display_foreground.py": {
       "noqa": 1
     },
@@ -214,12 +212,6 @@
       "noqa": 1
     },
     "src/punt_lux/trust/aws_private_ca_provider.py": {
-      "noqa": 1
-    },
-    "src/punt_lux/wire/model/handlers/remote_dispatch.py": {
-      "noqa": 1
-    },
-    "src/punt_lux/wire/model/messages/unknown_message.py": {
       "noqa": 1
     },
     "tools/*": {
@@ -240,7 +232,7 @@
     "src/punt_lux/consent.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/kernel/runtime.py": {
+    "packages/punt-lux-client/src/punt_lux/kernel/runtime.py": {
       "per_file_ignores": 2
     },
     "src/punt_lux/service/config.py": {
@@ -270,7 +262,7 @@
     "src/punt_lux/cli/*.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/applets/beads/browser.py": {
+    "src/punt_lux/beads/browser.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/tools/server.py": {
@@ -285,25 +277,31 @@
     "src/punt_lux/tools/__init__.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/wire/model/elements/*.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/elements/*.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/service/__init__.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/service/_backends.py": {
+    "packages/punt-service/src/punt_service/_backends.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/service/_launchctl.py": {
+    "packages/punt-service/src/punt_service/_backend_launchd.py": {
+      "per_file_ignores": 3
+    },
+    "packages/punt-service/src/punt_service/_backend_systemd.py": {
+      "per_file_ignores": 2
+    },
+    "packages/punt-service/src/punt_service/_launchctl.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/service/_port_guard.py": {
+    "packages/punt-service/src/punt_service/_port_guard.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/service/_legacy_sweep_launchd.py": {
+    "packages/punt-service/src/punt_service/_legacy_sweep_launchd.py": {
       "per_file_ignores": 2
     },
-    "src/punt_lux/service/_legacy_sweep_systemd.py": {
+    "packages/punt-service/src/punt_service/_legacy_sweep_systemd.py": {
       "per_file_ignores": 2
     },
     "src/punt_lux/service/_shim_ownership.py": {
@@ -312,7 +310,7 @@
     "tests/e2e/test_binary_sweep.py": {
       "per_file_ignores": 3
     },
-    "src/punt_lux/wire/model/event_handler_host.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/event_handler_host.py": {
       "per_file_ignores": 1
     },
     "src/punt_lux/hub/hub_interaction_dispatch.py": {
@@ -324,18 +322,18 @@
     "src/punt_lux/hub/builtin_callbacks.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/wire/model/element_factory.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/element_factory.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/wire/model/elements/dialog_codec.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/elements/dialog_codec.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/wire/model/messages/scene_codec.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/messages/scene_codec.py": {
       "per_file_ignores": 1
     },
-    "src/punt_lux/wire/model/messages/pickled_element_codec.py": {
+    "packages/punt-lux-client/src/punt_lux/wire/model/messages/pickled_element_codec.py": {
       "per_file_ignores": 1
     }
   },
-  "updated_at": "2026-11-23T18:13:39Z"
+  "updated_at": "2026-11-23T22:55:17Z"
 }

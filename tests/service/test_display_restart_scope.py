@@ -23,7 +23,7 @@ def test_query_starts_only_if_the_fixed_timeout_fits(
 ) -> None:
     with (
         patch("punt_lux.service._readiness_http.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid", return_value=502) as lookup,
+        patch("punt_service._backends.pgrep_pid", return_value=502) as lookup,
     ):
         clock.return_value = 0
         scope = DisplayRestartScope(
@@ -42,7 +42,7 @@ def test_query_starts_only_if_the_fixed_timeout_fits(
 def test_known_candidate_skips_lookup_but_never_the_deadline(elapsed: float) -> None:
     with (
         patch("punt_lux.service._readiness_http.time.monotonic") as clock,
-        patch("punt_lux.service._backends.pgrep_pid") as lookup,
+        patch("punt_service._backends.pgrep_pid") as lookup,
     ):
         clock.return_value = 0
         scope = DisplayRestartScope(

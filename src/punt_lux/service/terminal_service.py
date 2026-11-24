@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from punt_lux.service import ServiceManager, ServiceSpec
 from punt_lux.service.terminal_enablement import TerminalEnablement
+from punt_service import ServiceManager, ServiceSpec
 
 
 class TerminalService(ServiceManager):
@@ -19,6 +19,8 @@ class TerminalService(ServiceManager):
         extra_args=(),
         cli_verb="terminal",
         process_name="luxd-pty",
+        cli_name="lux",
+        log_path="~/.punt-labs/lux/logs/lux.log",
     )
 
     def enable(self) -> str:

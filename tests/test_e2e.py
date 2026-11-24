@@ -83,8 +83,9 @@ class TestWalkingSkeleton:
         proc = subprocess.Popen(
             [
                 sys.executable,
+                "-P",
                 "-m",
-                "punt_lux",
+                "punt_lux.cli",
                 "display",
                 "serve",
                 "--socket",
@@ -140,8 +141,9 @@ class TestWalkingSkeleton:
         proc = subprocess.Popen(
             [
                 sys.executable,
+                "-P",
                 "-m",
-                "punt_lux",
+                "punt_lux.cli",
                 "display",
                 "serve",
                 "--socket",

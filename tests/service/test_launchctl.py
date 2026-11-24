@@ -9,10 +9,11 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.service import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
-from punt_lux.service._backend_launchd import LaunchdBackend
-from punt_lux.service._launchctl import launchctl
-from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
+from punt_service import ServiceSpec
+from punt_service._backend_launchd import LaunchdBackend
+from punt_service._launchctl import launchctl
+from punt_service._legacy_sweep_launchd import LaunchdLegacySweep
 
 
 @pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
@@ -25,8 +26,8 @@ def test_backend_unloads_log_the_exact_target(
 ) -> None:
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
-        patch("punt_lux.service._launchctl.os.getuid", return_value=501),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.os.getuid", return_value=501),
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         backend = LaunchdBackend(spec)
@@ -49,13 +50,13 @@ def test_upgrade_sweep_bootout_logs_target(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     with (
-        patch("punt_lux.service._launchctl.os.getuid", return_value=501),
+        patch("punt_service._launchctl.os.getuid", return_value=501),
         patch.object(LaunchdLegacySweep, "_is_label_clean", return_value=False),
         patch.object(
             LaunchdLegacySweep, "_plist_path", return_value=tmp_path / "retired.plist"
         ),
         patch.object(LaunchdLegacySweep, "_wait_until_deregistered", return_value=True),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
@@ -68,7 +69,7 @@ def test_missing_plist_stop_does_not_claim_a_bootout(
 ) -> None:
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         assert LaunchdBackend(DISPLAY_SPEC).stop()
@@ -82,7 +83,7 @@ def test_failed_bootout_never_logs_success(
     returncode: int, probe: bool, caplog: pytest.LogCaptureFixture
 ) -> None:
     with (
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         run.return_value = subprocess.CompletedProcess(
@@ -99,7 +100,7 @@ def test_other_successes_do_not_claim_an_unload(
     verb: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     with (
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")

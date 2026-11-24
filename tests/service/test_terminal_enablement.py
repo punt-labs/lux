@@ -9,12 +9,12 @@ from unittest.mock import Mock, patch
 import pytest
 from typer.testing import CliRunner
 
-from punt_lux.__main__ import app
-from punt_lux.service._backend_launchd import LaunchdBackend
-from punt_lux.service._backend_systemd import SystemdBackend
-from punt_lux.service._backends import pgrep_pid
-from punt_lux.service._service_errors import ServiceActionFailedError
+from punt_lux.cli.__main__ import app
 from punt_lux.service.terminal_service import TerminalService
+from punt_service._backend_launchd import LaunchdBackend
+from punt_service._backend_systemd import SystemdBackend
+from punt_service._backends import pgrep_pid
+from punt_service._service_errors import ServiceActionFailedError
 
 
 @pytest.mark.parametrize(
@@ -24,7 +24,7 @@ from punt_lux.service.terminal_service import TerminalService
 def test_process_lookup_handles_empty_invalid_and_multiple_results(
     output: str, expected: int | None
 ) -> None:
-    with patch("punt_lux.service._backends.subprocess.run") as run:
+    with patch("punt_service._backends.subprocess.run") as run:
         run.return_value.stdout = output.encode()
         assert pgrep_pid("luxd-pty") == expected
 

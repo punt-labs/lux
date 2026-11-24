@@ -23,7 +23,8 @@ from __future__ import annotations
 
 import asyncio
 
-from punt_lux import LuxClient, RenderRequest, SceneShown
+from punt_lux.client import LuxClient
+from punt_lux.wire.operations import RenderRequest, SceneShown
 
 _SCENE = "reap-proof-victim"
 

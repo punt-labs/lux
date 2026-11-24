@@ -19,9 +19,9 @@ when the manager was built.
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux import __version__
 from punt_lux.display.menus.entries import MenuItem, MenuSeparator
 from punt_lux.display.menus.model import Submenu
 from punt_lux.display.menus.windows_menu import WindowsMenu
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 __all__ = ["OwnMenus"]
 
+_VERSION = version("punt-lux")
 _FONT_STEP = 0.1
 _FONT_MIN = 0.5
 _FONT_MAX = 3.0
@@ -159,7 +160,7 @@ class OwnMenus:
 
     def _help_menu(self) -> Submenu:
         """Build the Help menu: the running version, as a line to read."""
-        return Submenu("Help", [MenuItem.caption(f"Lux v{__version__}")])
+        return Submenu("Help", [MenuItem.caption(f"Lux v{_VERSION}")])
 
     def _step_font(self, delta: float) -> None:
         """Step the font scale by *delta*, held inside the supported range."""

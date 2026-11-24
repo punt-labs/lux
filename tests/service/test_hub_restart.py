@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from punt_lux.service import ServiceActionFailedError, ServiceNotInstalledError
 from punt_lux.service.hub_restart import HubRestart, HubRestartError
+from punt_service import ServiceActionFailedError, ServiceNotInstalledError
 
 
 @pytest.mark.parametrize("initial", [True, False])
@@ -22,7 +22,7 @@ def test_lookup_timeout_is_not_absence_or_a_successful_restart(initial: bool) ->
         else [CompletedProcess("pgrep", 0, stdout=b"12345\n"), failure]
     )
     with (
-        patch("punt_lux.service._backends.subprocess.run", side_effect=outcomes),
+        patch("punt_service._backends.subprocess.run", side_effect=outcomes),
         patch.object(HubRestart, "_polls", return_value=iter([None])),
         pytest.raises(HubRestartError, match=r"pgrep.*timed out"),
     ):

@@ -66,8 +66,8 @@ def test_sync_returns_the_same_transport_every_time() -> None:
 def test_public_api_exports_lux_client_only() -> None:
     # The public library API exposes LuxClient; the transport classes
     # (the private REST transport, LuxHubClient) are no longer re-exported.
-    import punt_lux
+    import punt_lux.client
 
-    assert "LuxClient" in punt_lux.__all__
-    assert "_RestTransport" not in punt_lux.__all__
-    assert "LuxHubClient" not in punt_lux.__all__
+    assert "LuxClient" in punt_lux.client.__all__
+    assert "_RestTransport" not in punt_lux.client.__all__
+    assert "LuxHubClient" not in punt_lux.client.__all__

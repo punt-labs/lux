@@ -47,14 +47,21 @@ _TRACKER_REFERENCE = re.compile(
     r"|\bgithub\.com/[^/\s]+/[^/\s]+/(?:issues|pull)/\d+\b",
     re.IGNORECASE,
 )
-_API_MODULES = ("punt_lux", "punt_lux.client", "punt_lux.client.hub_client")
+_API_MODULES = (
+    "punt_lux.client",
+    "punt_lux.client.hub_client",
+    "punt_lux.wire.model",
+    "punt_lux.wire.operations",
+)
 _SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 
 
 def _expected_api_symbols() -> set[str]:
     symbols: set[str] = set(_API_MODULES)
     for module in _API_MODULES:
-        path = _SOURCE_ROOT.joinpath(*module.split("."))
+        path = (_SOURCE_ROOT.parent / "packages/punt-lux-client/src").joinpath(
+            *module.split(".")
+        )
         file = path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
         with tokenize.open(file) as source:
             body = ast.parse(source.read(), filename=str(file)).body
@@ -183,7 +190,8 @@ def _public_members(cls: Object | Alias) -> list[Object | Alias]:
 
 def public_doc_findings(source: Path, modules: tuple[str, ...]) -> list[str]:
     """Check exported library objects and registered tools without importing Lux."""
-    loader = GriffeLoader(search_paths=[source], allow_inspection=False)
+    roots = [source, *sorted(source.parent.glob("packages/*/src"))]
+    loader = GriffeLoader(search_paths=roots, allow_inspection=False)
     for package in sorted({name.split(".")[0] for name in modules}):
         loader.load(package)
     loader.resolve_aliases(implicit=False, external=False)
@@ -194,6 +202,8 @@ def public_doc_findings(source: Path, modules: tuple[str, ...]) -> list[str]:
             raise ValueError(f"{name}: expected a public export list")
         for symbol in sorted(module.exports):
             member = module[symbol]
+            if not (member.is_class or member.is_function):
+                continue
             if not member.has_docstring:
                 missing.add(member.canonical_path)
             if member.is_class:

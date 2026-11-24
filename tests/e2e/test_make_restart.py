@@ -101,7 +101,15 @@ def test_make_restart_sequence_installs_and_starts_both_services() -> None:
     assert wheels, "make build did not produce a wheel in dist/"
     wheel = wheels[-1]
 
-    install = _run("uv", "tool", "install", "--force", f"{wheel}[display]")
+    install = _run(
+        "uv",
+        "tool",
+        "install",
+        "--force",
+        "--find-links",
+        str(_REPO_ROOT / "dist"),
+        f"{wheel}[display]",
+    )
     assert install.returncode == 0, install.stderr
     assert _HUB_BINARY in install.stdout or _HUB_BINARY in install.stderr
     assert _DISPLAY_BINARY in install.stdout or _DISPLAY_BINARY in install.stderr

@@ -57,5 +57,5 @@ def test_new_contract_modules_import_in_fresh_process(module: str) -> None:
 def test_root_does_not_reexport_a_hub_command() -> None:
     import punt_lux
 
-    assert "ping" not in punt_lux.__all__
+    assert not hasattr(punt_lux, "__all__")
     assert not hasattr(punt_lux, "ping")

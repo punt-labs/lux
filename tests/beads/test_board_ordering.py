@@ -1,0 +1,1066 @@
+"""Which board the applet keeps, and which board the user ends up looking at.
+
+The partitions here are the ones named in ``docs/board_ordering_coverage.md``,
+against the model in ``docs/board_ordering.tex``. The model's five properties are
+that the slot never goes backwards, the display never goes backwards, at rest the
+display shows the newest board anybody pushed, the display never runs ahead of the
+slot, and the display never shows a board the slot refused.
+
+Every test drives the real service, the real slot and the real push region. What
+is stubbed is ``bd`` and the Hub — a source that hands out prepared results, and a
+client that can be stopped inside a round trip. Stopping inside the round trip is
+the whole point: each of these properties is about what another thread does while
+a push is in flight, so a test that let the push complete instantly would exercise
+the premise rather than the mechanism.
+"""
+
+from __future__ import annotations
+
+import ast
+import threading
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Protocol, Self, cast, final
+
+import pytest
+
+import punt_lux
+import punt_lux.applets as applets_package
+from punt_lux.applets.latency import ClickLatency
+from punt_lux.beads.applet_board import AppletBoard
+from punt_lux.beads.beads_board import BeadsBoard
+from punt_lux.beads.beads_result import BeadsFailure, BeadsRows
+from punt_lux.beads.beads_service import BeadsService
+from punt_lux.beads.board_load import BoardLoad
+from punt_lux.beads.board_slot import BoardSlot
+from punt_lux.beads.board_work import BoardWork
+from punt_lux.wire.operations.scene_results import SceneShown
+from tests.class_references import ClassReferences
+
+from .board_doubles import GATE_SECONDS, ISSUE, Gated, loaded
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_lux.beads.beads_load import BeadsLoad
+    from punt_lux.beads.beads_result import BeadsResult
+    from punt_lux.wire.operations import RenderRequest, RenderTableRequest
+
+# Two boards a test can tell apart on sight, so the id that landed says which of
+# two overlapping loads the display ended up showing.
+_STALE = BeadsRows.of([ISSUE | {"id": "lux-stale"}])
+_FRESH = BeadsRows.of([ISSUE | {"id": "lux-fresh"}])
+_STALE_ID = "lux-stale"
+_FRESH_ID = "lux-fresh"
+
+# The two things that are not a board: the placeholder a cold click opens on, and
+# the red message naming why ``bd`` could not be read.
+_LOADING = "loading"
+_FAILURE = "failure"
+
+# How long a test waits on another thread to reach a state it must reach. A
+# machine under load takes longer than a free one; a thread that is never getting
+# there fails the run rather than holding it.
+_SETTLE_SECONDS = 5.0
+
+
+class Crossing(Protocol):
+    """A point in a round trip a thread may be stopped at."""
+
+    def cross(self) -> None:
+        """Pass through, once whoever is holding this open lets go."""
+        ...
+
+
+@final
+class OpenGate:
+    """A point nobody is stopped at — the ordinary round trip."""
+
+    __slots__ = ()
+
+    def cross(self) -> None:
+        """Pass straight through."""
+
+
+# The default for both gates: a client that stops nowhere. It holds no state, so
+# every client that wants an ordinary round trip can share this one.
+_OPEN: Crossing = OpenGate()
+
+
+@final
+class Gate:
+    """A place the first thread through is stopped, and later ones are not.
+
+    The push region admits one writer at a time, so a test that needs a second
+    writer to arrive during the first one's write has to stop that first write
+    and nothing else. Later arrivals pass straight through.
+    """
+
+    _crossed: bool
+    _lock: threading.Lock
+    _reached: threading.Event
+    _released: threading.Event
+    __slots__ = ("_crossed", "_lock", "_reached", "_released")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._crossed = False
+        self._lock = threading.Lock()
+        self._reached = threading.Event()
+        self._released = threading.Event()
+        return self
+
+    def cross(self) -> None:
+        """Stop here the first time anyone arrives; let everyone else by."""
+        with self._lock:
+            if self._crossed:
+                return
+            self._crossed = True
+        self._reached.set()
+        self._released.wait(timeout=GATE_SECONDS)
+
+    def reached(self) -> None:
+        """Block until a thread is standing at this gate."""
+        assert self._reached.wait(timeout=GATE_SECONDS), "nothing reached the gate"
+
+    def release(self) -> None:
+        """Let the thread standing here finish what it was doing."""
+        self._released.set()
+
+
+@final
+class InTurn:
+    """A source handing out one prepared result per load, in the order given.
+
+    Two loads of the same board are two different boards here, which is what
+    makes an ordering assertion possible at all: the id that landed says which
+    load produced what the user is looking at.
+    """
+
+    _loads: int
+    _lock: threading.Lock
+    _results: list[BeadsResult]
+    __slots__ = ("_loads", "_lock", "_results")
+
+    def __new__(cls, *results: BeadsResult) -> Self:
+        self = super().__new__(cls)
+        self._results = list(results)
+        self._loads = 0
+        self._lock = threading.Lock()
+        return self
+
+    def load(self, *, all_issues: bool = False) -> BeadsLoad:
+        """Answer the next prepared result; repeat the last one after that."""
+        with self._lock:
+            taken = min(self._loads, len(self._results) - 1)
+            self._loads += 1
+        return loaded(self._results[taken])
+
+
+@final
+class Landings:
+    """What reached the display, in the order it landed there.
+
+    Two clients can write to one display, and what the user ends up looking at
+    is not settled by either client's call order — it is settled by the order the
+    writes landed. Both write here, so the sequence is one sequence.
+    """
+
+    _lock: threading.Lock
+    _shown: list[str]
+    __slots__ = ("_lock", "_shown")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._lock = threading.Lock()
+        self._shown = []
+        return self
+
+    def landed(self, what: str) -> None:
+        """Record that *what* is now on the display."""
+        with self._lock:
+            self._shown.append(what)
+
+    @property
+    def shown(self) -> tuple[str, ...]:
+        """Everything that landed, in the order it landed."""
+        with self._lock:
+            return tuple(self._shown)
+
+    @property
+    def last(self) -> str:
+        """What the display ended up showing."""
+        return self.shown[-1]
+
+
+@final
+class SteppedClient:
+    """A client that can be stopped inside a push.
+
+    Every property here is about what happens *during* the socket write, so
+    that is where a test has to be able to stand: a push that hangs is a
+    write in flight with the display not yet changed. Raising the frame
+    moved Display-local and synchronous (DES-088), so there is no longer a
+    round trip on this client's own thread to gate before the push.
+    """
+
+    _landings: Landings
+    _pushes: Crossing
+    __slots__ = ("_landings", "_pushes")
+
+    def __new__(
+        cls,
+        landings: Landings,
+        *,
+        pushes: Crossing = _OPEN,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._landings = landings
+        self._pushes = pushes
+        return self
+
+    def render_table(self, request: RenderTableRequest) -> SceneShown:
+        """Land a board, after however long this client's write is made to take."""
+        self._pushes.cross()
+        self._landings.landed(str(request.rows[0][0]) if request.rows else "empty")
+        return SceneShown(scene_id=request.scene_id)
+
+    def render(self, request: RenderRequest) -> SceneShown:
+        """Land what is not a board: the placeholder, or the reason there is none."""
+        self._pushes.cross()
+        text = str(request.elements)
+        self._landings.landed(_LOADING if "Loading issues" in text else _FAILURE)
+        return SceneShown(scene_id=request.scene_id)
+
+
+@final
+class Applet:
+    """A Beads service with its slot in the open, so a test can see both ends.
+
+    What the applet holds and what the display shows are two different things,
+    and every property here is a statement about the pair. The slot is handed to
+    the service rather than made by it, so a test holding the same slot can ask
+    what the applet is holding at any moment — including from inside a push.
+    """
+
+    _service: BeadsService
+    _slot: BoardSlot
+    _spare: BoardWork
+    _spare_landings: Landings
+    __slots__ = ("_service", "_slot", "_spare", "_spare_landings")
+
+    def __new__(cls, source: object) -> Self:
+        self = super().__new__(cls)
+        board = BeadsBoard.for_project("lux")
+        load = BoardLoad(board, source)  # type: ignore[arg-type]  # structural stand-in
+        self._slot = BoardSlot()
+        self._service = BeadsService(
+            AppletBoard(load, self._slot), load.entry("beads", "Beads")
+        )
+        # A click nobody made, against a display nobody is looking at: pushing
+        # the slot's state into it is how a test reads what the applet holds.
+        self._spare_landings = Landings()
+        self._spare = BoardWork(
+            load,
+            SteppedClient(self._spare_landings),  # type: ignore[arg-type]  # structural stand-in
+            ClickLatency("beads"),
+        )
+        return self
+
+    def prefetch(self) -> None:
+        """Run the warm-up: it loads and stores, and shows nothing."""
+        self._service.prefetch()
+
+    def answer(self, client: object) -> ClickLatency:
+        """Give a click its visible answer, timed as the leg times it."""
+        latency = ClickLatency("beads")
+        with latency.answering():
+            self._service.acknowledge(client, latency)  # type: ignore[arg-type]  # structural stand-in
+        return latency
+
+    def service(self, client: object) -> None:
+        """Run a click's slow half: load, store, and show what is held."""
+        self._service.service(client, ClickLatency("beads"))  # type: ignore[arg-type]  # structural stand-in
+
+    def click(self, client: object) -> None:
+        """Drive both halves of a click, exactly as the leg drives them."""
+        latency = self.answer(client)
+        self._service.service(client, latency)  # type: ignore[arg-type]  # structural stand-in
+
+    def holds(self) -> str:
+        """What the applet is holding, named as a landing on the display is."""
+        self._slot.held.shows(self._spare)
+        return self._spare_landings.last
+
+
+def _until(ready: Callable[[], bool], what: str) -> None:
+    """Wait for another thread to have *what*, or fail rather than hang."""
+    deadline = time.monotonic() + _SETTLE_SECONDS
+    while time.monotonic() < deadline:
+        if ready():
+            return
+        time.sleep(0.001)
+    raise AssertionError(f"the other thread never {what}")
+
+
+def _thread(work: Callable[[], object]) -> threading.Thread:
+    """A started thread running *work* — the second writer a test needs."""
+    running = threading.Thread(target=work)
+    running.start()
+    return running
+
+
+def _joined(*threads: threading.Thread) -> None:
+    """Wait for every thread, and fail rather than leave one running."""
+    for running in threads:
+        running.join(timeout=GATE_SECONDS)
+        assert not running.is_alive(), "a thread never finished"
+
+
+def _package_sources() -> dict[str, str]:
+    """Every module under ``src/punt_lux``, by path relative to it."""
+    roots = [Path(part) for part in punt_lux.__path__]
+    return {
+        path.relative_to(root).as_posix(): path.read_text(encoding="utf-8")
+        for root in roots
+        for path in root.rglob("*.py")
+    }
+
+
+def _applet_sources() -> dict[str, str]:
+    """Every module of the applets package, by path relative to ``src/punt_lux``."""
+    return {
+        name: text
+        for name, text in _package_sources().items()
+        if name.startswith(("applets/", "beads/"))
+    }
+
+
+def _calls(source: str, *names: str) -> bool:
+    """Whether this module calls a method called any of ``names``, with any arity."""
+    return any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in names
+        for call in ast.walk(ast.parse(source))
+    )
+
+
+# What marks a receiver as the board's write surface: it is annotated as one of
+# these in the module (a parameter, a field, a local), or built from one. The surface
+# itself and every class that implements it are read from the sources; the client's
+# whole ops family a push is forwarded to, and what hands a board its load, are the
+# two things a push passes through -- never the scene id, which a module may be
+# handed or compose.
+_FORWARDED_TO = frozenset({"SyncOps", "AppletBoard", "BoardLoad"})
+_SRC_PACKAGE = Path(next(iter(applets_package.__path__))).parent
+_SCENE_WRITE_RESULTS = frozenset({"SceneShown", "Cleared"})
+
+
+def _methods_of(path: Path, name: str) -> dict[str, ast.FunctionDef]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+    return {m.name: m for m in cls.body if isinstance(m, ast.FunctionDef)}
+
+
+def _board_surface_names() -> frozenset[str]:
+    """``BoardOps`` and every applet class that implements all its methods.
+
+    The client's own transports implement the same verbs, being the general client
+    the board forwards to; only a class of the applets package is the board's.
+    """
+    surface = set(_methods_of(_SRC_PACKAGE / "applets" / "board_ops.py", "BoardOps"))
+    names = {"BoardOps"}
+    for path in (_SRC_PACKAGE / "applets").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ClassDef) and surface <= {
+                m.name for m in node.body if isinstance(m, ast.FunctionDef)
+            }:
+                names.add(node.name)
+    return frozenset(names)
+
+
+_BOARD_PROVENANCE = _board_surface_names() | _FORWARDED_TO
+
+
+def _board_write_verbs() -> frozenset[str]:
+    """The verbs that put a scene on the display, read from the surfaces defining them.
+
+    The board's own Protocol contributes all its methods; the client's scene
+    operations contribute every method that answers with a scene shown or a scene
+    cleared (inspection answers with neither).
+    """
+    board = _methods_of(_SRC_PACKAGE / "applets" / "board_ops.py", "BoardOps")
+    scene = _methods_of(_SRC_PACKAGE / "wire" / "ops" / "__init__.py", "SceneOps")
+    writes = {
+        name
+        for name, method in scene.items()
+        if method.returns is not None
+        and _SCENE_WRITE_RESULTS
+        & {n.id for n in ast.walk(method.returns) if isinstance(n, ast.Name)}
+    }
+    return frozenset(writes | set(board))
+
+
+def _mentions_the_boards_surface(expr: ast.AST, annotated: set[str]) -> bool:
+    for part in ast.walk(expr):
+        if isinstance(part, ast.Name) and (
+            part.id in _BOARD_PROVENANCE or part.id in annotated
+        ):
+            return True
+        if isinstance(part, ast.Attribute) and (
+            part.attr in annotated or part.attr == "sync"
+        ):
+            return True
+    return False
+
+
+def _annotation_of(node: ast.AST) -> tuple[str, ast.expr | None]:
+    """The name an ``arg`` or ``AnnAssign`` declares and the annotation it carries."""
+    if isinstance(node, ast.arg):
+        return node.arg, node.annotation
+    if isinstance(node, ast.AnnAssign):
+        target = node.target
+        name = (
+            target.id if isinstance(target, ast.Name) else getattr(target, "attr", "")
+        )
+        return name, node.annotation
+    return "", None
+
+
+def _annotated_as_the_boards_surface(tree: ast.Module) -> set[str]:
+    """Names (parameters, fields, locals) the module annotates with a board surface."""
+    declared = (_annotation_of(node) for node in ast.walk(tree))
+    return {
+        name
+        for name, annotation in declared
+        if annotation is not None
+        and any(
+            isinstance(part, ast.Name) and part.id in _BOARD_PROVENANCE
+            for part in ast.walk(annotation)
+        )
+    }
+
+
+def _board_writes(source: str, verbs: frozenset[str]) -> list[tuple[int, str]]:
+    """The calls that write a scene through something of the board's provenance."""
+    tree = ast.parse(source)
+    annotated = _annotated_as_the_boards_surface(tree)
+    bound = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and _mentions_the_boards_surface(node.value, annotated)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    return [
+        (call.lineno, call.func.attr)
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr in verbs
+        and _mentions_the_boards_surface(call.func.value, annotated | bound)
+    ]
+
+
+def _writers(source: str) -> set[str]:
+    """The methods of this module that write the display through a click's work.
+
+    A write is a ``push`` on the work, or the ``send`` on the channel the work
+    pushes through -- the one place a board leaves for the Hub.
+    """
+    return {
+        method.name
+        for method in ast.walk(ast.parse(source))
+        if isinstance(method, ast.FunctionDef)
+        and any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr in {"push", "send"}
+            for call in ast.walk(method)
+        )
+    }
+
+
+def _imports(source: str) -> set[str]:
+    """Every module a source file imports, whether or not the import is deferred.
+
+    Prose about another module is not a dependency on it; an import is. The
+    slot's docstring names the region because it states the acquisition order,
+    so the question this answers has to be asked of the code.
+    """
+    named: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module is not None:
+            named.add(node.module)
+        elif isinstance(node, ast.Import):
+            named.update(alias.name for alias in node.names)
+    return named
+
+
+# --- P1 -------------------------------------------------------------------
+
+
+def test_two_pushes_land_in_the_order_they_were_taken() -> None:
+    """The display must end at the newer board however the two writes overlap.
+
+    Two workers push, and the first one's write is held open while the second
+    arrives with a newer board. Left unordered, the two land in whichever order
+    the sockets finish in, and the older board can be the one left on screen —
+    the defect four review rounds kept finding. The region admits one writer at
+    a time and holds its lock across the write, so the second lands second.
+    """
+    landings = Landings()
+    pushes = Gate()
+    applet = Applet(InTurn(_STALE, _FRESH))
+    applet.prefetch()  # the applet is holding the older board
+
+    answering = _thread(lambda: applet.answer(SteppedClient(landings, pushes=pushes)))
+    pushes.reached()  # the first write is in flight and cannot yet have landed
+    refreshing = _thread(lambda: applet.service(SteppedClient(landings)))
+    _until(lambda: applet.holds() == _FRESH_ID, "stored the newer board")
+    pushes.release()
+    _joined(answering, refreshing)
+
+    assert landings.shown == (_STALE_ID, _FRESH_ID)
+    assert landings.last == _FRESH_ID
+
+
+# --- P2 -------------------------------------------------------------------
+
+# A click performs no I/O before BoardGlass.shows rereads the slot under its
+# lock, so a captured board cannot be pushed after a newer board has landed.
+
+
+# --- P3 -------------------------------------------------------------------
+
+# P3's scenario gated a stood-down click's *acknowledge* phase at its raise, so
+# a refresh could land a newer board while the stood-down click still held an
+# older one it had read. Like P2, that gate is gone: acknowledge does no I/O
+# now, so a click's one push (made during acknowledge, before it stands down
+# or not) always carries what BoardGlass reads fresh at that instant --
+# there is no captured board left for a later, un-gateable stand-down to push
+# stale. See P2's note above; the same elimination applies here.
+
+
+# --- P4 -------------------------------------------------------------------
+
+
+def test_a_refresh_stores_its_board_before_it_shows_it() -> None:
+    """The display must never hold a board the applet does not.
+
+    One worker and no race at all: the load returns, and the board is stored
+    before the write carrying it begins. Pushing first leaves the screen showing
+    issues the applet has not kept for the whole length of the round trip — and
+    shows them before the slot has had its chance to refuse them.
+    """
+    landings = Landings()
+    pushes = Gate()
+    applet = Applet(InTurn(_FRESH))
+
+    refreshing = _thread(lambda: applet.service(SteppedClient(landings, pushes=pushes)))
+    pushes.reached()  # the write is in flight, so the store has already happened
+
+    assert applet.holds() == _FRESH_ID
+
+    pushes.release()
+    _joined(refreshing)
+    assert landings.shown == (_FRESH_ID,)
+
+
+# --- P5 -------------------------------------------------------------------
+
+
+def test_a_board_the_slot_refused_never_reaches_the_display() -> None:
+    """A board the applet threw away must not be what the user is looking at.
+
+    A click's query begins, a reconnect fires the warm-up, and the warm-up's
+    query begins later and returns first. The click's board is therefore the
+    older one and the slot refuses it — so it must not have been put on screen
+    on the way, which is exactly what a push taken before the store does.
+    """
+    landings = Landings()
+    source = Gated(_FRESH, gated=_STALE)  # the click's load begins first, returns last
+    applet = Applet(source)
+
+    clicking = _thread(lambda: applet.service(SteppedClient(landings)))
+    source.reached()  # the click's query is in flight
+    applet.prefetch()  # the warm-up begins later, returns first, and stores
+    source.release()  # and only now does the click's older board come back
+    _joined(clicking)
+
+    assert applet.holds() == _FRESH_ID
+    assert landings.shown == (_FRESH_ID,)
+    assert _STALE_ID not in landings.shown
+
+
+# --- P6 -------------------------------------------------------------------
+
+# BoardGlass serializes the read and push, so a placeholder can never land
+# over a board already shown. A store during an in-flight push cannot preempt
+# it; test_a_store_landing_during_a_push_leaves_the_display_one_behind covers
+# that separate case.
+
+
+# --- P7 -------------------------------------------------------------------
+
+
+def test_the_first_placeholder_of_a_session_still_appears() -> None:
+    """The cold click must still say what it is doing, or the menu looks broken.
+
+    The boundary partner of the partition above, and the one that rules out
+    fixing it with a counter: a rule that only pushed something newer than the
+    last push could never admit the first placeholder at all.
+    """
+    landings = Landings()
+    applet = Applet(InTurn(_FRESH))
+
+    applet.answer(SteppedClient(landings))
+
+    assert landings.shown == (_LOADING,)
+
+
+# --- P8 -------------------------------------------------------------------
+
+
+def test_the_failure_message_never_lands_over_a_board() -> None:
+    """A red message where a readable board is showing is the worse answer.
+
+    The click's ``bd`` fails while a warm-up's board arrives and is shown. The
+    reason is held by the state the load hands back rather than pushed on the
+    spot, so putting it up is the same act as putting a board up — and inside
+    the region the board the applet is holding wins.
+    """
+    landings = Landings()
+    source = Gated(_FRESH)  # the first load hangs and then fails; later ones succeed
+    applet = Applet(source)
+
+    clicking = _thread(lambda: applet.service(SteppedClient(landings)))
+    source.reached()  # the click's query is in flight and about to fail
+    applet.service(SteppedClient(landings))  # a board arrives and goes up
+    source.release()
+    _joined(clicking)
+
+    assert _FAILURE not in landings.shown
+    assert landings.last == _FRESH_ID
+
+
+# --- P9 -------------------------------------------------------------------
+
+
+def test_the_failure_message_appears_when_there_is_nothing_to_lose() -> None:
+    """Every way a read can fail has to become something the user can see.
+
+    The boundary partner of the partition above: the guard that keeps a message
+    off a board must not become "never show the reason at all".
+    """
+    landings = Landings()
+    applet = Applet(InTurn(BeadsFailure("bd: connection refused")))
+
+    applet.click(SteppedClient(landings))
+
+    assert landings.shown == (_LOADING, _FAILURE)
+
+
+# --- P10 ------------------------------------------------------------------
+
+
+def test_the_slot_keeps_the_board_whose_load_began_last() -> None:
+    """The rule the display half is built on must not regress while it changes.
+
+    Which writer stored last does not decide it; which load began last does. The
+    warm-up here begins first and returns last, so its issues are the older ones
+    however late its board arrives. ``tests/applets/test_board_slot.py`` drives
+    the slot's own contention; this pins the same rule through the service, with
+    the display asserted beside it.
+    """
+    landings = Landings()
+    source = Gated(_FRESH, gated=_STALE)  # the warm-up begins first, returns last
+    applet = Applet(source)
+
+    warming = _thread(applet.prefetch)
+    source.reached()  # the warm-up's query is in flight
+    applet.service(SteppedClient(landings))  # a later query returns first and stores
+    source.release()  # and only now does the warm-up return, with older issues
+    _joined(warming)
+
+    assert applet.holds() == _FRESH_ID
+    assert landings.shown == (_FRESH_ID,)
+
+
+# --- P11 ------------------------------------------------------------------
+
+
+def test_nothing_writes_the_display_from_outside_the_push_region() -> None:
+    """The lock discipline, checked where a runtime test would only hang.
+
+    Two obligations hold this design up and neither can be asserted by running
+    it without a test that wedges when it fails. The first is that every push
+    goes through the region: the only caller of a click's write is the region
+    itself, and the region holds its lock across it. The second is the
+    acquisition order — the region's lock is the outer one, so the slot must
+    never reach for it, and one direction is not a cycle.
+    """
+    sources = _applet_sources()
+
+    # A state writes the display in one method and nowhere else, so telling one
+    # to show itself is the only way anything reaches the glass. The write's own
+    # definition is the third module here, and it is a definition, not a caller.
+    for state in ("beads/held_board.py", "beads/no_board.py"):
+        assert _writers(sources[state]) == {"shows"}, f"{state} writes elsewhere"
+    assert _writers(sources["beads/board_work.py"]) == {"push"}
+    writing = {name for name, text in sources.items() if _writers(text)}
+    assert writing == {
+        "beads/board_work.py",
+        "beads/held_board.py",
+        "beads/no_board.py",
+    }
+
+    # The Hub write itself: any scene-writing verb on something of the board's
+    # provenance is the one place a board leaves for the Hub. ``ScopedBoardOps`` is
+    # that surface's definition, forwarding to the transport; the channel is the
+    # click path's only caller. ``lux beads`` is a one-shot process that renders once
+    # and exits, so it races no click and holds no slot: it is the second, and last,
+    # writer.
+    package = _package_sources()
+    verbs = _board_write_verbs()
+    on_board_ops = {
+        name for name, text in package.items() if _board_writes(text, verbs)
+    }
+    assert on_board_ops == {
+        "beads/board_channel.py",
+        "applets/board_ops.py",
+        "cli/beads.py",
+    }
+
+    # Telling anything to show, under any arity and from anywhere in the package,
+    # is confined to the region and the two modules that enter it. A call is found
+    # by name, so a rewritten signature cannot slip past it.
+    showing = {name for name, text in package.items() if _calls(text, "shows")}
+    assert showing == {
+        "beads/applet_board.py",
+        "beads/beads_service.py",
+        "beads/board_glass.py",
+    }, "a state was shown from outside the region and its entrances"
+    region = sources["beads/board_glass.py"]
+    assert region.index("with self._lock:") < region.index(".shows(work)"), (
+        "the region's lock is not held across the write"
+    )
+
+    slot = sources["beads/board_slot.py"]
+    assert _imports(slot).isdisjoint({"punt_lux.beads.board_glass"}), (
+        "the slot can reach the region's lock"
+    )
+    assert slot.count("threading.Lock()") == 1
+
+
+def test_the_boards_surface_is_derived_with_the_classes_that_implement_it() -> None:
+    assert {"BoardOps", "ScopedBoardOps"} <= _BOARD_PROVENANCE
+    assert _FORWARDED_TO <= _BOARD_PROVENANCE
+
+
+def test_the_write_verbs_are_derived_from_the_surfaces_that_define_them() -> None:
+    verbs = _board_write_verbs()
+
+    assert {"render", "render_table"} <= verbs  # the board's own Protocol
+    assert {"update", "clear", "clear_scene", "render_dashboard"} <= verbs
+    assert verbs.isdisjoint({"inspect_scene", "list_scenes", "ping"})
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def f(client: BoardOps, request):\n    client.render(request)",
+        "def f(client: BoardOps, request):\n    client.render_table(request)",
+        # a verb the surface offers beyond the two the board uses today
+        "def f(ops: SyncOps, scene_id, request):\n    ops.update(scene_id, request)",
+        "def f(ops: SyncOps):\n    ops.clear(scope=None)",
+        # the frame id handed in, composed, or never named: no ``beads-`` literal
+        "def f(client: BoardOps, frame):\n    client.render(make(frame))",
+        'def f(client: BoardOps, p):\n    client.render(make("-".join(("beads", p))))',
+        # reached through a field, a built adapter, and a client's transport
+        (
+            "class C:\n    _ops: ScopedBoardOps\n"
+            "    def f(self, r):\n        self._ops.update(r)"
+        ),
+        "def f(client, r):\n    ScopedBoardOps.for_client(client).render(r)",
+        "def f(client, r):\n    client.sync.render(r)",
+        # obtained from the thing that hands a board its load
+        "def f(board: AppletBoard, r):\n    out = board\n    out.render(r)",
+    ],
+)
+def test_a_writer_of_the_boards_frame_is_found_however_it_reaches_it(
+    source: str,
+) -> None:
+    """The writer guard has to be able to fail: each of these writes a scene."""
+    assert _board_writes(source, _board_write_verbs()) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Prose about BoardOps and beads-lux."""\ndef f(c, r):\n    c.render(r)',
+        "def f(ops, r):\n    ops.render(r)",
+        'name = "beads-lux"\ndef f(table, r):\n    table.render(r)',
+        "def f(client: BoardOps):\n    client.inspect_scene('s')",
+    ],
+)
+def test_a_module_that_writes_no_scene_through_the_board_is_not_one_of_its_writers(
+    source: str,
+) -> None:
+    assert _board_writes(source, _board_write_verbs()) == []
+
+
+# --- The board's frame is minted once --------------------------------------
+#
+# Spotting a write by the spelling of its receiver loses to the next spelling. The
+# board is held by what exists instead: its frame id is minted in one place, only
+# the modules that hold a board can build its requests, and the adapter that writes
+# them is made at two named sites. A module that writes the board's frame must name
+# the frame (which only the mint produces) or hold the board; one that does neither
+# writes a scene of its own, which is anyone's to write.
+
+_BOARD_MINT = "beads/beads_board.py"
+# Beside the module that defines the board and mints its frame.
+_BOARD_HOLDERS = frozenset(
+    {
+        "beads/beads_service.py",
+        "beads/board_load.py",
+        "cli/beads.py",
+    }
+)
+# The two writers the board has: the applet's runner, and the one-shot command.
+_BOARD_WRITERS = frozenset({"applets/runner.py", "cli/beads.py"})
+_BOARD_PREFIX = "beads-"
+
+
+def _docstrings(tree: ast.Module) -> set[int]:
+    """The ids of the string nodes that are docstrings, which are prose, not code."""
+    found: set[int] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(
+                node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+            )
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        ):
+            found.add(id(node.body[0].value))
+    return found
+
+
+def _static_text(node: ast.expr) -> str | None:
+    """The whole string ``node`` is when it is known without running the code."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _static_text(node.left), _static_text(node.right)
+        return None if left is None or right is None else left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = [_static_text(part) for part in node.values]
+        return None if None in parts else "".join(cast("list[str]", parts))
+    return None
+
+
+def _leading_text(node: ast.expr) -> str:
+    """The text a string expression is known to begin with, folding ``a + b`` chains."""
+    if isinstance(node, ast.JoinedStr):
+        head = ""
+        for part in node.values:
+            if not (isinstance(part, ast.Constant) and isinstance(part.value, str)):
+                break
+            head += part.value
+        return head
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        whole = _static_text(node.left)
+        return (
+            _leading_text(node.left)
+            if whole is None
+            else whole + _leading_text(node.right)
+        )
+    return _static_text(node) or ""
+
+
+def _names_the_board_frame(source: str) -> list[int]:
+    """Lines whose code spells a scene or frame id of the board.
+
+    A literal, an f-string, or a ``+`` chain that folds to one: ``"beads" + "-x"``
+    is the same id as ``"beads-x"``.
+    """
+    tree = ast.parse(source)
+    prose = _docstrings(tree)
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant | ast.JoinedStr | ast.BinOp)
+        and _leading_text(node).startswith(_BOARD_PREFIX)
+        and id(node) not in prose
+    ]
+
+
+def _names_the_board(source: str) -> bool:
+    """Whether the code (not its prose) names a ``BeadsBoard``, however imported."""
+    tree = ast.parse(source)
+    return any(
+        (isinstance(node, ast.Name) and node.id == "BeadsBoard")
+        or (isinstance(node, ast.Attribute) and node.attr == "BeadsBoard")
+        or (
+            isinstance(node, ast.ImportFrom | ast.Import)
+            and any(alias.name.split(".")[-1] == "BeadsBoard" for alias in node.names)
+        )
+        for node in ast.walk(tree)
+    )
+
+
+def _builds_the_writing_adapter(source: str) -> bool:
+    """Whether the code asks ``ScopedBoardOps`` to bind a client: ``.for_client(``.
+
+    The class is followed through an aliased import and an assignment, so
+    ``from m import ScopedBoardOps as S`` then ``S.for_client(...)`` is found.
+    """
+    return ClassReferences(source, "ScopedBoardOps").method_calls("for_client") > 0
+
+
+def test_the_boards_frame_id_is_minted_in_one_module() -> None:
+    minting = {
+        name
+        for name, text in _package_sources().items()
+        if _names_the_board_frame(text)
+    }
+
+    assert minting == {_BOARD_MINT}
+
+
+def test_only_the_modules_that_hold_a_board_name_one() -> None:
+    holders = {
+        name for name, text in _package_sources().items() if _names_the_board(text)
+    }
+
+    assert holders == _BOARD_HOLDERS
+
+
+def test_the_writing_adapter_is_bound_at_the_two_writers_alone() -> None:
+    binders = {
+        name
+        for name, text in _package_sources().items()
+        if _builds_the_writing_adapter(text)
+    }
+
+    assert binders == _BOARD_WRITERS
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # through the general client's whole ops family, the frame id composed
+        (
+            "def f(ops: SceneOps, p, r):\n"
+            '    ops.render(RenderRequest(scene_id=f"beads-{p}"))'
+        ),
+        # the shape every CLI command uses
+        'def f(ctx, p):\n    ctx.ops.render(RenderRequest(scene_id=f"beads-{p}"))',
+        # a literal, a table, a frame spec
+        (
+            "def f(client):\n"
+            '    client.render_table(RenderTableRequest(frame_id="beads-lux"))'
+        ),
+        'FRAME = "beads-" + "lux"',
+        # the prefix split across a concatenation
+        'FRAME = "beads" + "-lux"',
+        'def f(p):\n    return "bea" + "ds-" + p',
+        'def f(p):\n    return f"beads" + f"-{p}"',
+    ],
+)
+def test_a_module_that_spells_the_boards_frame_is_found(source: str) -> None:
+    assert _names_the_board_frame(source) != []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        '"""Prose about beads-lux and its frame."""\nx = 1',
+        'def f():\n    """The frame beads-lux is raised."""\n    return 1',
+        'name = "bead-lux"\nother = "the beads- prefix"',
+    ],
+)
+def test_prose_and_other_names_are_not_the_boards_frame(source: str) -> None:
+    assert _names_the_board_frame(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from punt_lux.beads.beads_board import BeadsBoard\n",
+        "from punt_lux.beads import beads_board\nx = beads_board.BeadsBoard\n",
+        "def f(board: BeadsBoard) -> None:\n    board.starting()\n",
+    ],
+)
+def test_a_module_that_holds_a_board_in_any_spelling_is_found(source: str) -> None:
+    assert _names_the_board(source)
+
+
+def test_a_module_that_binds_the_writing_adapter_is_found() -> None:
+    assert _builds_the_writing_adapter(
+        "def f(client):\n    return ScopedBoardOps.for_client(client)\n"
+    )
+    assert not _builds_the_writing_adapter("def f(client):\n    return client.sync\n")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from punt_lux.x import ScopedBoardOps as S\n"
+            "def f(c):\n    return S.for_client(c)\n"
+        ),
+        (
+            "import punt_lux.x as m\n"
+            "def f(c):\n    return m.ScopedBoardOps.for_client(c)\n"
+        ),
+        (
+            "import punt_lux.x as m\nS = m.ScopedBoardOps\n"
+            "def f(c):\n    return S.for_client(c)\n"
+        ),
+        (
+            "from punt_lux.x import ScopedBoardOps\n"
+            "S = ScopedBoardOps\nT = S\nx = T.for_client(1)\n"
+        ),
+    ],
+)
+def test_an_aliased_binding_of_the_writing_adapter_is_found(source: str) -> None:
+    assert _builds_the_writing_adapter(source)
+
+
+# --- P12 ------------------------------------------------------------------
+
+
+def test_a_store_landing_during_a_push_leaves_the_display_one_behind() -> None:
+    """The boundary this design does not close, put as the weaker true thing.
+
+    The slot's lock is not held across the write — the write is a socket round
+    trip — so a board stored between the read and the write is held and not yet
+    shown. That is ordinary staleness: the display is *behind* the slot, which
+    breaks nothing, rather than ahead of it or showing something refused. It is
+    also what proves the two locks are not one: the store completes while the
+    write is still in flight.
+    """
+    landings = Landings()
+    pushes = Gate()
+    applet = Applet(InTurn(_STALE, _FRESH))
+    applet.prefetch()
+
+    answering = _thread(lambda: applet.answer(SteppedClient(landings, pushes=pushes)))
+    pushes.reached()  # the write has read the slot and is in flight
+    applet.prefetch()  # a newer board is stored while it is
+    pushes.release()
+    _joined(answering)
+
+    assert landings.shown == (_STALE_ID,)  # one generation behind, and not ahead
+    assert applet.holds() == _FRESH_ID

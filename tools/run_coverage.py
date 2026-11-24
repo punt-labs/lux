@@ -30,7 +30,7 @@ def run_coverage() -> None:
         [
             cov,
             "run",
-            "--source=src/punt_lux",
+            "--source=src/punt_lux,packages/punt-lux-client/src/punt_lux,packages/punt-service/src/punt_service",
             "-m",
             "pytest",
             "--ignore=tests/test_display_partition.py",

@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tools.source_tree import SourceTree
+
 _SOURCE = Path(__file__).resolve().parents[1] / "src"
 _BANNED = {"basicConfig", "RotatingFileHandler", "TimedRotatingFileHandler"}
 
@@ -21,8 +23,14 @@ def _banned_name(node: ast.AST) -> str:
 
 def test_source_uses_no_forbidden_logging_setup() -> None:
     violations = [
-        f"{path.relative_to(_SOURCE)}:{getattr(node, 'lineno', '?')}: {name}"
-        for path in sorted(_SOURCE.rglob("*.py"))
+        f"{path}:{getattr(node, 'lineno', '?')}: {name}"
+        for path in sorted(
+            {
+                path
+                for namespace in ("punt_lux", "punt_service")
+                for path in SourceTree(_SOURCE).modules(namespace).values()
+            }
+        )
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if (name := _banned_name(node)) in _BANNED
     ]

@@ -8,10 +8,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from punt_lux.service import DISPLAY_SPEC, HUB_SPEC, ServiceSpec
+from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
 from punt_lux.service._restart_readiness import RestartReadiness
 from punt_lux.service.display_restart import DisplayRestart, DisplayRestartError
 from punt_lux.service.hub_restart import HubRestart, HubRestartError
+from punt_service import ServiceSpec
 from tests.service._probe_double import ProbeDouble
 
 
@@ -24,7 +25,7 @@ def test_failure_logs_label_and_launchctl_status(
         patch(
             "punt_lux.service._restart_readiness.platform.system", return_value="Darwin"
         ),
-        patch("punt_lux.service._launchctl.os.getuid", return_value=501),
+        patch("punt_service._launchctl.os.getuid", return_value=501),
         patch("punt_lux.service._restart_readiness.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):
@@ -112,7 +113,7 @@ def test_timeout_logs_before_raising_original_error(
     manager = MagicMock()
     with (
         patch(
-            "punt_lux.service._backends.pgrep_pid"
+            "punt_service._backends.pgrep_pid"
             if module == "display_restart"
             else f"punt_lux.service.{module}.pgrep_pid",
             return_value=None,
@@ -155,7 +156,7 @@ def test_success_does_not_probe_launchd(
             side_effect=ProbeDouble.local,
         ),
         patch(
-            "punt_lux.service._backends.pgrep_pid"
+            "punt_service._backends.pgrep_pid"
             if module == "display_restart"
             else f"punt_lux.service.{module}.pgrep_pid",
             side_effect=[101, 102],

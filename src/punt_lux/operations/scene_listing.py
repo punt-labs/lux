@@ -15,10 +15,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.hub.scene_read_shapes import SceneReadShapes
 from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
-from punt_lux.wire.operations.query_ownership import SceneOwner
-from punt_lux.wire.operations.query_quarantine import QuarantineInfo
 from punt_lux.wire.operations.query_scenes import (
     FrameSummary,
     SceneList,
@@ -27,11 +26,12 @@ from punt_lux.wire.operations.query_scenes import (
 
 if TYPE_CHECKING:
     from punt_lux.hub.hub_display import HubDisplay
-    from punt_lux.hub.quarantine_record import QuarantineRecord
     from punt_lux.operations.frame_visibility_proxy import FrameVisibilityProxy
     from punt_lux.wire.model.ids import SceneId
     from punt_lux.wire.model.scene_presentation import ScenePresentation
     from punt_lux.wire.operations.inspect_scope import InspectScope
+    from punt_lux.wire.operations.query_ownership import SceneOwner
+    from punt_lux.wire.operations.query_quarantine import QuarantineInfo
 
 __all__ = ["SceneListing"]
 
@@ -84,10 +84,10 @@ class SceneListing:
         Shared with ``QueryOperations.inspect_scene``, which reports the same
         record for the one scene it reads.
         """
-        record: QuarantineRecord | None = self._display.quarantine_record(scene_id)
+        record = self._display.quarantine_record(scene_id)
         if record is None:
             return None
-        return QuarantineInfo.of(record)
+        return SceneReadShapes.quarantine(record)
 
     def _scene_summary(
         self, sid: SceneId, presentation: ScenePresentation
@@ -131,7 +131,7 @@ class SceneListing:
 
     def _owners_of(self, scene_id: SceneId) -> list[SceneOwner]:
         """Return the scene's distinct owners as introspection read shapes."""
-        return [SceneOwner.of(owner) for owner in self._display.scene_owners(scene_id)]
+        return SceneReadShapes.owners(self._display.scene_owners(scene_id))
 
     @staticmethod
     def local_id_of(scene_id: SceneId | str) -> str:

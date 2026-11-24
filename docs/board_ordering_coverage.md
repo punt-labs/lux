@@ -50,7 +50,7 @@ unless the table says otherwise. The mapping:
 | P5 | `test_a_board_the_slot_refused_never_reaches_the_display` |
 | P6 | structurally unconstructable, for a distinct reason from P2/P3 -- see "P6" below |
 | P7 | `test_the_first_placeholder_of_a_session_still_appears` |
-| P8 | `test_the_failure_message_never_lands_over_a_board`, and at the service level `test_a_board_that_arrives_mid_click_outlives_the_click_that_failed` in [`test_beads_service.py`](../tests/applets/beads/test_beads_service.py) |
+| P8 | `test_the_failure_message_never_lands_over_a_board`, and at the service level `test_a_board_that_arrives_mid_click_outlives_the_click_that_failed` in [`test_beads_service.py`](../tests/beads/test_beads_service.py) |
 | P9 | `test_the_failure_message_appears_when_there_is_nothing_to_lose` |
 | P10 | `test_the_slot_keeps_the_board_whose_load_began_last`, over the slot's own contention in [`test_board_slot.py`](../tests/applets/test_board_slot.py) |
 | P11 | `test_nothing_writes_the_display_from_outside_the_push_region` |
@@ -69,15 +69,15 @@ review's own witness: the display ends on `lux-stale` after the refresh landed
 The obligations landed as four collaborators, in case a later reader is looking
 for them by name:
 
-- `applets/board_glass.py` — the push region: the lock, held across the write,
+- `beads/board_glass.py` — the push region: the lock, held across the write,
   with the slot read inside it.
-- `applets/applet_board.py` — the load, the slot and the region as one object,
+- `beads/applet_board.py` — the load, the slot and the region as one object,
   so that keeping a board and showing it are one call apart and in that order.
 - `CachedBoard.shows` / `CachedBoard.said` — a state puts *itself* on the
   display and says what the click's line should call it; the region chooses
   which state, and notes what actually went up rather than what the click
   intended.
-- `applets/blank_board.py` and its two states — the placeholder and the failure
+- `beads/blank_board.py` and its two states — the placeholder and the failure
   message are things a state *holds*, so obligation 3's clean shape holds: the
   message goes up the way a board does, through the same region.
 

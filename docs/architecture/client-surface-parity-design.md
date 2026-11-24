@@ -410,7 +410,7 @@ transport clients.
 
 ```python
 # lux/__init__.py (public API)
-from punt_lux import LuxClient
+from punt_lux.client import LuxClient
 
 client = LuxClient.for_identity(kind="tool", name="my-tool")
 client.scene.show(spec)

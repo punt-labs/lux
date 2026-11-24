@@ -7,11 +7,11 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.service import ServiceActionFailedError, _backends
 from punt_lux.service._restart_readiness import RestartReadiness
+from punt_service import ServiceActionFailedError, _backends
 
 if TYPE_CHECKING:
-    from punt_lux.service import ServiceSpec
+    from punt_service import ServiceSpec
 
 
 class ReadinessError(RuntimeError):

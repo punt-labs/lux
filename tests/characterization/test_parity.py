@@ -112,7 +112,7 @@ def test_every_tool_has_a_snapshot() -> None:
     tool is added without a snapshot, this test fails — the corpus is the
     contract for tool-level behavior across the migration.
     """
-    from punt_lux import tools as tools_pkg
+    import punt_lux.tools as tools_pkg
 
     non_tool_exports = {"mcp"}
     registered = {

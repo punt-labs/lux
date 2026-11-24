@@ -24,6 +24,7 @@ from typing import Self, final, get_args
 
 from punt_lux.wire.model.messages import DisplayMessage
 from tests.class_references import ClassReferences, aliased_constructions
+from tools.source_tree import SourceTree
 
 _SRC = Path(__file__).resolve().parents[2] / "src"
 _DISPLAY = _SRC / "punt_lux" / "display"
@@ -317,7 +318,7 @@ class TestTheDoorsHaveOneOwner:
     ) -> None:
         built = {
             path.relative_to(_SRC.parent).as_posix(): count
-            for path in sorted(_SRC.rglob("*.py"))
+            for path in SourceTree(_SRC).modules().values()
             if (count := _constructions_of(path.read_text(encoding="utf-8"), _SENDER))
         }
 

@@ -24,9 +24,9 @@ def test_package_owned_module_imports(module: str) -> None:
     assert_importable(module)
 
 
-def test_only_pending_root_entry_modules_remain() -> None:
+def test_namespace_root_has_no_python_modules() -> None:
     source = Path(__file__).resolve().parents[1] / "src" / "punt_lux"
-    assert {path.name for path in source.glob("*.py")} == {"__init__.py", "__main__.py"}
+    assert not list(source.glob("*.py"))
 
 
 @pytest.mark.parametrize(

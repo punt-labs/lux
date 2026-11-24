@@ -229,7 +229,7 @@ re-dispatch.
 | `tools/{read,write,composite,display_write,subscribe}_tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade, split by concern |
 | `hub/display_link.py` | `DisplayLink` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `hub/clients.py`, guard-enforced |
 | `applets/` | Lux applets (DES-063): `AppletLeg` (listener + register-on-connect + click servicing), `SessionWatch` (parent-pid lifetime), `beads/` (`lux-beads` — the first bundled applet: `applet.py`, its service, the `bd` runner and board) |
-| `applets/beads/browser.py` | `BeadsBrowser` — loads and orders beads issues; `applets/beads/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
+| `beads/browser.py` | `BeadsBrowser` — loads and orders beads issues; `beads/beads_board.py` builds requests and `wire/model/compositions/table_composition.py` builds the Hub-side table UI |
 
 25 wire element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`client.scene.table()`), dashboards (`client.scene.dashboard()`), custom rendering (`draw` element). `SplitPaneElement` is a `GroupElement` refinement with the same JSON kind, not a 26th wire kind.
 
@@ -291,7 +291,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 **MCP tool boilerplate — resolved.** Every tool under `tools/` (`read_tools.py`, `write_tools.py`, `composite_tools.py`, `display_write_tools.py`, `subscribe_tools.py`) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
 **Ratchet tooling:** `uv sync` installs the dev-only PyPI package
-`punt-oo-ratchet==0.4.0`. The `oo-ratchet oo`, `oo-ratchet coupling`, and
+`punt-oo-ratchet==0.6.0`. The `oo-ratchet oo`, `oo-ratchet coupling`, and
 `oo-ratchet suppressions` commands power the Makefile gates; do not embed
 copies under `tools/`. Existing root baselines and audit logs stay committed.
 
@@ -485,6 +485,8 @@ Two lux-specific operational facts the loops rely on:
 ## Release
 
 Use `/punt:auto release [version=X.Y.Z]`. Lux is a CLI + Plugin Hybrid — releases publish to both PyPI (`punt-lux`) and the marketplace. Dev plugin testing: `claude --plugin-dir plugin` loads `lux-dev` alongside prod — the argument is the plugin root, which is `plugin/`, not the repo root.
+
+**Workspace version step:** in release Phase 2, immediately after the root version bump and before the lock refresh, run `make sync-workspace-version`. It mirrors the root version into `punt-lux-client`, `punt-service` and the root's exact dependency pins; include all three manifests and `uv.lock` in the release commit. Build with `uv build --all-packages`. `tests/test_workspace.py` rejects drift. See `docs/workspace.md`.
 
 **The shippable plugin surface lives in `plugin/`.** `plugin/.claude-plugin/`, `plugin/commands/`, `plugin/hooks/`, and `plugin/skills/` are the only directories a marketplace install fetches: the catalog entry uses Claude Code's `git-subdir` source (`"path": "plugin"`), which is a blobless partial clone plus a cone sparse-checkout. Nothing outside `plugin/` may be referenced from inside it, and `${CLAUDE_PLUGIN_ROOT}` resolves to `plugin/`. The wheel is unaffected — `uv_build` ships `src/punt_lux` only, so the plugin surface has never been packaged.
 

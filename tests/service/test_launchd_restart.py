@@ -12,13 +12,13 @@ import pytest
 from punt_lux.service import (
     DISPLAY_SPEC,
     HUB_SPEC,
-    ServiceManager,
-    ServiceNotInstalledError,
-    ServiceSpec,
+    DisplayServiceManager,
+    HubServiceManager,
 )
-from punt_lux.service._backend_launchd import LaunchdBackend
 from punt_lux.service.display_restart import DisplayRestart
 from punt_lux.service.hub_restart import HubRestart
+from punt_service import ServiceNotInstalledError, ServiceSpec
+from punt_service._backend_launchd import LaunchdBackend
 from tests.service._probe_double import ProbeDouble
 
 
@@ -46,7 +46,7 @@ def test_restart_recovery_partitions(
 ) -> None:
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.INFO),
     ):
         backend = LaunchdBackend(spec)
@@ -102,10 +102,10 @@ def test_missing_plist_still_fails_before_supervisor_call(
 ) -> None:
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
-        patch("punt_lux.service.detect_platform", return_value="macos"),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service.detect_platform", return_value="macos"),
+        patch("punt_service._launchctl.subprocess.run") as run,
     ):
-        manager = ServiceManager.for_display() if display else ServiceManager.for_hub()
+        manager = DisplayServiceManager() if display else HubServiceManager()
         with pytest.raises(ServiceNotInstalledError):
             manager.restart()
     run.assert_not_called()
@@ -133,10 +133,10 @@ def test_recovered_restart_waits_for_readiness(
             side_effect=ProbeDouble.local,
         ),
         patch("pathlib.Path.home", return_value=tmp_path),
-        patch("punt_lux.service.detect_platform", return_value="macos"),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service.detect_platform", return_value="macos"),
+        patch("punt_service._launchctl.subprocess.run") as run,
         patch(
-            "punt_lux.service._backends.pgrep_pid"
+            "punt_service._backends.pgrep_pid"
             if module == "display_restart"
             else f"punt_lux.service.{module}.pgrep_pid",
             side_effect=[101, 102],

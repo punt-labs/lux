@@ -206,8 +206,9 @@ distributed incremental diff protocol.
 
 Lux is becoming a family of processes that share one set of packages, not one
 process. This section records the package names and layer rules agreed before
-any more code moves. They are targets: today the code still ships as one
-distribution, and `make check-layers` ratchets where it breaks these rules.
+any more code moves. The layers remain unpublished source packages in one
+aggregate import graph; three distributions are published, as described below.
+`make check-layers` ratchets the layer rules across both Lux source roots.
 
 ### Process roles
 
@@ -224,14 +225,31 @@ internals. No daemon imports another daemon.
 
 ### Packages
 
-Every package lives under the one `punt_lux` namespace.
+Lux's source layers live under the PEP 420 `punt_lux` namespace, without
+root exports. They are not separate distributions. The neutral daemon
+engine instead owns the top-level `punt_service` package.
+
+| Distribution | Physical ownership | Dependencies |
+|---|---|---|
+| `punt-lux` | Root `src/punt_lux`: product layers, Lux service policy and Beads | Exact synchronized client and service versions; full-product dependencies |
+| `punt-lux-client` | `packages/punt-lux-client/src/punt_lux/{kernel,wire,client,applets}` | Pydantic, websockets, punt-observe, setproctitle |
+| `punt-service` | `packages/punt-service/src/punt_service` | Standard library only |
+
+All three use `uv_build` and one synchronized version. The entire small
+kernel ships with the client: no regular package is split between wheels.
+Generic applet helpers contain no Beads application code. Lux's concrete
+specs, readiness, identities, uv-tool ownership and logging policy stay in
+`punt_lux.service`; `punt_service.ServiceManager` accepts a product-owned
+disk-migration strategy and neutral `ServiceSpec` data.
+
+The following table names source layers, not PyPI distributions.
 
 | Package | Namespace | Holds |
 |---|---|---|
 | lux-kernel | `punt_lux.kernel` | Primitives with no Lux dependencies: paths, logging and usage adapters, peer credentials, bounded socket writers and queues |
 | lux-wire | `punt_lux.wire` | Pure contracts: the UI model (elements, kinds, handlers), Hub-to-Display replica messages and codec, public request and result types, terminal stream frames; `facts/` and `mesh/` reserved |
 | lux-trust | `punt_lux.trust` | CA, enrollment, peer identity |
-| lux-service | `punt_lux.service` | Daemon lifecycle shared by every daemon: install, backends, sweeps, doctor, endpoints and process ownership |
+| lux-service | `punt_lux.service` | Lux specs, readiness, migration ownership and logging policy, delegating generic supervisor lifecycle to `punt_service` |
 | lux-client | `punt_lux.client` | The spoke SDK: REST and listen legs, applet helpers, the Hub-carried terminal stream transport |
 | lux-terminal | `punt_lux.terminal` | Headless VT behind libghostty and the shared output and snapshot policy; no daemon code |
 | lux-commands | `punt_lux.commands` | Shared command execution and output formatting over kernel and wire contracts; no Hub or client implementation imports |
@@ -239,8 +257,7 @@ Every package lives under the one `punt_lux` namespace.
 | lux-display | `punt_lux.display` | The Display peripheral: window, replica, menus, ImGui renderers, terminal view |
 | lux-pty | `punt_lux.pty` | luxd-pty: sessions, processes, viewers, stream server |
 | lux-cli | `punt_lux.cli` | The `lux` command, built on the client SDK and service lifecycle |
-| applets | `punt_lux.applets` | Bundled spokes such as lux-beads, built on the client SDK |
-| punt-lux | — | Meta-distribution: the default single-machine install under the existing PyPI name |
+| applets | `punt_lux.applets` | Generic spoke helpers built on the client SDK; Beads remains product-owned under `punt_lux.beads` |
 
 ### Layer rules
 
@@ -283,9 +300,9 @@ pending a design decision.
 The moved identity values do not occur in Hub-to-Display element pickles, so
 Ready remains `0.3` and the existing pickle remapping is unchanged.
 
-Step 6 folds the old `punt_lux.apps` package into `punt_lux.applets.beads`,
+Step 6 folds the old `punt_lux.apps` package into `punt_lux.beads`,
 which now holds the whole Beads applet: the `lux-beads` program
-(`applets/beads/applet.py`), its service and source, the `bd` runner, and the
+(`beads/applet.py`), its service and source, the `bd` runner, and the
 board that turns a load into a render request. The board builds those requests
 from `operations.models`, removing the last direct static applets-to-Hub edge.
 This does not yet isolate runtime imports: Python executes `operations/__init__.py`

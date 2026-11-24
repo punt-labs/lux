@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[2] / "src"
+_SRC = Path(__file__).resolve().parents[2] / "packages/punt-lux-client/src"
 _CLIENT = _SRC / "punt_lux" / "client"
 _MODULES = sorted(
     ".".join(path.relative_to(_SRC).with_suffix("").parts).removesuffix(".__init__")

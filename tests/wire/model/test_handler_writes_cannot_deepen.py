@@ -42,6 +42,7 @@ from punt_lux.wire.model.elements.tab_bar import TabBarElement
 from punt_lux.wire.model.elements.table import TableElement
 from punt_lux.wire.model.elements.value_change_handlers import ChangedField
 from punt_lux.wire.model.nesting_cap import NestingCap
+from tools.source_tree import SourceTree
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -161,8 +162,8 @@ def _callers(source_by_module: dict[str, str]) -> dict[str, list[ast.Attribute]]
 
 def _sources() -> dict[str, str]:
     return {
-        path.relative_to(_SRC).as_posix(): path.read_text(encoding="utf-8")
-        for path in _SRC.rglob("*.py")
+        rel: path.read_text(encoding="utf-8")
+        for rel, path in SourceTree(_SRC.parent).files().items()
     }
 
 

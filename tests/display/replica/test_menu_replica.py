@@ -29,6 +29,8 @@ from tests.menu_doubles import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from pytest import MonkeyPatch
+
     from punt_lux.display.menus.wire import WireMenu
     from punt_lux.wire.model import RemoteEventHandlerInvocation
 
@@ -128,13 +130,29 @@ class TestMenuModelComposition:
         assert imgui.line("25%").checked is True
         assert imgui.line("100%").checked is False
 
+    def test_the_help_version_is_not_reread_while_painting(
+        self,
+        monkeypatch: MonkeyPatch,
+    ) -> None:
+        import punt_lux.display.menus.own_menus as own_menus
+
+        expected = f"Lux v{own_menus._VERSION}"
+
+        def unavailable(_distribution: str) -> str:
+            raise AssertionError("metadata read while painting")
+
+        monkeypatch.setattr(own_menus, "version", unavailable)
+        imgui = FakeImGui()
+        _manager().render_bar(imgui)
+        assert imgui.labels_under("Help") == (expected,)
+
     def test_the_help_menu_names_the_running_version(self) -> None:
-        from punt_lux import __version__
+        from importlib import metadata
 
         imgui = FakeImGui()
         _manager().render_bar(imgui)
 
-        assert imgui.labels_under("Help") == (f"Lux v{__version__}",)
+        assert imgui.labels_under("Help") == (f"Lux v{metadata.version('punt-lux')}",)
 
     def test_a_callback_leafs_frame_raises_through_on_raise_frame(self) -> None:
         raised: list[str] = []

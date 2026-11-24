@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import ClassVar, Self
 
 from tools.layer_baseline import LayerBaseline
+from tools.source_tree import SourceTree
 
 
 class LayerContract:
@@ -32,8 +33,9 @@ class LayerContract:
         "display": "display",
         "terminal": "terminal",
         "pty": "pty",
-        "cli": "cli __main__",
+        "cli": "cli",
         "applets": "applets",
+        "beads": "beads",
     }
     _allowed: ClassVar[dict[str, set[str]]] = {
         "kernel": set(),
@@ -46,8 +48,18 @@ class LayerContract:
         "display": {"kernel", "wire", "trust", "service", "terminal"},
         "terminal": {"kernel", "wire"},
         "pty": {"kernel", "wire", "trust", "service", "client", "terminal"},
-        "cli": {"kernel", "wire", "trust", "service", "client", "applets", "commands"},
+        "cli": {
+            "kernel",
+            "wire",
+            "trust",
+            "service",
+            "client",
+            "applets",
+            "commands",
+            "beads",
+        },
         "applets": {"kernel", "wire", "trust", "service", "client"},
+        "beads": {"kernel", "wire", "trust", "service", "client", "applets"},
     }
 
     def classify(self, module: str) -> str:
@@ -169,11 +181,7 @@ class LayerReport:
     def render(self) -> str:
         self._violations.clear()
         self._errors.clear()
-        modules: dict[str, Path] = {}
-        for path in sorted((self._src / "punt_lux").rglob("*.py")):
-            parts = path.relative_to(self._src).with_suffix("").parts
-            module = ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
-            modules[module] = path
+        modules = SourceTree(self._src).modules()
         groups: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
         edges: set[tuple[str, str]] = set()
         errors = self._errors

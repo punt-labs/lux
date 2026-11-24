@@ -9,8 +9,9 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.service import DISPLAY_SPEC, HUB_SPEC, ServiceMigrationError, ServiceSpec
-from punt_lux.service._backend_launchd import LaunchdBackend
+from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
+from punt_service import ServiceMigrationError, ServiceSpec
+from punt_service._backend_launchd import LaunchdBackend
 
 
 @pytest.mark.parametrize("spec", [DISPLAY_SPEC, HUB_SPEC])
@@ -21,7 +22,7 @@ def test_leading_whitespace_does_not_restart_an_active_service(
         patch("pathlib.Path.home", return_value=tmp_path),
         patch.object(ServiceSpec, "resolve_exec_args", return_value=["/bin/service"]),
         patch.object(LaunchdBackend, "is_active", return_value=True),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
     ):
         backend = LaunchdBackend(spec)
         path = backend.config_path()
@@ -49,7 +50,7 @@ def test_failed_bootstrap_logs_label_and_retains_new_plist(
             LaunchdBackend, "_plist_content", return_value="replacement plist"
         ),
         patch.object(LaunchdBackend, "is_active", return_value=active),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):
         backend = LaunchdBackend(spec)
@@ -88,7 +89,7 @@ def test_successful_bootstrap_does_not_log_failure(
         patch("pathlib.Path.home", return_value=tmp_path),
         patch.object(LaunchdBackend, "_plist_content", return_value="new plist"),
         patch.object(LaunchdBackend, "is_active", return_value=False),
-        patch("punt_lux.service._launchctl.subprocess.run") as run,
+        patch("punt_service._launchctl.subprocess.run") as run,
         caplog.at_level(logging.ERROR),
     ):
         run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")

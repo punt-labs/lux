@@ -18,8 +18,8 @@ from pathlib import Path
 import pytest
 
 from punt_lux.service import HUB_SPEC
-from punt_lux.service._legacy_sweep_launchd import LaunchdLegacySweep
-from punt_lux.service._legacy_sweep_systemd import SystemdLegacySweep
+from punt_service._legacy_sweep_launchd import LaunchdLegacySweep
+from punt_service._legacy_sweep_systemd import SystemdLegacySweep
 
 pytestmark = pytest.mark.e2e
 

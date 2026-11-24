@@ -7,13 +7,32 @@ import sys
 
 import pytest
 
+_GENERIC = {
+    "_atomic_write",
+    "_backend_launchd",
+    "_backend_systemd",
+    "_backends",
+    "_binary_sweep",
+    "_doctor_result",
+    "_launchctl",
+    "_launchd_plist",
+    "_legacy_sweep",
+    "_legacy_sweep_launchd",
+    "_legacy_sweep_systemd",
+    "_platform_dispatch",
+    "_port_guard",
+    "_service_errors",
+}
+
 
 @pytest.mark.parametrize(
     "module",
     [
         "punt_lux.service",
+        "punt_service",
+        "punt_service.service_spec",
         *(
-            f"punt_lux.service.{name}"
+            f"{'punt_service' if name in _GENERIC else 'punt_lux.service'}.{name}"
             for name in (
                 "_atomic_write",
                 "_backend_launchd",

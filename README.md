@@ -66,8 +66,18 @@ uv tool install punt-lux
 Or add the library to a Python project:
 
 ```bash
-uv add punt-lux
+uv add punt-lux-client
 ```
+
+`punt-lux-client` is the independently installable headless SDK: client,
+wire contracts, kernel and generic applet helpers. It installs no Hub,
+Display, PTY, FastAPI or MCP stack. Import `punt_lux.client` and
+`punt_lux.wire.*` explicitly; `punt_lux` has no root exports.
+
+Daemon authors can instead `uv add punt-service` and import `punt_service`.
+It has no third-party or Lux dependencies. The full `punt-lux` distribution
+depends on both packages at its exact version; existing CLI entry points
+and the `[display]` extra remain on `punt-lux`.
 
 </details>
 

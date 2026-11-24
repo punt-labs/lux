@@ -8,9 +8,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from punt_lux.service import ServiceSpec
-from punt_lux.service._backend_launchd import LaunchdBackend
-from punt_lux.service._backend_systemd import SystemdBackend
+from punt_service import ServiceSpec
+from punt_service._backend_launchd import LaunchdBackend
+from punt_service._backend_systemd import SystemdBackend
 
 _FOOD = ServiceSpec(
     display_name="food",
@@ -31,7 +31,7 @@ def test_non_lux_spec_installs_through_both_backends(tmp_path: Path) -> None:
     with (
         patch("pathlib.Path.home", return_value=tmp_path),
         patch(
-            "punt_lux.service._launchctl.subprocess.run",
+            "punt_service._launchctl.subprocess.run",
             return_value=Mock(returncode=0),
         ),
         patch.object(LaunchdBackend, "is_active", return_value=False),

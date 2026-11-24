@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[3] / "src"
+_SRC = Path(__file__).resolve().parents[3] / "packages/punt-lux-client/src"
 _MODELS = _SRC / "punt_lux" / "wire" / "model"
 _MODULES = [
     "punt_lux.wire",

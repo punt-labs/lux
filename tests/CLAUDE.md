@@ -91,8 +91,8 @@ tests belong in `tests/wire/model/`. Public operation model tests mirror
 `wire/operations/` under `tests/wire/operations/`. `tests/test_package_isolation.py`
 uses the shared fresh-interpreter helper to reject removed contract paths and
 prove root/client/service imports load no Hub, commands, operations facade,
-Display or PTY modules. Beads applet tests mirror `applets/beads/` under
-`tests/applets/beads/`; `tests/applets/beads/test_imports.py` imports every
+Display or PTY modules. Beads applet tests mirror `beads/` under
+`tests/beads/`; `tests/beads/test_imports.py` imports every
 module in a fresh interpreter and verifies the removed `punt_lux.apps` paths
 have no aliases. `tests/client/test_imports.py` imports every
 SDK module in a fresh interpreter with blocking DNS forbidden and verifies that

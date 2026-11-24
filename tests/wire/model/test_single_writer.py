@@ -36,6 +36,7 @@ from punt_lux.hub.display_link import DisplayLink
 from punt_lux.hub.display_requests import DisplayRequests
 from punt_lux.hub.display_writer import DisplayWriter
 from tests.class_references import ClassReferences, aliased_constructions
+from tools.source_tree import SourceTree
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -167,8 +168,8 @@ def _declaring_connects(source: str) -> int:
 
 def _modules(predicate: Callable[[str], object]) -> set[str]:
     return {
-        path.relative_to(_SRC).as_posix()
-        for path in _SRC.rglob("*.py")
+        rel
+        for rel, path in SourceTree(_SRC.parent).files().items()
         if predicate(path.read_text(encoding="utf-8"))
     }
 

@@ -56,8 +56,9 @@ def main() -> None:
     proc = subprocess.Popen(
         [
             sys.executable,
+            "-P",
             "-m",
-            "punt_lux",
+            "punt_lux.cli",
             "display",
             "--socket",
             str(SOCK_PATH),

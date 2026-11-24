@@ -201,8 +201,8 @@ class DisplayPaths:
 
     def _display_argv(self) -> list[str]:
         """Run the Display entry point in the current Python environment."""
-        return [sys.executable, "-m", "punt_lux", "display", "serve",
-                "--socket", str(self._socket_path)]  # fmt: skip
+        return [sys.executable, "-P", "-m", "punt_lux.cli", "display",
+                "serve", "--socket", str(self._socket_path)]  # fmt: skip
 
     def _await_ready(self, timeout: float) -> Path:
         """Block until the spawned display completes its handshake, or raise."""

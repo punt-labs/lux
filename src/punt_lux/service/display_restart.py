@@ -4,16 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.service import (
-    DISPLAY_SPEC,
-    DisplayServiceManager,
-    ServiceActionFailedError,
-    ServiceNotInstalledError,
-    ServiceSpec,
-)
+from punt_lux.service import DISPLAY_SPEC, DisplayServiceManager
 from punt_lux.service._display_readiness import DisplayReadiness
 from punt_lux.service._display_restart_attempt import ReadinessError, RestartAttempt
 from punt_lux.service.display_paths import DisplayPaths
+from punt_service import ServiceActionFailedError, ServiceNotInstalledError, ServiceSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

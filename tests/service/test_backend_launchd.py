@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from punt_lux.service import DISPLAY_SPEC, HUB_SPEC
-from punt_lux.service._backend_launchd import LaunchdBackend
+from punt_service._backend_launchd import LaunchdBackend
 
 
 def _result(returncode: int):
@@ -37,12 +37,10 @@ class TestLaunchdInstallIdempotency:
         (local_bin / "luxd-hub").touch()
 
         with (
-            patch(
-                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
-            ),
-            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
+            patch("punt_service._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             backend = LaunchdBackend(HUB_SPEC)
             # First install: not yet active, writes the plist the normal way.
@@ -68,12 +66,10 @@ class TestLaunchdInstallIdempotency:
         (local_bin / "luxd-hub").touch()
 
         with (
-            patch(
-                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
-            ),
-            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
+            patch("punt_service._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_service.service_spec.Path.home", return_value=fake_home),
             patch("punt_lux.kernel.hub_paths.Path.home", return_value=fake_home),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             backend = LaunchdBackend(HUB_SPEC)
             backend.config_path().parent.mkdir(parents=True, exist_ok=True)
@@ -108,10 +104,8 @@ class TestKeepAliveRendering:
         (fake_home / ".local" / "bin").mkdir(parents=True)
         (fake_home / ".local" / "bin" / "luxd-hub").touch()
         with (
-            patch(
-                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
-            ),
-            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
+            patch("punt_service._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_service.service_spec.Path.home", return_value=fake_home),
         ):
             plist = LaunchdBackend(HUB_SPEC)._plist_content()
         lines = [line.strip() for line in plist.splitlines()]
@@ -127,10 +121,8 @@ class TestKeepAliveRendering:
         (fake_home / ".local" / "bin").mkdir(parents=True)
         (fake_home / ".local" / "bin" / "luxd-display").touch()
         with (
-            patch(
-                "punt_lux.service._backend_launchd.Path.home", return_value=fake_home
-            ),
-            patch("punt_lux.service.service_spec.Path.home", return_value=fake_home),
+            patch("punt_service._backend_launchd.Path.home", return_value=fake_home),
+            patch("punt_service.service_spec.Path.home", return_value=fake_home),
         ):
             plist = LaunchdBackend(DISPLAY_SPEC)._plist_content()
         lines = [line.strip() for line in plist.splitlines()]
@@ -145,7 +137,7 @@ class TestLaunchdStartRegistration:
         backend = LaunchdBackend(DISPLAY_SPEC)
         with (
             patch.object(backend, "is_active", return_value=True),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             run.return_value = _result(0)
             assert backend.start()
@@ -158,7 +150,7 @@ class TestLaunchdStartRegistration:
         backend = LaunchdBackend(HUB_SPEC)
         with (
             patch.object(backend, "is_active", return_value=True),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             run.return_value = _result(0)
             assert backend.start()
@@ -169,7 +161,7 @@ class TestLaunchdStartRegistration:
         backend = LaunchdBackend(DISPLAY_SPEC)
         with (
             patch.object(backend, "is_active", return_value=False),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             run.return_value = _result(0)
             assert backend.start()
@@ -180,7 +172,7 @@ class TestLaunchdStartRegistration:
         backend = LaunchdBackend(DISPLAY_SPEC)
         with (
             patch.object(backend, "is_active", return_value=True),
-            patch("punt_lux.service._launchctl.subprocess.run") as run,
+            patch("punt_service._launchctl.subprocess.run") as run,
         ):
             run.return_value = _result(5)
             assert not backend.start()
