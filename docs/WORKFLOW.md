@@ -276,15 +276,16 @@ function pr_loop(unit):
 #                      what input does, as reported by make demo-class
 #                      (tools/demo_class.py); the demo comment quotes its
 #                      summary. The tool decides by AST for every .py under
-#                      src/punt_lux/, and by path: wire/model/handlers/,
+#                      any source root (src/ or packages/<dist>/src/), and by
+#                      package-relative path: wire/model/handlers/,
 #                      wire/model/compositions/ and plugin/ are interactive.
 #                      It prints one kind per path, by precedence: exempt,
 #                      then interactive, then rendering
-#       rendering(pr) = the PR changes a file under src/punt_lux/display/,
-#                      src/punt_lux/wire/model/elements/,
-#                      src/punt_lux/wire/model/compositions/, or
-#                      src/punt_lux/applets/ (which elements and layout are
-#                      sent) — what the Display paints — as reported by
+#       rendering(pr) = the PR changes a file under display/,
+#                      wire/model/elements/, wire/model/compositions/, or
+#                      applets/ of the punt_lux package, in any source root
+#                      (src/ or packages/<dist>/src/) (which elements and
+#                      layout are sent) — what the Display paints — as reported by
 #                      make demo-class (tools/demo_class.py); the demo
 #                      comment quotes its summary
 #       demoed_head  = the commit named in the leader's latest

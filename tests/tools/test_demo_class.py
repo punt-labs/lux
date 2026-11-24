@@ -11,6 +11,8 @@ from tools.demo_class import DemoClass, main
 
 ROOT = Path(__file__).resolve().parents[2]
 S = "src/punt_lux/"
+C = "packages/punt-lux-client/src/punt_lux/"
+P = "packages/punt-service/src/punt_service/"
 D = S + "display/"
 BY_NAME = "module is named for interactions"
 
@@ -23,22 +25,22 @@ INTERACTIVE_REAL_FILES = [
     (D + "renderers/imgui/dialog.py", "calls begin_popup_modal()"),
     (D + "terminal/keymap.py", "reads io.key_ctrl"),
     (D + "menus/menu_click.py", BY_NAME),
-    (S + "applets/serviced_click.py", BY_NAME),
-    (S + "applets/leg.py", "calls clicked()"),
-    (S + "applets/serviced_click.py", "references event ServicedClick"),
+    (C + "applets/serviced_click.py", BY_NAME),
+    (C + "applets/leg.py", "calls clicked()"),
+    (C + "applets/serviced_click.py", "references event ServicedClick"),
     (S + "pty/viewer_input.py", BY_NAME),
     (S + "pty/control_input.py", BY_NAME),
     (
-        S + "wire/model/standalone_input_text_handler.py",
+        C + "wire/model/standalone_input_text_handler.py",
         "references event ValueChanged",
     ),
-    (S + "wire/model/interaction.py", "references event ButtonClicked"),
-    (S + "wire/model/selection_interaction.py", "references event RowSelectionChanged"),
-    (S + "wire/model/standalone_button_handler.py", "references event ButtonClicked"),
-    (S + "wire/model/elements/button.py", "references event ButtonClicked"),
+    (C + "wire/model/interaction.py", "references event ButtonClicked"),
+    (C + "wire/model/selection_interaction.py", "references event RowSelectionChanged"),
+    (C + "wire/model/standalone_button_handler.py", "references event ButtonClicked"),
+    (C + "wire/model/elements/button.py", "references event ButtonClicked"),
     (D + "menus/entries.py", "calls menu_item()"),
     (D + "renderers/imgui/tree.py", "calls tree_node()"),
-    (S + "wire/model/handlers/button_catalog.py", "interactive by path"),
+    (C + "wire/model/handlers/button_catalog.py", "interactive by path"),
     ("plugin/commands/display.screenshot.md", "interactive by path"),
 ]
 
@@ -49,9 +51,8 @@ DISPLAY_ONLY_REAL_FILES = [
     D + "framebuffer_capture.py",
     D + "socket_server.py",
     D + "paint_telemetry.py",
-    S + "applets/beads/beads_board.py",
-    S + "applets/latency.py",
-    S + "applets/__init__.py",
+    C + "applets/latency.py",
+    C + "applets/__init__.py",
 ]
 
 
@@ -296,3 +297,36 @@ def test_file_deleted_in_a_later_commit_is_interactive_at_head(repo: Repo) -> No
         True,
         ("deleted (not inspectable)",),
     )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [P + "_port_guard.py", P + "_launchd_plist.py", P + "__init__.py"],
+)
+def test_punt_service_files_are_scanned_and_classify_none(
+    demo: DemoClass, path: str
+) -> None:
+    assert (ROOT / path).is_file()
+    verdict = demo.classify(path)
+    assert (verdict.kind, verdict.reasons) == ("none", ())
+
+
+def test_punt_service_file_that_reads_input_is_interactive(tmp_path: Path) -> None:
+    demo, path = _src_file(tmp_path, P + "probe.py", "h.fire(e)")
+    assert demo.classify(path).is_interactive
+
+
+def test_client_package_handlers_are_interactive_by_path(demo: DemoClass) -> None:
+    verdict = demo.classify(C + "wire/model/handlers/anything.py")
+    assert verdict.reasons == ("interactive by path",)
+
+
+@pytest.mark.parametrize(
+    "path", [C + "wire/model/elements/x.py", C + "applets/x.py", D + "x.py"]
+)
+def test_rendering_paths_match_in_any_source_root(demo: DemoClass, path: str) -> None:
+    assert demo.classify(path).is_rendering
+
+
+def test_bundled_beads_board_is_not_interactive(demo: DemoClass) -> None:
+    assert not demo.classify(S + "beads/beads_board.py").is_interactive

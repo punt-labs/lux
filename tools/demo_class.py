@@ -209,18 +209,23 @@ class ImguiInputScan(ast.NodeVisitor):
 class DemoClass:
     """Decide interactive / rendering / exempt for repo-relative paths."""
 
-    SRC: ClassVar[str] = "src/punt_lux/"
+    # A source root is src/ or packages/<dist>/src/; the package-relative path
+    # below it is what the rules match, wherever the package is installed from.
+    SOURCE_FILE: ClassVar[re.Pattern[str]] = re.compile(
+        r"^(?:src|packages/[^/]+/src)/(?P<package>[^/]+)/(?P<relative>.+)$"
+    )
+    LUX_PACKAGE: ClassVar[str] = "punt_lux"
     RENDERING_PREFIXES: ClassVar[tuple[str, ...]] = (
-        SRC + "display/",
-        SRC + "wire/model/elements/",
-        SRC + "wire/model/compositions/",
-        SRC + "applets/",
+        "display/",
+        "wire/model/elements/",
+        "wire/model/compositions/",
+        "applets/",
     )
     INTERACTIVE_PREFIXES: ClassVar[tuple[str, ...]] = (
-        SRC + "wire/model/handlers/",
-        SRC + "wire/model/compositions/",
-        "plugin/",
+        "wire/model/handlers/",
+        "wire/model/compositions/",
     )
+    PLUGIN_PREFIX: ClassVar[str] = "plugin/"
     EXEMPT_PREFIXES: ClassVar[tuple[str, ...]] = ("docs/", "tests/", ".github/")
     BEHAVIOR_PREFIXES: ClassVar[tuple[str, ...]] = ("plugin/", ".github/workflows/")
     # Root ratchet files: .oo-*, .suppression-* and .layer-* baselines and audits.
@@ -251,12 +256,20 @@ class DemoClass:
 
     def classify(self, path: str) -> DemoVerdict:
         reasons: list[str] = []
-        is_rendering = path.startswith(self.RENDERING_PREFIXES)
+        source = self.SOURCE_FILE.match(path)
+        relative = (
+            source["relative"]
+            if source and source["package"] == self.LUX_PACKAGE
+            else ""
+        )
+        is_rendering = relative.startswith(self.RENDERING_PREFIXES)
         is_interactive = False
-        if path.startswith(self.INTERACTIVE_PREFIXES):
+        if relative.startswith(self.INTERACTIVE_PREFIXES) or path.startswith(
+            self.PLUGIN_PREFIX
+        ):
             is_interactive = True
             reasons.append("interactive by path")
-        elif path.endswith(".py") and path.startswith(self.SRC):
+        elif source and path.endswith(".py"):
             reasons.extend(self._ast_reasons(path))
             is_interactive = bool(reasons)
         return DemoVerdict(
