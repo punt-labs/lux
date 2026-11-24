@@ -12,6 +12,7 @@ from punt_lux.hub import hub_display, hub_lifecycle
 from punt_lux.hub.display_workers import display_workers
 from punt_lux.hub.expiry_sweep import ExpirySweep
 from punt_lux.hub.lease_reap_sweep import LeaseReapSweep
+from punt_lux.hub.peripherals import peripherals
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.kernel.usage import capture_usage
 
@@ -88,7 +89,7 @@ class HubLifespan:
 
     @asynccontextmanager
     async def _workers(self) -> AsyncGenerator[None]:
-        display_workers.start()
+        peripherals.start()
         expiry = ExpirySweep(hub_display.frames, display_workers.replicator)
         lease_reap = LeaseReapSweep(hub_lifecycle)
         try:
@@ -101,7 +102,7 @@ class HubLifespan:
             ):
                 yield
         finally:
-            display_workers.stop()
+            peripherals.stop()
             self._remove_port_file()
             self._paths.pid_path.unlink(missing_ok=True)
 

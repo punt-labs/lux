@@ -19,13 +19,14 @@ from unittest import mock
 import pytest
 from fastmcp.exceptions import ToolError
 
-from punt_lux.hub import client_registry, hub
+from punt_lux.hub import hub
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenuReplica
 from punt_lux.hub.hub_factory import hub_element_factory
 from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.inbox import ensure_writer, inbox_depth_for, next_event
 from punt_lux.hub.menu_registry import HubMenuRegistry
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.operations import Operations
@@ -131,7 +132,7 @@ def _isolated_ops(*, listening: bool = True) -> Generator[tuple[Operations, _Rig
         next_event=next_event,
         inbox_depth=inbox_depth_for,
         display_port=HubDisplayConnection(
-            is_running=lambda: False, clients=client_registry
+            is_running=lambda: False, clients=peripherals.require(DISPLAY)
         ),
     )
     # ``clients`` is the fresh registry the identity and callback concerns

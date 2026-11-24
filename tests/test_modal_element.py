@@ -20,6 +20,7 @@ from fastmcp.exceptions import ToolError
 
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.agent_factory import agent_element_factory
@@ -46,8 +47,6 @@ if TYPE_CHECKING:
 
     from punt_lux.wire.model import QueryResponse
     from punt_lux.wire.model.elements import Element
-
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 def _mock_client() -> MagicMock:
@@ -240,7 +239,7 @@ class TestForbidWindowInModal:
         scene = [WindowElement(id="w"), _abc_modal()]
         assert ElementTreeValidator().validate_tree(scene).ok
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_a_window_in_a_modal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -263,7 +262,7 @@ class TestForbidWindowInModal:
 
 
 class TestShowRejectsInvalidModal:
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_progress_nested_in_modal(self, mock_get: MagicMock) -> None:
         """A bad progress nested in the modal body is collected by the walk."""
         client = _mock_client()

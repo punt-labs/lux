@@ -4,6 +4,11 @@
 
 ### Added
 
+- Hub-private typed peripheral registration and worker lifecycle, with one
+  endpoint per kind. The Display keeps its existing transport, UI replication
+  and readiness behavior; a tested second-kind seam prepares for audio without
+  introducing an audio protocol or changing Vox.
+
 - Three synchronized distributions for the planned 0.34.0 release:
   `punt-lux` installs the full product, `punt-lux-client` installs the headless
   SDK, wire contracts, kernel and generic applet helpers, and `punt-service`

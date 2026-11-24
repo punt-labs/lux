@@ -223,6 +223,23 @@ aggregate import graph; three distributions are published, as described below.
 Processes share contracts and the public client SDK, never each other's
 internals. No daemon imports another daemon.
 
+### Hub peripheral registration
+
+The Hub's private `PeripheralRegistry` owns one statically registered endpoint
+per kind. `PeripheralKey[P]` identifies a typed contract by kind and capability;
+lookup requires the same key instance. The shipped `DISPLAY` key is
+`("display", "ui-replica")`. These are local composition keys, not negotiated
+wire capabilities. Registration and worker binding freeze when lifecycle begins.
+
+Only endpoint selection and worker lifecycle are generic. Start follows endpoint
+registration order; stop reverses it. The Display endpoint retains lazy connect,
+manifest reconciliation, Ready 0.3, pickles, the single replication writer and
+menu-before-scene order. Screenshots, UI introspection, menus and restart readiness
+remain Display-only. There is no broadcast, discovery, multi-Display selection
+or aggregate connected state. A later audio endpoint can register its own typed
+contract and workers without changing Display code; no audio wire protocol is
+defined by this seam.
+
 ### Packages
 
 Lux's source layers live under the PEP 420 `punt_lux` namespace, without

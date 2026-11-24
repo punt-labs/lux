@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model.elements import element_to_dict
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
@@ -90,7 +91,7 @@ def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
     object.__setattr__(elem, "_session", "../legacy")
     assert elem.validate()
     with (
-        patch("punt_lux.hub.clients.client_registry.asks") as asks,
+        patch.object(peripherals.require(DISPLAY), "asks") as asks,
         patch(
             "punt_lux.wire.model.elements.terminal.JsonTerminalDecoder.decode",
             return_value=elem,
@@ -107,7 +108,7 @@ def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
 
 def test_show_rejects_a_malformed_terminal_wire_before_submission() -> None:
     with (
-        patch("punt_lux.hub.clients.client_registry.asks") as asks,
+        patch.object(peripherals.require(DISPLAY), "asks") as asks,
         pytest.raises(ToolError, match="identifier"),
     ):
         asks.return_value.is_connected = True

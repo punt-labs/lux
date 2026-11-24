@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
-from punt_lux.hub import client_registry, hub, hub_display, hub_lifecycle
+from punt_lux.hub import hub, hub_display, hub_lifecycle
 from punt_lux.hub.inbox import drop_session
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.kernel.connection_id import ConnectionId
 from punt_lux.wire.model.ids import SceneId
 from punt_lux.wire.model.scope import Scope
@@ -69,7 +70,7 @@ class LoopHarness:
 def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
     """Yield a started harness; a click's re-push resolves to the rig's replica."""
     rig = InProcessLoop.start()
-    monkeypatch.setattr(client_registry, "asks", lambda: rig.repush_client)
+    monkeypatch.setattr(peripherals.require(DISPLAY), "asks", lambda: rig.repush_client)
     # A click marks the scene dirty; the sync replicator re-pushes it at once,
     # standing in for the background worker so the loop stays deterministic. Patch
     # every name the singleton is bound under: the instance module and the

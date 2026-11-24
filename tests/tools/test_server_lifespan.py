@@ -13,6 +13,7 @@ from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 import punt_lux.tools.server as server_module
 from punt_lux.hub.mcp_transport import McpHttpTransport
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 
 if TYPE_CHECKING:
     import pytest
@@ -60,7 +61,7 @@ class TestSessionStartup:
 
     def test_does_not_eager_connect(self) -> None:
         """Startup never connects, so it cannot auto-spawn the display."""
-        with patch("punt_lux.hub.clients.client_registry.asks") as connect:
+        with patch.object(peripherals.require(DISPLAY), "asks") as connect:
             _run_session_to_completion()
 
         connect.assert_not_called()
@@ -71,7 +72,7 @@ class TestSessionStartup:
         with (
             patch("punt_lux.service.config.ConfigManager.read") as read,
             patch("punt_lux.service.config.resolve_config_path") as resolve,
-            patch("punt_lux.hub.clients.client_registry.asks") as connect,
+            patch.object(peripherals.require(DISPLAY), "asks") as connect,
         ):
             _run_session_to_completion()
 
@@ -87,7 +88,7 @@ class TestSessionStartup:
         assert not (tmp_path / ".punt-labs" / "lux.md").exists()
         with (
             patch("punt_lux.service.config.ConfigManager.read") as read,
-            patch("punt_lux.hub.clients.client_registry.asks") as connect,
+            patch.object(peripherals.require(DISPLAY), "asks") as connect,
         ):
             _run_session_to_completion()
 

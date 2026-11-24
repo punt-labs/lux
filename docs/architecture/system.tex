@@ -2621,6 +2621,23 @@ constructed in exactly one place: \texttt{ClientRegistry} in
 \modpath{hub/clients.py}, which holds luxd's one lazy connection and
 its reconnect policy.
 
+The Hub-private \texttt{PeripheralRegistry}
+(\modpath{hub/peripheral\_registry.py}) owns endpoint selection and worker
+lifecycle, not transport. \modpath{hub/peripherals.py} registers one
+\texttt{ClientRegistry} under the typed \texttt{DISPLAY} key, whose kind and
+capability are \texttt{display/ui-replica}. Keys resolve by identity; there is
+one endpoint per kind. Registration and worker binding freeze when lifecycle
+begins. Workers start in endpoint registration order and stop in reverse;
+Display replication still starts before liveness and stops after it, once the
+expiry and lease sweeps have finished. Worker errors propagate without retry.
+
+There is no generic message broadcast, discovery or aggregate connected state.
+Screenshots, menus, UI introspection, Ready 0.3, pickles, menu-before-scene
+replication and the exact Display PID/dial restart proof remain Display-only
+and unchanged. A future audio endpoint can register an independent typed
+contract and workers without editing Display code; this seam defines no audio
+wire protocol and does not move playback out of Vox.
+
 An AST guard enforces this
 (\path{tests/wire/model/test_display_socket_internal.py}).  The guard parses
 every module in the package and fails if any module outside the allowed set

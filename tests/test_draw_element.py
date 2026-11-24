@@ -26,6 +26,7 @@ from punt_lux.display import geometry_capture
 from punt_lux.display.render_loop import RenderLoop
 from punt_lux.display.renderers.imgui.draw import ImGuiDrawRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.hub.peripherals import DISPLAY, peripherals
 from punt_lux.tools import show
 from punt_lux.wire.model import SceneMessage
 from punt_lux.wire.model.agent_factory import agent_element_factory
@@ -45,8 +46,6 @@ if TYPE_CHECKING:
 
     from punt_lux.wire.model import QueryResponse
     from punt_lux.wire.model.elements import Element
-
-_CLIENT_GET = "punt_lux.hub.clients.client_registry.asks"
 
 
 # -- helpers ----------------------------------------------------------------
@@ -181,7 +180,7 @@ class TestCommandValidationAtHub:
     def test_valid_draw_passes_the_tree_walk(self) -> None:
         assert ElementTreeValidator().validate_tree([_draw()]).ok
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_the_wrong_schema_command(self, mock_get: MagicMock) -> None:
         """The wrong-schema command that used to render silently is refused."""
         client = _mock_client()
@@ -202,7 +201,7 @@ class TestCommandValidationAtHub:
         assert "cmd" in result
         client.show.assert_not_called()
 
-    @patch(_CLIENT_GET)
+    @patch.object(peripherals.require(DISPLAY), "asks")
     def test_show_rejects_malformed_command_nested_in_group(
         self, mock_get: MagicMock
     ) -> None:

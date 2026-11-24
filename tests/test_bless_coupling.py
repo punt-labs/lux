@@ -35,10 +35,12 @@ def recorder(tmp_path: Path) -> tuple[dict[str, str], Path]:
     }, calls
 
 
+@pytest.mark.parametrize("makelevel", ["0", "1"])
 def test_bless_dispatches_each_file_to_its_gate_scope(
-    recorder: tuple[dict[str, str], Path],
+    recorder: tuple[dict[str, str], Path], makelevel: str
 ) -> None:
     env, log = recorder
+    env["MAKELEVEL"] = makelevel
     files = [
         "src/punt_lux/service/__init__.py",
         "packages/punt-lux-client/src/punt_lux/client/__init__.py",
@@ -56,8 +58,9 @@ def test_bless_dispatches_each_file_to_its_gate_scope(
     )
     calls = [json.loads(line) for line in log.read_text().splitlines()]
     gates = subprocess.run(
-        [MAKE, "-n", "check-coupling"],
+        [MAKE, "--no-print-directory", "-n", "check-coupling"],
         cwd=ROOT,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
