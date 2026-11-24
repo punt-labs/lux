@@ -8500,6 +8500,12 @@ order and stop in reverse. The registry propagates worker failures without
 retry, rollback or alternate shutdown. The existing Display worker pair retains
 its start/stop order and expiry sweeps finish before worker shutdown.
 
+`docs/peripheral_registry_lifecycle.tex` models open/sealed composition,
+uniqueness, registered-only binding, frozen wiring, complete lifecycle binding
+and forward/reverse dispatch independently of binding order. `make check-models`
+runs fuzz, exhaustive ProB safety and deadlock checks, and seven defect witnesses.
+The model documents the code refinement, bounded scope and test partitions.
+
 `hub/peripherals.py` registers the existing `ClientRegistry` under
 `DISPLAY` (`display/ui-replica`). Replication, liveness and operation composition
 resolve this same endpoint instead of importing a Display singleton. The
