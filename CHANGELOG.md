@@ -14,6 +14,9 @@
   SDK, wire contracts, kernel and generic applet helpers, and `punt-service`
   provides product-neutral daemon management without Lux or third-party
   dependencies. The current version remains unchanged until release.
+- `make demo-class` (`tools/demo_class.py`) classifies the files a PR changes
+  as interactive, rendering, exempt or none by AST, and prints the summary the
+  demo comment quotes. It is not part of `make check`.
 
 - Report-only design ratchet: `make design-shadow` compares against
   `origin/main` (override `DESIGN_BASE`), and PR CI appends its advisory
@@ -60,12 +63,6 @@
   and explicit kill. Short FD/RSS observations are recorded separately, not
   represented as long-duration leak/soak proof.
 
-- **`make screenshot` works on macOS.** `scripts/screenshot_macos.py` finds the
-  Lux window by the `luxd-display` PID, raises it, captures its display with
-  `ffmpeg -f avfoundation`, and crops the window out. Like the Linux script, it
-  never leaves a stale file and rejects blank or covered captures. The new
-  `make screenshots` target captures at a fixed interval.
-
 ### Changed
 
 - Prepare the 0.34.0 library boundary: `punt_lux` is a PEP 420 namespace with
@@ -101,6 +98,15 @@
 - Publish `punt_lux.service.ServiceSpec` from `service.service_spec` so other
   daemons can reuse the launchd/systemd installation backends. Existing Lux
   service identities and wire/Ready formats are unchanged.
+- **The demo gate is agent-verified.** The leader reads back
+  `lux display screenshot`'s PNG against the written expectation; the
+  operator is asked only to judge interaction feel when a change alters an
+  interaction (`docs/WORKFLOW.md`). `make screenshot`, `make screenshots`,
+  `scripts/screenshot.sh` and `scripts/screenshot_macos.py` are removed: the
+  external window capture existed only while the in-process capture was
+  believed broken (DES-091 superseded by DES-104). The terminal spike keeps
+  its own copy as `spikes/terminal/capture_macos.py`, with its
+  evidence-integrity tests under `tests/spikes/`.
 
 - **Breaking imports:** the PTY owner moves from `punt_lux.ptyd` to
   `punt_lux.pty` and its contracts move from `punt_lux.protocol.pty` to
@@ -292,13 +298,6 @@
 - `lux display start` on macOS handles an already-loaded, cleanly stopped job
   with non-destructive kickstart instead of a duplicate bootstrap (rc 5).
   Unloaded jobs still bootstrap; start does not kill an existing process.
-
-- **`make screenshot` on macOS no longer reports the Lux window as 100%
-  covered.** On macOS 26.6 the Dock and Notification Center each keep a
-  transparent, screen-sized window above every app window. The occlusion check
-  now skips a window from those two processes when it exactly matches a
-  screen. It identifies them by bundle ID, since window owner names are
-  localized. A notification banner over the Lux window is no longer detected.
 
 - **`punt_lux.__version__` fails fast when the package is not installed
   (`lux-h2pj`).** It read the version from package metadata but fell back to

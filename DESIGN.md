@@ -6705,7 +6705,9 @@ operations.
 ## DES-091: Screenshot Capture on Linux — External Window Capture, Not Framebuffer Access
 
 **Date:** 2026-09-08
-**Status:** SHIPPED
+**Status:** SUPERSEDED by DES-104 — the external capture (`make screenshot`,
+`scripts/screenshot.sh`, `scripts/screenshot_macos.py`) is retired; the
+in-process capture it worked around is the one tool
 **Topic:** `make screenshot` — an agent-driven visual verification mechanism for the demo gate, on Linux only
 
 ### Relationship to DES-028
@@ -8476,13 +8478,17 @@ holds the drawn frame on both platforms.
 
 ### Scope
 
-The PNG path is on the display's host, as before. External capture
-(`make screenshot`, DES-091) remains the tool for a window the display
-process is not running in, and for pixels after window-server composition;
-the in-process capture is tied to one painted frame, needs no Screen
+The PNG path is on the display's host, as before. The in-process capture is
+the one screenshot tool: it is tied to one painted frame, needs no Screen
 Recording permission, and works with the window occluded or on another Space.
-Captures are not retained or pruned by lux; the directory is the user's own
-runtime directory and the files are theirs to remove.
+The external capture it replaced (`make screenshot` and its two scripts,
+DES-091) is retired: it existed only because the in-process path was believed
+broken, and it was slower, needed ImageMagick or ffmpeg plus a permission
+grant, and failed whenever another window covered lux. The demo gate in
+`docs/WORKFLOW.md` now has the leader read the screenshot back; the operator
+judges interaction feel only. Captures are not retained or pruned by lux; the
+directory is the user's own runtime directory and the files are theirs to
+remove.
 
 ## DES-105: Typed Hub Peripheral Registry, Display Semantics Stay Local
 

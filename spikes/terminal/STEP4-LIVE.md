@@ -93,7 +93,7 @@ Raw evidence is `results/two-windows.json` and `results/two-windows-*.png`.
 Reproduce on macOS with the same reviewed capture prerequisites:
 
 ```sh
-LUX_CAPTURE_SCRIPT=../lux/scripts/screenshot_macos.py \
+LUX_CAPTURE_SCRIPT=spikes/terminal/capture_macos.py \
   timeout 120 .venv/bin/python -m spikes.terminal.check_two_windows
 ```
 

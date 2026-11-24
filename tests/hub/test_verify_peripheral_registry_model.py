@@ -65,7 +65,8 @@ def test_verbose_summary_supplies_explicit_zero(tmp_path: Path) -> None:
     result = _run(
         tmp_path,
         "printf 'No counter example found. ALL states visited.\\n'\n"
-        "printf '%% Finished model_check (errors=0, warnings=0, expected_errors=0)\\n'\n",
+        "printf '%% Finished model_check "
+        "(errors=0, warnings=0, expected_errors=0)\\n'\n",
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

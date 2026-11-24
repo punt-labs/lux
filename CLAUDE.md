@@ -480,7 +480,9 @@ Two lux-specific operational facts the loops rely on:
   daemon. Restarting `luxd-pty` ends the terminal sessions it owns.
   Use `make reload` for Hub-only changes.
 - **Docs-only changes have no entry point to run**; markdownlint plus a
-  read-through is their verification at the demo gate.
+  read-through is their verification at the demo gate. Markdown under
+  `plugin/` is behavior, not docs, and is demoed (`demo_exempt` in
+  `docs/WORKFLOW.md`).
 
 ## Release
 
