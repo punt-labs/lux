@@ -72,32 +72,54 @@ class LuxHome:
         home = namespace.parent.resolve(strict=True)
         self._require_claim_ancestors(home)
         self._require_claim_parent(home)
-        namespace = home / namespace.name
-        namespace.mkdir(exist_ok=True, mode=0o700)
-        if namespace.name == _NAMESPACE:
-            namespace = self._secure_owned_directory(namespace)
-        else:
+        namespace = self._prepare_namespace(home / namespace.name)
+        root, mode = self._owned_directory(namespace / self._root.name)
+        self._make_private(root, mode)
+        return root
+
+    def _prepare_namespace(self, namespace: Path) -> Path:
+        if namespace.name != _NAMESPACE:
+            namespace.mkdir(exist_ok=True, mode=0o700)
             self._require_claim_parent(namespace)
+            return namespace
+        namespace, mode = self._owned_directory(namespace)
         root = namespace / self._root.name
-        root.mkdir(exist_ok=True, mode=0o700)
-        return self._secure_owned_directory(root)
+        self._require_trusted_link(root, mode)
+        self._make_private(namespace, mode)
+        try:
+            self._require_trusted_link(root, mode)
+        except PermissionError:
+            namespace.chmod(mode)
+            raise
+        return namespace
 
     @classmethod
-    def _secure_owned_directory(cls, directory: Path) -> Path:
-        resolved = directory.resolve(strict=True)
-        if resolved != directory:
-            cls._require_claim_ancestors(resolved)
-        directory = resolved
+    def _owned_directory(cls, directory: Path) -> tuple[Path, int]:
+        if directory.is_symlink():
+            cls._require_trusted_link(directory, directory.parent.lstat().st_mode)
+            directory = directory.resolve(strict=True)
+            cls._require_claim_ancestors(directory)
+        else:
+            directory.mkdir(exist_ok=True, mode=0o700)
         info = directory.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
             raise PermissionError(
                 f"Lux state path is not an owned directory: {directory}"
             )
-        mode = stat.S_IMODE(info.st_mode)
+        return directory, stat.S_IMODE(info.st_mode)
+
+    @staticmethod
+    def _require_trusted_link(directory: Path, parent_mode: int) -> None:
+        if parent_mode & 0o022 and directory.is_symlink():
+            raise PermissionError(
+                f"Lux state symlink in a writable directory: {directory}"
+            )
+
+    @staticmethod
+    def _make_private(directory: Path, mode: int) -> None:
         private_mode = 0o700 | (mode & stat.S_ISGID)
         if mode != private_mode:
             directory.chmod(private_mode)
-        return directory
 
     def session_claim(self, program: str, session_pid: int) -> Path:
         """Provision the private session directory and return the claim path."""

@@ -1,6 +1,7 @@
 """Verify the product home path does not depend on the checkout."""
 
 import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -58,3 +59,28 @@ def test_prepare_root_rejects_symlink_to_foreign_owned_directory(
     monkeypatch.setattr(Path, "lstat", foreign_owner)
     with pytest.raises(PermissionError, match="not an owned directory"):
         home.prepare_root()
+
+
+def test_prepare_root_rejects_a_link_inserted_during_namespace_repair(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home = LuxHome.resolve()
+    namespace = home.root.parent
+    namespace.mkdir()
+    namespace.chmod(0o775)
+    target = tmp_path / "unrelated"
+    target.mkdir()
+    target.chmod(0o755)
+    chmod = Path.chmod
+
+    def insert_link(path: Path, mode: int) -> None:
+        if path == namespace and mode == 0o700:
+            home.root.symlink_to(target, target_is_directory=True)
+        chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", insert_link)
+    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+        home.prepare_root()
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o775
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755

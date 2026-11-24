@@ -79,6 +79,33 @@ def test_hub_and_claim_use_an_owned_symlink_target(
     assert stat.S_IMODE(target.stat().st_mode) == 0o700
 
 
+@pytest.mark.parametrize("link_namespace", [False, True], ids=["local", "relocated"])
+def test_hub_and_claim_reject_a_symlink_in_a_writable_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, link_namespace: bool
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    paths = HubPaths()
+    namespace = paths.dir.parent
+    if link_namespace:
+        namespace = tmp_path / "relocated"
+        paths.dir.parent.symlink_to(namespace, target_is_directory=True)
+    namespace.mkdir()
+    namespace.chmod(0o775)
+    target = tmp_path / "unrelated"
+    target.mkdir()
+    target.chmod(0o755)
+    paths.dir.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+        HubLifespan(paths).record_listening(8430)
+    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+        SessionClaim.for_session("lux-beads", 4321)
+
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o775
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
+    assert not list(target.iterdir())
+
+
 @pytest.mark.integration
 def test_hub_flushes_render_metrics_on_sigterm(tmp_path: Path) -> None:
     state = tmp_path / ".punt-labs" / "lux"
