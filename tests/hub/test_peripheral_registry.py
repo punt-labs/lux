@@ -111,9 +111,9 @@ def test_lifecycle_freezes_endpoint_and_worker_registration(action: str) -> None
     registry.register(display, _Endpoint())
     registry.bind_workers(display, _Workers([], "display"))
     getattr(registry, action)()
-    with pytest.raises(RuntimeError, match="registration is frozen"):
+    with pytest.raises(ValueError, match="registration is frozen"):
         registry.register(PeripheralKey[_Endpoint]("audio", "playback"), _Endpoint())
-    with pytest.raises(RuntimeError, match="registration is frozen"):
+    with pytest.raises(ValueError, match="registration is frozen"):
         registry.bind_workers(display, _Workers([], "replacement"))
 
 

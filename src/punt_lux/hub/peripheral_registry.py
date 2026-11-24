@@ -77,4 +77,4 @@ class PeripheralRegistry:
 
     def _require_mutable(self) -> None:
         if self._sealed:
-            raise RuntimeError("peripheral registration is frozen")
+            raise ValueError("peripheral registration is frozen")
