@@ -1,0 +1,87 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{fuzz}
+\begin{document}
+\title{Applet session claim identity}
+\maketitle
+
+Two applet starts for one session independently provision a private
+directory, open a claim, and try the same nonblocking kernel lock.
+Provision is idempotent and the claim is not unlinked. Only a successful
+lock holder can serve. Process exit releases the hold.
+
+\begin{zed}
+APPLET ::= apfirst | apsecond \\
+PHASE ::= phnew | phprepared | phopen | phserving | phrefused \\
+CLAIM ::= clshared | clfirst | clsecond \\
+ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+\begin{zed}
+CANONICAL == ztrue
+\end{zed}
+
+\begin{schema}{Claims}
+directory : ZBOOL \\
+phase : APPLET \fun PHASE \\
+claim : APPLET \fun CLAIM
+\end{schema}
+
+\begin{schema}{Init}
+Claims'
+\where
+directory' = zfalse \\
+phase' = \{a : APPLET @ a \mapsto phnew\} \\
+claim' = \{a : APPLET @ a \mapsto clshared\}
+\end{schema}
+
+\begin{schema}{Prepare}
+\Delta Claims \\
+a? : APPLET
+\where
+phase(a?) = phnew \\
+directory' = ztrue \\
+phase' = phase \oplus \{a? \mapsto phprepared\} \\
+claim' = claim
+\end{schema}
+
+\begin{schema}{OpenClaim}
+\Delta Claims \\
+a? : APPLET
+\where
+phase(a?) = phprepared \land directory = ztrue \\
+directory' = directory \\
+phase' = phase \oplus \{a? \mapsto phopen\} \\
+(CANONICAL = ztrue \land claim' = claim \oplus \{a? \mapsto clshared\}) \\
+\lor (CANONICAL = zfalse \land a? = apfirst \land
+  claim' = claim \oplus \{a? \mapsto clfirst\}) \\
+\lor (CANONICAL = zfalse \land a? = apsecond \land
+  claim' = claim \oplus \{a? \mapsto clsecond\})
+\end{schema}
+
+\begin{schema}{TryClaim}
+\Delta Claims \\
+a? : APPLET
+\where
+phase(a?) = phopen \\
+directory' = directory \land claim' = claim \\
+(\exists b : APPLET @ phase(b) = phserving \land claim(b) = claim(a?))
+  \implies phase' = phase \oplus \{a? \mapsto phrefused\} \\
+(\lnot (\exists b : APPLET @ phase(b) = phserving \land claim(b) = claim(a?)))
+  \implies phase' = phase \oplus \{a? \mapsto phserving\}
+\end{schema}
+
+\begin{schema}{Exit}
+\Delta Claims \\
+a? : APPLET
+\where
+phase(a?) \in \{phserving, phrefused\} \\
+directory' = directory \land claim' = claim \\
+phase' = phase \oplus \{a? \mapsto phnew\}
+\end{schema}
+
+The violation goal is both applets serving. Switching CANONICAL to zfalse
+models the previous lock identity when the processes have different temporary
+directories. Permission checks and filesystem implementation are outside
+this model; the kernel's per-inode exclusive flock is assumed.
+
+\end{document}

@@ -8,6 +8,7 @@ decide.
 
 from __future__ import annotations
 
+import os
 import stat
 import subprocess
 import sys
@@ -27,7 +28,11 @@ from pathlib import Path
 
 from punt_lux.applets.claim import SessionClaim
 
-claim = SessionClaim(Path(sys.argv[1]))
+if sys.argv[1] == "--session":
+    sys.stdin.readline()
+    claim = SessionClaim.for_session("lux-beads", 7)
+else:
+    claim = SessionClaim(Path(sys.argv[1]))
 print("taken" if claim.take() else "refused", flush=True)
 sys.stdin.readline()
 """
@@ -157,6 +162,41 @@ def test_a_session_claim_is_named_after_the_program_and_its_session(
     assert stat.S_IMODE(sessions.stat().st_mode) == 0o700
     assert stat.S_IMODE((sessions / "lux-beads-4321.pid").stat().st_mode) == 0o600
     assert old_claim.read_text() == "old claim\n"
+
+
+def test_concurrent_starters_resolve_one_claim_from_separate_tmpdirs(
+    tmp_path: Path,
+) -> None:
+    applets: list[subprocess.Popen[str]] = []
+    try:
+        for index in range(4):
+            scratch = tmp_path / f"tmp-{index}"
+            scratch.mkdir()
+            applets.append(
+                subprocess.Popen(
+                    [sys.executable, "-c", _APPLET, "--session"],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    env={**os.environ, "HOME": str(tmp_path), "TMPDIR": str(scratch)},
+                )
+            )
+        for proc in applets:
+            assert proc.stdin is not None
+            proc.stdin.write("start\n")
+            proc.stdin.flush()
+        verdicts = [
+            proc.stdout.readline().strip()
+            for proc in applets
+            if proc.stdout is not None
+        ]
+        assert sorted(verdicts) == ["refused", "refused", "refused", "taken"]
+        assert (tmp_path / ".punt-labs/lux/sessions/lux-beads-7.pid").is_file()
+    finally:
+        for proc in applets:
+            assert proc.stdin is not None
+            proc.stdin.close()
+            proc.wait(timeout=30)
 
 
 def test_claim_refuses_a_nonprivate_session_directory(
