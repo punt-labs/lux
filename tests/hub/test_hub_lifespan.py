@@ -45,6 +45,27 @@ def test_hub_and_claim_share_a_private_root(
         os.umask(previous_umask)
 
 
+@pytest.mark.parametrize("link_namespace", [False, True], ids=["root", "namespace"])
+def test_hub_and_claim_use_an_owned_symlink_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, link_namespace: bool
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    paths = HubPaths()
+    link = paths.dir.parent if link_namespace else paths.dir
+    link.parent.mkdir(mode=0o700, exist_ok=True)
+    target = tmp_path / "relocated"
+    target.mkdir()
+    target.chmod(0o775)
+    link.symlink_to(target, target_is_directory=True)
+    root = target / "lux" if link_namespace else target
+
+    assert HubLifespan(paths).record_listening(8430) == os.getpid()
+    assert (root / "hub.port").read_text() == "8430"
+    assert SessionClaim.for_session("lux-beads", 4321).take()
+    assert (root / "sessions" / "lux-beads-4321.pid").is_file()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
+
+
 @pytest.mark.integration
 def test_hub_flushes_render_metrics_on_sigterm(tmp_path: Path) -> None:
     state = tmp_path / ".punt-labs" / "lux"

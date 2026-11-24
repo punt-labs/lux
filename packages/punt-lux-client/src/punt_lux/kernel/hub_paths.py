@@ -53,7 +53,7 @@ class HubPaths:
 
     def prepare(self) -> None:
         """Secure the Hub state directory before publishing runtime files."""
-        LuxHome(self._dir).prepare_root()
+        self._dir = LuxHome(self._dir).prepare_root()
 
     # None return = port file absent/unwritten — genuine absence contract (PY-TS-14).
     def read_port(self) -> int | None:

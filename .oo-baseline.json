@@ -665,10 +665,10 @@
   "packages/punt-lux-client/src/punt_lux/kernel/home_paths.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.54,
+    "avg_params": 0.57,
     "max_complexity": 6.0,
-    "avg_complexity": 2.15,
-    "module_size": 89.0,
+    "avg_complexity": 2.14,
+    "module_size": 97.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

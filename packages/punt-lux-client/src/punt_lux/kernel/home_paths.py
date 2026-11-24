@@ -70,21 +70,24 @@ class LuxHome:
         """Create the Lux root or tighten an existing root owned by this user."""
         namespace = self._root.parent
         home = namespace.parent.resolve(strict=True)
-        for parent in reversed((home, *home.parents)):
-            self._require_claim_parent(parent)
+        self._require_claim_ancestors(home)
+        self._require_claim_parent(home)
         namespace = home / namespace.name
         namespace.mkdir(exist_ok=True, mode=0o700)
         if namespace.name == _NAMESPACE:
-            self._secure_owned_directory(namespace)
+            namespace = self._secure_owned_directory(namespace)
         else:
             self._require_claim_parent(namespace)
         root = namespace / self._root.name
         root.mkdir(exist_ok=True, mode=0o700)
-        self._secure_owned_directory(root)
-        return root
+        return self._secure_owned_directory(root)
 
-    @staticmethod
-    def _secure_owned_directory(directory: Path) -> None:
+    @classmethod
+    def _secure_owned_directory(cls, directory: Path) -> Path:
+        resolved = directory.resolve(strict=True)
+        if resolved != directory:
+            cls._require_claim_ancestors(resolved)
+        directory = resolved
         info = directory.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
             raise PermissionError(
@@ -94,6 +97,7 @@ class LuxHome:
         private_mode = 0o700 | (mode & stat.S_ISGID)
         if mode != private_mode:
             directory.chmod(private_mode)
+        return directory
 
     def session_claim(self, program: str, session_pid: int) -> Path:
         """Provision the private session directory and return the claim path."""
@@ -118,3 +122,8 @@ class LuxHome:
         sticky_root = info.st_uid == 0 and bool(info.st_mode & stat.S_ISVTX)
         if info.st_mode & 0o022 and not sticky_root:
             raise PermissionError(f"Lux session ancestor is writable: {directory}")
+
+    @classmethod
+    def _require_claim_ancestors(cls, directory: Path) -> None:
+        for parent in reversed(directory.parents):
+            cls._require_claim_parent(parent)
