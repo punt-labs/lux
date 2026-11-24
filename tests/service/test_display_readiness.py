@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.service import DISPLAY_SPEC
 from punt_lux.service._display_readiness import DisplayReadiness
 from punt_lux.service._display_restart_attempt import (
@@ -322,7 +323,9 @@ def test_stale_stderr_is_omitted_and_current_tail_names_mtime(tmp_path: Path) ->
     log.parent.mkdir(parents=True)
     log.write_text("old monitor error")
     mtime = log.stat().st_mtime
-    with patch("pathlib.Path.home", return_value=tmp_path):
+    with patch.object(
+        LuxHome, "resolve", return_value=LuxHome(tmp_path / ".punt-labs/lux")
+    ):
         stale = DisplayRestartScope(
             RestartAttempt(DISPLAY_SPEC, 501, mtime + 1, 30), MagicMock()
         ).stderr_tail()
@@ -355,7 +358,11 @@ def test_restart_command_uses_the_full_stability_witness(
     log.parent.mkdir(parents=True)
     log.write_text(monitor_error)
     with (
-        patch("pathlib.Path.home", return_value=tmp_path),
+        patch.object(
+            LuxHome,
+            "resolve",
+            return_value=LuxHome(tmp_path / ".punt-labs/lux"),
+        ),
         patch(
             "punt_lux.service._display_restart_attempt.time.time",
             return_value=log.stat().st_mtime,
@@ -530,7 +537,9 @@ def test_stderr_tail_surfaces_monitor_error_and_is_bounded(tmp_path: Path) -> No
     path.write_text(
         "old line\n" * 1000 + "HelloImGui: could not use non existent monitor #0!\n"
     )
-    with patch("pathlib.Path.home", return_value=tmp_path):
+    with patch.object(
+        LuxHome, "resolve", return_value=LuxHome(tmp_path / ".punt-labs/lux")
+    ):
         tail = DisplayRestartScope(
             RestartAttempt(DISPLAY_SPEC, 501, 0, 30), MagicMock()
         ).stderr_tail()
@@ -543,7 +552,9 @@ def test_stderr_tail_surfaces_monitor_error_and_is_bounded(tmp_path: Path) -> No
 def test_unavailable_or_empty_stderr_does_not_mask_failure(
     tmp_path: Path, content: str | None
 ) -> None:
-    with patch("pathlib.Path.home", return_value=tmp_path):
+    with patch.object(
+        LuxHome, "resolve", return_value=LuxHome(tmp_path / ".punt-labs/lux")
+    ):
         if content is not None:
             path = tmp_path / ".punt-labs/lux/logs/luxd-display-stderr.log"
             path.parent.mkdir(parents=True)
@@ -554,6 +565,16 @@ def test_unavailable_or_empty_stderr_does_not_mask_failure(
             ).stderr_tail()
             == ""
         )
+
+
+def test_unavailable_home_does_not_mask_restart_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", "relative-home")
+    scope = DisplayRestartScope(RestartAttempt(DISPLAY_SPEC, 501, 0, 30), MagicMock())
+
+    with pytest.raises(ReadinessError, match="original restart failure"):
+        scope.fail("original restart failure")
 
 
 @pytest.mark.parametrize(

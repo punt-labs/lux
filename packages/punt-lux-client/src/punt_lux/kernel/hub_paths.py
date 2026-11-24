@@ -13,6 +13,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Self, final
 
+from punt_lux.kernel.home_paths import LuxHome
+
 logger = logging.getLogger(__name__)
 _PORT_FILE = "hub.port"
 _PID_FILE = "hub.pid"
@@ -31,7 +33,7 @@ class HubPaths:
     def __new__(cls, root: Path | None = None) -> Self:
         """Resolve metadata paths under the specified or default Hub root."""
         self = super().__new__(cls)
-        self._dir = root or Path.home() / ".punt-labs" / "lux"
+        self._dir = root or LuxHome.resolve().root
         return self
 
     @property
@@ -49,33 +51,31 @@ class HubPaths:
         """Return the port file path for luxd."""
         return self._dir / _PORT_FILE
 
+    def prepare(self) -> None:
+        """Secure the Hub state directory before publishing runtime files."""
+        self._dir = LuxHome(self._dir).prepare_root()
+
     # None return = port file absent/unwritten — genuine absence contract (PY-TS-14).
     def read_port(self) -> int | None:
         """Read the hub port from the port file, or None if not available."""
-        path = self._dir / _PORT_FILE
         try:
             with suppress(FileNotFoundError):
-                return int(path.read_text().strip())
+                return int((self._dir / _PORT_FILE).read_text().strip())
         except (ValueError, OSError):
             logger.warning("Could not read Hub port file")
         return None
 
-    def _read_pid(self) -> int:
-        """Read the PID file, returning zero when absent or invalid."""
-        try:
-            return int((self._dir / _PID_FILE).read_text().strip())
-        except (ValueError, OSError):
-            return 0
-
     def is_running(self) -> bool:
         """Return whether luxd is running, per its PID file."""
-        pid = self._read_pid()
+        try:
+            pid = int((self._dir / _PID_FILE).read_text().strip())
+        except (ValueError, OSError):
+            return False
         if pid <= 0:
             return False
         try:
-            os.kill(pid, 0)
+            with suppress(PermissionError):
+                os.kill(pid, 0)
         except ProcessLookupError:
             return False
-        except PermissionError:
-            return True
         return True

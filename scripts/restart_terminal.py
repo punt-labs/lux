@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.kernel.logging_config import configure_logging
 from punt_lux.kernel.socket_owner import SocketOwner
 from punt_lux.service.terminal_service import TerminalService
@@ -68,7 +69,7 @@ def main() -> int:
         print("luxd-pty is not running; skipping restart.")
         return 0
     # The supervisor starts luxd-pty without overriding its default socket.
-    path = Path.home() / ".punt-labs/lux/pty/luxd-pty.sock"
+    path = LuxHome.resolve().pty_socket
     owner = SocketOwner(path)
     # Retain the socket node as a witness if the old instance cannot answer.
     previous_socket = _socket_identity(path)

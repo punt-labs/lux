@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import signal
 import sqlite3
+import stat
 import subprocess
 import sys
 import time
@@ -14,10 +15,105 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from punt_lux.applets.claim import SessionClaim
+from punt_lux.hub.hub_lifespan import HubLifespan
 from punt_lux.kernel.hub_paths import HubPaths
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+@pytest.mark.parametrize(
+    ("namespace_mode", "claim_first"),
+    [
+        pytest.param(None, False, id="fresh"),
+        pytest.param(0o775, True, id="legacy-claim-first"),
+        pytest.param(0o775, False, id="legacy-hub-first"),
+        pytest.param(0o660, False, id="nonsearchable-namespace"),
+    ],
+)
+def test_hub_and_claim_share_a_private_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    namespace_mode: int | None,
+    claim_first: bool,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    paths = HubPaths()
+    previous_umask = os.umask(0o002)
+    try:
+        if namespace_mode is not None:
+            paths.dir.mkdir(parents=True)
+            assert stat.S_IMODE(paths.dir.parent.stat().st_mode) == 0o775
+            assert stat.S_IMODE(paths.dir.stat().st_mode) == 0o775
+            paths.dir.parent.chmod(namespace_mode)
+        if claim_first:
+            assert SessionClaim.for_session("lux-beads", 4321).take()
+        assert HubLifespan(paths).record_listening(8430) == os.getpid()
+        assert paths.read_port() == 8430
+        assert stat.S_IMODE(paths.dir.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(paths.dir.stat().st_mode) == 0o700
+        assert SessionClaim.for_session("lux-beads", 4321).take()
+        assert stat.S_IMODE((paths.dir / "sessions").stat().st_mode) == 0o700
+    finally:
+        os.umask(previous_umask)
+
+
+def test_hub_and_claim_use_an_owned_namespace_symlink_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    paths = HubPaths()
+    link = paths.dir.parent
+    target = tmp_path / "relocated"
+    target.mkdir()
+    target.chmod(0o775)
+    link.symlink_to(target, target_is_directory=True)
+    root = target / "lux"
+
+    assert HubLifespan(paths).record_listening(8430) == os.getpid()
+    assert (root / "hub.port").read_text() == "8430"
+    assert SessionClaim.for_session("lux-beads", 4321).take()
+    assert (root / "sessions" / "lux-beads-4321.pid").is_file()
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
+
+
+@pytest.mark.parametrize("link_namespace", [False, True], ids=["local", "relocated"])
+@pytest.mark.parametrize("hub_first", [True, False], ids=["hub", "claim"])
+@pytest.mark.parametrize("namespace_mode", [0o700, 0o775], ids=["private", "writable"])
+def test_hub_and_claim_reject_a_symlink_below_the_namespace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    link_namespace: bool,
+    hub_first: bool,
+    namespace_mode: int,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    paths = HubPaths()
+    namespace = paths.dir.parent
+    if link_namespace:
+        namespace = tmp_path / "relocated"
+        paths.dir.parent.symlink_to(namespace, target_is_directory=True)
+    namespace.mkdir()
+    namespace.chmod(namespace_mode)
+    target = tmp_path / "unrelated"
+    target.mkdir()
+    target.chmod(0o755)
+    paths.dir.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(PermissionError, match="not an owned directory"):
+        if hub_first:
+            HubLifespan(paths).record_listening(8430)
+        else:
+            SessionClaim.for_session("lux-beads", 4321)
+
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
+    with pytest.raises(PermissionError, match="not an owned directory"):
+        SessionClaim.for_session("lux-beads", 4321)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o755
+    assert not list(target.iterdir())
 
 
 @pytest.mark.integration

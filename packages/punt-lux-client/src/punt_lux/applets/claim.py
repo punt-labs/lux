@@ -32,10 +32,11 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
-import tempfile
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Protocol, Self, final, runtime_checkable
+
+from punt_lux.kernel.home_paths import LuxHome
 
 logger = logging.getLogger(__name__)
 
@@ -95,13 +96,8 @@ class SessionClaim:
 
     @classmethod
     def for_session(cls, program: str, session_pid: int) -> Self:
-        """Address the claim ``program`` takes on ``session_pid``, beside its log.
-
-        The applet's log is written to the same directory under the same name, so
-        the two files a session's applet leaves behind sit together and say the
-        same thing about which session they belong to.
-        """
-        return cls(Path(tempfile.gettempdir()) / f"{program}-{session_pid}.pid")
+        """Open the claim for this applet and process in Lux's private session store."""
+        return cls(LuxHome.resolve().session_claim(program, session_pid))
 
     def take(self) -> bool:
         """Take the claim unless a live applet holds it, and say which happened.

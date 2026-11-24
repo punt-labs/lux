@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.trust.ca_paths import CaPaths
 
 
@@ -15,9 +17,9 @@ def test_paths_derive_from_the_root(tmp_path: Path) -> None:
     assert paths.root_cert_path == tmp_path / "root.crt"
 
 
-def test_default_root_is_under_punt_labs_lux_ca() -> None:
-    paths = CaPaths.default()
-    assert paths.dir == Path.home() / ".punt-labs" / "lux" / "ca"
+def test_default_root_is_under_punt_labs_lux_ca(tmp_path: Path) -> None:
+    with patch.object(LuxHome, "resolve", return_value=LuxHome(tmp_path)):
+        assert CaPaths.default().dir == tmp_path / "ca"
 
 
 def test_exists_is_false_before_any_material_is_written(tmp_path: Path) -> None:

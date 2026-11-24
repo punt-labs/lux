@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, NoReturn, Self, final
 
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.kernel.logging_config import failure_details, process_diagnostics
 from punt_lux.terminal.process_session import ProcessSession
 
@@ -28,12 +29,11 @@ class DaemonOptions(NamedTuple):
     @classmethod
     def parse(cls, parser: ArgumentParser) -> Self:
         """Parse the terminal daemon's command-line options."""
-        default = Path.home() / ".punt-labs" / "lux" / "pty" / "luxd-pty.sock"
-        parser.add_argument("--socket", type=Path, default=default)
+        parser.add_argument("--socket", type=Path)
         no_menu = os.environ.get("LUX_PTY_NO_MENU") == "1"
         parser.add_argument("--no-menu", action="store_true", default=no_menu)
         args = parser.parse_args()
-        return cls(args.socket, not args.no_menu)
+        return cls(LuxHome.terminal_socket(args.socket), not args.no_menu)
 
 
 @final

@@ -5,7 +5,6 @@ LUX_PTY_SOCKET overrides ~/.punt-labs/lux/pty/luxd-pty.sock; Hub routing is the 
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Collection
 from itertools import count
@@ -15,6 +14,7 @@ from typing import Self
 from punt_lux.display.terminal.attachment_requests import AttachmentRequests
 from punt_lux.display.terminal.idling_decision import IdlingDecision
 from punt_lux.display.terminal.remote import RemoteSession
+from punt_lux.kernel.home_paths import LuxHome
 from punt_lux.terminal.connection import TerminalConnection
 from punt_lux.wire.stream.frames import Frame, FrameKind
 
@@ -43,8 +43,7 @@ class RemotePool:
 
     @classmethod
     def default(cls) -> Self:
-        sock = Path.home() / ".punt-labs/lux/pty/luxd-pty.sock"
-        return cls(Path(os.environ.get("LUX_PTY_SOCKET", sock)))
+        return cls(LuxHome.display_pty_socket())
 
     def pump_frame(self) -> IdlingDecision:
         """Pump once and report what this frame saw of terminal output."""
