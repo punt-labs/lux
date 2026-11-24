@@ -12,8 +12,9 @@ for binary in "$FUZZ" "$PROBCLI"; do
     exit 1
   fi
 done
-mkdir -p "$ROOT/.tmp"
-LOG_DIR="$(mktemp -d "$ROOT/.tmp/peripheral-registry-model.XXXXXX")"
+OUTPUT_DIR="${MODEL_OUTPUT_DIR:-$ROOT/.tmp}"
+mkdir -p "$OUTPUT_DIR"
+LOG_DIR="$(mktemp -d "$OUTPUT_DIR/peripheral-registry-model.XXXXXX")"
 echo "Verification logs: $LOG_DIR"
 MODEL="$ROOT/docs/peripheral_registry_lifecycle.tex"
 for switch in UNIQUE REGISTERED FROZEN COMPLETE STARTORDER STOPORDER; do

@@ -45,7 +45,12 @@ def _run(
     return subprocess.run(
         [shutil.which("bash") or "/bin/bash", str(_SCRIPT)],
         cwd=_ROOT,
-        env={**os.environ, "FUZZ": str(fuzz), "PROBCLI": str(prob)},
+        env={
+            **os.environ,
+            "FUZZ": str(fuzz),
+            "PROBCLI": str(prob),
+            "MODEL_OUTPUT_DIR": str(tmp_path / "model-logs"),
+        },
         capture_output=True,
         text=True,
         timeout=15,
@@ -59,6 +64,9 @@ def test_exhaustive_safety_and_all_fidelity_witnesses_pass(tmp_path: Path) -> No
     assert "registry-deadlock not found" in result.stdout
     assert result.stdout.count("-fidelity found") == 7
     assert "PASS: all peripheral registry model checks" in result.stdout
+    logs = list((tmp_path / "model-logs").glob("peripheral-registry-model.*"))
+    assert len(logs) == 1
+    assert (logs[0] / "registry-safety.log").is_file()
 
 
 def test_verbose_summary_supplies_explicit_zero(tmp_path: Path) -> None:
