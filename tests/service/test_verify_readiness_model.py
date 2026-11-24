@@ -21,7 +21,9 @@ def _run(
     if fuzz_exists:
         fuzz.write_text("#!/bin/sh\nexit 0\n")
         fuzz.chmod(0o755)
-    prob.write_text("#!/bin/sh\n" + report)
+    prob.write_text(
+        '#!/bin/sh\ncase " $* " in *" -p MAXINT 7 "*) ;; *) exit 64;; esac\n' + report
+    )
     prob.chmod(0o755)
     return subprocess.run(
         [shutil.which("bash") or "/bin/bash", str(_SCRIPT)],

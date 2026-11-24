@@ -36,6 +36,7 @@ def _run(
         fuzz.chmod(0o755)
     prob.write_text(
         "#!/bin/sh\n"
+        'case " $* " in *" -p MAXINT 3 "*) ;; *) exit 64;; esac\n'
         "printf 'States analysed: 3\\n'\n"
         'case "$1" in\n'
         "*/peripheral_registry_lifecycle.tex)\n"
