@@ -39,15 +39,14 @@ def test_relative_home_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
         LuxHome.resolve()
 
 
-def test_prepare_root_rejects_symlink_to_foreign_owned_directory(
+def test_prepare_root_rejects_namespace_symlink_to_foreign_owned_directory(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     home = LuxHome.resolve()
-    home.root.parent.mkdir(mode=0o700)
     target = tmp_path / "foreign"
     target.mkdir(mode=0o700)
-    home.root.symlink_to(target, target_is_directory=True)
+    home.root.parent.symlink_to(target, target_is_directory=True)
     lstat = Path.lstat
 
     def foreign_owner(path: Path) -> os.stat_result:
@@ -80,34 +79,20 @@ def test_prepare_root_rejects_a_link_inserted_during_namespace_repair(
         chmod(path, mode)
 
     monkeypatch.setattr(Path, "chmod", insert_link)
-    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+    with pytest.raises(PermissionError, match="not an owned directory"):
         home.prepare_root()
     assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
     assert stat.S_IMODE(target.stat().st_mode) == 0o755
 
 
-def test_prepare_root_still_rejects_a_foreign_link_after_repair(
+def test_session_claim_rejects_an_owned_sessions_symlink(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     home = LuxHome.resolve()
-    namespace = home.root.parent
-    namespace.mkdir()
-    namespace.chmod(0o775)
-    target = tmp_path / "unrelated"
+    root = home.prepare_root()
+    target = tmp_path / "sessions-target"
     target.mkdir(mode=0o700)
-    home.root.symlink_to(target, target_is_directory=True)
-    lstat = Path.lstat
-
-    def foreign_link(path: Path) -> os.stat_result:
-        info = lstat(path)
-        if path == home.root:
-            return os.stat_result((*info[:4], os.getuid() + 1, *info[5:]))
-        return info
-
-    monkeypatch.setattr(Path, "lstat", foreign_link)
-    with pytest.raises(PermissionError, match="symlink in a writable directory"):
-        home.prepare_root()
-    assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
-    with pytest.raises(PermissionError, match="symlink is not trusted"):
-        home.prepare_root()
+    (root / "sessions").symlink_to(target, target_is_directory=True)
+    with pytest.raises(PermissionError, match="session directory is not private"):
+        home.session_claim("lux-beads", 4321)

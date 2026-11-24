@@ -60,19 +60,17 @@ def test_hub_and_claim_share_a_private_root(
         os.umask(previous_umask)
 
 
-@pytest.mark.parametrize("link_namespace", [False, True], ids=["root", "namespace"])
-def test_hub_and_claim_use_an_owned_symlink_target(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, link_namespace: bool
+def test_hub_and_claim_use_an_owned_namespace_symlink_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     paths = HubPaths()
-    link = paths.dir.parent if link_namespace else paths.dir
-    link.parent.mkdir(mode=0o700, exist_ok=True)
+    link = paths.dir.parent
     target = tmp_path / "relocated"
     target.mkdir()
     target.chmod(0o775)
     link.symlink_to(target, target_is_directory=True)
-    root = target / "lux" if link_namespace else target
+    root = target / "lux"
 
     assert HubLifespan(paths).record_listening(8430) == os.getpid()
     assert (root / "hub.port").read_text() == "8430"
@@ -83,12 +81,14 @@ def test_hub_and_claim_use_an_owned_symlink_target(
 
 @pytest.mark.parametrize("link_namespace", [False, True], ids=["local", "relocated"])
 @pytest.mark.parametrize("hub_first", [True, False], ids=["hub", "claim"])
-def test_hub_and_claim_reject_a_symlink_in_a_writable_namespace(
+@pytest.mark.parametrize("namespace_mode", [0o700, 0o775], ids=["private", "writable"])
+def test_hub_and_claim_reject_a_symlink_below_the_namespace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
     link_namespace: bool,
     hub_first: bool,
+    namespace_mode: int,
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     paths = HubPaths()
@@ -97,19 +97,21 @@ def test_hub_and_claim_reject_a_symlink_in_a_writable_namespace(
         namespace = tmp_path / "relocated"
         paths.dir.parent.symlink_to(namespace, target_is_directory=True)
     namespace.mkdir()
-    namespace.chmod(0o775)
+    namespace.chmod(namespace_mode)
     target = tmp_path / "unrelated"
     target.mkdir()
     target.chmod(0o755)
     paths.dir.symlink_to(target, target_is_directory=True)
 
-    with pytest.raises(PermissionError, match="symlink in a writable directory"):
+    with pytest.raises(PermissionError, match="not an owned directory"):
         if hub_first:
             HubLifespan(paths).record_listening(8430)
         else:
             SessionClaim.for_session("lux-beads", 4321)
 
     assert stat.S_IMODE(namespace.stat().st_mode) == 0o700
+    with pytest.raises(PermissionError, match="not an owned directory"):
+        SessionClaim.for_session("lux-beads", 4321)
     assert stat.S_IMODE(target.stat().st_mode) == 0o755
     assert not list(target.iterdir())
 

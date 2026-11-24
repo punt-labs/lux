@@ -245,6 +245,10 @@
   `TMPDIR` values differ. The old files are not read or moved; they contain no
   data that needs migrating.
 
+- Hub state and Beads claims use private Lux directories. Provisioning can
+  follow an owned `~/.punt-labs` symlink, but refuses symlinks at `lux` or
+  `lux/sessions` beneath that namespace.
+
 - Display restart requires a new PID, a live owned socket, and three seconds of
   observed connectivity on the same Hub dial within a 30-second deadline.
   Transport errors remain pending and reset stability; crashes and replacement
