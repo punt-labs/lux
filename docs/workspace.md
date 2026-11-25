@@ -39,6 +39,11 @@ Trusted Publishers. Configure each project with owner `punt-labs`, repository
 | `punt-lux-client` | `testpypi` | `pypi-client` |
 | `punt-service` | `testpypi-service` | `release` |
 
+This mapping is Lux's exception to the default environment names in the
+shared [Trusted Publishing rule (PL-DI-2)](../.claude/rules/python-distribution.md#pl-di-2-trusted-publishing).
+An index allows only one pending project per repository, workflow, and
+environment combination; existing publishers can share that combination.
+
 There are no additional CLI entry points in either headless distribution.
 Lux's scripts and extras remain in the root product. No publishing action is
 required to test the workspace locally.

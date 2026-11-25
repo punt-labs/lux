@@ -491,7 +491,8 @@ Use `/punt:auto release [version=X.Y.Z]`. Lux is a CLI + Plugin Hybrid — relea
 **Workspace version step:** in release Phase 2, immediately after the root version bump and before the lock refresh, run `make sync-workspace-version`. It mirrors the root version into `punt-lux-client`, `punt-service` and the root's exact dependency pins; include all three manifests and `uv.lock` in the release commit. Build with `uv build --all-packages`. `tests/test_workspace.py` rejects drift. See `docs/workspace.md`.
 
 **Trusted Publishers:** use the [Lux workspace environment mapping](docs/workspace.md#release-versions)
-in place of the shared distribution rule's default environment names.
+for this repo's exception to the environment names in
+[PL-DI-2](.claude/rules/python-distribution.md#pl-di-2-trusted-publishing).
 
 **The shippable plugin surface lives in `plugin/`.** `plugin/.claude-plugin/`, `plugin/commands/`, `plugin/hooks/`, and `plugin/skills/` are the only directories a marketplace install fetches: the catalog entry uses Claude Code's `git-subdir` source (`"path": "plugin"`), which is a blobless partial clone plus a cone sparse-checkout. Nothing outside `plugin/` may be referenced from inside it, and `${CLAUDE_PLUGIN_ROOT}` resolves to `plugin/`. The wheel is unaffected — `uv_build` ships `src/punt_lux` only, so the plugin surface has never been packaged.
 
