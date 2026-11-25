@@ -239,6 +239,10 @@
 
 ### Fixed
 
+- Build once and publish `punt-service`, `punt-lux-client`, and `punt-lux`
+  in order from separate package artifacts, using `testpypi` on TestPyPI and
+  `release` on PyPI. Failed jobs can be retried without rerunning successful jobs.
+
 - Beads applet claims now use
   `~/.punt-labs/lux/sessions/lux-beads-<session-pid>.pid` instead of the system
   temporary directory. Repeated starts share one lock even when their
