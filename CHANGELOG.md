@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-25
+
 ### Added
 
 - Hub-private typed peripheral registration and worker lifecycle, with one
@@ -9,11 +11,11 @@
   and readiness behavior; a tested second-kind seam prepares for audio without
   introducing an audio protocol or changing Vox.
 
-- Three synchronized distributions for the planned 0.34.0 release:
+- Three synchronized distributions:
   `punt-lux` installs the full product, `punt-lux-client` installs the headless
   SDK, wire contracts, kernel and generic applet helpers, and `punt-service`
   provides product-neutral daemon management without Lux or third-party
-  dependencies. The current version remains unchanged until release.
+  dependencies.
 - `make demo-class` (`tools/demo_class.py`) classifies the files a PR changes
   as interactive, rendering, exempt or none by AST, and prints the summary the
   demo comment quotes. It is not part of `make check`.

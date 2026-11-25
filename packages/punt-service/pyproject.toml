@@ -1,6 +1,6 @@
 [project]
 name = "punt-service"
-version = "0.33.1"
+version = "0.34.0"
 description = "Product-neutral daemon management for launchd and systemd."
 requires-python = ">=3.13"
 license = "MIT"

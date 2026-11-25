@@ -1489,7 +1489,7 @@ wheels = [
 
 [[package]]
 name = "punt-lux"
-version = "0.33.1"
+version = "0.34.0"
 source = { editable = "." }
 dependencies = [
     { name = "authlib" },
@@ -1605,7 +1605,7 @@ docs = [
 
 [[package]]
 name = "punt-lux-client"
-version = "0.33.1"
+version = "0.34.0"
 source = { editable = "packages/punt-lux-client" }
 dependencies = [
     { name = "punt-observe" },
@@ -1649,7 +1649,7 @@ wheels = [
 
 [[package]]
 name = "punt-service"
-version = "0.33.1"
+version = "0.34.0"
 source = { editable = "packages/punt-service" }
 
 [[package]]
