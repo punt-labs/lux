@@ -239,9 +239,9 @@
 
 ### Fixed
 
-- Publish `punt-lux-client` from `pypi-client` on PyPI and `punt-service`
-  from `testpypi-service` on TestPyPI, preserving existing Trusted Publisher
-  configurations.
+- Publish `punt-service`, `punt-lux-client`, and `punt-lux` in order from
+  the existing TestPyPI and PyPI environments so the two new projects can
+  activate their pending Trusted Publishers one at a time.
 
 - Beads applet claims now use
   `~/.punt-labs/lux/sessions/lux-beads-<session-pid>.pid` instead of the system

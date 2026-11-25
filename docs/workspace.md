@@ -28,25 +28,19 @@ closed: synchronize, commit the mirrors, then resume `punt release run` with
 perform the three-manifest version change as one operation. Plugin, installer
 and changelog mirrors remain the shared Phase 2's responsibility.
 
-Release CI builds all three distributions together and uses two GitHub
-environments per index so the two new projects can have distinct pending
-Trusted Publishers. Configure each project with owner `punt-labs`, repository
-`lux`, workflow `release.yml`, and the environment for the corresponding index:
+Release CI builds all three distributions together, then publishes
+`punt-service`, `punt-lux-client`, and `punt-lux` in that order on each index.
+Configure each project's Trusted Publisher with owner `punt-labs`, repository
+`lux`, workflow `release.yml`, and environment `testpypi` on TestPyPI or
+`release` on PyPI. An index allows only one pending project for that
+configuration at a time; established projects can share it.
 
-| Project | TestPyPI | PyPI |
-| --- | --- | --- |
-| `punt-lux` | `testpypi` | `release` |
-| `punt-lux-client` | `testpypi` | `pypi-client` |
-| `punt-service` | `testpypi-service` | `release` |
-
-This mapping is Lux's exception to the default environment names in the
-shared [Trusted Publishing rule (PL-DI-2)](../.claude/rules/python-distribution.md#pl-di-2-trusted-publishing).
-An index allows only one pending project per repository, workflow, and
-environment combination; existing publishers can share that combination.
-
-Each index publishes `punt-lux-client` and `punt-service` before `punt-lux`,
-which pins both versions. All PyPI publishing waits for the TestPyPI install
-smoke test to pass.
+On the first release, register `punt-service` first on both indexes. Its PyPI
+job waits for a TestPyPI install and import of `punt-service`, not the full Lux
+smoke test. Once `punt-service` has published on both indexes, register
+`punt-lux-client` on both with the same settings and use **Re-run failed jobs**
+on the original Actions run while its build artifacts are still available.
+The client and Lux PyPI jobs wait for the full Lux TestPyPI smoke test.
 
 There are no additional CLI entry points in either headless distribution.
 Lux's scripts and extras remain in the root product. No publishing action is

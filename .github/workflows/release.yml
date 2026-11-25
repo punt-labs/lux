@@ -32,23 +32,40 @@ jobs:
           name: dist-punt-lux
           path: dist/punt_lux-*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-punt-lux-client
           path: dist/punt_lux_client-*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-punt-service
           path: dist/punt_service-*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
-  # A workflow/environment pair can have only one pending Trusted Publisher per index.
-  testpypi-client:
+  # Publish service first so its pending publisher becomes active before client registration.
+  publish-service-testpypi:
     needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-punt-service
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  publish-client-testpypi:
+    needs: publish-service-testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: testpypi
@@ -64,25 +81,8 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
-  testpypi-service:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: testpypi-service
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist-punt-service
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-
   testpypi:
-    needs: [testpypi-client, testpypi-service]
+    needs: publish-client-testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: testpypi
@@ -128,22 +128,33 @@ jobs:
       - name: Verify CLI
         run: lux --help
 
-  pypi-client:
-    needs: [testpypi, test-install]
+  test-install-service:
+    needs: publish-service-testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: pypi-client
-    permissions:
-      id-token: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          name: dist-punt-lux-client
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+          python-version: "3.13"
+      - name: Install punt-service from TestPyPI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for attempt in 1 2 3 4 5; do
+            if uv pip install --system --index-url https://test.pypi.org/simple/ "punt-service==$VERSION"; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt 5 ]]; then
+              sleep 30
+            fi
+          done
+          echo "::error::Failed to install punt-service==$VERSION from TestPyPI after 5 attempts."
+          exit 1
+      - name: Verify punt-service imports
+        run: python -c "import punt_service"
 
-  pypi-service:
-    needs: [testpypi, test-install]
+  publish-service:
+    needs: test-install-service
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
@@ -156,8 +167,22 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
 
+  publish-client:
+    needs: [publish-service, test-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-punt-lux-client
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
   pypi:
-    needs: [testpypi, test-install, pypi-client, pypi-service]
+    needs: [test-install, publish-client]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
