@@ -239,6 +239,10 @@
 
 ### Fixed
 
+- Publish `punt-lux-client` from `pypi-client` on PyPI and `punt-service`
+  from `testpypi-service` on TestPyPI, preserving existing Trusted Publisher
+  configurations.
+
 - Beads applet claims now use
   `~/.punt-labs/lux/sessions/lux-beads-<session-pid>.pid` instead of the system
   temporary directory. Repeated starts share one lock even when their

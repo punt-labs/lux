@@ -28,10 +28,20 @@ closed: synchronize, commit the mirrors, then resume `punt release run` with
 perform the three-manifest version change as one operation. Plugin, installer
 and changelog mirrors remain the shared Phase 2's responsibility.
 
-Release CI builds and uploads all three distributions together. There are no
-additional CLI entry points in either headless distribution. Lux's scripts and
-extras remain in the root product. No publishing action is required to test
-the workspace locally.
+Release CI builds all three distributions together and uses two GitHub
+environments per index so the two new projects can have distinct pending
+Trusted Publishers. Configure each project with owner `punt-labs`, repository
+`lux`, workflow `release.yml`, and the environment for the corresponding index:
+
+| Project | TestPyPI | PyPI |
+| --- | --- | --- |
+| `punt-lux` | `testpypi` | `release` |
+| `punt-lux-client` | `testpypi` | `pypi-client` |
+| `punt-service` | `testpypi-service` | `release` |
+
+There are no additional CLI entry points in either headless distribution.
+Lux's scripts and extras remain in the root product. No publishing action is
+required to test the workspace locally.
 
 ## Ratchets
 
