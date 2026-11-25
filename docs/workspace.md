@@ -28,19 +28,15 @@ closed: synchronize, commit the mirrors, then resume `punt release run` with
 perform the three-manifest version change as one operation. Plugin, installer
 and changelog mirrors remain the shared Phase 2's responsibility.
 
-Release CI builds all three distributions together, then publishes
-`punt-service`, `punt-lux-client`, and `punt-lux` in that order on each index.
-Configure each project's Trusted Publisher with owner `punt-labs`, repository
-`lux`, workflow `release.yml`, and environment `testpypi` on TestPyPI or
-`release` on PyPI. An index allows only one pending project for that
-configuration at a time; established projects can share it.
+Release CI builds all three distributions once and uploads one artifact per
+package. Each index publishes `punt-service`, `punt-lux-client`, and `punt-lux`
+in that order, using `testpypi` on TestPyPI and `release` on PyPI.
 
-On the first release, register `punt-service` first on both indexes. Its PyPI
-job waits for a TestPyPI install and import of `punt-service`, not the full Lux
-smoke test. Once `punt-service` has published on both indexes, register
-`punt-lux-client` on both with the same settings and use **Re-run failed jobs**
-on the original Actions run while its build artifacts are still available.
+The PyPI service job waits for a TestPyPI install and import of `punt-service`.
 The client and Lux PyPI jobs wait for the full Lux TestPyPI smoke test.
+To recover a partial release, fix the failure and select **Re-run failed jobs**
+on the original Actions run while its build artifacts are still available.
+Successful publish jobs are not rerun.
 
 There are no additional CLI entry points in either headless distribution.
 Lux's scripts and extras remain in the root product. No publishing action is
