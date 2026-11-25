@@ -44,6 +44,10 @@ shared [Trusted Publishing rule (PL-DI-2)](../.claude/rules/python-distribution.
 An index allows only one pending project per repository, workflow, and
 environment combination; existing publishers can share that combination.
 
+Each index publishes `punt-lux-client` and `punt-service` before `punt-lux`,
+which pins both versions. All PyPI publishing waits for the TestPyPI install
+smoke test to pass.
+
 There are no additional CLI entry points in either headless distribution.
 Lux's scripts and extras remain in the root product. No publishing action is
 required to test the workspace locally.

@@ -47,30 +47,51 @@ jobs:
           retention-days: 1
 
   # A workflow/environment pair can have only one pending Trusted Publisher per index.
-  testpypi:
+  testpypi-client:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - package: punt-lux-client
-            environment: testpypi
-          - package: punt-service
-            environment: testpypi-service
-    environment: ${{ matrix.environment }}
+    environment: testpypi
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: matrix.environment == 'testpypi'
         with:
-          name: dist-punt-lux
+          name: dist-punt-lux-client
           path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  testpypi-service:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testpypi-service
+    permissions:
+      id-token: write
+    steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist-${{ matrix.package }}
+          name: dist-punt-service
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  testpypi:
+    needs: [testpypi-client, testpypi-service]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-punt-lux
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
@@ -107,29 +128,44 @@ jobs:
       - name: Verify CLI
         run: lux --help
 
-  pypi:
+  pypi-client:
     needs: [testpypi, test-install]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - package: punt-service
-            environment: release
-          - package: punt-lux-client
-            environment: pypi-client
-    environment: ${{ matrix.environment }}
+    environment: pypi-client
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: matrix.environment == 'release'
         with:
-          name: dist-punt-lux
+          name: dist-punt-lux-client
           path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  pypi-service:
+    needs: [testpypi, test-install]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      id-token: write
+    steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist-${{ matrix.package }}
+          name: dist-punt-service
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  pypi:
+    needs: [testpypi, test-install, pypi-client, pypi-service]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-punt-lux
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
