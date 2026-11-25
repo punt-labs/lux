@@ -494,7 +494,7 @@ Use `/punt:auto release [version=X.Y.Z]`. Lux is a CLI + Plugin Hybrid — relea
 
 Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `scripts/restore-dev-plugin.sh` (restore dev state after tag).
 
-**Gotcha from v0.5.0:** `.gitignore` must cover all transient files (`.coverage`, `*.ini`, `demos/`, `__pycache__/`, LaTeX artifacts) — `punt release` checks for a clean working tree.
+**Gotcha from v0.5.0:** `.gitignore` must cover all transient files (`.coverage`, `*.ini`, `demos/`, `__pycache__/`, LaTeX artifacts) — `punt release run` checks for a clean working tree.
 
 ## Key Documents
 
