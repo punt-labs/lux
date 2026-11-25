@@ -11,7 +11,7 @@ The root remains `punt-lux`; the other published members are
 All three project versions and both exact internal dependency pins must agree.
 `tests/test_workspace.py` enforces this. Do not bump them for ordinary changes.
 
-The shared `punt release` implementation currently bumps only the root
+The shared `punt release run` implementation currently bumps only the root
 `pyproject.toml` in Phase 2, before its lock refresh and build. It does not
 discover workspace members. The Lux companion operation is:
 
@@ -23,7 +23,7 @@ Run it on the release branch after the root release bump and before the build
 gate; it synchronizes both members and exact root pins, then refreshes `uv.lock`.
 Include all three manifests and the lock in the release commit. If the shared
 release driver has already reached the build, its version assertion fails
-closed: synchronize, commit the mirrors, then resume `punt release` with
+closed: synchronize, commit the mirrors, then resume `punt release run` with
 `--resume-from build`. `make sync-workspace-version VERSION=X.Y.Z` can also
 perform the three-manifest version change as one operation. Plugin, installer
 and changelog mirrors remain the shared Phase 2's responsibility.
