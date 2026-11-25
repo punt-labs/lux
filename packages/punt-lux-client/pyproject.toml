@@ -1,6 +1,6 @@
 [project]
 name = "punt-lux-client"
-version = "0.33.1"
+version = "0.34.0"
 description = "Headless Lux client, wire contracts, kernel and applet helpers."
 requires-python = ">=3.13"
 license = "MIT"
