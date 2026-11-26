@@ -137,6 +137,10 @@ class SendRecovery:
         if dial is None:
             return  # nothing was dialed: nothing to reap or to drop
         if dial.ended == "unresponsive" and dial.reaches_local_display():
+            logger.warning(
+                "display did not answer a push (dial ended %s); terminating it",
+                dial.ended,
+            )
             time.sleep(self._respawn.note_respawn())
             self._lifecycle.reap(_REAP_TIMEOUT)
         self._clients.drop(dial)

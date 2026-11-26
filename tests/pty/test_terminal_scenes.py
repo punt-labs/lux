@@ -35,6 +35,11 @@ def test_other_scenes_are_not_terminal_windows(scene: str) -> None:
     assert not TerminalScenes().owns(scene)
 
 
+def test_an_empty_prefix_is_refused() -> None:
+    with pytest.raises(ValueError, match="prefix is empty"):
+        TerminalScenes("")
+
+
 def test_session_of_refuses_a_foreign_scene() -> None:
     with pytest.raises(ValueError, match="not a terminal scene"):
         TerminalScenes().session_of("beads")

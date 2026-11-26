@@ -22,7 +22,8 @@ class TerminalWindows:
 
     A window is a scene; the Display drops the frame with the scene. The Hub is
     the authority on what is shown, so ``refresh`` reads it before a reconcile.
-    Only scenes owned by this helper's own identity count as its windows.
+    Only live scenes owned by this helper's own identity count as its windows; a
+    quarantined scene is not replicated to the Display, so it is shown again.
     """
 
     _clients: TerminalClients
@@ -58,6 +59,7 @@ class TerminalWindows:
             self._scenes.session_of(scene.local_id)
             for scene in result.scenes
             if self._scenes.owns(scene.local_id)
+            and scene.status == "live"
             and scene.owners
             and all(owner.identity == mine for owner in scene.owners)
         }

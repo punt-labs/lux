@@ -34,30 +34,38 @@ class TerminalMenu:
         return cls(TerminalClients(), DaemonExchange.local())
 
     async def serve(self) -> None:
+        """Serve clicks and windows together; the menu is only up while both are.
+
+        Raises:
+            ProgrammerError: Either task ended on a bug; the menu goes down with
+                it instead of offering terminals that get no window.
+        """
         keeper = asyncio.create_task(self._keeper.serve())
-        keeper.add_done_callback(self._keeper_ended)
+        listening = asyncio.create_task(self._listen())
         try:
-            while True:
-                try:
-                    listener = self._clients.listener(self._clicked, self._connected)
-                    await listener.listen()
-                except ProgrammerError:
-                    raise
-                except OSError:
-                    logger.debug(
-                        "Terminal launcher Hub unavailable; retrying", exc_info=True
-                    )
-                except Exception:
-                    logger.exception("Terminal launcher listener failed; retrying")
-                await asyncio.sleep(2)
+            await asyncio.wait({keeper, listening}, return_when=asyncio.FIRST_COMPLETED)
+            for task in (keeper, listening):
+                if task.done() and not task.cancelled():
+                    task.result()
         finally:
             keeper.cancel()
-            await asyncio.gather(keeper, return_exceptions=True)
+            listening.cancel()
+            await asyncio.gather(keeper, listening, return_exceptions=True)
 
-    @staticmethod
-    def _keeper_ended(task: asyncio.Task[None]) -> None:
-        if not task.cancelled() and (error := task.exception()) is not None:
-            logger.error("Terminal window keeper stopped: %s", error, exc_info=error)
+    async def _listen(self) -> None:
+        while True:
+            try:
+                listener = self._clients.listener(self._clicked, self._connected)
+                await listener.listen()
+            except ProgrammerError:
+                raise
+            except OSError:
+                logger.debug(
+                    "Terminal launcher Hub unavailable; retrying", exc_info=True
+                )
+            except Exception:
+                logger.exception("Terminal launcher listener failed; retrying")
+            await asyncio.sleep(2)
 
     async def _clicked(self, callback: str) -> None:
         try:

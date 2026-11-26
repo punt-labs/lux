@@ -18,6 +18,7 @@ from punt_lux.wire.operations import (
     SceneShown,
 )
 from punt_lux.wire.operations.query_ownership import SceneOwner
+from punt_lux.wire.operations.query_quarantine import QuarantineInfo
 from punt_lux.wire.operations.query_scenes import SceneSummary
 
 
@@ -56,11 +57,12 @@ class StubHub:
     _down: bool
     _refusal: str
     _refused: dict[str, str]
+    _quarantined: set[str]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._scenes, self._menu, self._foreign = {}, {}, set()
-        self._refused = {}
+        self._refused, self._quarantined = {}, set()
         self._identity = ClientIdentity(kind="app", name="luxd-pty", lease_ttl=30)
         self._down, self._refusal = False, ""
         return self
@@ -123,6 +125,10 @@ class StubHub:
     def refuse(self, reason: str) -> None:
         self._refusal = reason
 
+    def quarantine(self, scene_id: str) -> None:
+        """Hold ``scene_id`` out of display replication, as quarantine does."""
+        self._quarantined.add(scene_id)
+
     def refuse_scene(self, scene_id: str, reason: str) -> None:
         """Refuse only the scene named ``scene_id``; others are shown."""
         self._refused[scene_id] = reason
@@ -148,6 +154,7 @@ class StubHub:
                 identity=ClientIdentity(kind="app", name="other"),
             )
         ]
+        held = QuarantineInfo(death_count=3, last_death_at=1.0)
         rows = [
             SceneSummary(
                 scene_id=f"hub:{name}",
@@ -155,6 +162,8 @@ class StubHub:
                 element_count=1,
                 frame_id=name,
                 owners=mine if name in self._scenes else theirs,
+                status="quarantined" if name in self._quarantined else "live",
+                quarantine=held if name in self._quarantined else None,
             )
             for name in [*self._scenes, *sorted(self._foreign)]
         ]

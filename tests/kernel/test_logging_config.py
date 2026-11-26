@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import signal
 import stat
 import subprocess
 import sys
 from typing import TYPE_CHECKING
 
 import pytest
+
+from punt_lux.kernel.logging_config import record_signal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -98,3 +102,102 @@ def test_verbose_overrides_the_environment_level(tmp_path: Path) -> None:
     )
     assert "verbose detail" in result.stderr
     assert "verbose detail" in (tmp_path / ".punt-labs/lux/logs/lux.log").read_text()
+
+
+_DAEMON = """
+import sys
+import time
+from punt_lux.kernel.logging_config import process_diagnostics
+
+with process_diagnostics("daemon", "probe daemon"):
+    print("ready", flush=True)
+    time.sleep(60)
+"""
+
+
+def _log(home: Path) -> str:
+    return (home / ".punt-labs/lux/logs/lux.log").read_text()
+
+
+def _signalled_daemon(home: Path, signum: int) -> tuple[int, str]:
+    process = subprocess.Popen(
+        [sys.executable, "-c", _DAEMON],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        env={**os.environ, "HOME": str(home), "LUX_LOG_LEVEL": "INFO"},
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline().strip() == "ready"
+    process.send_signal(signum)
+    return process.wait(timeout=30), _log(home)
+
+
+def test_a_daemon_terminated_by_sigterm_logs_the_signal_and_its_exit(
+    tmp_path: Path,
+) -> None:
+    code, log = _signalled_daemon(tmp_path, signal.SIGTERM)
+    assert code == 128 + signal.SIGTERM
+    assert "probe daemon started (pid=" in log
+    assert "received SIGTERM" in log
+    assert "probe daemon exiting: exit 143" in log
+
+
+def test_a_daemon_hung_up_by_sighup_logs_the_signal_and_its_exit(
+    tmp_path: Path,
+) -> None:
+    code, log = _signalled_daemon(tmp_path, signal.SIGHUP)
+    assert code == 128 + signal.SIGHUP
+    assert "received SIGHUP" in log
+    assert "probe daemon exiting: exit 129" in log
+
+
+def test_a_daemon_that_returns_logs_a_normal_exit(tmp_path: Path) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from punt_lux.kernel.logging_config import process_diagnostics\n"
+                "with process_diagnostics('daemon', 'probe daemon'):\n"
+                "    pass\n"
+            ),
+        ],
+        check=True,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+    assert "probe daemon exiting: normal return" in _log(tmp_path)
+
+
+def test_a_daemon_that_fails_logs_the_failure_and_an_error_exit(
+    tmp_path: Path,
+) -> None:
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from punt_lux.kernel.logging_config import process_diagnostics\n"
+                "with process_diagnostics('daemon', 'probe daemon'):\n"
+                "    raise RuntimeError('private input')\n"
+            ),
+        ],
+        check=False,
+        stderr=subprocess.DEVNULL,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+    log = _log(tmp_path)
+    assert "probe daemon failed: RuntimeError" in log
+    assert "probe daemon exiting: error" in log
+    assert "private input" not in log
+
+
+def test_a_handler_that_stops_a_daemon_records_the_signal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    record_signal(signal.SIGTERM)
+    assert any(
+        "received SIGTERM" in r.getMessage() and str(os.getpid()) in r.getMessage()
+        for r in caplog.records
+    )

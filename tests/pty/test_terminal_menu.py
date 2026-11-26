@@ -128,9 +128,7 @@ def test_an_unexpected_listener_error_is_logged_and_the_menu_keeps_serving(
     )
 
 
-def test_a_keeper_that_ends_is_logged_as_an_error(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_a_keeper_that_ends_takes_the_menu_down_with_its_error() -> None:
     menu, _client = MenuDoubles.menu(FakeDaemon())
 
     async def forever() -> None:
@@ -138,26 +136,34 @@ def test_a_keeper_that_ends_is_logged_as_an_error(
 
     listener = Mock()
     listener.listen = AsyncMock(side_effect=forever)
+    with (
+        patch.object(menu._clients, "listener", return_value=listener),
+        patch.object(
+            menu._keeper,
+            "serve",
+            new=AsyncMock(side_effect=ProgrammerError("keeper bug")),
+        ),
+        pytest.raises(ProgrammerError, match="keeper bug"),
+    ):
+        asyncio.run(asyncio.wait_for(menu.serve(), timeout=5))
 
-    async def scenario() -> None:
-        with (
-            patch.object(menu._clients, "listener", return_value=listener),
-            patch.object(
-                menu._keeper,
-                "serve",
-                new=AsyncMock(side_effect=ProgrammerError("keeper bug")),
-            ),
-        ):
-            task = asyncio.create_task(menu.serve())
-            await asyncio.sleep(0.2)
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
 
-    asyncio.run(scenario())
-    assert any(
-        r.levelno >= logging.ERROR and "keeper" in r.getMessage().lower()
-        for r in caplog.records
-    )
+def test_an_owner_watch_that_fails_stops_the_helper_with_its_error() -> None:
+    async def never() -> None:
+        await asyncio.Event().wait()
+
+    menu = Mock()
+    menu.serve = AsyncMock(side_effect=never)
+    with (
+        patch.object(TerminalMenu, "local", return_value=menu),
+        patch.object(
+            TerminalRuntime,
+            "wait_for_owner",
+            new=AsyncMock(side_effect=OSError("owner watch broke")),
+        ),
+        pytest.raises(OSError, match="owner watch broke"),
+    ):
+        asyncio.run(asyncio.wait_for(MenuEntryPoint.serve(1), timeout=5))
 
 
 def test_a_menu_that_ends_stops_the_helper_loudly() -> None:

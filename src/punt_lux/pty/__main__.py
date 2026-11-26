@@ -7,6 +7,7 @@ import signal
 from importlib import import_module
 from types import FrameType
 
+from punt_lux.kernel.logging_config import record_signal
 from punt_lux.pty.entry_runtime import DaemonOptions, TerminalRuntime
 
 
@@ -24,7 +25,8 @@ class PtyEntryPoint:
         except (ModuleNotFoundError, OSError) as error:
             TerminalRuntime.start_failed(parser, error)
 
-        def stop(_number: int, _frame: FrameType | None) -> None:
+        def stop(number: int, _frame: FrameType | None) -> None:
+            record_signal(number)
             server.stop()
 
         signal.signal(signal.SIGTERM, stop)

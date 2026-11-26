@@ -5,6 +5,8 @@ from __future__ import annotations
 import signal
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.kernel.logging_config import record_signal
+
 if TYPE_CHECKING:
     from imgui_bundle import hello_imgui
 
@@ -38,6 +40,7 @@ class ExitSignal:
         signal.signal(signal.SIGTERM, self._handle)
         return self
 
-    def _handle(self, _signum: int, _frame: object) -> None:
-        """Request that the ImGui loop stop at its next iteration."""
+    def _handle(self, signum: int, _frame: object) -> None:
+        """Record the signal, then request that the ImGui loop stop."""
+        record_signal(signum)
         self._runner_params.app_shall_exit = True

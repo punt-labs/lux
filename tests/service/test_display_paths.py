@@ -1428,6 +1428,23 @@ class TestTerminate:
         ):
             dp._terminate(4242, timeout=0.3)  # returns without raising
 
+    def test_every_signal_sent_to_the_display_is_logged_with_its_pid(
+        self,
+        short_socket: Callable[[], Path],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A display that is stopped by us leaves a record of who, whom and how."""
+        dp = DisplayPaths(short_socket())
+        caplog.set_level("INFO")
+        with (
+            patch("punt_lux.service.display_paths.os.kill"),
+            patch.object(dp, "_await_exit", side_effect=[False, True]),
+        ):
+            dp._terminate(4242, timeout=0.05)
+        sent = [r.getMessage() for r in caplog.records if "4242" in r.getMessage()]
+        assert any("SIGTERM" in line for line in sent)
+        assert any("SIGKILL" in line for line in sent)
+
     def test_permission_error_surfaces(self, short_socket: Callable[[], Path]) -> None:
         """EPERM means the process is alive but unsignallable — it must surface."""
         dp = DisplayPaths(short_socket())

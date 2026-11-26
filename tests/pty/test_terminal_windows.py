@@ -82,6 +82,20 @@ def test_one_refused_window_does_not_stop_the_others_opening() -> None:
     assert windows.shown == frozenset({"t0.2", "t0.3"})
 
 
+def test_a_quarantined_window_is_not_counted_as_shown() -> None:
+    hub = StubHub()
+    windows = TerminalWindows(hub.clients)
+
+    async def scenario() -> None:
+        await windows.open(_session("t0.1"))
+        await windows.open(_session("t0.2"))
+        hub.quarantine("terminal-t0.1")
+        await windows.refresh()
+
+    asyncio.run(scenario())
+    assert windows.shown == frozenset({"t0.2"})
+
+
 def test_other_scenes_are_not_taken_for_terminal_windows() -> None:
     hub = StubHub()
     windows = TerminalWindows(hub.clients)

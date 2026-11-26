@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+import signal
 import tempfile
 import time
 from argparse import ArgumentParser
@@ -120,3 +124,16 @@ def test_an_idle_daemon_records_why_it_stops(caplog: pytest.LogCaptureFixture) -
 @contextmanager
 def _quiet(_role: str, _name: str) -> Generator[None]:
     yield
+
+
+def test_a_helper_stopped_by_sigterm_records_the_signal(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    async def scenario() -> None:
+        asyncio.get_running_loop().call_later(0.1, os.kill, os.getpid(), signal.SIGTERM)
+        await asyncio.wait_for(TerminalRuntime.wait_for_owner(os.getppid()), 10)
+
+    asyncio.run(scenario())
+    assert any("received SIGTERM" in r.getMessage() for r in caplog.records)

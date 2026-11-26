@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import signal
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from punt_lux.display.exit_signal import ExitSignal
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class TestExitSignal:
@@ -23,6 +28,19 @@ class TestExitSignal:
         exit_signal._handle(15, None)
 
         assert runner_params.app_shall_exit is True
+
+    def test_logs_the_signal_that_asked_the_display_to_exit(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A clean exit with no record of its cause is what made the Display's
+        # stops undiagnosable.
+        caplog.set_level(logging.INFO)
+        with patch("punt_lux.display.exit_signal.signal.signal"):
+            exit_signal = ExitSignal(MagicMock())
+
+        exit_signal._handle(signal.SIGTERM, None)
+
+        assert any("received SIGTERM" in r.getMessage() for r in caplog.records)
 
     def test_arms_sigterm_on_construction(self) -> None:
         # Construction is the only opportunity to register the handler.

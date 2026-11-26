@@ -16,8 +16,9 @@ class MenuEntryPoint:
         owner = asyncio.create_task(TerminalRuntime.wait_for_owner(parent))
         try:
             await asyncio.wait({menu, owner}, return_when=asyncio.FIRST_COMPLETED)
-            if menu.done() and not menu.cancelled():
-                menu.result()
+            for task in (menu, owner):
+                if task.done() and not task.cancelled():
+                    task.result()
         finally:
             menu.cancel()
             owner.cancel()
