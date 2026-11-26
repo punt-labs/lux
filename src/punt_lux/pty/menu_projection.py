@@ -1,65 +1,62 @@
-"""Terminal launcher metadata, never PTY/native state on the Hub loop."""
+"""The "New terminal" menu entry: register it, and start a shell per click."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
-from punt_lux.pty.current_shell import CurrentShell
-from punt_lux.wire.operations import OpError, RenderRequest
+from punt_lux.pty.daemon_exchange import DaemonExchange, SessionRefusedError
+from punt_lux.wire.operations import OpError
+from punt_lux.wire.stream.new_request import NewRequest
 
 if TYPE_CHECKING:
     from punt_lux.pty.menu_clients import TerminalClients
 
 logger = logging.getLogger(__name__)
-_SHELL: dict[str, object] = {"kind": "terminal", "id": "shell", "height": 0}
 
 
 class TerminalProjection:
-    _clients: TerminalClients
-    _shell: CurrentShell
+    """The one menu entry; its callback id ties registration to its clicks.
 
-    def __new__(cls, clients: TerminalClients) -> Self:
+    The window of each new shell is the keeper's to show, not this entry's.
+    """
+
+    _ENTRY_ID: ClassVar[str] = "terminal"
+    _clients: TerminalClients
+    _daemon: DaemonExchange
+    _callback: str
+
+    def __new__(cls, clients: TerminalClients, daemon: DaemonExchange) -> Self:
         self = super().__new__(cls)
-        self._clients = clients
-        self._shell = CurrentShell.local()
+        self._clients, self._daemon = clients, daemon
+        self._callback = cls._ENTRY_ID
         return self
 
     async def connected(self) -> None:
-        """Register fresh after every handshake; do not start an unsolicited shell.
+        """Register fresh after every handshake; start no shell unasked.
 
-        The entry is registered with the terminal frame's id, so a repeat click
-        on a frame the user closed is reopened by the display itself rather than
-        routed here as a scene.show that no-ops against the still-installed
-        scene. Without the frame id the Clients-menu entry launches only once.
+        The entry carries no frame id: a frame id would make the display raise
+        an existing frame locally, and a repeat click would never reach here.
         """
         result = await self._clients.client().callback.register(
-            "terminal", "Terminal", frame_id="terminal"
+            self._callback, "New terminal"
         )
         if isinstance(result, OpError):
             logger.warning("Terminal menu registration refused: %s", result.reason)
-        if await asyncio.to_thread(self._shell.resume):
-            await self._show()
 
     async def clicked(self, callback: str) -> None:
-        if callback != "terminal":
+        """Start a new shell on the daemon for each click on the entry.
+
+        Raises:
+            OSError: The daemon is unreachable, hung up or did not answer in time.
+            SessionRefusedError: The daemon refused (the limit is reached) or
+                answered nonsense.
+        """
+        if callback != self._callback:
             return
-        before = self._shell.session
-        await asyncio.to_thread(self._shell.obtain)
-        if not await self._show():
-            await self._discard_if_new(before)
-
-    async def _discard_if_new(self, before: str) -> None:
-        """End the shell only when this click started it; the user's own stays."""
-        if self._shell.session != before:
-            await asyncio.to_thread(self._shell.release)
-
-    async def _show(self) -> bool:
-        """Show the shell; say whether the Hub accepted it."""
-        shell = _SHELL | {"session": self._shell.session}
-        request = RenderRequest(scene_id="terminal", title="Terminal", elements=[shell])
-        result = await self._clients.client().scene.show(request)
-        if isinstance(result, OpError):
-            logger.warning("Terminal launch refused: %s", result.reason)
-        return not isinstance(result, OpError)
+        reply = await asyncio.to_thread(self._daemon.ask, NewRequest(2))
+        session = reply.result.get("session")
+        if not isinstance(session, str) or not session:
+            raise SessionRefusedError("luxd-pty answered new without a session")
+        logger.info("Terminal %s started", session)

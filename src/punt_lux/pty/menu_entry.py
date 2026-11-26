@@ -12,7 +12,7 @@ from punt_lux.pty.menu_listener import TerminalMenu
 class MenuEntryPoint:
     @staticmethod
     async def serve(parent: int) -> None:
-        task = asyncio.create_task(TerminalMenu().serve())
+        task = asyncio.create_task(TerminalMenu.local().serve())
         try:
             await TerminalRuntime.wait_for_owner(parent)
         finally:

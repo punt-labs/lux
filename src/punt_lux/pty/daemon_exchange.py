@@ -55,13 +55,30 @@ class DaemonExchange:
             OSError: The daemon is unreachable, hung up or did not answer in time.
             SessionRefusedError: The daemon refused the request or answered nonsense.
         """
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        peer = self.dial()
+        try:
+            return self._converse(peer, request)
+        finally:
+            peer.close()
+
+    def dial(self) -> Peer:
+        """Connect and complete the hello exchange; the caller closes the peer.
+
+        Raises:
+            OSError: The daemon is unreachable, hung up or did not answer in time.
+            SessionRefusedError: The daemon refused the hello or answered nonsense.
+        """
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
             sock.settimeout(TIMEOUT_S)
             sock.connect(str(self._path))
             PeerCredentials.require_same_user(sock)
             peer = Peer(sock)
             self._converse(peer, HelloRequest(1, WIRE_VERSION, snapshot_version()))
-            return self._converse(peer, request)
+        except BaseException:
+            sock.close()
+            raise
+        return peer
 
     @staticmethod
     def _converse(peer: Peer, request: ControlRequest) -> SuccessReply:
