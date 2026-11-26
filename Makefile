@@ -70,6 +70,13 @@ design-shadow: ## Report advisory design changes; never part of check
 
 check: check-oo check-coupling check-suppressions check-layers check-models lint type test ## Run all quality gates
 
+.PHONY: build-handoff-runtime handoff-runtime
+build-handoff-runtime: ## Build the Linux handoff archive in HANDOFF_RUNTIME_OUTPUT
+	@bash scripts/build-handoff-runtime.sh "$$HANDOFF_RUNTIME_OUTPUT"
+
+handoff-runtime: ## Install the verified HANDOFF_RUNTIME_ARCHIVE for Ethos
+	@bash scripts/install-handoff-runtime.sh "$$HANDOFF_RUNTIME_ARCHIVE"
+
 .PHONY: check-models
 check-models: ## Type-check and model-check readiness, registry lifecycle and fidelity mutants
 	PROBCLI="$(PROBCLI)" bash scripts/verify_readiness_model.sh
