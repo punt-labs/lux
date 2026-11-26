@@ -55,6 +55,15 @@ class TerminalSession:
     def ended(self) -> bool:
         return self._lifecycle.state is SessionState.EXITED
 
+    @property
+    def running(self) -> bool:
+        return self._lifecycle.state is SessionState.RUNNING
+
+    @property
+    def finished(self) -> bool:
+        """Whether the program ended or its IO failed: nothing more will be output."""
+        return self._lifecycle.state in (SessionState.EXITED, SessionState.FAILED)
+
     def pump(self) -> OutputChunk:
         """Keep parsing while no viewer is attached; output remains sequenced."""
         start = self._position

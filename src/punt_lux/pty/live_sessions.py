@@ -37,9 +37,14 @@ class LiveSessions:
     def __contains__(self, name: object) -> bool:
         return name in self._sessions
 
-    def exited(self) -> tuple[TerminalSession, ...]:
-        """Return the held sessions whose program has ended."""
-        return tuple(s for s in self._sessions.values() if s.ended)
+    def finished(self) -> tuple[TerminalSession, ...]:
+        """Return the held sessions whose program ended or whose IO failed."""
+        return tuple(s for s in self._sessions.values() if s.finished)
+
+    def running_session(self, name: str) -> TerminalSession | None:
+        """Return ``name`` while it runs; ``None`` is the answer for any other state."""
+        session = self._sessions.get(name)
+        return session if session is not None and session.running else None
 
     def spec(self, request: NewRequest) -> SessionSpec:
         """Name a session about to start: a fresh id and a label no live one holds."""

@@ -55,7 +55,12 @@ class ViewerFlow:
         )
 
     def request_repaint(self) -> None:
-        """Drop the unsent backlog and ask the publisher for a fresh snapshot."""
+        """Drop the unsent backlog and ask the publisher for a fresh snapshot.
+
+        Nothing follows CLOSE on a channel, so a viewer already closed is left be.
+        """
+        if self._outbox.close_sent:
+            return
         self._outbox.drop_tail()
         self._repaint = True
 

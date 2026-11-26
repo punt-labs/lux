@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.pty.session_starter import SessionStarter
+from punt_lux.pty.current_shell import CurrentShell
 from punt_lux.wire.operations import OpError, RenderRequest
 
 if TYPE_CHECKING:
@@ -18,14 +18,12 @@ _SHELL: dict[str, object] = {"kind": "terminal", "id": "shell", "height": 0}
 
 class TerminalProjection:
     _clients: TerminalClients
-    _starter: SessionStarter
-    _session: str
+    _shell: CurrentShell
 
     def __new__(cls, clients: TerminalClients) -> Self:
         self = super().__new__(cls)
         self._clients = clients
-        self._starter = SessionStarter.local()
-        self._session = ""
+        self._shell = CurrentShell.local()
         return self
 
     async def connected(self) -> None:
@@ -41,19 +39,19 @@ class TerminalProjection:
         )
         if isinstance(result, OpError):
             logger.warning("Terminal menu registration refused: %s", result.reason)
-        if self._session:
+        if self._shell.session:
             await self._show()
 
     async def clicked(self, callback: str) -> None:
         if callback != "terminal":
             return
-        self._session = await asyncio.to_thread(self._starter.start)
+        await asyncio.to_thread(self._shell.obtain)
         await self._show()
 
     async def _show(self) -> None:
-        shell = _SHELL | {"session": self._session}
+        shell = _SHELL | {"session": self._shell.session}
         request = RenderRequest(scene_id="terminal", title="Terminal", elements=[shell])
         result = await self._clients.client().scene.show(request)
         if isinstance(result, OpError):
             logger.warning("Terminal launch refused: %s", result.reason)
-            self._session = ""
+            await asyncio.to_thread(self._shell.release)

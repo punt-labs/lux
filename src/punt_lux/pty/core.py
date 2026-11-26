@@ -56,9 +56,13 @@ class SessionCore:
         return self._live.running(name)
 
     @property
-    def exited(self) -> tuple[TerminalSession, ...]:
-        """Sessions whose program has ended and that are not yet removed."""
-        return self._live.exited()
+    def finished(self) -> tuple[TerminalSession, ...]:
+        """Sessions that ended or failed and are not yet removed."""
+        return self._live.finished()
+
+    def holds(self, name: str) -> bool:
+        """Whether ``name`` is a live session, as opposed to one in cleanup."""
+        return name in self._live
 
     def get(self, name: str) -> TerminalSession:
         try:
@@ -81,13 +85,14 @@ class SessionCore:
         return output
 
     def resize(self, name: str, cols: int, rows: int) -> bool:
-        """Resize ``name``; a removed session has no size left to change."""
-        return name in self._live and self._live.get(name).resize(cols, rows)
+        """Resize ``name``; a session that is not running has no size left to change."""
+        session = self._live.running_session(name)
+        return session is not None and session.resize(cols, rows)
 
     def write(self, name: str, data: bytes) -> None:
-        """Send input to ``name``; input in flight for a removed one is dropped."""
-        if name in self._live:
-            self._live.get(name).write(data)
+        """Send input to ``name``; input for a session not running is dropped."""
+        if (session := self._live.running_session(name)) is not None:
+            session.write(data)
 
     def describe(self) -> list[dict[str, object]]:
         return [session.describe() for session in self._live] + self._pending.describe()

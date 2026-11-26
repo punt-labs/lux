@@ -22,8 +22,11 @@ class FakeProcess:
     refuse_close: bool = False
     refuse_write: bool = False
     reaped: bool = True
+    refuse_pump: bool = False
 
     def pump(self) -> bytes:
+        if self.refuse_pump:
+            raise OSError("read failed")
         return self.output.pop(0) if self.output else b""
 
     def write(self, data: bytes) -> None:

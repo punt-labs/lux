@@ -1,4 +1,4 @@
-"""Start one terminal on the local daemon with a short exchange over its socket."""
+"""One request and one reply over the local terminal daemon's socket."""
 
 from __future__ import annotations
 
@@ -15,15 +15,18 @@ from punt_lux.terminal.snapshot import snapshot_version
 from punt_lux.wire.stream.control import WIRE_VERSION, ControlCodec, ControlRequest
 from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
-from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec, SuccessReply
 
 SOCKET_ENVIRONMENT = "LUX_PTY_SOCKET"  # the daemon exports it in PtyServer
 TIMEOUT_S = 5.0
 
 
-class SessionStarter:
-    """Ask the daemon at ``path`` for a new login-shell session."""
+class SessionRefusedError(RuntimeError):
+    """The daemon refused a request, or answered one in a way that cannot be read."""
+
+
+class DaemonExchange:
+    """Send one request to the daemon at ``path`` and decode its one reply."""
 
     _path: Path
 
@@ -41,24 +44,23 @@ class SessionStarter:
         """Dial the socket the daemon exported to its helpers."""
         return cls(Path(os.environ[SOCKET_ENVIRONMENT]))
 
-    def start(self) -> str:
-        """Return the id of a new session; blocks for a bounded time.
+    def ask(self, request: ControlRequest) -> SuccessReply:
+        """Return the daemon's answer to ``request``; blocks for a bounded time.
 
         Raises:
             OSError: The daemon is unreachable, hung up or did not answer in time.
-            RuntimeError: The daemon refused the request.
+            SessionRefusedError: The daemon refused the request or answered nonsense.
         """
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(TIMEOUT_S)
             sock.connect(str(self._path))
             PeerCredentials.require_same_user(sock)
             peer = Peer(sock)
-            self._ask(peer, HelloRequest(1, WIRE_VERSION, snapshot_version()))
-            reply = self._ask(peer, NewRequest(2))
-        return str(reply.result["session"])
+            self._converse(peer, HelloRequest(1, WIRE_VERSION, snapshot_version()))
+            return self._converse(peer, request)
 
     @staticmethod
-    def _ask(peer: Peer, request: ControlRequest) -> SuccessReply:
+    def _converse(peer: Peer, request: ControlRequest) -> SuccessReply:
         peer.queue(Frame(0, FrameKind.DATA, ControlCodec.encode(request)))
         deadline = time.monotonic() + TIMEOUT_S
         while time.monotonic() < deadline:
@@ -70,8 +72,13 @@ class SessionStarter:
             except EOFError as error:
                 raise ConnectionError("luxd-pty closed the connection") from error
             for frame in frames:
-                reply = ReplyCodec.decode(frame.payload)
+                try:
+                    reply = ReplyCodec.decode(frame.payload)
+                except ValueError as error:
+                    raise SessionRefusedError(
+                        "luxd-pty sent an unreadable reply"
+                    ) from error
                 if isinstance(reply, FailureReply):
-                    raise RuntimeError(reply.error)
+                    raise SessionRefusedError(reply.error)
                 return reply
         raise TimeoutError("luxd-pty did not answer")

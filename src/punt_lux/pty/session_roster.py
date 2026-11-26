@@ -47,7 +47,8 @@ class SessionRoster:
 
     def kill(self, name: str) -> None:
         """End ``name`` now: tell watchers, close its viewers, stop its program."""
-        self._announce(self._core.get(name))
+        if self._core.holds(name):  # one in cleanup was announced when it left
+            self._announce(self._core.get(name))
         self._bindings.close_session(name, "session killed")
         self._core.kill(name)
 
@@ -60,12 +61,12 @@ class SessionRoster:
         self._watchers.detach(peer)
 
     def sweep(self) -> None:
-        """Announce each exited session, remove those whose viewers were told."""
-        for session in self._core.exited:
+        """Announce each finished session, remove those whose viewers were told."""
+        for session in self._core.finished:
             self._announce(session)
             if all(b.flow.close_sent for b in self._bindings.session(session.name)):
                 self._core.kill(session.name)
-        self._announced &= {s.name for s in self._core.exited}
+        self._announced &= {s.name for s in self._core.finished}
         self._watchers.drain()
 
     def _announce(self, session: TerminalSession) -> None:
