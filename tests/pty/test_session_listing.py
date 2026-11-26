@@ -27,12 +27,6 @@ def test_the_running_session_under_a_label_is_found() -> None:
     assert listing.running_under("Build") == ""
 
 
-def test_a_session_holding_a_label_without_running_is_stale() -> None:
-    listing = SessionListing({"sessions": [ENDED, RUNNING]})
-    assert listing.stale_under("Build") == "s2"
-    assert listing.stale_under("Terminal") == ""
-
-
 def test_entries_that_are_not_mappings_are_ignored() -> None:
     assert SessionListing({"sessions": ["junk", 3, RUNNING]}).is_running("s1")
 

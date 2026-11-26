@@ -9,9 +9,9 @@ from punt_lux.pty.daemon_exchange import SessionRefusedError
 
 
 class SessionListing:
-    """Answer questions about the sessions a ``list`` reply holds."""
+    """Answer which listed sessions run, and which running one holds a label."""
 
-    _entries: tuple[Mapping[str, object], ...]
+    _running: dict[str, str]
 
     def __new__(cls, result: Mapping[str, object]) -> Self:
         """Decode a ``list`` reply's result.
@@ -22,36 +22,31 @@ class SessionListing:
         sessions = result.get("sessions")
         if not isinstance(sessions, list):
             raise SessionRefusedError("luxd-pty answered list without sessions")
+        listed = cast("list[object]", sessions)
         self = super().__new__(cls)
-        self._entries = tuple(
-            cast("Mapping[str, object]", entry)
-            for entry in cast("list[object]", sessions)
-            if isinstance(entry, Mapping)
-        )
+        self._running = cls._running_labels(cls._mappings(listed))
         return self
+
+    @staticmethod
+    def _mappings(sessions: list[object]) -> list[Mapping[str, object]]:
+        return [
+            cast("Mapping[str, object]", entry)
+            for entry in sessions
+            if isinstance(entry, Mapping)
+        ]
+
+    @staticmethod
+    def _running_labels(entries: list[Mapping[str, object]]) -> dict[str, str]:
+        return {
+            str(entry.get("session")): str(entry.get("label"))
+            for entry in entries
+            if entry.get("state") == "running"
+        }
 
     def is_running(self, session: str) -> bool:
         """Say whether ``session`` is listed as running."""
-        return any(
-            entry.get("session") == session and entry.get("state") == "running"
-            for entry in self._entries
-        )
+        return session in self._running
 
     def running_under(self, label: str) -> str:
         """Return the running session holding ``label``, or ``""``."""
-        return self._held_under(label, running=True)
-
-    def stale_under(self, label: str) -> str:
-        """Return a session holding ``label`` that is not running, or ``""``."""
-        return self._held_under(label, running=False)
-
-    def _held_under(self, label: str, *, running: bool) -> str:
-        for entry in self._entries:
-            session = entry.get("session")
-            if (
-                entry.get("label") == label
-                and isinstance(session, str)
-                and (entry.get("state") == "running") == running
-            ):
-                return session
-        return ""
+        return next((s for s, held in self._running.items() if held == label), "")

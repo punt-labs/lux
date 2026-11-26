@@ -6387,8 +6387,8 @@
     "efferent_coupling": 4.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.19,
-    "avg_lcom": 0.19
+    "max_lcom": 0.133,
+    "avg_lcom": 0.133
   },
   "src/punt_lux/pty/daemon_exchange.py": {
     "efferent_coupling": 7.0,
@@ -6639,8 +6639,8 @@
     "efferent_coupling": 1.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.7,
-    "avg_lcom": 0.7
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
   },
   "src/punt_lux/pty/session_roster.py": {
     "efferent_coupling": 3.0,

@@ -139,12 +139,39 @@ def test_a_running_session_under_another_label_is_not_adopted() -> None:
     assert current.obtain() == "s8"
 
 
-def test_a_stale_session_holding_the_label_is_ended_before_a_new_start() -> None:
-    stale: dict[str, object] = RUNNING | {"state": "exited"}
-    ended = ReplyCodec.encode(SuccessReply(2, {}))
-    started = ReplyCodec.encode(SuccessReply(2, {"session": "s8"}))
-    current = CurrentShell(SequencedExchange(listing(stale), ended, started))
-    assert current.obtain() == "s8"
+class RecordingExchange(DaemonExchange):
+    """Answer list with a fixed listing and new with the daemon's refusal."""
+
+    _listed: bytes
+    requests: list[str]
+
+    def __new__(cls, listed: bytes) -> Self:
+        self = super().__new__(cls, Path("unused"))
+        self._listed = listed
+        self.requests = []
+        return self
+
+    def ask(self, request: ControlRequest) -> SuccessReply:
+        op = str(request.to_dict()["op"])
+        self.requests.append(op)
+        payload = self._listed
+        if op == "new":
+            payload = ReplyCodec.encode(
+                FailureReply(2, "label 'Terminal' is already in use")
+            )
+        with ScriptedDaemon(payload) as daemon:
+            return DaemonExchange(daemon.path).ask(request)
+
+
+def test_a_draining_session_holding_the_label_is_never_killed() -> None:
+    draining = RUNNING | {"state": "exited"}
+    exchange = RecordingExchange(listing(draining))
+    current = CurrentShell(exchange)
+    assert not current.resume()
+    with pytest.raises(SessionRefusedError, match="already in use"):
+        current.obtain()
+    assert "kill" not in exchange.requests
+    assert current.session == ""
 
 
 @pytest.mark.integration

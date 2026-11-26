@@ -379,3 +379,7 @@
 {"ts":"2026-11-26T14:09:25Z","commit":"87054be6","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T14:22:37Z","commit":"87054be6","source":null,"files_scored":995,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T14:22:38Z","commit":"87054be6","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:20:48Z","commit":"8d0dff29","source":null,"files_scored":995,"files_improved":2,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/pty/current_shell.py":{"max_lcom":[0.19,0.133],"avg_lcom":[0.19,0.133]},"src/punt_lux/pty/session_listing.py":{"max_lcom":[0.7,0.0],"avg_lcom":[0.7,0.0]}}}
+{"ts":"2026-11-26T15:20:49Z","commit":"8d0dff29","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:21:24Z","commit":"8d0dff29","source":null,"files_scored":995,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:21:24Z","commit":"8d0dff29","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

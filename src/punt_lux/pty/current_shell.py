@@ -48,7 +48,10 @@ class CurrentShell:
 
         Raises:
             OSError: The daemon is unreachable, hung up or did not answer in time.
-            SessionRefusedError: The daemon refused the request or answered nonsense.
+            SessionRefusedError: The daemon refused the request or answered
+                nonsense. An earlier shell that exited but still drains to a
+                viewer holds the label, so ``new`` is refused until it is gone;
+                that session is never killed, and a later click succeeds.
         """
         self.resume()
         if not self._session:
@@ -60,12 +63,12 @@ class CurrentShell:
 
         A held shell that no longer runs is forgotten. With none held, a
         running session labelled "Terminal" is adopted, so a replaced helper
-        finds the shell its predecessor started. Never starts a shell. Raises
-        what ``obtain`` raises.
+        finds the shell its predecessor started. Never starts or kills a shell.
+        Raises what ``obtain`` raises.
         """
         listing = SessionListing(self._daemon.ask(ListRequest(2)).result)
         if not listing.is_running(self._session):
-            self._session = self._adopt(listing)
+            self._session = listing.running_under(_LABEL)
         return bool(self._session)
 
     def release(self) -> None:
@@ -86,22 +89,6 @@ class CurrentShell:
         except SessionRefusedError as error:
             logger.info("Terminal %s is already gone: %s", shell, error)
         self._session = ""
-
-    def _adopt(self, listing: SessionListing) -> str:
-        """Return the running session under the shell label, else ``""``.
-
-        The daemon keeps labels unique among sessions it holds, so a session
-        under the label that is not running would make ``new`` refuse it: it is
-        ended first.
-        """
-        if running := listing.running_under(_LABEL):
-            return running
-        if stale := listing.stale_under(_LABEL):
-            try:
-                self._daemon.ask(KillRequest(2, stale))
-            except SessionRefusedError as error:
-                logger.info("Terminal %s is already gone: %s", stale, error)
-        return ""
 
     def _start(self) -> str:
         reply = self._daemon.ask(NewRequest(2, _LABEL))
