@@ -33,6 +33,7 @@ menu and almost no new mechanism.
 | DES-099 | A repeat click must not no-op. "New terminal" always creates, so it carries no `frame_id`; each terminal has its own frame id. |
 | DES-100 | Frame titles read `<roster name> :: <title>`. With the helper named for the host, a terminal reads `pembroke :: Terminal 3`. |
 | DES-101 | Not affected. |
+| DES-107 | The Hub relays terminal commands to the helper and returns the reply; section 1 states what the Hub holds. |
 
 Supersedes commit `9fb923b7` (respawn on reattach): respawn in the attach path
 is exactly the silent swap that invariant I2 forbids.
@@ -43,11 +44,23 @@ is exactly the silent swap that invariant I2 forbids.
 |---|---|
 | `luxd-pty` | Shells, session ids, labels, the state of each session, removal. |
 | Terminal helper (child of `luxd-pty`, a Hub client) | The Hub scenes and frames for terminals; the menu entries; the manager scene. Never touches a PTY. |
-| Hub | Stores the helper's scenes; delivers clicks. Knows nothing terminal-specific. |
+| Hub | Stores the helper's scenes; delivers clicks; carries a terminal command from a caller to the helper and the helper's reply back (DES-107). Holds no terminal state: no session, id, label, launcher or list. |
 | Display | One replica per terminal element. Never creates a session. |
 
 The helper is a *client* of its daemon, over the same local socket the Display
 uses, authenticated by same-user peer credentials.
+
+The Hub's part in a command is a relay. The helper registers the service
+`terminal` for its host. A caller's `new`, `ls`, `open`, `rename`, `kill` or
+launcher request is checked against its typed shape, sent to the helper over
+the helper's listen leg, and the helper's reply or refusal is returned. The
+helper asks its daemon; the daemon decides, including whether
+`allow_runtime_launchers` permits a launcher to be added. If the helper does
+not answer, the caller gets `timeout`, `provider_lost` or
+`provider_unavailable`, and no terminal state changes in the Hub, because it
+holds none. The relay core knows only a service name, an operation name and an
+opaque payload; the typed terminal request and reply shapes live in the
+`commands/` front door that DES-087 requires on every surface.
 
 ## 2. Identity
 
