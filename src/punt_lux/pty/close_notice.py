@@ -25,6 +25,9 @@ class CloseNotice:
         return self._sent
 
     def set(self, reason: str, exit_code: object) -> None:
+        """Record why the channel closed; the first reason stands."""
+        if self._payload:
+            return
         self._payload = ControlJson.dump({"reason": reason, "exit_code": exit_code})
 
     def take(self, channel: int) -> list[Frame]:

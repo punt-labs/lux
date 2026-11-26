@@ -102,7 +102,10 @@ class SessionCore:
         if self._pending.contains(name):
             self._pending.stop(name)
             return
-        session = self.get(name)
+        try:
+            session = self._live.get(name)
+        except KeyError as error:
+            raise ValueError(f"unknown terminal session {name}") from error
         process = session.close()
         self._live.remove(name)
         self._pending.add(name, process)

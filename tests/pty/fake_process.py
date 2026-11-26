@@ -23,6 +23,7 @@ class FakeProcess:
     refuse_write: bool = False
     reaped: bool = True
     refuse_pump: bool = False
+    refuse_resize: bool = False
 
     def pump(self) -> bytes:
         if self.refuse_pump:
@@ -35,6 +36,8 @@ class FakeProcess:
         self.written.append(data)
 
     def resize(self, cols: int, rows: int) -> None:
+        if self.refuse_resize:
+            raise OSError("resize failed")
         self.sizes.append((cols, rows))
 
     def close(self) -> bool:

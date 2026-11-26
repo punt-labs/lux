@@ -53,7 +53,8 @@ def test_failed_operation_retires_child_while_other_sessions_keep_pumping(
             assert process.alive is refuse_cleanup
             with pytest.raises(RuntimeError, match="failed"):
                 failed.capture()
-            assert core.attach(failed.name) is failed
+            with pytest.raises(ValueError, match="unknown session"):
+                core.attach(failed.name)
             assert len(factory.created) == 2
             calls = close.call_count
             assert core.pump() == []

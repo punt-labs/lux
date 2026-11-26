@@ -62,9 +62,9 @@ class LiveSessions:
         return self._sessions[name]
 
     def running(self, name: str) -> TerminalSession:
-        """Return ``name`` while it runs; an exited or unknown id is refused."""
+        """Return ``name`` while it runs; a finished or unknown id is refused."""
         session = self._sessions.get(name)
-        if session is None or session.ended:
+        if session is None or session.finished:
             raise ValueError(f"unknown session {name}")
         return session
 

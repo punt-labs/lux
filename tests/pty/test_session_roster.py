@@ -11,6 +11,7 @@ from punt_lux.pty.session_roster import SessionRoster
 from punt_lux.pty.stream_output import StreamPublisher
 from punt_lux.pty.viewers import ViewerBindings
 from punt_lux.terminal.output import SessionSnapshot
+from punt_lux.wire.stream.frames import FrameKind
 from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.session_events import SessionEvent
 from tests.pty.fake_process import FakeFactory
@@ -80,4 +81,86 @@ def test_a_resize_cannot_cut_a_snapshot_after_close_was_sent() -> None:
         roster.sweep()
     kinds = [f.kind for f in first.received() if f.channel != 0]
     assert kinds == []
+    core.close()
+
+
+def test_a_refusing_process_group_does_not_stop_the_sweep_and_is_retried() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    roster = SessionRoster(core, ViewerBindings())
+    roster.create(NewRequest(1, "work"))
+    process = factory.created[0]
+    process.alive = False
+    process.refuse_close = True
+    publisher = StreamPublisher(core, ViewerBindings())
+    publisher.pump()
+    roster.sweep()
+    assert [d["label"] for d in core.describe()] == ["work"]
+    process.refuse_close = False
+    roster.sweep()
+    assert core.describe() == []
+    core.close()
+
+
+def test_a_session_that_failed_in_resize_closes_every_viewer_and_is_removed() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    bindings = ViewerBindings()
+    roster, publisher = SessionRoster(core, bindings), StreamPublisher(core, bindings)
+    session = roster.create(NewRequest(1, "work"))
+    links = [PeerLink(), PeerLink()]
+    for link in links:
+        binding = bindings.add(link.peer, session.name, 80, 24)
+        binding.flow.prepare(session.capture(), session.describe(), initial=True)
+    factory.created[0].refuse_resize = True
+    with pytest.raises(OSError, match="resize failed"):
+        publisher.resize(session.name, 100, 30)
+    for _ in range(3):
+        publisher.pump()
+        roster.sweep()
+    closes = [
+        [f for f in link.received() if f.kind is FrameKind.CLOSE] for link in links
+    ]
+    assert [len(c) for c in closes] == [1, 1]
+    assert core.describe() == []
+    core.close()
+
+
+def test_a_kill_that_fails_tells_nobody() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    bindings = ViewerBindings()
+    roster, watcher, viewer = SessionRoster(core, bindings), PeerLink(), PeerLink()
+    roster.watch(watcher.peer)
+    session = roster.create(NewRequest(1, "work"))
+    binding = bindings.add(viewer.peer, session.name, 80, 24)
+    binding.flow.prepare(session.capture(), session.describe(), initial=True)
+    watcher.received()
+    factory.created[0].refuse_close = True
+    with pytest.raises(OSError, match="close failed"):
+        roster.kill(session.name)
+    assert SessionEvent("ended", session.name, "work") not in PeerLink.events(
+        watcher.received()
+    )
+    StreamPublisher(core, bindings).pump()
+    assert [f for f in viewer.received() if f.kind is FrameKind.CLOSE] == []
+    factory.created[0].refuse_close = False
+    core.close()
+
+
+def test_killing_an_unknown_session_is_not_retryable() -> None:
+    roster = SessionRoster(SessionCore(FakeFactory()), ViewerBindings())
+    with pytest.raises(ValueError, match="unknown"):
+        roster.kill("t0.99")
+
+
+def test_attaching_to_a_failed_session_is_not_retryable() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    name = core.create(NewRequest(1, "work")).name
+    factory.created[0].refuse_resize = True
+    with pytest.raises(OSError, match="resize failed"):
+        core.resize(name, 100, 30)
+    with pytest.raises(ValueError, match="unknown session"):
+        core.attach(name)
     core.close()
