@@ -703,17 +703,16 @@ changes.
 
 ## 9. Post-Implementation Verification
 
-Exact commands, each expected to return zero lines. `docs/` is swept too, but
-the sweep carries an exemption list for prose that is *about* the rename --
-this document narrates the retired name throughout its own rationale, and a
-handful of other design/historical records (`library.md`'s migration table,
-`system.tex`, `client-identity.md`, `one-code-path.md`,
-`client-surface-parity-design.md`) do the same. Rewriting those sentences to
-avoid the string they are documenting would corrupt them. The shipped guard,
-`tests/e2e/test_no_luxrestclient.py`, encodes this exemption list precisely
-(`_EXEMPT_FILES`) and is what actually runs in CI; the raw `grep` below is
-illustrative and will show hits inside this file and its sibling exemptions
-when run by hand -- that is expected, not a failure:
+Exact commands, each expected to return zero lines outside the exempt files.
+`docs/` is swept too, but the sweep exempts prose that is *about* the rename.
+This document narrates the retired name throughout its own rationale, and
+`library.md`'s migration table, `client-identity.md` and `one-code-path.md`
+name it too. Rewriting those sentences to avoid the string they document would
+corrupt them. The shipped guard, `tests/e2e/test_no_luxrestclient.py`, holds
+the exemption list (`_EXEMPT_FILES`: those four files plus `system.tex` and
+`client-surface-parity-design.md`) and is what runs in CI. The raw `grep`
+below is illustrative: run by hand, it prints hits inside the exempt files and
+inside the guard test itself, and that is expected, not a failure:
 
 ```bash
 grep -rn "LuxRestClient" src/ tests/ docs/
@@ -740,11 +739,14 @@ the 300-line ceiling.
 
 A dedicated test asserting the leak cannot reopen silently — this is the test
 that answers "how does the design verify the encapsulation," not merely "how
-does the design verify the operations still work". This snippet is the
-shipped `tests/client/test_encapsulation.py` verbatim, not an illustrative
-sketch: `alias.asname or alias.name` already resolves aliased imports (e.g.
-`from ... import _RestTransport as RT` records `_RestTransport`, not `RT`),
-so an alias cannot dodge the guard:
+does the design verify the operations still work". This is the shipped
+`tests/client/test_encapsulation.py`. It walks every source root through
+`tools.source_tree.SourceTree` and reads two things from each file's AST: the
+names a `from` import reads or binds, and the dotted path of every module
+imported. Six small tests feed the two readers known inputs: a private name
+renamed on import, another object bound to a private name, a `from` import of
+a transport module, a plain `import ... as` of one, a transport module
+imported as a name from its package, and a public import that must pass.
 
 ```python
 # tests/client/test_encapsulation.py
@@ -755,21 +757,90 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tools.source_tree import SourceTree
+
 _SRC = Path(__file__).parents[2] / "src" / "punt_lux"
+_MODULES = SourceTree(_SRC.parent).modules()
 _PRIVATE_NAMES = frozenset({"_RestTransport", "_SceneRestOps", "_DisplayRestOps"})
 _PRIVATE_MODULE_STEMS = frozenset({"_rest_transport", "_rest_scenes", "_rest_display"})
 
 
+def _imported_names(tree: ast.AST) -> set[str]:
+    """Return every name a ``from`` import reads or binds in ``tree``."""
+    return {
+        name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        for name in (alias.name, alias.asname)
+        if name
+    }
+
+
+def test_aliased_private_import_is_detected() -> None:
+    """Renaming a private name on import does not hide it from the guard."""
+    tree = ast.parse("from ._rest_transport import _RestTransport as Transport\n")
+    assert "_RestTransport" in _imported_names(tree)
+
+
+def test_alias_that_binds_a_private_name_is_detected() -> None:
+    """Binding some other object to a private name is caught too."""
+    tree = ast.parse("from .facade import LuxClient as _RestTransport\n")
+    assert "_RestTransport" in _imported_names(tree)
+
+
+def _imported_modules(tree: ast.AST) -> set[str]:
+    """Return the dotted path of every module ``tree`` imports."""
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            parent = node.module or ""
+            modules.add(parent)
+            modules.update(f"{parent}.{alias.name}" for alias in node.names)
+    return modules
+
+
+def _imports_private_module(tree: ast.AST) -> bool:
+    return any(
+        module.endswith(stem)
+        for module in _imported_modules(tree)
+        for stem in _PRIVATE_MODULE_STEMS
+    )
+
+
+def test_from_import_of_the_private_module_is_detected() -> None:
+    """A ``from`` import of the transport module is caught."""
+    tree = ast.parse("from punt_lux.client._rest_transport import _RestTransport\n")
+    assert _imports_private_module(tree)
+
+
+def test_plain_import_of_the_private_module_is_detected() -> None:
+    """A plain ``import ... as`` of the transport module is caught."""
+    tree = ast.parse("import punt_lux.client._rest_transport as rt\n")
+    assert _imports_private_module(tree)
+
+
+def test_private_module_imported_as_a_name_is_detected() -> None:
+    """Importing the transport module from its package is caught."""
+    for source in (
+        "from punt_lux.client import _rest_transport\n",
+        "from . import _rest_scenes as scenes\n",
+    ):
+        assert _imports_private_module(ast.parse(source)), source
+
+
+def test_public_import_is_not_flagged() -> None:
+    """An import of the public facade is left alone."""
+    tree = ast.parse("import punt_lux.client.facade\nfrom punt_lux import LuxClient\n")
+    assert not _imports_private_module(tree)
+
+
 def test_private_transport_module_not_importable_from_init() -> None:
     """No __init__.py anywhere in the package re-exports a private name."""
-    for init_py in _SRC.rglob("__init__.py"):
-        tree = ast.parse(init_py.read_text())
-        imported = {
-            alias.asname or alias.name
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            for alias in node.names
-        }
+    for init_py in (p for p in _MODULES.values() if p.name == "__init__.py"):
+        imported = _imported_names(ast.parse(init_py.read_text()))
         assert imported.isdisjoint(_PRIVATE_NAMES), (
             f"{init_py} imports a private transport name -- leak reopened"
         )
@@ -777,22 +848,19 @@ def test_private_transport_module_not_importable_from_init() -> None:
 
 def test_no_module_outside_client_imports_the_private_transport() -> None:
     """Only client/'s own modules (and its own tests) may import the transport."""
-    for py_file in _SRC.rglob("*.py"):
+    for py_file in _MODULES.values():
         if py_file.parent.name == "client":
             continue
-        tree = ast.parse(py_file.read_text())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                assert not any(
-                    node.module.endswith(stem) for stem in _PRIVATE_MODULE_STEMS
-                ), f"{py_file} imports the private transport module {node.module}"
+        assert not _imports_private_module(ast.parse(py_file.read_text())), (
+            f"{py_file} imports a private transport module"
+        )
 ```
 
-This is a **structural** test — it walks the AST rather than grepping text, so
+This is a **structural** test: it walks the AST rather than grepping text, so
 it survives reformatting and catches `import punt_lux.client._rest_transport
-as rt`-style evasions a plain grep would miss. It belongs beside
-`tests/client/test_facade.py` (already exists, §Investigation) as
-`tests/client/test_encapsulation.py`.
+as rt` and `from ._rest_transport import _RestTransport as Transport`, which a
+grep for the bare names in an `__init__.py` would miss. It sits beside
+`tests/client/test_facade.py`.
 
 ### 10.2 `.sync` unit tests (new, mirrors `test_facade.py`'s existing shape)
 

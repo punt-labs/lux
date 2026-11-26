@@ -30,7 +30,8 @@ fail() {
 for model in "$MODEL" "$LOG_DIR"/*.tex; do
   label="$(basename "$model" .tex)"
   log="$LOG_DIR/$label-fuzz.log"
-  "$FUZZ" -t "$model" > "$log" 2>&1 || fail "$label fuzz" "$log"
+  # fuzz aborts on a path longer than about 128 characters, so name the file only.
+  (cd "$(dirname "$model")" && "$FUZZ" -t "$label.tex") > "$log" 2>&1 || fail "$label fuzz" "$log"
   echo "PASS: $label fuzz"
 done
 
