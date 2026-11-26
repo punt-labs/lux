@@ -23,7 +23,7 @@ __all__ = ["JsonTerminalDecoder", "JsonTerminalEncoder", "TerminalElement"]
 
 
 class TerminalElement(TerminalPlacement):
-    """A terminal: ``session`` names the PTY; ``command`` starts it (default shell)."""
+    """A terminal showing the daemon session ``session`` (the id ``new`` returned)."""
 
     _id: str
     _session: str
@@ -38,14 +38,14 @@ class TerminalElement(TerminalPlacement):
         renderer_factory: RendererFactory = RAISING_FACTORY,
         emit: Emit = NO_EMIT,
         id: str,
-        session: str = "",
+        session: str,
         command: str = "",
         height: float = 0.0,
         tooltip: str | None = None,
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
-        self._session, self._command = TerminalPlacement.checked(session or id, command)
+        self._session, self._command = TerminalPlacement.checked(session, command)
         self._height = height
         self._tooltip = tooltip
         self._kind = "terminal"
@@ -68,7 +68,7 @@ class TerminalElement(TerminalPlacement):
 
     @property
     def command(self) -> str:
-        """Return the command line to start, or ``""`` for the user's shell."""
+        """Return the command line sent with attach, or ``""`` for none."""
         return self._command
 
     @property
@@ -136,7 +136,7 @@ class JsonTerminalDecoder:
             renderer_factory=self._rf,
             emit=self._emit,
             id=ctx.require_id(raw),
-            session=ctx.optional_str(raw, "session", default=""),
+            session=ctx.require_str(raw, "session"),
             command=ctx.optional_str(raw, "command", default=""),
             height=ctx.optional_number(raw, "height", default=0.0),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

@@ -372,3 +372,10 @@
 {"ts":"2026-11-26T13:27:55Z","commit":"10c232c4","source":null,"files_scored":994,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{},"removed":["src/punt_lux/pty/session_starter.py"]}
 {"ts":"2026-11-26T13:30:55Z","commit":"10c232c4","source":null,"files_scored":994,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T13:30:55Z","commit":"10c232c4","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T14:06:21Z","commit":"87054be6","source":null,"files_scored":994,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-11-26T14:07:58Z","commit":"87054be6","source":null,"files_scored":995,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{},"backfilled":["src/punt_lux/pty/session_listing.py"]}
+{"ts":"2026-11-26T14:09:19Z","commit":"87054be6","source":null,"files_scored":1,"files_improved":0,"files_regressed":0,"verdict":"rebaseline-files","reason":"Devin review fixes. CurrentShell imports SessionListing, the class that decodes the daemon's list reply (efferent_coupling 3 to 4, cap 10), and its methods share less state now that listing decode lives elsewhere (LCOM 0.143 to 0.19, cap 0.8).","deltas":{},"improved":{}}
+{"ts":"2026-11-26T14:09:25Z","commit":"87054be6","source":null,"files_scored":995,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T14:09:25Z","commit":"87054be6","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T14:22:37Z","commit":"87054be6","source":null,"files_scored":995,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T14:22:38Z","commit":"87054be6","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

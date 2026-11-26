@@ -79,9 +79,13 @@ class SequencedExchange(DaemonExchange):
             return DaemonExchange(daemon.path).ask(request)
 
 
+def listing(*sessions: dict[str, object]) -> bytes:
+    return ReplyCodec.encode(SuccessReply(2, {"sessions": list(sessions)}))
+
+
 def held(*payloads: bytes) -> CurrentShell:
     started = ReplyCodec.encode(SuccessReply(2, {"session": "s1"}))
-    current = CurrentShell(SequencedExchange(started, *payloads))
+    current = CurrentShell(SequencedExchange(listing(), started, *payloads))
     assert current.obtain() == "s1"
     return current
 
@@ -108,7 +112,45 @@ def test_a_kill_refused_as_unknown_forgets_the_shell() -> None:
 @pytest.mark.parametrize("session", [None, ""])
 def test_a_new_reply_with_an_unusable_session_is_refused(session: object) -> None:
     reply = ReplyCodec.encode(SuccessReply(2, {"session": session}))
-    current = CurrentShell(SequencedExchange(reply))
+    current = CurrentShell(SequencedExchange(listing(), reply))
     with pytest.raises(SessionRefusedError, match="without a session"):
         current.obtain()
     assert current.session == ""
+
+
+RUNNING: dict[str, object] = {"session": "s7", "label": "Terminal", "state": "running"}
+
+
+def test_a_fresh_shell_adopts_a_running_session_it_started_earlier() -> None:
+    current = CurrentShell(SequencedExchange(listing(RUNNING)))  # a new would fail
+    assert current.obtain() == "s7"
+
+
+def test_resume_adopts_a_running_session_it_started_earlier() -> None:
+    current = CurrentShell(SequencedExchange(listing(RUNNING)))
+    assert current.resume()
+    assert current.session == "s7"
+
+
+def test_a_running_session_under_another_label_is_not_adopted() -> None:
+    other: dict[str, object] = RUNNING | {"label": "Build"}
+    started = ReplyCodec.encode(SuccessReply(2, {"session": "s8"}))
+    current = CurrentShell(SequencedExchange(listing(other), started))
+    assert current.obtain() == "s8"
+
+
+def test_a_stale_session_holding_the_label_is_ended_before_a_new_start() -> None:
+    stale: dict[str, object] = RUNNING | {"state": "exited"}
+    ended = ReplyCodec.encode(SuccessReply(2, {}))
+    started = ReplyCodec.encode(SuccessReply(2, {"session": "s8"}))
+    current = CurrentShell(SequencedExchange(listing(stale), ended, started))
+    assert current.obtain() == "s8"
+
+
+@pytest.mark.integration
+def test_a_second_shell_over_a_live_daemon_adopts_the_first(daemon: Path) -> None:
+    first = CurrentShell(DaemonExchange(daemon))
+    started = first.obtain()
+    second = CurrentShell(DaemonExchange(daemon))
+    assert second.obtain() == started
+    first.release()

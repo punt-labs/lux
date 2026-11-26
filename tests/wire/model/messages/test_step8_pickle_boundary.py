@@ -19,6 +19,7 @@ _REQUIRED: dict[str, dict[str, object]] = {
     "image": {"path": "x.png"},
     "markdown": {"content": "m"},
     "progress": {"fraction": 0.5},
+    "terminal": {"session": "s1"},
     "text": {"content": "t"},
 }
 _MOVED = (

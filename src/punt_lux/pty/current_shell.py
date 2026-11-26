@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from typing import Self, cast
+from typing import Self
 
 from punt_lux.pty.daemon_exchange import (
     DaemonExchange,
     RetryableRefusalError,
     SessionRefusedError,
 )
+from punt_lux.pty.session_listing import SessionListing
 from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 
 logger = logging.getLogger(__name__)
+
+_LABEL = "Terminal"
 
 
 class CurrentShell:
@@ -48,17 +50,22 @@ class CurrentShell:
             OSError: The daemon is unreachable, hung up or did not answer in time.
             SessionRefusedError: The daemon refused the request or answered nonsense.
         """
-        if not (self._session and self._is_running()):
+        self.resume()
+        if not self._session:
             self._session = self._start()
         return self._session
 
     def resume(self) -> bool:
-        """Say whether the held shell still runs; one that does not is forgotten.
+        """Say whether a shell is held; adopt the one this menu started earlier.
 
-        Never starts a shell. Raises what ``obtain`` raises.
+        A held shell that no longer runs is forgotten. With none held, a
+        running session labelled "Terminal" is adopted, so a replaced helper
+        finds the shell its predecessor started. Never starts a shell. Raises
+        what ``obtain`` raises.
         """
-        if self._session and not self._is_running():
-            self._session = ""
+        listing = SessionListing(self._daemon.ask(ListRequest(2)).result)
+        if not listing.is_running(self._session):
+            self._session = self._adopt(listing)
         return bool(self._session)
 
     def release(self) -> None:
@@ -80,24 +87,25 @@ class CurrentShell:
             logger.info("Terminal %s is already gone: %s", shell, error)
         self._session = ""
 
+    def _adopt(self, listing: SessionListing) -> str:
+        """Return the running session under the shell label, else ``""``.
+
+        The daemon keeps labels unique among sessions it holds, so a session
+        under the label that is not running would make ``new`` refuse it: it is
+        ended first.
+        """
+        if running := listing.running_under(_LABEL):
+            return running
+        if stale := listing.stale_under(_LABEL):
+            try:
+                self._daemon.ask(KillRequest(2, stale))
+            except SessionRefusedError as error:
+                logger.info("Terminal %s is already gone: %s", stale, error)
+        return ""
+
     def _start(self) -> str:
-        reply = self._daemon.ask(NewRequest(2))
+        reply = self._daemon.ask(NewRequest(2, _LABEL))
         session = reply.result.get("session")
         if not isinstance(session, str) or not session:
             raise SessionRefusedError("luxd-pty answered new without a session")
         return session
-
-    def _is_running(self) -> bool:
-        listing = self._daemon.ask(ListRequest(2)).result.get("sessions")
-        if not isinstance(listing, list):
-            raise SessionRefusedError("luxd-pty answered list without sessions")
-        entries = cast("list[object]", listing)
-        named = (
-            cast("Mapping[str, object]", entry)
-            for entry in entries
-            if isinstance(entry, Mapping)
-        )
-        return any(
-            fields.get("session") == self._session and fields.get("state") == "running"
-            for fields in named
-        )

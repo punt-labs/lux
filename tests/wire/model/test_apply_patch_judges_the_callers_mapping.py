@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.hub.batch_judge import BatchJudge
-from punt_lux.wire.model.elements import ImageElement, MarkdownElement, TextElement
+from punt_lux.wire.model.elements import (
+    ImageElement,
+    MarkdownElement,
+    TerminalElement,
+    TextElement,
+)
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.wire.model.elements.tree import TreeElement
 from punt_lux.wire.model.handler_writes import HandlerWrites
@@ -29,6 +34,7 @@ _NEEDS: dict[type, dict[str, object]] = {
     TextElement: {"content": "x"},
     MarkdownElement: {"content": "x"},
     ImageElement: {"path": "x.png"},
+    TerminalElement: {"session": "s1"},
 }
 
 

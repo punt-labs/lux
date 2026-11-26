@@ -14,7 +14,7 @@ from punt_lux.wire.stream.control_fields import ControlError
 
 
 def test_bad_replica_renders_a_placeholder_without_escaping_the_frame() -> None:
-    elem = TerminalElement(id="t")
+    elem = TerminalElement(id="t", session="s")
     object.__setattr__(elem, "_session", "../legacy")
     with patch("punt_lux.display.terminal.presenter.imgui.text_wrapped") as text:
         TerminalPresenter.paint(elem)
@@ -40,9 +40,9 @@ def test_render_and_error_paths_balance_fonts(
     ):
         if isinstance(error, RuntimeError):
             with pytest.raises(RuntimeError, match="bug"):
-                TerminalPresenter.paint(TerminalElement(id="t"))
+                TerminalPresenter.paint(TerminalElement(id="t", session="s"))
         else:
-            TerminalPresenter.paint(TerminalElement(id="t"))
+            TerminalPresenter.paint(TerminalElement(id="t", session="s"))
         assert push.call_count == pop.call_count == int(font is not None)
         assert text.call_count == int(isinstance(error, ControlError))
         assert session.render_in_child.call_args.args[0] == "##terminal-t"

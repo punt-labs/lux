@@ -32,9 +32,11 @@ def test_terminal_round_trip_keeps_every_public_property() -> None:
     assert restored.to_dict() == wire
 
 
-def test_terminal_session_defaults_to_element_id() -> None:
-    elem = TerminalElement.from_dict({"kind": "terminal", "id": "term-2"})
-    assert elem.session == "term-2"
+def test_terminal_defaults_everything_but_the_session() -> None:
+    elem = TerminalElement.from_dict(
+        {"kind": "terminal", "id": "term-2", "session": "s-2"}
+    )
+    assert elem.session == "s-2"
     assert elem.command == ""
     assert elem.height == 0
     assert elem.tooltip is None
@@ -60,14 +62,28 @@ def test_terminal_rejects_the_same_invalid_identifiers_as_attach(name: str) -> N
         TerminalElement.from_dict({"kind": "terminal", "id": "t", "session": name})
 
 
-@pytest.mark.parametrize("id", ["", "../default"])
-def test_terminal_validates_the_default_session(id: str) -> None:
-    with pytest.raises(ControlError):
-        TerminalElement(id=id)
+def test_terminal_requires_an_explicit_session() -> None:
+    with pytest.raises(ControlError, match="session"):
+        TerminalElement(id="t", session="")
+
+
+def test_terminal_wire_without_a_session_is_refused_by_name() -> None:
+    with pytest.raises(ValueError, match="session"):
+        TerminalElement.from_dict({"kind": "terminal", "id": "shell"})
+
+
+def test_show_refuses_a_terminal_without_a_session() -> None:
+    with (
+        patch.object(peripherals.require(DISPLAY), "asks") as asks,
+        pytest.raises(ToolError, match="session"),
+    ):
+        asks.return_value.is_connected = True
+        show("terminal-scene", [{"kind": "terminal", "id": "shell"}])
+    asks.return_value.show.assert_not_called()
 
 
 def test_validation_rechecks_a_placement_loaded_without_construction() -> None:
-    elem = TerminalElement(id="t")
+    elem = TerminalElement(id="t", session="s")
     object.__setattr__(elem, "_session", "../legacy")
     errors = elem.validate()
     assert len(errors) == 1
@@ -87,7 +103,9 @@ def test_valid_terminal_validates_and_renders() -> None:
 
 def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
     renderer = Mock()
-    elem = TerminalElement(id="t", renderer_factory=Mock(return_value=renderer))
+    elem = TerminalElement(
+        id="t", session="s", renderer_factory=Mock(return_value=renderer)
+    )
     object.__setattr__(elem, "_session", "../legacy")
     assert elem.validate()
     with (
@@ -99,7 +117,7 @@ def test_show_skips_rendering_a_malformed_terminal_placement() -> None:
         pytest.raises(ToolError, match="scene not rendered") as error,
     ):
         asks.return_value.is_connected = True
-        show("terminal-scene", [{"kind": "terminal", "id": "t"}])
+        show("terminal-scene", [{"kind": "terminal", "id": "t", "session": "s"}])
     assert "[terminal 't']" in str(error.value)
     assert "identifier" in str(error.value)
     asks.return_value.show.assert_not_called()
