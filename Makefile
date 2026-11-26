@@ -74,6 +74,7 @@ check: check-oo check-coupling check-suppressions check-layers check-models lint
 check-models: ## Type-check and model-check readiness, registry lifecycle and fidelity mutants
 	PROBCLI="$(PROBCLI)" bash scripts/verify_readiness_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_peripheral_registry_model.sh
+	PROBCLI="$(PROBCLI)" bash scripts/verify_terminal_model.sh
 
 # CI compares PRs with their merge base and pushes to main with the pre-push
 # tip (github.event.before). Without BASE_REF, the package resolves the merge

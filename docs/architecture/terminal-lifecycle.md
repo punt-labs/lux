@@ -1,8 +1,9 @@
 # Terminal session lifecycle, namespace and menu
 
-Status: proposed, awaiting operator ratification (PL-1217; epic PL-1213).
+Status: ratified, revised by DES-103; the daemon unit it describes is
+implemented (PL-1217; epic PL-1213).
 Formal model: [`docs/terminal_lifecycle.tex`](../terminal_lifecycle.tex), with
-two fidelity variants beside it.
+four fidelity variants beside it.
 
 ## Abstract
 
@@ -324,7 +325,8 @@ result with `scripts/verify_terminal_model.sh` from the repo root (it runs fuzz
 on all four files, then
 `probcli FILE -model_check -nodead -p DEFAULT_SETSIZE 2 -goal '<predicate>'`;
 a plain `-model_check` passes on the buggy variants too, because they violate
-safety goals, not deadlock-freedom).
+safety goals, not deadlock-freedom). `make check` runs the verifier through
+`make check-models`, which also runs in CI (`.github/workflows/models.yml`).
 
 The model has a `replica` map (the Display's cache, keyed by name and shell)
 and a `used` set (names ever issued). `HelperEnded` and `HelperSync` release
@@ -337,10 +339,19 @@ handlers wait until replay completes; daemon operations remain enabled.
 only `wacked` buffers daemon events and enables `HelperList`. Initialization,
 watch loss and daemon restart require subscription and acknowledgment before
 listing again. The model covers one daemon, not cross-host/instance routing.
+`stalled` holds the names of sessions that have a viewer which has stopped
+taking output. `ViewerStalls` adds a name. `DaemonRemove` refuses a stalled
+name, because CLOSE follows a viewer's last byte and cannot be sent while the
+viewer holds unsent output. `FinishDeadline` is the timeout transition: a
+finished session with a stalled viewer has its unsent output abandoned
+(`ViewerFlow.abandon_unsent`, called by `SessionRoster.sweep` once the 30 s
+grace of `FinishDeadlines` is spent), CLOSE goes out and the name leaves
+`stalled`. The timer is abstracted to the guard `dstate(n)=exited`. A daemon
+restart clears `stalled`.
 `ReplicaAttach` requires a running shell, and `ReplicaRefused` covers exited
 shells as well as absent or mismatched ids. `HelperLoseEvents` cannot fire
 when the watch is already lost and both event sets are empty.
-The intact model has 4010 states at set size 2 and no deadlock.
+The intact model has 10278 states at set size 2 and no deadlock.
 
 Goals, each an unreachable bad state in the intact model:
 
@@ -356,6 +367,13 @@ Goals, each an unreachable bad state in the intact model:
   `sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))`
 - I8, every cached replica matches a current scene element:
   `#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))`
+- L1, no finished session outlives its deadline: whenever a finished session
+  is held by a stalled viewer, `FinishDeadline` is enabled for it. A CTL
+  property, not an unreachable state:
+  `AG({#n.(n:dom(daemon) & dstate(n)=exited & n:stalled)} => EF(e(FinishDeadline)))`.
+  The state it guards (`#n.(n:dom(daemon) & dstate(n)=exited & n:stalled)`) is
+  reachable in the intact model, so the property is not vacuous; the deadline
+  is the only transition that releases it.
 
 I8 is a safety check because scene removal and replacement release replicas
 atomically in this model. It catches an orphan without waiting for name reuse;
@@ -366,16 +384,20 @@ atomically in this model. It catches an orphan without waiting for name reuse;
 | `terminal_lifecycle_cache_leak_buggy.tex` | Replica release, and the never-reuse guard | I6 (the operator's "exit, then nothing ever") and I8 |
 | `terminal_lifecycle_exit_leak_buggy.tex` | Helper clears scene on `ended` | I1 |
 | `terminal_lifecycle_swap_buggy.tex` | Resume checks the shell, and the never-reuse guard | I2 and I6 |
+| `terminal_lifecycle_no_deadline_buggy.tex` | `FinishDeadline` (its guard is false) | L1 |
 
-Results from the last run: intact model, I1/I2/I3/I6/I7/I8 not found over all 4010
-states. Cache-leak I6 and I8 found; exit-leak I1 found; swap I2 and I6 found.
-I7 is also not found on all three fidelity variants. A local, uncommitted
+Results from the last run: intact model, I1/I2/I3/I6/I7/I8 not found over all 10278
+states; L1 holds. Cache-leak I6 and I8 found; exit-leak I1 found; swap I2 and I6 found.
+No-deadline L1 fails: `DaemonNew`, `ShellExit`, `ViewerStalls` reach an exited
+session held by a stalled viewer with no transition that releases it, so a
+stalled viewer pins the session and its slot forever.
+I7 is also not found on all four fidelity variants. A local, uncommitted
 mutation that omits `createdEv` from `HelperSync` reaches I7: acquire an empty
 list, create a session, then apply the list without its buffered creation.
 A second local mutation removing the acknowledgment guard from `HelperList`
 also reaches I7: list before subscribing, create sessions without event
 buffering, then apply the stale snapshot.
-Deadlock check clean on all four files. State counts to the goal vary with
+Deadlock check clean on all five files. State counts to the goal vary with
 search order.
 
 The latest cache-leak counterexample ends with an attached replica of `(n,s1)`:
@@ -392,9 +414,10 @@ The design closes it two ways, and the model needs both: ids are never reused
 (the `used` guard), and a replica is released when its element leaves the
 scene (section 5).
 
-Limits: `DaemonRemove`'s guard (no `ready` replica) abstracts "`CLOSE` has
-been delivered to every viewer"; the daemon cannot see replica phase, it sees
-its own bindings. The macOS child reap and the PTY itself are outside the
+Limits: `DaemonRemove`'s guards (no `ready` replica, no stalled viewer)
+abstract "`CLOSE` has been delivered to every viewer"; the daemon cannot see
+replica phase, it sees its own bindings. The model has one stalled flag per
+session, not one per viewer, and the 30 s grace is a guard, not a clock. The macOS child reap and the PTY itself are outside the
 model. Re-run the checks when the lifecycle code changes.
 
 ### Releasing a replica on the shared connection

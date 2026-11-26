@@ -30,6 +30,9 @@ I6='#n.(n:dom(scene) & n:dom(daemon) & daemon(n)=scene(n) & dstate(n)=running & 
 I7='sync=synced & createdEv={} & endedEv={} & #n.(n:dom(daemon) & dstate(n)=running & not(n:dom(scene) & scene(n)=daemon(n)))'
 I8='#(n,s).(n:NAME & s:SHELL & (n|->s):dom(replica) & not(n:dom(scene) & scene(n)=s))'
 
+PE='#n.(n:dom(daemon) & dstate(n)=exited & n:stalled)'
+L1='AG({'"$PE"'} => EF(e(FinishDeadline)))'
+
 R1='collateral/={}'
 R2='health=failed'
 
@@ -67,6 +70,7 @@ models=(
   terminal_lifecycle_cache_leak_buggy.tex
   terminal_lifecycle_exit_leak_buggy.tex
   terminal_lifecycle_swap_buggy.tex
+  terminal_lifecycle_no_deadline_buggy.tex
 )
 for model in "${models[@]}"; do
   log="$LOG_DIR/${model%.tex}-fuzz.log"
@@ -85,6 +89,23 @@ check_model terminal_lifecycle_cache_leak_buggy.tex I8 found "$I8"
 check_model terminal_lifecycle_exit_leak_buggy.tex I1 found "$I1"
 check_model terminal_lifecycle_swap_buggy.tex I2 found "$I2"
 check_model terminal_lifecycle_swap_buggy.tex I6 found "$I6"
+# L1: a finished session held by a stalled viewer is reachable (so the check is
+# not vacuous), and only the finish deadline can release it.
+check_ctl() {
+  local model="$1" formula="$2" expected="$3"
+  local log="$LOG_DIR/${model%.tex}-L1.log"
+  "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 2 -ctlformula "$formula" >"$log" 2>&1 || true
+  if [[ "$expected" == holds ]]; then
+    grep -q '^CTL Formula TRUE' "$log" || fail "$model L1: expected the deadline property to hold" "$log"
+  else
+    grep -q '^Formula FALSE' "$log" || fail "$model L1: expected a counterexample" "$log"
+  fi
+  echo "PASS: $model L1 $expected ($(grep -c '^ *[0-9]*: ' "$log") step trace lines)"
+}
+check_model terminal_lifecycle.tex L1-reach found "$PE"
+check_model terminal_lifecycle_no_deadline_buggy.tex L1-reach found "$PE"
+check_ctl terminal_lifecycle.tex "$L1" holds
+check_ctl terminal_lifecycle_no_deadline_buggy.tex "$L1" violated
 
 for model in "${models[@]}"; do
   if [[ "$model" != terminal_lifecycle.tex ]]; then
