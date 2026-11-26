@@ -21,11 +21,23 @@ if [[ ! $uv_version =~ ^uv\ (0\.13\.[0-9]+)([[:space:]]|$) ]]; then
 fi
 uv_version=${BASH_REMATCH[1]}
 install -m 0755 "$uv_tool" "$runtime/bin/uv"
-node_tool=$(node -p 'process.execPath')
+if ! node_tool=$(node -p 'require("node:fs").realpathSync(process.execPath)'); then
+    echo 'Install the upstream Node.js distribution before building the runtime.' >&2
+    exit 1
+fi
 node_home=$(dirname -- "$(dirname -- "$node_tool")")
+if ! npm_tool=$(command -v npm) || ! npm_cli=$(realpath -e -- "$npm_tool") || [[ $npm_cli != */bin/npm-cli.js ]]; then
+    echo 'Cannot locate npm source: npm on PATH must resolve to bin/npm-cli.js.' >&2
+    exit 1
+fi
+npm_home=${npm_cli%/bin/npm-cli.js}
+if [[ ! -r $npm_home/bin/npx-cli.js || ! -r $npm_home/package.json || ! -s $node_home/LICENSE ]]; then
+    echo 'Unsupported Node/npm layout: need npx-cli.js, npm package.json, and the upstream Node LICENSE.' >&2
+    exit 1
+fi
 mkdir -p "$runtime/node/bin" "$runtime/node/lib/node_modules"
 install -m 0755 "$node_tool" "$runtime/node/bin/node"
-cp -RP -- "$node_home/lib/node_modules/npm" "$runtime/node/lib/node_modules/npm"
+cp -RP -- "$npm_home" "$runtime/node/lib/node_modules/npm"
 ln -s ../lib/node_modules/npm/bin/npm-cli.js "$runtime/node/bin/npm"
 ln -s ../lib/node_modules/npm/bin/npx-cli.js "$runtime/node/bin/npx"
 install -m 0644 "$node_home/LICENSE" "$runtime/licenses/node-LICENSE"
