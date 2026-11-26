@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- Linux runtime packaging for Ethos handoff snapshots of `make check`.
+  `make build-handoff-runtime` builds the offline bundle and
+  `make handoff-runtime` installs it after verifying the pinned checksum.
+
 ## [0.34.0] - 2026-11-25
 
 ### Added

@@ -1,0 +1,127 @@
+name: Handoff runtime
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/handoff-runtime.yml
+      - .github/workflows/models.yml
+      - .punt-labs/ethos/checks/snapshots/python-oo.yaml
+      - .python-version
+      - Makefile
+      - "**/pyproject.toml"
+      - scripts/*handoff-runtime.sh
+      - uv.lock
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New runtime release tag, e.g. handoff-runtime-v1
+        required: true
+        type: string
+      run-id:
+        description: Workflow run ID of the reviewed Linux bundle build
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          version: "0.13.9"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.3"
+          package-manager-cache: false
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex
+          uv python install 3.13.18
+      - name: Package the offline runtime
+        run: |
+          mkdir runtime-assets
+          archive=$(scripts/build-handoff-runtime.sh runtime-assets)
+          sha=$(basename "$archive" .tar.gz)
+          asset=lux-linux-amd64-v1.tar.gz
+          mv "$archive" "runtime-assets/$asset"
+          printf '%s  %s\n' "$sha" "$asset" | tee "runtime-assets/$asset.sha256"
+      - name: Smoke-test the relocated toolchain offline
+        run: |
+          scratch=$(mktemp -d)
+          trap 'rm -rf "$scratch"' EXIT
+          runtime="$scratch/runtime"
+          mkdir "$runtime" "$scratch/home" "$scratch/tmp"
+          tar -xzf runtime-assets/lux-linux-amd64-v1.tar.gz -C "$runtime"
+          cp -R "$runtime/cache/uv" "$scratch/uv-cache"
+          sudo unshare --net --setuid "$(id -u)" --setgid "$(id -g)" -- env -i \
+            HOME="$scratch/home" TMPDIR="$scratch/tmp" \
+            PATH="$runtime/bin:$runtime/node/bin:$runtime/java/bin:/usr/bin:/bin" \
+            UV_PYTHON="$runtime/python/bin/python3.13" UV_PYTHON_DOWNLOADS=never \
+            UV_CACHE_DIR="$scratch/uv-cache" UV_PROJECT_ENVIRONMENT="$scratch/venv" \
+            UV_LINK_MODE=copy npm_config_offline=true npm_config_update_notifier=false \
+            bash -e -c '
+              uv sync --offline --locked --extra display
+              UV_PROJECT_ENVIRONMENT="$HOME/doclint" uv sync --offline --locked --only-group doclint
+              npx markdownlint-cli2 "**/*.md" "#node_modules"
+              npx pyright --version
+              java -version
+            '
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runtime-linux-amd64
+          path: runtime-assets/
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    concurrency: handoff-runtime-release
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Validate runtime release request
+        env:
+          TAG: ${{ inputs.tag }}
+          RUN_ID: ${{ inputs.run-id }}
+        run: |
+          if [[ ! "$TAG" =~ ^handoff-runtime-v[1-9][0-9]*$ || ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo 'Supply a new handoff-runtime-vN tag and a build run ID.' >&2
+            exit 2
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run-id }}
+          name: runtime-linux-amd64
+          path: runtime-assets
+      - name: Publish the exact pinned runtime archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          asset=lux-linux-amd64-v1.tar.gz
+          installed=$(scripts/install-handoff-runtime.sh "runtime-assets/$asset")
+          sha=$(basename "$installed" .tar.gz)
+          cd runtime-assets
+          printf '%s  %s\n' "$sha" "$asset" > "$asset.sha256"
+          sha256sum --check "$asset.sha256"
+          gh release create "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --draft --prerelease --latest=false \
+            --title "Lux handoff runtime $TAG" --notes "Offline Linux toolchain for the Lux Ethos handoff gate."
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
