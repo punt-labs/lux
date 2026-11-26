@@ -39,7 +39,6 @@ docs/*.synctex.gz
 .mcp.json
 .codex/config.toml
 .tmp/*
-!.tmp/.gitkeep
 .worktrees/
 
 # Ethos mission log
