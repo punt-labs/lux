@@ -1,0 +1,45 @@
+{
+  "checks": {
+    "gate": {
+      "profile": "linux-worktree-v1",
+      "epoch": "lux-v1",
+      "sources": {"mode": "worktree"},
+      "system": {
+        "tools": ["basename", "bash", "cat", "chmod", "cp", "dirname", "env", "git", "grep", "make", "mkdir", "mktemp", "ps", "sed", "sh", "sleep", "sort", "tr"]
+      },
+      "scratch": {
+        "checkout": [".tmp", ".venv", ".pytest_cache"],
+        "seed": {"{scratch}/uv-cache": "{runtime}/cache/uv"}
+      },
+      "git": {"base_ref": "refs/remotes/origin/main"},
+      "network": "loopback",
+      "runtime": {
+        "platforms": {
+          "linux-amd64": {
+            "bundle": "lux-linux-amd64-v1.tar.gz",
+            "sha256": "3a9956c2c3babd009539245c374e65e20b27285e9d3d9a2980d2dc943e3bba0d",
+            "path": ["{runtime}/bin", "{runtime}/node/bin", "{runtime}/python/bin", "{runtime}/java/bin"],
+            "env": {
+              "UV_PYTHON": "{runtime}/python/bin/python3.13",
+              "UV_PROJECT_ENVIRONMENT": "{root}/.venv",
+              "UV_PYTHON_DOWNLOADS": "never",
+              "UV_CACHE_DIR": "{scratch}/uv-cache",
+              "UV_OFFLINE": "true",
+              "UV_LOCKED": "true",
+              "UV_LINK_MODE": "copy",
+              "npm_config_cache": "{scratch}/npm-cache",
+              "npm_config_offline": "true",
+              "npm_config_update_notifier": "false",
+              "RUFF_CACHE_DIR": "{scratch}/ruff-cache",
+              "MYPY_CACHE_DIR": "{scratch}/mypy-cache",
+              "PYTHONDONTWRITEBYTECODE": "1",
+              "FUZZLIB": "{runtime}/lib/fuzzlib",
+              "PROBCLI": "{runtime}/prob/probcli"
+            }
+          }
+        }
+      },
+      "prehydrate": {"run": ["uv", "sync", "--offline", "--locked", "--extra", "display"]}
+    }
+  }
+}

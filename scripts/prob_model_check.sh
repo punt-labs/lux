@@ -2,6 +2,12 @@
 
 check_model() {
   local maxint="$1" model="$2" label="$3" expected="$4" goal="${5:-}"
+  # ProB writes the Fuzz AST beside its input.
+  if [[ $model != "$LOG_DIR/"* ]]; then
+    local staged="$LOG_DIR/${model##*/}"
+    cp -- "$model" "$staged"
+    model=$staged
+  fi
   local log="$LOG_DIR/$label.log"
   local args=("$model" -model_check -v -p DEFAULT_SETSIZE 2 -p MAXINT "$maxint")
   args+=(-p TIME_OUT 60000)
