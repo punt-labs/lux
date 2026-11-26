@@ -13,13 +13,15 @@ from punt_lux.pty.control_input import ControlInput
 from punt_lux.pty.core import SessionCore
 from punt_lux.pty.peer import Peer
 from punt_lux.pty.process_port import ProcessPort
+from punt_lux.pty.session_spec import SessionSpec
 from punt_lux.pty.stream_output import StreamPublisher
 from punt_lux.pty.viewers import ViewerBindings
 from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.control import ControlCodec, KillRequest
 from punt_lux.wire.stream.frames import Frame, FrameDecoder, FrameKind
+from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec
-from tests.pty.test_session_core import FakeFactory
+from tests.pty.fake_process import FakeFactory
 
 if TYPE_CHECKING:
     from pytest import MonkeyPatch
@@ -36,7 +38,7 @@ def test_transport_fault_boundary_preserves_other_sessions_and_operator_signals(
 ) -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
-    core.acquire(AttachRequest(1, "good"))
+    good_name = core.create(NewRequest(1, "good")).name
     good = factory.created[0]
     client, owned = socket.socketpair()
     client.settimeout(1)
@@ -44,13 +46,13 @@ def test_transport_fault_boundary_preserves_other_sessions_and_operator_signals(
     peer.mark_ready()
     control = ControlInput(core, ViewerBindings())
 
-    def fail(_request: AttachRequest, _process: ProcessPort) -> Never:
+    def fail(_spec: SessionSpec, _process: ProcessPort) -> Never:
         factory.created[-1].refuse_close = refuse_cleanup
         raise fault_type(message)
 
     monkeypatch.setattr("punt_lux.pty.session_birth.TerminalSession", fail)
     try:
-        request = AttachRequest(7, "bad")
+        request = NewRequest(7, "bad")
         frame = Frame(0, FrameKind.DATA, ControlCodec.encode(request))
         if fault_type is not MemoryError:
             expected = BaseExceptionGroup if refuse_cleanup else fault_type
@@ -69,13 +71,11 @@ def test_transport_fault_boundary_preserves_other_sessions_and_operator_signals(
         assert reply.retryable
         assert peer.ready
         assert good.alive and good.close_calls == 0
-        assert core.get("good").name == "good"
+        assert core.get(good_name).name == good_name
         if refuse_cleanup:
-            assert core.describe()[-1] == {
-                "session": "bad",
-                "pid": 123,
-                "cleanup_pending": True,
-            }
+            pending = core.describe()[-1]
+            assert pending["cleanup_pending"] is True
+            assert pending["pid"] == 123
         else:
             assert len(core.describe()) == 1
     finally:
@@ -91,8 +91,8 @@ def test_kill_cleanup_failure_finishes_repaint_before_publishing_other_sessions(
 ) -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
-    core.acquire(AttachRequest(1, "dying"))
-    core.acquire(AttachRequest(2, "running"))
+    dying_name = core.create(NewRequest(1, "dying")).name
+    running_name = core.create(NewRequest(2, "running")).name
     process, running = factory.created
     process.reaped = False
     original_close = process.close
@@ -111,16 +111,17 @@ def test_kill_cleanup_failure_finishes_repaint_before_publishing_other_sessions(
     peer = Peer(owned)
     peer.mark_ready()
     bindings = ViewerBindings()
-    binding = bindings.add(peer, "dying", 80, 24)
+    binding = bindings.add(peer, dying_name, 80, 24)
     try:
         ControlInput(core, bindings).receive(
-            peer, Frame(0, FrameKind.DATA, ControlCodec.encode(KillRequest(3, "dying")))
+            peer,
+            Frame(0, FrameKind.DATA, ControlCodec.encode(KillRequest(3, dying_name))),
         )
         assert not binding.flow.wants_repaint
         assert core.describe()[-1]["cleanup_pending"] is True
         running.output.append(b"still responsive")
         StreamPublisher(core, bindings).pump()
-        assert core.get("running").position == len(b"still responsive")
+        assert core.get(running_name).position == len(b"still responsive")
         peer.flush()
         frames = FrameDecoder().feed(client.recv(65536))
         reply = ReplyCodec.decode(frames[0].payload)
@@ -135,17 +136,17 @@ def test_kill_cleanup_failure_finishes_repaint_before_publishing_other_sessions(
 
 
 @pytest.mark.parametrize("transient", [False, True])
-def test_attach_failures_distinguish_conflicting_commands_from_resource_limits(
+def test_attach_failures_distinguish_unknown_ids_from_resource_limits(
     transient: bool,
 ) -> None:
     core = SessionCore(FakeFactory(), limit=1)
-    core.acquire(AttachRequest(1, "one", "/bin/sh"))
+    core.create(NewRequest(1, "one"))
     client, owned = socket.socketpair()
     client.settimeout(1)
     peer = Peer(owned)
     peer.mark_ready()
     try:
-        request = AttachRequest(2, "two" if transient else "one", "/bin/other")
+        request = NewRequest(2, "two") if transient else AttachRequest(2, "t0.9")
         ControlInput(core, ViewerBindings()).receive(
             peer, Frame(0, FrameKind.DATA, ControlCodec.encode(request))
         )

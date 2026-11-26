@@ -14,7 +14,8 @@ pytest.importorskip("pyghostty")
 from punt_lux.pty.core import SessionCore
 from punt_lux.terminal.output import OutputChunk
 from punt_lux.terminal.snapshot import restore_binary
-from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.new_request import NewRequest
+from tests.pty.launchers import CommandFactory
 
 pytestmark = pytest.mark.integration
 
@@ -37,13 +38,13 @@ class CoreOutputWait:
 def test_headless_program_can_be_inspected_then_used_without_respawn() -> None:
     code = (
         "import sys; print('READY',flush=True); line=sys.stdin.readline(); "
-        "print('ECHO:'+line.strip(),flush=True)"
+        "print('ECHO:'+line.strip(),flush=True); sys.stdin.readline()"
     )
     command = shlex.join([sys.executable, "-u", "-c", code])
-    core = SessionCore()
+    core = SessionCore(CommandFactory(command))
     pid = 0
     try:
-        session = core.acquire(AttachRequest(1, "headless", command))
+        session = core.create(NewRequest(1, "headless"))
         description = session.describe()
         assert isinstance(description["pid"], int)
         pid = description["pid"]
@@ -52,7 +53,7 @@ def test_headless_program_can_be_inspected_then_used_without_respawn() -> None:
         assert "READY" in restore_binary(first.data).text()
         session.write(b"hello\n")
         CoreOutputWait.until(core, b"ECHO:hello")
-        assert core.acquire(AttachRequest(2, "headless", command)) is session
+        assert core.attach(session.name) is session
         second = session.capture()
         assert second.position > first.position
         assert "ECHO:hello" in restore_binary(second.data).text()

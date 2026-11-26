@@ -21,8 +21,9 @@ from punt_lux.wire.stream.session_events import SessionEvent, WatchRequest
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 
 
-def test_wire_version_stays_compatible_with_running_daemon() -> None:
-    assert WIRE_VERSION == 3
+def test_wire_version_marks_resume_only_attach() -> None:
+    """Attach no longer starts a session, so a version 3 peer must not connect."""
+    assert WIRE_VERSION == 4
 
 
 @pytest.mark.parametrize(

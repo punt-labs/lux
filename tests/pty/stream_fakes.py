@@ -8,7 +8,6 @@ from punt_lux.pty.core import SessionError
 from punt_lux.terminal.output import OutputChunk, SessionSnapshot
 from punt_lux.terminal.snapshot import ContinuationExhaustedError, SnapshotError
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
-from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.frames import Frame
 
 IDLE: dict[str, object] = {"ended": False, "exit_code": None}
@@ -56,6 +55,7 @@ class MidSequenceSession:
 
     _name: str
     _pos: int
+    _size: tuple[int, int]
     _checkpoint_error: Exception | None
     _checkpoint_calls: int
 
@@ -63,6 +63,7 @@ class MidSequenceSession:
         self = super().__new__(cls)
         self._name = name
         self._pos = 0
+        self._size = (80, 24)
         self._checkpoint_error = checkpoint_error
         self._checkpoint_calls = 0
         return self
@@ -97,6 +98,11 @@ class MidSequenceSession:
     def describe(self) -> dict[str, object]:
         return dict(IDLE)
 
+    def resize(self, cols: int, rows: int) -> bool:
+        changed = self._size != (cols, rows)
+        self._size = (cols, rows)
+        return changed
+
     def emit(self, data: bytes) -> OutputChunk:
         chunk = OutputChunk(self._name, self._pos, data)
         self._pos += len(data)
@@ -107,13 +113,11 @@ class QueuedCore:
     """A core whose pump hands out exactly the chunks a test enqueued."""
 
     _sessions: dict[str, MidSequenceSession]
-    _sizes: dict[str, tuple[int, int]]
     _queued: list[OutputChunk]
 
     def __new__(cls, *sessions: MidSequenceSession) -> Self:
         self = super().__new__(cls)
         self._sessions = {session.name: session for session in sessions}
-        self._sizes = {session.name: (80, 24) for session in sessions}
         self._queued = []
         return self
 
@@ -134,10 +138,5 @@ class QueuedCore:
         except KeyError:
             raise SessionError(f"unknown terminal session {name}") from None
 
-    def acquire(self, request: AttachRequest) -> MidSequenceSession:
-        return self._sessions[request.session]
-
-    def resize(self, name: str, cols: int, rows: int) -> bool:
-        changed = self._sizes[name] != (cols, rows)
-        self._sizes[name] = (cols, rows)
-        return changed
+    def attach(self, name: str) -> MidSequenceSession:
+        return self.get(name)

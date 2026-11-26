@@ -20,18 +20,22 @@ from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
+from tests.pty.launchers import Launch
 from tests.pty.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
 
 
-def test_stalled_viewer_catches_up_without_blocking_fast_viewer(daemon: Path) -> None:
+def test_stalled_viewer_catches_up_without_blocking_fast_viewer(
+    daemon: Path, launch: Launch
+) -> None:
     code = (
         "import sys; print('READY',flush=True); sys.stdin.readline(); "
         "sys.stdout.write('x'*(5*1024*1024)+'\\nEND\\n'); sys.stdout.flush(); "
         "sys.stdin.readline()"
     )
     command = shlex.join([sys.executable, "-u", "-c", code])
+    name = launch.session(command)
     slow, fast = WireClient(daemon, auto_credit=False), WireClient(daemon)
     try:
         for client in (slow, fast):
@@ -39,13 +43,13 @@ def test_stalled_viewer_catches_up_without_blocking_fast_viewer(daemon: Path) ->
                 client.request(HelloRequest(1, WIRE_VERSION, snapshot_version())),
                 SuccessReply,
             )
-        reply = slow.request(AttachRequest(2, "burst", command))
+        reply = slow.request(AttachRequest(2, name))
         assert isinstance(reply, SuccessReply)
         slow_channel, initial = slow.snapshot(dict(reply.result))
         slow.send(
             Frame(slow_channel, FrameKind.CREDIT, struct.pack("<I", len(initial.data)))
         )
-        reply = fast.request(AttachRequest(2, "burst", command))
+        reply = fast.request(AttachRequest(2, name))
         assert isinstance(reply, SuccessReply)
         channel, first = fast.snapshot(dict(reply.result))
         viewer = restore_binary(first.data)

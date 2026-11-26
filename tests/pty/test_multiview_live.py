@@ -15,6 +15,7 @@ pytest.importorskip("imgui_bundle")
 
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
+from tests.pty.launchers import Launch
 from tests.pty.test_remote_live import PoolWait
 
 pytestmark = pytest.mark.integration
@@ -33,16 +34,18 @@ class BothPools:
         pytest.fail("viewers did not converge")
 
 
-def test_two_viewers_share_screen_and_resize_without_respawn(daemon: Path) -> None:
+def test_two_viewers_share_screen_and_resize_without_respawn(
+    daemon: Path, launch: Launch
+) -> None:
     code = (
         "import sys; print('READY',flush=True); "
         "line=sys.stdin.readline(); print('ECHO:'+line.strip(),flush=True); "
         "sys.stdin.readline()"
     )
-    command = shlex.join([sys.executable, "-u", "-c", code])
+    name = launch.session(shlex.join([sys.executable, "-u", "-c", code]))
     first, second = RemotePool(daemon), RemotePool(daemon)
     try:
-        a, b = first.get("shared", command), second.get("shared", command)
+        a, b = first.get(name, ""), second.get(name, "")
         BothPools.until(
             first,
             second,

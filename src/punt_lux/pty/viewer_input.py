@@ -30,7 +30,7 @@ class StreamDispatch:
             raise ValueError("hello required")
         binding = self._bindings.channel(peer, frame.channel)
         if frame.kind is FrameKind.DATA:
-            cols, rows = binding.flow.wanted_size
+            cols, rows = binding.flow.size.wanted
             self._publisher.resize(binding.session, cols, rows)
             self._core.get(binding.session).write(frame.payload)
         elif frame.kind is FrameKind.RESIZE:
@@ -38,7 +38,7 @@ class StreamDispatch:
                 raise ValueError("resize needs cols/rows uint16")
             cols, rows = struct.unpack("<HH", frame.payload)
             AttachRequest(1, binding.session, cols=cols, rows=rows)
-            binding.flow.want_size(cols, rows)
+            binding.flow.size.want((cols, rows))
             self._publisher.resize(binding.session, cols, rows)
         elif frame.kind is FrameKind.CREDIT:
             if len(frame.payload) != 4:

@@ -2,88 +2,65 @@
 
 from __future__ import annotations
 
-import logging
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.pty.core import SessionCore
-from punt_lux.pty.peer import Peer
-from punt_lux.pty.snapshot_cut import SnapshotCut
+from punt_lux.pty.peer_admission import PeerAdmission
+from punt_lux.pty.session_attach import SessionAttach
 from punt_lux.pty.stream_output import StreamPublisher
-from punt_lux.pty.viewers import ViewerBindings
-from punt_lux.terminal import snapshot as _snapshots
 from punt_lux.wire.stream.control import (
-    WIRE_VERSION,
     AttachRequest,
     HelloRequest,
     KillRequest,
     ListRequest,
+    NewRequest,
     Request,
 )
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from punt_lux.pty.core import SessionCore
+    from punt_lux.pty.peer import Peer
+    from punt_lux.pty.viewers import ViewerBindings
 
 
 class ControlDispatch:
-    """Negotiate, create/attach, inspect and explicitly terminate sessions."""
+    """Negotiate, create, resume, inspect and explicitly terminate sessions."""
 
     _core: SessionCore
     _bindings: ViewerBindings
+    _admission: PeerAdmission
+    _attach: SessionAttach
 
     def __new__(cls, core: SessionCore, bindings: ViewerBindings) -> Self:
         self = super().__new__(cls)
         self._core, self._bindings = core, bindings
+        self._admission = PeerAdmission.current()
+        self._attach = SessionAttach(core, bindings)
         return self
 
     def execute(self, peer: Peer, request: Request) -> None:
         if isinstance(request, HelloRequest):
-            self._hello(peer, request)
-        elif not peer.ready:
-            raise ValueError("hello must precede session requests")
-        elif isinstance(request, AttachRequest):
-            self._attach(peer, request)
+            result = self._admission.admit(peer, request)
+            StreamPublisher.success(peer, request.request_id, result)
+        else:
+            self._operate(peer, request)
+
+    def _operate(self, peer: Peer, request: Request) -> None:
+        self._admission.require_ready(peer)
+        if isinstance(request, AttachRequest):
+            self._attach.execute(peer, request)
         elif isinstance(request, ListRequest):
-            StreamPublisher.success(
-                peer, request.request_id, {"sessions": self._core.describe()}
-            )
+            listing = self._core.describe()
+            StreamPublisher.success(peer, request.request_id, {"sessions": listing})
         elif isinstance(request, KillRequest):
             self._bindings.close_session(request.session, "session killed")
             self._core.kill(request.session)
             StreamPublisher.success(peer, request.request_id, {})
+        elif isinstance(request, NewRequest):
+            session = self._core.create(request)
+            StreamPublisher.success(peer, request.request_id, session.describe())
         else:
-            # new and watch decode on the wire but the daemon does not act on
-            # them yet; refuse them rather than run them as something else.
+            # watch decodes on the wire but the daemon does not act on it yet;
+            # refuse it rather than run it as something else.
             StreamPublisher.failure(
                 peer, request.request_id, f"unsupported operation {request.OP}"
             )
-
-    @staticmethod
-    def _hello(peer: Peer, request: HelloRequest) -> None:
-        expected = (WIRE_VERSION, _snapshots.snapshot_version())
-        if (request.version, request.snapshot_version) != expected:
-            raise ValueError("wire/model/snapshot mismatch; restart client and daemon")
-        peer.mark_ready()
-        StreamPublisher.success(
-            peer,
-            request.request_id,
-            {"version": expected[0], "snapshot_version": expected[1]},
-        )
-
-    def _attach(self, peer: Peer, request: AttachRequest) -> None:
-        session = self._core.acquire(request)
-        if not self._bindings.session(request.session):
-            self._core.resize(request.session, request.cols, request.rows)
-        try:
-            snapshot = SnapshotCut(session).cut()
-        except _snapshots.SnapshotError:
-            # Fail this request only: the connection carries every terminal the
-            # Display shows, and the client retries with backoff.
-            logger.warning(
-                "terminal %s: attach failed, no snapshot can be cut",
-                request.session,
-                exc_info=True,
-            )
-            raise
-        binding = self._bindings.add(peer, request.session, request.cols, request.rows)
-        StreamPublisher.attach(
-            binding, request.request_id, snapshot, session.describe()
-        )

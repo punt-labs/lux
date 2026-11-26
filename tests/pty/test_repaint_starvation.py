@@ -23,7 +23,12 @@ from punt_lux.terminal.snapshot import SnapshotError
 from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec, SuccessReply
-from tests.pty.stream_fakes import IDLE, MidSequenceSession, QueuedCore, RecordingPeer
+from tests.pty.stream_fakes import (
+    IDLE,
+    MidSequenceSession,
+    QueuedCore,
+    RecordingPeer,
+)
 
 OVERFLOW = b"x" * (8 * 1024 * 1024)
 PARTIAL_CSI = b"\x1b[1"

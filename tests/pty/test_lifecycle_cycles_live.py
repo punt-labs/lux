@@ -19,6 +19,7 @@ from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
+from tests.pty.launchers import Launch
 from tests.pty.test_remote_live import PoolWait
 from tests.pty.wire_client import WireClient
 
@@ -51,11 +52,13 @@ class LifecycleCycle:
         return sessions
 
     @staticmethod
-    def run(path: Path, index: int, client: WireClient) -> dict[str, object]:
-        name = f"cycle-{index}"
+    def run(
+        path: Path, index: int, client: WireClient, launch: Launch
+    ) -> dict[str, object]:
+        name = launch.session(COMMAND)
         first = RemotePool(path)
         try:
-            session = first.get(name, COMMAND)
+            session = first.get(name, "")
             PoolWait.until(
                 first,
                 lambda: (
@@ -74,12 +77,14 @@ class LifecycleCycle:
             first.close()
         second = RemotePool(path)
         try:
-            replica = second.get(name, COMMAND)
-            wanted = RemotePhase.EXITED if exited else RemotePhase.READY
-            PoolWait.until(second, lambda: replica.phase is wanted)
-            assert PoolWait.pid(path) == pid
-            assert "ECHO:round" in replica.view.term.text()
-            if not exited:
+            replica = second.get(name, "")
+            if exited:
+                PoolWait.until(second, lambda: replica.phase is RemotePhase.FAILED)
+                assert "unknown session" in replica.status
+            else:
+                PoolWait.until(second, lambda: replica.phase is RemotePhase.READY)
+                assert PoolWait.pid(path) == pid
+                assert "ECHO:round" in replica.view.term.text()
                 replica.write(b"again\n")
                 PoolWait.until(second, lambda: "ECHO:again" in replica.view.term.text())
         finally:
@@ -97,7 +102,9 @@ class LifecycleCycle:
         return {"cycle": index, "pid": pid, "exited_before_reattach": exited}
 
 
-def test_repeated_create_detach_reattach_exit_and_kill(daemon: Path) -> None:
+def test_repeated_create_detach_reattach_exit_and_kill(
+    daemon: Path, launch: Launch
+) -> None:
     client = WireClient(daemon)
     try:
         assert isinstance(
@@ -105,6 +112,6 @@ def test_repeated_create_detach_reattach_exit_and_kill(daemon: Path) -> None:
             SuccessReply,
         )
         for index in range(5):
-            LifecycleCycle.run(daemon, index, client)
+            LifecycleCycle.run(daemon, index, client, launch)
     finally:
         client.close()

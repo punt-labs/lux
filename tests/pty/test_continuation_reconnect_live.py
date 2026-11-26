@@ -21,13 +21,14 @@ from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.wire.stream.session_requests import ListRequest
+from tests.pty.launchers import Launch
 from tests.pty.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
 
 
 def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_program(
-    daemon: Path,
+    daemon: Path, launch: Launch
 ) -> None:
     code = (
         "import sys,time; sys.stdin.readline(); "
@@ -37,10 +38,11 @@ def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_pro
         "sys.stdout.flush(); sys.stdin.readline()"
     )
     command = shlex.join([sys.executable, "-u", "-c", code])
+    name = launch.session(command)
     owner = WireClient(daemon)
     try:
         owner.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
-        reply = owner.request(AttachRequest(2, "continuation", command))
+        reply = owner.request(AttachRequest(2, name))
         assert isinstance(reply, SuccessReply)
         channel, _initial = owner.snapshot(dict(reply.result))
         owner.send(Frame(channel, FrameKind.DATA, b"go\n"))
@@ -62,7 +64,7 @@ def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_pro
         owner.close()
     pool = RemotePool(daemon)
     try:
-        session = pool.get("continuation", command)
+        session = pool.get(name, "")
         was_disconnected = False
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:
@@ -88,9 +90,7 @@ def test_reconnect_mid_sequence_attaches_via_visible_repaint_and_follows_the_pro
                     # Raw output resumed only from a binary cut at ground: the
                     # replica's screen equals the daemon's own, which a fresh
                     # attach at ground reads back.
-                    attach = status_client.request(
-                        AttachRequest(3, "continuation", command)
-                    )
+                    attach = status_client.request(AttachRequest(3, name))
                     assert isinstance(attach, SuccessReply)
                     assert attach.result["format"] == "binary"
                     _, daemon_cut = status_client.snapshot(dict(attach.result))

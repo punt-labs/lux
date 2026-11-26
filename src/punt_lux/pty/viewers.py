@@ -41,7 +41,7 @@ class ViewerBindings:
             raise ValueError("viewer channel ids exhausted; restart daemon")
         self._next_channel += 1
         flow = ViewerFlow(channel)
-        flow.want_size(cols, rows)
+        flow.size.want((cols, rows))
         binding = Binding(peer, channel, session, flow)
         self._channels[channel] = binding
         return binding

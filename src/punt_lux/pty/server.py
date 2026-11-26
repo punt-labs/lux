@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import select
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Self
 
@@ -24,21 +26,18 @@ class PtyServer:
     def __new__(cls, path: Path, *, idle_timeout: float | None = 30.0) -> Self:
         self = super().__new__(cls)
         path = path.absolute()
-        self._claim = DaemonClaim(path)
-        try:
+        with ExitStack() as unwind:
+            self._claim = DaemonClaim(path)
+            unwind.callback(self._claim.close)
             self._endpoint = LocalEndpoint(path)
-        except BaseException:
-            self._claim.close()
-            raise
-        try:
+            unwind.callback(self._endpoint.close)
             self._core = SessionCore()
             self._dispatch = SessionDispatch(self._core)
             self._clients = PeerBook(self._dispatch, idle_timeout)
-        except BaseException:
-            self._endpoint.close()
-            self._claim.close()
-            raise
+            unwind.pop_all()
         self._stopping = False
+        # The menu helper is a client of this daemon and dials where it listens.
+        os.environ["LUX_PTY_SOCKET"] = str(path)
         return self
 
     @property

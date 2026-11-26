@@ -15,10 +15,26 @@ from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_listener import TerminalMenu
 from punt_lux.pty.menu_process import MenuProcess
 from punt_lux.pty.menu_projection import TerminalProjection
+from punt_lux.pty.session_starter import SessionStarter
 from punt_lux.wire.operations import OpError, SceneShown
 
 
 class MenuDoubles:
+    @staticmethod
+    def starter(*sessions: str) -> Mock:
+        """Replace the daemon call: each click starts the next listed session."""
+        starter = Mock(spec=SessionStarter)
+        starter.start.side_effect = list(sessions) or ["t0.1"]
+        return starter
+
+    @staticmethod
+    def projection(factory: TerminalClients, *sessions: str) -> TerminalProjection:
+        with patch(
+            "punt_lux.pty.menu_projection.SessionStarter.local",
+            return_value=MenuDoubles.starter(*sessions),
+        ):
+            return TerminalProjection(factory)
+
     @staticmethod
     def clients() -> tuple[TerminalClients, Mock]:
         client = Mock()
@@ -31,7 +47,7 @@ class MenuDoubles:
 
 def test_registration_without_click_does_not_publish_a_shell_scene() -> None:
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.connected())
     client.callback.register.assert_awaited_once_with(
         "terminal", "Terminal", frame_id="terminal"
@@ -46,15 +62,15 @@ def test_registration_carries_the_frame_id_so_a_closed_frame_reopens() -> None:
     and the terminal launches only once.
     """
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.connected())
     _args, kwargs = client.callback.register.await_args
     assert kwargs.get("frame_id") == "terminal"
 
 
-def test_click_and_reconnect_reuse_one_terminal_session() -> None:
+def test_click_starts_one_session_and_reconnect_reuses_it() -> None:
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory, "t0.7")
     asyncio.run(projection.clicked("unknown"))
     client.scene.show.assert_not_awaited()
     asyncio.run(projection.clicked("terminal"))
@@ -63,14 +79,14 @@ def test_click_and_reconnect_reuse_one_terminal_session() -> None:
     assert len(requests) == 2
     assert requests[0].scene_id == requests[1].scene_id == "terminal"
     assert requests[0].elements == requests[1].elements
-    assert requests[0].elements[0]["session"] == "luxd-pty-terminal"
+    assert requests[0].elements[0]["session"] == "t0.7"
     assert "command" not in requests[0].elements[0]
 
 
 def test_rejected_click_is_not_republished_on_reconnect() -> None:
     factory, client = MenuDoubles.clients()
     client.scene.show.return_value = OpError(code="rejected", reason="no")
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.clicked("terminal"))
     asyncio.run(projection.connected())
     assert client.scene.show.await_count == 1
@@ -83,7 +99,13 @@ def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) 
     factory, client = MenuDoubles.clients()
     client.callback.register.side_effect = error
     client.scene.show.side_effect = error
-    with patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory):
+    with (
+        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
+        patch(
+            "punt_lux.pty.menu_projection.SessionStarter.local",
+            return_value=MenuDoubles.starter(),
+        ),
+    ):
         menu = TerminalMenu()
     asyncio.run(menu._connected())
     asyncio.run(menu._clicked("terminal"))
@@ -92,7 +114,13 @@ def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) 
 @pytest.mark.parametrize("operation", ["connect", "click", "listen"])
 def test_listener_does_not_swallow_programmer_errors(operation: str) -> None:
     factory, client = MenuDoubles.clients()
-    with patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory):
+    with (
+        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
+        patch(
+            "punt_lux.pty.menu_projection.SessionStarter.local",
+            return_value=MenuDoubles.starter(),
+        ),
+    ):
         menu = TerminalMenu()
     error = ProgrammerError("broken invariant")
     client.callback.register.side_effect = error

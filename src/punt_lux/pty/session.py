@@ -2,47 +2,50 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.pty.process_port import ProcessPort
+from punt_lux.pty.program_exit import ProgramExit
 from punt_lux.pty.session_lifecycle import SessionLifecycle
 from punt_lux.pty.session_state import SessionState
 from punt_lux.terminal.ffi_terminal import TerminalIO
 from punt_lux.terminal.output import OutputChunk, SessionSnapshot
 from punt_lux.terminal.snapshot import snapshot_version, tracked_terminal
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
-from punt_lux.wire.stream.attach import AttachRequest
 
-_ENDED_NOTICE = b"\r\n\x1b[?2026l\x1b[2m[process exited]\x1b[0m"
+if TYPE_CHECKING:
+    from punt_lux.pty.process_port import ProcessPort
+    from punt_lux.pty.session_spec import SessionSpec
 
 
 class TerminalSession:
     """One held program plus Ghostty state and an output byte position."""
 
-    _request: AttachRequest
+    _spec: SessionSpec
     _process: ProcessPort
     _term: TerminalIO
     _position: int
     _lifecycle: SessionLifecycle
+    _exit: ProgramExit
 
-    def __new__(cls, request: AttachRequest, process: ProcessPort) -> Self:
+    def __new__(cls, spec: SessionSpec, process: ProcessPort) -> Self:
         self = super().__new__(cls)
-        self._request = request
+        self._spec = spec
         self._process = process
-        self._term = TerminalIO(tracked_terminal(request.cols, request.rows))
+        self._term = TerminalIO(tracked_terminal(spec.cols, spec.rows))
         # Only the authority answers program queries, never Display replicas.
         self._term.on_reply(process.write)
         self._position = 0
-        self._lifecycle = SessionLifecycle(request.session, process)
+        self._lifecycle = SessionLifecycle(spec.name, process)
+        self._exit = ProgramExit(process, self._lifecycle)
         return self
 
     @property
     def name(self) -> str:
-        return self._request.session
+        return self._spec.name
 
     @property
-    def command(self) -> str:
-        return self._request.command
+    def label(self) -> str:
+        return self._spec.label
 
     @property
     def position(self) -> int:
@@ -60,14 +63,7 @@ class TerminalSession:
             return OutputChunk(self.name, start, b"")
         self._check_usable()
         with self._lifecycle:
-            data = self._process.pump()
-            if (
-                not self._process.alive
-                and self._lifecycle.state is SessionState.RUNNING
-            ):
-                self._process.close()  # retain the screen, not an exhausted master FD
-                self._lifecycle.state = SessionState.EXITED
-                data += _ENDED_NOTICE
+            data = self._process.pump() + self._exit.notice()
             if data:
                 self._term.feed(data)
                 self._position += len(data)
@@ -111,8 +107,7 @@ class TerminalSession:
 
     def describe(self) -> dict[str, object]:
         return {
-            "session": self.name,
-            "command": self.command,
+            **self._spec.identity(),
             "pid": self._process.pid,
             "position": self._position,
             "ended": self.ended,

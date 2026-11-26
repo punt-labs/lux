@@ -7,13 +7,12 @@ import pytest
 from punt_lux.pty.control_dispatch import ControlDispatch
 from punt_lux.pty.viewers import ViewerBindings
 from punt_lux.wire.stream.control import ControlCodec, Request
-from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec
 from punt_lux.wire.stream.session_events import WatchRequest
 from tests.pty.stream_fakes import QueuedCore, RecordingPeer
 
 
-@pytest.mark.parametrize("request_", [NewRequest(7, "work"), WatchRequest(7)])
+@pytest.mark.parametrize("request_", [WatchRequest(7)])
 def test_unimplemented_operation_is_refused_not_run_as_kill(request_: Request) -> None:
     decoded = ControlCodec.decode(ControlCodec.encode(request_))
     peer = RecordingPeer()

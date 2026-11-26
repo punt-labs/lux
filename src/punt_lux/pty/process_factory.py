@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import shlex
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from punt_lux.pty.holder import PtyHolder
-from punt_lux.pty.process_port import ProcessPort
-from punt_lux.wire.stream.attach import AttachRequest
 
-__all__ = ["ProcessCreator", "ProcessFactory", "ProcessPort"]
+if TYPE_CHECKING:
+    from punt_lux.pty.process_port import ProcessPort
+    from punt_lux.wire.stream.new_request import NewRequest
 
-type ProcessCreator = Callable[[AttachRequest], ProcessPort]
+type ProcessCreator = Callable[[NewRequest], ProcessPort]
 
 
 class ProcessFactory:
-    """Execute an argv vector; never implicitly run a command through a shell."""
+    """Start the login shell; a request names a launcher, never a command line."""
 
     @staticmethod
-    def start(request: AttachRequest) -> ProcessPort:
-        return PtyHolder(
-            shlex.split(request.command), cols=request.cols, rows=request.rows
-        )
+    def start(request: NewRequest) -> ProcessPort:
+        return PtyHolder(cols=request.cols, rows=request.rows)
