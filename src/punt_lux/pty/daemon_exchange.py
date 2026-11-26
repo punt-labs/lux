@@ -76,14 +76,14 @@ class DaemonExchange:
             except EOFError as error:
                 raise ConnectionError("luxd-pty closed the connection") from error
             except FrameError as error:
-                raise SessionRefusedError(
+                raise RetryableRefusalError(
                     "luxd-pty sent an unreadable frame"
                 ) from error
             for frame in frames:
                 try:
                     reply = ReplyCodec.decode(frame.payload)
                 except ValueError as error:
-                    raise SessionRefusedError(
+                    raise RetryableRefusalError(
                         "luxd-pty sent an unreadable reply"
                     ) from error
                 if isinstance(reply, FailureReply):

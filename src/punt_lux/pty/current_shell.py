@@ -82,12 +82,10 @@ class CurrentShell:
 
     def _start(self) -> str:
         reply = self._daemon.ask(NewRequest(2))
-        try:
-            return str(reply.result["session"])
-        except KeyError as error:
-            raise SessionRefusedError(
-                "luxd-pty answered new without a session"
-            ) from error
+        session = reply.result.get("session")
+        if not isinstance(session, str) or not session:
+            raise SessionRefusedError("luxd-pty answered new without a session")
+        return session
 
     def _is_running(self) -> bool:
         listing = self._daemon.ask(ListRequest(2)).result.get("sessions")
