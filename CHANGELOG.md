@@ -8,7 +8,7 @@
   `make build-handoff-runtime` builds the offline bundle and
   `make handoff-runtime` installs it after verifying the pinned checksum.
   To publish this pin, dispatch the Handoff runtime workflow on `main` with
-  `run-id: 45742808386` to promote the
+  `tag: handoff-runtime-v1` and `run-id: 45742808386` to promote the
   [smoke-tested bundle](https://github.com/punt-labs/lux/actions/runs/45742808386/artifacts/15081678723)
   without rebuilding it.
 
