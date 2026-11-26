@@ -34,3 +34,17 @@ def test_a_row_in_another_state_is_not_running() -> None:
 )
 def test_a_malformed_row_is_ignored(row: object) -> None:
     assert ListedSession.well_formed([row]) == []
+
+
+@pytest.mark.parametrize("session", ["", None, 7])
+def test_construction_refuses_an_unusable_session_id(session: object) -> None:
+    with pytest.raises(ValueError, match="session"):
+        ListedSession(session, "Terminal", "running")
+
+
+@pytest.mark.parametrize("field", ["label", "state"])
+def test_construction_refuses_a_non_string_label_or_state(field: str) -> None:
+    fields: dict[str, object] = {"session": "s1", "label": "T", "state": "running"}
+    fields[field] = None
+    with pytest.raises(ValueError, match=field):
+        ListedSession(**fields)

@@ -393,3 +393,7 @@
 {"ts":"2026-11-26T15:56:27Z","commit":"3a424eb9","source":null,"files_scored":1,"files_improved":0,"files_regressed":0,"verdict":"rebaseline-files","reason":"Devin review fix: rows of the daemon's list reply are validated by a new ListedSession class (a non-empty string session, string label and state), so a malformed row can never name a session. SessionListing now imports it alongside daemon_exchange (efferent_coupling 1 to 2, cap 10); moving either import only moves the regression to the other module.","deltas":{},"improved":{}}
 {"ts":"2026-11-26T15:56:36Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T15:56:36Z","commit":"3a424eb9","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T17:37:53Z","commit":"465806e8","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T17:37:54Z","commit":"465806e8","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T17:42:21Z","commit":"465806e8","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T17:42:22Z","commit":"465806e8","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

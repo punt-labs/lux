@@ -53,3 +53,18 @@ def test_a_row_missing_its_session_or_state_is_ignored() -> None:
     listing = SessionListing.from_result({"sessions": [no_session, no_state]})
     assert listing.running_under("Terminal") == ""
     assert not listing.is_running("None")
+
+
+def test_the_listing_is_a_snapshot_of_the_result_it_was_built_from() -> None:
+    sessions: list[object] = [RUNNING]
+    result: dict[str, object] = {"sessions": sessions}
+    listing = SessionListing.from_result(result)
+    sessions.clear()
+    assert listing.is_running("s1")
+
+
+def test_the_listing_is_a_snapshot_of_the_mapping_it_was_handed() -> None:
+    running = {"s1": "Terminal"}
+    listing = SessionListing(running)
+    running.clear()
+    assert listing.running_under("Terminal") == "s1"

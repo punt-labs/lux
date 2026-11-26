@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Self, cast
 
 from punt_lux.pty.daemon_exchange import SessionRefusedError
@@ -12,11 +13,11 @@ from punt_lux.pty.listed_session import ListedSession
 class SessionListing:
     """Answer which listed sessions run, and which running one holds a label."""
 
-    _running: dict[str, str]
+    _running: Mapping[str, str]
 
-    def __new__(cls, running: dict[str, str]) -> Self:
+    def __new__(cls, running: Mapping[str, str]) -> Self:
         self = super().__new__(cls)
-        self._running = running
+        self._running = MappingProxyType(dict(running))
         return self
 
     @classmethod

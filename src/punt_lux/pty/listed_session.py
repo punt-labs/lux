@@ -15,22 +15,39 @@ class ListedSession:
     _label: str
     _state: str
 
-    def __new__(cls, session: str, label: str, state: str) -> Self:
+    def __new__(cls, session: object, label: object, state: object) -> Self:
+        """Hold one listed session.
+
+        Raises:
+            ValueError: The id is not a non-empty string, or the label or state
+                is not a string.
+        """
+        if not all(isinstance(v, str) for v in (session, label, state)):
+            raise ValueError("listed session, label and state must be strings")
+        if not session:
+            raise ValueError("listed session session id is empty")
         self = super().__new__(cls)
-        self._session, self._label, self._state = session, label, state
+        self._session = cast("str", session)
+        self._label, self._state = cast("str", label), cast("str", state)
         return self
 
     @classmethod
     def well_formed(cls, rows: list[object]) -> list[Self]:
-        """Return the rows with a non-empty string id and string label and state.
+        """Return the sessions the rows describe, ignoring rows that name none.
 
-        Other rows are ignored: a malformed row must never name a session.
+        A malformed row must never name a session: construction refuses it.
         """
-        return [
-            cls(*(cast("str", row[key]) for key in _FIELDS))
-            for row in cls._mappings(rows)
-            if cls._is_well_formed(row)
-        ]
+        return [s for r in rows if (s := cls._from_row(r)) is not None]
+
+    @classmethod
+    def _from_row(cls, row: object) -> Self | None:
+        if not isinstance(row, Mapping):
+            return None
+        fields = cast("Mapping[str, object]", row)
+        try:
+            return cls(*(fields.get(key) for key in _FIELDS))
+        except ValueError:
+            return None
 
     @property
     def session(self) -> str:
@@ -46,13 +63,3 @@ class ListedSession:
     def is_running(self) -> bool:
         """Whether the session is listed as running."""
         return self._state == "running"
-
-    @staticmethod
-    def _mappings(rows: list[object]) -> list[Mapping[str, object]]:
-        return [cast("Mapping[str, object]", r) for r in rows if isinstance(r, Mapping)]
-
-    @staticmethod
-    def _is_well_formed(row: Mapping[str, object]) -> bool:
-        return all(isinstance(row.get(key), str) for key in _FIELDS) and bool(
-            row["session"]
-        )
