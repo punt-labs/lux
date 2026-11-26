@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: New runtime release tag, e.g. handoff-runtime-v1
+        description: Unused runtime release tag, e.g. handoff-runtime-v2
         required: true
         type: string
       run-id:

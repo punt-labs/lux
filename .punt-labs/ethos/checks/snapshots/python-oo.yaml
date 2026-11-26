@@ -18,6 +18,7 @@
           "linux-amd64": {
             "bundle": "lux-linux-amd64-v1.tar.gz",
             "sha256": "b37156efff9f9a053f9db48d1f38c6c799308d31e28705a8a19c558173ca3d15",
+            "url": "https://github.com/punt-labs/lux/releases/download/handoff-runtime-v1/lux-linux-amd64-v1.tar.gz",
             "path": ["{runtime}/bin", "{runtime}/node/bin", "{runtime}/python/bin", "{runtime}/java/bin"],
             "env": {
               "UV_PYTHON": "{runtime}/python/bin/python3.13",

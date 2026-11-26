@@ -7,10 +7,9 @@
 - Linux runtime packaging for Ethos handoff snapshots of `make check`.
   `make build-handoff-runtime` builds the offline bundle and
   `make handoff-runtime` installs it after verifying the pinned checksum.
-  To publish this pin, dispatch the Handoff runtime workflow on `main` with
-  `tag: handoff-runtime-v1` and `run-id: 45742808386` to promote the
-  [smoke-tested bundle](https://github.com/punt-labs/lux/actions/runs/45742808386/artifacts/15081678723)
-  without rebuilding it.
+  The pinned bundle is available in the
+  [`handoff-runtime-v1` release](https://github.com/punt-labs/lux/releases/tag/handoff-runtime-v1).
+  It was promoted from CI run `45742808386` without rebuilding it.
 
 ## [0.34.0] - 2026-11-25
 
