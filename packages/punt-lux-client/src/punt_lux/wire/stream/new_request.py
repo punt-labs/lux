@@ -18,8 +18,8 @@ class NewRequest:
     ``label`` is what a person calls the session; empty means the daemon picks
     one. ``launcher`` names an entry in the daemon's launcher list; empty is
     the login shell. The request carries no command line, so it can start only
-    what the machine's owner listed. The daemon answers it
-    ``unsupported operation``.
+    what the machine's owner listed. The reply carries the new session's
+    ``session`` id and its ``label``.
     """
 
     request_id: int

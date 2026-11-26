@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -10,15 +11,36 @@ import pytest
 
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
+from punt_lux.pty.current_shell import CurrentShell
 from punt_lux.pty.lifetime import DaemonLifetime
 from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_listener import TerminalMenu
 from punt_lux.pty.menu_process import MenuProcess
 from punt_lux.pty.menu_projection import TerminalProjection
 from punt_lux.wire.operations import OpError, SceneShown
+from tests.pty.fake_daemon import FakeDaemon
 
 
 class MenuDoubles:
+    @staticmethod
+    def daemon(*sessions: str) -> FakeDaemon:
+        """Replace the daemon: each new request starts the next listed session."""
+        return FakeDaemon(*sessions)
+
+    @staticmethod
+    def projection(factory: TerminalClients, *sessions: str) -> TerminalProjection:
+        return MenuDoubles.projection_and_daemon(factory, *sessions)[0]
+
+    @staticmethod
+    def projection_and_daemon(
+        factory: TerminalClients, *sessions: str
+    ) -> tuple[TerminalProjection, FakeDaemon]:
+        daemon = MenuDoubles.daemon(*sessions)
+        with patch(
+            "punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon
+        ):
+            return TerminalProjection(factory), daemon
+
     @staticmethod
     def clients() -> tuple[TerminalClients, Mock]:
         client = Mock()
@@ -31,7 +53,7 @@ class MenuDoubles:
 
 def test_registration_without_click_does_not_publish_a_shell_scene() -> None:
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.connected())
     client.callback.register.assert_awaited_once_with(
         "terminal", "Terminal", frame_id="terminal"
@@ -40,21 +62,22 @@ def test_registration_without_click_does_not_publish_a_shell_scene() -> None:
 
 
 def test_registration_carries_the_frame_id_so_a_closed_frame_reopens() -> None:
-    """The Clients-menu entry must register with the frame id, or a repeat click
+    """The Clients-menu entry must register with the frame id.
 
-    after the user closes the terminal no-ops against the still-installed scene
-    and the terminal launches only once.
+    Without it a click after the user closes the terminal frame is routed here as
+    a scene.show that no-ops against the still-installed scene, so the frame
+    never reopens.
     """
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.connected())
     _args, kwargs = client.callback.register.await_args
     assert kwargs.get("frame_id") == "terminal"
 
 
-def test_click_and_reconnect_reuse_one_terminal_session() -> None:
+def test_click_starts_one_session_and_reconnect_reuses_it() -> None:
     factory, client = MenuDoubles.clients()
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory, "t0.7")
     asyncio.run(projection.clicked("unknown"))
     client.scene.show.assert_not_awaited()
     asyncio.run(projection.clicked("terminal"))
@@ -63,17 +86,65 @@ def test_click_and_reconnect_reuse_one_terminal_session() -> None:
     assert len(requests) == 2
     assert requests[0].scene_id == requests[1].scene_id == "terminal"
     assert requests[0].elements == requests[1].elements
-    assert requests[0].elements[0]["session"] == "luxd-pty-terminal"
+    assert requests[0].elements[0]["session"] == "t0.7"
     assert "command" not in requests[0].elements[0]
 
 
 def test_rejected_click_is_not_republished_on_reconnect() -> None:
     factory, client = MenuDoubles.clients()
     client.scene.show.return_value = OpError(code="rejected", reason="no")
-    projection = TerminalProjection(factory)
+    projection = MenuDoubles.projection(factory)
     asyncio.run(projection.clicked("terminal"))
     asyncio.run(projection.connected())
     assert client.scene.show.await_count == 1
+
+
+def test_a_click_while_the_shell_runs_shows_it_again_and_starts_nothing() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1", "t0.2")
+    asyncio.run(projection.clicked("terminal"))
+    asyncio.run(projection.clicked("terminal"))
+    sessions = [
+        c.args[0].elements[0]["session"] for c in client.scene.show.await_args_list
+    ]
+    assert sessions == ["t0.1", "t0.1"]
+    assert daemon.started == ["t0.1"]
+
+
+def test_a_click_after_the_shell_ended_starts_a_new_one() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1", "t0.2")
+    daemon.running = False
+    asyncio.run(projection.clicked("terminal"))
+    asyncio.run(projection.clicked("terminal"))
+    sessions = [
+        c.args[0].elements[0]["session"] for c in client.scene.show.await_args_list
+    ]
+    assert sessions == ["t0.1", "t0.2"]
+
+
+def test_a_refused_scene_ends_the_shell_it_just_started() -> None:
+    factory, client = MenuDoubles.clients()
+    client.scene.show.return_value = OpError(code="rejected", reason="no")
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
+    asyncio.run(projection.clicked("terminal"))
+    assert daemon.killed == ["t0.1"]
+
+
+def test_a_refused_start_leaves_the_menu_serving() -> None:
+    factory, client = MenuDoubles.clients()
+    daemon = MenuDoubles.daemon()
+    with (
+        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
+        patch(
+            "punt_lux.pty.current_shell.DaemonExchange.local",
+            return_value=daemon,
+        ),
+    ):
+        menu = TerminalMenu()
+    daemon.refuse("terminal session limit")
+    asyncio.run(menu._clicked("terminal"))
+    client.scene.show.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -83,7 +154,13 @@ def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) 
     factory, client = MenuDoubles.clients()
     client.callback.register.side_effect = error
     client.scene.show.side_effect = error
-    with patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory):
+    with (
+        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
+        patch(
+            "punt_lux.pty.current_shell.DaemonExchange.local",
+            return_value=MenuDoubles.daemon(),
+        ),
+    ):
         menu = TerminalMenu()
     asyncio.run(menu._connected())
     asyncio.run(menu._clicked("terminal"))
@@ -92,7 +169,13 @@ def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) 
 @pytest.mark.parametrize("operation", ["connect", "click", "listen"])
 def test_listener_does_not_swallow_programmer_errors(operation: str) -> None:
     factory, client = MenuDoubles.clients()
-    with patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory):
+    with (
+        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
+        patch(
+            "punt_lux.pty.current_shell.DaemonExchange.local",
+            return_value=MenuDoubles.daemon(),
+        ),
+    ):
         menu = TerminalMenu()
     error = ProgrammerError("broken invariant")
     client.callback.register.side_effect = error
@@ -119,3 +202,48 @@ def test_unstarted_menu_process_close_is_safe() -> None:
     process = MenuProcess()
     process.close()
     process.close()
+
+
+def test_a_failed_release_keeps_the_shell_so_it_can_be_retried() -> None:
+    daemon = FakeDaemon("t0.1")
+    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
+        current = CurrentShell.local()
+    current.obtain()
+    daemon.refuse_kill("close failed", retryable=True)
+    current.release()
+    assert current.session == "t0.1"
+    daemon.allow_kill()
+    current.release()
+    assert (current.session, daemon.killed) == ("", ["t0.1"])
+
+
+def test_releasing_a_shell_the_daemon_no_longer_holds_logs_no_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    daemon = FakeDaemon("t0.1")
+    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
+        current = CurrentShell.local()
+    current.obtain()
+    daemon.refuse_kill("unknown terminal session t0.1")
+    current.release()
+    assert current.session == ""
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_a_shell_that_ended_while_the_hub_was_down_is_not_shown_again() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
+    asyncio.run(projection.clicked("terminal"))
+    daemon.running = False
+    asyncio.run(projection.connected())
+    assert client.scene.show.await_count == 1
+
+
+def test_a_refused_reshow_does_not_kill_the_shell_the_user_is_using() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
+    asyncio.run(projection.clicked("terminal"))
+    client.scene.show.return_value = OpError(code="rejected", reason="no")
+    asyncio.run(projection.connected())
+    asyncio.run(projection.clicked("terminal"))
+    assert daemon.killed == []

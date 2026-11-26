@@ -14,6 +14,7 @@ pytest.importorskip("imgui_bundle")
 
 from punt_lux.display.terminal.remote_phase import RemotePhase
 from punt_lux.display.terminal.remote_pool import RemotePool
+from tests.pty.launchers import Launch
 from tests.pty.test_remote_live import PoolWait
 
 pytestmark = pytest.mark.integration
@@ -33,18 +34,22 @@ def test_missing_service_is_not_started_by_display() -> None:
             pool.close()
 
 
-def test_terminal_connects_to_running_machine_owner(daemon: Path) -> None:
-    command = shlex.join(
-        [
-            sys.executable,
-            "-u",
-            "-c",
-            "import sys; print('SERVICE_READY',flush=True); sys.stdin.readline()",
-        ]
+def test_terminal_connects_to_running_machine_owner(
+    daemon: Path, launch: Launch
+) -> None:
+    name = launch.session(
+        shlex.join(
+            [
+                sys.executable,
+                "-u",
+                "-c",
+                "import sys; print('SERVICE_READY',flush=True); sys.stdin.readline()",
+            ]
+        )
     )
     pool = RemotePool(daemon)
     try:
-        session = pool.get("service", command)
+        session = pool.get(name, "")
         PoolWait.until(
             pool,
             lambda: (

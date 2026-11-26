@@ -20,6 +20,7 @@ from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
+from tests.pty.launchers import Launch
 from tests.pty.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
@@ -54,17 +55,17 @@ class PoolWait:
 
 
 def test_new_replica_pool_reattaches_to_the_same_process_and_screen(
-    daemon: Path,
+    daemon: Path, launch: Launch
 ) -> None:
     code = (
         "import sys; print('READY',flush=True); "
         "line=sys.stdin.readline(); print('ECHO:'+line.strip(),flush=True); "
         "sys.stdin.readline()"
     )
-    command = shlex.join([sys.executable, "-u", "-c", code])
+    name = launch.session(shlex.join([sys.executable, "-u", "-c", code]))
     first = RemotePool(daemon)
     try:
-        session = first.get("display", command)
+        session = first.get(name, "")
         PoolWait.until(
             first,
             lambda: (
@@ -80,7 +81,7 @@ def test_new_replica_pool_reattaches_to_the_same_process_and_screen(
     time.sleep(0.05)
     second = RemotePool(daemon)
     try:
-        session = second.get("display", command)
+        session = second.get(name, "")
         PoolWait.until(second, lambda: session.phase is RemotePhase.READY)
         assert PoolWait.pid(daemon) == original_pid
         assert "ECHO:hello" in session.view.term.text()
@@ -89,27 +90,42 @@ def test_new_replica_pool_reattaches_to_the_same_process_and_screen(
     client = WireClient(daemon)
     try:
         client.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
-        assert isinstance(client.request(KillRequest(2, "display")), SuccessReply)
+        assert isinstance(client.request(KillRequest(2, name)), SuccessReply)
     finally:
         client.close()
 
 
-def test_exited_program_stays_exited_after_new_replica_attaches(daemon: Path) -> None:
-    command = shlex.join([sys.executable, "-u", "-c", "print('finished')"])
+def test_exited_program_is_removed_and_a_new_replica_is_refused(
+    daemon: Path, launch: Launch
+) -> None:
+    code = "import sys; sys.stdin.readline(); print('finished')"
+    name = launch.session(shlex.join([sys.executable, "-u", "-c", code]))
     first = RemotePool(daemon)
     try:
-        session = first.get("exit", command)
+        session = first.get(name, "")
+        PoolWait.until(first, lambda: session.phase is RemotePhase.READY)
+        session.write(b"go\n")
         PoolWait.until(first, lambda: session.phase is RemotePhase.EXITED)
         assert "finished" in session.view.term.text()
-        original_pid = PoolWait.pid(daemon)
     finally:
         first.close()
-    time.sleep(0.05)
     second = RemotePool(daemon)
     try:
-        session = second.get("exit", command)
-        PoolWait.until(second, lambda: session.phase is RemotePhase.EXITED)
-        assert PoolWait.pid(daemon) == original_pid
-        assert "finished" in session.view.term.text()
+        replica = second.get(name, "")
+        PoolWait.until(second, lambda: replica.phase is RemotePhase.FAILED)
+        assert "unknown session" in replica.status
     finally:
         second.close()
+    client = WireClient(daemon)
+    try:
+        client.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
+        deadline = time.monotonic() + 5
+        sessions: object = None
+        while sessions != [] and time.monotonic() < deadline:
+            reply = client.request(ListRequest(2))
+            assert isinstance(reply, SuccessReply)
+            sessions = reply.result["sessions"]
+            time.sleep(0.01)
+        assert sessions == []  # reaped, and nothing was respawned
+    finally:
+        client.close()

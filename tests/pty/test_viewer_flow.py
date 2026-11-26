@@ -41,8 +41,14 @@ def test_large_snapshot_progresses_with_partial_acks() -> None:
     assert sum(len(frame.payload) for frame in second) == 300_000 - WINDOW
 
 
+@pytest.fixture
+def small_lag(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("punt_lux.pty.viewer_outbox.LAG_LIMIT", 8)
+
+
+@pytest.mark.usefixtures("small_lag")
 def test_repaint_keeps_old_inflight_debt() -> None:
-    flow = ViewerFlow(1, lag_limit=8)
+    flow = ViewerFlow(1)
     flow.prepare(checkpoint(b"s" * 10_000), DESCRIPTION, initial=True)
     flow.drain()
     flow.append(b"a" * 6)
@@ -60,8 +66,9 @@ def test_repaint_keeps_old_inflight_debt() -> None:
         flow.acknowledge(1)
 
 
+@pytest.mark.usefixtures("small_lag")
 def test_flood_during_snapshot_does_not_restart_incomplete_transfer() -> None:
-    flow = ViewerFlow(1, lag_limit=8)
+    flow = ViewerFlow(1)
     flow.prepare(checkpoint(b"s" * 300_000), DESCRIPTION, initial=True)
     flow.drain()
     flow.append(b"x" * 9)
@@ -76,6 +83,7 @@ def test_exit_close_follows_all_queued_bytes() -> None:
     flow.prepare(checkpoint(b"snap"), DESCRIPTION, initial=True)
     flow.append(b"tail")
     flow.finish("exited", 7)
+    sent_before_drain = flow.close_sent
     frames = flow.drain()
     assert [frame.kind for frame in frames] == [
         FrameKind.SNAPSHOT,
@@ -83,5 +91,7 @@ def test_exit_close_follows_all_queued_bytes() -> None:
         FrameKind.CLOSE,
     ]
     assert flow.inflight == 8
+    assert not sent_before_drain
+    assert flow.close_sent
     assert flow.drain() == []
     flow.acknowledge(8)

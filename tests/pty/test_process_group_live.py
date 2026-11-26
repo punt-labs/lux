@@ -12,7 +12,8 @@ import pytest
 
 from punt_lux.pty.core import SessionCore
 from punt_lux.terminal.output import OutputChunk
-from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.new_request import NewRequest
+from tests.pty.launchers import CommandFactory
 
 pytestmark = pytest.mark.integration
 
@@ -36,11 +37,9 @@ if {leader_exits!r}:
 while True:
     time.sleep(1)
 """
-    core = SessionCore()
+    core = SessionCore(CommandFactory(shlex.join([sys.executable, "-u", "-c", code])))
     try:
-        session = core.acquire(
-            AttachRequest(1, "group", shlex.join([sys.executable, "-u", "-c", code]))
-        )
+        session = core.create(NewRequest(1, "group"))
         pid = session.describe()["pid"]
         os.close(writer)
         writer = -1
@@ -58,7 +57,7 @@ while True:
             time.sleep(0.005)
         assert alive == b"alive", output
         assert f"LEADER={pid} SID={pid} GROUP={pid}".encode() in output
-        core.kill("group")
+        core.kill(session.name)
         assert any(item.get("cleanup_pending") for item in core.describe())
         eof = False
         deadline = time.monotonic() + 5

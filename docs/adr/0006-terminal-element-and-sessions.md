@@ -30,7 +30,9 @@ Lux's rules apply too:
 ## Decision
 
 - **The element only places the terminal.** It carries `id`, `session` (which
-  defaults to the `id`), `command` (default: the user's login shell) and
+  defaults to the `id`; **superseded 2026-11-26 by DES-106**: a terminal
+  element names the session id the daemon's `new` returned, and there is no
+  fallback to the element id), `command` (default: the user's login shell) and
   `height` (0 fills the frame). It is registered like other leaf elements
   (codec, ABC registry, ImGui renderer). This spike does not yet relay terminal
   traffic through the Hub.
@@ -39,7 +41,9 @@ Lux's rules apply too:
   Production terminal traffic goes through the Hub.
 - **For the spike, sessions live in the Display process**
   (`TerminalSessions`, keyed by name):
-  - The first time an element names a session, the session starts.
+  - The first time an element names a session, the session starts
+    (**superseded 2026-11-26 by DES-106**: only `new` starts a session; `attach`
+    resumes one and refuses an unknown id).
   - Re-rendering the element, or showing it in another frame, reuses it.
 - **One pump per frame, with a time budget:** before painting, the render loop
   calls `TerminalSessions.pump_all()`. The frame has one read budget (6 ms),

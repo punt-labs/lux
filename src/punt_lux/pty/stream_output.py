@@ -71,7 +71,7 @@ class StreamPublisher:
             # Not even the visible screen can be cut. Retry a few pumps, then
             # close this viewer so its client is not left on a frozen screen.
             if binding.repaints.record(
-                binding.session, error, binding.flow.actual_size
+                binding.session, error, binding.flow.size.actual
             ):
                 binding.flow.finish(f"terminal repaint failed: {error}")
         except RuntimeError as error:

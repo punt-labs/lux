@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Self
 
+from punt_lux.pty.daemon_exchange import SessionRefusedError
 from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_projection import TerminalProjection
 
@@ -36,13 +37,13 @@ class TerminalMenu:
     async def _clicked(self, callback: str) -> None:
         try:
             await self._projection.clicked(callback)
-        except OSError:
+        except (OSError, SessionRefusedError):
             logger.exception("Terminal menu click failed; PTY owner remains live")
 
     async def _connected(self) -> None:
         try:
             await self._projection.connected()
-        except OSError:
+        except (OSError, SessionRefusedError):
             logger.exception(
                 "Terminal launcher registration failed; listener remains live"
             )

@@ -1,0 +1,666 @@
+%
+% terminal_lifecycle_no_deadline_buggy.tex
+%
+% A Z specification of the lux terminal session lifecycle across the
+% three processes that touch it: luxd-pty (owns shells), the terminal
+% helper (the luxd-pty client that owns the Hub scenes and frames) and
+% the Display (holds one replica per scene element).
+%
+% Design record: docs/architecture/terminal-lifecycle.md
+% Source of record (today's code the buggy variants mirror):
+%   src/punt_lux/pty/core.py              SessionCore.acquire
+%   src/punt_lux/display/terminal/remote_pool.py   RemotePool.get
+%   src/punt_lux/display/terminal/attachment_requests.py
+%
+% Type-check:  fuzz -t docs/terminal_lifecycle_no_deadline_buggy.tex
+% Model-check (see Section "Verification"):
+%   scripts/verify_terminal_model.sh
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{The lux Terminal Session Lifecycle: a Z Specification}
+\author{Formal model of exit, resume and restart}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+A terminal session is born in the daemon, shown by the helper as a Hub
+scene (whose frame dies with it), and painted by a Display replica.
+Three defects recurred in one week because no one document said who
+removes what, and when.  The user-visible form of all three: a frame
+that is on screen but can never attach again.
+
+This model makes removal an obligation.  Every visible frame is either
+attachable, or the helper has been told and owes its removal.
+
+\section{Basic Types}
+
+\begin{zed}
+  [NAME, SHELL]
+\end{zed}
+
+\texttt{NAME} is the session \emph{id} on one host (the design's daemon-assigned, never-reused id; labels are not modelled).  \texttt{SHELL} is the
+identity of one spawned program: the daemon's generation number.  A name
+may be reused by a later shell; a shell identity is never reused while
+anything still refers to it.
+
+\begin{zed}
+  DSTATE ::= running | exited \\
+  RPHASE ::= ready | gone \\
+  SYNC ::= synced | unsynced | listing \\
+  WATCH ::= wnone | wpending | wacked
+\end{zed}
+
+\texttt{exited} is the daemon's draining state: the program has ended
+and the viewers are being told.  \texttt{gone} is a replica that ended
+(exited or failed to attach).  \texttt{unsynced} means the helper may
+hold scenes or have missed events that no longer match the daemon.
+\texttt{listing} is also out of sync: a list snapshot has been acquired
+but its buffered events have not yet been replayed. The watch starts at
+\texttt{wnone}; sending a subscription makes it \texttt{wpending}, and
+the daemon acknowledgment makes it \texttt{wacked}. Only an acknowledged
+watch receives daemon notices.
+
+\section{State}
+
+\begin{schema}{Sys}
+  daemon : NAME \pfun SHELL \\
+  dstate : NAME \pfun DSTATE \\
+  scene : NAME \pfun SHELL \\
+  listed : NAME \pfun SHELL \\
+  replica : (NAME \cross SHELL) \pfun RPHASE \\
+  bound : (NAME \cross SHELL) \pfun SHELL \\
+  createdEv, endedEv : NAME \rel SHELL \\
+  used : \power NAME \\
+  stalled : \power NAME \\
+  sync : SYNC \\
+  watch : WATCH
+\where
+  \dom dstate = \dom daemon \\
+  daemon \in NAME \pinj SHELL \\
+  \dom bound = \dom replica
+\end{schema}
+
+\texttt{daemon} is the single authoritative map from a name to its live
+shell on this host; being a function it gives at most one shell per
+name, and being injective at most one name per shell.  \texttt{scene}
+is what the Hub shows: the element's name and the shell it expects.
+\texttt{replica} is the Display's cache, keyed by name \emph{and} shell.
+\texttt{bound} records which shell a replica's stream actually comes
+from.  \texttt{createdEv} and \texttt{endedEv} are daemon notices in
+flight to the helper. \texttt{listed} is the running-session snapshot
+recorded by \texttt{HelperList}, not a live view of \texttt{daemon}.
+
+\begin{schema}{Init}
+  Sys'
+\where
+  watch' = wnone \\
+  listed' = \emptyset \\
+  daemon' = \emptyset \\
+  dstate' = \emptyset \\
+  scene' = \emptyset \\
+  replica' = \emptyset \\
+  bound' = \emptyset \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  used' = \emptyset \\
+  stalled' = \emptyset \\
+  sync' = unsynced
+\end{schema}
+
+\section{Daemon Operations}
+
+\begin{schema}{DaemonNew}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  listed' = listed \\
+  n? \notin \dom daemon \\
+  n? \notin used \\
+  s? \notin \ran daemon \cup \ran scene \cup \ran createdEv \cup
+    \ran endedEv \cup \ran listed \cup \ran (\dom replica) \\
+  daemon' = daemon \cup \{ n? \mapsto s? \} \\
+  dstate' = dstate \cup \{ n? \mapsto running \} \\
+  watch = wacked \implies createdEv' = createdEv \cup \{ (n? , s?) \} \\
+  watch \neq wacked \implies createdEv' = createdEv \\
+  used' = used \cup \{ n? \} \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+Creation announces itself to an acknowledged watcher. Before acknowledgment,
+the next list discovers the session whoever asked: menu, CLI or another client.
+
+\begin{schema}{ShellExit}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \dom daemon \\
+  dstate~n? = running \\
+  dstate' = dstate \oplus \{ n? \mapsto exited \} \\
+  watch = wacked \implies endedEv' = endedEv \cup \{ (n? , daemon~n?) \} \\
+  watch \neq wacked \implies endedEv' = endedEv \\
+  daemon' = daemon \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+Exit and an explicit kill are the same transition: the program ends and
+the daemon announces it to acknowledged watchers.
+
+\begin{schema}{DaemonRemove}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \dom daemon \\
+  dstate~n? = exited \\
+  n? \notin stalled \\
+  (n? , daemon~n?) \in \dom replica \implies
+    replica (n? , daemon~n?) \neq ready \\
+  daemon' = \{ n? \} \ndres daemon \\
+  dstate' = \{ n? \} \ndres dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+The session is removed only once no viewer is still being served from
+it: every attached replica has been told, and no viewer holds output it has
+not taken (the daemon sends CLOSE to a viewer only after its last byte).
+
+\begin{schema}{DaemonRestart}
+  \Delta Sys
+\where
+  watch' = wnone \\
+  listed' = \emptyset \\
+  used' = used \\
+  daemon' = \emptyset \\
+  dstate' = \emptyset \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = unsynced \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  stalled' = \emptyset
+\end{schema}
+
+A daemon restart ends every program; persistence across it is a
+non-goal.  The helper is the daemon's child and restarts with it.
+
+\section{Helper Operations}
+
+\begin{schema}{HelperSubscribe}
+  \Delta Sys
+\where
+  watch = wnone \\
+  watch' = wpending \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  listed' = listed \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+\begin{schema}{HelperWatchAck}
+  \Delta Sys
+\where
+  watch = wpending \\
+  watch' = wacked \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  listed' = listed \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+\begin{schema}{HelperCreated}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  sync = synced \\
+  listed' = listed \\
+  used' = used \\
+  (n? , s?) \in createdEv \\
+  n? \in \dom daemon \\
+  daemon~n? = s? \\
+  dstate~n? = running \\
+  scene' = scene \oplus \{ n? \mapsto s? \} \\
+  createdEv' = createdEv \setminus \{ (n? , s?) \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+\begin{schema}{HelperCreatedStale}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  sync = synced \\
+  listed' = listed \\
+  used' = used \\
+  (n? , s?) \in createdEv \\
+  \lnot (n? \in \dom daemon \land daemon~n? = s?
+    \land dstate~n? = running) \\
+  createdEv' = createdEv \setminus \{ (n? , s?) \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+A creation notice that arrives after its shell has already ended is
+dropped; the ended notice handles the rest.
+
+\begin{schema}{HelperEnded}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  sync = synced \\
+  listed' = listed \\
+  used' = used \\
+  (n? , s?) \in endedEv \\
+  endedEv' = endedEv \setminus \{ (n? , s?) \} \\
+  (n? \in \dom scene \land scene~n? = s?) \implies
+    scene' = \{ n? \} \ndres scene \\
+  \lnot (n? \in \dom scene \land scene~n? = s?) \implies
+    scene' = scene \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  createdEv' = createdEv \\
+  sync' = sync \\
+  replica' = \{ n : NAME; s : SHELL | (n , s) \in \dom replica \\
+    \quad~ \land n \in \dom scene' \land scene'~n = s @ (n , s) \mapsto replica (n , s) \} \\
+  bound' = \{ n : NAME; s : SHELL | (n , s) \in \dom bound \\
+    \quad~ \land n \in \dom scene' \land scene'~n = s @ (n , s) \mapsto bound (n , s) \} \\
+  stalled' = stalled
+\end{schema}
+
+The helper clears the scene only if it still names the ended shell, so
+a late notice never removes a newer terminal that reuses the name.
+
+\begin{schema}{HelperLoseEvents}
+  \Delta Sys
+\where
+  watch' = wnone \\
+  watch \neq wnone \lor sync \neq unsynced \lor
+    createdEv \neq \emptyset \lor endedEv \neq \emptyset \\
+  listed' = \emptyset \\
+  used' = used \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = unsynced \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  stalled' = stalled
+\end{schema}
+
+The helper crashes or its watch connection drops.  Notices in flight are
+lost; any pending list is invalidated and the next step must reconcile.
+The watch resets to \texttt{wnone}, requiring a new subscription and ack.
+The guard excludes a no-op when already unsynced with no watch or events.
+
+\begin{schema}{HelperList}
+  \Delta Sys
+\where
+  watch' = watch \\
+  watch = wacked \\
+  sync = unsynced \\
+  listed' = \{ n : NAME | n \in \dom daemon \land dstate~n = running
+    @ n \mapsto daemon~n \} \\
+  sync' = listing \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  used' = used \\
+  stalled' = stalled
+\end{schema}
+
+The helper sends the list request only after the daemon acknowledges its
+watch subscription (\texttt{HelperSubscribe}, then \texttt{HelperWatchAck}),
+not merely after the socket connects. The \texttt{wacked} guard on
+\texttt{HelperList} enforces this barrier. Notices remain buffered
+while the list response is pending; daemon operations can interleave.
+
+\begin{schema}{HelperSync}
+  \Delta Sys
+\where
+  watch' = watch \\
+  listed' = \emptyset \\
+  used' = used \\
+  sync = listing \\
+  scene' = (listed \cup createdEv) \setminus endedEv \\
+  createdEv' = \emptyset \\
+  endedEv' = \emptyset \\
+  sync' = synced \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  replica' = \{ n : NAME; s : SHELL | (n , s) \in \dom replica \\
+    \quad~ \land n \in \dom scene' \land scene'~n = s @ (n , s) \mapsto replica (n , s) \} \\
+  bound' = \{ n : NAME; s : SHELL | (n , s) \in \dom bound \\
+    \quad~ \land n \in \dom scene' \land scene'~n = s @ (n , s) \mapsto bound (n , s) \} \\
+  stalled' = stalled
+\end{schema}
+
+Reconciliation applies the recorded list plus buffered creations, then
+removes buffered exits. It never reads the current daemon map. An exit wins
+over a creation for the same shell; ids are never reused in the intact model.
+
+\section{Display Operations}
+
+\begin{schema}{ReplicaAttach}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \dom scene \\
+  (n? , scene~n?) \notin \dom replica \\
+  n? \in \dom daemon \\
+  daemon~n? = scene~n? \\
+  dstate~n? = running \\
+  replica' = replica \cup \{ (n? , scene~n?) \mapsto ready \} \\
+  bound' = bound \cup \{ (n? , scene~n?) \mapsto daemon~n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+Resume names the shell the scene expects and attaches only to that one.
+
+\begin{schema}{ReplicaRefused}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \dom scene \\
+  (n? , scene~n?) \notin \dom replica \\
+  \lnot (n? \in \dom daemon \land daemon~n? = scene~n? \\
+    \quad~ \land dstate~n? = running) \\
+  replica' = replica \cup \{ (n? , scene~n?) \mapsto gone \} \\
+  bound' = bound \cup \{ (n? , scene~n?) \mapsto scene~n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+\begin{schema}{ReplicaEnds}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  (n? , s?) \in \dom replica \\
+  replica (n? , s?) = ready \\
+  \lnot (n? \in \dom daemon \land daemon~n? = s? \land dstate~n? = running) \\
+  replica' = replica \oplus \{ (n? , s?) \mapsto gone \} \\
+  bound' = bound \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+The replica learns of the end from the stream's close notice or from the
+lost connection.
+
+\begin{schema}{DropReplica}
+  \Delta Sys \\
+  n? : NAME \\
+  s? : SHELL
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  (n? , s?) \in \dom replica \\
+  \lnot (n? \in \dom scene \land scene~n? = s?) \\
+  replica' = \{ (n? , s?) \} \ndres replica \\
+  bound' = \{ (n? , s?) \} \ndres bound \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync \\
+  stalled' = stalled
+\end{schema}
+
+A replica no scene element names is dropped.  Today's pool never does
+this.
+
+\section{Viewer Operations}
+
+\begin{schema}{ViewerStalls}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \dom daemon \\
+  n? \notin stalled \\
+  stalled' = stalled \cup \{ n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+A viewer of the session stops taking output and never acknowledges
+again.  It holds output the daemon cannot send, so CLOSE cannot follow the
+last byte and the session cannot be removed.  Nothing in the model unblocks
+it except the finish deadline.
+
+\begin{schema}{FinishDeadline}
+  \Delta Sys \\
+  n? : NAME
+\where
+  watch' = watch \\
+  listed' = listed \\
+  used' = used \\
+  n? \in \emptyset \\
+  n? \in \dom daemon \\
+  dstate~n? = exited \\
+  n? \in stalled \\
+  stalled' = stalled \setminus \{ n? \} \\
+  daemon' = daemon \\
+  dstate' = dstate \\
+  scene' = scene \\
+  replica' = replica \\
+  bound' = bound \\
+  createdEv' = createdEv \\
+  endedEv' = endedEv \\
+  sync' = sync
+\end{schema}
+
+The deadline never fires: its guard is false.  A stalled viewer is never
+abandoned.
+
+\section{Invariants}
+\label{sec:inv}
+
+None is placed in \texttt{Sys}: a predicate there would disable the very
+transition that breaks it.  Each is checked as an unreachable goal.
+
+\paragraph{I1 --- visible implies attachable or being removed.}
+Every scene names a running shell on the daemon, or a removal notice for
+it is in flight, or the helper is known to be out of sync:
+\[
+  \forall n : \dom scene @ sync \neq synced \lor
+    (n \in \dom daemon \land daemon~n = scene~n \land dstate~n = running)
+    \lor (n , scene~n) \in endedEv
+\]
+
+\paragraph{I2 --- resume never swaps.}
+Every replica streams from the shell it names:
+\[
+  \forall k : \dom bound @ bound~k = \mathrm{second}~k
+\]
+
+\paragraph{I3 --- one live shell per name.}
+Holds by construction (\texttt{daemon} is an injective function), and is
+checked as: no two names share a shell.
+
+\paragraph{I4 --- replicas learn of a lost session (transient, not a safety property).}
+ProB found a state with a \texttt{ready} replica of a name the daemon
+no longer holds: it arises only after \texttt{DaemonRestart}, before
+\texttt{ReplicaEnds} fires.  It is a legitimate transient, so it is
+\emph{not} an invariant.  What must hold is that \texttt{DaemonRemove}
+(the exit path) never leaves one behind, which its guard enforces, and
+that \texttt{ReplicaEnds} stays enabled in that state (no deadlock).
+
+\paragraph{I6 --- no stale replica shadows a live scene.}
+The Display caches one replica per session.  A scene that names a running
+shell must not coexist with a replica of the same name for a different
+shell, because that cached replica would be served instead (today's
+immortal \texttt{RemotePool} cache, keyed by name):
+\[
+  \forall n : \dom scene @ \lnot (n \in \dom daemon \land
+    daemon~n = scene~n \land dstate~n = running \land
+    \exists s : SHELL @ (n , s) \in \dom replica \land s \neq scene~n)
+\]
+Ids are never reused, so in the intact design this is unreachable; the
+\texttt{used} set models that guarantee.
+
+\paragraph{I7 --- quiescent scene completeness.}
+When synced with no pending creation or ended notices, every running daemon
+session has a matching scene:
+\[
+  sync = synced \land createdEv = \emptyset \land endedEv = \emptyset
+  \implies (\forall n : \dom daemon @ dstate~n = running \implies
+    n \in \dom scene \land scene~n = daemon~n)
+\]
+
+\paragraph{I8 --- no orphaned replicas.}
+Every cached replica matches a current scene element:
+\[
+  \forall n : NAME; s : SHELL | (n , s) \in \dom replica @
+    n \in \dom scene \land scene~n = s
+\]
+Scene removal and replacement release replicas atomically in this model.
+Thus an orphan is already a safety violation, not a transient waiting for
+\texttt{DropReplica}. The cache-leak variant must reach this goal even
+without reusing a name.
+
+\paragraph{I5 --- deadlock freedom.}
+Some operation is always enabled.
+
+\paragraph{L1 --- no finished session outlives its deadline.}
+Whenever a finished session is held by a stalled viewer, the finish deadline
+is enabled for it, and \texttt{DaemonRemove} is not:
+\[
+  \forall n : \dom daemon @ dstate~n = exited \land n \in stalled
+    \implies \mathrm{enabled}(\mathit{FinishDeadline}~n)
+\]
+It is checked as the CTL formula $\mathrm{AG}(P \Rightarrow
+\mathrm{EF}\,\mathrm{enabled}(\mathit{FinishDeadline}))$, where $P$ says that
+a finished session is held by a stalled viewer.  $P$ is reachable, so the
+formula is not vacuous.
+
+\section{Verification}
+\label{sec:verify}
+
+\begin{verbatim}
+  scripts/verify_terminal_model.sh
+\end{verbatim}
+
+\section{Fidelity}
+
+Four buggy variants sit beside this file; each must make a goal reachable
+that the intact model cannot reach (see \texttt{scripts/verify\_terminal\_model.sh}
+in the repository for the exact commands).
+\begin{itemize}
+  \item \texttt{terminal\_lifecycle\_cache\_leak\_buggy.tex}: names may be
+    reused and a replica is never released (no \texttt{DropReplica}, no
+    release when the scene goes).  This is the Display's immortal
+    \texttt{RemotePool} cache, the user's ``exit, then nothing ever''.
+    I6 is reachable.
+  \item \texttt{terminal\_lifecycle\_exit\_leak\_buggy.tex}: the helper
+    ignores the ended notice.  I1 is reachable.
+  \item \texttt{terminal\_lifecycle\_swap\_buggy.tex}: a resume attaches by
+    name alone and names are reusable.  I2 and I6 are reachable.
+  \item \texttt{terminal\_lifecycle\_no\_deadline\_buggy.tex}: no
+    \texttt{FinishDeadline}.  A viewer that stops taking output pins a
+    finished session and its slot forever.  L1 is violated, and the
+    model deadlocks.
+\end{itemize}
+
+\end{document}

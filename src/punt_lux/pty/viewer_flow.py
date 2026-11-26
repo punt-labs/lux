@@ -3,62 +3,46 @@
 from __future__ import annotations
 
 import json
-from collections import deque
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.pty.credit import CreditWindow
-from punt_lux.terminal.output import SessionSnapshot
-from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.pty.viewer_outbox import ViewerOutbox
+from punt_lux.pty.viewer_size import ViewerSize
+
+if TYPE_CHECKING:
+    from punt_lux.terminal.output import SessionSnapshot
+    from punt_lux.wire.stream.frames import Frame
 
 
 class ViewerFlow:
     _channel: int
     _credit: CreditWindow
-    _start: bytes | None
-    _snapshot: bytes
-    _snapshot_offset: int
-    _tail: deque[bytes]
-    _tail_offset: int
-    _lag: int
-    _lag_limit: int
+    _outbox: ViewerOutbox
     _repaint: bool
     _screen_only: bool
-    _close: bytes | None
-    _close_sent: bool
-    _wanted_size: tuple[int, int]
-    _actual_size: tuple[int, int]
+    _size: ViewerSize
 
-    def __new__(cls, channel: int, *, lag_limit: int = 4 * 1024 * 1024) -> Self:
+    def __new__(cls, channel: int) -> Self:
         self = super().__new__(cls)
         self._channel = channel
         self._credit = CreditWindow()
-        self._start = None
-        self._snapshot = b""
-        self._snapshot_offset = 0
-        self._tail = deque()
-        self._tail_offset = self._lag = 0
-        self._lag_limit = lag_limit
+        self._outbox = ViewerOutbox(channel)
         self._repaint = False
         self._screen_only = False
-        self._close = None
-        self._close_sent = False
-        self._wanted_size = self._actual_size = (80, 24)
+        self._size = ViewerSize()
         return self
 
     @property
-    def wanted_size(self) -> tuple[int, int]:
-        return self._wanted_size
-
-    def want_size(self, cols: int, rows: int) -> None:
-        self._wanted_size = (cols, rows)
+    def size(self) -> ViewerSize:
+        return self._size
 
     @property
-    def actual_size(self) -> tuple[int, int]:
-        return self._actual_size
+    def close_sent(self) -> bool:
+        return self._outbox.close_sent
 
     @property
     def lag_bytes(self) -> int:
-        return self._lag
+        return self._outbox.lag_bytes
 
     @property
     def inflight(self) -> int:
@@ -67,14 +51,17 @@ class ViewerFlow:
     @property
     def wants_repaint(self) -> bool:
         return (
-            self._repaint
-            and self._snapshot_offset == len(self._snapshot)
-            and self._credit.available > 0
+            self._repaint and self._outbox.snapshot_sent and self._credit.available > 0
         )
 
     def request_repaint(self) -> None:
-        """Drop the unsent backlog and ask the publisher for a fresh snapshot."""
-        self._drop_tail()
+        """Drop the unsent backlog and ask the publisher for a fresh snapshot.
+
+        Nothing follows CLOSE on a channel, so a viewer already closed is left be.
+        """
+        if self._outbox.close_sent:
+            return
+        self._outbox.drop_tail()
         self._repaint = True
 
     def prepare(
@@ -85,16 +72,16 @@ class ViewerFlow:
         initial: bool = False,
     ) -> None:
         """Drop only unsent backlog; old in-flight bytes retain their credit debt."""
-        self._actual_size = (checkpoint.cols, checkpoint.rows)
+        self._size.measured((checkpoint.cols, checkpoint.rows))
         metadata = checkpoint.to_dict()
         metadata.update(
             channel=self._channel,
             ended=description["ended"],
             exit_code=description["exit_code"],
         )
-        self._start = None if initial else json.dumps(metadata).encode()
-        self._snapshot, self._snapshot_offset = checkpoint.data, 0
-        self._drop_tail()
+        self._outbox.begin(
+            checkpoint.data, b"" if initial else json.dumps(metadata).encode()
+        )
         # A screen-only repaint is not a checkpoint: raw output stays
         # suppressed until a binary checkpoint at ground can be cut. The next
         # cut waits for a reason (see ``append``): an identical repaint would
@@ -110,73 +97,25 @@ class ViewerFlow:
             # The program moved while the viewer has only a screen repaint:
             # the screen is stale, so schedule one cut (not one per pump).
             self._repaint = self._repaint or bool(data)
+        elif self._repaint or self._outbox.close_sent:
             return
-        if self._repaint or self._close_sent:
-            return
-        if self._lag + len(data) > self._lag_limit:
+        elif self._outbox.overflows(len(data)):
             self.request_repaint()
         elif data:
-            self._tail.append(data)
-            self._lag += len(data)
+            self._outbox.push(data)
+
+    def abandon_unsent(self) -> None:
+        """Drop output the viewer never took; its CLOSE is sent on the next drain."""
+        self._outbox.abandon()
+        self._repaint = self._screen_only = False
 
     def acknowledge(self, amount: int) -> None:
         self._credit.acknowledge(amount)
 
     def finish(self, reason: str, exit_code: object = None) -> None:
         if reason != "exited":
-            self._start = None
-            self._snapshot = b""
-            self._snapshot_offset = 0
-            self._drop_tail()
-            self._repaint = False
-            self._screen_only = False
-        self._close = json.dumps({"reason": reason, "exit_code": exit_code}).encode()
+            self.abandon_unsent()
+        self._outbox.finish(reason, exit_code)
 
     def drain(self) -> list[Frame]:
-        frames: list[Frame] = []
-        if self._start is not None:
-            frames.append(Frame(self._channel, FrameKind.SNAPSHOT_START, self._start))
-            self._start = None
-        for _ in range(4):
-            payload = self._payload()
-            if payload is None:
-                break
-            kind, data = payload
-            self._credit.send(len(data))
-            frames.append(Frame(self._channel, kind, data))
-        if self._done() and self._close is not None and not self._close_sent:
-            frames.append(Frame(self._channel, FrameKind.CLOSE, self._close))
-            self._close_sent = True
-        return frames
-
-    def _payload(self) -> tuple[FrameKind, bytes] | None:
-        count = min(64 * 1024, self._credit.available)
-        if count == 0:
-            return None
-        if self._snapshot_offset < len(self._snapshot):
-            data = self._snapshot[self._snapshot_offset : self._snapshot_offset + count]
-            self._snapshot_offset += len(data)
-            if self._snapshot_offset == len(self._snapshot):
-                self._snapshot = b""
-                self._snapshot_offset = 0
-            return FrameKind.SNAPSHOT, data
-        if self._repaint or not self._tail:
-            return None
-        data = self._tail[0][self._tail_offset : self._tail_offset + count]
-        self._tail_offset += len(data)
-        self._lag -= len(data)
-        if self._tail_offset == len(self._tail[0]):
-            self._tail.popleft()
-            self._tail_offset = 0
-        return FrameKind.DATA, data
-
-    def _drop_tail(self) -> None:
-        self._tail.clear()
-        self._tail_offset = self._lag = 0
-
-    def _done(self) -> bool:
-        return (
-            self._snapshot_offset == len(self._snapshot)
-            and not self._tail
-            and not self._repaint
-        )
+        return self._outbox.drain(self._credit, resyncing=self._repaint)

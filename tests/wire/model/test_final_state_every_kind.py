@@ -23,6 +23,7 @@ from punt_lux.wire.model.elements import (
     RadioElement,
     SliderElement,
     TableElement,
+    TerminalElement,
     TextElement,
 )
 from punt_lux.wire.model.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
@@ -39,6 +40,7 @@ _NEEDS: dict[type, dict[str, object]] = {
     TextElement: {"content": "x"},
     MarkdownElement: {"content": "x"},
     ImageElement: {"path": "x.png"},
+    TerminalElement: {"session": "s1"},
 }
 
 _KINDS = [(spec.kind, spec.element_type) for spec in DEFAULT_ABC_REGISTRY.specs]

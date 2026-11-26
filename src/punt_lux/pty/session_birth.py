@@ -9,7 +9,7 @@ from punt_lux.pty.session import TerminalSession
 if TYPE_CHECKING:
     from punt_lux.pty.process_factory import ProcessCreator
     from punt_lux.pty.process_retirement import ProcessRetirement
-    from punt_lux.wire.stream.attach import AttachRequest
+    from punt_lux.pty.session_spec import SessionSpec
 
 
 class SessionBirth:
@@ -21,18 +21,18 @@ class SessionBirth:
         self._factory, self._pending = factory, pending
         return self
 
-    def start(self, request: AttachRequest) -> TerminalSession:
-        process = self._factory(request)
-        self._pending.add(request.session, process)
+    def start(self, spec: SessionSpec) -> TerminalSession:
+        process = self._factory(spec.request)
+        self._pending.add(spec.name, process)
         try:
-            session = TerminalSession(request, process)
+            session = TerminalSession(spec, process)
         except BaseException as error:
             try:
-                self._pending.stop(request.session)
+                self._pending.stop(spec.name)
             except (OSError, RuntimeError) as cleanup:
                 raise BaseExceptionGroup(
                     "session creation and cleanup failed", [error, cleanup]
                 ) from error
             raise
-        self._pending.forget(request.session)
+        self._pending.forget(spec.name)
         return session

@@ -18,6 +18,7 @@ from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import FailureReply, SuccessReply
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
+from tests.pty.launchers import Launch
 from tests.pty.wire_client import WireClient
 
 pytestmark = pytest.mark.integration
@@ -29,17 +30,20 @@ def hello(client: WireClient, request_id: int = 1) -> SuccessReply:
     return reply
 
 
-def test_program_survives_client_disconnect_and_reconnect(daemon: Path) -> None:
+def test_program_survives_client_disconnect_and_reconnect(
+    daemon: Path, launch: Launch
+) -> None:
     code = (
         "import sys; print('READY',flush=True); "
         "line=sys.stdin.readline(); print('ECHO:'+line.strip(),flush=True); "
         "sys.stdin.readline()"
     )
     command = shlex.join([sys.executable, "-u", "-c", code])
+    session = launch.session(command)
     first = WireClient(daemon)
     try:
         hello(first)
-        reply = first.request(AttachRequest(2, "persistent", command))
+        reply = first.request(AttachRequest(2, session))
         assert isinstance(reply, SuccessReply)
         channel, checkpoint = first.snapshot(dict(reply.result))
         viewer = restore_binary(checkpoint.data)
@@ -66,7 +70,7 @@ def test_program_survives_client_disconnect_and_reconnect(daemon: Path) -> None:
         sessions = listing.result["sessions"]
         assert isinstance(sessions, list)
         assert sessions[0]["pid"] == original_pid
-        reply = second.request(AttachRequest(3, "persistent", command))
+        reply = second.request(AttachRequest(3, session))
         assert isinstance(reply, SuccessReply)
         channel, checkpoint = second.snapshot(dict(reply.result))
         viewer = restore_binary(checkpoint.data)
@@ -76,7 +80,7 @@ def test_program_survives_client_disconnect_and_reconnect(daemon: Path) -> None:
             assert frame.kind is FrameKind.DATA
             viewer.feed(frame.payload)
         assert "ECHO:hello" in viewer.text()
-        assert isinstance(second.request(KillRequest(4, "persistent")), SuccessReply)
+        assert isinstance(second.request(KillRequest(4, session)), SuccessReply)
     finally:
         second.close()
 
@@ -84,7 +88,7 @@ def test_program_survives_client_disconnect_and_reconnect(daemon: Path) -> None:
 def test_request_before_hello_cannot_start_a_program(daemon: Path) -> None:
     client = WireClient(daemon)
     try:
-        reply = client.request(AttachRequest(1, "forbidden", "/bin/sh"))
+        reply = client.request(AttachRequest(1, "t0.1"))
         assert isinstance(reply, FailureReply)
         hello(client, 2)
         listing = client.request(ListRequest(3))
@@ -99,14 +103,14 @@ def test_version_mismatch_does_not_mark_peer_ready(daemon: Path) -> None:
     try:
         reply = client.request(HelloRequest(1, WIRE_VERSION + 1, snapshot_version()))
         assert isinstance(reply, FailureReply)
-        reply = client.request(AttachRequest(2, "forbidden"))
+        reply = client.request(AttachRequest(2, "t0.1"))
         assert isinstance(reply, FailureReply)
     finally:
         client.close()
 
 
 def test_closing_the_connection_frees_its_viewer_for_the_next_attach(
-    daemon: Path,
+    daemon: Path, launch: Launch
 ) -> None:
     """The Display closes its idle connection instead of sending CLOSE.
 
@@ -114,10 +118,11 @@ def test_closing_the_connection_frees_its_viewer_for_the_next_attach(
     the program, so the next connection can attach the same session.
     """
     command = shlex.join([sys.executable, "-u", "-c", "import time; time.sleep(30)"])
+    session = launch.session(command)
     first = WireClient(daemon)
     try:
         hello(first)
-        reply = first.request(AttachRequest(2, "freed", command))
+        reply = first.request(AttachRequest(2, session))
         assert isinstance(reply, SuccessReply)
         first.snapshot(dict(reply.result))
     finally:
@@ -126,8 +131,8 @@ def test_closing_the_connection_frees_its_viewer_for_the_next_attach(
     second = WireClient(daemon)
     try:
         hello(second)
-        again = second.request(AttachRequest(2, "freed", command))
+        again = second.request(AttachRequest(2, session))
         assert isinstance(again, SuccessReply)
-        assert isinstance(second.request(KillRequest(3, "freed")), SuccessReply)
+        assert isinstance(second.request(KillRequest(3, session)), SuccessReply)
     finally:
         second.close()

@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.pty.menu_clients import TerminalClients
+from punt_lux.pty.current_shell import CurrentShell
 from punt_lux.wire.operations import OpError, RenderRequest
 
+if TYPE_CHECKING:
+    from punt_lux.pty.menu_clients import TerminalClients
+
 logger = logging.getLogger(__name__)
+_SHELL: dict[str, object] = {"kind": "terminal", "id": "shell", "height": 0}
 
 
 class TerminalProjection:
     _clients: TerminalClients
-    _opened: bool
+    _shell: CurrentShell
 
     def __new__(cls, clients: TerminalClients) -> Self:
         self = super().__new__(cls)
         self._clients = clients
-        self._opened = False
+        self._shell = CurrentShell.local()
         return self
 
     async def connected(self) -> None:
@@ -34,26 +39,27 @@ class TerminalProjection:
         )
         if isinstance(result, OpError):
             logger.warning("Terminal menu registration refused: %s", result.reason)
-        if self._opened:
-            await self.clicked("terminal")
+        if await asyncio.to_thread(self._shell.resume):
+            await self._show()
 
     async def clicked(self, callback: str) -> None:
         if callback != "terminal":
             return
-        request = RenderRequest(
-            scene_id="terminal",
-            title="Terminal",
-            elements=[
-                {
-                    "kind": "terminal",
-                    "id": "shell",
-                    "session": "luxd-pty-terminal",
-                    "height": 0,
-                }
-            ],
-        )
+        before = self._shell.session
+        await asyncio.to_thread(self._shell.obtain)
+        if not await self._show():
+            await self._discard_if_new(before)
+
+    async def _discard_if_new(self, before: str) -> None:
+        """End the shell only when this click started it; the user's own stays."""
+        if self._shell.session != before:
+            await asyncio.to_thread(self._shell.release)
+
+    async def _show(self) -> bool:
+        """Show the shell; say whether the Hub accepted it."""
+        shell = _SHELL | {"session": self._shell.session}
+        request = RenderRequest(scene_id="terminal", title="Terminal", elements=[shell])
         result = await self._clients.client().scene.show(request)
         if isinstance(result, OpError):
             logger.warning("Terminal launch refused: %s", result.reason)
-        else:
-            self._opened = True
+        return not isinstance(result, OpError)

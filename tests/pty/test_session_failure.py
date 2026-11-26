@@ -9,8 +9,8 @@ import pytest
 from punt_lux.pty.core import SessionCore
 from punt_lux.terminal.ffi_terminal import TerminalIO
 from punt_lux.terminal.output import OutputChunk
-from punt_lux.wire.stream.attach import AttachRequest
-from tests.pty.test_session_core import FakeFactory
+from punt_lux.wire.stream.new_request import NewRequest
+from tests.pty.fake_process import FakeFactory
 
 
 @pytest.mark.parametrize("operation", ["read", "feed", "process_resize", "term_resize"])
@@ -21,8 +21,8 @@ def test_failed_operation_retires_child_while_other_sessions_keep_pumping(
     factory = FakeFactory()
     core = SessionCore(factory)
     try:
-        failed = core.acquire(AttachRequest(1, "bad"))
-        core.acquire(AttachRequest(2, "good"))
+        failed = core.create(NewRequest(1, "bad"))
+        good_name = core.create(NewRequest(2, "good")).name
         process, good = factory.created
         process.output.append(b"unparsed")
         process.reaped = False
@@ -41,19 +41,20 @@ def test_failed_operation_retires_child_while_other_sessions_keep_pumping(
             ):
                 if "resize" in operation:
                     with pytest.raises(RuntimeError, match="operation failed"):
-                        core.resize("bad", 100, 30)
+                        failed.resize(100, 30)
                 else:
                     with pytest.raises(RuntimeError, match="operation failed"):
                         failed.pump()
             events = core.pump()
-            assert OutputChunk("good", 0, b"still responsive") in events
+            assert OutputChunk(good_name, 0, b"still responsive") in events
             assert failed.describe()["state"] == "failed"
             assert failed.position == 0
             assert close.call_count >= 1
             assert process.alive is refuse_cleanup
             with pytest.raises(RuntimeError, match="failed"):
                 failed.capture()
-            assert core.acquire(AttachRequest(3, "bad")) is failed
+            with pytest.raises(ValueError, match="unknown session"):
+                core.attach(failed.name)
             assert len(factory.created) == 2
             calls = close.call_count
             assert core.pump() == []
@@ -76,7 +77,7 @@ def test_cleanup_runtime_error_does_not_replace_the_terminal_failure() -> None:
     factory = FakeFactory()
     core = SessionCore(factory)
     try:
-        session = core.acquire(AttachRequest(1, "bad"))
+        session = core.create(NewRequest(1, "bad"))
         process = factory.created[0]
         with (
             patch.object(process, "resize", side_effect=OSError("resize failed")),

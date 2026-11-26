@@ -30,10 +30,10 @@ from punt_lux.terminal.snapshot import (
     tracked_terminal,
 )
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
-from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.new_request import NewRequest
+from tests.pty.fake_process import FakeFactory
 from tests.pty.stream_fakes import RecordingPeer
-from tests.pty.test_session_core import FakeFactory
 
 ESC = "\x1b"
 CSI = ESC + "["
@@ -90,19 +90,23 @@ def _attached_viewer(core: SessionCore) -> tuple[StreamPublisher, RecordingPeer]
 def _attached_binding(
     core: SessionCore,
 ) -> tuple[StreamPublisher, RecordingPeer, Binding]:
-    session = core.acquire(AttachRequest(1, "shell", cols=20, rows=4))
+    session = core.create(NewRequest(1, "shell", cols=20, rows=4))
     peer = RecordingPeer()
     bindings = ViewerBindings()
-    binding = bindings.add(peer, "shell", 20, 4)  # type: ignore[arg-type]  # fake peer
+    binding = bindings.add(peer, session.name, 20, 4)  # type: ignore[arg-type]  # fake peer
     StreamPublisher.attach(binding, 1, SnapshotCut(session).cut(), session.describe())
     # The initial reply goes through the control channel, not the frame list.
     binding.flow.drain()
     return StreamPublisher(core, bindings), peer, binding
 
 
-def _replicate(frames: tuple[Frame, ...]) -> RemoteSession:
+def _only_session(core: SessionCore) -> str:
+    return str(core.describe()[0]["session"])
+
+
+def _replicate(frames: tuple[Frame, ...], name: str) -> RemoteSession:
     sent: list[Frame] = []
-    replica = RemoteSession("shell", "", sent.append)
+    replica = RemoteSession(name, "", sent.append)
     for frame in frames:
         replica.receive(frame)
     return replica
@@ -126,7 +130,9 @@ def test_lagged_viewer_in_an_exhausted_sequence_resyncs_via_the_visible_repaint(
         start = cast("dict[str, object]", json.loads(starts[0].payload))
         assert start["format"] == "vt"
         assert FrameKind.SNAPSHOT in kinds
-        replica = _replicate(peer.frames[peer.frames.index(starts[0]) :])
+        replica = _replicate(
+            peer.frames[peer.frames.index(starts[0]) :], _only_session(core)
+        )
         try:
             assert replica.phase is RemotePhase.READY
             assert replica.view.term.text().startswith("hello")
@@ -149,7 +155,9 @@ def test_lagged_viewer_at_ground_state_still_gets_the_binary_snapshot() -> None:
         assert cast("dict[str, object]", json.loads(starts[0].payload))["format"] == (
             "binary"
         )
-        replica = _replicate(peer.frames[peer.frames.index(starts[0]) :])
+        replica = _replicate(
+            peer.frames[peer.frames.index(starts[0]) :], _only_session(core)
+        )
         try:
             assert replica.phase is RemotePhase.READY
             # The flood scrolled "hello" away; the replica shows the flood.
@@ -181,9 +189,13 @@ def test_viewer_repainted_mid_sequence_matches_the_daemon_after_the_sequence_end
         output.extend([b"PAYLOAD-TAIL" + ESC.encode() + b"\\", b"\r\nafter text"])
         for _ in range(6):
             publisher.pump()
-        expected = screen_rows(core.get("shell")._term.native)
+        expected = screen_rows(
+            core.get(str(core.describe()[0]["session"]))._term.native
+        )
         starts = [f for f in peer.frames if f.kind is FrameKind.SNAPSHOT_START]
-        replica = _replicate(peer.frames[peer.frames.index(starts[-1]) :])
+        replica = _replicate(
+            peer.frames[peer.frames.index(starts[-1]) :], _only_session(core)
+        )
         try:
             assert screen_rows(replica.view.term) == expected
             assert "PAYLOAD-TAIL" not in replica.view.term.text()
@@ -247,7 +259,9 @@ def test_a_screen_only_viewer_recovers_to_raw_output_once_a_binary_cut_exists() 
         output.append(b"\r\nlater text")
         _pump_acknowledging(publisher, binding, 3)
         starts = [f for f in peer.frames if f.kind is FrameKind.SNAPSHOT_START]
-        replica = _replicate(peer.frames[peer.frames.index(starts[-1]) :])
+        replica = _replicate(
+            peer.frames[peer.frames.index(starts[-1]) :], _only_session(core)
+        )
         try:
             text = replica.view.term.text()
             assert "back at ground" in text

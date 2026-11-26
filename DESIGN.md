@@ -8526,3 +8526,50 @@ broadcast or aggregate availability. Fake audio coexistence tests prove a
 second kind can register independently without changing Display code. This
 defines no audio protocol, moves no playback ownership from Vox, and changes
 no downstream repository.
+
+## DES-106: A Terminal Daemon Holds Many Sessions, Created by `new` and Resumed by `attach`
+
+**Status:** Accepted. The daemon unit of DES-103's multiple-terminals work;
+builds on DES-056, DES-088 and DES-103, and implements
+`docs/architecture/terminal-lifecycle.md` sections 2, 3 and 5.
+
+`luxd-pty` held one terminal because `attach` started whatever it did not find.
+It now holds up to 16, each created on purpose.
+
+- **`new` creates, `attach` resumes.** `new` takes a `NewRequest` (a label, a
+  launcher name and a size, never a command line), assigns the session an id
+  and replies with it. `attach` binds a viewer to a running session and never
+  starts a program: an unknown, exited or failed id is a non-retryable
+  refusal. The stream wire version is 4 because attach no longer starts
+  anything.
+- **Identity.** A session id is `t<boot>.<n>`: a random value fixed when the
+  daemon starts plus a counter, never reused, so a stale reference cannot name
+  a different shell. A label is what a person calls it, unique among live
+  sessions on the daemon, defaulting to `Terminal <n>`. Every scene element and
+  every attach is keyed by the id.
+- **One owner per concern.** `LiveSessions` holds the session map with its ids
+  and labels. `SessionRoster` holds the session book: it creates, kills, lists
+  and watches sessions, announces `created` and `ended`, and removes finished
+  sessions. `SessionAttach` is the resume path and `PeerAdmission` the hello
+  gate. `ViewerFlow` keeps the credit and CLOSE rules; its queued output,
+  snapshot bytes, size and CLOSE notice are `ViewerOutbox`, `SnapshotOutbox`,
+  `ViewerSize` and `CloseNotice`.
+- **Exit removes the session.** When a program ends, every viewer is sent CLOSE
+  and then the session is removed and its label freed. A session that fails
+  outside the pump gets the same treatment. A viewer that never acknowledges is
+  abandoned after a 30 s grace (`FinishDeadlines`), so one hung Display cannot
+  pin one of the 16 slots. `docs/terminal_lifecycle.tex` models this, and its
+  fidelity variant without the deadline reproduces the pin.
+- **Watching is separate from viewing.** `watch` subscribes a connection to
+  `created` and `ended` events from a bounded queue; a watcher that overflows
+  is dropped and reconciles with `list`. A connection that watches cannot
+  attach, and one that has viewers cannot watch, so a watcher's overflow cannot
+  close a viewer.
+- **The menu helper owns one shell.** `CurrentShell` starts a shell under the
+  label `Terminal`, re-shows it while it runs and adopts it after the helper
+  restarts; `DaemonExchange` is the helper's request/reply over the daemon's
+  socket and `SessionListing` decodes the daemon's `list` reply. A terminal
+  scene element must name a session the daemon issued.
+
+The Terminals menu, launchers, the `lux terminal` commands and minimize/end
+(DES-103 decisions 1, 3, 5, 6 and 9) build on this and are not part of it.

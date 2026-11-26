@@ -14,7 +14,6 @@ from typing import cast
 
 import pytest
 
-from punt_lux.pty.control_dispatch import ControlDispatch
 from punt_lux.pty.control_failures import ControlFailures
 from punt_lux.pty.stream_output import StreamPublisher
 from punt_lux.pty.viewers import Binding, ViewerBindings
@@ -23,7 +22,13 @@ from punt_lux.terminal.snapshot import SnapshotError
 from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.frames import Frame, FrameKind
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec, SuccessReply
-from tests.pty.stream_fakes import IDLE, MidSequenceSession, QueuedCore, RecordingPeer
+from tests.pty.stream_fakes import (
+    IDLE,
+    Controls,
+    MidSequenceSession,
+    QueuedCore,
+    RecordingPeer,
+)
 
 OVERFLOW = b"x" * (8 * 1024 * 1024)
 PARTIAL_CSI = b"\x1b[1"
@@ -175,7 +180,7 @@ def test_a_doubly_failed_first_attach_fails_one_request_and_keeps_the_connection
     core = QueuedCore(broken, healthy)
     bindings = ViewerBindings()
     peer = RecordingPeer()
-    dispatch = ControlDispatch(core, bindings)  # type: ignore[arg-type]  # fake core
+    dispatch = Controls.dispatch(core, bindings)  # type: ignore[arg-type]  # fake core
 
     with caplog.at_level(logging.WARNING, logger="punt_lux.pty.control_dispatch"):
         for request_id, name in ((1, "broken"), (2, "healthy")):

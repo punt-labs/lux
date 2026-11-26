@@ -22,6 +22,7 @@ pytestmark = pytest.mark.integration
 class _BindingDispatch:
     """Binds a viewer for the first peer it hears from and drops it on detach.
 
+
     The binding is made with the exact Peer the PeerBook delivers, so the
     test observes the daemon's real identity match, not a stand-in.
     """

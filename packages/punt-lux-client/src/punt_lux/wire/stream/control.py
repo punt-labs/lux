@@ -19,8 +19,8 @@ from punt_lux.wire.stream.session_requests import (
     ListRequest as ListRequest,
 )
 
-# Defer v4 to the new/watch daemon unit: Display upgrades must work with live luxd-pty.
-WIRE_VERSION = 3
+# Version 4: attach resumes only; sessions start with ``new``, and ``watch`` exists.
+WIRE_VERSION = 4
 
 type Request = (
     HelloRequest | AttachRequest | ListRequest | KillRequest | NewRequest | WatchRequest

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+from tests.pty.launchers import ENVIRONMENT_KEY, Launch, LauncherTable
 
 
 @pytest.fixture(autouse=True)
@@ -22,10 +25,14 @@ def no_normal_hub_menu(monkeypatch: pytest.MonkeyPatch) -> None:
 def daemon() -> Iterator[Path]:
     temporary = tempfile.TemporaryDirectory(prefix="lxpty-", dir="/tmp")
     path = Path(temporary.name) / "private" / "pty.sock"
+    environment = dict(os.environ)
+    environment[ENVIRONMENT_KEY] = str(Path(temporary.name) / "launchers.json")
+    environment["PYTHONPATH"] = str(Path(__file__).parents[2])
     process = subprocess.Popen(
-        [sys.executable, "-m", "punt_lux.pty", "--no-menu", "--socket", str(path)],
+        [sys.executable, "-m", "tests.pty.launcher_daemon", "--socket", str(path)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
+        env=environment,
     )
     try:
         deadline = time.monotonic() + 5
@@ -47,3 +54,9 @@ def daemon() -> Iterator[Path]:
         assert process.returncode == 0, errors
         assert not path.exists(), "daemon left its endpoint behind"
         temporary.cleanup()
+
+
+@pytest.fixture
+def launch(daemon: Path) -> Launch:
+    """Start listed programs as sessions on the ``daemon`` fixture's daemon."""
+    return Launch(daemon, LauncherTable(daemon.parent.parent / "launchers.json"))

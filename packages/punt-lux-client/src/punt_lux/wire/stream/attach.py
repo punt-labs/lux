@@ -11,11 +11,11 @@ from punt_lux.wire.stream.control_fields import ControlFields
 
 @dataclass(frozen=True, slots=True)
 class AttachRequest:
-    """Attach a viewer to this session id, starting it if unknown today.
+    """Attach a viewer to the running session with this id.
 
-    The daemon unit will make this resume-only: refuse unknown ids and create
-    sessions through ``NewRequest`` instead. Size is in cells; ``command`` is
-    an argv-like string, not shell code.
+    The daemon refuses an unknown or exited id and never starts a program for
+    it; sessions start through ``NewRequest``. Size is in cells. ``command`` is
+    carried for wire compatibility and ignored by the daemon.
     """
 
     request_id: int

@@ -18,9 +18,9 @@ pytest.importorskip("pyghostty")
 pytestmark = pytest.mark.integration
 
 PROOF = """
-import json, pathlib, shlex, subprocess, sys, tempfile, time
+import json, pathlib, subprocess, sys, tempfile, time
 from spikes.terminal.proof_signals import ProofSignals
-from punt_lux.wire.stream.attach import AttachRequest
+from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import SuccessReply
@@ -50,12 +50,7 @@ with tempfile.TemporaryDirectory(prefix="proof-", dir="/tmp") as root:
             assert isinstance(client.request(HelloRequest(
                 1, WIRE_VERSION, snapshot_version()
             )), SuccessReply)
-            command = shlex.join([
-                sys.executable, "-c", "import time; time.sleep(60)"
-            ])
-            assert isinstance(client.request(AttachRequest(
-                2, "proof", command
-            )), SuccessReply)
+            assert isinstance(client.request(NewRequest(2, "proof")), SuccessReply)
             listing = client.request(ListRequest(3))
             assert isinstance(listing, SuccessReply)
             pid = listing.result["sessions"][0]["pid"]
