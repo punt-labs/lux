@@ -4,6 +4,7 @@
       "profile": "linux-worktree-v1",
       "epoch": "lux-v1",
       "sources": {"mode": "worktree"},
+      "requires": ["pty"],
       "system": {
         "tools": ["basename", "bash", "cat", "chmod", "cp", "dirname", "env", "git", "grep", "make", "mkdir", "mktemp", "ps", "sed", "sh", "sleep", "sort", "tr"]
       },
