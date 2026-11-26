@@ -65,5 +65,9 @@ class FakeDaemon:
             return SuccessReply(2, {})
         assert isinstance(request, ListRequest)
         state = "running" if self.running else "exited"
-        held = [{"session": name, "state": state} for name in self._started]
+        held = [
+            {"session": name, "label": "Terminal", "state": state}
+            for name in self._started
+            if name not in self._killed
+        ]
         return SuccessReply(2, {"sessions": held})

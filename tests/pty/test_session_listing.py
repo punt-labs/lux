@@ -12,26 +12,44 @@ ENDED: dict[str, object] = {"session": "s2", "label": "Build", "state": "exited"
 
 
 def test_a_listed_running_session_is_running() -> None:
-    assert SessionListing({"sessions": [RUNNING, ENDED]}).is_running("s1")
+    assert SessionListing.from_result({"sessions": [RUNNING, ENDED]}).is_running("s1")
 
 
 def test_an_ended_or_unlisted_session_is_not_running() -> None:
-    listing = SessionListing({"sessions": [RUNNING, ENDED]})
+    listing = SessionListing.from_result({"sessions": [RUNNING, ENDED]})
     assert not listing.is_running("s2")
     assert not listing.is_running("")
 
 
 def test_the_running_session_under_a_label_is_found() -> None:
-    listing = SessionListing({"sessions": [ENDED, RUNNING]})
+    listing = SessionListing.from_result({"sessions": [ENDED, RUNNING]})
     assert listing.running_under("Terminal") == "s1"
     assert listing.running_under("Build") == ""
 
 
 def test_entries_that_are_not_mappings_are_ignored() -> None:
-    assert SessionListing({"sessions": ["junk", 3, RUNNING]}).is_running("s1")
+    assert SessionListing.from_result({"sessions": ["junk", 3, RUNNING]}).is_running(
+        "s1"
+    )
 
 
 @pytest.mark.parametrize("sessions", [None, "s1", {}])
 def test_a_reply_without_a_list_is_refused(sessions: object) -> None:
     with pytest.raises(SessionRefusedError, match="without sessions"):
-        SessionListing({"sessions": sessions})
+        SessionListing.from_result({"sessions": sessions})
+
+
+@pytest.mark.parametrize("session", [None, "", 7, ["s1"]])
+def test_a_row_without_a_usable_session_id_is_ignored(session: object) -> None:
+    row = {"session": session, "label": "Terminal", "state": "running"}
+    listing = SessionListing.from_result({"sessions": [row]})
+    assert listing.running_under("Terminal") == ""
+    assert not listing.is_running(str(session))
+
+
+def test_a_row_missing_its_session_or_state_is_ignored() -> None:
+    no_session = {"label": "Terminal", "state": "running"}
+    no_state = {"session": "s9", "label": "Terminal"}
+    listing = SessionListing.from_result({"sessions": [no_session, no_state]})
+    assert listing.running_under("Terminal") == ""
+    assert not listing.is_running("None")

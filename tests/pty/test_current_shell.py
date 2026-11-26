@@ -181,3 +181,13 @@ def test_a_second_shell_over_a_live_daemon_adopts_the_first(daemon: Path) -> Non
     second = CurrentShell(DaemonExchange(daemon))
     assert second.obtain() == started
     first.release()
+
+
+@pytest.mark.parametrize("session", [None, "", 7])
+def test_a_running_row_without_a_session_id_is_never_adopted(session: object) -> None:
+    row = {"session": session, "label": "Terminal", "state": "running"}
+    started = ReplyCodec.encode(SuccessReply(2, {"session": "s8"}))
+    current = CurrentShell(SequencedExchange(listing(row), listing(row), started))
+    assert not current.resume()
+    assert current.session == ""
+    assert current.obtain() == "s8"

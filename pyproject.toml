@@ -492,6 +492,7 @@ adapters = [
     "punt_lux.pty.control_dispatch",
     "punt_lux.pty.control_input",
     "punt_lux.pty.current_shell",
+    "punt_lux.pty.listed_session",
     "punt_lux.pty.session_listing",
     "punt_lux.pty.daemon_exchange",
     "punt_lux.pty.dispatch",

@@ -383,3 +383,13 @@
 {"ts":"2026-11-26T15:20:49Z","commit":"8d0dff29","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T15:21:24Z","commit":"8d0dff29","source":null,"files_scored":995,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-26T15:21:24Z","commit":"8d0dff29","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:45:01Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{},"backfilled":["src/punt_lux/pty/listed_session.py"]}
+{"ts":"2026-11-26T15:46:18Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:46:18Z","commit":"3a424eb9","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:47:16Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:47:16Z","commit":"3a424eb9","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:51:56Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:53:13Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:56:27Z","commit":"3a424eb9","source":null,"files_scored":1,"files_improved":0,"files_regressed":0,"verdict":"rebaseline-files","reason":"Devin review fix: rows of the daemon's list reply are validated by a new ListedSession class (a non-empty string session, string label and state), so a malformed row can never name a session. SessionListing now imports it alongside daemon_exchange (efferent_coupling 1 to 2, cap 10); moving either import only moves the regression to the other module.","deltas":{},"improved":{}}
+{"ts":"2026-11-26T15:56:36Z","commit":"3a424eb9","source":null,"files_scored":996,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-26T15:56:36Z","commit":"3a424eb9","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

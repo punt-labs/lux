@@ -66,7 +66,7 @@ class CurrentShell:
         finds the shell its predecessor started. Never starts or kills a shell.
         Raises what ``obtain`` raises.
         """
-        listing = SessionListing(self._daemon.ask(ListRequest(2)).result)
+        listing = SessionListing.from_result(self._daemon.ask(ListRequest(2)).result)
         if not listing.is_running(self._session):
             self._session = listing.running_under(_LABEL)
         return bool(self._session)
