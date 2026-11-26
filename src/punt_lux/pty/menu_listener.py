@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import Self
 
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.pty.daemon_exchange import DaemonExchange, SessionRefusedError
 from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_projection import TerminalProjection
@@ -34,24 +35,36 @@ class TerminalMenu:
 
     async def serve(self) -> None:
         keeper = asyncio.create_task(self._keeper.serve())
+        keeper.add_done_callback(self._keeper_ended)
         try:
             while True:
                 try:
                     listener = self._clients.listener(self._clicked, self._connected)
                     await listener.listen()
+                except ProgrammerError:
+                    raise
                 except OSError:
                     logger.debug(
                         "Terminal launcher Hub unavailable; retrying", exc_info=True
                     )
+                except Exception:
+                    logger.exception("Terminal launcher listener failed; retrying")
                 await asyncio.sleep(2)
         finally:
             keeper.cancel()
             await asyncio.gather(keeper, return_exceptions=True)
 
+    @staticmethod
+    def _keeper_ended(task: asyncio.Task[None]) -> None:
+        if not task.cancelled() and (error := task.exception()) is not None:
+            logger.error("Terminal window keeper stopped: %s", error, exc_info=error)
+
     async def _clicked(self, callback: str) -> None:
         try:
             await self._projection.clicked(callback)
-        except (OSError, SessionRefusedError):
+        except SessionRefusedError as error:
+            logger.warning("Terminal not started: %s", error)
+        except OSError:
             logger.exception("Terminal menu click failed; PTY owner remains live")
 
     async def _connected(self) -> None:

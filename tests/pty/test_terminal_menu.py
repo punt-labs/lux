@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -11,8 +12,10 @@ import pytest
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.pty.daemon_exchange import DaemonExchange, SessionRefusedError
+from punt_lux.pty.entry_runtime import TerminalRuntime
 from punt_lux.pty.lifetime import DaemonLifetime
 from punt_lux.pty.menu_clients import TerminalClients
+from punt_lux.pty.menu_entry import MenuEntryPoint
 from punt_lux.pty.menu_listener import TerminalMenu
 from punt_lux.pty.menu_process import MenuProcess
 from punt_lux.pty.menu_projection import TerminalProjection
@@ -88,6 +91,87 @@ def test_a_refused_start_is_logged_and_the_menu_survives() -> None:
     menu, _client = MenuDoubles.menu(daemon)
     asyncio.run(menu._clicked("terminal"))
     assert daemon.started == []
+
+
+def test_a_click_refused_at_the_limit_warns_without_a_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    daemon = FakeDaemon()
+    daemon.refuse("terminal session limit reached")
+    menu, _client = MenuDoubles.menu(daemon)
+    asyncio.run(menu._clicked("terminal"))
+    (record,) = caplog.records
+    assert (record.levelno, record.exc_info) == (logging.WARNING, None)
+    assert "terminal session limit reached" in record.getMessage()
+
+
+def test_an_unexpected_listener_error_is_logged_and_the_menu_keeps_serving(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    menu, _client = MenuDoubles.menu(FakeDaemon())
+    listener = Mock()
+    listener.listen = AsyncMock(side_effect=ValueError("unknown frame"))
+
+    async def scenario() -> bool:
+        with patch.object(menu._clients, "listener", return_value=listener):
+            task = asyncio.create_task(menu.serve())
+            await asyncio.sleep(0.3)
+            alive = not task.done()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(scenario())
+    assert any(
+        r.levelno >= logging.ERROR and "unknown frame" in str(r.exc_info)
+        for r in caplog.records
+    )
+
+
+def test_a_keeper_that_ends_is_logged_as_an_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    menu, _client = MenuDoubles.menu(FakeDaemon())
+
+    async def forever() -> None:
+        await asyncio.Event().wait()
+
+    listener = Mock()
+    listener.listen = AsyncMock(side_effect=forever)
+
+    async def scenario() -> None:
+        with (
+            patch.object(menu._clients, "listener", return_value=listener),
+            patch.object(
+                menu._keeper,
+                "serve",
+                new=AsyncMock(side_effect=ProgrammerError("keeper bug")),
+            ),
+        ):
+            task = asyncio.create_task(menu.serve())
+            await asyncio.sleep(0.2)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    assert any(
+        r.levelno >= logging.ERROR and "keeper" in r.getMessage().lower()
+        for r in caplog.records
+    )
+
+
+def test_a_menu_that_ends_stops_the_helper_loudly() -> None:
+    async def never(_parent: int) -> None:
+        await asyncio.Event().wait()
+
+    menu = Mock()
+    menu.serve = AsyncMock(side_effect=ProgrammerError("menu bug"))
+    with (
+        patch.object(TerminalMenu, "local", return_value=menu),
+        patch.object(TerminalRuntime, "wait_for_owner", side_effect=never),
+        pytest.raises(ProgrammerError, match="menu bug"),
+    ):
+        asyncio.run(asyncio.wait_for(MenuEntryPoint.serve(1), timeout=5))
 
 
 def test_a_reply_without_a_session_is_a_refusal() -> None:

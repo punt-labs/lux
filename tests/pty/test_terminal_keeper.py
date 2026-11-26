@@ -9,11 +9,13 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn, Self, cast
 
 import pytest
 
 pytest.importorskip("pyghostty")
 
+from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.pty.daemon_exchange import DaemonExchange
 from punt_lux.pty.terminal_keeper import TerminalKeeper
 from punt_lux.pty.terminal_windows import TerminalWindows
@@ -153,6 +155,72 @@ def test_a_hub_that_is_down_logs_no_error_records(
     caplog.set_level(logging.DEBUG)
     asyncio.run(scenario())
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+class _BrokenDaemon:
+    """A daemon whose connection fails the way a bug does, not a dead daemon."""
+
+    _error: Exception
+
+    def __new__(cls, error: Exception) -> Self:
+        self = super().__new__(cls)
+        self._error = error
+        return self
+
+    def dial(self) -> NoReturn:
+        raise self._error
+
+
+def _broken_keeper(error: Exception) -> TerminalKeeper:
+    daemon = cast("DaemonExchange", _BrokenDaemon(error))
+    return TerminalKeeper(daemon, TerminalWindows(StubHub().clients))
+
+
+def test_an_unexpected_error_is_logged_and_the_keeper_keeps_serving(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    keeper = _broken_keeper(ValueError("bad descriptor"))
+
+    async def scenario() -> bool:
+        task = asyncio.create_task(keeper.serve())
+        await asyncio.sleep(0.3)
+        alive = not task.done()
+        task.cancel()
+        return alive
+
+    assert asyncio.run(scenario())
+    assert any(
+        r.levelno >= logging.ERROR and "bad descriptor" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_a_programmer_error_still_ends_the_keeper() -> None:
+    keeper = _broken_keeper(ProgrammerError("broken invariant"))
+    with pytest.raises(ProgrammerError, match="broken invariant"):
+        asyncio.run(asyncio.wait_for(keeper.serve(), timeout=5))
+
+
+def test_a_refusal_that_repeats_is_warned_once_and_retried_slower(
+    daemon: Path,
+    launch: Launch,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch.session(SLEEP)
+    hub = StubHub()
+    hub.refuse("no room")
+    monkeypatch.setattr("punt_lux.pty.terminal_keeper._RETRY_S", 0.02)
+    monkeypatch.setattr("punt_lux.pty.terminal_keeper._MAX_RETRY_S", 0.2)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(_keeper(daemon, hub).serve())
+        await asyncio.sleep(1.0)
+        task.cancel()
+
+    asyncio.run(scenario())
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
 
 
 def test_a_missing_daemon_never_ends_the_serve_task(tmp_path: Path) -> None:
