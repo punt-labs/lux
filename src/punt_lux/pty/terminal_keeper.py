@@ -46,8 +46,13 @@ class TerminalKeeper:
         while True:
             try:
                 await self._watch()
-            except (OSError, SessionRefusedError, WindowRefusedError) as error:
-                logger.exception("Terminal watch lost (%s); reconciling shortly", error)
+            except OSError as error:
+                logger.debug("Terminal watch lost (%s); reconciling shortly", error)
+            except (SessionRefusedError, WindowRefusedError) as error:
+                unreachable = isinstance(error.__cause__, OSError)
+                (logger.debug if unreachable else logger.warning)(
+                    "Terminal watch lost (%s); reconciling shortly", error
+                )
             await asyncio.sleep(_RETRY_S)
 
     async def _watch(self) -> None:

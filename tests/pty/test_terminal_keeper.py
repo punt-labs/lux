@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
 import time
@@ -133,6 +134,25 @@ def test_a_refused_scene_is_logged_with_its_session_and_serving_continues(
 
     asyncio.run(scenario())
     assert any(session in r.getMessage() for r in caplog.records)
+
+
+def test_a_hub_that_is_down_logs_no_error_records(
+    daemon: Path, launch: Launch, caplog: pytest.LogCaptureFixture
+) -> None:
+    launch.session(SLEEP)
+    hub = StubHub()
+    hub.go_down()
+
+    async def scenario() -> None:
+        task = asyncio.create_task(_keeper(daemon, hub).serve())
+        try:
+            await asyncio.sleep(0.5)
+        finally:
+            task.cancel()
+
+    caplog.set_level(logging.DEBUG)
+    asyncio.run(scenario())
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
 
 
 def test_a_missing_daemon_never_ends_the_serve_task(tmp_path: Path) -> None:

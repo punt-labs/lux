@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from punt_lux.pty.listed_session import ListedSession
+from punt_lux.pty.sync_plan import SyncPlan
 from punt_lux.pty.terminal_windows import TerminalWindows, WindowRefusedError
 from tests.pty.stub_hub import StubHub
 
@@ -69,6 +70,16 @@ def test_a_refused_scene_is_a_window_failure_naming_the_session() -> None:
     with pytest.raises(WindowRefusedError, match=r"t0\.4.*no room"):
         asyncio.run(windows.open(_session("t0.4")))
     assert windows.shown == frozenset()
+
+
+def test_one_refused_window_does_not_stop_the_others_opening() -> None:
+    hub = StubHub()
+    hub.refuse_scene("terminal-t0.1", "no room")
+    windows = TerminalWindows(hub.clients)
+    plan = SyncPlan((_session("t0.1"), _session("t0.2"), _session("t0.3")), ())
+    with pytest.raises(WindowRefusedError, match=r"t0\.1.*no room"):
+        asyncio.run(windows.apply(plan))
+    assert windows.shown == frozenset({"t0.2", "t0.3"})
 
 
 def test_other_scenes_are_not_taken_for_terminal_windows() -> None:

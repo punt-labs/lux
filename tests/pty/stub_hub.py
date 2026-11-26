@@ -55,10 +55,12 @@ class StubHub:
     _menu: dict[str, str]
     _down: bool
     _refusal: str
+    _refused: dict[str, str]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._scenes, self._menu, self._foreign = {}, {}, set()
+        self._refused = {}
         self._identity = ClientIdentity(kind="app", name="luxd-pty", lease_ttl=30)
         self._down, self._refusal = False, ""
         return self
@@ -121,10 +123,14 @@ class StubHub:
     def refuse(self, reason: str) -> None:
         self._refusal = reason
 
+    def refuse_scene(self, scene_id: str, reason: str) -> None:
+        """Refuse only the scene named ``scene_id``; others are shown."""
+        self._refused[scene_id] = reason
+
     async def show(self, request: RenderRequest) -> SceneShown | OpError:
         self._require_up()
-        if self._refusal:
-            return OpError(code="rejected", reason=self._refusal)
+        if reason := self._refused.get(request.scene_id, self._refusal):
+            return OpError(code="rejected", reason=reason)
         self._scenes[request.scene_id] = request
         return SceneShown(scene_id=request.scene_id)
 

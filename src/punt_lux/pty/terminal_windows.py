@@ -97,11 +97,25 @@ class TerminalWindows:
         self._shown.discard(session_id)
 
     async def apply(self, plan: SyncPlan) -> None:
-        """Open and close windows until the plan holds."""
-        for session_id in plan.closed:
-            await self.close(session_id)
-        for session in plan.opened:
-            await self.open(session)
+        """Open and close every window the plan names.
+
+        A window the Hub refuses does not hold back the others.
+
+        Raises:
+            WindowRefusedError: One or more windows failed; it names each.
+        """
+        steps = (
+            *(self.close(session_id) for session_id in plan.closed),
+            *(self.open(session) for session in plan.opened),
+        )
+        failures: list[str] = []
+        for step in steps:
+            try:
+                await step
+            except WindowRefusedError as error:
+                failures.append(str(error))
+        if failures:
+            raise WindowRefusedError("; ".join(failures))
 
     @staticmethod
     def _failure(what: str, session_id: str, reason: str) -> WindowRefusedError:

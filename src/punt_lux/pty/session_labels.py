@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import count
 from typing import Protocol, Self
 
 
@@ -20,18 +19,17 @@ class SessionLabels:
     """Own which label names which live session."""
 
     _live: dict[str, str]
-    _defaults: count[int]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._live = {}
-        self._defaults = count(1)
         return self
 
     def unique(self, requested: str) -> str:
         """Return the label a new session will carry.
 
-        An empty request picks ``Terminal N`` with the next unused N. A
+        An empty request picks ``Terminal N`` with the lowest N no live
+        session holds. A
         requested label that a live session already holds is refused.
         """
         if not requested:
@@ -53,6 +51,7 @@ class SessionLabels:
         }
 
     def _next_default(self) -> str:
-        while (label := f"Terminal {next(self._defaults)}") in self._live:
-            pass
-        return label
+        number = 1
+        while f"Terminal {number}" in self._live:
+            number += 1
+        return f"Terminal {number}"
