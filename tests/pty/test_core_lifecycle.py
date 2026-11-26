@@ -11,9 +11,12 @@ pytest.importorskip("pyghostty")
 
 from punt_lux.pty.core import SessionCore, SessionError
 from punt_lux.pty.dispatch import SessionDispatch
+from punt_lux.pty.session_roster import SessionRoster
+from punt_lux.pty.viewers import ViewerBindings
 from punt_lux.terminal.snapshot import snapshot_version
 from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.control import WIRE_VERSION
+from punt_lux.wire.stream.frames import FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.replies import FailureReply, SuccessReply
@@ -188,3 +191,44 @@ def test_the_listing_carries_each_sessions_label() -> None:
     assert isinstance(sessions, list)
     assert [s["label"] for s in sessions] == ["work"]
     daemon.core.close()
+
+
+def test_shell_exit_sends_close_then_removes_the_session_and_frees_the_label() -> None:
+    daemon = _Daemon()
+    session = daemon.create("work")
+    attached = daemon.ask(AttachRequest(daemon.take(), session))
+    assert isinstance(attached, SuccessReply)
+    daemon.link.received()
+    process = daemon.factory.created[0]
+    process.alive = False
+    process.exit_code = 0
+    for _ in range(3):
+        daemon.dispatch.pump()
+    frames = daemon.link.received()
+    assert FrameKind.CLOSE in [f.kind for f in frames if f.channel != 0]
+    assert daemon.core.describe() == []
+    assert daemon.core.create(NewRequest(99, "work")).label == "work"
+    daemon.core.close()
+
+
+def test_a_session_waits_for_close_to_reach_every_viewer_before_removal() -> None:
+    factory = FakeFactory()
+    core = SessionCore(factory)
+    try:
+        session = core.create(NewRequest(1, "work"))
+        bindings = ViewerBindings()
+        link = PeerLink()
+        binding = bindings.add(link.peer, session.name, 80, 24)
+        roster = SessionRoster(core, bindings)
+        roster.sweep()
+        assert [e["session"] for e in core.describe()] == [session.name]
+        factory.created[0].alive = False
+        core.pump()
+        binding.flow.finish("exited")
+        roster.sweep()
+        assert [e["session"] for e in core.describe()] == [session.name]
+        binding.flow.drain()
+        roster.sweep()
+        assert core.describe() == []
+    finally:
+        core.close()

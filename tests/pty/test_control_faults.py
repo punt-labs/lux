@@ -9,7 +9,6 @@ import pytest
 
 pytest.importorskip("pyghostty")
 
-from punt_lux.pty.control_input import ControlInput
 from punt_lux.pty.core import SessionCore
 from punt_lux.pty.peer import Peer
 from punt_lux.pty.process_port import ProcessPort
@@ -22,6 +21,7 @@ from punt_lux.wire.stream.frames import Frame, FrameDecoder, FrameKind
 from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec
 from tests.pty.fake_process import FakeFactory
+from tests.pty.stream_fakes import Controls
 
 if TYPE_CHECKING:
     from pytest import MonkeyPatch
@@ -44,7 +44,7 @@ def test_transport_fault_boundary_preserves_other_sessions_and_operator_signals(
     client.settimeout(1)
     peer = Peer(owned)
     peer.mark_ready()
-    control = ControlInput(core, ViewerBindings())
+    control = Controls.input(core, ViewerBindings())
 
     def fail(_spec: SessionSpec, _process: ProcessPort) -> Never:
         factory.created[-1].refuse_close = refuse_cleanup
@@ -113,7 +113,7 @@ def test_kill_cleanup_failure_finishes_repaint_before_publishing_other_sessions(
     bindings = ViewerBindings()
     binding = bindings.add(peer, dying_name, 80, 24)
     try:
-        ControlInput(core, bindings).receive(
+        Controls.input(core, bindings).receive(
             peer,
             Frame(0, FrameKind.DATA, ControlCodec.encode(KillRequest(3, dying_name))),
         )
@@ -147,7 +147,7 @@ def test_attach_failures_distinguish_unknown_ids_from_resource_limits(
     peer.mark_ready()
     try:
         request = NewRequest(2, "two") if transient else AttachRequest(2, "t0.9")
-        ControlInput(core, ViewerBindings()).receive(
+        Controls.input(core, ViewerBindings()).receive(
             peer, Frame(0, FrameKind.DATA, ControlCodec.encode(request))
         )
         peer.flush()

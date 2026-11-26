@@ -37,7 +37,7 @@ class StreamPublisher:
         self._bindings.detach(peer)
 
     def resize(self, name: str, cols: int, rows: int) -> None:
-        if self._core.get(name).resize(cols, rows):
+        if self._core.resize(name, cols, rows):
             for binding in self._bindings.session(name):
                 binding.flow.request_repaint()
 

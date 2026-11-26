@@ -14,27 +14,25 @@ from punt_lux.wire.stream.control import (
     ListRequest,
     NewRequest,
     Request,
+    WatchRequest,
 )
 
 if TYPE_CHECKING:
-    from punt_lux.pty.core import SessionCore
     from punt_lux.pty.peer import Peer
-    from punt_lux.pty.viewers import ViewerBindings
+    from punt_lux.pty.session_roster import SessionRoster
 
 
 class ControlDispatch:
     """Negotiate, create, resume, inspect and explicitly terminate sessions."""
 
-    _core: SessionCore
-    _bindings: ViewerBindings
+    _roster: SessionRoster
     _admission: PeerAdmission
     _attach: SessionAttach
 
-    def __new__(cls, core: SessionCore, bindings: ViewerBindings) -> Self:
+    def __new__(cls, roster: SessionRoster, attach: SessionAttach) -> Self:
         self = super().__new__(cls)
-        self._core, self._bindings = core, bindings
+        self._roster, self._attach = roster, attach
         self._admission = PeerAdmission.current()
-        self._attach = SessionAttach(core, bindings)
         return self
 
     def execute(self, peer: Peer, request: Request) -> None:
@@ -49,18 +47,16 @@ class ControlDispatch:
         if isinstance(request, AttachRequest):
             self._attach.execute(peer, request)
         elif isinstance(request, ListRequest):
-            listing = self._core.describe()
+            listing = self._roster.describe()
             StreamPublisher.success(peer, request.request_id, {"sessions": listing})
-        elif isinstance(request, KillRequest):
-            self._bindings.close_session(request.session, "session killed")
-            self._core.kill(request.session)
-            StreamPublisher.success(peer, request.request_id, {})
         elif isinstance(request, NewRequest):
-            session = self._core.create(request)
+            session = self._roster.create(request)
             StreamPublisher.success(peer, request.request_id, session.describe())
+        elif isinstance(request, WatchRequest):
+            self._roster.watch(peer)
+            StreamPublisher.success(peer, request.request_id, {})
+        elif isinstance(request, KillRequest):
+            self._roster.kill(request.session)
+            StreamPublisher.success(peer, request.request_id, {})
         else:
-            # watch decodes on the wire but the daemon does not act on it yet;
-            # refuse it rather than run it as something else.
-            StreamPublisher.failure(
-                peer, request.request_id, f"unsupported operation {request.OP}"
-            )
+            raise ValueError(f"unsupported operation {request.OP}")

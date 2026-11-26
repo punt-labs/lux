@@ -95,7 +95,7 @@ def test_new_replica_pool_reattaches_to_the_same_process_and_screen(
         client.close()
 
 
-def test_exited_program_refuses_a_new_replica_and_never_respawns(
+def test_exited_program_is_removed_and_a_new_replica_is_refused(
     daemon: Path, launch: Launch
 ) -> None:
     code = "import sys; sys.stdin.readline(); print('finished')"
@@ -119,10 +119,13 @@ def test_exited_program_refuses_a_new_replica_and_never_respawns(
     client = WireClient(daemon)
     try:
         client.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
-        reply = client.request(ListRequest(2))
-        assert isinstance(reply, SuccessReply)
-        sessions = reply.result["sessions"]
-        assert isinstance(sessions, list)
-        assert [s["session"] for s in sessions] == [name]  # nothing was respawned
+        deadline = time.monotonic() + 5
+        sessions: object = None
+        while sessions != [] and time.monotonic() < deadline:
+            reply = client.request(ListRequest(2))
+            assert isinstance(reply, SuccessReply)
+            sessions = reply.result["sessions"]
+            time.sleep(0.01)
+        assert sessions == []  # reaped, and nothing was respawned
     finally:
         client.close()

@@ -55,6 +55,11 @@ class SessionCore:
         """Return the running session ``name``; resuming never starts a shell."""
         return self._live.running(name)
 
+    @property
+    def exited(self) -> tuple[TerminalSession, ...]:
+        """Sessions whose program has ended and that are not yet removed."""
+        return self._live.exited()
+
     def get(self, name: str) -> TerminalSession:
         try:
             return self._live.get(name)
@@ -74,6 +79,15 @@ class SessionCore:
             if chunk.data:
                 output.append(chunk)
         return output
+
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        """Resize ``name``; a removed session has no size left to change."""
+        return name in self._live and self._live.get(name).resize(cols, rows)
+
+    def write(self, name: str, data: bytes) -> None:
+        """Send input to ``name``; input in flight for a removed one is dropped."""
+        if name in self._live:
+            self._live.get(name).write(data)
 
     def describe(self) -> list[dict[str, object]]:
         return [session.describe() for session in self._live] + self._pending.describe()

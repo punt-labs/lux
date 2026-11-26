@@ -34,6 +34,13 @@ class LiveSessions:
     def __iter__(self) -> Iterator[TerminalSession]:
         return iter(tuple(self._sessions.values()))
 
+    def __contains__(self, name: object) -> bool:
+        return name in self._sessions
+
+    def exited(self) -> tuple[TerminalSession, ...]:
+        """Return the held sessions whose program has ended."""
+        return tuple(s for s in self._sessions.values() if s.ended)
+
     def spec(self, request: NewRequest) -> SessionSpec:
         """Name a session about to start: a fresh id and a label no live one holds."""
         return SessionSpec(

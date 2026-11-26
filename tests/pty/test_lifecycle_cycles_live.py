@@ -89,9 +89,10 @@ class LifecycleCycle:
                 PoolWait.until(second, lambda: "ECHO:again" in replica.view.term.text())
         finally:
             second.close()
-        assert isinstance(
-            client.request(KillRequest(100 + index * 2, name)), SuccessReply
-        )
+        if not exited:
+            assert isinstance(
+                client.request(KillRequest(100 + index * 2, name)), SuccessReply
+            )
         deadline = time.monotonic() + 5
         while (
             LifecycleCycle.sessions(client, 101 + index * 2)

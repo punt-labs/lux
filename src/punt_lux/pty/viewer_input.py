@@ -32,7 +32,7 @@ class StreamDispatch:
         if frame.kind is FrameKind.DATA:
             cols, rows = binding.flow.size.wanted
             self._publisher.resize(binding.session, cols, rows)
-            self._core.get(binding.session).write(frame.payload)
+            self._core.write(binding.session, frame.payload)
         elif frame.kind is FrameKind.RESIZE:
             if len(frame.payload) != 4:
                 raise ValueError("resize needs cols/rows uint16")

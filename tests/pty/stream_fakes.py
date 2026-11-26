@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.pty.core import SessionError
+from punt_lux.pty.control_dispatch import ControlDispatch
+from punt_lux.pty.control_input import ControlInput
+from punt_lux.pty.core import SessionCore, SessionError
+from punt_lux.pty.session_attach import SessionAttach
+from punt_lux.pty.session_roster import SessionRoster
+from punt_lux.pty.viewers import ViewerBindings
 from punt_lux.terminal.output import OutputChunk, SessionSnapshot
 from punt_lux.terminal.snapshot import ContinuationExhaustedError, SnapshotError
 from punt_lux.terminal.snapshot_encoding import SnapshotEncoding
@@ -140,3 +145,19 @@ class QueuedCore:
 
     def attach(self, name: str) -> MidSequenceSession:
         return self.get(name)
+
+    def resize(self, name: str, cols: int, rows: int) -> bool:
+        return self.get(name).resize(cols, rows)
+
+
+class Controls:
+    """Builds the control path over a core and bindings, as the daemon wires it."""
+
+    @staticmethod
+    def dispatch(core: SessionCore, bindings: ViewerBindings) -> ControlDispatch:
+        roster = SessionRoster(core, bindings)
+        return ControlDispatch(roster, SessionAttach(core, bindings))
+
+    @staticmethod
+    def input(core: SessionCore, bindings: ViewerBindings) -> ControlInput:
+        return ControlInput(Controls.dispatch(core, bindings))
