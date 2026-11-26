@@ -473,5 +473,6 @@ or module layout; those are decided above.
 
 ## 10. ADR
 
-On ratification the leader appends one ADR to `DESIGN.md` recording sections
-2, 3, 4 and 6 and the amendments to DES-063 and DES-064 stated above.
+DES-106 in `DESIGN.md` records the daemon side of sections 2, 3 and 5. DES-103
+records the menu, naming, launcher and window decisions that revise sections 4
+and 6.
