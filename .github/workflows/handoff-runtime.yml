@@ -7,9 +7,12 @@ on:
       - .github/workflows/models.yml
       - .punt-labs/ethos/checks/snapshots/python-oo.yaml
       - .python-version
+      - docs/peripheral_registry_lifecycle.tex
       - Makefile
       - "**/pyproject.toml"
       - scripts/*handoff-runtime.sh
+      - scripts/prob_model_check.sh
+      - scripts/verify_peripheral_registry_model.sh
       - uv.lock
   workflow_dispatch:
     inputs:
