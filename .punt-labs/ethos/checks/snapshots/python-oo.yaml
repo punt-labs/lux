@@ -17,7 +17,7 @@
         "platforms": {
           "linux-amd64": {
             "bundle": "lux-linux-amd64-v1.tar.gz",
-            "sha256": "3a9956c2c3babd009539245c374e65e20b27285e9d3d9a2980d2dc943e3bba0d",
+            "sha256": "b37156efff9f9a053f9db48d1f38c6c799308d31e28705a8a19c558173ca3d15",
             "path": ["{runtime}/bin", "{runtime}/node/bin", "{runtime}/python/bin", "{runtime}/java/bin"],
             "env": {
               "UV_PYTHON": "{runtime}/python/bin/python3.13",
