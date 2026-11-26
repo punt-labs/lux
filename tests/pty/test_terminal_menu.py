@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -10,6 +11,7 @@ import pytest
 
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
+from punt_lux.pty.current_shell import CurrentShell
 from punt_lux.pty.lifetime import DaemonLifetime
 from punt_lux.pty.menu_clients import TerminalClients
 from punt_lux.pty.menu_listener import TerminalMenu
@@ -200,3 +202,48 @@ def test_unstarted_menu_process_close_is_safe() -> None:
     process = MenuProcess()
     process.close()
     process.close()
+
+
+def test_a_failed_release_keeps_the_shell_so_it_can_be_retried() -> None:
+    daemon = FakeDaemon("t0.1")
+    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
+        current = CurrentShell.local()
+    current.obtain()
+    daemon.refuse_kill("close failed", retryable=True)
+    current.release()
+    assert current.session == "t0.1"
+    daemon.allow_kill()
+    current.release()
+    assert (current.session, daemon.killed) == ("", ["t0.1"])
+
+
+def test_releasing_a_shell_the_daemon_no_longer_holds_logs_no_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    daemon = FakeDaemon("t0.1")
+    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
+        current = CurrentShell.local()
+    current.obtain()
+    daemon.refuse_kill("unknown terminal session t0.1")
+    current.release()
+    assert current.session == ""
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_a_shell_that_ended_while_the_hub_was_down_is_not_shown_again() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
+    asyncio.run(projection.clicked("terminal"))
+    daemon.running = False
+    asyncio.run(projection.connected())
+    assert client.scene.show.await_count == 1
+
+
+def test_a_refused_reshow_does_not_kill_the_shell_the_user_is_using() -> None:
+    factory, client = MenuDoubles.clients()
+    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
+    asyncio.run(projection.clicked("terminal"))
+    client.scene.show.return_value = OpError(code="rejected", reason="no")
+    asyncio.run(projection.connected())
+    asyncio.run(projection.clicked("terminal"))
+    assert daemon.killed == []

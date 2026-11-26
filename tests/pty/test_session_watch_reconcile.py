@@ -9,10 +9,11 @@ pytest.importorskip("pyghostty")
 from punt_lux.pty.core import SessionCore
 from punt_lux.pty.dispatch import SessionDispatch
 from punt_lux.terminal.snapshot import snapshot_version
+from punt_lux.wire.stream.attach import AttachRequest
 from punt_lux.wire.stream.control import WIRE_VERSION
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.new_request import NewRequest
-from punt_lux.wire.stream.replies import SuccessReply
+from punt_lux.wire.stream.replies import FailureReply, SuccessReply
 from punt_lux.wire.stream.session_events import SessionEvent, WatchRequest
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 from tests.pty.fake_process import FakeFactory
@@ -90,5 +91,35 @@ def test_an_ended_event_names_the_label_the_session_held() -> None:
             SessionEvent("created", session, "work"),
             SessionEvent("ended", session, "work"),
         ]
+    finally:
+        core.close()
+
+
+def test_a_connection_with_a_viewer_cannot_watch() -> None:
+    core = SessionCore(FakeFactory())
+    dispatch = SessionDispatch(core)
+    link = _connected(dispatch)
+    try:
+        (session,) = _created_ids(link, dispatch, 1)
+        attached = link.request(dispatch, AttachRequest(3, session))
+        assert isinstance(attached, SuccessReply)
+        reply = link.request(dispatch, WatchRequest(4))
+        assert isinstance(reply, FailureReply)
+        assert not reply.retryable
+        assert not link.peer.closed
+    finally:
+        core.close()
+
+
+def test_a_watching_connection_cannot_attach() -> None:
+    core = SessionCore(FakeFactory())
+    dispatch = SessionDispatch(core)
+    watcher, actor = _connected(dispatch), _connected(dispatch)
+    try:
+        (session,) = _created_ids(actor, dispatch, 1)
+        assert isinstance(watcher.request(dispatch, WatchRequest(2)), SuccessReply)
+        reply = watcher.request(dispatch, AttachRequest(3, session))
+        assert isinstance(reply, FailureReply)
+        assert not reply.retryable
     finally:
         core.close()

@@ -45,6 +45,7 @@ class ControlDispatch:
     def _operate(self, peer: Peer, request: Request) -> None:
         self._admission.require_ready(peer)
         if isinstance(request, AttachRequest):
+            self._roster.require_not_watching(peer)
             self._attach.execute(peer, request)
         elif isinstance(request, ListRequest):
             listing = self._roster.describe()

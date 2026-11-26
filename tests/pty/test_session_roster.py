@@ -6,7 +6,8 @@ import pytest
 
 pytest.importorskip("pyghostty")
 
-from punt_lux.pty.core import SessionCore
+from punt_lux.pty.core import SessionCore, SessionError
+from punt_lux.pty.finish_deadlines import GRACE_SECONDS, FinishDeadlines
 from punt_lux.pty.session_roster import SessionRoster
 from punt_lux.pty.stream_output import StreamPublisher
 from punt_lux.pty.viewers import ViewerBindings
@@ -163,4 +164,32 @@ def test_attaching_to_a_failed_session_is_not_retryable() -> None:
         core.resize(name, 100, 30)
     with pytest.raises(ValueError, match="unknown session"):
         core.attach(name)
+    core.close()
+
+
+def test_a_stalled_viewer_cannot_keep_an_exited_session_forever() -> None:
+    clock = [0.0]
+    factory = FakeFactory()
+    core = SessionCore(factory, limit=1)
+    bindings = ViewerBindings()
+    roster = SessionRoster(core, bindings, FinishDeadlines(lambda: clock[0]))
+    publisher = StreamPublisher(core, bindings)
+    session = roster.create(NewRequest(1, "work"))
+    stalled = PeerLink()
+    binding = bindings.add(stalled.peer, session.name, 80, 24)
+    big = SessionSnapshot(session.name, 0, 80, 24, "test", b"s" * 300_000)
+    binding.flow.prepare(big, session.describe(), initial=True)
+    factory.created[0].alive = False
+    for _ in range(3):
+        publisher.pump()
+        roster.sweep()
+    with pytest.raises(SessionError, match="limit"):
+        core.create(NewRequest(2, "other"))
+    clock[0] = GRACE_SECONDS
+    for _ in range(3):
+        publisher.pump()
+        roster.sweep()
+    assert binding.flow.close_sent
+    assert core.describe() == []
+    assert core.create(NewRequest(2, "other")).label == "other"
     core.close()

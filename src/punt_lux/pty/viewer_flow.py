@@ -104,13 +104,17 @@ class ViewerFlow:
         elif data:
             self._outbox.push(data)
 
+    def abandon_unsent(self) -> None:
+        """Drop output the viewer never took; its CLOSE is sent on the next drain."""
+        self._outbox.abandon()
+        self._repaint = self._screen_only = False
+
     def acknowledge(self, amount: int) -> None:
         self._credit.acknowledge(amount)
 
     def finish(self, reason: str, exit_code: object = None) -> None:
         if reason != "exited":
-            self._outbox.abandon()
-            self._repaint = self._screen_only = False
+            self.abandon_unsent()
         self._outbox.finish(reason, exit_code)
 
     def drain(self) -> list[Frame]:

@@ -6,7 +6,11 @@ import logging
 from collections.abc import Mapping
 from typing import Self, cast
 
-from punt_lux.pty.daemon_exchange import DaemonExchange, SessionRefusedError
+from punt_lux.pty.daemon_exchange import (
+    DaemonExchange,
+    RetryableRefusalError,
+    SessionRefusedError,
+)
 from punt_lux.wire.stream.new_request import NewRequest
 from punt_lux.wire.stream.session_requests import KillRequest, ListRequest
 
@@ -48,13 +52,33 @@ class CurrentShell:
             self._session = self._start()
         return self._session
 
+    def resume(self) -> bool:
+        """Say whether the held shell still runs; one that does not is forgotten.
+
+        Never starts a shell. Raises what ``obtain`` raises.
+        """
+        if self._session and not self._is_running():
+            self._session = ""
+        return bool(self._session)
+
     def release(self) -> None:
-        """Forget the held shell and end it, so none runs without a scene."""
-        shell, self._session = self._session, ""
+        """End the held shell so none runs without a scene.
+
+        The shell is forgotten once the daemon no longer holds it: ended, or
+        refused as unknown. A kill that failed for any other reason keeps it
+        held, so the next release retries rather than orphaning a running shell.
+        """
+        shell = self._session
+        if not shell:
+            return
         try:
             self._daemon.ask(KillRequest(2, shell))
-        except (OSError, SessionRefusedError):
+        except (RetryableRefusalError, OSError):
             logger.exception("Terminal %s could not be ended", shell)
+            return
+        except SessionRefusedError as error:
+            logger.info("Terminal %s is already gone: %s", shell, error)
+        self._session = ""
 
     def _start(self) -> str:
         reply = self._daemon.ask(NewRequest(2))

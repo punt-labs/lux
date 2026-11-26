@@ -43,7 +43,7 @@ class TerminalMenu:
     async def _connected(self) -> None:
         try:
             await self._projection.connected()
-        except OSError:
+        except (OSError, SessionRefusedError):
             logger.exception(
                 "Terminal launcher registration failed; listener remains live"
             )

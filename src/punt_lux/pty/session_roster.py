@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.pty.finish_deadlines import FinishDeadlines
 from punt_lux.pty.session_watchers import SessionWatchers
 from punt_lux.wire.stream.session_events import SessionEvent
 
@@ -23,19 +24,28 @@ class SessionRoster:
 
     A finished session is removed once CLOSE has been sent to each of its
     viewers, so none is left showing a live screen for a shell that is gone.
-    Removal never waits for a watcher.
+    Removal never waits for a watcher. A viewer that has not taken the session's
+    last output within the grace period loses what it has not been sent and is
+    sent CLOSE, so a stalled viewer cannot keep a finished session forever.
     """
 
     _core: SessionCore
     _bindings: ViewerBindings
     _watchers: SessionWatchers
     _announced: set[str]
+    _deadlines: FinishDeadlines
 
-    def __new__(cls, core: SessionCore, bindings: ViewerBindings) -> Self:
+    def __new__(
+        cls,
+        core: SessionCore,
+        bindings: ViewerBindings,
+        deadlines: FinishDeadlines | None = None,
+    ) -> Self:
         self = super().__new__(cls)
         self._core, self._bindings = core, bindings
         self._watchers = SessionWatchers()
         self._announced = set()
+        self._deadlines = deadlines or FinishDeadlines()
         return self
 
     def create(self, request: NewRequest) -> TerminalSession:
@@ -65,8 +75,26 @@ class SessionRoster:
                 self._bindings.close_session(name, "session killed")
 
     def watch(self, peer: Peer) -> None:
-        """Turn ``peer`` into a subscriber of created and ended events."""
+        """Turn ``peer`` into a subscriber of created and ended events.
+
+        A watcher that falls behind is closed with its connection, so a
+        connection that carries viewers never watches: it would end them too.
+
+        Raises:
+            ValueError: ``peer`` has viewers, or is already watching.
+        """
+        if any(binding.peer is peer for binding in self._bindings.all):
+            raise ValueError("a connection with viewers cannot watch; dial another")
         self._watchers.subscribe(peer)
+
+    def require_not_watching(self, peer: Peer) -> None:
+        """Refuse a viewer on a watching connection, for the same reason.
+
+        Raises:
+            ValueError: ``peer`` is watching.
+        """
+        if peer in self._watchers:
+            raise ValueError("a watching connection cannot attach; dial another")
 
     def detach(self, peer: Peer) -> None:
         """Forget ``peer`` after its connection went away."""
@@ -82,10 +110,24 @@ class SessionRoster:
             self._announce(session)
             if not session.ended:  # a failed session sends no exit notice of its own
                 self._bindings.close_session(session.name, "session failed")
+            if self._deadlines.overdue(session.name):
+                self._abandon_stalled(session)
             if all(b.flow.close_sent for b in self._bindings.session(session.name)):
                 self._remove(session)
-        self._announced &= {s.name for s in self._core.finished}
+        names = {s.name for s in self._core.finished}
+        self._announced &= names
+        self._deadlines.keep_only(names)
         self._watchers.drain()
+
+    def _abandon_stalled(self, session: TerminalSession) -> None:
+        for binding in self._bindings.session(session.name):
+            if not binding.flow.close_sent:
+                logger.warning(
+                    "terminal %s: viewer on channel %d took no output, dropping it",
+                    session.name,
+                    binding.channel,
+                )
+                binding.flow.abandon_unsent()
 
     def _remove(self, session: TerminalSession) -> None:
         try:

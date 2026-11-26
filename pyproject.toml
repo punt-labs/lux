@@ -680,6 +680,7 @@ domain = [
     "punt_lux.pty.close_notice",
     "punt_lux.pty.credit",
     "punt_lux.pty.fault",
+    "punt_lux.pty.finish_deadlines",
     "punt_lux.pty.operation_failure",
     "punt_lux.pty.output_tail",
     "punt_lux.pty.process_port",

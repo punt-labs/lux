@@ -39,19 +39,27 @@ class TerminalProjection:
         )
         if isinstance(result, OpError):
             logger.warning("Terminal menu registration refused: %s", result.reason)
-        if self._shell.session:
+        if await asyncio.to_thread(self._shell.resume):
             await self._show()
 
     async def clicked(self, callback: str) -> None:
         if callback != "terminal":
             return
+        before = self._shell.session
         await asyncio.to_thread(self._shell.obtain)
-        await self._show()
+        if not await self._show():
+            await self._discard_if_new(before)
 
-    async def _show(self) -> None:
+    async def _discard_if_new(self, before: str) -> None:
+        """End the shell only when this click started it; the user's own stays."""
+        if self._shell.session != before:
+            await asyncio.to_thread(self._shell.release)
+
+    async def _show(self) -> bool:
+        """Show the shell; say whether the Hub accepted it."""
         shell = _SHELL | {"session": self._shell.session}
         request = RenderRequest(scene_id="terminal", title="Terminal", elements=[shell])
         result = await self._clients.client().scene.show(request)
         if isinstance(result, OpError):
             logger.warning("Terminal launch refused: %s", result.reason)
-            await asyncio.to_thread(self._shell.release)
+        return not isinstance(result, OpError)

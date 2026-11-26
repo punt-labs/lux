@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
 
 import pytest
@@ -50,3 +51,12 @@ def test_a_held_shell_is_reused_until_it_is_released(daemon: Path) -> None:
     assert current.session == ""
     assert current.obtain() != first
     current.release()
+
+
+def test_a_malformed_frame_from_the_daemon_is_a_session_refusal() -> None:
+    header = struct.pack("<IBI", 1, 255, 0)  # a frame kind that does not exist
+    with (
+        ScriptedDaemon(raw=header) as daemon,
+        pytest.raises(SessionRefusedError, match="unreadable"),
+    ):
+        shell(daemon).obtain()

@@ -13,7 +13,7 @@ from punt_lux.kernel.credentials import PeerCredentials
 from punt_lux.pty.peer import Peer
 from punt_lux.terminal.snapshot import snapshot_version
 from punt_lux.wire.stream.control import WIRE_VERSION, ControlCodec, ControlRequest
-from punt_lux.wire.stream.frames import Frame, FrameKind
+from punt_lux.wire.stream.frames import Frame, FrameError, FrameKind
 from punt_lux.wire.stream.hello import HelloRequest
 from punt_lux.wire.stream.replies import FailureReply, ReplyCodec, SuccessReply
 
@@ -23,6 +23,10 @@ TIMEOUT_S = 5.0
 
 class SessionRefusedError(RuntimeError):
     """The daemon refused a request, or answered one in a way that cannot be read."""
+
+
+class RetryableRefusalError(SessionRefusedError):
+    """The daemon refused, and said the same request may succeed later."""
 
 
 class DaemonExchange:
@@ -71,6 +75,10 @@ class DaemonExchange:
                 frames = peer.receive()
             except EOFError as error:
                 raise ConnectionError("luxd-pty closed the connection") from error
+            except FrameError as error:
+                raise SessionRefusedError(
+                    "luxd-pty sent an unreadable frame"
+                ) from error
             for frame in frames:
                 try:
                     reply = ReplyCodec.decode(frame.payload)
@@ -79,6 +87,11 @@ class DaemonExchange:
                         "luxd-pty sent an unreadable reply"
                     ) from error
                 if isinstance(reply, FailureReply):
-                    raise SessionRefusedError(reply.error)
+                    refusal = (
+                        RetryableRefusalError
+                        if reply.retryable
+                        else SessionRefusedError
+                    )
+                    raise refusal(reply.error)
                 return reply
         raise TimeoutError("luxd-pty did not answer")

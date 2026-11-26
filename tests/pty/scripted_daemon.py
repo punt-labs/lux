@@ -14,16 +14,20 @@ from punt_lux.wire.stream.replies import ReplyCodec, SuccessReply
 
 
 class ScriptedDaemon:
-    """Serve ``replies`` in order after the hello reply, one per request."""
+    """Serve ``replies`` in order after the hello reply, one per request.
+
+    ``raw`` bytes, when given, answer the first request instead, unframed.
+    """
 
     _replies: tuple[bytes, ...]
+    _raw: bytes
     _directory: tempfile.TemporaryDirectory[str]
     _server: socket.socket
     _thread: threading.Thread
 
-    def __new__(cls, *replies: bytes) -> Self:
+    def __new__(cls, *replies: bytes, raw: bytes = b"") -> Self:
         self = super().__new__(cls)
-        self._replies = replies
+        self._replies, self._raw = replies, raw
         self._directory = tempfile.TemporaryDirectory(prefix="lxscr-", dir="/tmp")
         self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server.bind(str(self.path))
@@ -57,3 +61,7 @@ class ScriptedDaemon:
                 if not connection.recv(MAX_READ_BYTES):
                     return
                 connection.sendall(Frame(0, FrameKind.DATA, payload).encode())
+                if self._raw and payload is hello:
+                    if connection.recv(MAX_READ_BYTES):
+                        connection.sendall(self._raw)
+                    return

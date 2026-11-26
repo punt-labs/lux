@@ -37,6 +37,9 @@ class SessionWatchers:
             raise ValueError("connection is already watching")
         self._queues[peer] = deque()
 
+    def __contains__(self, peer: object) -> bool:
+        return peer in self._queues
+
     def detach(self, peer: Peer) -> None:
         """Forget ``peer`` after its connection went away."""
         self._queues.pop(peer, None)
