@@ -4,6 +4,10 @@
 
 ### Added
 
+- A **New terminal** entry in the Clients menu starts one more shell per click,
+  each in its own window. A window titled `Terminal N` takes the lowest number
+  no running terminal holds, and closes when its shell exits. One `luxd-pty`
+  daemon now holds many terminals.
 - Linux runtime packaging for Ethos handoff snapshots of `make check`.
   `make build-handoff-runtime` builds the offline bundle and
   `make handoff-runtime` installs it after verifying the pinned checksum.

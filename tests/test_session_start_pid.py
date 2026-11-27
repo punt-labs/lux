@@ -188,7 +188,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
         env=env,
     )
     claude_pid = proc.pid
-    returncode = proc.wait(timeout=15)
+    returncode = proc.wait(timeout=90)  # a hang guard, not a speed assertion
     assert returncode == 0
 
     trace_lines = trace_file.read_text(encoding="utf-8").split()

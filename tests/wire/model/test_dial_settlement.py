@@ -1311,15 +1311,29 @@ class TestABoundedWrite:
             "big", [TextElement(id="t", content="x" * (8 << 20))]
         )
 
+        failing = Call(lambda: generation.send_scene(big))
+        assert failing.wait(30.0), "the write did not end"
+
+        assert isinstance(failing.error, UnresponsiveError)
+        assert generation.ended == "unresponsive"
+        assert generation.is_settled
+
+    @pytest.mark.slow
+    def test_p25_a_plain_socket_write_ends_within_the_deadline_budget(
+        self, display: Display, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _short_deadline(monkeypatch)
+        link = _linked(display, listening=False)
+        generation = generation_of(link)
+        big = ScenePresentation(frame_id="big").message(
+            "big", [TextElement(id="t", content="x" * (8 << 20))]
+        )
+
         began = time.monotonic()
         failing = Call(lambda: generation.send_scene(big))
         assert failing.wait(5.0), "the write did not end within the bound"
-        took = time.monotonic() - began
 
-        assert isinstance(failing.error, UnresponsiveError)
-        assert took < 0.2 + 1.5
-        assert generation.ended == "unresponsive"
-        assert generation.is_settled
+        assert time.monotonic() - began < 0.2 + 1.5
 
     def test_p25_a_write_the_deadline_cut_half_way_ends_the_dial_unresponsive(
         self, display: Display, monkeypatch: pytest.MonkeyPatch

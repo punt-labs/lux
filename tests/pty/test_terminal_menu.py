@@ -1,4 +1,4 @@
-"""Launcher callbacks register fresh and publish metadata, never unsolicited PTYs."""
+"""Each click starts a new shell; menu failures never drop the owner."""
 
 from __future__ import annotations
 
@@ -11,175 +11,222 @@ import pytest
 
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.programmer_error import ProgrammerError
-from punt_lux.pty.current_shell import CurrentShell
+from punt_lux.pty.daemon_exchange import DaemonExchange, SessionRefusedError
+from punt_lux.pty.entry_runtime import TerminalRuntime
 from punt_lux.pty.lifetime import DaemonLifetime
 from punt_lux.pty.menu_clients import TerminalClients
+from punt_lux.pty.menu_entry import MenuEntryPoint
 from punt_lux.pty.menu_listener import TerminalMenu
 from punt_lux.pty.menu_process import MenuProcess
 from punt_lux.pty.menu_projection import TerminalProjection
-from punt_lux.wire.operations import OpError, SceneShown
 from tests.pty.fake_daemon import FakeDaemon
 
 
 class MenuDoubles:
     @staticmethod
-    def daemon(*sessions: str) -> FakeDaemon:
-        """Replace the daemon: each new request starts the next listed session."""
-        return FakeDaemon(*sessions)
-
-    @staticmethod
-    def projection(factory: TerminalClients, *sessions: str) -> TerminalProjection:
-        return MenuDoubles.projection_and_daemon(factory, *sessions)[0]
-
-    @staticmethod
-    def projection_and_daemon(
-        factory: TerminalClients, *sessions: str
-    ) -> tuple[TerminalProjection, FakeDaemon]:
-        daemon = MenuDoubles.daemon(*sessions)
-        with patch(
-            "punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon
-        ):
-            return TerminalProjection(factory), daemon
-
-    @staticmethod
     def clients() -> tuple[TerminalClients, Mock]:
         client = Mock()
         client.callback.register = AsyncMock(return_value=Mock())
-        client.scene.show = AsyncMock(return_value=SceneShown(scene_id="terminal"))
         factory = Mock(spec=TerminalClients)
         factory.client.return_value = client
         return cast("TerminalClients", factory), client
 
+    @staticmethod
+    def menu(daemon: FakeDaemon) -> tuple[TerminalMenu, Mock]:
+        factory, client = MenuDoubles.clients()
+        return TerminalMenu(factory, cast("DaemonExchange", daemon)), client
 
-def test_registration_without_click_does_not_publish_a_shell_scene() -> None:
-    factory, client = MenuDoubles.clients()
-    projection = MenuDoubles.projection(factory)
+    @staticmethod
+    def projection(daemon: FakeDaemon) -> tuple[TerminalProjection, Mock]:
+        factory, client = MenuDoubles.clients()
+        return TerminalProjection(factory, cast("DaemonExchange", daemon)), client
+
+
+def test_registration_names_the_entry_and_starts_no_shell() -> None:
+    daemon = FakeDaemon()
+    projection, client = MenuDoubles.projection(daemon)
     asyncio.run(projection.connected())
-    client.callback.register.assert_awaited_once_with(
-        "terminal", "Terminal", frame_id="terminal"
-    )
-    client.scene.show.assert_not_awaited()
+    client.callback.register.assert_awaited_once_with("terminal", "New terminal")
+    assert daemon.started == []
 
 
-def test_registration_carries_the_frame_id_so_a_closed_frame_reopens() -> None:
-    """The Clients-menu entry must register with the frame id.
-
-    Without it a click after the user closes the terminal frame is routed here as
-    a scene.show that no-ops against the still-installed scene, so the frame
-    never reopens.
-    """
-    factory, client = MenuDoubles.clients()
-    projection = MenuDoubles.projection(factory)
+def test_registration_carries_no_frame_id_so_every_click_runs() -> None:
+    projection, client = MenuDoubles.projection(FakeDaemon())
     asyncio.run(projection.connected())
-    _args, kwargs = client.callback.register.await_args
-    assert kwargs.get("frame_id") == "terminal"
+    args, kwargs = client.callback.register.await_args
+    assert "frame_id" not in kwargs
+    assert len(args) == 2
 
 
-def test_click_starts_one_session_and_reconnect_reuses_it() -> None:
-    factory, client = MenuDoubles.clients()
-    projection = MenuDoubles.projection(factory, "t0.7")
+def test_an_unknown_callback_starts_nothing() -> None:
+    daemon = FakeDaemon()
+    projection, _client = MenuDoubles.projection(daemon)
     asyncio.run(projection.clicked("unknown"))
-    client.scene.show.assert_not_awaited()
+    assert daemon.started == []
+
+
+def test_each_click_starts_a_new_session() -> None:
+    daemon = FakeDaemon("t0.1", "t0.2", "t0.3")
+    projection, _client = MenuDoubles.projection(daemon)
+
+    async def clicks() -> None:
+        for _ in range(3):
+            await projection.clicked("terminal")
+
+    asyncio.run(clicks())
+    assert daemon.started == ["t0.1", "t0.2", "t0.3"]
+
+
+def test_a_click_names_no_launcher_and_carries_no_command() -> None:
+    daemon = FakeDaemon("t0.1")
+    projection, _client = MenuDoubles.projection(daemon)
     asyncio.run(projection.clicked("terminal"))
-    asyncio.run(projection.connected())
-    requests = [call.args[0] for call in client.scene.show.await_args_list]
-    assert len(requests) == 2
-    assert requests[0].scene_id == requests[1].scene_id == "terminal"
-    assert requests[0].elements == requests[1].elements
-    assert requests[0].elements[0]["session"] == "t0.7"
-    assert "command" not in requests[0].elements[0]
+    (request,) = daemon.requests
+    assert (request.launcher, request.label) == ("", "")
 
 
-def test_rejected_click_is_not_republished_on_reconnect() -> None:
-    factory, client = MenuDoubles.clients()
-    client.scene.show.return_value = OpError(code="rejected", reason="no")
-    projection = MenuDoubles.projection(factory)
-    asyncio.run(projection.clicked("terminal"))
-    asyncio.run(projection.connected())
-    assert client.scene.show.await_count == 1
-
-
-def test_a_click_while_the_shell_runs_shows_it_again_and_starts_nothing() -> None:
-    factory, client = MenuDoubles.clients()
-    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1", "t0.2")
-    asyncio.run(projection.clicked("terminal"))
-    asyncio.run(projection.clicked("terminal"))
-    sessions = [
-        c.args[0].elements[0]["session"] for c in client.scene.show.await_args_list
-    ]
-    assert sessions == ["t0.1", "t0.1"]
-    assert daemon.started == ["t0.1"]
-
-
-def test_a_click_after_the_shell_ended_starts_a_new_one() -> None:
-    factory, client = MenuDoubles.clients()
-    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1", "t0.2")
-    daemon.running = False
-    asyncio.run(projection.clicked("terminal"))
-    asyncio.run(projection.clicked("terminal"))
-    sessions = [
-        c.args[0].elements[0]["session"] for c in client.scene.show.await_args_list
-    ]
-    assert sessions == ["t0.1", "t0.2"]
-
-
-def test_a_refused_scene_ends_the_shell_it_just_started() -> None:
-    factory, client = MenuDoubles.clients()
-    client.scene.show.return_value = OpError(code="rejected", reason="no")
-    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
-    asyncio.run(projection.clicked("terminal"))
-    assert daemon.killed == ["t0.1"]
-
-
-def test_a_refused_start_leaves_the_menu_serving() -> None:
-    factory, client = MenuDoubles.clients()
-    daemon = MenuDoubles.daemon()
-    with (
-        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
-        patch(
-            "punt_lux.pty.current_shell.DaemonExchange.local",
-            return_value=daemon,
-        ),
-    ):
-        menu = TerminalMenu()
-    daemon.refuse("terminal session limit")
+def test_a_refused_start_is_logged_and_the_menu_survives() -> None:
+    daemon = FakeDaemon()
+    daemon.refuse("terminal session limit reached")
+    menu, _client = MenuDoubles.menu(daemon)
     asyncio.run(menu._clicked("terminal"))
-    client.scene.show.assert_not_awaited()
+    assert daemon.started == []
+
+
+def test_a_click_refused_at_the_limit_warns_without_a_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    daemon = FakeDaemon()
+    daemon.refuse("terminal session limit reached")
+    menu, _client = MenuDoubles.menu(daemon)
+    asyncio.run(menu._clicked("terminal"))
+    (record,) = caplog.records
+    assert (record.levelno, record.exc_info) == (logging.WARNING, None)
+    assert "terminal session limit reached" in record.getMessage()
+
+
+def test_an_unexpected_listener_error_is_logged_and_the_menu_keeps_serving(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    menu, _client = MenuDoubles.menu(FakeDaemon())
+    listener = Mock()
+    listener.listen = AsyncMock(side_effect=ValueError("unknown frame"))
+
+    async def scenario() -> bool:
+        with patch.object(menu._clients, "listener", return_value=listener):
+            task = asyncio.create_task(menu.serve())
+            await asyncio.sleep(0.3)
+            alive = not task.done()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        return alive
+
+    assert asyncio.run(scenario())
+    assert any(
+        r.levelno >= logging.ERROR and "unknown frame" in str(r.exc_info)
+        for r in caplog.records
+    )
+
+
+def test_a_keeper_that_ends_takes_the_menu_down_with_its_error() -> None:
+    menu, _client = MenuDoubles.menu(FakeDaemon())
+
+    async def forever() -> None:
+        await asyncio.Event().wait()
+
+    listener = Mock()
+    listener.listen = AsyncMock(side_effect=forever)
+    with (
+        patch.object(menu._clients, "listener", return_value=listener),
+        patch.object(
+            menu._keeper,
+            "serve",
+            new=AsyncMock(side_effect=ProgrammerError("keeper bug")),
+        ),
+        pytest.raises(ProgrammerError, match="keeper bug"),
+    ):
+        asyncio.run(asyncio.wait_for(menu.serve(), timeout=5))
+
+
+def test_an_owner_watch_that_fails_stops_the_helper_with_its_error() -> None:
+    async def never() -> None:
+        await asyncio.Event().wait()
+
+    menu = Mock()
+    menu.serve = AsyncMock(side_effect=never)
+    with (
+        patch.object(TerminalMenu, "local", return_value=menu),
+        patch.object(
+            TerminalRuntime,
+            "wait_for_owner",
+            new=AsyncMock(side_effect=OSError("owner watch broke")),
+        ),
+        pytest.raises(OSError, match="owner watch broke"),
+    ):
+        asyncio.run(asyncio.wait_for(MenuEntryPoint.serve(1), timeout=5))
+
+
+def test_a_menu_that_ends_stops_the_helper_loudly() -> None:
+    async def never(_parent: int) -> None:
+        await asyncio.Event().wait()
+
+    menu = Mock()
+    menu.serve = AsyncMock(side_effect=ProgrammerError("menu bug"))
+    with (
+        patch.object(TerminalMenu, "local", return_value=menu),
+        patch.object(TerminalRuntime, "wait_for_owner", side_effect=never),
+        pytest.raises(ProgrammerError, match="menu bug"),
+    ):
+        asyncio.run(asyncio.wait_for(MenuEntryPoint.serve(1), timeout=5))
+
+
+def test_a_reply_without_a_session_is_a_refusal() -> None:
+    daemon = FakeDaemon()
+    daemon.answer_new_with({})
+    projection, _client = MenuDoubles.projection(daemon)
+    with pytest.raises(SessionRefusedError, match="without a session"):
+        asyncio.run(projection.clicked("terminal"))
+
+
+def test_a_malformed_reply_does_not_stop_the_menu() -> None:
+    daemon = FakeDaemon()
+    daemon.answer_new_with({"session": 7})
+    menu, _client = MenuDoubles.menu(daemon)
+    asyncio.run(menu._clicked("terminal"))
+
+
+def test_an_unreachable_daemon_does_not_stop_the_menu() -> None:
+    daemon = FakeDaemon()
+    daemon.go_away(OSError("daemon gone"))
+    menu, _client = MenuDoubles.menu(daemon)
+    asyncio.run(menu._clicked("terminal"))
 
 
 @pytest.mark.parametrize(
     "error", [OSError("Hub absent"), HubUnavailableError("Hub absent")]
 )
-def test_listener_guard_does_not_drop_owner_on_projection_error(error: OSError) -> None:
-    factory, client = MenuDoubles.clients()
+def test_listener_guard_does_not_drop_owner_on_registration_error(
+    error: OSError,
+) -> None:
+    menu, client = MenuDoubles.menu(FakeDaemon())
     client.callback.register.side_effect = error
-    client.scene.show.side_effect = error
-    with (
-        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
-        patch(
-            "punt_lux.pty.current_shell.DaemonExchange.local",
-            return_value=MenuDoubles.daemon(),
-        ),
-    ):
-        menu = TerminalMenu()
     asyncio.run(menu._connected())
-    asyncio.run(menu._clicked("terminal"))
+
+
+def test_a_hub_connect_asks_the_keeper_to_reconcile() -> None:
+    menu, _client = MenuDoubles.menu(FakeDaemon())
+    with patch.object(menu._keeper, "resync") as resync:
+        asyncio.run(menu._connected())
+    resync.assert_called_once_with()
 
 
 @pytest.mark.parametrize("operation", ["connect", "click", "listen"])
 def test_listener_does_not_swallow_programmer_errors(operation: str) -> None:
-    factory, client = MenuDoubles.clients()
-    with (
-        patch("punt_lux.pty.menu_listener.TerminalClients", return_value=factory),
-        patch(
-            "punt_lux.pty.current_shell.DaemonExchange.local",
-            return_value=MenuDoubles.daemon(),
-        ),
-    ):
-        menu = TerminalMenu()
+    daemon = FakeDaemon()
     error = ProgrammerError("broken invariant")
+    daemon.go_away(error)
+    menu, client = MenuDoubles.menu(daemon)
     client.callback.register.side_effect = error
-    client.scene.show.side_effect = error
     with pytest.raises(ProgrammerError, match="broken invariant"):
         if operation == "connect":
             asyncio.run(menu._connected())
@@ -188,7 +235,7 @@ def test_listener_does_not_swallow_programmer_errors(operation: str) -> None:
         else:
             listener = Mock()
             listener.listen = AsyncMock(side_effect=error)
-            with patch.object(factory, "listener", return_value=listener):
+            with patch.object(menu._clients, "listener", return_value=listener):
                 asyncio.run(menu.serve())
 
 
@@ -202,48 +249,3 @@ def test_unstarted_menu_process_close_is_safe() -> None:
     process = MenuProcess()
     process.close()
     process.close()
-
-
-def test_a_failed_release_keeps_the_shell_so_it_can_be_retried() -> None:
-    daemon = FakeDaemon("t0.1")
-    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
-        current = CurrentShell.local()
-    current.obtain()
-    daemon.refuse_kill("close failed", retryable=True)
-    current.release()
-    assert current.session == "t0.1"
-    daemon.allow_kill()
-    current.release()
-    assert (current.session, daemon.killed) == ("", ["t0.1"])
-
-
-def test_releasing_a_shell_the_daemon_no_longer_holds_logs_no_error(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    daemon = FakeDaemon("t0.1")
-    with patch("punt_lux.pty.current_shell.DaemonExchange.local", return_value=daemon):
-        current = CurrentShell.local()
-    current.obtain()
-    daemon.refuse_kill("unknown terminal session t0.1")
-    current.release()
-    assert current.session == ""
-    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
-
-
-def test_a_shell_that_ended_while_the_hub_was_down_is_not_shown_again() -> None:
-    factory, client = MenuDoubles.clients()
-    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
-    asyncio.run(projection.clicked("terminal"))
-    daemon.running = False
-    asyncio.run(projection.connected())
-    assert client.scene.show.await_count == 1
-
-
-def test_a_refused_reshow_does_not_kill_the_shell_the_user_is_using() -> None:
-    factory, client = MenuDoubles.clients()
-    projection, daemon = MenuDoubles.projection_and_daemon(factory, "t0.1")
-    asyncio.run(projection.clicked("terminal"))
-    client.scene.show.return_value = OpError(code="rejected", reason="no")
-    asyncio.run(projection.connected())
-    asyncio.run(projection.clicked("terminal"))
-    assert daemon.killed == []

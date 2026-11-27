@@ -276,6 +276,12 @@ class DisplayPaths:
             msg = f"refusing to signal non-positive PID {pid}"
             raise ValueError(msg)
         for sig, grace in ((signal.SIGTERM, timeout), (signal.SIGKILL, _SIGKILL_GRACE)):
+            logger.warning(
+                "sending %s to display pid=%d (from pid=%d)",
+                sig.name,
+                pid,
+                os.getpid(),
+            )
             try:
                 os.kill(pid, sig)
             except ProcessLookupError:

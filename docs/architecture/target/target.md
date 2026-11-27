@@ -334,7 +334,7 @@ Step 7 moves the PTY owner from `punt_lux.ptyd` to `punt_lux.pty`, including
 `process_group.py`, and moves its stream contracts from `protocol.pty` to
 `wire.stream`. The `luxd-pty` executable and wire formats are unchanged; no
 old-path aliases remain. Tests mirror `pty/` and `wire/stream/`.
-`pty.menu_projection` imports `OpError` and `RenderRequest` from
+`pty.menu_projection` imports `OpError` from
 `operations.models`, removing the direct static PTY-to-Hub edge. The operations
 initializer and public root still eagerly load Hub code, as described in step 6;
 runtime import isolation remains operations-package debt.

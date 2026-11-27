@@ -41,6 +41,17 @@ def test_default_labels_skip_live_ones() -> None:
     assert labels.unique("") == "Terminal 2"
 
 
+def test_default_labels_reuse_the_lowest_number_freed_by_an_exit() -> None:
+    labels = SessionLabels()
+    for number in (1, 2, 3):
+        labels.claim(Held(f"t0.{number}", labels.unique("")))
+    labels.release("t0.1")
+    labels.release("t0.3")
+    reused = labels.unique("")
+    labels.claim(Held("t0.4", reused))
+    assert (reused, labels.unique("")) == ("Terminal 1", "Terminal 3")
+
+
 def test_a_released_label_can_be_requested_again() -> None:
     labels = SessionLabels()
     labels.claim(Held("t0.1", "work"))

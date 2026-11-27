@@ -20,6 +20,9 @@ class FakeDaemon:
     _refusal: str
     _retryable: bool
     _kill_refusal: SessionRefusedError | None
+    _new_result: dict[str, object] | None
+    _failure: BaseException | None
+    _requests: list[NewRequest]
     running: bool
 
     def __new__(cls, *sessions: str) -> Self:
@@ -29,7 +32,20 @@ class FakeDaemon:
         self._retryable = False
         self._kill_refusal = None
         self.running = True
+        self._new_result, self._failure, self._requests = None, None, []
         return self
+
+    @property
+    def requests(self) -> list[NewRequest]:
+        return self._requests
+
+    def answer_new_with(self, result: dict[str, object]) -> None:
+        """Answer every ``new`` with ``result`` instead of the next session."""
+        self._new_result = result
+
+    def go_away(self, error: BaseException) -> None:
+        """Fail every request with ``error``, as an unreachable daemon does."""
+        self._failure = error
 
     @property
     def started(self) -> list[str]:
@@ -51,11 +67,16 @@ class FakeDaemon:
         self._kill_refusal = None
 
     def ask(self, request: ControlRequest) -> SuccessReply:
+        if self._failure is not None:
+            raise self._failure
         if self._refusal:
             raise (RetryableRefusalError if self._retryable else SessionRefusedError)(
                 self._refusal
             )
         if isinstance(request, NewRequest):
+            self._requests.append(request)
+            if self._new_result is not None:
+                return SuccessReply(2, self._new_result)
             self._started.append(self._sessions.pop(0))
             return SuccessReply(2, {"session": self._started[-1]})
         if isinstance(request, KillRequest):

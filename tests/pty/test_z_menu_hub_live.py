@@ -26,6 +26,11 @@ from tests.pty.wire_client import WireClient
 pytestmark = pytest.mark.integration
 
 
+def _local_ids(port: int) -> list[str]:
+    scenes = json.loads(_get(port, "/scenes"))["scenes"]
+    return [scene["local_id"] for scene in scenes]
+
+
 def test_daemon_registers_menu_before_any_terminal_and_services_click() -> None:
     with (
         tempfile.TemporaryDirectory(prefix="lxmenu-", dir="/tmp") as directory,
@@ -45,7 +50,7 @@ def test_daemon_registers_menu_before_any_terminal_and_services_click() -> None:
             stderr=subprocess.PIPE,
         )
         try:
-            _until(lambda: "Terminal" in _get(port, "/menus"), timeout=8)
+            _until(lambda: "New terminal" in _get(port, "/menus"), timeout=8)
             client = WireClient(path)
             try:
                 client.request(HelloRequest(1, WIRE_VERSION, snapshot_version()))
@@ -55,20 +60,18 @@ def test_daemon_registers_menu_before_any_terminal_and_services_click() -> None:
             finally:
                 client.close()
             assert json.loads(_get(port, "/scenes"))["scenes"] == []
-            leaf = _leaf_id(port, "Terminal")
+            leaf = _leaf_id(port, "New terminal")
             assert (
                 hub_callback_router.route(CallbackInvocation.from_menu_id(leaf))
                 == "routed"
             )
-            _until(lambda: bool(json.loads(_get(port, "/scenes"))["scenes"]), timeout=5)
-            scenes = json.loads(_get(port, "/scenes"))["scenes"]
-            assert len(scenes) == 1
-            assert scenes[0]["local_id"] == "terminal"
+            _until(lambda: len(_local_ids(port)) == 1, timeout=8)
+            assert _local_ids(port)[0].startswith("terminal-")
             assert (
                 hub_callback_router.route(CallbackInvocation.from_menu_id(leaf))
                 == "routed"
             )
-            _until(lambda: len(json.loads(_get(port, "/scenes"))["scenes"]) == 1)
+            _until(lambda: len(set(_local_ids(port))) == 2, timeout=8)
             assert process.poll() is None
         finally:
             if process.poll() is None:

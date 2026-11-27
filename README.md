@@ -382,9 +382,11 @@ lux terminal status    # read-only
 lux terminal disable   # stop held programs and remove service registration
 ```
 
-The running daemon registers **Terminal** in Lux's menu, like voxd Music. The
-menu command launches/reopens the terminal; registration alone starts no shell.
-`restart` explicitly restarts the owner and ends its programs. No Display or
+The running daemon registers **New terminal** in Lux's Clients menu, like voxd
+Music. Each click starts one more shell in its own window, titled `Terminal N`
+with the lowest number no running terminal holds; a window closes when its shell
+exits. Registration alone starts no shell. `restart` explicitly restarts the
+owner and ends its programs. No Display or
 terminal element implicitly enables a daemon on a machine.
 
 The daemon needs the headless `terminal` extra, not GPU dependencies. For an

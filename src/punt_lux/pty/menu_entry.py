@@ -12,12 +12,17 @@ from punt_lux.pty.menu_listener import TerminalMenu
 class MenuEntryPoint:
     @staticmethod
     async def serve(parent: int) -> None:
-        task = asyncio.create_task(TerminalMenu().serve())
+        menu = asyncio.create_task(TerminalMenu.local().serve())
+        owner = asyncio.create_task(TerminalRuntime.wait_for_owner(parent))
         try:
-            await TerminalRuntime.wait_for_owner(parent)
+            await asyncio.wait({menu, owner}, return_when=asyncio.FIRST_COMPLETED)
+            for task in (menu, owner):
+                if task.done() and not task.cancelled():
+                    task.result()
         finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            menu.cancel()
+            owner.cancel()
+            await asyncio.gather(menu, owner, return_exceptions=True)
 
     @staticmethod
     @TerminalRuntime.run("worker", "terminal menu helper")

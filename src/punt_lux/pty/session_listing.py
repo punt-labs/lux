@@ -35,6 +35,11 @@ class SessionListing:
             raise SessionRefusedError("luxd-pty answered list without sessions")
         return ListedSession.well_formed(cast("list[object]", sessions))
 
+    @property
+    def running(self) -> Mapping[str, str]:
+        """The running sessions' labels, by session id."""
+        return self._running
+
     def is_running(self, session: str) -> bool:
         """Say whether ``session`` is listed as running."""
         return session in self._running
