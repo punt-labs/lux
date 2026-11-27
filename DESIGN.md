@@ -8922,6 +8922,19 @@ which must fail on the named invariant:
 model-checked in `make check-models`. `docs/new_tokens.tex` must land before the
 token memory in unit 4 and be added to `make check-models`.
 
+**The declared host is a label, not a credential.** A client chooses the value
+of `X-Lux-Client-Host`, and a declared host always wins over the observed peer,
+so any caller that can reach luxd can claim any host. Under the same-user,
+loopback trust model (DES-063) that is attribution, not authority. The relay
+must not derive authority from it: a provider registration keyed by
+`(service, host)` is acceptable only while luxd is reachable from the same user
+alone. Before the cross-host listener (DES-103 decision 5) is enabled, the
+registration key must come from the observed peer or from an authenticated
+identity, and the declared host stays a display label. A client behind an SSH
+tunnel is observed from loopback, so peer equality never proves "same machine".
+Unit 3's contract carries this requirement and its design review includes
+`djb`.
+
 **Work units** (each ends mergeable; 1 and 2 run at once, then 3, then 4 and
 5 at once):
 
