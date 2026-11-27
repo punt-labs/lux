@@ -15,6 +15,9 @@ from punt_lux.wire.model.client_identity import ClientIdentity
         ("  okinos \n", "okinos"),
         ("", "localhost"),
         ("   ", "localhost"),
+        ("bad\nname", "localhost"),
+        ("bad\x00name", "localhost"),
+        ("bad\x1bname", "localhost"),
     ],
 )
 def test_a_reported_name_is_stripped_and_a_blank_one_is_localhost(

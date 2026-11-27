@@ -236,6 +236,15 @@ def test_a_host_header_that_decodes_to_a_newline_is_no_identity() -> None:
     assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None
 
 
+@pytest.mark.parametrize("encoded", ["a%0A", "%0Aa", "a%0D", "%0Aa%0A"])
+def test_a_host_header_with_an_edge_control_character_is_no_identity(
+    encoded: str,
+) -> None:
+    # A newline at the edge must not be stripped away into a clean-looking host.
+    headers = {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": encoded}
+    assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None
+
+
 def test_a_ten_thousand_character_host_header_is_no_identity() -> None:
     headers = {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "h" * 10_000}
     assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None

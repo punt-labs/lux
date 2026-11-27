@@ -72,7 +72,7 @@ class HeaderValue:
         if not raw.strip():
             return ""
         text = cls.from_wire(raw).text
-        return text.strip() or text
+        return text.strip(" \t") or text
 
     @classmethod
     def from_wire(cls, raw: str) -> Self:

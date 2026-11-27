@@ -30,5 +30,10 @@ class LocalHost:
 
     @staticmethod
     def named(reported: str) -> str:
-        """Return ``reported`` stripped, or ``localhost`` when it is blank."""
-        return reported.strip() or _UNNAMED
+        """Return ``reported`` stripped, or ``localhost`` when blank or unprintable.
+
+        A name with a control character could not pass the identity model's
+        host check, so it would make every identity this client builds invalid.
+        """
+        name = reported.strip()
+        return name if name and name.isprintable() else _UNNAMED

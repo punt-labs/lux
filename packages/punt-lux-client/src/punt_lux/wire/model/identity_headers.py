@@ -141,7 +141,14 @@ class ClientHeaders:
             logger.info(
                 "identity headers rejected; treating the caller as anonymous "
                 "(fields: %s)",
-                ", ".join(sorted({str(error["loc"][0]) for error in exc.errors()})),
+                ", ".join(
+                    sorted(
+                        {
+                            str(error["loc"][0]) if error["loc"] else "identity"
+                            for error in exc.errors()
+                        }
+                    )
+                ),
             )
             return None
 

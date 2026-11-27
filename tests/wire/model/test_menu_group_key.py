@@ -56,6 +56,26 @@ class TestApplet:
             ConnectionId("b"), second
         )
 
+    def test_two_applets_on_different_hosts_do_not_share(self) -> None:
+        # The same repo path and the same process id on two machines are two
+        # unrelated sessions, so their same-named callbacks must not share a menu.
+        here = ClientIdentity(
+            kind="applet",
+            name=format_name("lux", 12345, "lux-beads"),
+            host="okinos",
+            repo="/w/lux",
+        )
+        there = ClientIdentity(
+            kind="applet",
+            name=format_name("lux", 12345, "lux-beads"),
+            host="pembroke",
+            repo="/w/lux",
+        )
+
+        assert MenuGroupKey.of(ConnectionId("a"), here) != MenuGroupKey.of(
+            ConnectionId("b"), there
+        )
+
     def test_the_key_is_hashable(self) -> None:
         beads = _applet(12345, "lux-beads")
         vox = _applet(12345, "vox-panel")

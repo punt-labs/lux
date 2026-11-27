@@ -294,6 +294,19 @@ def test_an_undecodable_host_is_rejected_not_read_as_a_replacement_character() -
     assert ClientHeaders.identity_from(peer) is None
 
 
+def test_an_invalid_applet_name_degrades_to_anonymous_instead_of_raising(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The applet-name check is a model-level validator, so its error has an
+    # empty location: logging it must not index into the location.
+    peer = HeaderedPeer(
+        {"X-Lux-Client-Name": "Not A Valid Applet Name!", "X-Lux-Client-Kind": "applet"}
+    )
+    with caplog.at_level(logging.INFO, logger="punt_lux.wire.model.identity_headers"):
+        assert ClientHeaders.identity_from(peer) is None
+    assert "rejected" in caplog.text
+
+
 def test_a_rejected_declaration_is_logged_with_the_failing_field(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

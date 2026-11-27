@@ -53,7 +53,7 @@ _Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 _HOST_MAX_LENGTH = 253
 _Host = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=_HOST_MAX_LENGTH),
+    StringConstraints(min_length=1, max_length=_HOST_MAX_LENGTH),
 ]
 
 # The bounds a declared lease TTL must fall within, in seconds. The floor keeps a
@@ -119,6 +119,16 @@ class ClientIdentity(BaseModel):
             msg = f"repo must be an absolute path when present; got {value!r}"
             raise ValueError(msg)
         return value
+
+    @field_validator("host", mode="before")
+    @classmethod
+    def _trim_host(cls, value: object) -> object:
+        """Trim spaces and tabs around a host, but never a newline.
+
+        Only padding is trimmed: a newline at the edge of a decoded header is a
+        control character the next check must see, not whitespace to drop.
+        """
+        return value.strip(" \t") if isinstance(value, str) else value
 
     @field_validator("host")
     @classmethod
