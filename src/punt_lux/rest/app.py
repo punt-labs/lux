@@ -53,12 +53,14 @@ class RestSurface:
 
     _routers: tuple[APIRouter, ...]
     _caller: RestCaller
-    __slots__ = ("_caller", "_routers")
+    _errors: HttpErrorMap
+    __slots__ = ("_caller", "_errors", "_routers")
 
     def __new__(cls, ops: Operations) -> Self:
         self = super().__new__(cls)
         deps = RouteDeps(ops, HttpErrorMap())
         self._caller = RestCaller(ops, deps.errors)
+        self._errors = deps.errors
         self._routers = (
             SceneRoutes(ops, deps.errors).router,
             MenuRoutes(ops, deps.errors).router,
@@ -86,5 +88,6 @@ class RestSurface:
         Write routes read the caller off ``app.state`` via ``RestCaller.resolve_scope``.
         """
         app.state.rest_caller = self._caller
+        self._errors.install(app)
         for router in self._routers:
             app.include_router(router)

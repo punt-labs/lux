@@ -10,16 +10,16 @@ foreign server — not a success.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final, get_args
 
 from pydantic import BaseModel, ValidationError
 
 from punt_lux.client.rest_error_body import ErrorBody
 from punt_lux.wire.operations import OpError
+from punt_lux.wire.operations.common import OpErrorCode
 
 if TYPE_CHECKING:
     from punt_lux.client.rest_transport import HttpResponse
-    from punt_lux.wire.operations.common import OpErrorCode
 
 __all__ = ["RestReply"]
 
@@ -35,6 +35,9 @@ _CODE_BY_STATUS: dict[int, OpErrorCode] = {
     503: "display_unavailable",
     504: "timeout",
 }
+
+# Every code this client knows; a code outside it is a newer Hub's.
+_KNOWN_CODES: frozenset[str] = frozenset(get_args(OpErrorCode))
 
 
 @final
@@ -68,7 +71,20 @@ class RestReply:
                     code="fault",
                     reason=f"luxd returned an unexpected {response.status} body{tail}",
                 )
+        body = ErrorBody(response.body)
         return OpError(
-            code=_CODE_BY_STATUS.get(response.status, "fault"),
-            reason=ErrorBody(response.body).reason(response.status),
+            code=self._code_of(body, response.status),
+            reason=body.reason(response.status),
         )
+
+    @staticmethod
+    def _code_of(body: ErrorBody, status: int) -> OpErrorCode:
+        """Return the code the body names, else the one the status implies.
+
+        Several codes share a status, so a body that names its code is read first;
+        a code this client does not know (a newer Hub's) falls back to the status.
+        """
+        named = body.code()
+        if named is not None and named in _KNOWN_CODES:
+            return cast("OpErrorCode", named)
+        return _CODE_BY_STATUS.get(status, "fault")

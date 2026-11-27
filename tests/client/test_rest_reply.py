@@ -52,3 +52,37 @@ def test_an_unmapped_status_is_a_fault() -> None:
     assert isinstance(result, OpError)
     assert result.code == "fault"
     assert result.reason == "boom"
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (503, "provider_unavailable"),
+        (502, "provider_lost"),
+        (502, "fault"),
+        (503, "display_unavailable"),
+        (504, "timeout"),
+    ],
+)
+def test_the_code_in_the_body_wins_over_the_status(status: int, code: str) -> None:
+    body = f'{{"detail":"nope","code":"{code}"}}'.encode()
+
+    result = RestReply(HttpResponse(status=status, body=body)).read(SceneShown)
+
+    assert result == OpError(code=code, reason="nope")  # type: ignore[arg-type]  # a parametrized OpErrorCode literal
+
+
+def test_an_unknown_code_in_the_body_falls_back_to_the_status() -> None:
+    body = b'{"detail":"nope","code":"from_a_newer_hub"}'
+
+    result = RestReply(HttpResponse(status=409, body=body)).read(SceneShown)
+
+    assert result == OpError(code="rejected", reason="nope")
+
+
+def test_a_body_without_a_code_keeps_reading_by_status() -> None:
+    result = RestReply(HttpResponse(status=404, body=b'{"detail":"gone"}')).read(
+        SceneShown
+    )
+
+    assert result == OpError(code="not_found", reason="gone")
