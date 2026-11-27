@@ -5,7 +5,8 @@ applets and one for everything else. An applet is bound to a Claude Code
 session, and one session may run more than one applet — ``lux-beads`` and
 a tool's own applet both alive under the same process — that a person
 reads as one session in the bar. Two applet connections sharing
-``(repo, session_pid)`` share a submenu, so their key compares equal.
+``(host, repo, session_pid)`` share a submenu, so their key compares equal; a
+process id means nothing across machines, so the host is part of the session.
 Every other kind is its own submenu, keyed by connection id.
 
 Repo is the declared path — the same field ``menu_label`` derives its
@@ -28,6 +29,7 @@ import logging
 from typing import Self, final
 
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.applet_name_format import session_pid_from_name
 from punt_lux.wire.model.client_identity import ClientIdentity
 
@@ -66,7 +68,14 @@ class MenuGroupKey:
         if identity.kind == "applet":
             pid = session_pid_from_name(identity.name)
             if pid is not None:
-                return cls((_APPLET_TAG, identity.repo or "", format(pid, "x")))
+                return cls(
+                    (
+                        _APPLET_TAG,
+                        LocalHost.canonical(identity.host),
+                        identity.repo or "",
+                        format(pid, "x"),
+                    )
+                )
             logger.warning(
                 "connection %s (identity %r) has an unparseable applet name %r; "
                 "grouping falls back to per-connection",

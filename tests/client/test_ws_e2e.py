@@ -38,9 +38,10 @@ from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_loopback import LoopbackTransport
 from punt_lux.hub.luxd import build_app
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.header_value import HeaderValue
+from punt_lux.wire.model.identity_headers import ClientHeaders
 from punt_lux.wire.model.session_callback import CallbackInvocation
 from punt_lux.wire.operations import Ok, OpError
 
@@ -100,8 +101,12 @@ async def _drive(
 
 
 def test_register_from_on_connect_then_receive_the_click_over_the_websocket() -> None:
-    identity = ClientIdentity(kind="app", name=f"voxd-e2e-{os.getpid()}", repo="/w/vox")
-    conn = connection_for({"kind": "app", "name": identity.name, "repo": "/w/vox"})
+    identity = ClientIdentity(
+        kind="app", name=f"voxd-e2e-{os.getpid()}", host="e2e-host", repo="/w/vox"
+    )
+    conn = ConnectionSeed(
+        {"kind": "app", "name": identity.name, "host": "e2e-host", "repo": "/w/vox"}
+    ).connection_id
     with _running_luxd() as port:
         rest = _RestTransport(LoopbackTransport(port, 5.0), identity)
         received: list[str] = []
@@ -148,6 +153,44 @@ def test_a_non_ascii_name_registers_on_its_own_leg_from_either_client_generation
         kind="app",
         name=f"z-spec · lux · #{os.getpid():x} · {generation}",
         lease_ttl=30,
+    )
+    with _running_luxd() as port:
+        rest = _RestTransport(LoopbackTransport(port, 5.0), identity)
+        registered: list[object] = []
+        client = LuxHubClient(
+            f"ws://127.0.0.1:{port}/ws",
+            identity,
+            on_callback=lambda _callback_id: None,
+            on_event=_noop_event,
+            on_connect=lambda: registered.append(
+                rest.register_callback("zspec", "Z-Spec")
+            ),
+        )
+        asyncio.run(_registers(client, registered))
+    assert isinstance(registered[0], Ok)
+
+
+def test_a_client_that_sends_no_host_registers_on_one_connection_over_both_transports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A client on a released punt-lux sends no host; the Hub places it by its peer.
+
+    Both legs must read the same host (the observed socket peer) so the listen leg
+    and the REST registration bind to one connection; otherwise the registration is
+    refused for holding no listen leg.
+    """
+    declared_headers = ClientHeaders.to_wire
+
+    def without_host(identity: ClientIdentity) -> dict[str, str]:
+        return {
+            header: text
+            for header, text in declared_headers(identity).items()
+            if header != "X-Lux-Client-Host"
+        }
+
+    monkeypatch.setattr(ClientHeaders, "to_wire", without_host)
+    identity = ClientIdentity(
+        kind="app", name=f"z-spec · lux · #{os.getpid():x} · no-host", lease_ttl=30
     )
     with _running_luxd() as port:
         rest = _RestTransport(LoopbackTransport(port, 5.0), identity)

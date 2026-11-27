@@ -35,7 +35,7 @@
 % and fires its transport-owned sink (inbox.drop_session); TimedReap and
 % Claim's embedded sweep never reached either leg, so a timer-reaped or
 % swept-aside connection kept its subscriptions, writer binding, and inbox
-% queue forever. Worse, because connection_for derives a STABLE id from a
+% queue forever. Worse, because ConnectionSeed derives a STABLE id from a
 % client's declared identity, a same-identity reconnect often reuses the
 % identical CONN value, so an unreleased writer binding silently blocks a
 % legitimate reconnect's own ensure_writer call from installing a fresh

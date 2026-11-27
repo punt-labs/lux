@@ -5,7 +5,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from punt_lux.hub.hub_store_factory import HubStoreFactory
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.operations.display_reply import DisplayReplied
 from punt_lux.wire.model.connection_scoped_id import ConnectionScopedId
 from punt_lux.wire.model.id_separator import ID_SEPARATOR
@@ -50,6 +50,7 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
     owner_identity = {
         "X-Lux-Client-Kind": "cli",
         "X-Lux-Client-Name": "owner",
+        "X-Lux-Client-Host": "test-host",
         "X-Lux-Client-Repo": "/w/owner",
     }
     owner_client = make_client(
@@ -68,9 +69,9 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
     resp = stranger_client.post("/display/frames/board/remove")
 
     assert resp.status_code == 404
-    owner_connection = connection_for(
-        {"kind": "cli", "name": "owner", "repo": "/w/owner"}
-    )
+    owner_connection = ConnectionSeed(
+        {"kind": "cli", "name": "owner", "host": "test-host", "repo": "/w/owner"}
+    ).connection_id
     scoped = SceneId(ConnectionScopedId.compose(owner_connection, "s1"))
     assert store.scene_roots(scoped) != []
 

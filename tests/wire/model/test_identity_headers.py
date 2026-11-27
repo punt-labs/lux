@@ -7,20 +7,25 @@ header from reaching ``identify`` as a malformed field.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
+from tests.headered_peer import HeaderedPeer
 
 
-def test_to_wire_carries_kind_name_repo_and_agent() -> None:
+def test_to_wire_carries_kind_name_host_repo_and_agent() -> None:
     identity = ClientIdentity(
-        kind="mcp-session", name="claude", repo="/w/lux", agent="gvr"
+        kind="mcp-session", name="claude", host="okinos", repo="/w/lux", agent="gvr"
     )
     assert ClientHeaders.to_wire(identity) == {
         "X-Lux-Client-Kind": "mcp-session",
         "X-Lux-Client-Name": "claude",
+        "X-Lux-Client-Host": "okinos",
         "X-Lux-Client-Repo": "/w/lux",
         "X-Lux-Client-Agent": "gvr",
     }
@@ -29,43 +34,72 @@ def test_to_wire_carries_kind_name_repo_and_agent() -> None:
 def test_to_wire_omits_absent_repo_and_agent() -> None:
     # A headless CLI owns no repo and carries no agent; absent fields are omitted,
     # never sent blank — a blank header equals no header on the read side.
-    identity = ClientIdentity(kind="cli", name="lux-cli")
+    identity = ClientIdentity(kind="cli", name="lux-cli", host="okinos")
     assert ClientHeaders.to_wire(identity) == {
         "X-Lux-Client-Kind": "cli",
         "X-Lux-Client-Name": "lux-cli",
+        "X-Lux-Client-Host": "okinos",
     }
 
 
 def test_round_trips_through_a_declaration() -> None:
-    identity = ClientIdentity(kind="cli", name="vox", repo="/w/vox")
-    declaration = ClientHeaders.declaration_from(ClientHeaders.to_wire(identity))
-    assert declaration == {"kind": "cli", "name": "vox", "repo": "/w/vox"}
+    identity = ClientIdentity(kind="cli", name="vox", host="okinos", repo="/w/vox")
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer(ClientHeaders.to_wire(identity))
+    )
+    assert declaration == {
+        "kind": "cli",
+        "name": "vox",
+        "host": "okinos",
+        "repo": "/w/vox",
+    }
 
 
 def test_declaration_is_none_without_a_name() -> None:
-    assert ClientHeaders.declaration_from({"X-Lux-Client-Repo": "/w/lux"}) is None
+    assert (
+        ClientHeaders.declaration_from(HeaderedPeer({"X-Lux-Client-Repo": "/w/lux"}))
+        is None
+    )
 
 
 def test_declaration_defaults_kind_to_cli() -> None:
-    declaration = ClientHeaders.declaration_from({"X-Lux-Client-Name": "tool"})
-    assert declaration == {"kind": "cli", "name": "tool"}
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer({"X-Lux-Client-Name": "tool"}, host="10.0.0.7")
+    )
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_blank_optional_header_is_dropped() -> None:
     # A whitespace-only repo must not reach identify (which rejects a blank repo).
     declaration = ClientHeaders.declaration_from(
-        {"X-Lux-Client-Name": "tool", "X-Lux-Client-Repo": "   "}
+        HeaderedPeer(
+            {"X-Lux-Client-Name": "tool", "X-Lux-Client-Repo": "   "}, host="10.0.0.7"
+        )
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_blank_kind_falls_back_to_the_cli_default() -> None:
     # A whitespace-only kind equals no kind — stripped and defaulted to cli, not
     # forwarded as an empty string that identify would reject.
     declaration = ClientHeaders.declaration_from(
-        {"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "}
+        HeaderedPeer(
+            {"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "}, host="10.0.0.7"
+        )
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_a_declared_lease_ttl_crosses_both_directions() -> None:
@@ -74,7 +108,7 @@ def test_a_declared_lease_ttl_crosses_both_directions() -> None:
     identity = ClientIdentity(kind="app", name="voxd", lease_ttl=30.0)
     wire = ClientHeaders.to_wire(identity)
     assert wire["X-Lux-Client-Lease-Ttl"] == "30.0"
-    declaration = ClientHeaders.declaration_from(wire)
+    declaration = ClientHeaders.declaration_from(HeaderedPeer(wire))
     assert ClientIdentity.model_validate(declaration) == identity
 
 
@@ -101,9 +135,9 @@ def test_a_non_ascii_identity_crosses_as_ascii_and_reads_back_whole() -> None:
     wire = ClientHeaders.to_wire(identity)
 
     assert all(value.isascii() for value in wire.values())
-    assert ClientIdentity.model_validate(ClientHeaders.declaration_from(wire)) == (
-        identity
-    )
+    assert ClientIdentity.model_validate(
+        ClientHeaders.declaration_from(HeaderedPeer(wire))
+    ) == (identity)
 
 
 def test_both_legs_of_one_identity_resolve_to_one_connection() -> None:
@@ -121,9 +155,14 @@ def test_both_legs_of_one_identity_resolve_to_one_connection() -> None:
     as_utf8 = {k: v.encode().decode("latin-1") for k, v in wire.items()}
     as_latin1 = {k: v.encode("latin-1").decode("latin-1") for k, v in wire.items()}
 
-    assert connection_for(
-        ClientHeaders.declaration_from(as_utf8) or {}
-    ) == connection_for(ClientHeaders.declaration_from(as_latin1) or {})
+    assert (
+        ConnectionSeed(
+            ClientHeaders.declaration_from(HeaderedPeer(as_utf8)) or {}
+        ).connection_id
+        == ConnectionSeed(
+            ClientHeaders.declaration_from(HeaderedPeer(as_latin1)) or {}
+        ).connection_id
+    )
 
 
 def test_an_ascii_value_crosses_the_wire_unchanged() -> None:
@@ -138,9 +177,9 @@ def test_a_percent_in_a_value_round_trips() -> None:
     """Encoding the escape character itself is what keeps the decode faithful."""
     identity = ClientIdentity(kind="cli", name="100%", repo="/w/a%b")
     wire = ClientHeaders.to_wire(identity)
-    assert ClientIdentity.model_validate(ClientHeaders.declaration_from(wire)) == (
-        identity
-    )
+    assert ClientIdentity.model_validate(
+        ClientHeaders.declaration_from(HeaderedPeer(wire))
+    ) == (identity)
 
 
 @pytest.mark.parametrize(
@@ -173,8 +212,122 @@ def test_a_client_that_sends_raw_values_resolves_to_one_connection(name: str) ->
     over_websocket["X-Lux-Client-Name"] = name.encode().decode("latin-1")
     over_http["X-Lux-Client-Name"] = name.encode("latin-1").decode("latin-1")
 
-    from_websocket = ClientHeaders.declaration_from(over_websocket) or {}
-    from_http = ClientHeaders.declaration_from(over_http) or {}
+    from_websocket = ClientHeaders.declaration_from(HeaderedPeer(over_websocket)) or {}
+    from_http = ClientHeaders.declaration_from(HeaderedPeer(over_http)) or {}
 
     assert from_websocket["name"] == name
-    assert connection_for(from_websocket) == connection_for(from_http)
+    assert (
+        ConnectionSeed(from_websocket).connection_id
+        == ConnectionSeed(from_http).connection_id
+    )
+
+
+def test_a_declared_host_crosses_both_directions() -> None:
+    # The host a client runs on rides the same header set REST and the WS
+    # handshake read, so the Hub keys a provider by where it actually runs.
+    identity = ClientIdentity(kind="app", name="luxd-pty", host="okinos")
+    wire = ClientHeaders.to_wire(identity)
+    assert wire["X-Lux-Client-Host"] == "okinos"
+    assert ClientHeaders.identity_from(HeaderedPeer(wire)) == identity
+
+
+def test_a_non_ascii_host_survives_the_header_encoding() -> None:
+    identity = ClientIdentity(kind="app", name="luxd-pty", host="büro-mac")
+    assert (
+        ClientHeaders.identity_from(HeaderedPeer(ClientHeaders.to_wire(identity)))
+        == identity
+    )
+
+
+def test_an_undeclared_host_is_the_observed_peer_never_the_hubs_own_name() -> None:
+    # A client on another machine, reaching the Hub through a tunnel, that sends no
+    # host must not be recorded as the Hub's machine: the only host the Hub knows
+    # for it is the address its socket arrived from.
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer({"X-Lux-Client-Name": "tool"}, host="10.0.0.7")
+    )
+    assert declaration == {"kind": "cli", "name": "tool", "host": "10.0.0.7"}
+
+
+def test_a_declared_host_wins_over_the_observed_peer() -> None:
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer(
+            {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "pembroke"},
+            host="127.0.0.1",
+        )
+    )
+    assert declaration == {"kind": "cli", "name": "tool", "host": "pembroke"}
+
+
+def test_an_unobserved_caller_declares_the_host_it_runs_on() -> None:
+    # An in-process caller has no socket peer and does run on the Hub's machine.
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer({"X-Lux-Client-Name": "tool"})
+    )
+    assert declaration == {"kind": "cli", "name": "tool", "host": LocalHost.name()}
+
+
+def test_the_connection_id_derives_from_the_host_the_identity_carries() -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool"})
+    declaration = ClientHeaders.declaration_from(peer)
+    identity = ClientHeaders.identity_from(peer)
+    assert declaration is not None
+    assert identity is not None
+    assert ConnectionSeed(declaration).connection_id == identity.connection_id
+
+
+@pytest.mark.parametrize("encoded", ["%0A", "%09%0D", "%20"])
+def test_a_host_that_is_blank_only_after_decoding_is_an_error_not_undeclared(
+    encoded: str,
+) -> None:
+    peer = HeaderedPeer(
+        {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": encoded}, host="10.0.0.7"
+    )
+    declaration = ClientHeaders.declaration_from(peer)
+    assert declaration is not None
+    assert declaration["host"] != "10.0.0.7"
+    assert ClientHeaders.identity_from(peer) is None
+
+
+def test_an_undecodable_host_is_rejected_not_read_as_a_replacement_character() -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "%FF"})
+    assert ClientHeaders.identity_from(peer) is None
+
+
+def test_an_invalid_applet_name_degrades_to_anonymous_instead_of_raising(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The applet-name check is a model-level validator, so its error has an
+    # empty location: logging it must not index into the location.
+    peer = HeaderedPeer(
+        {"X-Lux-Client-Name": "Not A Valid Applet Name!", "X-Lux-Client-Kind": "applet"}
+    )
+    with caplog.at_level(logging.INFO, logger="punt_lux.wire.model.identity_headers"):
+        assert ClientHeaders.identity_from(peer) is None
+    assert "rejected" in caplog.text
+
+
+def test_a_rejected_declaration_is_logged_with_the_failing_field(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "x", "X-Lux-Client-Host": "a%0Ab"})
+    with caplog.at_level(logging.INFO, logger="punt_lux.wire.model.identity_headers"):
+        assert ClientHeaders.identity_from(peer) is None
+    assert "host" in caplog.text
+
+
+def test_using_the_peer_in_place_of_a_declared_host_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool"}, host="10.0.0.7")
+    with caplog.at_level(logging.DEBUG, logger="punt_lux.wire.model.identity_headers"):
+        ClientHeaders.declaration_from(peer)
+    assert "10.0.0.7" in caplog.text
+
+
+def test_a_headerless_identity_reaches_the_hub_as_the_peer_host() -> None:
+    identity = ClientHeaders.identity_from(
+        HeaderedPeer({"X-Lux-Client-Name": "curl"}, host="10.0.0.7")
+    )
+    assert identity is not None
+    assert identity.host == "10.0.0.7"

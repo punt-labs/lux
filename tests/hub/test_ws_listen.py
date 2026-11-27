@@ -41,7 +41,7 @@ from punt_lux.hub.ws_listen import HubListenSession
 from punt_lux.hub.ws_transport import HubListenTransport
 from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
@@ -53,9 +53,12 @@ from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCall
 _HEADERS = {
     "X-Lux-Client-Kind": "app",
     "X-Lux-Client-Name": "voxd",
+    "X-Lux-Client-Host": "test-host",
     "X-Lux-Client-Repo": "/w/vox",
 }
-_CONN = connection_for({"kind": "app", "name": "voxd", "repo": "/w/vox"})
+_CONN = ConnectionSeed(
+    {"kind": "app", "name": "voxd", "host": "test-host", "repo": "/w/vox"}
+).connection_id
 
 
 @final
@@ -141,7 +144,7 @@ def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
     raise AssertionError("condition not reached within timeout")
 
 
-_IDENTITY = ClientIdentity(kind="app", name="voxd", repo="/w/vox")
+_IDENTITY = ClientIdentity(kind="app", name="voxd", host="test-host", repo="/w/vox")
 
 
 @final
@@ -301,7 +304,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
     return HubListenSession(
         _GoneWebSocket(send_error),  # type: ignore[arg-type]  # structural fake for the write path
         _CONN,
-        ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
+        ClientIdentity(kind="app", name="voxd", host="test-host", repo="/w/vox"),
         hub,
         lifecycle,
         CallbackRouter(clients),
@@ -350,7 +353,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
         session = HubListenSession(
             _GoneWebSocket(WebSocketDisconnect(code=1006)),  # type: ignore[arg-type]  # structural fake
             _CONN,
-            ClientIdentity(kind="app", name="voxd", repo="/w/vox"),
+            ClientIdentity(kind="app", name="voxd", host="test-host", repo="/w/vox"),
             hub,
             lifecycle,
             router,
@@ -582,7 +585,9 @@ def test_the_teardown_contains_no_await() -> None:
     assert suspensions == [], "_teardown must stay await-free; see its docstring"
 
 
-_VOX_IDENTITY = ClientIdentity(kind="app", name="voxd", repo="/w/vox", lease_ttl=5.0)
+_VOX_IDENTITY = ClientIdentity(
+    kind="app", name="voxd", host="test-host", repo="/w/vox", lease_ttl=5.0
+)
 
 
 def _listen_session(
@@ -678,7 +683,9 @@ def test_a_same_identity_ws_reconnect_never_lands_inside_an_open_departure_casca
     assert hub.has_writer(_CONN)
 
 
-_AGENT_IDENTITY = ClientIdentity(kind="mcp-session", name="claude", repo="/w/lux")
+_AGENT_IDENTITY = ClientIdentity(
+    kind="mcp-session", name="claude", host="test-host", repo="/w/lux"
+)
 
 
 def _agent_labels(clients: HubClientRegistry) -> list[str]:
@@ -731,11 +738,12 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
 _AGENT_HEADERS = {
     "X-Lux-Client-Kind": "mcp-session",
     "X-Lux-Client-Name": "claude",
+    "X-Lux-Client-Host": "test-host",
     "X-Lux-Client-Repo": "/w/lux",
 }
-_AGENT_CONN = connection_for(
-    {"kind": "mcp-session", "name": "claude", "repo": "/w/lux"}
-)
+_AGENT_CONN = ConnectionSeed(
+    {"kind": "mcp-session", "name": "claude", "host": "test-host", "repo": "/w/lux"}
+).connection_id
 _RENEW = {"kind": "renew"}
 _FAR_FUTURE = 1_000_000.0  # past any kind's lease; nothing renews
 

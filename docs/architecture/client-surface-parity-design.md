@@ -635,7 +635,7 @@ that is not confidential and stay visible to all callers.
 not privilege elevation.** The CLI accepts these flags on any
 client-tier command so a test or an operator can drive the engine as
 a *different client* for that call. The flag composes a fresh
-`ConnectionId` from the declared kind/name/repo/agent and runs the
+`ConnectionId` from the declared kind/name/host/repo/agent and runs the
 operation against it. The caller does not gain any operation the
 declared identity would not have; the caller *becomes* that identity
 for one invocation. This is how the DES-086 live demo would have

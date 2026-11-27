@@ -16,17 +16,24 @@ on a write that arrived without an identity — the HTTP analogue of a 401 chall
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import ValidationError
 
+from punt_lux.kernel.client_host import ClientHost
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.client_identity import ClientIdentity
-from punt_lux.wire.model.header_value import HeaderValue
+from punt_lux.wire.model.identity_header_field import IdentityHeaderField
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.kernel.peer_connection import HeaderedConnection
+
 __all__ = ["ClientHeaders"]
+
+logger = logging.getLogger(__name__)
 
 # What a caller that named itself but not its kind is taken to be — a `lux`
 # command is the client that reaches the Hub without declaring what it is.
@@ -37,23 +44,18 @@ _DEFAULT_KIND = "cli"
 class ClientHeaders:
     """The client-identity header names and the two directions they cross in."""
 
-    KIND: ClassVar[str] = "X-Lux-Client-Kind"
-    NAME: ClassVar[str] = "X-Lux-Client-Name"
-    REPO: ClassVar[str] = "X-Lux-Client-Repo"
-    AGENT: ClassVar[str] = "X-Lux-Client-Agent"
-    # The declared lease TTL, in seconds — a session's chosen cadence length. Absent
-    # means the kind default (see ClientIdentity.lease_ttl).
-    LEASE_TTL: ClassVar[str] = "X-Lux-Client-Lease-Ttl"
     # The response header a Hub stamps on an identity-less write — the challenge.
     CHALLENGE: ClassVar[str] = "X-Lux-Identification-Required"
-    # Which identity field each header carries, read once from this one table so
-    # the two directions cannot come to disagree about the set.
-    FIELDS: ClassVar[tuple[tuple[str, str], ...]] = (
-        ("kind", KIND),
-        ("name", NAME),
-        ("repo", REPO),
-        ("agent", AGENT),
-        ("lease_ttl", LEASE_TTL),
+    # The identity fields that cross the wire, declared once so the two directions
+    # cannot come to disagree about the set. ``lease_ttl`` absent means the kind
+    # default (see ClientIdentity.lease_ttl).
+    FIELDS: ClassVar[tuple[IdentityHeaderField, ...]] = (
+        IdentityHeaderField("kind", "X-Lux-Client-Kind", is_encoded=False),
+        IdentityHeaderField("name", "X-Lux-Client-Name"),
+        IdentityHeaderField("host", "X-Lux-Client-Host"),
+        IdentityHeaderField("repo", "X-Lux-Client-Repo"),
+        IdentityHeaderField("agent", "X-Lux-Client-Agent"),
+        IdentityHeaderField("lease_ttl", "X-Lux-Client-Lease-Ttl", is_encoded=False),
     )
     __slots__ = ()
 
@@ -61,52 +63,65 @@ class ClientHeaders:
     def to_wire(cls, identity: ClientIdentity) -> dict[str, str]:
         """Render ``identity`` into the request headers a client sends.
 
-        ``kind`` and ``name`` are always present; ``repo``, ``agent``, and
+        ``kind``, ``name`` and ``host`` are always present; ``repo``, ``agent``, and
         ``lease_ttl`` are genuine absences (a headless CLI owns no repository, only
         an agent carries a persona, and an undeclared TTL means the kind default),
-        and an absent field is omitted rather than sent blank. That is the one rule
-        this method applies: every field is rendered, and the blank ones are dropped
-        — a blank header equals no header on the read side.
+        and an absent field is omitted rather than sent blank — a blank header
+        equals no header on the read side. Free text crosses as the ASCII
+        :class:`~punt_lux.wire.model.header_value.HeaderValue` renders, so a
+        non-ASCII name or path reaches the Hub as the same bytes on every transport.
         """
-        return {header: value for header, value in cls._rendered(identity) if value}
-
-    @staticmethod
-    def _rendered(identity: ClientIdentity) -> tuple[tuple[str, str], ...]:
-        """Each header and the text this identity gives it; ``""`` means absent.
-
-        Values cross as the ASCII :class:`~punt_lux.wire.model.header_value.HeaderValue`
-        renders, so a non-ASCII name or repository path reaches the Hub as the same
-        bytes on every transport. The TTL is a number, not a declared label, so it
-        is formatted rather than encoded.
-        """
-        return (
-            (ClientHeaders.KIND, identity.kind),
-            (ClientHeaders.NAME, HeaderValue.sent(identity.name)),
-            (ClientHeaders.REPO, HeaderValue.sent(identity.repo)),
-            (ClientHeaders.AGENT, HeaderValue.sent(identity.agent)),
-            (
-                ClientHeaders.LEASE_TTL,
-                "" if identity.lease_ttl is None else str(identity.lease_ttl),
-            ),
-        )
+        return {
+            field.header: text
+            for field in cls.FIELDS
+            if (text := field.render(identity))
+        }
 
     @classmethod
-    def declaration_from(cls, headers: Mapping[str, str]) -> dict[str, object] | None:
-        """Read the identity headers into a declaration, or ``None`` if unnamed.
+    def declaration_from(
+        cls, connection: HeaderedConnection
+    ) -> dict[str, object] | None:
+        """Read the connection's identity headers into a declaration, or ``None``.
 
         A request is identified when it names itself, so a declaration with no name
         is no declaration — ``None`` is the documented contract for an unidentified
         caller, not a give-up on the type. ``kind`` falls to ``cli`` when the caller
-        declared none. A declared ``lease_ttl`` rides as a string the identity model
+        declared none.
+
+        A caller that declared no ``host`` is recorded at the address its socket
+        came from, never at the Hub's own machine name. That address is the
+        connection's, not the client's: a client behind ``ssh -L`` arrives from
+        loopback and is recorded as loopback, so a client that must be told apart
+        from the Hub's own machine declares its host. A caller with no socket (in
+        process) runs where the Hub runs and declares this machine. Either way the
+        declaration always names a host, so the connection id derives from the host
+        the stored identity carries.
+
+        A declared ``lease_ttl`` rides as a string the identity model
         coerces and bounds-checks, so a non-numeric or out-of-range value is a named
         rejection, not a crash.
         """
-        declared = cls._declared(headers)
-        return None if "name" not in declared else {"kind": _DEFAULT_KIND} | declared
+        declared = cls._declared(connection.headers)
+        if "name" not in declared:
+            return None
+        if "host" not in declared:
+            declared["host"] = cls._undeclared_host(connection)
+        return {"kind": _DEFAULT_KIND} | declared
+
+    @staticmethod
+    def _undeclared_host(connection: HeaderedConnection) -> str:
+        """Return the host a caller that declared none is taken to run on."""
+        observed = ClientHost.of_connection(connection)
+        if not observed.observed:
+            return LocalHost.name()
+        logger.debug(
+            "no host declared; recording the observed peer %s", observed.address
+        )
+        return observed.address
 
     @classmethod
-    def identity_from(cls, headers: Mapping[str, str]) -> ClientIdentity | None:
-        """Parse ``headers`` into a validated identity, or ``None`` for no caller.
+    def identity_from(cls, connection: HeaderedConnection) -> ClientIdentity | None:
+        """Parse ``connection``'s headers into an identity, or ``None`` for no caller.
 
         ``None`` covers both a genuinely unnamed request and a named-but-malformed
         one (a garbled ``lease_ttl``, an out-of-range value) — a read route that
@@ -117,12 +132,24 @@ class ClientHeaders:
         uses :meth:`declaration_from` plus the ``identify`` operation instead,
         which returns the named validation error.
         """
-        declared = cls.declaration_from(headers)
+        declared = cls.declaration_from(connection)
         if declared is None:
             return None
         try:
             return ClientIdentity.model_validate(declared)
-        except ValidationError:
+        except ValidationError as exc:
+            logger.info(
+                "identity headers rejected; treating the caller as anonymous "
+                "(fields: %s)",
+                ", ".join(
+                    sorted(
+                        {
+                            str(error["loc"][0]) if error["loc"] else "identity"
+                            for error in exc.errors()
+                        }
+                    )
+                ),
+            )
             return None
 
     @classmethod
@@ -139,7 +166,5 @@ class ClientHeaders:
         way their client encoded it.
         """
         return {
-            field: value
-            for field, header in cls.FIELDS
-            if (value := HeaderValue.declared(headers.get(header, "")))
+            field.name: text for field in cls.FIELDS if (text := field.read(headers))
         }

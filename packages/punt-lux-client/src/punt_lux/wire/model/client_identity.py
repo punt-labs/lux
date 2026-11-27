@@ -27,7 +27,8 @@ from pydantic import (
     model_validator,
 )
 
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.applet_name_format import APPLET_NAME_RE
 
 if TYPE_CHECKING:
@@ -45,6 +46,15 @@ ClientKind = Literal["mcp-session", "cli", "applet", "app"]
 # non-empty, so a blank or whitespace-only name is rejected declaratively rather
 # than by a hand-written validator.
 _Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+# A machine name: a displayable label no longer than a DNS name (253 characters).
+# The characters are checked separately (``_validate_host``), because a header
+# decodes percent-escapes into whatever the sender spelled.
+_HOST_MAX_LENGTH = 253
+_Host = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=_HOST_MAX_LENGTH),
+]
 
 # The bounds a declared lease TTL must fall within, in seconds. The floor keeps a
 # session alive across its own contact round-trip — a lease shorter than a few
@@ -69,7 +79,8 @@ class ClientIdentity(BaseModel):
     """Declare the client identity the Hub uses to attribute UI ownership.
 
     ``kind`` is the discriminator; ``name`` is the human-readable label
-    introspection prints. ``repo`` and ``agent`` are genuine absences, not
+    introspection prints; ``host`` is the machine the client runs on, which may
+    differ from the Hub's (DES-103). ``repo`` and ``agent`` are genuine absences, not
     give-ups: a headless CLI and the app own no repository, and only an agent
     carries a persona handle. Each is validated when present and left ``None``
     when the caller legitimately has neither.
@@ -85,6 +96,9 @@ class ClientIdentity(BaseModel):
 
     kind: ClientKind
     name: _Label  # a real, stripped, non-empty attribution label
+    # The machine the client runs on, always known: a client that does not name
+    # its host runs on this one. The Hub keys provider registrations by it.
+    host: _Host = Field(default_factory=LocalHost.name)
     repo: str | None = None  # absent for a headless CLI and the app; genuine
     # A non-blank handle when present; absent unless the caller is an agent.
     agent: str | None = Field(default=None, min_length=1)
@@ -106,19 +120,46 @@ class ClientIdentity(BaseModel):
             raise ValueError(msg)
         return value
 
+    @field_validator("host", mode="before")
+    @classmethod
+    def _trim_host(cls, value: object) -> object:
+        """Trim spaces and tabs around a host, but never a newline.
+
+        Only padding is trimmed: a newline at the edge of a decoded header is a
+        control character the next check must see, not whitespace to drop.
+        """
+        return value.strip(" \t") if isinstance(value, str) else value
+
+    @field_validator("host")
+    @classmethod
+    def _validate_host(cls, value: str) -> str:
+        """Reject a host with a control character or an undecodable byte.
+
+        A header percent-decodes ``%0A`` into a newline, which would reach logs and
+        the menu label; ``%FF`` decodes to U+FFFD, a printable stand-in for bytes
+        that were never text; NUL also breaks the connection-id seed's field join.
+        """
+        if not value.isprintable() or "\ufffd" in value:
+            msg = (
+                "host must be printable text with no control characters or "
+                f"undecodable bytes; got {value!r}"
+            )
+            raise ValueError(msg)
+        return value
+
     @field_validator("name", "repo", "agent")
     @classmethod
     def _reject_nul(cls, value: str | None) -> str | None:
         """Reject a NUL in any field, wherever the declaration came from.
 
-        :func:`~punt_lux.kernel.connection_identity.connection_for` joins these fields
+        :class:`~punt_lux.kernel.connection_identity.ConnectionSeed` joins these fields
         on a NUL to derive a connection id; a field carrying one breaks that
         join's distinctness guarantee, so every source is caught here.
         """
         if value is not None and "\x00" in value:
             msg = (
                 "identity fields must not contain NUL (breaks the "
-                "connection_for concatenation invariant)"
+                "ConnectionSeed concatenation invariant)"
             )
             raise ValueError(msg)
         return value
@@ -145,7 +186,7 @@ class ClientIdentity(BaseModel):
     @property
     def connection_id(self) -> ConnectionId:
         """This identity's stable connection id (DES-086), derived deterministically."""
-        return connection_for(self.model_dump())
+        return ConnectionSeed(self.model_dump()).connection_id
 
     @property
     def is_agent(self) -> bool:

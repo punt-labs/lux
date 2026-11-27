@@ -28,7 +28,7 @@ from punt_lux.commands import (
 )
 from punt_lux.tools import tools as _core
 from punt_lux.tools._signal import signal
-from punt_lux.tools.server import mcp
+from punt_lux.tools.server import current_client_host, mcp
 from punt_lux.wire.model.scene_presentation import SceneLayout
 from punt_lux.wire.operations import RenderRequest, UpdateRequest
 
@@ -47,12 +47,16 @@ def identify(
     name: str,
     repo: str | None = None,
     agent: str | None = None,
+    host: str | None = None,
 ) -> str:
     """Declare who this session is so the Hub attributes the UI it installs.
 
     ``kind`` is one of "mcp-session", "cli", or "app"; ``name`` is the label
     introspection shows for you; ``repo`` is the absolute path of your project
-    (omit when headless); ``agent`` is your persona handle when you are an agent.
+    (omit when headless); ``agent`` is your persona handle when you are an agent;
+    ``host`` is the machine you run on. Omit ``host`` and the Hub records the
+    address your connection arrived from; a caller reaching the Hub through a
+    tunnel appears as the tunnel's end, so declare ``host`` to be told apart.
 
     Returns:
         ``"identified:<name>"`` on success.
@@ -63,12 +67,20 @@ def identify(
     ctx: CommandCtx[SessionOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()
     )
+    declaration: dict[str, object] = {
+        "kind": kind,
+        "name": name,
+        "repo": repo,
+        "agent": agent,
+    }
+    # No declared host and no observed peer (in-process, stdio) leaves the
+    # identity model's own default: the machine the Hub runs on.
+    if host is not None:
+        declaration["host"] = host
+    elif observed_host := current_client_host().address:
+        declaration["host"] = observed_host
     result = asyncio.run(
-        session_identify_command(
-            ctx,
-            {"kind": kind, "name": name, "repo": repo, "agent": agent},
-            scope=_core.scope(),
-        )
+        session_identify_command(ctx, declaration, scope=_core.scope())
     )
     return signal(result)
 

@@ -62,7 +62,7 @@ Each row says whether this design builds on the ADR or amends it.
 
 | ADR | Relationship | What it contributes or changes |
 |-----|--------------|--------------------------------|
-| DES-057 (client identity) | Builds on | One identity covers REST and the WebSocket listen leg; `connection_for` makes it one connection id. The host report for a multi-transport client follows from this (Part B, "One identity, several transports"). |
+| DES-057 (client identity) | Builds on | One identity covers REST and the WebSocket listen leg; `ConnectionSeed` makes it one connection id. The host report for a multi-transport client follows from this (Part B, "One identity, several transports"). |
 | DES-064 (Clients menu) | Builds on | The roster label (`lux`, `lux (2)`) is the connection-rung text. Its 2026-08-02 renumbering means labels *move* on departure; the carried label must follow. |
 | DES-067 (grouping by repo and session) | Builds on | Two applets of one session share a `MenuGroupKey` and one label, so they read `lux :: Beads` and `lux :: Vox`. Under the always rule nobody counts scopes any more, so DES-067's "do not count them as two scopes" caveat becomes vacuous. |
 | DES-086 (`ConnectionScopedId`) | Builds on | The stable Rung-2 key is already inside every composed `frame_id` and `hidden_id`. The label is never a key. |
@@ -449,7 +449,7 @@ recording this as a reading, not a fork.
 ### One identity, several transports (DES-057)
 
 REST and the WebSocket leg of one identity resolve to one connection id
-(`connection_for`). Both contacts record their peer against that one session,
+(`ConnectionSeed`). Both contacts record their peer against that one session,
 and `observed_from` keeps the distinct hosts in first-seen order. A client
 that connects over REST and the WebSocket from one machine reports one host:
 `Client host: 127.0.0.1`. The same identity connecting from two machines

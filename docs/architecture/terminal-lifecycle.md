@@ -142,12 +142,12 @@ display-only: the Clients submenu name and frame-title prefix.
 
 Increment 2 must add the instance id to `ClientIdentity`, carry it through
 `ClientHeaders` serialization/parsing, and include it among the fields hashed
-by `connection_for` (`connection_identity.py`); declaration alone is not enough.
-Today that function hashes only `kind`, `name`, `repo` and `agent`.
+by `ConnectionSeed` (`connection_identity.py`); declaration alone is not enough.
+Today that seed hashes `kind`, `name`, `host`, `repo` and `agent`.
 The helper uses REST for menu registration and scene writes (`LuxClient`)
 and the WebSocket `/ws` listen leg for callbacks, events and renewal
 (`LuxHubClient`), not MCP. Both legs must carry the same instance field:
-`RestCaller` and `HubListenTransport` already share `connection_for`.
+`RestCaller` and `HubListenTransport` already share `ConnectionSeed`.
 
 ```text
 Clients
@@ -324,7 +324,7 @@ in hello/list), includes it in the helper's Hub identity, and extends
 `connection_identity.py`'s hashed fields so REST and WebSocket listen resolve
 the same instance-aware connection id. It adds the display-only host label
 and tests: two otherwise identical, same-labelled declarations with different
-instance ids yield distinct `connection_for` ids; the same instance round-trips
+instance ids yield distinct `ConnectionSeed` ids; the same instance round-trips
 over REST and WebSocket to the same id, and separate connections receive
 numbered Clients submenus. Increment 3 adds the
 instance-valued `host` field to the element, the Display's instance-to-socket

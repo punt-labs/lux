@@ -11,6 +11,8 @@ import pytest
 from pydantic import ValidationError
 
 from punt_lux.wire.model.client_identity import ClientIdentity
+from punt_lux.wire.model.identity_headers import ClientHeaders
+from tests.headered_peer import HeaderedPeer
 
 
 def test_full_identity_round_trips_through_its_wire_dict() -> None:
@@ -211,3 +213,38 @@ class TestAppletShape:
     def test_non_applet_kinds_do_not_go_through_the_regex(self) -> None:
         """A CLI whose declared name happens to have separators is left alone."""
         ClientIdentity(kind="cli", name="anything · at · all", repo="/w/foo")
+
+
+@pytest.mark.parametrize(
+    "host", ["a\nb", "a\tb", "a\rb", "a\x1bb", "a\x00b", "x" * 254]
+)
+def test_a_host_with_a_control_character_or_over_253_characters_is_rejected(
+    host: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        ClientIdentity(kind="cli", name="x", host=host)
+
+
+@pytest.mark.parametrize("host", ["okinos", "büro-mac", "10.0.0.7", "::1", "x" * 253])
+def test_a_printable_host_up_to_253_characters_is_accepted(host: str) -> None:
+    assert ClientIdentity(kind="cli", name="x", host=host).host == host
+
+
+def test_a_host_header_that_decodes_to_a_newline_is_no_identity() -> None:
+    # X-Lux-Client-Host: a%0Ab percent-decodes to "a\nb" on the Hub's read path.
+    headers = {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "a%0Ab"}
+    assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None
+
+
+@pytest.mark.parametrize("encoded", ["a%0A", "%0Aa", "a%0D", "%0Aa%0A"])
+def test_a_host_header_with_an_edge_control_character_is_no_identity(
+    encoded: str,
+) -> None:
+    # A newline at the edge must not be stripped away into a clean-looking host.
+    headers = {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": encoded}
+    assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None
+
+
+def test_a_ten_thousand_character_host_header_is_no_identity() -> None:
+    headers = {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "h" * 10_000}
+    assert ClientHeaders.identity_from(HeaderedPeer(headers)) is None

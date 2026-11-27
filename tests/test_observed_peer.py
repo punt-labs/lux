@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any, Self, cast, final
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
 from starlette.requests import Request
 
 from punt_lux.hub.callback_hold import CallbackRouter
@@ -27,7 +26,7 @@ from punt_lux.hub.menu_presence import MarkMenusSink
 from punt_lux.hub.ws_transport import HubListenTransport
 from punt_lux.kernel.client_host import UNOBSERVED, ClientHost, ClientHosts
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.tools.server import (
     bind_session,
@@ -209,11 +208,19 @@ class TestRegistryRecordsThePeer:
         assert session is not None
         assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")
 
-    def test_a_declared_host_is_not_a_field_of_an_identity(self) -> None:
-        with pytest.raises(ValidationError):
-            ClientIdentity.model_validate(
-                {"kind": "cli", "name": "x", "host": "10.1.1.1"}
-            )
+    def test_a_declared_host_is_stored_apart_from_the_observed_peer(self) -> None:
+        # The host a client declares is where it runs; the peer is the address its
+        # socket arrived from. Both are kept, and neither overwrites the other.
+        factory = HubStoreFactory(hub=Hub())
+        declared = ClientIdentity(kind="cli", name="x", host="okinos")
+
+        factory.lifecycle.identify(_CONN, declared, ClientHost("10.0.0.5"))
+
+        session = factory.clients.session_of(_CONN)
+        assert session is not None
+        assert session.identity is not None
+        assert session.identity.host == "okinos"
+        assert session.client_hosts.names == ("10.0.0.5",)
 
 
 @final
@@ -491,6 +498,7 @@ def _headers() -> dict[str, str]:
     return {
         "X-Lux-Client-Kind": "app",
         "X-Lux-Client-Name": "voxd",
+        "X-Lux-Client-Host": "test-host",
         "X-Lux-Client-Repo": "/w/vox",
     }
 
@@ -527,7 +535,9 @@ class TestWebSocketDoor:
 
     def test_the_listen_leg_records_the_socket_peer(self) -> None:
         client, factory = self._wired()
-        conn = connection_for({"kind": "app", "name": "voxd", "repo": "/w/vox"})
+        conn = ConnectionSeed(
+            {"kind": "app", "name": "voxd", "host": "test-host", "repo": "/w/vox"}
+        ).connection_id
 
         with client.websocket_connect("/ws", headers=_headers()) as ws:
             ws.receive_json()  # ready: the leg holds the slot, the peer is recorded

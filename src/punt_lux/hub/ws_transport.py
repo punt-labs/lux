@@ -21,7 +21,7 @@ from starlette.websockets import WebSocket
 from punt_lux.hub import hub, hub_lifecycle
 from punt_lux.hub.replicator_instance import hub_callback_router
 from punt_lux.hub.ws_listen import HubListenSession
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
 
@@ -76,16 +76,16 @@ class HubListenTransport:
 
         The identity rides the ``X-Lux-Client-*`` handshake headers exactly as it
         does on REST, and the connection is derived from the same declaration dict
-        (:func:`connection_for`), so the two legs resolve to one shared id. An
+        (:class:`ConnectionSeed`), so the two legs resolve to one shared id. An
         unidentified or malformed handshake is refused with a policy-violation close
         rather than served an anonymous session.
         """
-        declaration = ClientHeaders.declaration_from(websocket.headers)
+        declaration = ClientHeaders.declaration_from(websocket)
         identity = self._identity_of(declaration)
         if declaration is None or identity is None:
             await websocket.close(code=_POLICY_VIOLATION)
             return
-        conn = connection_for(declaration)
+        conn = ConnectionSeed(declaration).connection_id
         session = HubListenSession(
             websocket,
             conn,

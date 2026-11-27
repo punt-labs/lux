@@ -65,15 +65,15 @@ impossible to construct rather than making it detectable.
 `mcp-session`-kind connections — the transport itself assigns `ConnectionId`
 from a per-session `ContextVar` (`tools/server.py:45`), outside anything the
 caller declares. It is not true in the same unconditional sense for `cli`-
-and `applet`-kind connections, whose `ConnectionId` is `connection_for`'s
+and `applet`-kind connections, whose `ConnectionId` is `ConnectionSeed`'s
 deterministic hash of fields the caller *does* declare over REST
-(`connection_identity.py:39`). A process willing to declare the same fields
+(`connection_identity.py`). A process willing to declare the same fields
 a target connection would declare gets that target's exact `ConnectionId`,
 honestly, through the same `identify()` call every legitimate client uses.
 This is not a defect in `ConnectionScopedId` — the class still composes
 correctly from whatever `ConnectionId` it is given — it is a scope boundary
 on what "the writer does not choose" can promise for those two transports.
-See the `connection_for` residual and Decision 3 below for the full
+See the `ConnectionSeed` residual and Decision 3 below for the full
 accounting; djb's security review (round 2) confirmed this reading against
 the code.
 
@@ -155,15 +155,15 @@ string the caller sent.
    per live session — genuinely unique per connection, independent of
    anything the agent declares via `identify()`. A REST push or a WebSocket
    listen leg (applets, and any CLI invocation that opens one) derives its
-   `ConnectionId` via `connection_for` (`connection_identity.py:39`), a
-   deterministic hash of the *declared* identity fields `(kind, name, repo,
+   `ConnectionId` via `ConnectionSeed` (`connection_identity.py`), a
+   deterministic hash of the *declared* identity fields `(kind, name, host, repo,
    agent)` — built that way on purpose, so a client's REST leg and WebSocket
    leg resolve to the same connection. I traced whether this second
    derivation reintroduces a collision for the reported bug and found it
    does not: vox's own music-player push happens over the MCP-session
    transport (each Claude Code session's own live connection), which is the
    transport-session-key derivation, not the declared-fields hash. See the
-   Threat Model and the "connection_for residual" decision below for where
+   Threat Model and the "ConnectionSeed residual" decision below for where
    the declared-fields derivation *does* still carry a narrower, pre-existing
    gap this design does not close.
 
@@ -202,9 +202,9 @@ whole store key on its own.
 **Why anchor on `ConnectionId` rather than a fresh tuple.** The operator's
 sketch composes from `(kind, name, repo, session_pid)` directly. I traced
 what that tuple would actually buy over the `ConnectionId` the Hub already
-derives from those same fields (`connection_for`, item 5 above) and found:
+derives from those same fields (`ConnectionSeed`, item 5 above) and found:
 nothing, for the cases that matter, and one real gap that a fresh tuple would
-not close either (see the `connection_for` residual below). `ConnectionId`
+not close either (see the `ConnectionSeed` residual below). `ConnectionId`
 is already the value `Owner`, `OwnerTracker`, `ClientSession`,
 `MenuGroupKey`, and DES-068's whole reconciliation model treat as "this
 connection, distinctly, for as long as it is live." Re-deriving a parallel
@@ -549,10 +549,10 @@ simpler — it is *stricter* on the path that produced the bug, because it
 inherits a distinctness guarantee `identify()`'s declared fields do not, on
 their own, provide.
 
-**The residual gap, named plainly: `connection_for`'s declared-fields hash
+**The residual gap, named plainly: `ConnectionSeed`'s declared-fields hash
 can still collapse two genuinely different connections onto one
 `ConnectionId`, on the REST/WebSocket-paired leg only.**
-`connection_for` (`connection_identity.py:39`) hashes `(kind, name, repo,
+`ConnectionSeed` (`connection_identity.py`) hashes `(kind, name, host, repo,
 agent)` — no `session_pid` in it. For `applet` connections this is already
 closed: `ClientIdentity._validate_applet_shape`
 (`wire/model/client_identity.py:126`) rejects any applet whose `name` does not embed a
@@ -562,7 +562,7 @@ and hence different `ConnectionId`s. For `cli` connections it is *not*
 closed: `CliIdentity.resolve` (`client/cli_identity.py:36`) sets `name = override
 or repo.name` — two unrelated terminal invocations of bare `lux show
 <id>`, in the same repo, with no `--as`/`LUX_CLIENT` override, declare
-identical `(kind, name, repo, agent)` and therefore share one
+identical `(kind, name, host, repo, agent)` and therefore share one
 `ConnectionId`. Under this design, they would therefore also share one
 scoped namespace and *could* still collide on an identical `scene_id`.
 
@@ -581,17 +581,17 @@ own authority. See Decision 3 below.
 
 **What accepting this residual actually costs, stated precisely — not
 "two accidental invocations colliding by coincidence."** djb's round-2
-review sharpened this beyond the framing above. `connection_for`'s hash
+review sharpened this beyond the framing above. `ConnectionSeed`'s hash
 requires no guessing: a hostile same-user-localhost process that wants to
 *become* a target `cli`-kind connection needs only call `identify()` (or
 push over REST, which resolves identity implicitly) with the identical
-`(kind="cli", name, repo, agent)` tuple `CliIdentity.resolve` would have
+`(kind="cli", name, host, repo, agent)` tuple `CliIdentity.resolve` would have
 produced for the target — a tuple built entirely from public, declared
 information (a repo's directory name and absolute path), not a secret. At
 that point `ConnectionScopedId.compose` does exactly what it is specified
 to do; the writer's own `ConnectionId` is, by the Hub's own rules, now the
 same as the target's. This is not a new capability this design creates —
-the identical `connection_for` collision already grants a hostile process
+the identical `ConnectionSeed` collision already grants a hostile process
 the target's exact `Owner` for `SetProperty`/`RemoveElement`
 (`owner_tracker.py:58-68`), which is strictly worse (full element mutation,
 not merely a scene-id collision) — but Decision 3's recommendation to
@@ -887,11 +887,11 @@ end-to-end, and only the operator (or an implementation-phase audit) can
 close that gap with certainty before this ships.
 
 **Decision 3 — RULING: ACCEPT AS DOCUMENTED (no follow-on bead).** The
-operator ratified accepting the `connection_for` CLI-identity residual
+operator ratified accepting the `ConnectionSeed` CLI-identity residual
 exactly as gvr documented it, with no bead opened to close it later —
 the residual is a scope call about the CLI's existing, shipped
 "re-run to update the same scene" contract, not a gap this design leaves
-half-closed. Original framing: whether to leave the `connection_for`
+half-closed. Original framing: whether to leave the `ConnectionSeed`
 CLI-identity residual — accurately stated, not "two bare `lux show <id>`
 invocations colliding by coincidence" but "any same-user-localhost process
 can deliberately become a target `cli`-kind connection's identity for the
@@ -905,13 +905,13 @@ repeated bare invocations sharing an identity, and the escape hatch
 namespace. Changing this would be a real, user-visible behavior change to
 the CLI's existing contract, not a security fix this design's mandate
 covers. djb's round-2 review confirmed independently that this residual
-grants no *new* capability — the identical `connection_for` collision
+grants no *new* capability — the identical `ConnectionSeed` collision
 already grants a hostile process the target's exact ownership for
 `SetProperty`/`RemoveElement`, a strictly worse capability than a scene-id
 collision, under the same standing same-user-localhost trust model — so
 accepting the narrower residual here is consistent with a risk this
 codebase already accepts elsewhere, not a new hole this design introduces.
-Alternative: extend `connection_for`'s hashed fields (or
+Alternative: extend `ConnectionSeed`'s hashed fields (or
 `CliIdentity`'s defaults) to distinguish concurrent bare invocations by
 some invocation-local token, closing the residual at the cost of breaking
 "run the same command twice to refresh the same display region" for every
