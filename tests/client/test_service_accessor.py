@@ -7,14 +7,18 @@ import asyncio
 from punt_lux.client._rest_transport import _RestTransport
 from punt_lux.client.rest_transport import HttpResponse
 from punt_lux.client.service import ServiceAccessor
-from punt_lux.wire.operations import Ok, OpError
+from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.wire.operations import Ok, OpError, Scope
+from punt_lux.wire.operations.service_requests import RegisterServiceRequest
 from tests.client.test_rest_transport import CannedTransport, SurfaceTransport
 from tests.rest._fakes import DEFAULT_IDENTITY_MODEL, make_client
+
+_SCOPE = Scope.in_process(ConnectionId("c1"))
 
 
 def _accessor(transport: object) -> ServiceAccessor:
     rest = _RestTransport(transport, DEFAULT_IDENTITY_MODEL)  # type: ignore[arg-type]  # HttpTransport protocol; fakes satisfy it structurally
-    return ServiceAccessor.over(rest)
+    return ServiceAccessor.over(rest, _SCOPE)
 
 
 def test_register_posts_the_name_to_the_services_route() -> None:
@@ -68,3 +72,25 @@ def test_the_verbs_agree_with_the_real_routes() -> None:
 
     assert not isinstance(listed, OpError)
     assert [s.service for s in listed.services] == ["terminal"]
+
+
+def test_the_sync_surface_serves_the_same_routes() -> None:
+    transport = CannedTransport(HttpResponse(status=200, body=b'{"kind":"ok"}'))
+    accessor = _accessor(transport)
+
+    request = RegisterServiceRequest.parse("terminal")
+    result = accessor.sync.register_service(request, scope=_SCOPE)
+
+    assert result == Ok()
+    assert transport.call is not None
+    assert (transport.call.method, transport.call.path) == ("POST", "/services")
+
+
+def test_the_sync_surface_returns_a_parse_error_with_no_round_trip() -> None:
+    transport = CannedTransport(HttpResponse(status=200, body=b'{"kind":"ok"}'))
+    refused = RegisterServiceRequest.parse("Not A Name")
+
+    result = _accessor(transport).sync.register_service(refused, scope=_SCOPE)
+
+    assert result is refused
+    assert transport.call is None

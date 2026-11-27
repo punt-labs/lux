@@ -23,14 +23,14 @@ class _StubServiceOps:
     """``ServiceOps`` stub returning preset outcomes; records routing args."""
 
     register_result: Ok | OpError
-    listing: ServiceList
+    listing: ServiceList | OpError
     last_call: dict[str, object]
     __slots__ = ("last_call", "listing", "register_result")
 
     def __new__(
         cls,
         register_result: Ok | OpError | None = None,
-        listing: ServiceList | None = None,
+        listing: ServiceList | OpError | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self.register_result = register_result if register_result else Ok()
@@ -48,7 +48,7 @@ class _StubServiceOps:
         }
         return self.register_result
 
-    def list_services(self, *, scope: Scope) -> ServiceList:
+    def list_services(self, *, scope: Scope) -> ServiceList | OpError:
         self.last_call = {"method": "list_services", "scope": scope}
         return self.listing
 
@@ -138,3 +138,14 @@ def test_ls_of_no_registrations_says_so() -> None:
 
     assert result.text == "no services registered"
     assert result.error is False
+
+
+def test_ls_renders_a_refusal_as_an_error_line() -> None:
+    ops = _StubServiceOps(
+        listing=OpError(code="identification_required", reason="who are you")
+    )
+
+    result = asyncio.run(service_ls(_ctx(ops), scope=_SCOPE))
+
+    assert result.text == "error: who are you"
+    assert result.error is True

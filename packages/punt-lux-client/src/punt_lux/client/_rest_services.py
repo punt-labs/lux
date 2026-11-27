@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.client.rest_http_call import HttpCall
 from punt_lux.client.rest_reply import RestReply
 from punt_lux.wire.operations import Ok, OpError
-from punt_lux.wire.operations.service_requests import RegisterServiceRequest
 from punt_lux.wire.operations.service_results import ServiceList
 
 if TYPE_CHECKING:
     from punt_lux.client.rest_transport import HttpTransport
+    from punt_lux.wire.operations import Scope
+    from punt_lux.wire.operations.service_requests import RegisterServiceRequest
 
 __all__ = ["_ServiceRestOps"]
 
@@ -30,20 +31,22 @@ class _ServiceRestOps:
         self._headers = headers
         return self
 
-    def register_service(self, service: str) -> Ok | OpError:
+    def register_service(
+        self, request: RegisterServiceRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
         """Register the service this identity serves through ``POST /services``.
 
-        A malformed name is an ``OpError`` with no round-trip. Requests for the
-        service arrive over this identity's listener stream.
+        A request that failed to parse is returned as is, with no round-trip.
+        Requests for the service arrive over this identity's listener stream.
         """
-        try:
-            request = RegisterServiceRequest(service=service)
-        except ValueError as error:
-            return OpError(code="invalid_request", reason=str(error).splitlines()[0])
+        del scope  # REST composes scope from the identity headers on every request
+        if isinstance(request, OpError):
+            return request
         call = HttpCall.post("/services", request, self._headers)
         return RestReply(self._transport.request(call)).read(Ok)
 
-    def list_services(self) -> ServiceList | OpError:
+    def list_services(self, *, scope: Scope) -> ServiceList | OpError:
         """List which hosts serve which services through ``GET /services``."""
+        del scope  # REST composes scope from the identity headers on every request
         call = HttpCall.read("/services", self._headers)
         return RestReply(self._transport.request(call)).read(ServiceList)

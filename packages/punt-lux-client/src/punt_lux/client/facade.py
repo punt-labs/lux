@@ -107,7 +107,7 @@ class LuxClient:
     @cached_property
     def service(self) -> ServiceAccessor:
         """The ``client.service.*`` verbs."""
-        return ServiceAccessor.over(self._transport)
+        return ServiceAccessor.over(self._transport, self._scope)
 
     @cached_property
     def display(self) -> DisplayAccessor:

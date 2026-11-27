@@ -150,6 +150,9 @@ stateless-values = "any"
 "src/punt_lux/operations/facade.py" = { efferent_coupling = 20, max_lcom = 0.95, avg_lcom = 0.95 }
 "src/punt_lux/tools/subscribe_tools.py" = { efferent_coupling = 20 }
 "src/punt_lux/hub/hub_composition.py" = { efferent_coupling = 20 }
+# The registry is the one place every noun sub-app is wired onto the CLI, so its
+# fan-out is the number of sub-apps.
+"src/punt_lux/cli/registry.py" = { efferent_coupling = 20 }
 
 [tool.ruff]
 line-length = 88

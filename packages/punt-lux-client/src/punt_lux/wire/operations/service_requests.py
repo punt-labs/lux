@@ -8,7 +8,9 @@ before relaying.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from punt_lux.wire.operations.common import OpError
 
 __all__ = ["RegisterServiceRequest", "RelayRequest"]
 
@@ -22,6 +24,14 @@ class RegisterServiceRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     service: str = _NAME
+
+    @classmethod
+    def parse(cls, service: str) -> RegisterServiceRequest | OpError:
+        """Validate ``service``, or return an ``OpError`` instead of raising."""
+        try:
+            return cls(service=service)
+        except ValidationError as exc:
+            return OpError.from_validation(exc)
 
 
 class RelayRequest(BaseModel):

@@ -172,7 +172,7 @@ class ServiceOps(Protocol):
         """Register the service the caller serves."""
         ...
 
-    def list_services(self, *, scope: Scope) -> ServiceList:
+    def list_services(self, *, scope: Scope) -> ServiceList | OpError:
         """List which hosts serve which services."""
         ...
 

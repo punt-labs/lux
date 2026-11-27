@@ -24,6 +24,7 @@ from punt_lux.cli.plugin import (
     uninstall as plugin_uninstall,
 )
 from punt_lux.cli.scene import scene_app
+from punt_lux.cli.service import service_app
 from punt_lux.cli.services import ServiceCommands
 from punt_lux.cli.session import session_app
 
@@ -54,6 +55,7 @@ class _SubcommandRegistry:
         app.add_typer(event_app, name="event")
         app.add_typer(error_app, name="error")
         app.add_typer(callback_app, name="callback")
+        app.add_typer(service_app, name="service")
         app.command("beads")(beads_command)
         app.command()(plugin_install)
         app.command()(plugin_uninstall)

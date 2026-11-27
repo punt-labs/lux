@@ -89,4 +89,6 @@ class ServiceRoutes:
         self, scope: OwningScope, identity: CallerIdentity
     ) -> ServiceList:
         """Return every registration, ordered by service then host."""
-        return asyncio.run(service_ls_command.execute(self._ctx(identity), scope=scope))
+        return self._errors.respond(
+            asyncio.run(service_ls_command.execute(self._ctx(identity), scope=scope))
+        )

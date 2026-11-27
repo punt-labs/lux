@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.commands._faults import render_error
 from punt_lux.commands._result import CommandResult
+from punt_lux.wire.operations import OpError
 
 if TYPE_CHECKING:
     from punt_lux.wire.operations import Scope
@@ -22,13 +24,17 @@ class ServiceLsCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def execute(self, ctx: Ctx[ServiceOps], *, scope: Scope) -> ServiceList:
+    async def execute(
+        self, ctx: Ctx[ServiceOps], *, scope: Scope
+    ) -> ServiceList | OpError:
         """Return every registration, ordered by service then host."""
         return await asyncio.to_thread(ctx.ops.list_services, scope=scope)
 
     async def __call__(self, ctx: Ctx[ServiceOps], *, scope: Scope) -> CommandResult:
         """Run :meth:`execute` and render one line per registration."""
         result = await self.execute(ctx, scope=scope)
+        if isinstance(result, OpError):
+            return render_error(result)
         text = (
             "\n".join(f"{entry.service} {entry.host}" for entry in result.services)
             or "no services registered"
