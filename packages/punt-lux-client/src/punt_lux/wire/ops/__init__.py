@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from punt_lux.wire.operations.menu_results import SetMenuRequest
     from punt_lux.wire.operations.query_errors import RecentErrors
     from punt_lux.wire.operations.query_events import RecentEvents
+    from punt_lux.wire.operations.service_requests import RegisterServiceRequest
+    from punt_lux.wire.operations.service_results import ServiceList
 
 
 @runtime_checkable
@@ -153,6 +155,25 @@ class CallbackPendingOps(Protocol):
 
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them."""
+        ...
+
+
+@runtime_checkable
+class ServiceOps(Protocol):
+    """The ops surface the ``service`` commands read.
+
+    ``relay`` is not here: it is the one call every service's own commands make,
+    and there is deliberately no generic "call any service" command (DES-107).
+    """
+
+    def register_service(
+        self, request: RegisterServiceRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Register the service the caller serves."""
+        ...
+
+    def list_services(self, *, scope: Scope) -> ServiceList:
+        """List which hosts serve which services."""
         ...
 
 

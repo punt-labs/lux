@@ -41,6 +41,9 @@ _MCP_ONLY = {
     # invocations; delivery goes through the listen leg's ``take`` drain, so
     # a REST route (which cannot bind to a listener) has no way to be useful.
     "pending_callbacks",
+    # relay is the one call every service's own routes make from inside the Hub;
+    # there is deliberately no generic route to call any service (DES-107).
+    "relay",
 }
 
 
@@ -85,7 +88,7 @@ def test_exempt_set_names_only_real_operations() -> None:
 
 def test_surface_exposes_one_router_per_concern() -> None:
     surface = RestSurface(make_facade(display_port=ForbiddenPort()))
-    assert len(surface.routers) == 6
+    assert len(surface.routers) == 7
 
 
 def test_no_publish_route_is_mounted() -> None:
