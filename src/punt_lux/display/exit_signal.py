@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import signal
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.kernel.logging_config import record_signal
+from punt_lux.display.signal_watcher import SignalWatcher
 
 if TYPE_CHECKING:
     from imgui_bundle import hello_imgui
@@ -30,17 +31,36 @@ class ExitSignal:
     before that has nothing to set ``app_shall_exit`` on.
     """
 
-    __slots__ = ("_runner_params",)
+    __slots__ = ("_runner_params", "_terminated", "_watcher")
 
     _runner_params: hello_imgui.RunnerParams
+    _terminated: bool
+    _watcher: SignalWatcher
 
     def __new__(cls, runner_params: hello_imgui.RunnerParams) -> Self:
         self = super().__new__(cls)
         self._runner_params = runner_params
-        signal.signal(signal.SIGTERM, self._handle)
+        self._terminated = False
+        signal.signal(signal.SIGTERM, self._request_exit)
+        self._watcher = SignalWatcher(self._request_exit)
         return self
 
-    def _handle(self, signum: int, _frame: object) -> None:
-        """Record the signal, then request that the ImGui loop stop."""
-        record_signal(signum)
+    def _request_exit(self, *_signal_arguments: object) -> None:
+        """Ask the ImGui loop to stop at its next iteration.
+
+        Both the signal handler, which receives the signal number and frame, and
+        the watcher thread, which receives nothing, call this.
+        """
+        self._terminated = True
         self._runner_params.app_shall_exit = True
+
+    def finish(self) -> None:
+        """End the process by SIGTERM when the loop stopped because of one.
+
+        A supervisor that restarts only on failure treats a death by signal as a
+        failure, so a Hub that stops an unresponsive Display gets a new one. A loop
+        that stopped any other way, such as the window closing, returns normally.
+        """
+        if self._terminated:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            os.kill(os.getpid(), signal.SIGTERM)

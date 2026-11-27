@@ -274,8 +274,8 @@ class RenderLoop:
         runner_params.callbacks.before_exit = self._on_exit
         self._exit_signal = ExitSignal(runner_params)
 
-        addons = DisplaySetup.addons()
-        immapp.run(runner_params, addons)
+        immapp.run(runner_params, DisplaySetup.addons())
+        self._exit_signal.finish()
 
     def _announce_listening(self) -> None:
         """Record the pid and log once the socket claim has succeeded."""
