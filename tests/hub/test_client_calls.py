@@ -11,6 +11,7 @@ over 256 KiB is a fault.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -167,7 +168,11 @@ def test_a_reply_over_the_size_cap_is_a_fault() -> None:
     call = calls.enter(ticket, "terminal", "ls", {})
     huge: dict[str, object] = {"blob": "x" * (256 * 1024 + 1)}
 
-    assert calls.reply(ticket, ReplyFrame(request_id="cb1.1", payload=huge))
+    assert calls.reply(
+        ticket,
+        ReplyFrame(request_id="cb1.1", payload=huge),
+        size=len(ReplyFrame(request_id="cb1.1", payload=huge).model_dump_json()),
+    )
 
     outcome = call.wait()
     assert isinstance(outcome, Refused)
@@ -210,3 +215,60 @@ def test_waiting_twice_reports_the_one_outcome() -> None:
     calls.reply(ticket, ReplyFrame(request_id="cb1.1", payload={"a": 1}))
 
     assert call.wait() == call.wait() == Replied({"a": 1})
+
+
+def test_the_deadline_runs_from_the_send_not_from_the_wait() -> None:
+    calls = _calls(deadline_s=0.05)
+    ticket = calls.open_session()
+    call = calls.enter(ticket, "terminal", "ls", {})
+    time.sleep(0.15)
+
+    started = time.monotonic()
+    outcome = call.wait()
+
+    assert outcome == TimedOut()
+    assert time.monotonic() - started < 0.04
+    assert not calls.reply(ticket, ReplyFrame(request_id="cb1.1", payload={}))
+
+
+def test_a_request_for_a_session_that_already_ended_is_lost_at_once() -> None:
+    calls = _calls()
+    ticket = calls.open_session()
+    calls.end_session(ticket)
+
+    call = calls.enter(ticket, "terminal", "ls", {})
+
+    started = time.monotonic()
+    assert call.wait() == Lost()
+    assert time.monotonic() - started < 1.0
+
+
+def test_a_second_waiter_wakes_when_the_first_times_the_call_out() -> None:
+    calls = _calls(deadline_s=0.05)
+    ticket = calls.open_session()
+    call = calls.enter(ticket, "terminal", "ls", {})
+    outcomes: list[object] = []
+    second = threading.Thread(target=lambda: outcomes.append(call.wait()))
+    second.start()
+
+    assert call.wait() == TimedOut()
+    second.join(timeout=1)
+
+    assert outcomes == [TimedOut()]
+
+
+def test_a_reply_larger_than_the_cap_by_its_frame_size_is_a_fault() -> None:
+    calls = _calls()
+    ticket = calls.open_session()
+    call = calls.enter(ticket, "terminal", "ls", {})
+
+    resolved = calls.reply(
+        ticket,
+        ReplyFrame(request_id="cb1.1", payload={"a": 1}),
+        size=ClientCalls.MAX_REPLY_BYTES + 1,
+    )
+
+    assert resolved
+    outcome = call.wait()
+    assert isinstance(outcome, Refused)
+    assert outcome.code == "fault"

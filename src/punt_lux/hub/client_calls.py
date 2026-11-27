@@ -20,7 +20,6 @@ never reused, so a late reply cannot satisfy a different call.
 
 from __future__ import annotations
 
-import json
 import logging
 import secrets
 import threading
@@ -83,6 +82,9 @@ class ClientCalls:
     DEADLINE_S: ClassVar[float] = 15.0
     PER_SESSION_LIMIT: ClassVar[int] = 8
     MAX_REPLY_BYTES: ClassVar[int] = 256 * 1024
+    # No client frame is read past this size: a connected client cannot make the
+    # Hub parse and hold an unbounded frame before any cap applies.
+    MAX_FRAME_BYTES: ClassVar[int] = 2 * MAX_REPLY_BYTES
 
     __slots__ = ("_boot", "_deadline_s", "_lock", "_pending", "_serial", "_sessions")
 
@@ -123,21 +125,29 @@ class ClientCalls:
                 request is not entered and must not be sent.
         """
         with self._lock:
-            if self._count(ticket) >= self.PER_SESSION_LIMIT:
+            if not ticket.ended and self._count(ticket) >= self.PER_SESSION_LIMIT:
                 msg = "provider busy"
                 raise ProviderBusyError(msg)
             self._serial += 1
             request_id = f"c{self._boot}.{self._serial}"
-            entry = CallEntry(ticket)
-            self._pending[request_id] = entry
+            entry = CallEntry(ticket, self._deadline_s)
+            if ticket.ended:
+                entry.conclude(Lost())
+                entry.wake()
+            else:
+                self._pending[request_id] = entry
         frame = RequestFrame(
             request_id=request_id, service=service, operation=operation, payload=payload
         )
         return PendingCall(self, entry, frame)
 
-    def reply(self, ticket: SessionTicket, frame: ReplyFrame) -> bool:
-        """Resolve the call ``frame`` answers; return whether one was resolved."""
-        if len(json.dumps(frame.payload)) > self.MAX_REPLY_BYTES:
+    def reply(self, ticket: SessionTicket, frame: ReplyFrame, size: int = 0) -> bool:
+        """Resolve the call ``frame`` answers; return whether one was resolved.
+
+        ``size`` is the frame's length as received, so the cap is checked without
+        serializing the payload again; a caller with no raw frame omits it.
+        """
+        if size > self.MAX_REPLY_BYTES:
             outcome: CallOutcome = Refused("fault", "reply too large")
         else:
             outcome = Replied(frame.payload)
@@ -150,8 +160,13 @@ class ClientCalls:
         )
 
     def end_session(self, ticket: SessionTicket) -> int:
-        """Resolve every call pending on the session as lost; return how many."""
+        """Resolve every call pending on the session as lost; return how many.
+
+        The session is marked ended, so a request entered for it afterwards is
+        lost at once rather than queued where no writer will send it.
+        """
         with self._lock:
+            ticket.end()
             ended = [
                 (request_id, entry)
                 for request_id, entry in self._pending.items()
@@ -166,14 +181,15 @@ class ClientCalls:
 
     def await_outcome(self, request_id: str, entry: CallEntry) -> CallOutcome:
         """Wait for the entry's outcome; at the deadline, time it out if pending."""
-        entry.wait_for(self._deadline_s)
+        entry.wait_until_deadline()
         with self._lock:
             outcome = entry.outcome
             if outcome is None:
                 outcome = TimedOut()
                 entry.conclude(outcome)
                 self._pending.pop(request_id, None)
-            return outcome
+        entry.wake()
+        return outcome
 
     def _resolve(
         self, ticket: SessionTicket, request_id: str, outcome: CallOutcome

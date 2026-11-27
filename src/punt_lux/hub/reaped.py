@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
 if TYPE_CHECKING:
+    from punt_lux.hub.callback_ports import CallbackListener
     from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["Reaped"]
@@ -22,6 +23,9 @@ class Reaped:
 
     lapsed: frozenset[ConnectionId]
     relabelled: frozenset[ConnectionId]
+    # The legs the lapsed connections held, so the step that removed them can end
+    # the calls pending on each.
+    legs: tuple[CallbackListener, ...] = ()
 
     def __post_init__(self) -> None:
         """Only a survivor can be retitled: the lapsed are gone."""

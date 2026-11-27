@@ -34,6 +34,9 @@ class Attachment:
     restated: (
         bool  # whether the write changed who the session is, where from, or revived it
     )
+    # The leg this attach took the slot from, or None if the slot was empty or the
+    # same leg re-attached.
+    displaced: CallbackListener | None = None
 
 
 @final
@@ -124,8 +127,10 @@ class SessionWrite:
     def attachment(self) -> Attachment:
         """The write read as taking the listener slot."""
         over_callbacks = self.before is not None and bool(self.before.callbacks)
+        previous = None if self.before is None else self.before.listener
         return Attachment(
             "attached_over_callbacks" if over_callbacks else "attached",
             self.presence,
             self.restated,
+            None if previous is self.after.listener else previous,
         )

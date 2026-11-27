@@ -26,7 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from punt_lux.hub.call_outcomes import Lost, Replied
+from punt_lux.hub.call_outcomes import Lost, ProviderBusyError, Refused, Replied
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.callback_ports import CallbackListener
@@ -982,3 +982,45 @@ def test_a_disconnect_resolves_the_calls_pending_on_the_session_as_lost() -> Non
         ws.receive_json()  # the request reached the client; it never answers
 
     assert call.wait() == Lost()
+
+
+def test_a_frame_over_the_size_limit_closes_the_leg_as_too_big() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        ws.send_text("x" * (ClientCalls.MAX_FRAME_BYTES + 1))
+
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+
+    assert closed.value.code == 1009
+
+
+def test_a_reply_larger_than_the_cap_resolves_the_call_as_a_fault() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "ls", {})
+        ws.receive_json()
+        big = ReplyFrame(
+            request_id=call.frame.request_id,
+            payload={"blob": "x" * (ClientCalls.MAX_REPLY_BYTES + 1)},
+        )
+        ws.send_text(big.model_dump_json())
+
+        outcome = call.wait()
+
+    assert isinstance(outcome, Refused)
+    assert outcome.code == "fault"
+
+
+def test_the_ninth_relayed_request_on_a_session_is_refused_without_a_frame() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        session = _session_of(wired)
+        for _ in range(ClientCalls.PER_SESSION_LIMIT):
+            session.relay("terminal", "ls", {})
+
+        with pytest.raises(ProviderBusyError):
+            session.relay("terminal", "ls", {})

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.hub.callback_ports import CallProvider
 from punt_lux.hub.menu_presence import MenuPresence
 
 if TYPE_CHECKING:
@@ -108,6 +109,8 @@ class ClientLifecycle:
         """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
             attachment = self._writes.attach(connection_id, identity, listener, host)
+            if attachment.displaced is not None:
+                self._end_calls_of(attachment.displaced)
             self._announce(connection_id, attachment.presence)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
@@ -179,10 +182,12 @@ class ClientLifecycle:
         The one step every departure trigger funnels through.
         """
         with self._lock.write():
-            relabelled = self._writes.discard(connection_id)
+            departure = self._writes.discard(connection_id)
+            if departure.leg is not None:
+                self._end_calls_of(departure.leg)
             self._owners.release_all(connection_id)
             self._cascade.run(connection_id)
-            self._presence.retitle_scenes(self._owners.scenes_of(relabelled))
+            self._presence.retitle_scenes(self._owners.scenes_of(departure.relabelled))
 
     def depart_lapsed(
         self, exclude: frozenset[ConnectionId]
@@ -190,10 +195,18 @@ class ClientLifecycle:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
             reaped = self._writes.reap_lapsed(exclude)
+            for leg in reaped.legs:
+                self._end_calls_of(leg)
             self._owners.release_departed(reaped.lapsed)
             self._cascade.run_all(reaped.lapsed)
             self._presence.retitle_scenes(self._owners.scenes_of(reaped.relabelled))
             return reaped.lapsed
+
+    @staticmethod
+    def _end_calls_of(leg: CallbackListener) -> None:
+        """Resolve the calls pending on ``leg`` as lost, if it serves calls."""
+        if isinstance(leg, CallProvider):
+            leg.end_calls()
 
     def _announce(self, connection_id: ConnectionId, change: PresenceChange) -> None:
         """Pay a presence change's debt -- mark and sink -- in the same step."""

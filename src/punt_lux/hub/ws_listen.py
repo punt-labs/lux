@@ -65,6 +65,8 @@ __all__ = ["HubListenSession"]
 # A client that sends a frame the wire does not define is closed as a protocol
 # violation (1002) rather than left to bubble into a 1011 server error.
 _PROTOCOL_ERROR = 1002
+# A frame larger than the leg accepts is closed as too big (1009), before it is parsed.
+_MESSAGE_TOO_BIG = 1009
 
 
 @final
@@ -195,6 +197,10 @@ class HubListenSession:
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
         return True
 
+    def end_calls(self) -> None:
+        """CallProvider: resolve every call pending on this session as lost."""
+        self._calls.end_session(self._ticket)
+
     def relay(
         self, service: str, operation: str, payload: dict[str, object]
     ) -> PendingCall:
@@ -225,16 +231,22 @@ class HubListenSession:
             except WebSocketDisconnect:
                 return
             self._lifecycle.identify(self._conn, self._identity, self._client_host)
+            if len(raw) > self._calls.MAX_FRAME_BYTES:
+                logger.info("listen client sent an oversized frame; closing")
+                await self._ws.close(code=_MESSAGE_TOO_BIG)
+                return
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
                 logger.info("listen client sent a malformed frame; closing")
                 await self._ws.close(code=_PROTOCOL_ERROR)
                 return
-            self._apply(frame)
+            self._apply(frame, len(raw))
 
     def _apply(
-        self, frame: SubscribeFrame | RenewFrame | ReplyFrame | RefusalFrame
+        self,
+        frame: SubscribeFrame | RenewFrame | ReplyFrame | RefusalFrame,
+        size: int,
     ) -> None:
         """Act on one parsed client frame — subscribe, renew, or answer a request."""
         match frame:
@@ -244,7 +256,7 @@ class HubListenSession:
             case RenewFrame():
                 pass  # the lease renewal already happened on receipt
             case ReplyFrame():
-                self._calls.reply(self._ticket, frame)
+                self._calls.reply(self._ticket, frame, size)
             case RefusalFrame():
                 self._calls.refuse(self._ticket, frame)
 

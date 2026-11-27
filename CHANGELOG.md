@@ -4,6 +4,12 @@
 
 ### Added
 
+- The listen leg carries typed requests: the Hub sends a request frame to the
+  client that serves a service, and the client answers with a reply or a refusal.
+  A call has one outcome (replied, refused, timed out or lost), a reply counts
+  only from the session the request went to, and a session's end resolves its
+  pending calls as lost. A client library built with `on_request` serves them; a
+  client with no handler refuses each as `not_found`.
 - Linux runtime packaging for Ethos handoff snapshots of `make check`.
   `make build-handoff-runtime` builds the offline bundle and
   `make handoff-runtime` installs it after verifying the pinned checksum.

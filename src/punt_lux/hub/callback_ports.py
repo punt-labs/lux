@@ -9,6 +9,8 @@ tested against fakes rather than a client registry and a socket:
   registry), read before the router's lock so the two never nest.
 - ``CallbackListener`` — a persistent leg's payload-less wake, registered for as
   long as its connection lives.
+- ``CallProvider`` — a leg that also serves typed requests, and so must resolve the
+  calls pending on it when its session ends.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
     from punt_lux.hub.client_session import ClientSession
     from punt_lux.kernel.connection_id import ConnectionId
 
-__all__ = ["CallbackListener", "LiveSessions"]
+__all__ = ["CallProvider", "CallbackListener", "LiveSessions"]
 
 
 @runtime_checkable
@@ -43,4 +45,17 @@ class CallbackListener(Protocol):
 
     def wake(self) -> None:
         """Signal that a routed invocation is waiting for this connection."""
+        ...
+
+
+@runtime_checkable
+class CallProvider(Protocol):
+    """A leg that serves typed requests (DES-107).
+
+    The lifecycle step that takes a leg away calls ``end_calls`` so every call
+    pending on it resolves as lost in that same step, not at its deadline.
+    """
+
+    def end_calls(self) -> None:
+        """Resolve every call pending on this leg's session as lost."""
         ...
