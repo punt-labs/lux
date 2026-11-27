@@ -8739,13 +8739,18 @@ in flight.
    entry once every check that could refuse the launch has passed and before it
    forks the process, so a launch that fails after the fork still holds its
    token. If the fork itself fails, no process exists, and the daemon removes
-   the entry before it replies `fault`, so the retry launches normally. The
+   the entry and restores any oldest entry the addition had dropped, before it
+   replies `fault`, so the retry launches normally and the oldest token stays
+   protected. The daemon logs the token and the process id at the fork, so a
+   forked process whose session setup and cleanup both fail, and so never
+   appears in `ls`, is still found in the log. The
    entry holds the token and, once the session exists, that session, whether it
    is still running or has already exited. A repeated token with a session gets
    the original session instead of a second terminal. A repeated token whose
    process was forked but whose session was never recorded is refused as
-   `rejected`, naming the token and telling the caller to run `ls`, because the
-   earlier process may still be running. A launch refused before the fork adds
+   `rejected`, naming the token and the logged process id and telling the
+   caller to run `ls` and then check that process, because the earlier process
+   may still be running. A launch refused before the fork adds
    no entry, and a repeated token adds none. The daemon holds the
    256 most recent entries and drops the oldest when a 257th launch is
    admitted. A label cannot serve as the retry guard: the label is freed when
@@ -8900,6 +8905,9 @@ which must fail on the named invariant:
 - `entry_kept_after_failed_fork_buggy`: a failed fork keeps its entry. The
   retry is refused although no process exists. The model fails the invariant
   that a token whose launch produced no process can be retried.
+- `evicted_not_restored_buggy`: a failed fork removes its own entry but does not
+  restore the oldest entry its addition dropped. With the memory full, the
+  oldest token is then unprotected and its retry launches a second terminal.
 - `label_guard_buggy`: the retry guard is the label, which is freed on exit, so
   a launch that succeeded and exited launches again on retry.
 
