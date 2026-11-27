@@ -51,6 +51,59 @@ def test_a_display_stuck_in_native_code_logs_sigterm_and_exits(tmp_path: Path) -
             process.wait(timeout=10)
 
     log = (tmp_path / ".punt-labs/lux/logs/lux.log").read_text()
-    assert code == 0
+    assert code == 128 + signal.SIGTERM
     assert "received SIGTERM" in log
     assert "did not exit" in log
+
+
+_CLEAN_RETURN = """
+import os
+import signal
+from unittest.mock import MagicMock
+
+from punt_lux.display.exit_signal import ExitSignal
+from punt_lux.kernel.logging_config import process_diagnostics
+
+with process_diagnostics("daemon", "probe display"):
+    runner = MagicMock()
+    runner.app_shall_exit = False
+    exit_signal = ExitSignal(runner)
+    os.kill(os.getpid(), signal.SIGTERM)
+    while not runner.app_shall_exit:
+        pass
+    exit_signal.finish()
+    print("survived", flush=True)
+"""
+
+
+def test_a_loop_that_stops_after_sigterm_ends_the_process_by_that_signal(
+    tmp_path: Path,
+) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _CLEAN_RETURN],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+
+    assert result.returncode == -signal.SIGTERM
+    assert "survived" not in result.stdout
+
+
+def test_a_loop_that_stops_without_a_signal_returns_normally(tmp_path: Path) -> None:
+    script = _CLEAN_RETURN.replace(
+        "os.kill(os.getpid(), signal.SIGTERM)", "runner.app_shall_exit = True"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+        env={**os.environ, "HOME": str(tmp_path), "LUX_LOG_LEVEL": "INFO"},
+    )
+
+    assert result.returncode == 0
+    assert "survived" in result.stdout

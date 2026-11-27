@@ -30,7 +30,8 @@ class SignalWatcher:
     supervisor sends SIGKILL, with nothing logged. The interpreter's own signal
     trip writes the signal number to a wakeup descriptor from whichever thread
     receives it, so this thread reads that descriptor, logs the signal, asks the
-    loop to stop, and ends the process after a grace if the loop has not.
+    loop to stop, and ends the process after a grace if the loop has not. The forced
+    exit status is 128 plus SIGTERM, a failure to a supervisor that restarts on failure.
 
     Construct on the main thread: ``signal.set_wakeup_fd`` allows no other.
     """
@@ -72,4 +73,4 @@ class SignalWatcher:
             "Display did not exit %.1f s after SIGTERM; ending the process",
             self._grace_s,
         )
-        os._exit(0)
+        os._exit(128 + signal.SIGTERM)
