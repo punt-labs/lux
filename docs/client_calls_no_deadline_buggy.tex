@@ -1,9 +1,9 @@
 %
 % client_calls_no_deadline_buggy.tex
 %
-% FIDELITY VARIANT of docs/client_calls.tex.  There is no timeout: the guard
-% of Timeout is false.  A provider that never answers pins the waiter and one
-% of its slots for ever.  C5 must fail.
+% FIDELITY VARIANT of docs/client_calls.tex.  There is no timeout: Dispatch
+% never starts the call's timer, so Timeout is never enabled.  A provider that
+% never answers pins the waiter and one of its slots for ever.  C5 must fail.
 %
 % A Z specification of the Hub's typed request to a provider client and its
 % reply (DES-107): the registration map, the table of pending calls, and the
@@ -68,11 +68,12 @@ table and is not modelled.
 \begin{axdef}
   maxPend : \nat
 \where
-  maxPend = 2
+  maxPend = 1
 \end{axdef}
 
-The per-provider limit.  The design says 8; the model scales it to 2 so that
-a carrier of three requests reaches it.
+The per-provider limit.  The design says 8; the model scales it to 1, so
+that a carrier of two requests exceeds it: a second call to a provider
+that already has one pending is refused.
 
 \section{State}
 
@@ -86,12 +87,16 @@ a carrier of three requests reaches it.
   served : \power (REQ \cross CONN) \\
   outc : REQ \pfun OUT \\
   accFrom : REQ \pfun CONN \\
-  nout : REQ \fun 0 \upto 2
+  nout : REQ \fun 0 \upto 2 \\
+  armed : \power REQ \\
+  ended : \power REQ
 \where
   live \subseteq opened \\
   pend \subseteq \dom sentTo \\
   \dom outc \subseteq \dom sentTo \\
-  \dom accFrom \subseteq \dom outc
+  \dom accFrom \subseteq \dom outc \\
+  armed \subseteq \dom sentTo \\
+  ended \subseteq \dom sentTo
 \end{schema}
 
 \texttt{live} are the sessions now connected; \texttt{opened} every session
@@ -103,7 +108,10 @@ of which session each request was sent to, and is never rewritten.
 those a provider has taken up and run.  \texttt{outc} is the outcome the
 waiter was given, \texttt{accFrom} the session a reply or refusal was
 accepted from, and \texttt{nout} the number of outcomes delivered to each
-request's waiter.
+request's waiter.  \texttt{armed} are the calls whose deadline timer was
+started when the call entered the table.  \texttt{ended} are the calls that
+a session end or a supersession resolved: the record of the \emph{cause} of
+a resolution, so that the outcome it gave can be checked against it.
 
 \begin{schema}{Init}
   CC'
@@ -117,7 +125,9 @@ request's waiter.
   served' = \emptyset \\
   outc' = \emptyset \\
   accFrom' = \emptyset \\
-  nout' = REQ \cross \{ 0 \}
+  nout' = REQ \cross \{ 0 \} \\
+  armed' = \emptyset \\
+  ended' = \emptyset
 \end{schema}
 
 \section{Session Operations}
@@ -136,7 +146,9 @@ request's waiter.
   served' = served \\
   outc' = outc \\
   accFrom' = accFrom \\
-  nout' = nout
+  nout' = nout \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
 A client's listen leg completes its handshake.
@@ -158,14 +170,16 @@ A client's listen leg completes its handshake.
   outc' = outc \oplus (dead! \cross \{ lost \}) \\
   accFrom' = accFrom \\
   nout' = nout \oplus
-    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \}
+    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \} \\
+  armed' = armed \\
+  ended' = ended \cup dead!
 \end{schema}
 
 The session ends: the client disconnected, its lease lapsed, or luxd is
 tearing down.  One step withdraws the session's registrations, discards the
 frames queued for it, and resolves every call pending on it as
-\texttt{lost}.  This is C4: no pending call outlives its session, and nothing
-is sent to a successor.
+\texttt{lost}.  This is C4: no pending call outlives its session, the outcome
+is \texttt{lost}, and nothing is sent to a successor.
 
 \begin{schema}{Supersede}
   \Delta CC \\
@@ -186,7 +200,9 @@ is sent to a successor.
   outc' = outc \oplus (dead! \cross \{ lost \}) \\
   accFrom' = accFrom \\
   nout' = nout \oplus
-    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \}
+    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \} \\
+  armed' = armed \\
+  ended' = ended \cup dead!
 \end{schema}
 
 A newer listen leg of the same client replaces the old: the old session
@@ -212,7 +228,9 @@ connect handler.
   served' = served \\
   outc' = outc \\
   accFrom' = accFrom \\
-  nout' = nout
+  nout' = nout \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
 A key is free, or held by the connection that asks.  The same connection
@@ -245,19 +263,24 @@ A different connection claiming a held key is refused and nothing changes.
   pend' = pend \cup \{ r? \} \\
   sentTo' = sentTo \cup \{ r? \mapsto reg~k? \} \\
   inflight' = inflight \cup \{ (r? , reg~k?) \} \\
+  armed' = armed \\
   live' = live \\
   opened' = opened \\
   reg' = reg \\
   served' = served \\
   outc' = outc \\
   accFrom' = accFrom \\
-  nout' = nout
+  nout' = nout \\
+  ended' = ended
 \end{schema}
 
 A caller mints a fresh id, enters the call as pending for the provider's
-current session and queues the frame for that session.  The ninth call
-(here the third) is refused at once and never enters the table; a refusal
-that changes nothing is not an operation of the model.
+current session, and (the defect) never starts its deadline timer, and queues the frame for that
+session.  Finding the provider and entering the call are one step: the
+caller holds the registry lock across both (DES-107, and
+\texttt{client\_calls\_locks.tex}).  A call to a provider that already has
+\texttt{maxPend} pending is refused at once and never enters the table; a
+refusal that changes nothing is not an operation of the model.
 
 \begin{schema}{Serve}
   \Delta CC \\
@@ -275,7 +298,9 @@ that changes nothing is not an operation of the model.
   sentTo' = sentTo \\
   outc' = outc \\
   accFrom' = accFrom \\
-  nout' = nout
+  nout' = nout \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
 The provider takes the frame from its leg and runs the request.  Serving is
@@ -299,7 +324,9 @@ served, which is why a timeout reports an unknown result.
   reg' = reg \\
   sentTo' = sentTo \\
   inflight' = inflight \\
-  served' = served
+  served' = served \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
 A reply frame arrives on live session \texttt{c?} naming \texttt{r?}.  It
@@ -327,7 +354,9 @@ that has already had its outcome finds no entry.
   reg' = reg \\
   sentTo' = sentTo \\
   inflight' = inflight \\
-  served' = served
+  served' = served \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
 A refusal frame obeys the rule a reply obeys.
@@ -336,8 +365,8 @@ A refusal frame obeys the rule a reply obeys.
   \Delta CC \\
   r? : REQ
 \where
-  r? \in \emptyset \\
   r? \in pend \\
+  r? \in armed \\
   pend' = pend \setminus \{ r? \} \\
   outc' = outc \oplus \{ r? \mapsto timedout \} \\
   nout' = nout \oplus \{ r? \mapsto nout~r? + 1 \} \\
@@ -347,11 +376,15 @@ A refusal frame obeys the rule a reply obeys.
   sentTo' = sentTo \\
   inflight' = inflight \\
   served' = served \\
-  accFrom' = accFrom
+  accFrom' = accFrom \\
+  armed' = armed \\
+  ended' = ended
 \end{schema}
 
-The deadline never fires: its guard is false.  A provider that never answers
-pins the waiter, and one of the provider's slots, for ever.
+The deadline of one call fires.  It is enabled for a pending call whose timer
+was started; the timer is abstracted to that guard, and the transition may
+fire at any later point.  This is C5.  Without it a provider that never
+answers pins the waiter, and one of the provider's slots, for ever.
 
 \begin{schema}{Quiescent}
   \Xi CC
@@ -389,21 +422,31 @@ that is no longer pending has been given one:
 \]
 
 \paragraph{C4 --- a session's end resolves its calls in the same step.}
-Two parts.  C4a, no pending call outlives its session: every pending call
+Three parts.  C4a, no pending call outlives its session: every pending call
 is on a live session.  C4b, nothing is redelivered: a request is served only
-by the session it was sent to.
+by the session it was sent to.  C4c, the outcome is the right one: a call
+resolved by a session end or a supersession has outcome \texttt{lost}, and a
+call with outcome \texttt{lost} was resolved by one.
 \[
   \forall r : pend @ sentTo~r \in live
 \]
 \[
   \forall (r , c) \in served @ sentTo~r = c
 \]
+\[
+  \forall r : \dom outc @ outc~r = lost \iff r \in ended
+\]
+and every ended call has an outcome.
 
-\paragraph{C5 --- a call that reaches the deadline times out.}
-Whenever a call is pending, \texttt{Timeout} is enabled.  It is checked as the
-CTL formula $\mathrm{AG}(P \Rightarrow \mathrm{EF}\,\mathrm{enabled}(
-\mathit{Timeout}))$, where $P$ says that some call is pending.  $P$ is
-reachable, so the formula is not vacuous.
+\paragraph{C5 --- every pending call has its own deadline.}
+A state invariant, per call: every pending call has its timer started, which
+is exactly what enables its \texttt{Timeout}.
+\[
+  pend \subseteq armed
+\]
+It is not a statement about whether \emph{some} call can time out: such a
+statement is satisfied when a reply to one call makes another's timeout
+reachable.
 
 \paragraph{C6 --- no lock is held while waiting.}
 Checked in \texttt{client\_calls\_locks.tex}.
@@ -417,6 +460,8 @@ Checked in \texttt{client\_calls\_locks.tex}.
 \[
   \forall c : CONN @ \# \{ r : pend | sentTo~r = c \} \leq maxPend
 \]
+The limit is 1 and the carrier has two requests, so a second pending call on
+one provider is possible unless \texttt{Dispatch} refuses it.
 
 \paragraph{D --- deadlock freedom.}
 Some operation is always enabled, until the carrier is spent.
@@ -430,22 +475,31 @@ Some operation is always enabled, until the carrier is spent.
 
 \section{Fidelity}
 
-Four buggy variants sit beside this file; each must make a goal reachable
-that the intact model cannot reach (see
-\texttt{scripts/verify\_client\_calls\_model.sh} for the exact commands).
+Seven buggy variants sit beside this file; each must make a goal reachable
+that the intact model cannot reach, and leave the other invariants intact
+(see \texttt{scripts/verify\_client\_calls\_model.sh} for the exact commands).
 \begin{itemize}
-  \item \texttt{client\_calls\_replay\_on\_reconnect\_buggy.tex}: a session's
-    end leaves its calls pending and re-queues them for a live successor,
-    the callback hold applied to requests.  C4 fails: a pending call outlives
-    its session, and a request is served by a session it was not sent to.
+  \item \texttt{client\_calls\_replay\_on\_reconnect\_buggy.tex}: a
+    supersession tells the caller \texttt{lost} and also queues the request
+    for the successor, the callback hold applied to requests.  The request
+    is then served after its caller was told \texttt{lost}, by a session it
+    was not sent to.  C4b fails.
   \item \texttt{client\_calls\_reply\_any\_session\_buggy.tex}: a reply is
     matched by request id alone.  A second live connection that is not the
     provider completes a call with a forged reply.  C2 fails.
-  \item \texttt{client\_calls\_no\_deadline\_buggy.tex}: the guard of
-    \texttt{Timeout} is false.  C5 fails.
+  \item \texttt{client\_calls\_no\_deadline\_buggy.tex}: a call's timer is
+    never started.  C5 fails.
   \item \texttt{client\_calls\_session\_end\_keeps\_pending\_buggy.tex}: the
     session ends and its calls stay pending until the deadline.  C4a fails,
     the same-step rule.
+  \item \texttt{client\_calls\_session\_end\_wrong\_outcome\_buggy.tex}: the
+    session end resolves its calls as \texttt{timedout}.  C4a holds; C4c
+    fails.
+  \item \texttt{client\_calls\_dispatch\_split\_buggy.tex}: finding the
+    provider and entering the call are two steps; the entry puts the call
+    pending on the recorded session even if it ended in between.  C4a fails.
+  \item \texttt{client\_calls\_no\_cap\_buggy.tex}: \texttt{Dispatch} has no
+    per-provider limit.  P1 fails.
 \end{itemize}
 
 \end{document}
