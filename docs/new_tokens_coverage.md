@@ -28,7 +28,8 @@ a module constant) so it needs three launches, not 257.
 | `LaunchUnrecorded` | the process forks, session setup fails; the entry stays unbound and the daemon logged token and pid at the fork |
 | `ExitLabelled` | a recorded session exits: label freed, entry kept |
 | `ExitStray` | a forked process with no session exits |
-| `RestartClean` | daemon restart: memory cleared, every killable shell ended |
+| `ExitSurvivor` | a shell that survived an earlier restart exits |
+| `RestartClean` | daemon restart: memory cleared, every shell that is not itself a survivor of an earlier restart ended |
 | `RestartSurvivor` | restart where a shell survives SIGKILL: token and pid logged, failure exit status, no history for the survivor |
 
 ## Invariants
@@ -56,6 +57,7 @@ a module constant) so it needs three launches, not 257.
 | NT8 | the `cap + 1`th admitted launch drops exactly the oldest entry; its retry starts a new terminal | three launches at `cap = 2`, then a retry of the first token |
 | NT9 | a session setup failure after the fork leaves the entry held and the retry refused | `LaunchUnrecorded` then the retry |
 | NT10 | a restart clears the memory; a retry then starts the first terminal that exists | `RestartClean` then the retry |
+| NT12 | a survivor exits, its token launches a new shell, and a later clean restart ends that new shell (survival is per process, not per token) | `ExitSurvivor`, `LaunchOk`, `RestartClean` |
 | NT11 | a surviving shell is logged; a retry can start a second shell (accepted residual) | `RestartSurvivor` then the retry |
 
 ## Fidelity variants
@@ -78,6 +80,6 @@ partition of its own.
 
 `scripts/verify_new_tokens_model.sh` reaches, in the intact model: a live shell
 whose entry was evicted; a forked token with no session; an exited session whose
-entry is held; a full memory; a surviving shell and its retry both live; and
+entry is held; a full memory; a surviving shell and its retry both live; a clean restart that ends a new shell whose token once had a survivor now gone; and
 every operation enabled, `LaunchForkFails` also with the memory full and
 `LaunchOk` also for an evicted token.

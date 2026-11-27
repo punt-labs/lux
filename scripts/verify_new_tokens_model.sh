@@ -36,12 +36,21 @@ RV_EVICT='#t.(t:TOK & lv(t)>0 & nforks(t)=0 & t/:dom(held) & #u.(u:TOK & u/=t & 
 RV_UNREC='#t.(t:dom(held) & t/:bound & nforks(t)=1)'
 RV_EXITED='#t.(t:bound & t:dom(held) & lv(t)=0)'
 RV_FULL='#(a,b).(a:dom(held) & b:dom(held) & a/=b)'
-RV_SURV='#t.(t:sv & lv(t)=2)'
+RV_SURV='#t.(surv(t)>0 & lv(t)=2)'
+RV_KAS='kas/={}'
 
 fail() {
   echo "FAIL: $1" >&2
   cat "$2" >&2
   exit 1
+}
+
+# ProB prints "! Total Errors: N, Warnings: M" (or "Warnings:M") when it reports
+# errors, and spells the clean verdict "No counter example found" or
+# "No counterexample found". A clean run prints no error line at all.
+NO_CE='No counter ?-?example found'
+errors_reported() {
+  grep -Eq '^! Total Errors: *[1-9]' "$1"
 }
 
 check_model() {
@@ -51,15 +60,21 @@ check_model() {
   if [[ -n "$goal" ]]; then
     args+=(-nodead -goal "$goal")
   fi
-  "$PROBCLI" "${args[@]}" >"$log" 2>&1 || fail "$model $label: ProB failed" "$log"
+  local status=0
+  "$PROBCLI" "${args[@]}" >"$log" 2>&1 || status=$?
   if [[ "$expected" == found ]]; then
+    # A found goal is the one error ProB reports: exactly one, no warnings.
     if ! { grep -q '^Found GOAL in state id ' "$log" &&
-      grep -q '^! Total Errors: 1, Warnings:0$' "$log" &&
+      grep -Eq '^! Total Errors: *1, *Warnings: *0$' "$log" &&
       grep -q '^! goal_found$' "$log"; }; then
       fail "$model $label: expected goal not found, or other errors" "$log"
     fi
   else
-    if ! { grep -q 'No counter example found. ALL states visited.' "$log" &&
+    [[ "$status" -eq 0 ]] || fail "$model $label: ProB failed" "$log"
+    if errors_reported "$log"; then
+      fail "$model $label: ProB reported model-check errors" "$log"
+    fi
+    if ! { grep -Eq "$NO_CE"'\. ALL states visited\.' "$log" &&
       ! grep -q 'error occurred' "$log"; }; then
       fail "$model $label: unexpected counterexample or incomplete search" "$log"
     fi
@@ -125,6 +140,8 @@ check_enabled new_tokens.tex R-refuse-config 'EF(e(RefuseConfig))'
 check_enabled new_tokens.tex R-fork-fails 'EF(e(LaunchForkFails))'
 check_enabled new_tokens.tex R-fork-fails-full 'EF({'"$RV_FULL"'} & e(LaunchForkFails))'
 check_enabled new_tokens.tex R-retry-after-eviction 'EF({'"$RV_EVICT"'} & e(LaunchOk))'
+check_model new_tokens.tex R-survivor-gone-restart found "$RV_KAS"
+check_enabled new_tokens.tex R-exit-survivor 'EF(e(ExitSurvivor))'
 check_enabled new_tokens.tex R-restart-survivor 'EF(e(RestartSurvivor))'
 check_enabled new_tokens.tex R-restart-clean 'EF({'"$RV_UNREC"'} & e(RestartClean))'
 echo "PASS: all new-token model checks"

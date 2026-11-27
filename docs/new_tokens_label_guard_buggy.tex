@@ -47,20 +47,25 @@ evict one entry and to retry it.
 
 \begin{schema}{Sys}
   held : TOK \pfun (0 \upto cap) \\
-  bound, sv : \power TOK \\
+  bound, sv, kas : \power TOK \\
   lab : LAB \pfun TOK \\
-  lv, nforks : TOK \fun (0 \upto 2) \\
+  lv, surv, nforks : TOK \fun (0 \upto 2) \\
   recent : \seq TOK
 \where
   bound \subseteq \dom held \\
-  \# recent \leq cap
+  \# recent \leq cap \\
+  \forall t : TOK @ \# (lab \rres \{ t \}) + surv~t \leq lv~t
 \end{schema}
 
 \texttt{held} is the memory: a token maps to the age of its entry.
 \texttt{bound} are the held tokens whose session was recorded.  \texttt{lab}
 maps a label to the token of the live session that owns it.  \texttt{lv} counts
-the live processes of a token.  \texttt{sv} are the tokens whose shell survived
-a restart.  \texttt{recent} and \texttt{nforks} are the history variables.
+the live processes of a token, and \texttt{surv} counts those that are
+survivors of a restart: a survivor is a process, not a token, so it persists
+through later clean restarts only while it is itself alive.  Labelled sessions
+and survivors are distinct live processes, which the last predicate states.
+\texttt{sv} (every token that has had a survivor), \texttt{kas}, \texttt{recent} and
+\texttt{nforks} are history variables.
 
 \begin{schema}{Init}
   Sys'
@@ -68,8 +73,10 @@ a restart.  \texttt{recent} and \texttt{nforks} are the history variables.
   held' = \emptyset \\
   bound' = \emptyset \\
   sv' = \emptyset \\
+  kas' = \emptyset \\
   lab' = \emptyset \\
   lv' = TOK \cross \{ 0 \} \\
+  surv' = TOK \cross \{ 0 \} \\
   nforks' = TOK \cross \{ 0 \} \\
   recent' = \langle \rangle
 \end{schema}
@@ -86,24 +93,48 @@ a restart.  \texttt{recent} and \texttt{nforks} are the history variables.
   bound' = bound \\
   lab' = lab \\
   lv' = lv \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
 
 A repeated token whose session was recorded is answered with the original session, running or exited. Nothing changes.
 
+\begin{schema}{RepeatUnrecorded}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \in \dom held \\
+  t? \notin bound \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A repeated token whose process was forked but whose session was never recorded is refused as \texttt{rejected}. Nothing changes.
+
 \begin{schema}{RefuseLabel}
   \Delta Sys \\
   t? : TOK \\ l? : LAB
 \where
+  t? \notin (\dom held \setminus bound) \\
   \lnot (l? \in \dom lab \land lab~l? = t?) \\
   l? \in \dom lab \\
   held' = held \\
   bound' = bound \\
   lab' = lab \\
   lv' = lv \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
@@ -114,12 +145,15 @@ A launch refused because its label is held by a live session. The refusal preced
   \Delta Sys \\
   t? : TOK \\ l? : LAB
 \where
+  t? \notin (\dom held \setminus bound) \\
   \lnot (l? \in \dom lab \land lab~l? = t?) \\
   held' = held \\
   bound' = bound \\
   lab' = lab \\
   lv' = lv \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
@@ -130,6 +164,7 @@ Any other refusal before the fork: runtime launchers off, unknown launcher. No e
   \Delta Sys \\
   t? : TOK \\ l? : LAB
 \where
+  t? \notin (\dom held \setminus bound) \\
   \lnot (l? \in \dom lab \land lab~l? = t?) \\
   l? \notin \dom lab \\
   lv~t? < 2 \\
@@ -138,7 +173,9 @@ Any other refusal before the fork: runtime launchers off, unknown launcher. No e
   bound' = (bound \cap \dom held') \cup \{ t? \} \\
   lab' = lab \cup \{ l? \mapsto t? \} \\
   lv' = lv \oplus \{ t? \mapsto lv~t? + 1 \} \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   ((\# recent < cap \land recent' = recent \cat \langle t? \rangle) \lor (\# recent = cap \land (\exists h : TOK; r : \seq TOK @ recent = \langle h \rangle \cat r \land recent' = r \cat \langle t? \rangle))) \\
   nforks' = (\ran recent' \dres (nforks \oplus \{ t? \mapsto nforks~t? + 1 \})) \cup ((TOK \setminus \ran recent') \cross \{ 0 \})
 \end{schema}
@@ -149,13 +186,16 @@ An admitted launch whose fork and session both succeed. The entry is added befor
   \Delta Sys \\
   t? : TOK \\ l? : LAB
 \where
+  t? \notin (\dom held \setminus bound) \\
   \lnot (l? \in \dom lab \land lab~l? = t?) \\
   l? \notin \dom lab \\
   held' = held \\
   bound' = bound \\
   lab' = lab \\
   lv' = lv \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
@@ -166,6 +206,7 @@ The fork fails. The entry added before the fork is removed and the oldest entry 
   \Delta Sys \\
   t? : TOK \\ l? : LAB
 \where
+  t? \notin (\dom held \setminus bound) \\
   \lnot (l? \in \dom lab \land lab~l? = t?) \\
   l? \notin \dom lab \\
   lv~t? < 2 \\
@@ -174,7 +215,9 @@ The fork fails. The entry added before the fork is removed and the oldest entry 
   bound' = bound \cap \dom held' \\
   lab' = lab \\
   lv' = lv \oplus \{ t? \mapsto lv~t? + 1 \} \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   ((\# recent < cap \land recent' = recent \cat \langle t? \rangle) \lor (\# recent = cap \land (\exists h : TOK; r : \seq TOK @ recent = \langle h \rangle \cat r \land recent' = r \cat \langle t? \rangle))) \\
   nforks' = (\ran recent' \dres (nforks \oplus \{ t? \mapsto nforks~t? + 1 \})) \cup ((TOK \setminus \ran recent') \cross \{ 0 \})
 \end{schema}
@@ -191,7 +234,9 @@ The entry is added, the process forks, and the session is never recorded.
   bound' = bound \\
   lab' = \{ l? \} \ndres lab \\
   lv' = lv \oplus \{ lab~l? \mapsto lv~(lab~l?) - 1 \} \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
@@ -202,17 +247,37 @@ A recorded session exits and frees its label. Its token stays held and bound.
   \Delta Sys \\
   t? : TOK
 \where
-  lv~t? > \# (lab \rres \{ t? \}) \\
+  lv~t? - surv~t? > \# (lab \rres \{ t? \}) \\
   held' = held \\
   bound' = bound \\
   lab' = lab \\
   lv' = lv \oplus \{ t? \mapsto lv~t? - 1 \} \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \\
   recent' = recent \\
   nforks' = nforks
 \end{schema}
 
-A process with no recorded session exits.
+A process with no recorded session, one that did not survive a restart, exits.
+
+\begin{schema}{ExitSurvivor}
+  \Delta Sys \\
+  t? : TOK
+\where
+  surv~t? > 0 \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \oplus \{ t? \mapsto lv~t? - 1 \} \\
+  surv' = surv \oplus \{ t? \mapsto surv~t? - 1 \} \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A shell that survived a restart exits. It no longer protects any later shell from a clean restart.
 
 \begin{schema}{RestartClean}
   \Delta Sys
@@ -220,25 +285,29 @@ A process with no recorded session exits.
   held' = \emptyset \\
   bound' = \emptyset \\
   lab' = \emptyset \\
-  lv' = (TOK \cross \{ 0 \}) \oplus \{ x : TOK | x \in sv \land lv~x > 0 @ x \mapsto 1 \} \\
+  lv' = surv \\
+  surv' = surv \\
   sv' = sv \\
+  kas' = kas \cup \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
   recent' = \langle \rangle \\
   nforks' = TOK \cross \{ 0 \}
 \end{schema}
 
-The daemon restarts. The memory is cleared and every shell the restart can end is ended. A shell that survived an earlier restart is out of its reach.
+The daemon restarts. The memory is cleared and every shell the restart can end is ended: each live process that is not itself a survivor of an earlier restart. A survivor is out of its reach and persists. \texttt{kas} records the tokens whose earlier survivor had gone and whose later shell this restart ended.
 
 \begin{schema}{RestartSurvivor}
   \Delta Sys \\
   s? : \power TOK
 \where
   s? \neq \emptyset \\
-  \forall x : s? @ lv~x > 0 \\
+  \forall x : s? @ lv~x - surv~x > 0 \land surv~x < 2 \\
   held' = \emptyset \\
   bound' = \emptyset \\
   lab' = \emptyset \\
-  lv' = (TOK \cross \{ 0 \}) \oplus \{ x : TOK | x \in sv' \land lv~x > 0 @ x \mapsto 1 \} \\
+  lv' = surv' \\
+  surv' = surv \oplus \{ x : s? @ x \mapsto surv~x + 1 \} \\
   sv' = sv \cup s? \\
+  kas' = kas \cup \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
   recent' = \langle \rangle \\
   nforks' = TOK \cross \{ 0 \}
 \end{schema}
