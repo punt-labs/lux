@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 import signal
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from punt_lux.display.exit_signal import ExitSignal
-
-if TYPE_CHECKING:
-    import pytest
 
 
 class TestExitSignal:
@@ -22,30 +17,39 @@ class TestExitSignal:
         # itself to stop, so before_exit cleanup still runs.
         runner_params = MagicMock()
         runner_params.app_shall_exit = False
-        with patch("punt_lux.display.exit_signal.signal.signal"):
+        with (
+            patch("punt_lux.display.exit_signal.signal.signal"),
+            patch("punt_lux.display.exit_signal.SignalWatcher"),
+        ):
             exit_signal = ExitSignal(runner_params)
 
-        exit_signal._handle(15, None)
+        exit_signal._request_exit(15, None)
 
         assert runner_params.app_shall_exit is True
 
-    def test_logs_the_signal_that_asked_the_display_to_exit(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        # A clean exit with no record of its cause is what made the Display's
-        # stops undiagnosable.
-        caplog.set_level(logging.INFO)
-        with patch("punt_lux.display.exit_signal.signal.signal"):
-            exit_signal = ExitSignal(MagicMock())
+    def test_the_watcher_asks_the_loop_to_stop(self) -> None:
+        # The watcher runs on its own thread and is no signal handler, so what it
+        # calls must set the same flag the handler sets.
+        runner_params = MagicMock()
+        runner_params.app_shall_exit = False
+        with (
+            patch("punt_lux.display.exit_signal.signal.signal"),
+            patch("punt_lux.display.exit_signal.SignalWatcher") as watcher,
+        ):
+            ExitSignal(runner_params)
 
-        exit_signal._handle(signal.SIGTERM, None)
+        request_exit = watcher.call_args[0][0]
+        request_exit()
 
-        assert any("received SIGTERM" in r.getMessage() for r in caplog.records)
+        assert runner_params.app_shall_exit is True
 
     def test_arms_sigterm_on_construction(self) -> None:
         # Construction is the only opportunity to register the handler.
         runner_params = MagicMock()
-        with patch("punt_lux.display.exit_signal.signal.signal") as sig:
+        with (
+            patch("punt_lux.display.exit_signal.signal.signal") as sig,
+            patch("punt_lux.display.exit_signal.SignalWatcher"),
+        ):
             ExitSignal(runner_params)
 
         assert sig.call_args[0][0] == signal.SIGTERM
