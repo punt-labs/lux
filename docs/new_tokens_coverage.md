@@ -10,7 +10,7 @@ column is therefore the test that work unit must write, named by the partition
 it covers; none exists today, and the audit is complete only when every row has
 a passing test.
 
-The model scales 256 entries to `cap = 2` and uses three tokens and two labels.
+The model scales 256 entries to `cap = 2` and uses three tokens and one label, at most one surviving shell at a time, and ProB's hash symmetry over the tokens.
 Each launch is one atomic step because the daemon serialises launches. A test
 sets the cap to a small value (a constructor argument of the memory class, not
 a module constant) so it needs three launches, not 257.
@@ -36,7 +36,7 @@ a module constant) so it needs three launches, not 257.
 
 | Id | Statement | Model check |
 |---|---|---|
-| T1 | a token that started a launch never starts a second one while it is within the last `cap` admitted launches | holds over all 25270 states |
+| T1 | a token that started a launch never starts a second one while it is within the last `cap` admitted launches | holds over all 6524 states (token-symmetry reduced) |
 | T2 | a refused launch and a repeated token add no entry | holds |
 | T3 | the oldest entry is dropped only when the `cap + 1`th launch is admitted | holds |
 | T4 | a token whose launch produced no process has no entry and can be retried | holds |
