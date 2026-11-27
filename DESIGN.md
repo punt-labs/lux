@@ -8694,7 +8694,12 @@ in flight.
    - **C6.** No lock is held while waiting. The table's lock is a leaf below
      the store lock and the registry lock, so the lifecycle step in C4 may
      resolve calls while holding them, and the resolution wakes the waiter
-     after the table lock is released.
+     after the table lock is released. A caller holds the registry lock across
+     the provider lookup and the entry of the call in the table, one step, and
+     takes the table lock inside it. If it released the registry lock between
+     the two, the provider's session could end in the gap and leave a call
+     pending on a dead session, which breaks C4. The lock model
+     (`docs/client_calls_locks.tex`) checks this nesting.
 
    At most 8 calls are pending per provider; the ninth is refused at once
    (`rejected`, "provider busy") and never sent. A reply payload over 256 KiB
