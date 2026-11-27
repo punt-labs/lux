@@ -8919,8 +8919,8 @@ which must fail on the named invariant:
   a launch that succeeded and exited launches again on retry.
 
 `docs/client_calls.tex` and `docs/client_calls_locks.tex` are written and
-model-checked in `make check-models`. `docs/new_tokens.tex` must land before the
-token memory in unit 4 and be added to `make check-models`.
+model-checked in `make check-models`. `docs/new_tokens.tex` and its five
+fidelity variants are written and model-checked there too.
 
 **Work units** (each ends mergeable; 1 and 2 run at once, then 3, then 4 and
 5 at once):
