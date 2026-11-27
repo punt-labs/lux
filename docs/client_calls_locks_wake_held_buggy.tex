@@ -1,0 +1,393 @@
+%
+% client_calls_locks_wake_held_buggy.tex
+%
+% FIDELITY VARIANT of docs/client_calls_locks.tex.  The lifecycle end wakes the
+% waiter while still holding the table lock.  C6 must fail: wakeHeld = fset is
+% reachable.
+%
+% (The text below is the intact model's.)
+%
+% Companion to docs/client_calls.tex: the LOCK ORDER DES-107 requires of the
+% Hub's request relay, checked for deadlock-freedom.  Same method as
+% docs/listener_locks.tex.
+%
+% client_calls.tex makes each critical section one atomic step, so its
+% deadlock check says nothing about locks.  The claim that the relay cannot
+% deadlock is made here, and here alone.  The locks (DES-107 decision 3, C6,
+% and DES-101):
+%
+%   sto  the store lock: the ClientLifecycle steps run under it.
+%   rgy  the ClientRegistry lock: the registrations and the leases.
+%   tbl  the ClientCalls table lock: the pending calls.  A leaf.
+%
+% THE ORDER:  sto < rgy < tbl.  A rank function over the locks is strictly
+% increasing along every edge the programs take, so the acquisition graph is
+% acyclic.  The model is not that argument.  It runs the four programs below,
+% each as a thread of acquire / release / wait / signal steps over the locks,
+% against every interleaving, and asks ProB for a state in which some thread
+% is not done and none can move.
+%
+% MUTUAL EXCLUSION IS ASSUMED, AS A LOCK IS MODELLED: Acquire is guarded by
+% "the lock is free".  What is checked:
+%   (1) deadlock-freedom: Halt is enabled only when every thread is done;
+%   (2) ORDER, as a negated goal: orderBroken is set by an Acquire made while
+%       the thread holds a lock of equal or higher rank;
+%   (3) C6, as two negated goals: waitHeld is set by a wait made while the
+%       thread holds any lock, wakeHeld by a wake made while it holds the
+%       table lock.
+% None of the three is a conjunct of the state schema: ProB treats the primed
+% state schema as part of each operation's guard, so a violation written there
+% would disable the operation instead of reporting it.
+%
+% THE WAIT.  A caller blocks on an event for at most the deadline.  The model's
+% wait step is enabled once the event is set; the Deadline step sets it, and is
+% enabled whenever some thread is at its wait, so a wait always ends.  What the
+% model asks is not whether the wait ends but what the waiter holds while it
+% waits: nothing.
+%
+% THE PROGRAMS (the index of the program counter numbers the steps):
+%   callC     rgy{ find the provider; tbl{enter the call, check the limit} };
+%             wait holding nothing
+%   resolver  tbl{match and remove the entry}; wake.  The reader on a reply or
+%             a refusal frame, and equally the deadline timer.
+%   endC      sto{ rgy{ withdraw the registrations; tbl{resolve the pending
+%             calls lost}; wake } }.  The wake is after the table lock is
+%             released, inside the store and registry locks: DES-107 C6.
+%             Disconnect, lease lapse, supersession and teardown are this
+%             program.
+%   regC      sto{ rgy{ register } }: a service register is a store-locked
+%             lifecycle step, never a bare registry write.
+%
+% THE REJECTED ORDERS: client_calls_locks_inverted_buggy.tex has the lifecycle
+% end take the table lock before the registry lock; a caller holds the registry
+% lock and wants the table, the lifecycle holds the table and wants the
+% registry.  client_calls_locks_wait_held_buggy.tex has the caller wait while
+% holding the table lock.  client_calls_locks_wake_held_buggy.tex has the
+% lifecycle wake the waiter while holding the table lock.
+%
+% Type-check:  fuzz docs/client_calls_locks.tex
+% Model-check: scripts/verify_client_calls_model.sh
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{lux Client Calls: the Lock Order}
+\maketitle
+
+\begin{zed}
+  [T]
+\end{zed}
+
+A thread: a caller, the reader or timer that resolves a call, the lifecycle
+step that ends a session, the lifecycle step that registers a service.  Two
+suffice for a cycle; three give every pair a third party.
+
+\begin{zed}
+  LOCK ::= sto | rgy | tbl
+\end{zed}
+
+\begin{zed}
+  ACT ::= grab | drop | wt | sg | fin
+\end{zed}
+
+\begin{zed}
+  PROG ::= callC | resolver | endC | regC
+\end{zed}
+
+\begin{zed}
+  FSTATE ::= fclear | fset
+\end{zed}
+
+\begin{zed}
+  TST ::= tnew | trun | tdone
+\end{zed}
+
+Steps: acquire or release a lock, wait on the caller's event, set that event
+(wake the waiter), finish.
+
+\begin{axdef}
+  lvl : LOCK \fun 1 \upto 3
+\where
+  lvl = \{ sto \mapsto 1, rgy \mapsto 2, tbl \mapsto 3 \}
+\end{axdef}
+
+The order of DES-107: store, then registry, then table.  The order is a
+ranking, not a premise of the model: it is the standard the flag
+\texttt{orderBroken} measures each acquisition against.
+
+\begin{axdef}
+  act : PROG \cross (1 \upto 8) \pfun ACT \\
+  lck : PROG \cross (1 \upto 8) \pfun LOCK
+\where
+  act = \{ (callC, 1) \mapsto grab, (callC, 2) \mapsto grab,
+    (callC, 3) \mapsto drop, (callC, 4) \mapsto drop, (callC, 5) \mapsto wt,
+    (callC, 6) \mapsto fin,
+    (resolver, 1) \mapsto grab, (resolver, 2) \mapsto drop,
+    (resolver, 3) \mapsto sg, (resolver, 4) \mapsto fin,
+    (endC, 1) \mapsto grab, (endC, 2) \mapsto grab, (endC, 3) \mapsto grab,
+    (endC, 4) \mapsto sg, (endC, 5) \mapsto drop, (endC, 6) \mapsto drop,
+    (endC, 7) \mapsto drop, (endC, 8) \mapsto fin,
+    (regC, 1) \mapsto grab, (regC, 2) \mapsto grab, (regC, 3) \mapsto drop,
+    (regC, 4) \mapsto drop, (regC, 5) \mapsto fin \} \\
+  lck = \{ (callC, 1) \mapsto rgy, (callC, 2) \mapsto tbl,
+    (callC, 3) \mapsto tbl, (callC, 4) \mapsto rgy,
+    (resolver, 1) \mapsto tbl, (resolver, 2) \mapsto tbl,
+    (endC, 1) \mapsto sto, (endC, 2) \mapsto rgy, (endC, 3) \mapsto tbl,
+    (endC, 5) \mapsto tbl, (endC, 6) \mapsto rgy, (endC, 7) \mapsto sto,
+    (regC, 1) \mapsto sto, (regC, 2) \mapsto rgy, (regC, 3) \mapsto rgy,
+    (regC, 4) \mapsto sto \}
+\end{axdef}
+
+The programs, one row of \texttt{act} and \texttt{lck} per step.
+
+\begin{schema}{LS}
+  ts : T \fun TST \\
+  pr : T \fun PROG \\
+  pc : T \fun 1 \upto 8 \\
+  owner : LOCK \pfun T \\
+  woken : FSTATE \\
+  orderBroken : FSTATE \\
+  waitHeld : FSTATE \\
+  wakeHeld : FSTATE
+\end{schema}
+
+\texttt{owner} is the lock table; a lock in its domain is held.
+\texttt{woken} is the caller's event.
+
+\begin{schema}{Init}
+  LS'
+\where
+  ts' = T \cross \{ tnew \} \\
+  pr' = T \cross \{ callC \} \\
+  pc' = T \cross \{ 1 \} \\
+  owner' = \emptyset \\
+  woken' = fclear \\
+  orderBroken' = fclear \\
+  waitHeld' = fclear \\
+  wakeHeld' = fclear
+\end{schema}
+
+\begin{schema}{Start}
+  \Delta LS \\
+  t? : T \\
+  p? : PROG
+\where
+  ts~t? = tnew \\
+  ts' = ts \oplus \{ t? \mapsto trun \} \\
+  pr' = pr \oplus \{ t? \mapsto p? \} \\
+  pc' = pc \\
+  owner' = owner \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+A thread picks its program once.
+
+\begin{schema}{AcquireOrdered}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = grab \\
+  lck~(pr~t?, pc~t?) \notin \dom owner \\
+  \forall l : \dom owner | owner~l = t? \spot
+    lvl~l < lvl~(lck~(pr~t?, pc~t?)) \\
+  owner' = owner \cup \{ lck~(pr~t?, pc~t?) \mapsto t? \} \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{schema}{AcquireUnordered}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = grab \\
+  lck~(pr~t?, pc~t?) \notin \dom owner \\
+  \exists l : \dom owner | owner~l = t? \spot
+    lvl~l \geq lvl~(lck~(pr~t?, pc~t?)) \\
+  owner' = owner \cup \{ lck~(pr~t?, pc~t?) \mapsto t? \} \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  woken' = woken \\
+  orderBroken' = fset \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{zed}
+  Acquire \defs AcquireOrdered \lor AcquireUnordered
+\end{zed}
+
+Acquire is guarded by ``the lock is free'': mutual exclusion, assumed as a
+lock is modelled and not checked.  The two disjuncts differ only in the flag:
+an acquisition made while the thread holds a lock of equal or higher rank
+sets \texttt{orderBroken}, and both proceed, so that a broken order is
+reported by the goal instead of hidden by a disabled step.
+
+\begin{schema}{Release}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = drop \\
+  owner' = \{ lck~(pr~t?, pc~t?) \} \ndres owner \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{schema}{WaitFree}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = wt \\
+  woken = fset \\
+  t? \notin \ran owner \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  owner' = owner \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{schema}{WaitHeld}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = wt \\
+  woken = fset \\
+  t? \in \ran owner \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  owner' = owner \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = fset \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{zed}
+  Wait \defs WaitFree \lor WaitHeld
+\end{zed}
+
+The caller's wait ends once its event is set.  A wait made while the thread
+holds any lock sets \texttt{waitHeld}: C6 says no lock is held while waiting.
+
+\begin{schema}{Deadline}
+  \Delta LS
+\where
+  woken = fclear \\
+  \exists t : T | ts~t = trun \land act~(pr~t, pc~t) = wt \spot true \\
+  woken' = fset \\
+  ts' = ts \\
+  pr' = pr \\
+  pc' = pc \\
+  owner' = owner \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+The deadline fires.  It is enabled while some thread is at its wait, so no
+wait outlasts the deadline; it takes no lock.
+
+\begin{schema}{SignalFree}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = sg \\
+  (tbl , t?) \notin owner \\
+  woken' = fset \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  owner' = owner \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{schema}{SignalHeld}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = sg \\
+  (tbl , t?) \in owner \\
+  woken' = fset \\
+  pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
+  ts' = ts \\
+  pr' = pr \\
+  owner' = owner \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = fset
+\end{schema}
+
+\begin{zed}
+  Signal \defs SignalFree \lor SignalHeld
+\end{zed}
+
+A resolution wakes the waiter.  A wake made while the thread holds the table
+lock sets \texttt{wakeHeld}: C6 says the resolution wakes the waiter after the
+table lock is released.
+
+\begin{schema}{Finish}
+  \Delta LS \\
+  t? : T
+\where
+  ts~t? = trun \\
+  act~(pr~t?, pc~t?) = fin \\
+  ts' = ts \oplus \{ t? \mapsto tdone \} \\
+  pc' = pc \\
+  owner' = owner \\
+  pr' = pr \\
+  woken' = woken \\
+  orderBroken' = orderBroken \\
+  waitHeld' = waitHeld \\
+  wakeHeld' = wakeHeld
+\end{schema}
+
+\begin{schema}{Halt}
+  \Xi LS
+\where
+  \forall t : T \spot ts~t = tdone
+\end{schema}
+
+Halt is enabled only when every thread has finished, so a state in which some
+thread is not done and no thread can move is a deadlock of the model, and
+probcli reports it.  A thread holding the table lock waits for nothing; a
+thread holding the registry lock waits only for the table lock; a thread
+holding the store lock waits only for the registry and table locks; a caller
+waits holding nothing, and its wait ends at the deadline.  The acquisition
+graph is acyclic.
+
+\begin{verbatim}
+  fuzz docs/client_calls_locks.tex
+  scripts/verify_client_calls_model.sh
+\end{verbatim}
+
+\end{document}
