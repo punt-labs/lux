@@ -1,0 +1,451 @@
+%
+% client_calls_no_deadline_buggy.tex
+%
+% FIDELITY VARIANT of docs/client_calls.tex.  There is no timeout: the guard
+% of Timeout is false.  A provider that never answers pins the waiter and one
+% of its slots for ever.  C5 must fail.
+%
+% A Z specification of the Hub's typed request to a provider client and its
+% reply (DES-107): the registration map, the table of pending calls, and the
+% five outcomes a call can have.
+%
+% Design record: DESIGN.md, DES-107 ("The Hub Relays a Typed Request to a
+% Provider Client and Returns Its Reply"), decisions 1 to 4.
+% Builds on DES-102 (a reply reaches only the dial that asked: here, the
+% listen session that was asked), DES-101 (registration and withdrawal are
+% lifecycle steps) and DES-058 (the callback hold, which requests must not
+% copy).
+%
+% The lock order is checked in docs/client_calls_locks.tex.
+%
+% Type-check:  fuzz -t docs/client_calls_no_deadline_buggy.tex
+% Model-check: scripts/verify_client_calls_model.sh
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{The lux Client Calls: a Z Specification}
+\author{Formal model of the Hub-to-provider request relay}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+A caller on a Hub worker thread asks a provider client a question.  The
+request goes down the provider's listen leg as one frame; one frame comes back.
+Between the two, the Hub holds a table of pending calls.  The question the
+model answers is the one DES-102 answered for the Display dial: who may
+complete a call, and what happens to a call when the thing it was sent to
+goes away.
+
+Every call has exactly one outcome.  The model makes that a checked
+property, not a convention.
+
+\section{Basic Types}
+
+\begin{zed}
+  [CONN, REQ, KEY]
+\end{zed}
+
+\texttt{CONN} is a listen session: one live listen leg of one client, from
+its handshake to its end.  A client that reconnects has a new session.
+Session identities are never reused, so a reply cannot be credited to a
+successor of the session it came from.  \texttt{REQ} is a request id
+(\texttt{c<boot>.<n>}), minted by the Hub and never reused.  \texttt{KEY} is
+a registration key, the pair (service, host).
+
+\begin{zed}
+  OUT ::= replied | refused | timedout | lost
+\end{zed}
+
+The four outcomes of a call that was sent.  A call that was never sent (no
+provider, provider busy, the caller not identified) has no entry in the
+table and is not modelled.
+
+\begin{axdef}
+  maxPend : \nat
+\where
+  maxPend = 2
+\end{axdef}
+
+The per-provider limit.  The design says 8; the model scales it to 2 so that
+a carrier of three requests reaches it.
+
+\section{State}
+
+\begin{schema}{CC}
+  live : \power CONN \\
+  opened : \power CONN \\
+  reg : KEY \pfun CONN \\
+  pend : \power REQ \\
+  sentTo : REQ \pfun CONN \\
+  inflight : \power (REQ \cross CONN) \\
+  served : \power (REQ \cross CONN) \\
+  outc : REQ \pfun OUT \\
+  accFrom : REQ \pfun CONN \\
+  nout : REQ \fun 0 \upto 2
+\where
+  live \subseteq opened \\
+  pend \subseteq \dom sentTo \\
+  \dom outc \subseteq \dom sentTo \\
+  \dom accFrom \subseteq \dom outc
+\end{schema}
+
+\texttt{live} are the sessions now connected; \texttt{opened} every session
+ever started.  \texttt{reg} is the registration map: the session that serves
+each key.  Being a function it gives at most one session per key.
+\texttt{pend} is the table of pending calls; \texttt{sentTo} is the history
+of which session each request was sent to, and is never rewritten.
+\texttt{inflight} are request frames queued for a session, \texttt{served}
+those a provider has taken up and run.  \texttt{outc} is the outcome the
+waiter was given, \texttt{accFrom} the session a reply or refusal was
+accepted from, and \texttt{nout} the number of outcomes delivered to each
+request's waiter.
+
+\begin{schema}{Init}
+  CC'
+\where
+  live' = \emptyset \\
+  opened' = \emptyset \\
+  reg' = \emptyset \\
+  pend' = \emptyset \\
+  sentTo' = \emptyset \\
+  inflight' = \emptyset \\
+  served' = \emptyset \\
+  outc' = \emptyset \\
+  accFrom' = \emptyset \\
+  nout' = REQ \cross \{ 0 \}
+\end{schema}
+
+\section{Session Operations}
+
+\begin{schema}{OpenConn}
+  \Delta CC \\
+  c? : CONN
+\where
+  c? \notin opened \\
+  live' = live \cup \{ c? \} \\
+  opened' = opened \cup \{ c? \} \\
+  reg' = reg \\
+  pend' = pend \\
+  sentTo' = sentTo \\
+  inflight' = inflight \\
+  served' = served \\
+  outc' = outc \\
+  accFrom' = accFrom \\
+  nout' = nout
+\end{schema}
+
+A client's listen leg completes its handshake.
+
+\begin{schema}{SessionEnd}
+  \Delta CC \\
+  c? : CONN \\
+  dead! : \power REQ
+\where
+  c? \in live \\
+  dead! = \{ r : \dom sentTo | r \in pend \land sentTo~r = c? \spot r \} \\
+  live' = live \setminus \{ c? \} \\
+  opened' = opened \\
+  reg' = reg \nrres \{ c? \} \\
+  pend' = pend \setminus dead! \\
+  sentTo' = sentTo \\
+  inflight' = inflight \nrres \{ c? \} \\
+  served' = served \\
+  outc' = outc \oplus (dead! \cross \{ lost \}) \\
+  accFrom' = accFrom \\
+  nout' = nout \oplus
+    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \}
+\end{schema}
+
+The session ends: the client disconnected, its lease lapsed, or luxd is
+tearing down.  One step withdraws the session's registrations, discards the
+frames queued for it, and resolves every call pending on it as
+\texttt{lost}.  This is C4: no pending call outlives its session, and nothing
+is sent to a successor.
+
+\begin{schema}{Supersede}
+  \Delta CC \\
+  c? : CONN \\
+  n? : CONN \\
+  dead! : \power REQ
+\where
+  c? \in live \\
+  n? \notin opened \\
+  dead! = \{ r : \dom sentTo | r \in pend \land sentTo~r = c? \spot r \} \\
+  live' = (live \setminus \{ c? \}) \cup \{ n? \} \\
+  opened' = opened \cup \{ n? \} \\
+  reg' = reg \nrres \{ c? \} \\
+  pend' = pend \setminus dead! \\
+  sentTo' = sentTo \\
+  inflight' = inflight \nrres \{ c? \} \\
+  served' = served \\
+  outc' = outc \oplus (dead! \cross \{ lost \}) \\
+  accFrom' = accFrom \\
+  nout' = nout \oplus
+    \{ r : REQ | r \in dead! \spot r \mapsto nout~r + 1 \}
+\end{schema}
+
+A newer listen leg of the same client replaces the old: the old session
+ends exactly as above, and the new one starts in the same step.  The new
+session holds no registration; the client registers again from its
+connect handler.
+
+\section{Registration Operations}
+
+\begin{schema}{RegisterSvc}
+  \Delta CC \\
+  c? : CONN \\
+  k? : KEY
+\where
+  c? \in live \\
+  k? \notin \dom reg \lor reg~k? = c? \\
+  reg' = reg \oplus \{ k? \mapsto c? \} \\
+  live' = live \\
+  opened' = opened \\
+  pend' = pend \\
+  sentTo' = sentTo \\
+  inflight' = inflight \\
+  served' = served \\
+  outc' = outc \\
+  accFrom' = accFrom \\
+  nout' = nout
+\end{schema}
+
+A key is free, or held by the connection that asks.  The same connection
+registering again, as a restarted helper does, replaces its own entry.  The
+guard \texttt{c? $\in$ live} is the listen-leg gate (\texttt{push\_required}).
+
+\begin{schema}{RegisterRefused}
+  \Xi CC \\
+  c? : CONN \\
+  k? : KEY
+\where
+  c? \in live \\
+  k? \in \dom reg \\
+  reg~k? \neq c?
+\end{schema}
+
+A different connection claiming a held key is refused and nothing changes.
+
+\section{Call Operations}
+
+\begin{schema}{Dispatch}
+  \Delta CC \\
+  r? : REQ \\
+  k? : KEY
+\where
+  k? \in \dom reg \\
+  r? \notin \dom sentTo \\
+  \# \{ q : \dom sentTo | q \in pend \land sentTo~q = reg~k? \spot q \}
+    < maxPend \\
+  pend' = pend \cup \{ r? \} \\
+  sentTo' = sentTo \cup \{ r? \mapsto reg~k? \} \\
+  inflight' = inflight \cup \{ (r? , reg~k?) \} \\
+  live' = live \\
+  opened' = opened \\
+  reg' = reg \\
+  served' = served \\
+  outc' = outc \\
+  accFrom' = accFrom \\
+  nout' = nout
+\end{schema}
+
+A caller mints a fresh id, enters the call as pending for the provider's
+current session and queues the frame for that session.  The ninth call
+(here the third) is refused at once and never enters the table; a refusal
+that changes nothing is not an operation of the model.
+
+\begin{schema}{Serve}
+  \Delta CC \\
+  r? : REQ \\
+  c? : CONN
+\where
+  (r? , c?) \in inflight \\
+  c? \in live \\
+  inflight' = inflight \setminus \{ (r? , c?) \} \\
+  served' = served \cup \{ (r? , c?) \} \\
+  live' = live \\
+  opened' = opened \\
+  reg' = reg \\
+  pend' = pend \\
+  sentTo' = sentTo \\
+  outc' = outc \\
+  accFrom' = accFrom \\
+  nout' = nout
+\end{schema}
+
+The provider takes the frame from its leg and runs the request.  Serving is
+not guarded by the table: a call that has already timed out may still be
+served, which is why a timeout reports an unknown result.
+
+\begin{schema}{ReplyFrame}
+  \Delta CC \\
+  r? : REQ \\
+  c? : CONN
+\where
+  c? \in live \\
+  r? \in pend \\
+  sentTo~r? = c? \\
+  pend' = pend \setminus \{ r? \} \\
+  outc' = outc \oplus \{ r? \mapsto replied \} \\
+  accFrom' = accFrom \oplus \{ r? \mapsto c? \} \\
+  nout' = nout \oplus \{ r? \mapsto nout~r? + 1 \} \\
+  live' = live \\
+  opened' = opened \\
+  reg' = reg \\
+  sentTo' = sentTo \\
+  inflight' = inflight \\
+  served' = served
+\end{schema}
+
+A reply frame arrives on live session \texttt{c?} naming \texttt{r?}.  It
+counts only if the request is pending and was sent to that session.  This
+is C2.  The session \texttt{c?} is any live connection, the provider or not:
+the model lets the environment send any frame from any live leg.  A frame
+that fails the guard is dropped, and a dropped frame changes nothing, so it
+is not an operation either.  Dropping covers C3: a late frame for a call
+that has already had its outcome finds no entry.
+
+\begin{schema}{RefuseFrame}
+  \Delta CC \\
+  r? : REQ \\
+  c? : CONN
+\where
+  c? \in live \\
+  r? \in pend \\
+  sentTo~r? = c? \\
+  pend' = pend \setminus \{ r? \} \\
+  outc' = outc \oplus \{ r? \mapsto refused \} \\
+  accFrom' = accFrom \oplus \{ r? \mapsto c? \} \\
+  nout' = nout \oplus \{ r? \mapsto nout~r? + 1 \} \\
+  live' = live \\
+  opened' = opened \\
+  reg' = reg \\
+  sentTo' = sentTo \\
+  inflight' = inflight \\
+  served' = served
+\end{schema}
+
+A refusal frame obeys the rule a reply obeys.
+
+\begin{schema}{Timeout}
+  \Delta CC \\
+  r? : REQ
+\where
+  r? \in \emptyset \\
+  r? \in pend \\
+  pend' = pend \setminus \{ r? \} \\
+  outc' = outc \oplus \{ r? \mapsto timedout \} \\
+  nout' = nout \oplus \{ r? \mapsto nout~r? + 1 \} \\
+  live' = live \\
+  opened' = opened \\
+  reg' = reg \\
+  sentTo' = sentTo \\
+  inflight' = inflight \\
+  served' = served \\
+  accFrom' = accFrom
+\end{schema}
+
+The deadline never fires: its guard is false.  A provider that never answers
+pins the waiter, and one of the provider's slots, for ever.
+
+\begin{schema}{Quiescent}
+  \Xi CC
+\where
+  live = \emptyset \\
+  opened = CONN
+\end{schema}
+
+The finite carrier has run out of sessions and all of them have ended.  It
+is enabled only then, so that the deadlock check reports any other state in
+which nothing can move.
+
+\section{Invariants}
+\label{sec:inv}
+
+None is placed in \texttt{CC}: a predicate there would disable the very
+transition that breaks it.  Each is checked as an unreachable goal.
+
+\paragraph{C1 --- a call leaves pending once.}
+No waiter is given two outcomes; a pending call has been given none; a call
+that is no longer pending has been given one:
+\[
+  \forall r : REQ @ nout~r \leq 1 \land (r \in pend \implies nout~r = 0)
+    \land (r \in \dom sentTo \setminus pend \implies nout~r = 1)
+\]
+
+\paragraph{C2 --- a reply counts only from the session it was sent to.}
+\[
+  \forall r : \dom accFrom @ accFrom~r = sentTo~r
+\]
+
+\paragraph{C3 --- an outcome removes the entry.}
+\[
+  \dom outc \cap pend = \emptyset
+\]
+
+\paragraph{C4 --- a session's end resolves its calls in the same step.}
+Two parts.  C4a, no pending call outlives its session: every pending call
+is on a live session.  C4b, nothing is redelivered: a request is served only
+by the session it was sent to.
+\[
+  \forall r : pend @ sentTo~r \in live
+\]
+\[
+  \forall (r , c) \in served @ sentTo~r = c
+\]
+
+\paragraph{C5 --- a call that reaches the deadline times out.}
+Whenever a call is pending, \texttt{Timeout} is enabled.  It is checked as the
+CTL formula $\mathrm{AG}(P \Rightarrow \mathrm{EF}\,\mathrm{enabled}(
+\mathit{Timeout}))$, where $P$ says that some call is pending.  $P$ is
+reachable, so the formula is not vacuous.
+
+\paragraph{C6 --- no lock is held while waiting.}
+Checked in \texttt{client\_calls\_locks.tex}.
+
+\paragraph{R1 --- a registration is held by a live session.}
+\[
+  \forall k : \dom reg @ reg~k \in live
+\]
+
+\paragraph{P1 --- the per-provider limit holds.}
+\[
+  \forall c : CONN @ \# \{ r : pend | sentTo~r = c \} \leq maxPend
+\]
+
+\paragraph{D --- deadlock freedom.}
+Some operation is always enabled, until the carrier is spent.
+
+\section{Verification}
+\label{sec:verify}
+
+\begin{verbatim}
+  scripts/verify_client_calls_model.sh
+\end{verbatim}
+
+\section{Fidelity}
+
+Four buggy variants sit beside this file; each must make a goal reachable
+that the intact model cannot reach (see
+\texttt{scripts/verify\_client\_calls\_model.sh} for the exact commands).
+\begin{itemize}
+  \item \texttt{client\_calls\_replay\_on\_reconnect\_buggy.tex}: a session's
+    end leaves its calls pending and re-queues them for a live successor,
+    the callback hold applied to requests.  C4 fails: a pending call outlives
+    its session, and a request is served by a session it was not sent to.
+  \item \texttt{client\_calls\_reply\_any\_session\_buggy.tex}: a reply is
+    matched by request id alone.  A second live connection that is not the
+    provider completes a call with a forged reply.  C2 fails.
+  \item \texttt{client\_calls\_no\_deadline\_buggy.tex}: the guard of
+    \texttt{Timeout} is false.  C5 fails.
+  \item \texttt{client\_calls\_session\_end\_keeps\_pending\_buggy.tex}: the
+    session ends and its calls stay pending until the deadline.  C4a fails,
+    the same-step rule.
+\end{itemize}
+
+\end{document}

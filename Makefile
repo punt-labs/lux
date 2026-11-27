@@ -78,10 +78,11 @@ handoff-runtime: ## Install the verified HANDOFF_RUNTIME_ARCHIVE for Ethos
 	@bash scripts/install-handoff-runtime.sh "$$HANDOFF_RUNTIME_ARCHIVE"
 
 .PHONY: check-models
-check-models: ## Type-check and model-check readiness, registry lifecycle and fidelity mutants
+check-models: ## Type-check and model-check readiness, registry lifecycle, terminal, client calls and fidelity mutants
 	PROBCLI="$(PROBCLI)" bash scripts/verify_readiness_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_peripheral_registry_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_terminal_model.sh
+	PROBCLI="$(PROBCLI)" bash scripts/verify_client_calls_model.sh
 
 # CI compares PRs with their merge base and pushes to main with the pre-push
 # tip (github.event.before). Without BASE_REF, the package resolves the merge
