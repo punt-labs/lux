@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, ClassVar, final
 from pydantic import ValidationError
 
 from punt_lux.wire.model.client_identity import ClientIdentity
-from punt_lux.wire.model.header_value import HeaderValue
+from punt_lux.wire.model.identity_header_field import IdentityHeaderField
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -37,23 +37,18 @@ _DEFAULT_KIND = "cli"
 class ClientHeaders:
     """The client-identity header names and the two directions they cross in."""
 
-    KIND: ClassVar[str] = "X-Lux-Client-Kind"
-    NAME: ClassVar[str] = "X-Lux-Client-Name"
-    REPO: ClassVar[str] = "X-Lux-Client-Repo"
-    AGENT: ClassVar[str] = "X-Lux-Client-Agent"
-    # The declared lease TTL, in seconds — a session's chosen cadence length. Absent
-    # means the kind default (see ClientIdentity.lease_ttl).
-    LEASE_TTL: ClassVar[str] = "X-Lux-Client-Lease-Ttl"
     # The response header a Hub stamps on an identity-less write — the challenge.
     CHALLENGE: ClassVar[str] = "X-Lux-Identification-Required"
-    # Which identity field each header carries, read once from this one table so
-    # the two directions cannot come to disagree about the set.
-    FIELDS: ClassVar[tuple[tuple[str, str], ...]] = (
-        ("kind", KIND),
-        ("name", NAME),
-        ("repo", REPO),
-        ("agent", AGENT),
-        ("lease_ttl", LEASE_TTL),
+    # The identity fields that cross the wire, declared once so the two directions
+    # cannot come to disagree about the set. ``lease_ttl`` absent means the kind
+    # default (see ClientIdentity.lease_ttl).
+    FIELDS: ClassVar[tuple[IdentityHeaderField, ...]] = (
+        IdentityHeaderField("kind", "X-Lux-Client-Kind", is_encoded=False),
+        IdentityHeaderField("name", "X-Lux-Client-Name"),
+        IdentityHeaderField("host", "X-Lux-Client-Host"),
+        IdentityHeaderField("repo", "X-Lux-Client-Repo"),
+        IdentityHeaderField("agent", "X-Lux-Client-Agent"),
+        IdentityHeaderField("lease_ttl", "X-Lux-Client-Lease-Ttl", is_encoded=False),
     )
     __slots__ = ()
 
@@ -61,34 +56,19 @@ class ClientHeaders:
     def to_wire(cls, identity: ClientIdentity) -> dict[str, str]:
         """Render ``identity`` into the request headers a client sends.
 
-        ``kind`` and ``name`` are always present; ``repo``, ``agent``, and
+        ``kind``, ``name`` and ``host`` are always present; ``repo``, ``agent``, and
         ``lease_ttl`` are genuine absences (a headless CLI owns no repository, only
         an agent carries a persona, and an undeclared TTL means the kind default),
-        and an absent field is omitted rather than sent blank. That is the one rule
-        this method applies: every field is rendered, and the blank ones are dropped
-        — a blank header equals no header on the read side.
+        and an absent field is omitted rather than sent blank — a blank header
+        equals no header on the read side. Free text crosses as the ASCII
+        :class:`~punt_lux.wire.model.header_value.HeaderValue` renders, so a
+        non-ASCII name or path reaches the Hub as the same bytes on every transport.
         """
-        return {header: value for header, value in cls._rendered(identity) if value}
-
-    @staticmethod
-    def _rendered(identity: ClientIdentity) -> tuple[tuple[str, str], ...]:
-        """Each header and the text this identity gives it; ``""`` means absent.
-
-        Values cross as the ASCII :class:`~punt_lux.wire.model.header_value.HeaderValue`
-        renders, so a non-ASCII name or repository path reaches the Hub as the same
-        bytes on every transport. The TTL is a number, not a declared label, so it
-        is formatted rather than encoded.
-        """
-        return (
-            (ClientHeaders.KIND, identity.kind),
-            (ClientHeaders.NAME, HeaderValue.sent(identity.name)),
-            (ClientHeaders.REPO, HeaderValue.sent(identity.repo)),
-            (ClientHeaders.AGENT, HeaderValue.sent(identity.agent)),
-            (
-                ClientHeaders.LEASE_TTL,
-                "" if identity.lease_ttl is None else str(identity.lease_ttl),
-            ),
-        )
+        return {
+            field.header: text
+            for field in cls.FIELDS
+            if (text := field.render(identity))
+        }
 
     @classmethod
     def declaration_from(cls, headers: Mapping[str, str]) -> dict[str, object] | None:
@@ -139,7 +119,5 @@ class ClientHeaders:
         way their client encoded it.
         """
         return {
-            field: value
-            for field, header in cls.FIELDS
-            if (value := HeaderValue.declared(headers.get(header, "")))
+            field.name: text for field in cls.FIELDS if (text := field.read(headers))
         }

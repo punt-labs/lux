@@ -22,7 +22,7 @@ from punt_lux.hub.hub_store_factory import HubStoreFactory
 from punt_lux.hub.menu_registry import HubMenuRegistry
 from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.operations import HubPorts, Operations
 from punt_lux.operations.display_reply import DisplayReply
 from punt_lux.rest import RestSurface
@@ -46,9 +46,9 @@ DEFAULT_IDENTITY_MODEL = ClientIdentity(kind="cli", name="rest-test", repo="/w/l
 # The connection the default identity resolves to on every transport. A test that
 # needs the caller push-reachable — registering a menu callback requires a live
 # listen leg — registers a listener for this connection via ``listening=True``.
-DEFAULT_CONNECTION = connection_for(
+DEFAULT_CONNECTION = ConnectionSeed(
     {"kind": "cli", "name": "rest-test", "repo": "/w/lux"}
-)
+).connection_id
 
 
 class SilentListener:

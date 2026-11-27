@@ -41,7 +41,7 @@ from punt_lux.hub.ws_listen import HubListenSession
 from punt_lux.hub.ws_transport import HubListenTransport
 from punt_lux.kernel.client_host import UNOBSERVED
 from punt_lux.kernel.connection_id import ConnectionId
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
@@ -55,7 +55,7 @@ _HEADERS = {
     "X-Lux-Client-Name": "voxd",
     "X-Lux-Client-Repo": "/w/vox",
 }
-_CONN = connection_for({"kind": "app", "name": "voxd", "repo": "/w/vox"})
+_CONN = ConnectionSeed({"kind": "app", "name": "voxd", "repo": "/w/vox"}).connection_id
 
 
 @final
@@ -733,9 +733,9 @@ _AGENT_HEADERS = {
     "X-Lux-Client-Name": "claude",
     "X-Lux-Client-Repo": "/w/lux",
 }
-_AGENT_CONN = connection_for(
+_AGENT_CONN = ConnectionSeed(
     {"kind": "mcp-session", "name": "claude", "repo": "/w/lux"}
-)
+).connection_id
 _RENEW = {"kind": "renew"}
 _FAR_FUTURE = 1_000_000.0  # past any kind's lease; nothing renews
 

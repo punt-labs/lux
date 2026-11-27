@@ -29,7 +29,7 @@ from punt_lux.commands import (
     session_identify as session_identify_command,
 )
 from punt_lux.kernel.client_host import ClientHost
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.operations.identity import IdentityOperations
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
@@ -118,13 +118,13 @@ class RestCaller:
 
         The headers are read through the one shared :class:`ClientHeaders`
         contract, so the header names live in a single place both the client and
-        the Hub read; the connection id comes from :func:`connection_for`, shared
+        the Hub read; the connection id comes from :class:`ConnectionSeed`, shared
         with the WebSocket listen leg, so a caller that registers a callback over
         REST and listens over the WebSocket resolves to one connection on both.
         """
         declaration = self._declaration(request)
         scope = Scope.observed(
-            connection_for(declaration), ClientHost.of_connection(request)
+            ConnectionSeed(declaration).connection_id, ClientHost.of_connection(request)
         )
         ctx: CommandCtx[SessionOps] = CommandCtx(ops=self._ops, identity=ANONYMOUS_REST)
         outcome: Identified | OpError = asyncio.run(

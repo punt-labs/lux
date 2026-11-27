@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.applets.identity import AppletIdentity
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.applet_name_format import format_name, session_pid_from_name
 from punt_lux.wire.model.client_identity import ClientIdentity
 
@@ -57,8 +57,9 @@ def test_two_sessions_on_one_repository_are_two_connections(
     second = AppletIdentity.for_session("lux-beads", 222)
 
     assert first.client.name != second.client.name
-    assert connection_for(first.client.model_dump()) != connection_for(
-        second.client.model_dump()
+    assert (
+        ConnectionSeed(first.client.model_dump()).connection_id
+        != ConnectionSeed(second.client.model_dump()).connection_id
     )
 
 
@@ -76,8 +77,9 @@ def test_two_programs_in_one_session_are_two_connections(
     vox_panel = AppletIdentity.for_session("vox-panel", 12345)
 
     assert beads.client.name != vox_panel.client.name
-    assert connection_for(beads.client.model_dump()) != connection_for(
-        vox_panel.client.model_dump()
+    assert (
+        ConnectionSeed(beads.client.model_dump()).connection_id
+        != ConnectionSeed(vox_panel.client.model_dump()).connection_id
     )
 
 
@@ -94,8 +96,9 @@ def test_one_session_restarted_is_the_same_connection(
     first = AppletIdentity.for_session("lux-beads", 111)
     respawned = AppletIdentity.for_session("lux-beads", 111)
 
-    assert connection_for(first.client.model_dump()) == connection_for(
-        respawned.client.model_dump()
+    assert (
+        ConnectionSeed(first.client.model_dump()).connection_id
+        == ConnectionSeed(respawned.client.model_dump()).connection_id
     )
 
 
@@ -131,7 +134,7 @@ def test_whitespace_only_program_is_rejected(program: str) -> None:
 
 
 def test_nul_in_program_is_rejected() -> None:
-    """A NUL would break connection_for's field-joining invariant."""
+    """A NUL would break ConnectionSeed's field-joining invariant."""
     with pytest.raises(ValueError, match="NUL"):
         AppletIdentity.for_session("lux\x00beads", 12345)
 
@@ -145,8 +148,9 @@ def test_program_leading_trailing_whitespace_is_stripped(
     bare = AppletIdentity.for_session("beads", 42)
 
     assert padded.client.name == bare.client.name
-    assert connection_for(padded.client.model_dump()) == connection_for(
-        bare.client.model_dump()
+    assert (
+        ConnectionSeed(padded.client.model_dump()).connection_id
+        == ConnectionSeed(bare.client.model_dump()).connection_id
     )
 
 

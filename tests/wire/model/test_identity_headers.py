@@ -9,18 +9,19 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
 
 
-def test_to_wire_carries_kind_name_repo_and_agent() -> None:
+def test_to_wire_carries_kind_name_host_repo_and_agent() -> None:
     identity = ClientIdentity(
-        kind="mcp-session", name="claude", repo="/w/lux", agent="gvr"
+        kind="mcp-session", name="claude", host="okinos", repo="/w/lux", agent="gvr"
     )
     assert ClientHeaders.to_wire(identity) == {
         "X-Lux-Client-Kind": "mcp-session",
         "X-Lux-Client-Name": "claude",
+        "X-Lux-Client-Host": "okinos",
         "X-Lux-Client-Repo": "/w/lux",
         "X-Lux-Client-Agent": "gvr",
     }
@@ -29,17 +30,23 @@ def test_to_wire_carries_kind_name_repo_and_agent() -> None:
 def test_to_wire_omits_absent_repo_and_agent() -> None:
     # A headless CLI owns no repo and carries no agent; absent fields are omitted,
     # never sent blank — a blank header equals no header on the read side.
-    identity = ClientIdentity(kind="cli", name="lux-cli")
+    identity = ClientIdentity(kind="cli", name="lux-cli", host="okinos")
     assert ClientHeaders.to_wire(identity) == {
         "X-Lux-Client-Kind": "cli",
         "X-Lux-Client-Name": "lux-cli",
+        "X-Lux-Client-Host": "okinos",
     }
 
 
 def test_round_trips_through_a_declaration() -> None:
-    identity = ClientIdentity(kind="cli", name="vox", repo="/w/vox")
+    identity = ClientIdentity(kind="cli", name="vox", host="okinos", repo="/w/vox")
     declaration = ClientHeaders.declaration_from(ClientHeaders.to_wire(identity))
-    assert declaration == {"kind": "cli", "name": "vox", "repo": "/w/vox"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "vox",
+        "host": "okinos",
+        "repo": "/w/vox",
+    }
 
 
 def test_declaration_is_none_without_a_name() -> None:
@@ -121,9 +128,10 @@ def test_both_legs_of_one_identity_resolve_to_one_connection() -> None:
     as_utf8 = {k: v.encode().decode("latin-1") for k, v in wire.items()}
     as_latin1 = {k: v.encode("latin-1").decode("latin-1") for k, v in wire.items()}
 
-    assert connection_for(
-        ClientHeaders.declaration_from(as_utf8) or {}
-    ) == connection_for(ClientHeaders.declaration_from(as_latin1) or {})
+    assert (
+        ConnectionSeed(ClientHeaders.declaration_from(as_utf8) or {}).connection_id
+        == ConnectionSeed(ClientHeaders.declaration_from(as_latin1) or {}).connection_id
+    )
 
 
 def test_an_ascii_value_crosses_the_wire_unchanged() -> None:
@@ -177,4 +185,21 @@ def test_a_client_that_sends_raw_values_resolves_to_one_connection(name: str) ->
     from_http = ClientHeaders.declaration_from(over_http) or {}
 
     assert from_websocket["name"] == name
-    assert connection_for(from_websocket) == connection_for(from_http)
+    assert (
+        ConnectionSeed(from_websocket).connection_id
+        == ConnectionSeed(from_http).connection_id
+    )
+
+
+def test_a_declared_host_crosses_both_directions() -> None:
+    # The host a client runs on rides the same header set REST and the WS
+    # handshake read, so the Hub keys a provider by where it actually runs.
+    identity = ClientIdentity(kind="app", name="luxd-pty", host="okinos")
+    wire = ClientHeaders.to_wire(identity)
+    assert wire["X-Lux-Client-Host"] == "okinos"
+    assert ClientHeaders.identity_from(wire) == identity
+
+
+def test_a_non_ascii_host_survives_the_header_encoding() -> None:
+    identity = ClientIdentity(kind="app", name="luxd-pty", host="büro-mac")
+    assert ClientHeaders.identity_from(ClientHeaders.to_wire(identity)) == identity

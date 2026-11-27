@@ -38,7 +38,7 @@ from punt_lux.client.hub_client import LuxHubClient
 from punt_lux.client.rest_loopback import LoopbackTransport
 from punt_lux.hub.luxd import build_app
 from punt_lux.hub.replicator_instance import hub_callback_router
-from punt_lux.kernel.connection_identity import connection_for
+from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.header_value import HeaderValue
 from punt_lux.wire.model.session_callback import CallbackInvocation
@@ -101,7 +101,9 @@ async def _drive(
 
 def test_register_from_on_connect_then_receive_the_click_over_the_websocket() -> None:
     identity = ClientIdentity(kind="app", name=f"voxd-e2e-{os.getpid()}", repo="/w/vox")
-    conn = connection_for({"kind": "app", "name": identity.name, "repo": "/w/vox"})
+    conn = ConnectionSeed(
+        {"kind": "app", "name": identity.name, "repo": "/w/vox"}
+    ).connection_id
     with _running_luxd() as port:
         rest = _RestTransport(LoopbackTransport(port, 5.0), identity)
         received: list[str] = []
