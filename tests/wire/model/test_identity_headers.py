@@ -7,9 +7,12 @@ header from reaching ``identify`` as a malformed field.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from punt_lux.kernel.connection_identity import ConnectionSeed
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
 from tests.headered_peer import HeaderedPeer
@@ -61,26 +64,42 @@ def test_declaration_is_none_without_a_name() -> None:
 
 def test_declaration_defaults_kind_to_cli() -> None:
     declaration = ClientHeaders.declaration_from(
-        HeaderedPeer({"X-Lux-Client-Name": "tool"})
+        HeaderedPeer({"X-Lux-Client-Name": "tool"}, host="10.0.0.7")
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_blank_optional_header_is_dropped() -> None:
     # A whitespace-only repo must not reach identify (which rejects a blank repo).
     declaration = ClientHeaders.declaration_from(
-        HeaderedPeer({"X-Lux-Client-Name": "tool", "X-Lux-Client-Repo": "   "})
+        HeaderedPeer(
+            {"X-Lux-Client-Name": "tool", "X-Lux-Client-Repo": "   "}, host="10.0.0.7"
+        )
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_blank_kind_falls_back_to_the_cli_default() -> None:
     # A whitespace-only kind equals no kind — stripped and defaulted to cli, not
     # forwarded as an empty string that identify would reject.
     declaration = ClientHeaders.declaration_from(
-        HeaderedPeer({"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "})
+        HeaderedPeer(
+            {"X-Lux-Client-Name": "tool", "X-Lux-Client-Kind": "   "}, host="10.0.0.7"
+        )
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {
+        "kind": "cli",
+        "name": "tool",
+        "host": "10.0.0.7",
+    }
 
 
 def test_a_declared_lease_ttl_crosses_both_directions() -> None:
@@ -240,11 +259,57 @@ def test_a_declared_host_wins_over_the_observed_peer() -> None:
     assert declaration == {"kind": "cli", "name": "tool", "host": "pembroke"}
 
 
-def test_an_unobserved_peer_leaves_the_host_undeclared() -> None:
+def test_an_unobserved_caller_declares_the_host_it_runs_on() -> None:
+    # An in-process caller has no socket peer and does run on the Hub's machine.
     declaration = ClientHeaders.declaration_from(
         HeaderedPeer({"X-Lux-Client-Name": "tool"})
     )
-    assert declaration == {"kind": "cli", "name": "tool"}
+    assert declaration == {"kind": "cli", "name": "tool", "host": LocalHost.name()}
+
+
+def test_the_connection_id_derives_from_the_host_the_identity_carries() -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool"})
+    declaration = ClientHeaders.declaration_from(peer)
+    identity = ClientHeaders.identity_from(peer)
+    assert declaration is not None
+    assert identity is not None
+    assert ConnectionSeed(declaration).connection_id == identity.connection_id
+
+
+@pytest.mark.parametrize("encoded", ["%0A", "%09%0D", "%20"])
+def test_a_host_that_is_blank_only_after_decoding_is_an_error_not_undeclared(
+    encoded: str,
+) -> None:
+    peer = HeaderedPeer(
+        {"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": encoded}, host="10.0.0.7"
+    )
+    declaration = ClientHeaders.declaration_from(peer)
+    assert declaration is not None
+    assert declaration["host"] != "10.0.0.7"
+    assert ClientHeaders.identity_from(peer) is None
+
+
+def test_an_undecodable_host_is_rejected_not_read_as_a_replacement_character() -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool", "X-Lux-Client-Host": "%FF"})
+    assert ClientHeaders.identity_from(peer) is None
+
+
+def test_a_rejected_declaration_is_logged_with_the_failing_field(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "x", "X-Lux-Client-Host": "a%0Ab"})
+    with caplog.at_level(logging.INFO, logger="punt_lux.wire.model.identity_headers"):
+        assert ClientHeaders.identity_from(peer) is None
+    assert "host" in caplog.text
+
+
+def test_using_the_peer_in_place_of_a_declared_host_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    peer = HeaderedPeer({"X-Lux-Client-Name": "tool"}, host="10.0.0.7")
+    with caplog.at_level(logging.DEBUG, logger="punt_lux.wire.model.identity_headers"):
+        ClientHeaders.declaration_from(peer)
+    assert "10.0.0.7" in caplog.text
 
 
 def test_a_headerless_identity_reaches_the_hub_as_the_peer_host() -> None:

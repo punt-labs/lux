@@ -16,11 +16,13 @@ on a write that arrived without an identity — the HTTP analogue of a 401 chall
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import ValidationError
 
 from punt_lux.kernel.client_host import ClientHost
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_header_field import IdentityHeaderField
 
@@ -30,6 +32,8 @@ if TYPE_CHECKING:
     from punt_lux.kernel.peer_connection import HeaderedConnection
 
 __all__ = ["ClientHeaders"]
+
+logger = logging.getLogger(__name__)
 
 # What a caller that named itself but not its kind is taken to be — a `lux`
 # command is the client that reaches the Hub without declaring what it is.
@@ -82,10 +86,16 @@ class ClientHeaders:
         A request is identified when it names itself, so a declaration with no name
         is no declaration — ``None`` is the documented contract for an unidentified
         caller, not a give-up on the type. ``kind`` falls to ``cli`` when the caller
-        declared none. A caller that declared no ``host`` is taken to run where its
-        socket came from, never where the Hub runs: a client reaching
-        the Hub through a tunnel must not be recorded as the Hub's own machine. An
-        unobserved caller (in-process) declares none and keeps the identity default.
+        declared none.
+
+        A caller that declared no ``host`` is recorded at the address its socket
+        came from, never at the Hub's own machine name. That address is the
+        connection's, not the client's: a client behind ``ssh -L`` arrives from
+        loopback and is recorded as loopback, so a client that must be told apart
+        from the Hub's own machine declares its host. A caller with no socket (in
+        process) runs where the Hub runs and declares this machine. Either way the
+        declaration always names a host, so the connection id derives from the host
+        the stored identity carries.
 
         A declared ``lease_ttl`` rides as a string the identity model
         coerces and bounds-checks, so a non-numeric or out-of-range value is a named
@@ -94,9 +104,20 @@ class ClientHeaders:
         declared = cls._declared(connection.headers)
         if "name" not in declared:
             return None
+        if "host" not in declared:
+            declared["host"] = cls._undeclared_host(connection)
+        return {"kind": _DEFAULT_KIND} | declared
+
+    @staticmethod
+    def _undeclared_host(connection: HeaderedConnection) -> str:
+        """Return the host a caller that declared none is taken to run on."""
         observed = ClientHost.of_connection(connection)
-        peer = {"host": observed.address} if observed.observed else {}
-        return {"kind": _DEFAULT_KIND} | peer | declared
+        if not observed.observed:
+            return LocalHost.name()
+        logger.debug(
+            "no host declared; recording the observed peer %s", observed.address
+        )
+        return observed.address
 
     @classmethod
     def identity_from(cls, connection: HeaderedConnection) -> ClientIdentity | None:
@@ -116,7 +137,12 @@ class ClientHeaders:
             return None
         try:
             return ClientIdentity.model_validate(declared)
-        except ValidationError:
+        except ValidationError as exc:
+            logger.info(
+                "identity headers rejected; treating the caller as anonymous "
+                "(fields: %s)",
+                ", ".join(sorted({str(error["loc"][0]) for error in exc.errors()})),
+            )
             return None
 
     @classmethod

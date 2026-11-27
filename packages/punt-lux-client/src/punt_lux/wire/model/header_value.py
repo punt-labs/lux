@@ -64,10 +64,15 @@ class HeaderValue:
     def declared(cls, raw: str) -> str:
         """Return the declared header text or an empty string.
 
-        The read counterpart of :meth:`sent`: a missing header, a blank one, and a
-        whitespace-only one all mean the client declared no such field.
+        The read counterpart of :meth:`sent`: a missing header and a blank one
+        both mean the client declared no such field. A header that is blank only
+        after decoding (``%0A``) was declared, and declared wrongly, so its text
+        is kept for the identity model to reject rather than read as absent.
         """
-        return cls.from_wire(raw).text.strip()
+        if not raw.strip():
+            return ""
+        text = cls.from_wire(raw).text
+        return text.strip() or text
 
     @classmethod
     def from_wire(cls, raw: str) -> Self:

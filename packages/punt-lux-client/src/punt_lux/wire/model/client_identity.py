@@ -123,14 +123,16 @@ class ClientIdentity(BaseModel):
     @field_validator("host")
     @classmethod
     def _validate_host(cls, value: str) -> str:
-        """Reject a host with a control character, NUL included, wherever it came from.
+        """Reject a host with a control character or an undecodable byte.
 
         A header percent-decodes ``%0A`` into a newline, which would reach logs and
-        the menu label; NUL also breaks the connection-id seed's field join.
+        the menu label; ``%FF`` decodes to U+FFFD, a printable stand-in for bytes
+        that were never text; NUL also breaks the connection-id seed's field join.
         """
-        if not value.isprintable():
+        if not value.isprintable() or "\ufffd" in value:
             msg = (
-                f"host must be printable text with no control characters; got {value!r}"
+                "host must be printable text with no control characters or "
+                f"undecodable bytes; got {value!r}"
             )
             raise ValueError(msg)
         return value
