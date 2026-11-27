@@ -8573,3 +8573,436 @@ It now holds up to 16, each created on purpose.
 
 The Terminals menu, launchers, the `lux terminal` commands and minimize/end
 (DES-103 decisions 1, 3, 5, 6 and 9) build on this and are not part of it.
+
+## DES-107: The Hub Relays a Typed Request to a Provider Client and Returns Its Reply
+
+**Status:** Proposed, awaiting operator ratification. Design mission PL-1284
+(gvr). Builds on DES-055, DES-057, DES-058, DES-061, DES-063, DES-087, DES-089,
+DES-090, DES-101, DES-102, DES-103 and DES-106; leaves DES-056, DES-086,
+DES-093 and DES-100 unchanged. Amends `docs/architecture/terminal-lifecycle.md`
+section 1. Model: required, specified under "Formal model" below.
+
+**Problem.** The terminal commands (`lux terminal new|ls|open|rename|kill`,
+PL-1254) and the launcher operations (`lux terminal launcher add|ls|remove`,
+PL-1253) must work from the CLI, MCP, REST and the library through one code
+path (DES-055, DES-087): a command class in `src/punt_lux/commands/` calls the
+Hub, and the Hub reaches `luxd-pty`, which stays the authority for sessions,
+ids, labels and launchers (DES-106). Every command returns something: `new`
+the id, `ls` the list, `rename` ok or an error, `launcher add` ok or a
+refusal. The Hub cannot ask a client a question today. Topics are broadcast
+and fire-and-forget. A menu callback is an id string held for a client to
+drain; it carries no payload and expects no answer. The only request/reply in
+the Hub is the Display dial (DES-102), which is one socket with one question
+in flight.
+
+**Decision.**
+
+1. **A client declares what it serves.** A provider client registers a
+   *service*, a short name (`terminal` is the first), with the new operation
+   `service register`. The registration belongs to the client's connection and
+   lease exactly as a menu callback does (DES-057, DES-058): it is refused
+   unless the caller holds a live listen leg (`push_required`, the DES-061
+   gate), and it is withdrawn on the same lifecycle step that withdraws the
+   client's callbacks (DES-101: the register and the withdrawal are
+   store-locked `ClientLifecycle` steps, never a bare registry write). The key
+   is `(service, host)`, where `host` is the host the client declares in its
+   identity (DES-103 decision 4). One connection serves a key at a time. The
+   same connection registering again, as a restarted helper does, replaces its
+   own registration. A different connection claiming a held key is refused
+   (`rejected`) until the holder's lease lapses. `service ls` lists the
+   registrations, so an agent can see which hosts answer.
+
+2. **One request frame down, one reply frame back, on the existing leg.** The
+   listen leg's frames (`wire/model/messages/listen.py`) gain three, all
+   discriminated by `kind` like the rest:
+
+   ```python
+   class RequestFrame(BaseModel):  # Hub to client
+       model_config = ConfigDict(frozen=True)
+       kind: Literal["request"] = "request"
+       request_id: str
+       service: str
+       operation: str
+       payload: dict[str, object]  # wire boundary; typed models at both ends
+
+
+   class ReplyFrame(BaseModel):  # client to Hub
+       model_config = ConfigDict(frozen=True)
+       kind: Literal["reply"] = "reply"
+       request_id: str
+       payload: dict[str, object]
+
+
+   class RefusalFrame(BaseModel):  # client to Hub
+       model_config = ConfigDict(frozen=True)
+       kind: Literal["refusal"] = "refusal"
+       request_id: str
+       code: Literal["rejected", "invalid_request", "not_found", "fault"]
+       reason: str
+
+       @field_validator("code", mode="before")
+       @classmethod
+       def _unknown_is_fault(cls, value: object) -> object:
+           known = ("rejected", "invalid_request", "not_found", "fault")
+           return value if isinstance(value, str) and value in known else "fault"
+   ```
+
+   Like the existing listen frames, all three are frozen. The validator on
+   `code` maps any value that is not one of the four codes (an unknown string,
+   or a non-string such as a list) to `fault` before validation, so a bad code
+   never fails validation and never raises. A frame that fails validation for
+   any other reason is a protocol violation, and the listen reader closes the
+   connection for it as it does for every listen frame today; C4 then resolves
+   the calls pending on that session as `lost`.
+
+   The `request_id` is minted by the Hub, `c<boot>.<n>`: a random value fixed
+   when luxd starts plus a counter, never reused, the scheme DES-106 uses for
+   session ids. A reply matches a pending call by `(request_id, the listen
+   session the request was sent to)`. A frame naming a known id from any other
+   session is dropped and logged. A frame naming an unknown id (a late reply
+   to a call that timed out) is dropped. Because ids are never reused, a late
+   reply cannot satisfy a different call. A refusal code outside the four
+   listed is read as `fault`. The client library gains an `on_request` handler
+   beside `on_callback`: it receives `(service, operation, payload)` and
+   returns a payload, or raises a refusal with a code and reason. Any other
+   exception becomes a `fault` with a fixed reason that carries no traceback.
+   The client runs each handler as its own task, so the receive loop keeps
+   reading and renewing the lease while a request is served.
+
+3. **The Hub keeps one table of pending calls, and a call has exactly one
+   outcome.** A new class (`ClientCalls`) owns the pending calls. A caller (an
+   operation running on a worker thread, as `callback register` does) mints
+   the id, enters the call as `pending` for the provider's current listen
+   session, hands the frame to that session's outbound queue with the same
+   `call_soon_threadsafe` hop `deliver_event` uses, and blocks on an event for
+   at most the deadline. The outcome is one of replied, refused, timed out or
+   lost. The rules the model checks:
+
+   - **C1.** A call leaves `pending` once. The waiter sees one outcome.
+   - **C2.** A reply or refusal counts only from the session the request was
+     sent to. This is DES-102's "replies reach only the dial that asked",
+     with the listen session as the generation.
+   - **C3.** An outcome removes the entry. A later frame for it is dropped.
+   - **C4.** When a provider's session ends (disconnect, supersession,
+     lease lapse, luxd's own teardown), every call pending on it becomes
+     `lost` in the same lifecycle step. No pending call outlives its session,
+     and nothing is redelivered to a successor. This is where a request differs
+     from a callback: the callback hold carries a click across a reconnect
+     (DES-058) because a click is worth delivering late; a `kill` or `new`
+     replayed after a reconnect is a second execution nobody asked for.
+   - **C5.** A call that reaches the deadline becomes `timed out`.
+   - **C6.** No lock is held while waiting. The table's lock is a leaf below
+     the store lock and the registry lock, so the lifecycle step in C4 may
+     resolve calls while holding them, and the resolution wakes the waiter
+     after the table lock is released.
+
+   At most 8 calls are pending per provider; the ninth is refused at once
+   (`rejected`, "provider busy") and never sent. A reply payload over 256 KiB
+   is a `fault`.
+
+4. **Timeouts and errors.** One deadline: 15 s from the send, not extendable by
+   a caller. The helper's own exchange with its daemon allows 5 s for the hello
+   and 5 s for the request (`DaemonExchange`), so a helper that is merely slow
+   answers inside 10 s and a refusal reaches the caller before the Hub gives
+   up. The REST transport's default budget is 2 s (`connect_client` and
+   `LuxClient`), shorter than the relay deadline, so a relayed operation
+   declares its own transport budget of 20 s (the deadline plus 5 s) and the
+   transport honours it per call. Without that, the caller would see a
+   transport timeout instead of the `OpError` below. Every outcome is an
+   `OpError` the adapters already render; two codes are added to
+   `OpErrorCode`. The "executed" column is what the caller may conclude.
+
+   | Situation | Executed | Code | The reason names |
+   |---|---|---|---|
+   | Request fails its type check at the front door | no | `invalid_request` | the field |
+   | Caller has not identified | no | `identification_required` | |
+   | No provider for `(service, host)` | no | `provider_unavailable` (new) | the hosts that answer |
+   | Provider has 8 calls pending | no | `rejected` | "provider busy" |
+   | Provider refuses: runtime launchers off, unknown launcher, label taken, unknown session | no | the daemon's `code` (`rejected`, `not_found` or `invalid_request`), relayed unchanged | the provider's reason |
+   | Provider tried and failed (its daemon is down) | unknown | `fault` | the provider's reason |
+   | Provider did not answer in 15 s | unknown | `timeout` | the service and host |
+   | Provider disconnected, was superseded, or its lease lapsed first | unknown | `provider_lost` (new) | the service and host |
+   | Reply frame fails validation (the connection closes as a protocol violation, and C4 resolves every call pending on it) | unknown | `provider_lost` | the service and host |
+   | Reply frame is valid but its payload is over the cap or does not parse as the operation's typed reply | unknown | `fault` | |
+
+   After `timeout`, `provider_lost` or `fault` a caller of `new` retries with
+   the same `token`: each of the three can follow a launch that already
+   happened. The `new` request carries a `token`, a random string. Every door
+   accepts an optional `token` (CLI `--token`, the same field on MCP, REST and
+   the library); when it is omitted, the command class mints one. A `new` that
+   ends in `timeout`, `provider_lost` or `fault` reports its token in the
+   error, and the CLI prints the command to retry,
+   `lux terminal new --token <token> ...`, so a separate invocation can follow
+   the same-token rule.
+
+   The daemon keeps one entry per launch it admitted from a token. It adds the
+   entry once every check that could refuse the launch has passed and before it
+   forks the process, so a launch that fails after the fork still holds its
+   token. If the fork itself fails, no process exists, and the daemon removes
+   the entry and restores any oldest entry the addition had dropped, before it
+   replies `fault`, so the retry launches normally and the oldest token stays
+   protected. The daemon logs the token, the process id and the process start
+   time at the fork (the start time tells an operator whether the pid still
+   names the original shell or a process that reused it), so a
+   forked process whose session setup and cleanup both fail, and so never
+   appears in `ls`, is still found in the log. The
+   entry holds the token and, once the session exists, that session, whether it
+   is still running or has already exited. A repeated token with a session gets
+   the original session instead of a second terminal. A repeated token whose
+   process was forked but whose session was never recorded is refused as
+   `rejected`, naming the token and the logged process id and telling the
+   caller to run `ls` and then check that process, because the earlier process
+   may still be running. A launch refused before the fork adds
+   no entry, and a repeated token adds none. The daemon holds the
+   256 most recent entries and drops the oldest when a 257th launch is
+   admitted. A label cannot serve as the retry guard: the label is freed when
+   the session exits, so a launch that succeeded and exited would be launched
+   again. The guarantee is bounded, and the bounds are part of the contract:
+   - The memory is not saved. A daemon restart clears it. The restart ends
+     every shell it can (`terminal-lifecycle.md`): SIGHUP, then SIGKILL to the
+     shell's process group after a grace period. A retry after a restart
+     normally creates the first terminal that exists. If a shell survives
+     SIGKILL (a process in uninterruptible I/O), the daemon logs its pid and
+     token and exits with a failure status, so the failure is visible; the
+     survivor has no history, and a retry with its token can start a second
+     shell. This residual case is accepted: persisting the memory across a
+     restart would hold a record for a process the restart was meant to end.
+   - After 256 more launches have been admitted, an entry is dropped, and a
+     retry with that token then starts a new terminal. The caller can see this
+     with `ls`.
+
+   `allow_runtime_launchers = false` reaches the caller as `rejected` with a
+   reason naming the config key and the file's path.
+
+   The provider can only relay `rejected`, `not_found`, `invalid_request` and
+   `fault` if the daemon names them. Today a daemon refusal is a reason and a
+   retryable flag with no category (`FailureReply`), so `DaemonExchange` cannot
+   tell `not_found` from `rejected`, and nothing marks a failure that came
+   after an operation took effect (`SessionCore.kill` removes the live session
+   before process cleanup can fail). The implementation unit adds a `code` to
+   the daemon's failure reply, set at each refusal site: `rejected`,
+   `invalid_request` and `not_found` tell the caller nothing executed, and
+   `fault` tells it the outcome is unknown, set where an operation can fail
+   after it has taken effect. The daemon wire version rises (DES-106 shipped
+   version 4). `DaemonExchange` raises its refusal with that code, and the
+   helper maps it to the `RefusalFrame` code.
+
+   **REST carries the code in the body.** `HttpErrorMap` maps an error to a
+   status and sends only a reason, and `RestReply` derives the code back from
+   the status, which cannot tell no provider from a lost reply. A relayed
+   operation's error response therefore carries the `OpError` code in its JSON
+   body, and the REST client reads the code from the body and uses the status
+   only when the body has none. The statuses are `provider_unavailable` 503,
+   `provider_lost` 502 and `timeout` 504; the other codes keep today's.
+
+5. **Addressing is by the host the provider declared, on the addressed Hub.**
+   The Hub picks the provider for `(service, host)`. An omitted `host` means
+   the Hub's own host, one rule with no count-dependent behaviour; the CLI's
+   `--host` and the matching field on the other three doors set it. Each
+   machine's `luxd-pty` attaches to that machine's own `luxd`, and `luxd`
+   binds loopback only (DES-055), so one Hub has one host's helper. A
+   `--host` naming another machine therefore answers `provider_unavailable`
+   until a request can cross Hubs. **This design does not build that.** Two
+   routes exist and the operator picks one when a user needs it:
+   (a) the caller addresses the Hub on the target machine, for example by an
+   SSH tunnel to that Hub's loopback port, which needs no lux code and no new
+   trust story; (b) the Hub forwards through the Display, which already holds
+   an authenticated connection to every Hub (DES-089, DES-090) and routes
+   interactions by `HubId`. Route (b) makes the Display a router between Hubs,
+   which reverses DES-093's "the Hub never controls the Display" in spirit and
+   needs its own ADR with a security review. The wire form already carries
+   `host`, so neither route changes it. The menu's `New` for a remote machine
+   needs neither: a click already travels from the Display to the owning Hub as
+   a callback (DES-089, DES-103 decision 8).
+
+6. **The Hub holds no terminal state.** The Hub keeps the registrations (who
+   serves what, on a lease) and the pending calls (transient, bounded). It
+   keeps no session, id, label, launcher or list; every `ls` is asked of the
+   helper, which asks the daemon. Two layers know different things. The relay
+   core knows `service`, `operation` and an opaque payload. The front door, the
+   `commands/` classes DES-087 requires, knows the terminal request and reply
+   types, because all four doors share one typed vocabulary; it validates a
+   request before it is relayed and parses the reply. Neither holds terminal
+   state. `terminal-lifecycle.md` section 1 is amended to say so.
+
+7. **Authorization: the Hub checks that the caller is identified; the provider
+   gates each route.** DES-103 decision 9 holds: Lux cannot tell a person's
+   call from an agent's, so no rule depends on the caller, and none is added
+   here. Three requirements follow.
+   - **No request that starts a terminal carries a command line.** The `new`
+     request type has `label`, `launcher`, `size` and `token` and forbids extra fields
+     (`extra="forbid"`), so a `command` key fails at the front door as
+     `invalid_request`. The helper's parse forbids it again, and the daemon's
+     `NewRequest` has no such field (DES-106).
+   - **`launcher add` is the one operation that carries a command line.** The
+     Hub relays it without reading the payload. The `allow_runtime_launchers`
+     gate must be evaluated by `luxd-pty`, in its control dispatch, not by the
+     helper, so it holds for a request that reaches the daemon by any route,
+     including a client that opens the daemon's socket directly. The
+     implementation unit verifies where the gate is today and moves it if it
+     is in the helper.
+   - **Only the connection that holds a service key may serve it** (decision
+     1). Identity is declared, not proved (the same-user, localhost trust
+     model of `client_identity.py`; DES-094), so a local process can still
+     claim an unheld key and would then receive `launcher add` command lines
+     and answer `new` falsely. That process is the same user, who can already
+     run those commands. Another local user's process reaching luxd's loopback
+     port is a trust gap luxd has for every operation, not one the relay opens.
+     The implementation mission takes a security review (djb) because the relay
+     is a new way to deliver a command line to a machine.
+
+8. **The relay is general; the front door is not.** The frames and
+   `ClientCalls` carry `service` and `operation` as plain strings from the
+   first commit, so a second provider (a vox applet answering `album ls`, a
+   z-spec renderer) needs no wire change. Only `terminal` is registered, and
+   there is no generic "call any service" command: each service gets its typed
+   command classes, so the `service` string never reaches a user as a free
+   form. The cost of generality is one field. The cost of a terminal-only
+   frame is a cross-repo wire change (vox and z-spec run clients) the first
+   time a second provider appears.
+
+**Formal model.** Required: this is a stateful protocol with correlation ids,
+timeouts, supersession and disconnects, the class CLAUDE.md names, and
+DES-102's reply-matching defect recurred across review rounds before it was
+modelled. `docs/client_calls.tex` must cover: the registration map with
+same-connection replacement and refusal of a different connection; pending
+calls with the states in decision 3; the operations register, call, reply,
+refuse, timeout, session end and supersede; invariants C1 to C5; the lock
+order store, registry, table with a deadlock check at two and three threads
+(the style of `docs/listener_locks.tex`). Fidelity variants, each of which
+must fail on the named invariant:
+
+- `replay_on_reconnect_buggy`: pending calls survive a session end and are
+  re-sent to the successor, the callback hold's behaviour applied to requests.
+  A call executes after its caller was told `lost`. Fails C4.
+- `reply_any_session_buggy`: a reply is matched by `request_id` alone. A
+  second live connection, one that is not the provider the request went to,
+  answers a call pending on the real provider with a forged reply that names
+  its id (the ids follow a guessable `c<boot>.<n>` scheme), DES-102's defect on
+  this leg. The call completes with the forger's answer. Fails C2.
+- `no_deadline_buggy`: no timeout. A provider that never answers pins the
+  waiter and one of its 8 slots forever, the shape of the pinned viewer slot
+  `docs/terminal_lifecycle.tex` reproduces without `FinishDeadlines`. Fails C5.
+- `session_end_keeps_pending_buggy`: the lifecycle step ends the session and
+  leaves its calls pending until the deadline. Fails C4's "same step".
+
+`ClientCalls` does not cover the daemon's token memory, which is its own stateful
+guarantee: a token that starts a launch must never start a second one while
+its entry is held. A second model, `docs/new_tokens.tex`, covers it: the entry
+per admitted launch, added before the process starts and bound to the session
+once it exists; the invariants that a held token never yields a second launch,
+that a launch refused before the process starts and a repeated token add no
+entry, and that the oldest entry is dropped when the 257th launch is admitted
+(the model scales 256 down to 2); a launch whose process starts but whose
+session is never recorded; and a daemon restart that clears the memory, with
+and without a shell that survives shutdown. Its fidelity variants, each of
+which must fail on the named invariant:
+
+- `request_counted_eviction_buggy`: the memory drops an entry after 256
+  requests of any kind instead of 256 admitted launches. A refused or repeated
+  `new` pushes a held token out early, and its retry launches a second terminal.
+- `entry_after_spawn_buggy`: the entry is added only once the session exists.
+  A launch whose process starts but whose session construction fails leaves no
+  entry, and the retry starts a second process while the first still runs.
+- `entry_kept_after_failed_fork_buggy`: a failed fork keeps its entry. The
+  retry is refused although no process exists. The model fails the invariant
+  that a token whose launch produced no process can be retried.
+- `evicted_not_restored_buggy`: a failed fork removes its own entry but does not
+  restore the oldest entry its addition dropped. With the memory full, the
+  oldest token is then unprotected and its retry launches a second terminal.
+- `label_guard_buggy`: the retry guard is the label, which is freed on exit, so
+  a launch that succeeded and exited launches again on retry.
+
+The models are not written in this entry's commit. The implementation work must
+land `docs/client_calls.tex` before any code in units 3 to 5 below,
+`docs/new_tokens.tex` before the token memory in unit 4, and add both to
+`make check-models`.
+
+**Work units** (each ends mergeable; 1 and 2 run at once, then 3, then 4 and
+5 at once):
+
+1. `ClientIdentity.host` on the wire (DES-103 decision 4, the cross-repo
+   window with vox and z-spec). This design depends on it and does not
+   redefine it.
+2. `docs/client_calls.tex`, its fidelity variants and the `check-models`
+   entry.
+3. The three frames, `ClientCalls`, `service register` and `service ls`
+   through `commands/` on all four doors, `LuxHubClient.on_request`, and the
+   two new `OpErrorCode` values.
+4. `docs/new_tokens.tex`, its fidelity variants and the `check-models` entry,
+   then the terminal helper's `on_request` handler and its registration from
+   `on_connect`, with the gate check in the daemon, the daemon's failure
+   `code` (including `fault`), and the `new` request's `token` with the
+   daemon's 256-entry memory of tokens.
+5. The `terminal` and `terminal launcher` command classes and their four
+   doors (PL-1254, PL-1253).
+
+**Alternatives rejected.**
+
+- *Topics for the request and a reply topic.* Topics fan out to every
+  subscriber and are unauthenticated, so any subscriber could read a reply or
+  forge one, and correlation would be a payload convention with no timeout and
+  no "provider gone" outcome.
+- *The callback hold and `pending_callbacks`.* A callback is an id with no
+  payload and no reply, and the hold redelivers across a reconnect, which is
+  right for a click and wrong for a request (C4). DES-061 also retired the
+  poll route.
+- *The Hub calling a client over HTTP.* Clients hold no listening port, and
+  DES-090 fixes the direction: the client dials the Hub, never the reverse.
+- *The CLI dialling `luxd-pty` directly.* It skips the Hub, cannot serve MCP,
+  REST or a remote caller, and is the second code path DES-055 and DES-087
+  end.
+- *The Hub caching terminal state so `ls` reads its store.* It makes a second
+  copy of what `luxd-pty` owns and still leaves `new` and `kill` with no
+  channel. Rejected under decision 6.
+- *Wire request ids on the Display dial (DES-102 option B).* Not reopened:
+  that dial has one question in flight and a generation closes its defect.
+  This leg has many callers, many providers and several calls pending at once,
+  so ids are needed, and DES-102's generation rule is kept beside them (C2).
+- *Choosing the provider by identity (`kind=app`, `name=luxd-pty`).* The Hub
+  would carry a terminal-specific name, and identity is declared, not proved.
+  A registration says what a client serves.
+- *Cross-Hub forwarding in this unit.* Decision 5.
+
+**Impacts on other ADRs.**
+
+- **DES-055 (One Code Path)** — EXTENDED. The operations layer gains a call
+  from the Hub to a client; `commands/` remains the one place each operation
+  lives.
+- **DES-057, DES-058, DES-061 (identity, callbacks, push reachability)** —
+  RELIED ON. Service registrations use the lease, the listen-leg gate and the
+  withdrawal path of callbacks. Requests deliberately do not use the callback
+  hold's redelivery.
+- **DES-063 (Applets)** — EXTENDED. An applet may now serve requests as well
+  as own menu entries.
+- **DES-087 (Client Surface Parity)** — EXTENDED. New nouns `service`
+  (`register`, `ls`) and `terminal` (with `launcher`); each appears on all four
+  doors. `service register` is refused without a listen leg on MCP and REST
+  (`push_required`) as `callback register` is, rather than omitted.
+- **DES-089, DES-090 (addressing, transport)** — CONFIRMED. A request travels
+  only the local client leg. Cross-Hub forwarding is left open (decision 5).
+- **DES-101 (client door lifecycle)** — EXTENDED. Registering and withdrawing a
+  service are `ClientLifecycle` steps; the call table's lock is a leaf below
+  the store and registry locks.
+- **DES-102 (a Display dial is a generation)** — CONFIRMED. Option B is not
+  reopened for the Display dial; the generation rule is applied to the listen
+  session.
+- **DES-103 (navigation, terminals, launchers)** — CLARIFIED. Decision 8
+  stands: the menu's remote `New` is a callback, and the relay is per Hub.
+  Decision 9's route gate is kept. Its command names `lux term ...` and the
+  tool `term_launcher_add` become `lux terminal ...` and `terminal launcher
+  add` to match DES-087's noun-first full words and PL-1254.
+- **DES-106 (terminal daemon)** — RELIED ON. `DaemonExchange` stays the
+  helper's step to the daemon.
+- **DES-056, DES-086, DES-093, DES-100** — NOT AFFECTED. The relay is between
+  the Hub and a client, never the Display.
+
+**Consequences.**
+
+- `OpErrorCode` gains `provider_unavailable` and `provider_lost`; every
+  adapter's error table gains two rows.
+- The listen frames gain three kinds; `ClientFrames` and `ServerFrames` change,
+  a wire change vox and z-spec observe even though neither sends them.
+- A provider that does not answer ties up one waiter thread for at most 15 s.
+- Until cross-Hub forwarding exists, `--host` reaches only the addressed Hub's
+  own host.
