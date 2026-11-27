@@ -42,11 +42,13 @@ def test_a_blank_or_nul_host_is_rejected(host: str) -> None:
         ClientIdentity(kind="cli", name="lux-cli", host=host)
 
 
-@pytest.mark.parametrize("peer", ["127.0.0.1", "127.0.0.2", "::1", "localhost"])
+@pytest.mark.parametrize("peer", ["127.0.0.1", "127.0.0.2", "::1"])
 def test_a_loopback_peer_is_this_machine(peer: str) -> None:
     assert LocalHost.canonical(peer) == LocalHost.name()
 
 
-@pytest.mark.parametrize("host", ["okinos", "10.0.0.9", "192.168.1.5"])
+@pytest.mark.parametrize(
+    "host", ["okinos", "10.0.0.9", "192.168.1.5", "localhost", "127.lab"]
+)
 def test_any_other_host_is_itself(host: str) -> None:
     assert LocalHost.canonical(host) == host

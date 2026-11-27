@@ -228,7 +228,7 @@ class TestLoopbackPeer:
             kind="applet",
             name=format_name("lux", 12345, "vox-panel"),
             repo="/w/lux",
-            host="workstation",
+            host=f"{LocalHost.name()}-elsewhere",
         )
 
         assert MenuGroupKey.of(ConnectionId("a"), local) != MenuGroupKey.of(

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 from functools import cache
 from typing import final
 
 __all__ = ["LocalHost"]
-
-# Addresses a socket peer shows when it runs on the machine it connected to.
-_LOOPBACK = frozenset({"localhost", "::1"})
 
 # What a machine that reports no name is called, so a declared host is never blank.
 _UNNAMED = "localhost"
@@ -49,6 +47,8 @@ class LocalHost:
         from, so an applet on this machine appears as ``127.0.0.1`` while its
         sibling declares the machine name. Both are the same machine.
         """
-        if host in _LOOPBACK or host.startswith("127."):
-            return LocalHost.name()
-        return host
+        try:
+            is_loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return host
+        return LocalHost.name() if is_loopback else host
