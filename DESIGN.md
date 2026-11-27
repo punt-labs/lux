@@ -8618,6 +8618,7 @@ in flight.
 
    ```python
    class RequestFrame(BaseModel):  # Hub to client
+       model_config = ConfigDict(frozen=True)
        kind: Literal["request"] = "request"
        request_id: str
        service: str
@@ -8626,17 +8627,33 @@ in flight.
 
 
    class ReplyFrame(BaseModel):  # client to Hub
+       model_config = ConfigDict(frozen=True)
        kind: Literal["reply"] = "reply"
        request_id: str
        payload: dict[str, object]
 
 
    class RefusalFrame(BaseModel):  # client to Hub
+       model_config = ConfigDict(frozen=True)
        kind: Literal["refusal"] = "refusal"
        request_id: str
        code: Literal["rejected", "invalid_request", "not_found", "fault"]
        reason: str
+
+       @field_validator("code", mode="before")
+       @classmethod
+       def _unknown_is_fault(cls, value: object) -> object:
+           known = ("rejected", "invalid_request", "not_found", "fault")
+           return value if isinstance(value, str) and value in known else "fault"
    ```
+
+   Like the existing listen frames, all three are frozen. The validator on
+   `code` maps any value that is not one of the four codes (an unknown string,
+   or a non-string such as a list) to `fault` before validation, so a bad code
+   never fails validation and never raises. A frame that fails validation for
+   any other reason is a protocol violation, and the listen reader closes the
+   connection for it as it does for every listen frame today; C4 then resolves
+   the calls pending on that session as `lost`.
 
    The `request_id` is minted by the Hub, `c<boot>.<n>`: a random value fixed
    when luxd starts plus a counter, never reused, the scheme DES-106 uses for
@@ -8687,9 +8704,13 @@ in flight.
    a caller. The helper's own exchange with its daemon allows 5 s for the hello
    and 5 s for the request (`DaemonExchange`), so a helper that is merely slow
    answers inside 10 s and a refusal reaches the caller before the Hub gives
-   up. Every outcome is an `OpError` the adapters already render; two codes are
-   added to `OpErrorCode`. The "executed" column is what the caller may
-   conclude.
+   up. The REST transport's default budget is 2 s (`connect_client` and
+   `LuxClient`), shorter than the relay deadline, so a relayed operation
+   declares its own transport budget of 20 s (the deadline plus 5 s) and the
+   transport honours it per call. Without that, the caller would see a
+   transport timeout instead of the `OpError` below. Every outcome is an
+   `OpError` the adapters already render; two codes are added to
+   `OpErrorCode`. The "executed" column is what the caller may conclude.
 
    | Situation | Executed | Code | The reason names |
    |---|---|---|---|
@@ -8697,17 +8718,43 @@ in flight.
    | Caller has not identified | no | `identification_required` | |
    | No provider for `(service, host)` | no | `provider_unavailable` (new) | the hosts that answer |
    | Provider has 8 calls pending | no | `rejected` | "provider busy" |
-   | Provider refuses: runtime launchers off, unknown launcher, label taken, unknown session | no | the provider's `rejected`, `not_found` or `invalid_request` | the provider's reason |
+   | Provider refuses: runtime launchers off, unknown launcher, label taken, unknown session | no | the daemon's `code` (`rejected`, `not_found` or `invalid_request`), relayed unchanged | the provider's reason |
    | Provider tried and failed (its daemon is down) | unknown | `fault` | the provider's reason |
    | Provider did not answer in 15 s | unknown | `timeout` | the service and host |
    | Provider disconnected, was superseded, or its lease lapsed first | unknown | `provider_lost` (new) | the service and host |
-   | Reply unreadable or over the cap | unknown | `fault` | |
+   | Reply frame fails validation (the connection closes as a protocol violation, and C4 resolves every call pending on it) | unknown | `provider_lost` | the service and host |
+   | Reply frame is valid but its payload is over the cap or does not parse as the operation's typed reply | unknown | `fault` | |
 
-   After `timeout` or `provider_lost` a caller of `new` should run `ls` before
-   retrying. The label is the retry guard: a retry that repeats an explicit
-   label is refused as taken if the first call created it, instead of creating
-   a second terminal. `allow_runtime_launchers = false` reaches the caller as
-   `rejected` with a reason naming the config key and the file's path.
+   After `timeout` or `provider_lost` a caller of `new` retries with the same
+   `token`. The `new` request carries a `token`, a random string. Every door
+   accepts an optional `token` (CLI `--token`, the same field on MCP, REST and
+   the library); when it is omitted, the command class mints one. A `new` that
+   ends in `timeout` or `provider_lost` reports its token in the error, and the
+   CLI prints the command to retry, `lux terminal new --token <token> ...`, so
+   a separate invocation can follow the same-token rule.
+
+   The daemon remembers the last 256 tokens with the session each created,
+   whether that session is still running or has already exited, and answers a
+   repeated token with the original session instead of creating a second
+   terminal. A label cannot serve as the retry guard: the label is freed when
+   the session exits, so a launch that succeeded and exited would be launched
+   again. The guarantee is bounded, and the bounds are part of the contract:
+   - A daemon restart ends every session (`terminal-lifecycle.md`), so a retry
+     after a restart creates the first terminal that exists, not a duplicate.
+   - After 256 other `new` requests a token is forgotten, and a retry then
+     starts a new terminal. The caller can see this with `ls`.
+
+   `allow_runtime_launchers = false` reaches the caller as `rejected` with a
+   reason naming the config key and the file's path.
+
+   The provider can only relay `rejected`, `not_found` and `invalid_request`
+   if the daemon names them. Today a daemon refusal is a reason and a
+   retryable flag with no category (`FailureReply`), so `DaemonExchange` cannot
+   tell `not_found` from `rejected`. The implementation unit adds a `code`
+   (`rejected`, `invalid_request`, `not_found`) to the daemon's failure reply,
+   set at each refusal site, and the daemon wire version rises (DES-106
+   shipped version 4). `DaemonExchange` raises its refusal with that code, and
+   the helper maps it to the `RefusalFrame` code.
 
 5. **Addressing is by the host the provider declared, on the addressed Hub.**
    The Hub picks the provider for `(service, host)`. An omitted `host` means
@@ -8744,7 +8791,7 @@ in flight.
    call from an agent's, so no rule depends on the caller, and none is added
    here. Three requirements follow.
    - **No request that starts a terminal carries a command line.** The `new`
-     request type has `label`, `launcher` and `size` and forbids extra fields
+     request type has `label`, `launcher`, `size` and `token` and forbids extra fields
      (`extra="forbid"`), so a `command` key fails at the front door as
      `invalid_request`. The helper's parse forbids it again, and the daemon's
      `NewRequest` has no such field (DES-106).
@@ -8789,9 +8836,11 @@ must fail on the named invariant:
 - `replay_on_reconnect_buggy`: pending calls survive a session end and are
   re-sent to the successor, the callback hold's behaviour applied to requests.
   A call executes after its caller was told `lost`. Fails C4.
-- `reply_any_session_buggy`: a reply is matched by `request_id` alone. A dead
-  session's reply satisfies a call now pending on its successor, the DES-102
-  defect on this leg. Fails C2.
+- `reply_any_session_buggy`: a reply is matched by `request_id` alone. A
+  second live connection, one that is not the provider the request went to,
+  answers a call pending on the real provider with a forged reply that names
+  its id (the ids follow a guessable `c<boot>.<n>` scheme), DES-102's defect on
+  this leg. The call completes with the forger's answer. Fails C2.
 - `no_deadline_buggy`: no timeout. A provider that never answers pins the
   waiter and one of its 8 slots forever, the shape of the pinned viewer slot
   `docs/terminal_lifecycle.tex` reproduces without `FinishDeadlines`. Fails C5.
@@ -8813,7 +8862,9 @@ land it before any code in units 3 to 5 below and add it to `make check-models`.
    through `commands/` on all four doors, `LuxHubClient.on_request`, and the
    two new `OpErrorCode` values.
 4. The terminal helper's `on_request` handler and its registration from
-   `on_connect`, with the gate check in the daemon.
+   `on_connect`, with the gate check in the daemon, the daemon's failure
+   `code`, and the `new` request's `token` with the daemon's 256-entry memory
+   of tokens.
 5. The `terminal` and `terminal launcher` command classes and their four
    doors (PL-1254, PL-1253).
 
