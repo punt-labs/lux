@@ -15,6 +15,13 @@
   [`handoff-runtime-v1` release](https://github.com/punt-labs/lux/releases/tag/handoff-runtime-v1).
   It was promoted from CI run `45742808386` without rebuilding it.
 
+### Fixed
+
+- A Display the Hub stops with SIGTERM now exits as a failure, so launchd
+  starts a new one instead of leaving the window gone. A Display stuck in
+  native code with its window hidden also acts on SIGTERM: a watcher thread
+  logs the signal and ends the process after a two-second grace.
+
 ## [0.34.0] - 2026-11-25
 
 ### Added
