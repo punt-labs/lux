@@ -10,6 +10,12 @@
   The pinned bundle is available in the
   [`handoff-runtime-v1` release](https://github.com/punt-labs/lux/releases/tag/handoff-runtime-v1).
   It was promoted from CI run `45742808386` without rebuilding it.
+- `ClientIdentity.host`: a client declares the machine it runs on, carried in
+  the new `X-Lux-Client-Host` header. It defaults to the local machine name.
+  The host is part of the connection id, so one repository on two machines
+  gets two ids; every client's connection id changes after upgrade and
+  clients re-register on reconnect. `connection_for` is replaced by
+  `ConnectionSeed`.
 
 ## [0.34.0] - 2026-11-25
 

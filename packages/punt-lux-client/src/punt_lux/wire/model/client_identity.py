@@ -47,6 +47,15 @@ ClientKind = Literal["mcp-session", "cli", "applet", "app"]
 # than by a hand-written validator.
 _Label = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
+# A machine name: a displayable label no longer than a DNS name (253 characters).
+# The characters are checked separately (``_validate_host``), because a header
+# decodes percent-escapes into whatever the sender spelled.
+_HOST_MAX_LENGTH = 253
+_Host = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=_HOST_MAX_LENGTH),
+]
+
 # The bounds a declared lease TTL must fall within, in seconds. The floor keeps a
 # session alive across its own contact round-trip — a lease shorter than a few
 # seconds could sweep a client between two of its own beats — and the cap keeps a
@@ -89,7 +98,7 @@ class ClientIdentity(BaseModel):
     name: _Label  # a real, stripped, non-empty attribution label
     # The machine the client runs on, always known: a client that does not name
     # its host runs on this one. The Hub keys provider registrations by it.
-    host: _Label = Field(default_factory=LocalHost.name)
+    host: _Host = Field(default_factory=LocalHost.name)
     repo: str | None = None  # absent for a headless CLI and the app; genuine
     # A non-blank handle when present; absent unless the caller is an agent.
     agent: str | None = Field(default=None, min_length=1)
@@ -111,7 +120,22 @@ class ClientIdentity(BaseModel):
             raise ValueError(msg)
         return value
 
-    @field_validator("name", "host", "repo", "agent")
+    @field_validator("host")
+    @classmethod
+    def _validate_host(cls, value: str) -> str:
+        """Reject a host with a control character, NUL included, wherever it came from.
+
+        A header percent-decodes ``%0A`` into a newline, which would reach logs and
+        the menu label; NUL also breaks the connection-id seed's field join.
+        """
+        if not value.isprintable():
+            msg = (
+                f"host must be printable text with no control characters; got {value!r}"
+            )
+            raise ValueError(msg)
+        return value
+
+    @field_validator("name", "repo", "agent")
     @classmethod
     def _reject_nul(cls, value: str | None) -> str | None:
         """Reject a NUL in any field, wherever the declaration came from.

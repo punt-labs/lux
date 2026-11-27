@@ -100,9 +100,11 @@ async def _drive(
 
 
 def test_register_from_on_connect_then_receive_the_click_over_the_websocket() -> None:
-    identity = ClientIdentity(kind="app", name=f"voxd-e2e-{os.getpid()}", repo="/w/vox")
+    identity = ClientIdentity(
+        kind="app", name=f"voxd-e2e-{os.getpid()}", host="e2e-host", repo="/w/vox"
+    )
     conn = ConnectionSeed(
-        {"kind": "app", "name": identity.name, "repo": "/w/vox"}
+        {"kind": "app", "name": identity.name, "host": "e2e-host", "repo": "/w/vox"}
     ).connection_id
     with _running_luxd() as port:
         rest = _RestTransport(LoopbackTransport(port, 5.0), identity)

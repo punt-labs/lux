@@ -50,6 +50,7 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
     owner_identity = {
         "X-Lux-Client-Kind": "cli",
         "X-Lux-Client-Name": "owner",
+        "X-Lux-Client-Host": "test-host",
         "X-Lux-Client-Repo": "/w/owner",
     }
     owner_client = make_client(
@@ -69,7 +70,7 @@ def test_remove_frame_of_another_connections_frame_is_not_found() -> None:
 
     assert resp.status_code == 404
     owner_connection = ConnectionSeed(
-        {"kind": "cli", "name": "owner", "repo": "/w/owner"}
+        {"kind": "cli", "name": "owner", "host": "test-host", "repo": "/w/owner"}
     ).connection_id
     scoped = SceneId(ConnectionScopedId.compose(owner_connection, "s1"))
     assert store.scene_roots(scoped) != []

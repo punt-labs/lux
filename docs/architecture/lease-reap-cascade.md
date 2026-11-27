@@ -67,11 +67,11 @@ route through `lifecycle.py`) does the full job.
 ### 1.1 A sharper failure than a leak: stale subscription inheritance on reconnect
 
 The leak alone (unbounded growth of `_subscriptions`/`_writers`/`_inboxes`
-dicts keyed by dead connection ids) is bad. But `connection_for`
-(`connection_identity.py:39-45`) derives a **stable** `ConnectionId` from a
+dicts keyed by dead connection ids) is bad. But `ConnectionSeed`
+(`connection_identity.py`) derives a **stable** `ConnectionId` from a
 client's declared identity fields (`kind`, `name`, `repo`, `agent`) — this is
 explicitly so a client using both REST and the WebSocket listen leg is one
-connection across both transports (`connection_identity.py:1-19`). That means
+connection across both transports (`connection_identity.py`). That means
 a same-identity reconnect very often reuses the **identical** connection id,
 not a fresh one — the Z model's `Connect(c2, i1)` with `c1 ≠ c2` (I3/I4's
 framing) is the abstraction for a *distinct-id* reconnect; the common real
@@ -101,7 +101,7 @@ predecessor's subscriptions the moment `Hub.publish` next fans out on one of
 those topics. This is not a resource leak; it is a reconnecting client
 silently starting from a stranger's state. It is the reason the fix must not
 be "eventually converges" — the window in which it is wrong is exactly the
-window in which a fast reconnect (which `connection_for` exists to make easy)
+window in which a fast reconnect (which `ConnectionSeed` exists to make easy)
 can land.
 
 ## 2. Design goal

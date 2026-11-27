@@ -79,7 +79,7 @@ class RestCaller:
         (a read); a write route pairs it with :meth:`resolve_scope`, so the write
         is refused before this ever returns a stand-in.
         """
-        parsed = ClientHeaders.identity_from(request.headers)
+        parsed = ClientHeaders.identity_from(request)
         return parsed if parsed is not None else ANONYMOUS_REST
 
     @staticmethod
@@ -146,7 +146,7 @@ class RestCaller:
 
     def _declaration(self, request: Request) -> dict[str, object]:
         """Read the identity headers, or raise the identification challenge."""
-        declaration = ClientHeaders.declaration_from(request.headers)
+        declaration = ClientHeaders.declaration_from(request)
         if declaration is None:
             raise HTTPException(
                 status_code=self._errors.status_for("identification_required"),

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
-__all__ = ["PeerAddress", "PeerConnection"]
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+__all__ = ["HeaderedConnection", "PeerAddress", "PeerConnection"]
 
 
 class PeerAddress(Protocol):
@@ -22,4 +25,13 @@ class PeerConnection(Protocol):
     @property
     def client(self) -> PeerAddress | None:
         """Return the reported peer or None when the transport has none."""
+        ...
+
+
+class HeaderedConnection(PeerConnection, Protocol):
+    """A transport connection that carries request headers and reports its peer."""
+
+    @property
+    def headers(self) -> Mapping[str, str]:
+        """Return the headers the connection arrived with."""
         ...

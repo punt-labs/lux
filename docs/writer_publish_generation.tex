@@ -70,7 +70,7 @@
 % session, and the actual invocation of that closure can run arbitrarily
 % later -- after G1 has fully departed (`Hub.on_disconnect` drops the
 % subscription AND the writer binding, under `hub_display.write_lock()`) and
-% a same-identity reconnect (`connection_identity.py`'s `connection_for`, and
+% a same-identity reconnect (`connection_identity.py`'s `ConnectionSeed`, and
 % `SessionKey`'s reuse of `?session_key=`, both derive a DETERMINISTIC,
 % REUSED `ConnectionId` -- this is not a corner case, it is the documented
 % behavior for same-identity reconnect) has minted G2's fresh writer for the

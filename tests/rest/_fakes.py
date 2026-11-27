@@ -36,18 +36,21 @@ from punt_lux.wire.model.messages.observer import ObserverMessage
 DEFAULT_IDENTITY = {
     "X-Lux-Client-Kind": "cli",
     "X-Lux-Client-Name": "rest-test",
+    "X-Lux-Client-Host": "test-host",
     "X-Lux-Client-Repo": "/w/lux",
 }
 
 # The same declaration as a value, for standing the caller up as a listen leg: the
 # leg and the identity are one registry write, so attaching needs both.
-DEFAULT_IDENTITY_MODEL = ClientIdentity(kind="cli", name="rest-test", repo="/w/lux")
+DEFAULT_IDENTITY_MODEL = ClientIdentity(
+    kind="cli", name="rest-test", host="test-host", repo="/w/lux"
+)
 
 # The connection the default identity resolves to on every transport. A test that
 # needs the caller push-reachable — registering a menu callback requires a live
 # listen leg — registers a listener for this connection via ``listening=True``.
 DEFAULT_CONNECTION = ConnectionSeed(
-    {"kind": "cli", "name": "rest-test", "repo": "/w/lux"}
+    {"kind": "cli", "name": "rest-test", "host": "test-host", "repo": "/w/lux"}
 ).connection_id
 
 

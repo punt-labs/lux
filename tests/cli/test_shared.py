@@ -7,7 +7,9 @@ import typer
 from typer.testing import CliRunner
 
 from punt_lux.cli._shared import OutputFlags, identity_from_flags, run
+from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.commands import CommandResult
+from punt_lux.wire.model.client_identity import ClientIdentity
 
 
 def test_valid_flags_resolve_a_client_identity() -> None:
@@ -107,3 +109,21 @@ def test_a_failure_without_a_code_logs_its_exit_status(
         CliRunner().invoke(app, ["probe"], prog_name="lux")
 
     assert caplog.messages == ["CLI lux probe failed: exit 2"]
+
+
+def test_the_resolved_identity_keeps_the_host_the_default_declared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    declared = ClientIdentity(kind="cli", name="lux", host="pembroke")
+
+    def _resolve(override: str | None = None) -> ClientIdentity:
+        del override
+        return declared
+
+    monkeypatch.setattr(CliIdentity, "resolve", _resolve)
+
+    identity = identity_from_flags(
+        as_=None, kind=None, name="driver", repo=None, agent=None
+    )
+
+    assert identity.host == "pembroke"

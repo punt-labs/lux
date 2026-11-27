@@ -20,11 +20,14 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from pydantic import ValidationError
 
+from punt_lux.kernel.client_host import ClientHost
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_header_field import IdentityHeaderField
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from punt_lux.kernel.peer_connection import HeaderedConnection
 
 __all__ = ["ClientHeaders"]
 
@@ -71,22 +74,33 @@ class ClientHeaders:
         }
 
     @classmethod
-    def declaration_from(cls, headers: Mapping[str, str]) -> dict[str, object] | None:
-        """Read the identity headers into a declaration, or ``None`` if unnamed.
+    def declaration_from(
+        cls, connection: HeaderedConnection
+    ) -> dict[str, object] | None:
+        """Read the connection's identity headers into a declaration, or ``None``.
 
         A request is identified when it names itself, so a declaration with no name
         is no declaration — ``None`` is the documented contract for an unidentified
         caller, not a give-up on the type. ``kind`` falls to ``cli`` when the caller
-        declared none. A declared ``lease_ttl`` rides as a string the identity model
+        declared none. A caller that declared no ``host`` is taken to run where its
+        socket came from, never where the Hub runs: a client reaching
+        the Hub through a tunnel must not be recorded as the Hub's own machine. An
+        unobserved caller (in-process) declares none and keeps the identity default.
+
+        A declared ``lease_ttl`` rides as a string the identity model
         coerces and bounds-checks, so a non-numeric or out-of-range value is a named
         rejection, not a crash.
         """
-        declared = cls._declared(headers)
-        return None if "name" not in declared else {"kind": _DEFAULT_KIND} | declared
+        declared = cls._declared(connection.headers)
+        if "name" not in declared:
+            return None
+        observed = ClientHost.of_connection(connection)
+        peer = {"host": observed.address} if observed.observed else {}
+        return {"kind": _DEFAULT_KIND} | peer | declared
 
     @classmethod
-    def identity_from(cls, headers: Mapping[str, str]) -> ClientIdentity | None:
-        """Parse ``headers`` into a validated identity, or ``None`` for no caller.
+    def identity_from(cls, connection: HeaderedConnection) -> ClientIdentity | None:
+        """Parse ``connection``'s headers into an identity, or ``None`` for no caller.
 
         ``None`` covers both a genuinely unnamed request and a named-but-malformed
         one (a garbled ``lease_ttl``, an out-of-range value) — a read route that
@@ -97,7 +111,7 @@ class ClientHeaders:
         uses :meth:`declaration_from` plus the ``identify`` operation instead,
         which returns the named validation error.
         """
-        declared = cls.declaration_from(headers)
+        declared = cls.declaration_from(connection)
         if declared is None:
             return None
         try:

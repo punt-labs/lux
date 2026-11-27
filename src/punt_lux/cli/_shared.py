@@ -159,6 +159,7 @@ def identity_from_flags(
         return ClientIdentity(
             kind=cast("ClientKind", resolved_kind),
             name=resolved_name,
+            host=default.host,
             repo=resolved_repo,
             agent=resolved_agent,
         )

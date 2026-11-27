@@ -208,9 +208,9 @@ class TestRegistryRecordsThePeer:
         assert session is not None
         assert session.client_hosts.names == ("10.0.0.5", "127.0.0.1")
 
-    def test_a_declared_host_is_not_the_observed_peer(self) -> None:
+    def test_a_declared_host_is_stored_apart_from_the_observed_peer(self) -> None:
         # The host a client declares is where it runs; the peer is the address its
-        # socket arrived from. A declaration never writes into the observed list.
+        # socket arrived from. Both are kept, and neither overwrites the other.
         factory = HubStoreFactory(hub=Hub())
         declared = ClientIdentity(kind="cli", name="x", host="okinos")
 
@@ -218,6 +218,8 @@ class TestRegistryRecordsThePeer:
 
         session = factory.clients.session_of(_CONN)
         assert session is not None
+        assert session.identity is not None
+        assert session.identity.host == "okinos"
         assert session.client_hosts.names == ("10.0.0.5",)
 
 
@@ -496,6 +498,7 @@ def _headers() -> dict[str, str]:
     return {
         "X-Lux-Client-Kind": "app",
         "X-Lux-Client-Name": "voxd",
+        "X-Lux-Client-Host": "test-host",
         "X-Lux-Client-Repo": "/w/vox",
     }
 
@@ -533,7 +536,7 @@ class TestWebSocketDoor:
     def test_the_listen_leg_records_the_socket_peer(self) -> None:
         client, factory = self._wired()
         conn = ConnectionSeed(
-            {"kind": "app", "name": "voxd", "repo": "/w/vox"}
+            {"kind": "app", "name": "voxd", "host": "test-host", "repo": "/w/vox"}
         ).connection_id
 
         with client.websocket_connect("/ws", headers=_headers()) as ws:

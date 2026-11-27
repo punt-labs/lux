@@ -11,11 +11,14 @@ from __future__ import annotations
 from punt_lux.kernel.connection_identity import ConnectionSeed
 from punt_lux.wire.model.client_identity import ClientIdentity
 from punt_lux.wire.model.identity_headers import ClientHeaders
+from tests.headered_peer import HeaderedPeer
 
 
 def _from_headers(identity: ClientIdentity) -> str:
     """Derive the id the way both production legs do: through the header contract."""
-    declaration = ClientHeaders.declaration_from(ClientHeaders.to_wire(identity))
+    declaration = ClientHeaders.declaration_from(
+        HeaderedPeer(ClientHeaders.to_wire(identity))
+    )
     assert declaration is not None  # a named identity always renders a declaration
     return str(ConnectionSeed(declaration).connection_id)
 

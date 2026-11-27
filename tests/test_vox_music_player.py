@@ -56,12 +56,15 @@ from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCall
 _HEADERS = {
     "X-Lux-Client-Kind": "app",
     "X-Lux-Client-Name": "voxd",
+    "X-Lux-Client-Host": "test-host",
 }
 # What voxd actually declares (punt_vox/voxd/music_player/lux_clients.py): an
 # app, named for itself, working in no repository — a daemon belongs to the
 # machine, not to a checkout, which is also why the menu calls it ``voxd``.
-_IDENTITY = ClientIdentity(kind="app", name="voxd")
-_CONN = ConnectionSeed({"kind": "app", "name": "voxd"}).connection_id
+_IDENTITY = ClientIdentity(kind="app", name="voxd", host="test-host")
+_CONN = ConnectionSeed(
+    {"kind": "app", "name": "voxd", "host": "test-host"}
+).connection_id
 
 
 @final

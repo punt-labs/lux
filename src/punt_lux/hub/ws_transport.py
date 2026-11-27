@@ -80,7 +80,7 @@ class HubListenTransport:
         unidentified or malformed handshake is refused with a policy-violation close
         rather than served an anonymous session.
         """
-        declaration = ClientHeaders.declaration_from(websocket.headers)
+        declaration = ClientHeaders.declaration_from(websocket)
         identity = self._identity_of(declaration)
         if declaration is None or identity is None:
             await websocket.close(code=_POLICY_VIOLATION)

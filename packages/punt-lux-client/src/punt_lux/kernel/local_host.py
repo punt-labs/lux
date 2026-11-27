@@ -21,9 +21,14 @@ class LocalHost:
     @staticmethod
     @cache
     def name() -> str:
-        """Return this machine's name, ``localhost`` when it reports none.
+        """Return this machine's name, read once.
 
-        Read once: a machine's name does not change under a running client, and
-        every identity the client builds must declare the same host.
+        A machine's name does not change under a running client, and every
+        identity the client builds must declare the same host.
         """
-        return socket.gethostname().strip() or _UNNAMED
+        return LocalHost.named(socket.gethostname())
+
+    @staticmethod
+    def named(reported: str) -> str:
+        """Return ``reported`` stripped, or ``localhost`` when it is blank."""
+        return reported.strip() or _UNNAMED
