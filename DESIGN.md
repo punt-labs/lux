@@ -8730,36 +8730,75 @@ in flight.
    | Reply frame fails validation (the connection closes as a protocol violation, and C4 resolves every call pending on it) | unknown | `provider_lost` | the service and host |
    | Reply frame is valid but its payload is over the cap or does not parse as the operation's typed reply | unknown | `fault` | |
 
-   After `timeout` or `provider_lost` a caller of `new` retries with the same
-   `token`. The `new` request carries a `token`, a random string. Every door
+   After `timeout`, `provider_lost` or `fault` a caller of `new` retries with
+   the same `token`: each of the three can follow a launch that already
+   happened. The `new` request carries a `token`, a random string. Every door
    accepts an optional `token` (CLI `--token`, the same field on MCP, REST and
    the library); when it is omitted, the command class mints one. A `new` that
-   ends in `timeout` or `provider_lost` reports its token in the error, and the
-   CLI prints the command to retry, `lux terminal new --token <token> ...`, so
-   a separate invocation can follow the same-token rule.
+   ends in `timeout`, `provider_lost` or `fault` reports its token in the
+   error, and the CLI prints the command to retry,
+   `lux terminal new --token <token> ...`, so a separate invocation can follow
+   the same-token rule.
 
-   The daemon remembers the last 256 tokens with the session each created,
-   whether that session is still running or has already exited, and answers a
-   repeated token with the original session instead of creating a second
-   terminal. A label cannot serve as the retry guard: the label is freed when
+   The daemon keeps one entry per launch it admitted from a token. It adds the
+   entry once every check that could refuse the launch has passed and before it
+   forks the process, so a launch that fails after the fork still holds its
+   token. If the fork itself fails, no process exists, and the daemon removes
+   the entry and restores any oldest entry the addition had dropped, before it
+   replies `fault`, so the retry launches normally and the oldest token stays
+   protected. The daemon logs the token, the process id and the process start
+   time at the fork (the start time tells an operator whether the pid still
+   names the original shell or a process that reused it), so a
+   forked process whose session setup and cleanup both fail, and so never
+   appears in `ls`, is still found in the log. The
+   entry holds the token and, once the session exists, that session, whether it
+   is still running or has already exited. A repeated token with a session gets
+   the original session instead of a second terminal. A repeated token whose
+   process was forked but whose session was never recorded is refused as
+   `rejected`, naming the token and the logged process id and telling the
+   caller to run `ls` and then check that process, because the earlier process
+   may still be running. A launch refused before the fork adds
+   no entry, and a repeated token adds none. The daemon holds the
+   256 most recent entries and drops the oldest when a 257th launch is
+   admitted. A label cannot serve as the retry guard: the label is freed when
    the session exits, so a launch that succeeded and exited would be launched
    again. The guarantee is bounded, and the bounds are part of the contract:
-   - A daemon restart ends every session (`terminal-lifecycle.md`), so a retry
-     after a restart creates the first terminal that exists, not a duplicate.
-   - After 256 other `new` requests a token is forgotten, and a retry then
-     starts a new terminal. The caller can see this with `ls`.
+   - The memory is not saved. A daemon restart clears it. The restart ends
+     every shell it can (`terminal-lifecycle.md`): SIGHUP, then SIGKILL to the
+     shell's process group after a grace period. A retry after a restart
+     normally creates the first terminal that exists. If a shell survives
+     SIGKILL (a process in uninterruptible I/O), the daemon logs its pid and
+     token and exits with a failure status, so the failure is visible; the
+     survivor has no history, and a retry with its token can start a second
+     shell. This residual case is accepted: persisting the memory across a
+     restart would hold a record for a process the restart was meant to end.
+   - After 256 more launches have been admitted, an entry is dropped, and a
+     retry with that token then starts a new terminal. The caller can see this
+     with `ls`.
 
    `allow_runtime_launchers = false` reaches the caller as `rejected` with a
    reason naming the config key and the file's path.
 
-   The provider can only relay `rejected`, `not_found` and `invalid_request`
-   if the daemon names them. Today a daemon refusal is a reason and a
+   The provider can only relay `rejected`, `not_found`, `invalid_request` and
+   `fault` if the daemon names them. Today a daemon refusal is a reason and a
    retryable flag with no category (`FailureReply`), so `DaemonExchange` cannot
-   tell `not_found` from `rejected`. The implementation unit adds a `code`
-   (`rejected`, `invalid_request`, `not_found`) to the daemon's failure reply,
-   set at each refusal site, and the daemon wire version rises (DES-106
-   shipped version 4). `DaemonExchange` raises its refusal with that code, and
-   the helper maps it to the `RefusalFrame` code.
+   tell `not_found` from `rejected`, and nothing marks a failure that came
+   after an operation took effect (`SessionCore.kill` removes the live session
+   before process cleanup can fail). The implementation unit adds a `code` to
+   the daemon's failure reply, set at each refusal site: `rejected`,
+   `invalid_request` and `not_found` tell the caller nothing executed, and
+   `fault` tells it the outcome is unknown, set where an operation can fail
+   after it has taken effect. The daemon wire version rises (DES-106 shipped
+   version 4). `DaemonExchange` raises its refusal with that code, and the
+   helper maps it to the `RefusalFrame` code.
+
+   **REST carries the code in the body.** `HttpErrorMap` maps an error to a
+   status and sends only a reason, and `RestReply` derives the code back from
+   the status, which cannot tell no provider from a lost reply. A relayed
+   operation's error response therefore carries the `OpError` code in its JSON
+   body, and the REST client reads the code from the body and uses the status
+   only when the body has none. The statuses are `provider_unavailable` 503,
+   `provider_lost` 502 and `timeout` 504; the other codes keep today's.
 
 5. **Addressing is by the host the provider declared, on the addressed Hub.**
    The Hub picks the provider for `(service, host)`. An omitted `host` means
@@ -8852,8 +8891,36 @@ must fail on the named invariant:
 - `session_end_keeps_pending_buggy`: the lifecycle step ends the session and
   leaves its calls pending until the deadline. Fails C4's "same step".
 
-The model is not written in this entry's commit. The implementation work must
-land it before any code in units 3 to 5 below and add it to `make check-models`.
+`ClientCalls` does not cover the daemon's token memory, which is its own stateful
+guarantee: a token that starts a launch must never start a second one while
+its entry is held. A second model, `docs/new_tokens.tex`, covers it: the entry
+per admitted launch, added before the process starts and bound to the session
+once it exists; the invariants that a held token never yields a second launch,
+that a launch refused before the process starts and a repeated token add no
+entry, and that the oldest entry is dropped when the 257th launch is admitted
+(the model scales 256 down to 2); a launch whose process starts but whose
+session is never recorded; and a daemon restart that clears the memory, with
+and without a shell that survives shutdown. Its fidelity variants, each of
+which must fail on the named invariant:
+
+- `request_counted_eviction_buggy`: the memory drops an entry after 256
+  requests of any kind instead of 256 admitted launches. A refused or repeated
+  `new` pushes a held token out early, and its retry launches a second terminal.
+- `entry_after_spawn_buggy`: the entry is added only once the session exists.
+  A launch whose process starts but whose session construction fails leaves no
+  entry, and the retry starts a second process while the first still runs.
+- `entry_kept_after_failed_fork_buggy`: a failed fork keeps its entry. The
+  retry is refused although no process exists. The model fails the invariant
+  that a token whose launch produced no process can be retried.
+- `evicted_not_restored_buggy`: a failed fork removes its own entry but does not
+  restore the oldest entry its addition dropped. With the memory full, the
+  oldest token is then unprotected and its retry launches a second terminal.
+- `label_guard_buggy`: the retry guard is the label, which is freed on exit, so
+  a launch that succeeded and exited launches again on retry.
+
+`docs/client_calls.tex` and `docs/client_calls_locks.tex` are written and
+model-checked in `make check-models`. `docs/new_tokens.tex` must land before the
+token memory in unit 4 and be added to `make check-models`.
 
 **Work units** (each ends mergeable; 1 and 2 run at once, then 3, then 4 and
 5 at once):
@@ -8866,10 +8933,11 @@ land it before any code in units 3 to 5 below and add it to `make check-models`.
 3. The three frames, `ClientCalls`, `service register` and `service ls`
    through `commands/` on all four doors, `LuxHubClient.on_request`, and the
    two new `OpErrorCode` values.
-4. The terminal helper's `on_request` handler and its registration from
+4. `docs/new_tokens.tex`, its fidelity variants and the `check-models` entry,
+   then the terminal helper's `on_request` handler and its registration from
    `on_connect`, with the gate check in the daemon, the daemon's failure
-   `code`, and the `new` request's `token` with the daemon's 256-entry memory
-   of tokens.
+   `code` (including `fault`), and the `new` request's `token` with the
+   daemon's 256-entry memory of tokens.
 5. The `terminal` and `terminal launcher` command classes and their four
    doors (PL-1254, PL-1253).
 
