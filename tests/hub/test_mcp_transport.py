@@ -65,6 +65,8 @@ _EXPECTED_TOOLS = frozenset(
         "scene_show",
         "scene_table",
         "scene_update",
+        "service_ls",
+        "service_register",
         "session_identify",
         "session_ls",
         "topic_publish",

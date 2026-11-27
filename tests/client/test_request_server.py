@@ -158,3 +158,11 @@ def test_serving_before_a_connection_is_bound_is_a_programmer_error() -> None:
 
     with pytest.raises(ProgrammerError):
         asyncio.run(scenario())
+
+
+def test_a_programmer_error_in_a_handler_is_not_turned_into_a_fault_reply() -> None:
+    def handler(_s: str, _o: str, _p: Mapping[str, object]) -> Mapping[str, object]:
+        raise ProgrammerError("a violated invariant of the handler's own code")
+
+    with pytest.raises(ProgrammerError):
+        _serve(RequestServer(handler), _request())

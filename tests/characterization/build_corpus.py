@@ -608,6 +608,32 @@ CALLBACK_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Service scenarios -- registering a service needs a listen leg for the same
+# reason a callback does, so a bare MCP session is refused with the push
+# requirement; listing with nothing registered says so.
+# ---------------------------------------------------------------------------
+
+
+SERVICE_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="service-register-no-listen-leg",
+        tool="service_register",
+        inputs={"service": "terminal"},
+        setup={
+            "display_running": False,
+            "session_key": "corpus-service-register-no-listen-leg",
+        },
+    ),
+    Scenario(
+        name="service-ls-empty",
+        tool="service_ls",
+        inputs={},
+        setup={"display_running": False, "session_key": "corpus-service-ls-empty"},
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
@@ -616,6 +642,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     + PUBSUB_SCENARIOS
     + IDENTITY_SCENARIOS
     + CALLBACK_SCENARIOS
+    + SERVICE_SCENARIOS
 )
 
 

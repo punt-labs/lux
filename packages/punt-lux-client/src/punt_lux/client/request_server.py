@@ -121,6 +121,8 @@ class RequestServer:
             return RefusalFrame(
                 request_id=frame.request_id, code=refusal.code, reason=refusal.reason
             )
+        except ProgrammerError:
+            raise
         except Exception:
             logger.exception(
                 "request %s (%s.%s) failed",

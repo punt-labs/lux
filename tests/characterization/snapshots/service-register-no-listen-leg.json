@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    [
+      "service",
+      "terminal"
+    ]
+  ],
+  "response": "error: this connection holds no listen leg, so a request could never reach it; register from a connection holding luxd's /ws leg",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-service-register-no-listen-leg"
+  },
+  "tool": "service_register"
+}

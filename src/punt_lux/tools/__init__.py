@@ -33,6 +33,7 @@ from punt_lux.tools.display_write_tools import (
     set_menu,
 )
 from punt_lux.tools.composite_tools import show_dashboard, show_table
+from punt_lux.tools.service_tools import service_ls, service_register
 from punt_lux.tools.subscribe_tools import (
     pending_callbacks,
     publish,
@@ -64,6 +65,8 @@ __all__ = [
     "recv",
     "register_callback",
     "screenshot",
+    "service_ls",
+    "service_register",
     "set_menu",
     "show",
     "show_dashboard",

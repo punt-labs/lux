@@ -476,3 +476,12 @@
 {"ts":"2026-11-27T22:51:24Z","commit":"bf64709e","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-27T22:53:51Z","commit":"bf64709e","source":null,"files_scored":1017,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-27T22:53:52Z","commit":"bf64709e","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T22:57:21Z","commit":"40228d95","source":null,"files_scored":1,"files_improved":0,"files_regressed":1,"verdict":"rebaseline-files","reason":"DES-107 relay MCP door: the tools package exposes every MCP tool by name for the characterization corpus, so it gains two names and one more tool-module import for service_register and service_ls","deltas":{"src/punt_lux/tools/__init__.py":{"efferent_coupling":[6.0,7.0],"public_names":[28.0,30.0]}},"improved":{}}
+{"ts":"2026-11-27T22:57:25Z","commit":"40228d95","source":null,"files_scored":1018,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{},"backfilled":["src/punt_lux/tools/service_tools.py"]}
+{"ts":"2026-11-27T22:57:25Z","commit":"40228d95","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:42:54Z","commit":"40228d95","source":null,"files_scored":1018,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:42:54Z","commit":"40228d95","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:43:59Z","commit":"40228d95","source":null,"files_scored":1018,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:44:00Z","commit":"40228d95","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:44:18Z","commit":"40228d95","source":null,"files_scored":1018,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T23:44:18Z","commit":"40228d95","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
