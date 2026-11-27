@@ -16,7 +16,7 @@ same validation, typing, and identity handling every other surface does. It
 imports without the `[display]` extra (no ImGui/OpenGL pulled in).
 
 Every operation lives under a **noun-grouped accessor** — `client.scene.*`,
-`client.frame.*`, `client.menu.*`, `client.session.*`, `client.callback.*`,
+`client.frame.*`, `client.menu.*`, `client.session.*`, `client.callback.*`, `client.service.*`,
 `client.display.*`, `client.event.*`, `client.error.*` — matching the
 vocabulary the CLI, MCP, and REST surfaces speak. IDE completion on
 `client.scene.` shows the noun's verbs; the same shape appears on
@@ -68,6 +68,7 @@ The library facade exposes eight accessors:
 | `client.menu` | `ls`, `set` |
 | `client.session` | `ls`, `identify` |
 | `client.callback` | `register` |
+| `client.service` | `register`, `ls` |
 | `client.display` | `info`, `get_theme`, `get_window`, `get_mode`, `get_state`, `screenshot` |
 | `client.event` | `ls` |
 | `client.error` | `ls` |
@@ -135,6 +136,13 @@ listener = client.listener(
 listener.subscribe("music.play", "music.stop")
 asyncio.run(listener.listen())  # blocks, reconnecting as needed
 ```
+
+A client that serves a service registers it the same way, from `on_connect`
+with `client.service.register("name")`, and passes `on_request` to
+`client.listener(...)`. The handler receives `(service, operation, payload)` for
+each request the Hub relays to it and returns a mapping, which becomes the reply.
+Raise `RequestRefusedError` for a refusal the caller should see with its own
+code; any other exception becomes a `fault` that carries no detail.
 
 Registering from `on_connect` is required, not merely tidy: the Hub refuses a
 callback from a connection that holds no listen leg, and the handshake this

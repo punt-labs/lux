@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         EventHandler,
         LuxHubClient,
     )
+    from punt_lux.client.request_server import RequestHandler
     from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.operations import OpError, Pong
 
@@ -144,8 +145,16 @@ class LuxClient:
         on_callback: CallbackHandler,
         on_event: EventHandler,
         on_connect: ConnectHandler | None = None,
+        on_request: RequestHandler | None = None,
     ) -> LuxHubClient:
-        """Build a persistent listen client that shares this client's identity."""
+        """Build a persistent listen client that shares this client's identity.
+
+        ``on_request`` answers requests the Hub relays to a service this client
+        registered; without it every relayed request is refused ``not_found``.
+        """
         return self._transport.listener(
-            on_callback=on_callback, on_event=on_event, on_connect=on_connect
+            on_callback=on_callback,
+            on_event=on_event,
+            on_connect=on_connect,
+            on_request=on_request,
         )

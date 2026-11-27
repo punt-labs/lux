@@ -11,7 +11,7 @@ over 256 KiB is a fault.
 from __future__ import annotations
 
 import threading
-import time
+from typing import Self
 
 import pytest
 
@@ -217,18 +217,38 @@ def test_waiting_twice_reports_the_one_outcome() -> None:
     assert call.wait() == call.wait() == Replied({"a": 1})
 
 
+class _FakeClock:
+    """A clock the test advances, so a deadline is crossed without waiting for it."""
+
+    _now: float
+    __slots__ = ("_now",)
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._now = 0.0
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
 def test_the_deadline_runs_from_the_send_not_from_the_wait() -> None:
-    calls = _calls(deadline_s=0.05)
+    clock = _FakeClock()
+    calls = ClientCalls(boot="b1", deadline_s=3600.0, clock=clock)
     ticket = calls.open_session()
     call = calls.enter(ticket, "terminal", "ls", {})
-    time.sleep(0.15)
+    clock.advance(3601.0)  # the deadline passed before anyone waited
+    outcomes: list[object] = []
+    waiter = threading.Thread(target=lambda: outcomes.append(call.wait()), daemon=True)
 
-    started = time.monotonic()
-    outcome = call.wait()
+    waiter.start()
+    waiter.join(timeout=10)  # a hang guard: a deadline run from the wait takes an hour
 
-    assert outcome == TimedOut()
-    assert time.monotonic() - started < 0.04
-    assert not calls.reply(ticket, ReplyFrame(request_id="cb1.1", payload={}))
+    assert outcomes == [TimedOut()]
+    assert not calls.reply(ticket, ReplyFrame(request_id="b1.1", payload={}))
 
 
 def test_a_request_for_a_session_that_already_ended_is_lost_at_once() -> None:
@@ -238,9 +258,7 @@ def test_a_request_for_a_session_that_already_ended_is_lost_at_once() -> None:
 
     call = calls.enter(ticket, "terminal", "ls", {})
 
-    started = time.monotonic()
     assert call.wait() == Lost()
-    assert time.monotonic() - started < 1.0
 
 
 def test_a_second_waiter_wakes_when_the_first_times_the_call_out() -> None:

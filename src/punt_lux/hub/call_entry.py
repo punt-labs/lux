@@ -11,6 +11,8 @@ import time
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.hub.call_outcomes import CallOutcome
 
 __all__ = ["CallEntry", "SessionTicket"]
@@ -48,17 +50,24 @@ class SessionTicket:
 class CallEntry:
     """One pending call: where it went, what wakes its waiter, how it ended."""
 
-    __slots__ = ("_deadline", "_event", "_outcome", "_ticket")
+    __slots__ = ("_clock", "_deadline", "_event", "_outcome", "_ticket")
 
+    _clock: Callable[[], float]
     _deadline: float
     _event: threading.Event
     _outcome: CallOutcome | None
     _ticket: SessionTicket
 
-    def __new__(cls, ticket: SessionTicket, deadline_s: float) -> Self:
+    def __new__(
+        cls,
+        ticket: SessionTicket,
+        deadline_s: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> Self:
         self = super().__new__(cls)
         self._ticket = ticket
-        self._deadline = time.monotonic() + deadline_s
+        self._clock = clock
+        self._deadline = clock() + deadline_s
         self._event = threading.Event()
         self._outcome = None
         return self
@@ -82,4 +91,4 @@ class CallEntry:
 
     def wait_until_deadline(self) -> None:
         """Block until woken, or until the deadline measured from the send."""
-        self._event.wait(max(0.0, self._deadline - time.monotonic()))
+        self._event.wait(max(0.0, self._deadline - self._clock()))

@@ -91,9 +91,23 @@ class RequestServer:
     def start(self, frame: RequestFrame) -> asyncio.Task[None]:
         """Serve ``frame`` as a task and return it; the receive loop does not wait."""
         task = asyncio.ensure_future(self.serve(frame))
+        task.set_name(frame.request_id)
         self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(self._finished)
         return task
+
+    def _finished(self, task: asyncio.Task[None]) -> None:
+        """Forget a finished task, and log a failure nothing else would observe."""
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        failure = task.exception()
+        if failure is not None:
+            logger.error(
+                "relayed request %s failed unrecoverably",
+                task.get_name(),
+                exc_info=failure,
+            )
 
     async def serve(self, frame: RequestFrame) -> None:
         """Answer ``frame`` on the bound connection with a reply or a refusal."""
@@ -101,18 +115,19 @@ class RequestServer:
         if self._connection is None:
             msg = "a request server answers only on a bound connection"
             raise ProgrammerError(msg)
-        await self._connection.send(answer.model_dump_json())
+        await self._connection.send(answer)
 
     def cancel_all(self) -> None:
         """Cancel the requests still in flight when the session ends."""
         for task in tuple(self._tasks):
             task.cancel()
 
-    async def _answer(self, frame: RequestFrame) -> ReplyFrame | RefusalFrame:
+    async def _answer(self, frame: RequestFrame) -> str:
+        """Return the frame to send: a reply, or a refusal when serving failed."""
         if self._handler is None:
             return RefusalFrame(
                 request_id=frame.request_id, code="not_found", reason=_NO_HANDLER_REASON
-            )
+            ).model_dump_json()
         try:
             result = self._handler(frame.service, frame.operation, frame.payload)
             if inspect.isawaitable(result):
@@ -120,7 +135,7 @@ class RequestServer:
         except RequestRefusedError as refusal:
             return RefusalFrame(
                 request_id=frame.request_id, code=refusal.code, reason=refusal.reason
-            )
+            ).model_dump_json()
         except ProgrammerError:
             raise
         except Exception:
@@ -130,7 +145,22 @@ class RequestServer:
                 frame.service,
                 frame.operation,
             )
-            return RefusalFrame(
-                request_id=frame.request_id, code="fault", reason=_FAULT_REASON
+            return self._fault(frame)
+        try:
+            return ReplyFrame(
+                request_id=frame.request_id, payload=dict(result)
+            ).model_dump_json()
+        except (TypeError, ValueError):
+            logger.exception(
+                "request %s (%s.%s) returned a reply that cannot be sent",
+                frame.request_id,
+                frame.service,
+                frame.operation,
             )
-        return ReplyFrame(request_id=frame.request_id, payload=dict(result))
+            return self._fault(frame)
+
+    @staticmethod
+    def _fault(frame: RequestFrame) -> str:
+        return RefusalFrame(
+            request_id=frame.request_id, code="fault", reason=_FAULT_REASON
+        ).model_dump_json()

@@ -172,14 +172,22 @@ class HubListenSession:
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
-        """Read until the peer goes away, with the writer draining alongside."""
+        """Run until the peer goes away or the writer can no longer send.
+
+        A writer that has ended leaves nothing to deliver requests, so the session
+        ends with it; otherwise a blocked reader would keep the session open and
+        every relayed call would wait out its deadline instead of ending lost.
+        """
         writer = asyncio.create_task(self._write_loop())
+        reader = asyncio.create_task(self._read_loop())
         try:
-            await self._read_loop()
+            await asyncio.wait({writer, reader}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            writer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await writer
+            for task in (writer, reader):
+                task.cancel()
+            for task in (writer, reader):
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     def wake(self) -> None:
         """CallbackListener: a click was routed to this session — schedule a drain."""
@@ -231,7 +239,8 @@ class HubListenSession:
             except WebSocketDisconnect:
                 return
             self._lifecycle.identify(self._conn, self._identity, self._client_host)
-            if len(raw) > self._calls.MAX_FRAME_BYTES:
+            size = len(raw.encode())
+            if size > self._calls.MAX_FRAME_BYTES:
                 logger.info("listen client sent an oversized frame; closing")
                 await self._ws.close(code=_MESSAGE_TOO_BIG)
                 return
@@ -241,7 +250,7 @@ class HubListenSession:
                 logger.info("listen client sent a malformed frame; closing")
                 await self._ws.close(code=_PROTOCOL_ERROR)
                 return
-            self._apply(frame, len(raw))
+            self._apply(frame, size)
 
     def _apply(
         self,

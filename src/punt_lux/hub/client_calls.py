@@ -23,7 +23,8 @@ from __future__ import annotations
 import logging
 import secrets
 import threading
-from typing import ClassVar, Self, final
+import time
+from typing import TYPE_CHECKING, ClassVar, Self, final
 
 from punt_lux.hub.call_entry import CallEntry, SessionTicket
 from punt_lux.hub.call_outcomes import (
@@ -34,6 +35,9 @@ from punt_lux.hub.call_outcomes import (
     Replied,
     TimedOut,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 from punt_lux.wire.model.messages.relay_frames import (
     RefusalFrame,
     ReplyFrame,
@@ -86,18 +90,33 @@ class ClientCalls:
     # Hub parse and hold an unbounded frame before any cap applies.
     MAX_FRAME_BYTES: ClassVar[int] = 2 * MAX_REPLY_BYTES
 
-    __slots__ = ("_boot", "_deadline_s", "_lock", "_pending", "_serial", "_sessions")
+    __slots__ = (
+        "_boot",
+        "_clock",
+        "_deadline_s",
+        "_lock",
+        "_pending",
+        "_serial",
+        "_sessions",
+    )
 
     _boot: str
+    _clock: Callable[[], float]
     _deadline_s: float
     _lock: threading.Lock
     _pending: dict[str, CallEntry]
     _sessions: int
     _serial: int
 
-    def __new__(cls, boot: str | None = None, deadline_s: float = DEADLINE_S) -> Self:
+    def __new__(
+        cls,
+        boot: str | None = None,
+        deadline_s: float = DEADLINE_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> Self:
         self = super().__new__(cls)
         self._boot = boot if boot is not None else secrets.token_hex(4)
+        self._clock = clock
         self._deadline_s = deadline_s
         self._lock = threading.Lock()
         self._pending = {}
@@ -130,7 +149,7 @@ class ClientCalls:
                 raise ProviderBusyError(msg)
             self._serial += 1
             request_id = f"c{self._boot}.{self._serial}"
-            entry = CallEntry(ticket, self._deadline_s)
+            entry = CallEntry(ticket, self._deadline_s, self._clock)
             if ticket.ended:
                 entry.conclude(Lost())
                 entry.wake()

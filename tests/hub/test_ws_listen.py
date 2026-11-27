@@ -1024,3 +1024,42 @@ def test_the_ninth_relayed_request_on_a_session_is_refused_without_a_frame() -> 
 
         with pytest.raises(ProviderBusyError):
             session.relay("terminal", "ls", {})
+
+
+def test_a_reply_over_the_cap_in_bytes_is_refused_even_when_short_in_characters() -> (
+    None
+):
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "ls", {})
+        ws.receive_json()
+        blob = "é" * (ClientCalls.MAX_REPLY_BYTES // 2 + 100)  # 2 bytes each
+        assert len(blob) < ClientCalls.MAX_REPLY_BYTES
+        ws.send_text(
+            ReplyFrame(
+                request_id=call.frame.request_id, payload={"blob": blob}
+            ).model_dump_json()
+        )
+
+        outcome = call.wait()
+
+    assert isinstance(outcome, Refused)
+    assert outcome.code == "fault"
+
+
+def test_a_session_whose_writer_has_ended_ends_and_its_calls_are_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def writer_gone(_self: HubListenSession) -> None:
+        return None
+
+    monkeypatch.setattr(HubListenSession, "_write_loop", writer_gone)
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        call = _session_of(wired).relay("terminal", "ls", {})
+
+        outcome = call.wait()
+
+    assert outcome == Lost()

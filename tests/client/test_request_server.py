@@ -8,7 +8,7 @@ own task so the receive loop keeps reading and renewing the lease meanwhile.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
@@ -166,3 +166,44 @@ def test_a_programmer_error_in_a_handler_is_not_turned_into_a_fault_reply() -> N
 
     with pytest.raises(ProgrammerError):
         _serve(RequestServer(handler), _request())
+
+
+def test_a_reply_that_cannot_be_serialized_is_a_fault_not_a_silence() -> None:
+    def handler(_s: str, _o: str, _p: Mapping[str, object]) -> Mapping[str, object]:
+        return {"bad": object()}
+
+    connection = _serve(RequestServer(handler), _request())
+
+    frame = RefusalFrame.model_validate_json(connection.sent[0])
+    assert frame.code == "fault"
+    assert frame.request_id == "c1.1"
+
+
+def test_a_reply_that_is_not_a_mapping_is_a_fault_not_a_silence() -> None:
+    def handler(_s: str, _o: str, _p: Mapping[str, object]) -> Mapping[str, object]:
+        return cast("Mapping[str, object]", 42)
+
+    connection = _serve(RequestServer(handler), _request())
+
+    frame = RefusalFrame.model_validate_json(connection.sent[0])
+    assert frame.code == "fault"
+
+
+def test_a_failed_request_task_is_logged_not_left_unretrieved(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def handler(_s: str, _o: str, _p: Mapping[str, object]) -> Mapping[str, object]:
+        raise ProgrammerError("a violated invariant of the handler's own code")
+
+    server = RequestServer(handler)
+    server.bind(_Connection())
+
+    async def scenario() -> None:
+        task = server.start(_request())
+        await asyncio.wait({task})
+        await asyncio.sleep(0)
+
+    with caplog.at_level("ERROR"):
+        asyncio.run(scenario())
+
+    assert any("c1.1" in record.getMessage() for record in caplog.records)
