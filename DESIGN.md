@@ -8741,7 +8741,9 @@ in flight.
    token. If the fork itself fails, no process exists, and the daemon removes
    the entry and restores any oldest entry the addition had dropped, before it
    replies `fault`, so the retry launches normally and the oldest token stays
-   protected. The daemon logs the token and the process id at the fork, so a
+   protected. The daemon logs the token, the process id and the process start
+   time at the fork (the start time tells an operator whether the pid still
+   names the original shell or a process that reused it), so a
    forked process whose session setup and cleanup both fail, and so never
    appears in `ls`, is still found in the log. The
    entry holds the token and, once the session exists, that session, whether it
