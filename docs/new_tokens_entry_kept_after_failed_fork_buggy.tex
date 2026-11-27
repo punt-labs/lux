@@ -30,7 +30,7 @@ Everything else is the intact specification, \texttt{new\_tokens.tex}; the varia
 
 \begin{zed}
   [TOK] \\
-  LAB ::= lbl1 | lbl2
+  LAB ::= lbl1
 \end{zed}
 
 \begin{axdef}
@@ -294,8 +294,9 @@ The daemon restarts. The memory is cleared and every shell the restart can end i
   \Delta Sys \\
   s? : \power TOK
 \where
-  s? \neq \emptyset \\
-  \forall x : s? @ lv~x - surv~x > 0 \land surv~x < 2 \\
+  \# s? = 1 \\
+  \forall x : s? @ lv~x - surv~x > 0 \\
+  \forall y : TOK @ surv~y = 0 \\
   held' = \emptyset \\
   bound' = \emptyset \\
   lab' = \emptyset \\

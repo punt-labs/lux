@@ -56,7 +56,7 @@ errors_reported() {
 check_model() {
   local model="$1" label="$2" expected="$3" goal="${4:-}" size="${5:-3}"
   local log="$LOG_DIR/${model%.tex}-$label.log"
-  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE "$size")
+  local args=("docs/$model" -model_check -p DEFAULT_SETSIZE "$size" -p SYMMETRY_MODE hash)
   if [[ -n "$goal" ]]; then
     args+=(-nodead -goal "$goal")
   fi
@@ -82,11 +82,14 @@ check_model() {
   echo "PASS: $model $label $expected ($(sed -n 's/^States analysed: //p' "$log") states)"
 }
 
+# Tokens are interchangeable (no operation orders them), so ProB's hash symmetry
+# reduction over the deferred set TOK is sound and cuts the intact model from
+# 38908 to 6524 states.
 # An operation is enabled in some reachable state, optionally together with a state predicate.
 check_enabled() {
   local model="$1" label="$2" formula="$3"
   local log="$LOG_DIR/${model%.tex}-$label.log"
-  "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 3 -ctlformula "$formula" >"$log" 2>&1 || true
+  "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 3 -p SYMMETRY_MODE hash -ctlformula "$formula" >"$log" 2>&1 || true
   grep -q '^CTL Formula TRUE' "$log" || fail "$model $label: operation never enabled" "$log"
   echo "PASS: $model $label reachable"
 }
