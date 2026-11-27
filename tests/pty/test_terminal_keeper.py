@@ -188,18 +188,23 @@ def test_cancelling_the_keeper_takes_down_its_windows(
 
 
 def test_cancelling_during_the_retry_sleep_takes_down_its_windows(
-    daemon: Path, launch: Launch
+    daemon: Path, launch: Launch, caplog: pytest.LogCaptureFixture
 ) -> None:
     launch.session(SLEEP)
     hub = StubHub()
     keeper = _keeper(daemon, hub)
+    caplog.set_level(logging.DEBUG)
 
     async def scenario() -> None:
         task = asyncio.create_task(keeper.serve())
         await _until(lambda: len(hub.scenes) == 1)
         hub.go_down()
         keeper.resync()  # the next reconcile fails and the keeper sleeps to retry
-        await asyncio.sleep(0.5)
+        # The keeper logs the lost watch just before it sleeps, so a cancel after
+        # this record lands in the retry sleep and not in the watch.
+        await _until(
+            lambda: any("Terminal watch lost" in r.getMessage() for r in caplog.records)
+        )
         hub.come_up()
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
