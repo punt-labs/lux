@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from punt_lux.hub.menu_group_key import MenuGroupKey
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.applet_name_format import format_name
 from punt_lux.wire.model.client_identity import ClientIdentity
 
@@ -192,4 +193,44 @@ class TestFallbackWarning:
         )
         assert MenuGroupKey.of(ConnectionId("a"), malformed) != MenuGroupKey.of(
             ConnectionId("b"), malformed
+        )
+
+
+class TestLoopbackPeer:
+    """An applet seen on the loopback address runs on the Hub's own machine."""
+
+    def test_an_applet_seen_on_loopback_groups_with_one_declaring_this_machine(
+        self,
+    ) -> None:
+        name = format_name("lux", 12345, "lux-beads")
+        declared = ClientIdentity(
+            kind="applet", name=name, repo="/w/lux", host=LocalHost.name()
+        )
+        observed = ClientIdentity(
+            kind="applet",
+            name=format_name("lux", 12345, "vox-panel"),
+            repo="/w/lux",
+            host="127.0.0.1",
+        )
+
+        assert MenuGroupKey.of(ConnectionId("a"), declared) == MenuGroupKey.of(
+            ConnectionId("b"), observed
+        )
+
+    def test_an_applet_that_declares_another_host_stays_separate(self) -> None:
+        local = ClientIdentity(
+            kind="applet",
+            name=format_name("lux", 12345, "lux-beads"),
+            repo="/w/lux",
+            host="127.0.0.1",
+        )
+        remote = ClientIdentity(
+            kind="applet",
+            name=format_name("lux", 12345, "vox-panel"),
+            repo="/w/lux",
+            host="workstation",
+        )
+
+        assert MenuGroupKey.of(ConnectionId("a"), local) != MenuGroupKey.of(
+            ConnectionId("b"), remote
         )

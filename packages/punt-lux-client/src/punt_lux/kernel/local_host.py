@@ -8,6 +8,9 @@ from typing import final
 
 __all__ = ["LocalHost"]
 
+# Addresses a socket peer shows when it runs on the machine it connected to.
+_LOOPBACK = frozenset({"localhost", "::1"})
+
 # What a machine that reports no name is called, so a declared host is never blank.
 _UNNAMED = "localhost"
 
@@ -37,3 +40,15 @@ class LocalHost:
         """
         name = reported.strip()
         return name if name and name.isprintable() else _UNNAMED
+
+    @staticmethod
+    def canonical(host: str) -> str:
+        """Return this machine's name for a loopback host, else ``host`` itself.
+
+        A connection that declared no host is recorded as the address it arrived
+        from, so an applet on this machine appears as ``127.0.0.1`` while its
+        sibling declares the machine name. Both are the same machine.
+        """
+        if host in _LOOPBACK or host.startswith("127."):
+            return LocalHost.name()
+        return host

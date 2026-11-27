@@ -40,3 +40,13 @@ def test_an_identity_that_names_no_host_declares_this_one() -> None:
 def test_a_blank_or_nul_host_is_rejected(host: str) -> None:
     with pytest.raises(ValueError, match=r"host|NUL"):
         ClientIdentity(kind="cli", name="lux-cli", host=host)
+
+
+@pytest.mark.parametrize("peer", ["127.0.0.1", "127.0.0.2", "::1", "localhost"])
+def test_a_loopback_peer_is_this_machine(peer: str) -> None:
+    assert LocalHost.canonical(peer) == LocalHost.name()
+
+
+@pytest.mark.parametrize("host", ["okinos", "10.0.0.9", "192.168.1.5"])
+def test_any_other_host_is_itself(host: str) -> None:
+    assert LocalHost.canonical(host) == host

@@ -75,8 +75,10 @@ def identify(
     }
     # No declared host and no observed peer (in-process, stdio) leaves the
     # identity model's own default: the machine the Hub runs on.
-    if declared_host := host or current_client_host().address:
-        declaration["host"] = declared_host
+    if host is not None:
+        declaration["host"] = host
+    elif observed_host := current_client_host().address:
+        declaration["host"] = observed_host
     result = asyncio.run(
         session_identify_command(ctx, declaration, scope=_core.scope())
     )

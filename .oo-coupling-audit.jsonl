@@ -410,3 +410,6 @@
 {"ts":"2026-11-27T10:29:51Z","commit":"f9d36096","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-27T17:34:51Z","commit":"e4ec1379","source":null,"files_scored":998,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-27T17:34:54Z","commit":"e4ec1379","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T18:44:16Z","commit":"635bab55","source":null,"files_scored":1,"files_improved":0,"files_regressed":1,"verdict":"rebaseline-files","reason":"review round 2: one more import (LocalHost) to treat a loopback applet peer as this machine; 4 imports against a cap of 10","deltas":{"src/punt_lux/hub/menu_group_key.py":{"efferent_coupling":[3.0,4.0]}},"improved":{}}
+{"ts":"2026-11-27T18:44:31Z","commit":"635bab55","source":null,"files_scored":998,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T18:44:33Z","commit":"635bab55","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

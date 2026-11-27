@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from unittest import mock
 
+import pytest
+
 from punt_lux.commands._result import CommandResult
 from punt_lux.kernel.client_host import UNOBSERVED, ClientHost
 from punt_lux.kernel.local_host import LocalHost
@@ -56,3 +58,11 @@ def test_an_unobserved_caller_leaves_the_identity_models_own_default() -> None:
     # is where an in-process or stdio caller runs.
     assert "host" not in declaration
     assert ClientIdentity.model_validate(declaration).host == LocalHost.name()
+
+
+def test_a_blank_declared_host_reaches_the_identity_model_to_be_rejected() -> None:
+    declaration = _declared_by(host="", peer=ClientHost("10.0.0.9"))
+
+    assert declaration["host"] == ""
+    with pytest.raises(ValueError, match="host"):
+        ClientIdentity.model_validate(declaration)

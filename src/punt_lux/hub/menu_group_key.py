@@ -29,6 +29,7 @@ import logging
 from typing import Self, final
 
 from punt_lux.kernel.connection_id import ConnectionId
+from punt_lux.kernel.local_host import LocalHost
 from punt_lux.wire.model.applet_name_format import session_pid_from_name
 from punt_lux.wire.model.client_identity import ClientIdentity
 
@@ -68,7 +69,12 @@ class MenuGroupKey:
             pid = session_pid_from_name(identity.name)
             if pid is not None:
                 return cls(
-                    (_APPLET_TAG, identity.host, identity.repo or "", format(pid, "x"))
+                    (
+                        _APPLET_TAG,
+                        LocalHost.canonical(identity.host),
+                        identity.repo or "",
+                        format(pid, "x"),
+                    )
                 )
             logger.warning(
                 "connection %s (identity %r) has an unparseable applet name %r; "
