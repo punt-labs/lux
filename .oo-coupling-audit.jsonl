@@ -426,3 +426,7 @@
 {"ts":"2026-11-26T23:06:28Z","commit":"7b48c5a2","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-27T00:29:25Z","commit":"548ae0a9","source":null,"files_scored":1000,"files_improved":2,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/pty/terminal_keeper.py":{"max_lcom":[0.5,0.467],"avg_lcom":[0.5,0.467]},"src/punt_lux/pty/terminal_windows.py":{"max_lcom":[0.333,0.286],"avg_lcom":[0.333,0.286]}}}
 {"ts":"2026-11-27T00:29:26Z","commit":"548ae0a9","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T01:11:44Z","commit":"92a2845e","source":null,"files_scored":1000,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{}}
+{"ts":"2026-11-27T01:12:33Z","commit":"92a2845e","source":null,"files_scored":1,"files_improved":0,"files_regressed":0,"verdict":"rebaseline-files","reason":"serve keeps the retry loop and the cancellation handler in one method as before; LCOM stays under the 0.5 cap.","deltas":{},"improved":{}}
+{"ts":"2026-11-27T01:12:45Z","commit":"92a2845e","source":null,"files_scored":1000,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-27T01:12:46Z","commit":"92a2845e","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}

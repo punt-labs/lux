@@ -20,7 +20,9 @@ from punt_lux.kernel.programmer_error import ProgrammerError
 from punt_lux.pty import terminal_keeper as keeper_module
 from punt_lux.pty.child import ChildLifetime
 from punt_lux.pty.daemon_exchange import DaemonExchange
+from punt_lux.pty.listed_session import ListedSession
 from punt_lux.pty.terminal_keeper import TerminalKeeper
+from punt_lux.pty.terminal_scenes import TerminalScenes
 from punt_lux.pty.terminal_windows import TerminalWindows
 from punt_lux.wire.operations import RenderRequest
 from tests.pty.launchers import Launch
@@ -178,6 +180,47 @@ def test_cancelling_the_keeper_takes_down_its_windows(
     async def scenario() -> None:
         task = asyncio.create_task(_keeper(daemon, hub).serve())
         await _until(lambda: len(hub.scenes) == 2)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    assert hub.scenes == {}
+
+
+def test_cancelling_during_the_retry_sleep_takes_down_its_windows(
+    daemon: Path, launch: Launch
+) -> None:
+    launch.session(SLEEP)
+    hub = StubHub()
+    keeper = _keeper(daemon, hub)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(keeper.serve())
+        await _until(lambda: len(hub.scenes) == 1)
+        hub.go_down()
+        keeper.resync()  # the next reconcile fails and the keeper sleeps to retry
+        await asyncio.sleep(0.5)
+        hub.come_up()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    assert hub.scenes == {}
+
+
+def test_cancelling_takes_down_a_window_the_keeper_did_not_record(
+    daemon: Path, launch: Launch
+) -> None:
+    # A publish that lands as the keeper is cancelled is in the Hub but not in
+    # the keeper's own record of what it shows.
+    launch.session(SLEEP)
+    hub = StubHub()
+
+    async def scenario() -> None:
+        task = asyncio.create_task(_keeper(daemon, hub).serve())
+        await _until(lambda: len(hub.scenes) == 1)
+        late = TerminalScenes().for_session(ListedSession("t0.77", "late", "running"))
+        await hub.show(late)
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 

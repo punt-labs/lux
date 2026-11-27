@@ -47,36 +47,41 @@ class TerminalKeeper:
     async def serve(self) -> None:
         """Watch and reconcile for ever; cancellation or a programmer error ends it.
 
-        Any other failure is logged and retried. A failure that repeats with the
-        same reason is reported once and retried at a growing interval.
+        Any failure is logged and retried. A failure that repeats with the same
+        reason is reported once and retried at a growing interval. Cancellation at
+        any point, the retry sleep included, takes the windows down before it ends
+        the task.
         """
         delay, last = _RETRY_S, ""
-        while True:
-            try:
-                await self._watch()
-                delay, last = _RETRY_S, ""
-            except asyncio.CancelledError:
-                await self._take_down_windows()
-                raise
-            except ProgrammerError:
-                raise
-            except (OSError, SessionRefusedError, WindowRefusedError) as error:
-                repeated = str(error) == last
-                self._report_expected(error, repeated=repeated)
-                delay, last = self._backed_off(delay, str(error), repeated=repeated)
-            except Exception as error:
-                logger.exception("Terminal keeper failed unexpectedly (%s)", error)
-                delay, last = self._backed_off(delay, str(error), repeated=False)
-            await asyncio.sleep(delay)
+        try:
+            while True:
+                try:
+                    await self._watch()
+                    delay, last = _RETRY_S, ""
+                except ProgrammerError:
+                    raise
+                except (OSError, SessionRefusedError, WindowRefusedError) as error:
+                    repeated = str(error) == last
+                    self._report_expected(error, repeated=repeated)
+                    delay, last = self._backed_off(delay, str(error), repeated=repeated)
+                except Exception as error:
+                    logger.exception("Terminal keeper failed unexpectedly (%s)", error)
+                    delay, last = self._backed_off(delay, str(error), repeated=False)
+                await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            await self._take_down_windows()
+            raise
 
     async def _take_down_windows(self) -> None:
         """Remove this helper's windows as it stops; their shells stop with it.
 
         Without this the Hub keeps the windows of terminals that no longer run,
-        and no later helper owns them to remove them.
+        and no later helper owns them to remove them. The Hub is read first, so a
+        window published as the keeper was cancelled is removed too.
         """
         try:
             async with asyncio.timeout(_SHUTDOWN_CLEAR_S):
+                await self._windows.refresh()
                 await self._windows.clear()
         except (TimeoutError, WindowRefusedError) as error:
             logger.warning("Terminal windows left behind at shutdown: %s", error)
