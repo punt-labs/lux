@@ -119,7 +119,9 @@ check_locks() {
       echo "PASS: $model $label found (trace length $(trace_len "$log"))"
       ;;
     deadlock)
-      if ! grep -q '^\*\*\* DEADLOCK DETECTED \*\*\*' "$log" && ! grep -q 'deadlock' "$log"; then
+      # ProB prints "deadlocked:N" in every run's summary, so the word alone
+      # proves nothing; the witness is the error line and its marker.
+      if ! { grep -q '^Found "deadlock" error in state id ' "$log" && grep -q '^! deadlock$' "$log"; }; then
         fail "$model $label: expected a deadlock" "$log"
       fi
       echo "PASS: $model $label deadlock (trace length $(trace_len "$log"))"

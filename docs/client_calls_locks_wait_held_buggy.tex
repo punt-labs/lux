@@ -39,15 +39,19 @@
 % state schema as part of each operation's guard, so a violation written there
 % would disable the operation instead of reporting it.
 %
-% THE WAIT.  A caller blocks on an event for at most the deadline.  The model's
-% wait step is enabled once the event is set; the Deadline step sets it, and is
-% enabled whenever some thread is at its wait, so a wait always ends.  What the
-% model asks is not whether the wait ends but what the waiter holds while it
-% waits: nothing.
+% THE WAIT.  A caller blocks on its own event for at most the deadline.  There
+% is one event per thread (the set woken): a Signal or a Deadline sets one
+% thread's event, and the wait step of that thread alone is enabled by it and
+% consumes it.  The Deadline step of a thread is enabled while it is at its
+% wait, so a wait always ends.  What the model asks is not whether the wait
+% ends but what the waiter holds while it waits: nothing.
 %
 % THE PROGRAMS (the index of the program counter numbers the steps):
 %   callC     rgy{ find the provider; tbl{enter the call, check the limit} };
-%             wait holding nothing (HERE: holding the table lock)
+%             wait holding nothing.  The entry is made under the registry
+%             lock: were the lock released between finding the provider and
+%             entering the call, the provider's session could end in the gap
+%             and the call would be pending on a dead session (C4).
 %   resolver  tbl{match and remove the entry}; wake.  The reader on a reply or
 %             a refusal frame, and equally the deadline timer.
 %   endC      sto{ rgy{ withdraw the registrations; tbl{resolve the pending
@@ -148,14 +152,15 @@ The programs, one row of \texttt{act} and \texttt{lck} per step.
   pr : T \fun PROG \\
   pc : T \fun 1 \upto 8 \\
   owner : LOCK \pfun T \\
-  woken : FSTATE \\
+  woken : \power T \\
   orderBroken : FSTATE \\
   waitHeld : FSTATE \\
   wakeHeld : FSTATE
 \end{schema}
 
 \texttt{owner} is the lock table; a lock in its domain is held.
-\texttt{woken} is the caller's event.
+\texttt{woken} is the set of threads whose event is set: one event per
+caller, as DES-107 gives each call its own outcome.
 
 \begin{schema}{Init}
   LS'
@@ -164,7 +169,7 @@ The programs, one row of \texttt{act} and \texttt{lck} per step.
   pr' = T \cross \{ callC \} \\
   pc' = T \cross \{ 1 \} \\
   owner' = \emptyset \\
-  woken' = fclear \\
+  woken' = \emptyset \\
   orderBroken' = fclear \\
   waitHeld' = fclear \\
   wakeHeld' = fclear
@@ -258,13 +263,13 @@ reported by the goal instead of hidden by a disabled step.
 \where
   ts~t? = trun \\
   act~(pr~t?, pc~t?) = wt \\
-  woken = fset \\
+  t? \in woken \\
   t? \notin \ran owner \\
   pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
   ts' = ts \\
   pr' = pr \\
   owner' = owner \\
-  woken' = woken \\
+  woken' = woken \setminus \{ t? \} \\
   orderBroken' = orderBroken \\
   waitHeld' = waitHeld \\
   wakeHeld' = wakeHeld
@@ -276,13 +281,13 @@ reported by the goal instead of hidden by a disabled step.
 \where
   ts~t? = trun \\
   act~(pr~t?, pc~t?) = wt \\
-  woken = fset \\
+  t? \in woken \\
   t? \in \ran owner \\
   pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
   ts' = ts \\
   pr' = pr \\
   owner' = owner \\
-  woken' = woken \\
+  woken' = woken \setminus \{ t? \} \\
   orderBroken' = orderBroken \\
   waitHeld' = fset \\
   wakeHeld' = wakeHeld
@@ -292,15 +297,18 @@ reported by the goal instead of hidden by a disabled step.
   Wait \defs WaitFree \lor WaitHeld
 \end{zed}
 
-The caller's wait ends once its event is set.  A wait made while the thread
+The caller's wait ends once its own event is set, and consumes that event
+alone: another caller's signal does not end it.  A wait made while the thread
 holds any lock sets \texttt{waitHeld}: C6 says no lock is held while waiting.
 
 \begin{schema}{Deadline}
-  \Delta LS
+  \Delta LS \\
+  d? : T
 \where
-  woken = fclear \\
-  \exists t : T | ts~t = trun \land act~(pr~t, pc~t) = wt \spot true \\
-  woken' = fset \\
+  ts~d? = trun \\
+  act~(pr~d?, pc~d?) = wt \\
+  d? \notin woken \\
+  woken' = woken \cup \{ d? \} \\
   ts' = ts \\
   pr' = pr \\
   pc' = pc \\
@@ -310,17 +318,20 @@ holds any lock sets \texttt{waitHeld}: C6 says no lock is held while waiting.
   wakeHeld' = wakeHeld
 \end{schema}
 
-The deadline fires.  It is enabled while some thread is at its wait, so no
-wait outlasts the deadline; it takes no lock.
+The deadline of one caller fires.  It is enabled for a thread at its wait
+whose event is not yet set, so no wait outlasts its own deadline; it sets that
+thread's event alone and takes no lock.
 
 \begin{schema}{SignalFree}
   \Delta LS \\
-  t? : T
+  t? : T \\
+  w? : T
 \where
   ts~t? = trun \\
   act~(pr~t?, pc~t?) = sg \\
   (tbl , t?) \notin owner \\
-  woken' = fset \\
+  ts~w? = trun \\
+  woken' = woken \cup \{ w? \} \\
   pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
   ts' = ts \\
   pr' = pr \\
@@ -332,12 +343,14 @@ wait outlasts the deadline; it takes no lock.
 
 \begin{schema}{SignalHeld}
   \Delta LS \\
-  t? : T
+  t? : T \\
+  w? : T
 \where
   ts~t? = trun \\
   act~(pr~t?, pc~t?) = sg \\
   (tbl , t?) \in owner \\
-  woken' = fset \\
+  ts~w? = trun \\
+  woken' = woken \cup \{ w? \} \\
   pc' = pc \oplus \{ t? \mapsto pc~t? + 1 \} \\
   ts' = ts \\
   pr' = pr \\
@@ -351,7 +364,9 @@ wait outlasts the deadline; it takes no lock.
   Signal \defs SignalFree \lor SignalHeld
 \end{zed}
 
-A resolution wakes the waiter.  A wake made while the thread holds the table
+A resolution wakes one waiter, the owner of the call it resolved: \texttt{w?}
+is any running thread, so the waiter may be anywhere in its program, or
+the resolved call's caller may already be gone.  A wake made while the thread holds the table
 lock sets \texttt{wakeHeld}: C6 says the resolution wakes the waiter after the
 table lock is released.
 
