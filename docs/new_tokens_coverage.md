@@ -41,6 +41,7 @@ a module constant) so it needs three launches, not 257.
 | T3 | the oldest entry is dropped only when the `cap + 1`th launch is admitted | holds |
 | T4 | a token whose launch produced no process has no entry and can be retried | holds |
 | T5 | the memory never holds more than `cap` entries | holds |
+| T7 | right after a restart, before any launch is admitted, no token whose shell the restart ended has a live shell | holds |
 | deadlock | some operation is always enabled | holds |
 
 ## Operation partitions and their tests
@@ -51,7 +52,8 @@ a module constant) so it needs three launches, not 257.
 | NT2 | a repeat while the session runs returns the original session, no second process | `RepeatBound` |
 | NT3 | a repeat after the session exited returns the original session, no second process | `RepeatBound` after `ExitLabelled`; the label guard would launch again |
 | NT4 | a repeat whose process forked and whose session was never recorded is `rejected` with token and pid | `RepeatUnrecorded` after `LaunchUnrecorded` |
-| NT5 | a fork failure leaves the memory as it was, including the oldest entry, and the retry launches | `LaunchForkFails` with the memory full, then the retry and a retry of the oldest token |
+| NT5a | a fork failure rolls the memory back: with the memory full, the failed fork leaves every entry held, including the oldest; probe the oldest token right after the failed fork, before any retry, and it returns its original session (or `rejected` if unrecorded), launching nothing | `LaunchForkFails` with the memory full, then a repeat of the oldest token before anything else is admitted |
+| NT5b | after a failed fork the retry of the failed token launches normally (no entry, no process existed); only this retry may evict the oldest, as an ordinary admission | `LaunchForkFails`, then the retry of the same token |
 | NT6 | a label-taken or config refusal adds no entry, and a retry with the same token launches | `RefuseLabel`, `RefuseConfig` |
 | NT7 | a refused or repeated request does not age any entry | `RepeatBound`, `RepeatUnrecorded`, `RefuseLabel` with the memory full, then the oldest token's repeat |
 | NT8 | the `cap + 1`th admitted launch drops exactly the oldest entry; its retry starts a new terminal | three launches at `cap = 2`, then a retry of the first token |

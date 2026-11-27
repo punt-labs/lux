@@ -32,12 +32,24 @@ T5='card(dom(held))>2'
 
 # Reachability: each is a state the intact model must reach, so the
 # invariants above are not vacuous.
-RV_EVICT='#t.(t:TOK & lv(t)>0 & nforks(t)=0 & t/:dom(held) & #u.(u:TOK & u/=t & u:dom(held)))'
+# A capacity eviction, and nothing else: a token with a live process that is not a
+# survivor, whose fork count is back to zero, and which is not held. A restart
+# kills every non-survivor and a launch counts a fork, so only the cap can leave
+# a token in this state. A survivor-only token does not satisfy it.
+RV_EVICT='#t.(t:TOK & lv(t)-surv(t)>0 & nforks(t)=0 & t/:dom(held))'
+# The retry of an evicted token launches again: two live non-survivor processes
+# of one token, one counted fork, and a held entry. T1 forbids this without an
+# eviction in between.
+RV_RETRY='#t.(lv(t)-surv(t)=2 & nforks(t)=1 & t:dom(held))'
 RV_UNREC='#t.(t:dom(held) & t/:bound & nforks(t)=1)'
 RV_EXITED='#t.(t:bound & t:dom(held) & lv(t)=0)'
 RV_FULL='#(a,b).(a:dom(held) & b:dom(held) & a/=b)'
 RV_SURV='#t.(surv(t)>0 & lv(t)=2)'
-RV_KAS='kas/={}'
+# The last restart ended a shell whose token once had a survivor: the token is in
+# kas, nothing has been admitted since (recent is empty), and it has no live shell.
+RV_KAS='#t.(t:kas & lv(t)=0 & recent=<>)'
+# T7: after a restart, before any admission, no token in kas has a live shell.
+T7='#t.(t:kas & lv(t)>0 & recent=<>)'
 
 fail() {
   echo "FAIL: $1" >&2
@@ -128,6 +140,7 @@ check_model new_tokens.tex T2 'not found' "$T2"
 check_model new_tokens.tex T3 'not found' "$T3"
 check_model new_tokens.tex T4 'not found' "$T4"
 check_model new_tokens.tex T5 'not found' "$T5"
+check_model new_tokens.tex T7 'not found' "$T7"
 check_model new_tokens.tex deadlock 'not found'
 
 # Reachability in the intact model.
@@ -142,7 +155,7 @@ check_enabled new_tokens.tex R-refuse-label 'EF(e(RefuseLabel))'
 check_enabled new_tokens.tex R-refuse-config 'EF(e(RefuseConfig))'
 check_enabled new_tokens.tex R-fork-fails 'EF(e(LaunchForkFails))'
 check_enabled new_tokens.tex R-fork-fails-full 'EF({'"$RV_FULL"'} & e(LaunchForkFails))'
-check_enabled new_tokens.tex R-retry-after-eviction 'EF({'"$RV_EVICT"'} & e(LaunchOk))'
+check_model new_tokens.tex R-retry-after-eviction found "$RV_RETRY"
 check_model new_tokens.tex R-survivor-gone-restart found "$RV_KAS"
 check_enabled new_tokens.tex R-exit-survivor 'EF(e(ExitSurvivor))'
 check_enabled new_tokens.tex R-restart-survivor 'EF(e(RestartSurvivor))'

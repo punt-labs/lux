@@ -64,7 +64,7 @@ the live processes of a token, and \texttt{surv} counts those that are
 survivors of a restart: a survivor is a process, not a token, so it persists
 through later clean restarts only while it is itself alive.  Labelled sessions
 and survivors are distinct live processes, which the last predicate states.
-\texttt{sv} (every token that has had a survivor), \texttt{kas}, \texttt{recent} and
+\texttt{sv} (every token that has had a survivor), \texttt{kas} (the tokens whose shell the last restart ended), \texttt{recent} and
 \texttt{nforks} are history variables.
 
 \begin{schema}{Init}
@@ -283,12 +283,12 @@ A shell that survived a restart exits. It no longer protects any later shell fro
   lv' = surv \\
   surv' = surv \\
   sv' = sv \\
-  kas' = kas \cup \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
+  kas' = \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
   recent' = \langle \rangle \\
   nforks' = TOK \cross \{ 0 \}
 \end{schema}
 
-The daemon restarts. The memory is cleared and every shell the restart can end is ended: each live process that is not itself a survivor of an earlier restart. A survivor is out of its reach and persists. \texttt{kas} records the tokens whose earlier survivor had gone and whose later shell this restart ended.
+The daemon restarts. The memory is cleared and every shell the restart can end is ended: each live process that is not itself a survivor of an earlier restart. A survivor is out of its reach and persists. \texttt{kas} becomes the tokens whose earlier survivor had gone and whose later shell this restart ended: after a restart, no token in \texttt{kas} has a live shell until a launch is admitted.
 
 \begin{schema}{RestartSurvivor}
   \Delta Sys \\
@@ -303,7 +303,7 @@ The daemon restarts. The memory is cleared and every shell the restart can end i
   lv' = surv' \\
   surv' = surv \oplus \{ x : s? @ x \mapsto surv~x + 1 \} \\
   sv' = sv \cup s? \\
-  kas' = kas \cup \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
+  kas' = \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \land x \notin s? \} \\
   recent' = \langle \rangle \\
   nforks' = TOK \cross \{ 0 \}
 \end{schema}
@@ -330,6 +330,7 @@ Each invariant is checked as a violation predicate in
     $\forall t : \dom held @ nforks~t > 0$: an entry exists only for a token
     whose launch forked.
   \item[T5, the memory is bounded.] $\# (\dom held) \leq cap$.
+  \item[T7, a restart ends what it can.] $\forall t : kas @ recent = \langle \rangle \Rightarrow lv~t = 0$: right after a restart, before any launch is admitted, no token whose shell the restart ended has a live shell.
 \end{description}
 
 
