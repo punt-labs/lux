@@ -26,9 +26,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from punt_lux.hub.call_outcomes import Lost, Replied
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.callback_ports import CallbackListener
+from punt_lux.hub.client_calls import ClientCalls
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.departure_cascade import DepartureCascade
 from punt_lux.hub.departure_sinks import DepartureSink
@@ -47,6 +49,7 @@ from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
 from punt_lux.wire.model.menu_models import Menu, MenuAction
 from punt_lux.wire.model.messages.listen import CallbackFrame
+from punt_lux.wire.model.messages.relay_frames import ReplyFrame
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 
@@ -118,6 +121,7 @@ class _Wiring:
     router: CallbackRouter
     menus: _MenuFlag
     lifecycle: ClientLifecycle
+    calls: ClientCalls
 
 
 def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
@@ -130,8 +134,11 @@ def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     menus = _MenuFlag()
     lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    HubListenTransport(hub, lifecycle, router).mount(app)
-    return _Wiring(TestClient(app), hub, clients, display, router, menus, lifecycle)
+    calls = ClientCalls(boot="t")
+    HubListenTransport(hub, lifecycle, router, calls).mount(app)
+    return _Wiring(
+        TestClient(app), hub, clients, display, router, menus, lifecycle, calls
+    )
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -308,6 +315,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     )
 
 
@@ -357,6 +365,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
             hub,
             lifecycle,
             router,
+            ClientCalls(),
         )
         await session.run()
 
@@ -603,6 +612,7 @@ def _listen_session(
             hub,
             lifecycle,
             CallbackRouter(clients),
+            ClientCalls(),
         )
 
     return asyncio.run(_build())
@@ -621,6 +631,7 @@ def _agent_listen_session(
             hub,
             lifecycle,
             CallbackRouter(clients),
+            ClientCalls(),
         )
 
     return asyncio.run(_build())
@@ -714,6 +725,7 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     ).mount(app)
     headers = {
         "X-Lux-Client-Kind": "mcp-session",
@@ -776,6 +788,7 @@ def _agent_rig() -> _AgentRig:
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     ).mount(app)
     return _AgentRig(TestClient(app), lifecycle, clients, clock, menus)
 
@@ -913,9 +926,9 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
     factory = HubStoreFactory(clock=clock, hub=hub)
     factory.lifecycle.present_as(marker, MarkMenusSink(marker))
     app = FastAPI()
-    HubListenTransport(hub, factory.lifecycle, CallbackRouter(factory.clients)).mount(
-        app
-    )
+    HubListenTransport(
+        hub, factory.lifecycle, CallbackRouter(factory.clients), ClientCalls()
+    ).mount(app)
     client = TestClient(app)
     with client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
         ws.receive_json()  # ready
@@ -929,3 +942,43 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
         ws.send_json(_RENEW)
 
         _eventually(lambda: scene in marker.scenes)
+
+
+def _session_of(wired: _Wiring) -> HubListenSession:
+    """The live listen session holding the connection's slot."""
+    leg = _leg_of(wired.clients)
+    assert isinstance(leg, HubListenSession)
+    return leg
+
+
+def test_a_relayed_request_reaches_the_client_and_its_reply_resolves_the_call() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        call = _session_of(wired).relay("terminal", "ls", {"x": 1})
+
+        frame = ws.receive_json()
+        assert frame == {
+            "kind": "request",
+            "request_id": call.frame.request_id,
+            "service": "terminal",
+            "operation": "ls",
+            "payload": {"x": 1},
+        }
+        ws.send_text(
+            ReplyFrame(
+                request_id=call.frame.request_id, payload={"ok": 1}
+            ).model_dump_json()
+        )
+
+        assert call.wait() == Replied({"ok": 1})
+
+
+def test_a_disconnect_resolves_the_calls_pending_on_the_session_as_lost() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "new", {})
+        ws.receive_json()  # the request reached the client; it never answers
+
+    assert call.wait() == Lost()

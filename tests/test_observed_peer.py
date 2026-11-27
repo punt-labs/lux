@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from punt_lux.hub.callback_hold import CallbackRouter
+from punt_lux.hub.client_calls import ClientCalls
 from punt_lux.hub.client_session import ClientSession
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_store_factory import HubStoreFactory
@@ -530,6 +531,7 @@ class TestWebSocketDoor:
             hub,
             factory.lifecycle,
             CallbackRouter(factory.clients),
+            ClientCalls(),
         ).mount(app)
         return TestClient(app), factory
 
