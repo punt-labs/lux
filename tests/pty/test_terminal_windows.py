@@ -82,18 +82,49 @@ def test_one_refused_window_does_not_stop_the_others_opening() -> None:
     assert windows.shown == frozenset({"t0.2", "t0.3"})
 
 
-def test_a_quarantined_window_is_not_counted_as_shown() -> None:
+def test_a_quarantined_window_stays_shown_and_is_not_published_again() -> None:
+    # Publishing the same scene again resets the Hub's crash tally and so ends
+    # the quarantine; the keeper must leave a quarantined window alone.
+    hub = StubHub()
+    windows = TerminalWindows(hub.clients)
+
+    async def scenario() -> None:
+        await windows.open(_session("t0.1"))
+        hub.quarantine("terminal-t0.1")
+        await windows.refresh()
+        await windows.open(_session("t0.1"))
+
+    asyncio.run(scenario())
+    assert windows.shown == frozenset({"t0.1"})
+    assert hub.shows == ["terminal-t0.1"]
+
+
+def test_a_quarantined_window_is_cleared_when_its_session_ends() -> None:
+    hub = StubHub()
+    windows = TerminalWindows(hub.clients)
+
+    async def scenario() -> None:
+        await windows.open(_session("t0.1"))
+        hub.quarantine("terminal-t0.1")
+        await windows.refresh()
+        await windows.close("t0.1")
+
+    asyncio.run(scenario())
+    assert hub.scenes == {}
+
+
+def test_clear_removes_every_window_this_helper_shows() -> None:
     hub = StubHub()
     windows = TerminalWindows(hub.clients)
 
     async def scenario() -> None:
         await windows.open(_session("t0.1"))
         await windows.open(_session("t0.2"))
-        hub.quarantine("terminal-t0.1")
-        await windows.refresh()
+        await windows.clear()
 
     asyncio.run(scenario())
-    assert windows.shown == frozenset({"t0.2"})
+    assert hub.scenes == {}
+    assert windows.shown == frozenset()
 
 
 def test_other_scenes_are_not_taken_for_terminal_windows() -> None:

@@ -16,9 +16,10 @@ from punt_lux.wire.stream.session_events import SessionEvent
 
 logger = logging.getLogger(__name__)
 
-_POLL_S = 0.5
+_POLL_S = 0.1  # twice this fits in the helper's 0.3 s shutdown grace
 _RETRY_S = 2.0
 _MAX_RETRY_S = 30.0
+_SHUTDOWN_CLEAR_S = 0.2
 
 
 class TerminalKeeper:
@@ -54,6 +55,9 @@ class TerminalKeeper:
             try:
                 await self._watch()
                 delay, last = _RETRY_S, ""
+            except asyncio.CancelledError:
+                await self._take_down_windows()
+                raise
             except ProgrammerError:
                 raise
             except (OSError, SessionRefusedError, WindowRefusedError) as error:
@@ -64,6 +68,18 @@ class TerminalKeeper:
                 logger.exception("Terminal keeper failed unexpectedly (%s)", error)
                 delay, last = self._backed_off(delay, str(error), repeated=False)
             await asyncio.sleep(delay)
+
+    async def _take_down_windows(self) -> None:
+        """Remove this helper's windows as it stops; their shells stop with it.
+
+        Without this the Hub keeps the windows of terminals that no longer run,
+        and no later helper owns them to remove them.
+        """
+        try:
+            async with asyncio.timeout(_SHUTDOWN_CLEAR_S):
+                await self._windows.clear()
+        except (TimeoutError, WindowRefusedError) as error:
+            logger.warning("Terminal windows left behind at shutdown: %s", error)
 
     @staticmethod
     def _backed_off(delay: float, reason: str, *, repeated: bool) -> tuple[float, str]:

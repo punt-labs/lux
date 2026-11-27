@@ -22,8 +22,10 @@ class TerminalWindows:
 
     A window is a scene; the Display drops the frame with the scene. The Hub is
     the authority on what is shown, so ``refresh`` reads it before a reconcile.
-    Only live scenes owned by this helper's own identity count as its windows; a
-    quarantined scene is not replicated to the Display, so it is shown again.
+    Only scenes owned by this helper's own identity count as its windows. A
+    quarantined scene still counts: publishing it again resets the Hub's crash
+    tally and ends the quarantine, so the window is left alone and cleared only
+    when its session ends.
     """
 
     _clients: TerminalClients
@@ -59,7 +61,6 @@ class TerminalWindows:
             self._scenes.session_of(scene.local_id)
             for scene in result.scenes
             if self._scenes.owns(scene.local_id)
-            and scene.status == "live"
             and scene.owners
             and all(owner.identity == mine for owner in scene.owners)
         }
@@ -97,6 +98,15 @@ class TerminalWindows:
         if isinstance(result, OpError):
             raise self._failure("removed", session_id, result.reason)
         self._shown.discard(session_id)
+
+    async def clear(self) -> None:
+        """Remove every window this helper shows, as it stops.
+
+        Raises:
+            WindowRefusedError: One or more windows could not be removed; it
+                names each.
+        """
+        await self.apply(SyncPlan((), tuple(sorted(self._shown))))
 
     async def apply(self, plan: SyncPlan) -> None:
         """Open and close every window the plan names.

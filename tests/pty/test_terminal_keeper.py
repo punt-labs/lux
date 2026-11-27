@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import sys
@@ -16,9 +17,12 @@ import pytest
 pytest.importorskip("pyghostty")
 
 from punt_lux.kernel.programmer_error import ProgrammerError
+from punt_lux.pty import terminal_keeper as keeper_module
+from punt_lux.pty.child import ChildLifetime
 from punt_lux.pty.daemon_exchange import DaemonExchange
 from punt_lux.pty.terminal_keeper import TerminalKeeper
 from punt_lux.pty.terminal_windows import TerminalWindows
+from punt_lux.wire.operations import RenderRequest
 from tests.pty.launchers import Launch
 from tests.pty.stub_hub import StubHub
 
@@ -44,15 +48,15 @@ def test_every_running_session_gets_a_window_at_connect(
     ids = [launch.session(SLEEP) for _ in range(3)]
     hub = StubHub()
 
-    async def scenario() -> None:
+    async def scenario() -> list[str]:
         task = asyncio.create_task(_keeper(daemon, hub).serve())
         try:
             await _until(lambda: len(hub.scenes) == 3)
+            return sorted(hub.scenes)
         finally:
             task.cancel()
 
-    asyncio.run(scenario())
-    assert sorted(hub.scenes) == sorted(f"terminal-{i}" for i in ids)
+    assert asyncio.run(scenario()) == sorted(f"terminal-{i}" for i in ids)
 
 
 def test_a_stranded_window_is_removed_and_a_missing_one_added(
@@ -83,7 +87,7 @@ def test_a_hub_restart_brings_every_window_back(daemon: Path, launch: Launch) ->
     hub = StubHub()
     keeper = _keeper(daemon, hub)
 
-    async def scenario() -> None:
+    async def scenario() -> list[str]:
         task = asyncio.create_task(keeper.serve())
         try:
             await _until(lambda: len(hub.scenes) == 2)
@@ -91,11 +95,11 @@ def test_a_hub_restart_brings_every_window_back(daemon: Path, launch: Launch) ->
             hub.come_up(lose_scenes=True)
             keeper.resync()
             await _until(lambda: len(hub.scenes) == 2)
+            return sorted(hub.scenes)
         finally:
             task.cancel()
 
-    asyncio.run(scenario())
-    assert sorted(hub.scenes) == sorted(f"terminal-{i}" for i in ids)
+    assert asyncio.run(scenario()) == sorted(f"terminal-{i}" for i in ids)
 
 
 def test_a_hub_that_is_down_never_ends_the_serve_task(
@@ -155,6 +159,30 @@ def test_a_hub_that_is_down_logs_no_error_records(
     caplog.set_level(logging.DEBUG)
     asyncio.run(scenario())
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_one_watch_poll_fits_twice_in_the_helpers_shutdown_grace() -> None:
+    # Closing the watch on cancellation can leave the poll blocked for the rest
+    # of its interval; the helper is killed once its grace has passed.
+    grace = inspect.signature(ChildLifetime.stop).parameters["grace_s"].default
+    assert grace >= keeper_module._POLL_S * 2
+
+
+def test_cancelling_the_keeper_takes_down_its_windows(
+    daemon: Path, launch: Launch
+) -> None:
+    launch.session(SLEEP)
+    launch.session(SLEEP)
+    hub = StubHub()
+
+    async def scenario() -> None:
+        task = asyncio.create_task(_keeper(daemon, hub).serve())
+        await _until(lambda: len(hub.scenes) == 2)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())
+    assert hub.scenes == {}
 
 
 class _BrokenDaemon:
@@ -248,15 +276,16 @@ def test_n_clicks_end_as_n_distinct_scenes_and_frames(daemon: Path) -> None:
     hub = StubHub()
     menu = TerminalMenu(hub.clients, DaemonExchange(daemon))
 
-    async def scenario() -> None:
+    async def scenario() -> list[RenderRequest]:
         task = asyncio.create_task(menu.serve())
         try:
             for _ in range(count):
                 await menu._clicked("terminal")
             await _until(lambda: len(hub.scenes) == count)
+            return list(hub.scenes.values())
         finally:
             task.cancel()
 
-    asyncio.run(scenario())
-    assert len({r.scene_id for r in hub.scenes.values()}) == count
-    assert all(r.frame is None for r in hub.scenes.values())
+    shown = asyncio.run(scenario())
+    assert len({r.scene_id for r in shown}) == count
+    assert all(r.frame is None for r in shown)

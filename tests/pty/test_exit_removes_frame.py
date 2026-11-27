@@ -43,15 +43,16 @@ def test_exit_in_one_of_three_terminals_leaves_exactly_two_scenes(
     hub = StubHub()
     menu = TerminalMenu(hub.clients, DaemonExchange(daemon))
 
-    async def scenario() -> None:
+    async def scenario() -> list[str]:
         task = asyncio.create_task(menu.serve())
         try:
             await _until(lambda: len(hub.scenes) == 3)
             flag.touch()
             await _until(lambda: len(hub.scenes) == 2)
+            return sorted(hub.scenes)
         finally:
             task.cancel()
 
-    asyncio.run(scenario())
-    assert f"terminal-{leaves}" not in hub.scenes
-    assert sorted(hub.scenes) == sorted(f"terminal-{s}" for s in stays)
+    remaining = asyncio.run(scenario())
+    assert f"terminal-{leaves}" not in remaining
+    assert remaining == sorted(f"terminal-{s}" for s in stays)

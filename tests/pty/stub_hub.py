@@ -58,11 +58,12 @@ class StubHub:
     _refusal: str
     _refused: dict[str, str]
     _quarantined: set[str]
+    _shows: list[str]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._scenes, self._menu, self._foreign = {}, {}, set()
-        self._refused, self._quarantined = {}, set()
+        self._refused, self._quarantined, self._shows = {}, set(), []
         self._identity = ClientIdentity(kind="app", name="luxd-pty", lease_ttl=30)
         self._down, self._refusal = False, ""
         return self
@@ -74,6 +75,11 @@ class StubHub:
     @property
     def menu(self) -> dict[str, str]:
         return self._menu
+
+    @property
+    def shows(self) -> list[str]:
+        """Every scene id the Hub was asked to show, in order."""
+        return self._shows
 
     @property
     def clients(self) -> TerminalClients:
@@ -138,6 +144,7 @@ class StubHub:
         if reason := self._refused.get(request.scene_id, self._refusal):
             return OpError(code="rejected", reason=reason)
         self._scenes[request.scene_id] = request
+        self._shows.append(request.scene_id)
         return SceneShown(scene_id=request.scene_id)
 
     async def clear(self, scene_id: str) -> Cleared | OpError:

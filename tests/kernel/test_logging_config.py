@@ -133,23 +133,23 @@ def _signalled_daemon(home: Path, signum: int) -> tuple[int, str]:
     return process.wait(timeout=30), _log(home)
 
 
-def test_a_daemon_terminated_by_sigterm_logs_the_signal_and_its_exit(
+def test_a_daemon_terminated_by_sigterm_logs_the_signal_and_still_dies_by_it(
     tmp_path: Path,
 ) -> None:
+    # A supervisor tells a signal death from a failure exit: systemd's
+    # Restart=on-failure restarts an exit status of 143 but not a SIGTERM death.
     code, log = _signalled_daemon(tmp_path, signal.SIGTERM)
-    assert code == 128 + signal.SIGTERM
+    assert code == -signal.SIGTERM
     assert "probe daemon started (pid=" in log
     assert "received SIGTERM" in log
-    assert "probe daemon exiting: exit 143" in log
 
 
-def test_a_daemon_hung_up_by_sighup_logs_the_signal_and_its_exit(
+def test_a_daemon_hung_up_by_sighup_logs_the_signal_and_still_dies_by_it(
     tmp_path: Path,
 ) -> None:
     code, log = _signalled_daemon(tmp_path, signal.SIGHUP)
-    assert code == 128 + signal.SIGHUP
+    assert code == -signal.SIGHUP
     assert "received SIGHUP" in log
-    assert "probe daemon exiting: exit 129" in log
 
 
 def test_a_daemon_that_returns_logs_a_normal_exit(tmp_path: Path) -> None:

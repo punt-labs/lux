@@ -56,15 +56,22 @@ class _Diagnostics:
 
     @classmethod
     def _stop_on_signal(cls, number: int, _frame: FrameType | None) -> None:
+        """Record the signal, then die by it as the default disposition would.
+
+        A supervisor tells a death by signal from a failure exit; an exit status
+        of 128 plus the signal is a failure to systemd's ``Restart=on-failure``.
+        """
         cls.record_signal(number)
-        raise SystemExit(128 + number)
+        signal.signal(number, signal.SIG_DFL)
+        os.kill(os.getpid(), number)
 
     @classmethod
     def _log_default_signals(cls) -> Callable[[], None]:
         """Log SIGTERM and SIGHUP where the process would die without a trace.
 
-        Only a signal still on the default disposition is taken over: a daemon
-        that installs its own handler records the signal itself.
+        Only a signal still on the default disposition is taken over, and the
+        process still dies by it. A daemon that installs its own handler records
+        the signal itself.
         """
         previous = {
             number: signal.getsignal(number)
