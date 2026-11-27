@@ -8694,7 +8694,12 @@ in flight.
    - **C6.** No lock is held while waiting. The table's lock is a leaf below
      the store lock and the registry lock, so the lifecycle step in C4 may
      resolve calls while holding them, and the resolution wakes the waiter
-     after the table lock is released.
+     after the table lock is released. A caller holds the registry lock across
+     the provider lookup and the entry of the call in the table, one step, and
+     takes the table lock inside it. If it released the registry lock between
+     the two, the provider's session could end in the gap and leave a call
+     pending on a dead session, which breaks C4. The lock model
+     (`docs/client_calls_locks.tex`) checks this nesting.
 
    At most 8 calls are pending per provider; the ninth is refused at once
    (`rejected`, "provider busy") and never sent. A reply payload over 256 KiB
@@ -8913,10 +8918,9 @@ which must fail on the named invariant:
 - `label_guard_buggy`: the retry guard is the label, which is freed on exit, so
   a launch that succeeded and exited launches again on retry.
 
-The models are not written in this entry's commit. The implementation work must
-land `docs/client_calls.tex` before any code in units 3 to 5 below,
-`docs/new_tokens.tex` before the token memory in unit 4, and add both to
-`make check-models`.
+`docs/client_calls.tex` and `docs/client_calls_locks.tex` are written and
+model-checked in `make check-models`. `docs/new_tokens.tex` must land before the
+token memory in unit 4 and be added to `make check-models`.
 
 **Work units** (each ends mergeable; 1 and 2 run at once, then 3, then 4 and
 5 at once):
