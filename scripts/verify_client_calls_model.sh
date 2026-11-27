@@ -29,8 +29,29 @@ C2='#r.(r:dom(accFrom) & accFrom(r)/=sentTo(r))'
 C3='#r.(r:dom(outc) & r:pend)'
 C4A='#r.(r:pend & sentTo(r)/:live)'
 C4B='#(r,c).((r|->c):served & r:dom(sentTo) & sentTo(r)/=c)'
+C4C='#r.(r:REQ & ((r:ended & (r/:dom(outc) or (r:dom(outc) & outc(r)/=lost))) or (r:dom(outc) & outc(r)=lost & r/:ended)))'
+# C5, per call: every pending call has its deadline timer started, which is
+# what enables its own Timeout.  A call whose timer was never started is a
+# violation even when some other call could still time out.
+C5='#r.(r:pend & r/:armed)'
 R1='#k.(k:dom(reg) & reg(k)/:live)'
 P1='#c.(c:CONN & card({r|r:pend & sentTo(r)=c})>maxPend)'
+
+# goal_of INVARIANT: the goal that is reachable exactly when it is violated.
+goal_of() {
+  case "$1" in
+    C1) echo "$C1" ;;
+    C2) echo "$C2" ;;
+    C3) echo "$C3" ;;
+    C4a) echo "$C4A" ;;
+    C4b) echo "$C4B" ;;
+    C4c) echo "$C4C" ;;
+    C5) echo "$C5" ;;
+    R1) echo "$R1" ;;
+    P1) echo "$P1" ;;
+  esac
+}
+invariants=(C1 C2 C3 C4a C4b C4c C5 R1 P1)
 
 # Reachability goals: the checks above are not vacuous.
 G_PEND='pend/={}'
@@ -39,10 +60,6 @@ G_REFUSED='#r.(r:dom(outc) & outc(r)=refused)'
 G_TIMEDOUT='#r.(r:dom(outc) & outc(r)=timedout)'
 G_LOST='#r.(r:dom(outc) & outc(r)=lost)'
 G_CAP='#c.(c:CONN & card({r|r:pend & sentTo(r)=c})=maxPend)'
-
-# C5: whenever a call is pending the deadline is enabled.
-PP='#r.(r:pend)'
-C5='AG({'"$PP"'} => EF(e(Timeout)))'
 
 # The lock model's flags.
 L_ORDER='orderBroken=fset'
@@ -86,9 +103,9 @@ check_model() {
   fi
 }
 
-# check_ctl MODEL FORMULA EXPECTED: C5, the deadline property.
+# check_ctl MODEL FORMULA EXPECTED [LABEL]: reachability of an enabled operation.
 check_ctl() {
-  local model="$1" formula="$2" expected="$3" label="${4:-C5}"
+  local model="$1" formula="$2" expected="$3" label="${4:-ctl}"
   local log="$LOG_DIR/${model%.tex}-$label.log"
   "$PROBCLI" "docs/$model" -p DEFAULT_SETSIZE 2 -ctlformula "$formula" >"$log" 2>&1 || true
   if [[ "$expected" == holds ]]; then
@@ -137,12 +154,28 @@ check_locks() {
   esac
 }
 
+# check_variant MODEL TARGET: the variant violates TARGET and leaves every
+# other invariant intact.
+check_variant() {
+  local model="$1" target="$2" inv
+  for inv in "${invariants[@]}"; do
+    if [[ "$inv" == "$target" ]]; then
+      check_model "$model" "$inv" found "$(goal_of "$inv")"
+    else
+      check_model "$model" "$inv" 'not found' "$(goal_of "$inv")"
+    fi
+  done
+}
+
 state_models=(
   client_calls.tex
   client_calls_replay_on_reconnect_buggy.tex
   client_calls_reply_any_session_buggy.tex
   client_calls_no_deadline_buggy.tex
   client_calls_session_end_keeps_pending_buggy.tex
+  client_calls_session_end_wrong_outcome_buggy.tex
+  client_calls_dispatch_split_buggy.tex
+  client_calls_no_cap_buggy.tex
 )
 lock_models=(
   client_calls_locks.tex
@@ -157,15 +190,10 @@ for model in "${state_models[@]}" "${lock_models[@]}"; do
 done
 
 # The intact model: every invariant holds, and each is reachable-sensitive.
-check_model client_calls.tex C1 'not found' "$C1"
-check_model client_calls.tex C2 'not found' "$C2"
-check_model client_calls.tex C3 'not found' "$C3"
-check_model client_calls.tex C4a 'not found' "$C4A"
-check_model client_calls.tex C4b 'not found' "$C4B"
-check_model client_calls.tex R1 'not found' "$R1"
-check_model client_calls.tex P1 'not found' "$P1"
+for inv in "${invariants[@]}"; do
+  check_model client_calls.tex "$inv" 'not found' "$(goal_of "$inv")"
+done
 check_model client_calls.tex D-deadlock 'not found'
-check_ctl client_calls.tex "$C5" holds
 # Non-vacuity: pending calls, every outcome, the limit, a refused
 # registration and a supersession are all reachable.
 check_model client_calls.tex reach-pending found "$G_PEND"
@@ -177,31 +205,15 @@ check_model client_calls.tex reach-cap found "$G_CAP"
 check_ctl client_calls.tex 'EF(e(RegisterRefused))' holds reach-refused-registration
 check_ctl client_calls.tex 'EF(e(Supersede))' holds reach-supersede
 
-# Fidelity: each variant fails exactly the invariant it names.
-check_model client_calls_replay_on_reconnect_buggy.tex C4b found "$C4B"
-check_model client_calls_replay_on_reconnect_buggy.tex C4a found "$C4A"
-check_model client_calls_reply_any_session_buggy.tex C2 found "$C2"
-check_ctl client_calls_no_deadline_buggy.tex "$C5" violated
-check_model client_calls_session_end_keeps_pending_buggy.tex C4a found "$C4A"
-
-# The variants break only what they name.
-for model in client_calls_replay_on_reconnect_buggy.tex \
-  client_calls_reply_any_session_buggy.tex \
-  client_calls_no_deadline_buggy.tex \
-  client_calls_session_end_keeps_pending_buggy.tex; do
-  check_model "$model" C1 'not found' "$C1"
-  check_model "$model" C3 'not found' "$C3"
-  check_model "$model" R1 'not found' "$R1"
-  check_model "$model" P1 'not found' "$P1"
-done
-check_model client_calls_replay_on_reconnect_buggy.tex C2 'not found' "$C2"
-check_model client_calls_reply_any_session_buggy.tex C4a 'not found' "$C4A"
-check_model client_calls_reply_any_session_buggy.tex C4b 'not found' "$C4B"
-check_model client_calls_no_deadline_buggy.tex C2 'not found' "$C2"
-check_model client_calls_no_deadline_buggy.tex C4a 'not found' "$C4A"
-check_model client_calls_no_deadline_buggy.tex C4b 'not found' "$C4B"
-check_model client_calls_session_end_keeps_pending_buggy.tex C2 'not found' "$C2"
-check_model client_calls_session_end_keeps_pending_buggy.tex C4b 'not found' "$C4B"
+# Fidelity: each variant violates the invariant it names and leaves every
+# other invariant intact.
+check_variant client_calls_replay_on_reconnect_buggy.tex C4b
+check_variant client_calls_reply_any_session_buggy.tex C2
+check_variant client_calls_no_deadline_buggy.tex C5
+check_variant client_calls_session_end_keeps_pending_buggy.tex C4a
+check_variant client_calls_session_end_wrong_outcome_buggy.tex C4c
+check_variant client_calls_dispatch_split_buggy.tex C4a
+check_variant client_calls_no_cap_buggy.tex P1
 
 # The lock order: store, registry, table.  Deadlock freedom at two and three
 # threads, and the order and C6 flags never set.
