@@ -100,6 +100,16 @@ class _RestTransport:
         self._display = _DisplayRestOps(transport, self._headers)
         return self
 
+    @property
+    def http(self) -> HttpTransport:
+        """Return the HTTP transport every request goes through."""
+        return self._transport
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """Return the identity headers stamped on every request."""
+        return self._headers
+
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
         """Build a CLI client with an identity derived from context.

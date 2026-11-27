@@ -17,9 +17,9 @@ from punt_lux.client.display import DisplayAccessor
 from punt_lux.client.error import ErrorAccessor
 from punt_lux.client.event import EventAccessor
 from punt_lux.client.frame import FrameAccessor
-from punt_lux.client.frame_deps import FrameAccessorDeps
 from punt_lux.client.menu import MenuAccessor
 from punt_lux.client.scene import SceneAccessor
+from punt_lux.client.service import ServiceAccessor
 from punt_lux.client.session import SessionAccessor
 from punt_lux.wire.operations import Scope
 
@@ -87,8 +87,7 @@ class LuxClient:
     @cached_property
     def frame(self) -> FrameAccessor:
         """The ``client.frame.*`` verbs."""
-        deps = FrameAccessorDeps(self._transport, self._identity, self._scope)
-        return FrameAccessor(deps)
+        return FrameAccessor(self._transport, self._identity, self._scope)
 
     @cached_property
     def menu(self) -> MenuAccessor:
@@ -104,6 +103,11 @@ class LuxClient:
     def callback(self) -> CallbackAccessor:
         """Return the accessor for menu callback registration."""
         return CallbackAccessor(self._transport, self._identity)
+
+    @cached_property
+    def service(self) -> ServiceAccessor:
+        """The ``client.service.*`` verbs."""
+        return ServiceAccessor.over(self._transport)
 
     @cached_property
     def display(self) -> DisplayAccessor:
