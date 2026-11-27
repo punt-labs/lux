@@ -40,6 +40,7 @@ class HubStoreFactory:
             owners,
             DepartureCascade(hub),
             lock,
+            clock,
         )
         self._display = HubDisplay(lock, owners, self._lifecycle, self._clients, clock)
         return self

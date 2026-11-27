@@ -4956,11 +4956,11 @@
     "avg_lcom": 0.0
   },
   "src/punt_lux/hub/client_lifecycle.py": {
-    "efferent_coupling": 2.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.338,
-    "avg_lcom": 0.338
+    "max_lcom": 0.295,
+    "avg_lcom": 0.295
   },
   "src/punt_lux/hub/client_roster.py": {
     "efferent_coupling": 2.0,
@@ -5889,6 +5889,20 @@
   "src/punt_lux/hub/scene_writer.py": {
     "efferent_coupling": 7.0,
     "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/hub/service_directory.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_lux/hub/service_registry.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
