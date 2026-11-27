@@ -1,0 +1,337 @@
+%
+% new_tokens_entry_kept_after_failed_fork_buggy.tex
+%
+% A Z specification of the luxd-pty daemon's memory of retry tokens, the
+% entry it keeps for each launch it admits from a `new` request's token.
+% Fidelity variant: entry_kept_after_failed_fork.
+%
+% Design record: DESIGN.md, DES-107 (token memory, "Formal model")
+% Type-check:  fuzz -t docs/new_tokens_entry_kept_after_failed_fork_buggy.tex
+% Model-check: scripts/verify_new_tokens_model.sh
+%
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Retry-Token Memory, Fidelity Variant entry kept after failed fork}
+\author{Formal model of the daemon's retry-token memory}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+A failed fork keeps its entry. The retry is refused although no process exists. Fails T4 (and T2).
+
+Everything else is the intact specification, \texttt{new\_tokens.tex}; the variant is made to fail the invariants named below.
+
+\section{Basic Types}
+
+\begin{zed}
+  [TOK] \\
+  LAB ::= lbl1
+\end{zed}
+
+\begin{axdef}
+  cap : \nat
+\where
+  cap = 2
+\end{axdef}
+
+\texttt{TOK} is a retry token.  \texttt{LAB} is a session label.  The
+contract's 256 is scaled to $cap = 2$ with three tokens, which is enough to
+evict one entry and to retry it.
+
+\section{State}
+
+\begin{schema}{Sys}
+  held : TOK \pfun (0 \upto cap) \\
+  bound, sv, kas : \power TOK \\
+  lab : LAB \pfun TOK \\
+  lv, surv, nforks : TOK \fun (0 \upto 2) \\
+  recent : \seq TOK
+\where
+  bound \subseteq \dom held \\
+  \# recent \leq cap \\
+  \forall t : TOK @ \# (lab \rres \{ t \}) + surv~t \leq lv~t
+\end{schema}
+
+\texttt{held} is the memory: a token maps to the age of its entry.
+\texttt{bound} are the held tokens whose session was recorded.  \texttt{lab}
+maps a label to the token of the live session that owns it.  \texttt{lv} counts
+the live processes of a token, and \texttt{surv} counts those that are
+survivors of a restart: a survivor is a process, not a token, so it persists
+through later clean restarts only while it is itself alive.  Labelled sessions
+and survivors are distinct live processes, which the last predicate states.
+\texttt{sv} (every token that has had a survivor), \texttt{kas} (the tokens whose shell the last restart ended), \texttt{recent} and
+\texttt{nforks} are history variables.
+
+\begin{schema}{Init}
+  Sys'
+\where
+  held' = \emptyset \\
+  bound' = \emptyset \\
+  sv' = \emptyset \\
+  kas' = \emptyset \\
+  lab' = \emptyset \\
+  lv' = TOK \cross \{ 0 \} \\
+  surv' = TOK \cross \{ 0 \} \\
+  nforks' = TOK \cross \{ 0 \} \\
+  recent' = \langle \rangle
+\end{schema}
+
+\section{Operations}
+
+\begin{schema}{RepeatBound}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \in \dom held \\
+  t? \in bound \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A repeated token whose session was recorded is answered with the original session, running or exited. Nothing changes.
+
+\begin{schema}{RepeatUnrecorded}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \in \dom held \\
+  t? \notin bound \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A repeated token whose process was forked but whose session was never recorded is refused as \texttt{rejected}. Nothing changes.
+
+\begin{schema}{RefuseLabel}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \notin \dom held \\
+  l? \in \dom lab \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A launch refused because its label is held by a live session. The refusal precedes the fork and adds no entry.
+
+\begin{schema}{RefuseConfig}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \notin \dom held \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+Any other refusal before the fork: runtime launchers off, unknown launcher. No entry is added.
+
+\begin{schema}{LaunchOk}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \notin \dom held \\
+  l? \notin \dom lab \\
+  lv~t? < 2 \\
+  nforks~t? < 2 \\
+  held' = \{ x : TOK; a : 0 \upto cap | (x \mapsto a) \in (\{ t? \} \ndres held) \land a + 1 < cap @ x \mapsto a + 1 \} \cup \{ t? \mapsto 0 \} \\
+  bound' = (bound \cap \dom held') \cup \{ t? \} \\
+  lab' = lab \cup \{ l? \mapsto t? \} \\
+  lv' = lv \oplus \{ t? \mapsto lv~t? + 1 \} \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  ((\# recent < cap \land recent' = recent \cat \langle t? \rangle) \lor (\# recent = cap \land (\exists h : TOK; r : \seq TOK @ recent = \langle h \rangle \cat r \land recent' = r \cat \langle t? \rangle))) \\
+  nforks' = (\ran recent' \dres (nforks \oplus \{ t? \mapsto nforks~t? + 1 \})) \cup ((TOK \setminus \ran recent') \cross \{ 0 \})
+\end{schema}
+
+An admitted launch whose fork and session both succeed. The entry is added before the fork and bound to the session.
+
+\begin{schema}{LaunchForkFails}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \notin \dom held \\
+  l? \notin \dom lab \\
+  held' = \{ x : TOK; a : 0 \upto cap | (x \mapsto a) \in (\{ t? \} \ndres held) \land a + 1 < cap @ x \mapsto a + 1 \} \cup \{ t? \mapsto 0 \} \\
+  bound' = bound \cap \dom held' \\
+  lab' = lab \\
+  lv' = lv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+The failed fork keeps its entry.
+
+\begin{schema}{LaunchUnrecorded}
+  \Delta Sys \\
+  t? : TOK \\ l? : LAB
+\where
+  t? \notin \dom held \\
+  l? \notin \dom lab \\
+  lv~t? < 2 \\
+  nforks~t? < 2 \\
+  held' = \{ x : TOK; a : 0 \upto cap | (x \mapsto a) \in (\{ t? \} \ndres held) \land a + 1 < cap @ x \mapsto a + 1 \} \cup \{ t? \mapsto 0 \} \\
+  bound' = bound \cap \dom held' \\
+  lab' = lab \\
+  lv' = lv \oplus \{ t? \mapsto lv~t? + 1 \} \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  ((\# recent < cap \land recent' = recent \cat \langle t? \rangle) \lor (\# recent = cap \land (\exists h : TOK; r : \seq TOK @ recent = \langle h \rangle \cat r \land recent' = r \cat \langle t? \rangle))) \\
+  nforks' = (\ran recent' \dres (nforks \oplus \{ t? \mapsto nforks~t? + 1 \})) \cup ((TOK \setminus \ran recent') \cross \{ 0 \})
+\end{schema}
+
+The entry is added, the process forks, and the session is never recorded.
+
+\begin{schema}{ExitLabelled}
+  \Delta Sys \\
+  l? : LAB
+\where
+  l? \in \dom lab \\
+  lv~(lab~l?) > 0 \\
+  held' = held \\
+  bound' = bound \\
+  lab' = \{ l? \} \ndres lab \\
+  lv' = lv \oplus \{ lab~l? \mapsto lv~(lab~l?) - 1 \} \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A recorded session exits and frees its label. Its token stays held and bound.
+
+\begin{schema}{ExitStray}
+  \Delta Sys \\
+  t? : TOK
+\where
+  lv~t? - surv~t? > \# (lab \rres \{ t? \}) \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \oplus \{ t? \mapsto lv~t? - 1 \} \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A process with no recorded session, one that did not survive a restart, exits.
+
+\begin{schema}{ExitSurvivor}
+  \Delta Sys \\
+  t? : TOK
+\where
+  surv~t? > 0 \\
+  held' = held \\
+  bound' = bound \\
+  lab' = lab \\
+  lv' = lv \oplus \{ t? \mapsto lv~t? - 1 \} \\
+  surv' = surv \oplus \{ t? \mapsto surv~t? - 1 \} \\
+  sv' = sv \\
+  kas' = kas \\
+  recent' = recent \\
+  nforks' = nforks
+\end{schema}
+
+A shell that survived a restart exits. It no longer protects any later shell from a clean restart.
+
+\begin{schema}{RestartClean}
+  \Delta Sys
+\where
+  held' = \emptyset \\
+  bound' = \emptyset \\
+  lab' = \emptyset \\
+  lv' = surv \\
+  surv' = surv \\
+  sv' = sv \\
+  kas' = \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \} \\
+  recent' = \langle \rangle \\
+  nforks' = TOK \cross \{ 0 \}
+\end{schema}
+
+The daemon restarts. The memory is cleared and every shell the restart can end is ended: each live process that is not itself a survivor of an earlier restart. A survivor is out of its reach and persists. \texttt{kas} becomes the tokens whose earlier survivor had gone and whose later shell this restart ended: after a restart, no token in \texttt{kas} has a live shell until a launch is admitted.
+
+\begin{schema}{RestartSurvivor}
+  \Delta Sys \\
+  s? : \power TOK
+\where
+  \# s? = 1 \\
+  \forall x : s? @ lv~x - surv~x > 0 \\
+  \forall y : TOK @ surv~y = 0 \\
+  held' = \emptyset \\
+  bound' = \emptyset \\
+  lab' = \emptyset \\
+  lv' = surv' \\
+  surv' = surv \oplus \{ x : s? @ x \mapsto surv~x + 1 \} \\
+  sv' = sv \cup s? \\
+  kas' = \{ x : TOK | x \in sv \land surv~x = 0 \land lv~x > 0 \land x \notin s? \} \\
+  recent' = \langle \rangle \\
+  nforks' = TOK \cross \{ 0 \}
+\end{schema}
+
+The daemon restarts and a shell for each token in $s?$ survives SIGKILL. The daemon logs its token and process id and exits with a failure status; the survivor has no history.
+
+\section{Invariants}
+
+Each invariant is checked as a violation predicate in
+\texttt{scripts/verify\_new\_tokens\_model.sh}.
+
+\begin{description}
+  \item[T1, a held token never yields a second launch.]
+    $\forall t : TOK @ nforks~t \leq 1$.
+  \item[T2, refusals and repeats add no entry.]
+    $\dom held \subseteq \ran recent$: every entry belongs to an admitted
+    launch of the last $cap$.
+  \item[T3, the oldest is dropped only at the cap.]
+    $\{ t : \ran recent | nforks~t > 0 \} \subseteq \dom held$: no token that
+    forked in the last $cap$ admitted launches has been dropped early.  With T2
+    and $\# recent \leq cap$ the memory is exactly the entries of the last
+    $cap$ launches that forked.
+  \item[T4, a launch with no process can be retried.]
+    $\forall t : \dom held @ nforks~t > 0$: an entry exists only for a token
+    whose launch forked.
+  \item[T5, the memory is bounded.] $\# (\dom held) \leq cap$.
+  \item[T7, a restart ends what it can.] $\forall t : kas @ recent = \langle \rangle \Rightarrow lv~t = 0$: right after a restart, before any launch is admitted, no token whose shell the restart ended has a live shell.
+\end{description}
+
+
+\end{document}

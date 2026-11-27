@@ -95,7 +95,7 @@ existing `failed` and `closed` states are internal cleanup states and stay.)
 | reopen | Windows menu, or manager scene `Open` | Display / helper | `raise_frame`. | None. |
 | viewer reconnect | socket drops and returns | Display | Replica goes `DISCONNECTED`, then re-attaches by id; if the session is gone, it fails as in resume. | Status line. |
 | watch lost | helper's watch socket drops or overflows | helper | Re-dial; reconcile (below). | None. |
-| daemon restart | supervisor | daemon, helper | All shells end. New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`). Departure/lease expiry (30 s) releases old ownership but does not remove frames; old-instance removal is an implementation gap (section 7). |
+| daemon restart | supervisor | daemon, helper | Every shell the restart can end ends (SIGHUP, then SIGKILL to the shell's process group after a grace period); a shell that survives SIGKILL, such as a process in uninterruptible I/O, keeps running, and the daemon logs its pid and token and exits with a failure status (DES-107). New boot value. The helper restarts with the daemon. | Replicas go `DISCONNECTED`, then fail on re-attach (`unknown session`). Departure/lease expiry (30 s) releases old ownership but does not remove frames; old-instance removal is an implementation gap (section 7). |
 
 **Reconcile (`HelperList`, then `HelperSync`).** On every connect of the watch
 socket, and after every overflow, the helper sends `list` only after the daemon
