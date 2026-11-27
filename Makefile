@@ -163,7 +163,10 @@ build: ## Build wheel and sdist
 	uvx twine check dist/*
 
 install: build ## Build and install locally (with display extras)
-	uv tool install --force --find-links dist/ "$$(ls dist/punt_lux-*.whl)[display]"
+	uv tool install --force --find-links dist/ \
+		--with "$$(ls dist/punt_lux_client-*.whl)" \
+		--with "$$(ls dist/punt_service-*.whl)" \
+		"$$(ls dist/punt_lux-*.whl)[display]"
 
 restart: install ## Install + restart Hub, Display, and a running luxd-pty (ends its terminal sessions)
 	@lux hub restart || { echo "error: 'lux hub restart' failed — see output above" >&2; exit 1; }
