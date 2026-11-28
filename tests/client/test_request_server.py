@@ -152,27 +152,30 @@ def test_a_slow_request_does_not_block_a_second_one() -> None:
 
 
 def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
-    started = threading.Event()
     release = threading.Event()
-
-    def handler(
-        _service: str, operation: str, _payload: Mapping[str, object]
-    ) -> Mapping[str, object]:
-        if operation == "slow":
-            started.set()
-            release.wait(timeout=10)  # blocking I/O in a plain function
-        return {"op": operation}
-
     connection = _Connection()
 
     async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+
+        def handler(
+            _service: str, operation: str, _payload: Mapping[str, object]
+        ) -> Mapping[str, object]:
+            if operation == "slow":
+                loop.call_soon_threadsafe(started.set)
+                release.wait(timeout=10)  # blocking I/O in a plain function
+            return {"op": operation}
+
         server = RequestServer(handler)
         server.bind(connection)
         slow = server.start(_request("c1.1").model_copy(update={"operation": "slow"}))
-        # The slow handler is now blocked inside its worker thread. No deadline
-        # here: the test is about ordering, and the handler's own bounded wait
-        # keeps a failure from leaking a blocked thread.
-        await asyncio.to_thread(started.wait)
+        # Wait for the slow handler to start, or for its request to end without
+        # starting it; no thread and no deadline.
+        started_wait = asyncio.ensure_future(started.wait())
+        await asyncio.wait({slow, started_wait}, return_when=asyncio.FIRST_COMPLETED)
+        started_wait.cancel()
+        assert started.is_set()
         # The loop is free: a second request is answered while the first blocks.
         await server.serve(_request("c1.2").model_copy(update={"operation": "fast"}))
         assert [
