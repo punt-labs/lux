@@ -160,6 +160,11 @@ stateless-values = "any"
 # The registry is the one place every noun sub-app is wired onto the CLI, so its
 # fan-out is the number of sub-apps.
 "src/punt_lux/cli/registry.py" = { efferent_coupling = 20 }
+# Dropping the close gesture deleted small methods from these two display
+# classes; their per-method cohesion ratios rise although the files shrank. The
+# decomposition of render_loop.py is the standing remedy for both.
+"src/punt_lux/display/render_loop.py" = { max_lcom = 0.75, avg_lcom = 0.75 }
+"src/punt_lux/display/replica/frame.py" = { max_lcom = 0.7, avg_lcom = 0.7 }
 
 [tool.ruff]
 line-length = 88

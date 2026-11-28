@@ -71,7 +71,7 @@ class FrameVisibilityProxy:
         """Read one frame block into its id and a narrowed visibility."""
         frame_id = str(frame.get("frame_id", ""))
         reported = frame.get("visibility")
-        if reported in ("on_screen", "docked", "closed"):
+        if reported in ("on_screen", "docked"):
             return frame_id, VisibilityPresent(visibility=reported)
         return frame_id, VisibilityUnavailable(
             reason="the display reply omitted this frame's visibility"

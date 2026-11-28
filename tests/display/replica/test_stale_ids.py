@@ -132,16 +132,16 @@ class TestNotify:
         assert stale.notify({"shared"}) == []
         assert reported == []
 
-    def test_a_frame_the_user_closed_still_shields_its_ids(self) -> None:
-        """Survival, not visibility. A closed frame's scenes are still held.
+    def test_a_docked_frame_still_shields_its_ids(self) -> None:
+        """Survival, not visibility. A docked frame's scenes are still held.
 
-        This is the reason closing drains queued interactions directly instead of
-        through this method: routed here, a close would report nothing at all.
+        Ending a frame's content drains queued interactions directly instead of
+        through this method: routed here, an end would report nothing at all.
         """
         stale, book, reported = _stale_ids()
         _install(book, _scene("s1", [ButtonElement(id="b1", label="Click")]), "f1")
 
-        book.close("f1")
+        book.minimize("f1")
 
         assert stale.notify({"b1"}) == []
         assert reported == []

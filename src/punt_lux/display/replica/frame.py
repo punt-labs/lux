@@ -136,20 +136,12 @@ class Frame:
         """Whether the frame is in the dock bar, carrying a pill."""
         return self._placement.is_docked
 
-    @property
-    def is_closed(self) -> bool:
-        return self._placement.is_closed
-
     def minimize(self) -> None:
         """Put the frame in the dock: not painted, but still carrying a pill."""
         self._placement.minimize()
 
-    def close(self) -> None:
-        """Hide the window without showing a dock pill or discarding its content."""
-        self._placement.close()
-
     def restore(self) -> None:
-        """Bring the frame back on screen, from docked and closed alike."""
+        """Bring the frame back on screen from the dock."""
         self._placement.restore()
 
     def presentation(self) -> dict[str, object]:

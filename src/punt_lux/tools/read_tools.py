@@ -133,9 +133,9 @@ def list_scenes(*, want_visibility: bool = False) -> SceneList:
     (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
 
     Set ``want_visibility`` to also report where the display is showing each
-    frame --- ``on_screen``, ``docked``, or ``closed`` (the user shut it). That
-    one fact is not the Hub's, so it costs a round trip to the display and is off
-    by default; without it each frame reads ``not_requested`` rather than a guess.
+    frame --- ``on_screen`` or ``docked`` (the user minimized it). That one fact
+    is not the Hub's, so it costs a round trip to the display and is off by
+    default; without it each frame reads ``not_requested`` rather than a guess.
     """
     return _core.OPERATIONS.list_scenes(InspectScope(want_visibility=want_visibility))
 
@@ -145,8 +145,9 @@ def list_frames() -> FrameStates | OpError:
     """List the display's frames and where each one is currently shown.
 
     Returns:
-        Visibility from the live display: on_screen, docked, or closed
-        (content retained). Returns an error if the display is unavailable.
+        Visibility from the live display: on_screen or docked (a docked
+        frame keeps its content). Returns an error if the display is
+        unavailable.
     """
     return _core.OPERATIONS.list_frames()
 

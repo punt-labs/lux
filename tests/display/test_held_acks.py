@@ -109,15 +109,6 @@ class TestAnAckDoesNotDependOnVisibility:
 
         assert _acked(peer) == ["a"]
 
-    def test_a_scene_in_a_closed_frame_is_acked_at_the_swap(self) -> None:
-        loop, peer, sock = _hub_client()
-        loop._handle_message(sock, _scene("a", "f1"))
-        loop._scenes.close("f1")
-
-        _swap(loop)
-
-        assert _acked(peer) == ["a"]
-
 
 class TestAClientThatLeftBeforeTheSwap:
     def test_its_held_acks_are_dropped(self) -> None:

@@ -90,7 +90,7 @@ class SceneReplica:
 
     @property
     def active_scene_id(self) -> str | None:
-        """The first painted frame's active tab -- a docked/closed tab is never it."""
+        """The first painted frame's active tab -- a docked tab is never it."""
         for frame in self._book.on_screen():
             if frame.active_tab is not None:
                 return frame.active_tab
@@ -127,10 +127,6 @@ class SceneReplica:
     def docked_frames(self) -> list[Frame]:
         """Return the frames the dock bar shows a pill for."""
         return self._book.docked()
-
-    def closed_frames(self) -> list[Frame]:
-        """Return the frames the user put away."""
-        return self._book.closed()
 
     def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
@@ -209,13 +205,6 @@ class SceneReplica:
         self._settle_terminals()
         return not frame.scenes
 
-    def close(self, frame_id: str) -> list[str]:
-        """Hide a frame and return its scene IDs without discarding content."""
-        frame = self._book.close(frame_id)
-        if frame is None:
-            return []
-        return list(frame.scene_order)
-
     def dispose_frame(self, frame_id: str, hub: HubId = _NO_HUB) -> list[str]:
         """Remove a frame and its scenes and return the stale element IDs."""
         frame = self._book.pop_frame(frame_id, hub)
@@ -242,7 +231,7 @@ class SceneReplica:
 
         Every way an element leaves -- scene dismissal, frame disposal, clear
         and scene replacement -- ends here, so a terminal replica is released
-        exactly when no element names it. A merely closed (hidden) frame keeps
+        exactly when no element names it. A merely docked (hidden) frame keeps
         its scenes and therefore its replicas. A move into another frame
         reports once, after the destination holds the scene, so the replica
         survives the move.

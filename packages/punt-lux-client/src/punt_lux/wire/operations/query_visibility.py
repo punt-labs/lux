@@ -29,7 +29,7 @@ __all__ = [
     "VisibilityUnavailable",
 ]
 
-type FrameVisibility = Literal["on_screen", "docked", "closed"]
+type FrameVisibility = Literal["on_screen", "docked"]
 
 
 class VisibilityNotRequested(BaseModel):
@@ -56,11 +56,6 @@ class VisibilityPresent(BaseModel):
 
     status: Literal["present"] = "present"
     visibility: FrameVisibility
-
-    @property
-    def is_closed(self) -> bool:
-        """Whether the user has put this frame away."""
-        return self.visibility == "closed"
 
 
 type FrameVisibilityState = (

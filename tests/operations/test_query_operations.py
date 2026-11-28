@@ -362,7 +362,7 @@ def test_inspect_scene_a_quarantined_scene_stays_inspectable() -> None:
 
 
 def test_list_scenes_reports_frame_visibility_when_asked() -> None:
-    """The opt-in that makes a closed frame observable from a real client surface.
+    """The opt-in that makes a docked frame observable from a real client surface.
 
     Where a window sits is not the Hub's to give --- the user owns it and it is
     never replicated back --- so it is proxied from the running display, on the
@@ -378,7 +378,7 @@ def test_list_scenes_reports_frame_visibility_when_asked() -> None:
             {
                 "scenes": [],
                 "frames": [
-                    {"frame_id": "frame-a", "visibility": "closed"},
+                    {"frame_id": "frame-a", "visibility": "docked"},
                 ],
             }
         )
@@ -392,8 +392,7 @@ def test_list_scenes_reports_frame_visibility_when_asked() -> None:
     assert isinstance(result, SceneList)
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
     assert isinstance(frame.visibility, VisibilityPresent)
-    assert frame.visibility.visibility == "closed"
-    assert frame.visibility.is_closed is True
+    assert frame.visibility.visibility == "docked"
 
 
 def test_list_scenes_says_not_requested_rather_than_guessing() -> None:

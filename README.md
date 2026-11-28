@@ -140,7 +140,7 @@ Use one install method per machine. Homebrew and the `curl | sh` installer put `
 - **Session menus** --- the menu bar has one submenu per Claude Code session; each lux-enabled session gets a "Beads" entry that opens the issue board
 - **Agent menus** --- `menu_set` adds the calling session's own menus; an item either raises one of that session's frames or sends a `lux.menu` event the agent reads with `topic_recv`
 - **New content does not take focus** --- a new scene opens a frame if none exists, without taking focus or moving, docking, or reopening other frames
-- **Closed frames keep their content** --- closing a frame keeps its scenes, widget state, and selected tab; the dock, Expand All, and the Windows menu reopen it as it was
+- **Minimized frames keep their content** --- minimizing a frame to the dock keeps its scenes, widget state, and selected tab; the dock pill, Expand All, and the Windows menu restore it as it was
 - **Content is held while no window is connected** --- the Hub never starts or stops the window; while none is connected it holds new content, retries with backoff, and sends everything when a window connects; `lux display link` reports the link state
 - **Themes** --- 17 built-in themes, chosen by the user from the window's Settings menu; agents can read the active theme with `display_theme_get` but cannot change it
 
@@ -240,7 +240,7 @@ Clients use the stateful MCP `initialize` handshake; clients that support automa
 | `display_state_get()` | Widget and frame state for the scenes you own |
 | `display_link_get()` | Whether a window is connected and, if not, how many scenes the Hub is holding, the current retry delay, and the Hub's host and PID |
 | `display_screenshot()` | Capture the next painted frame to a PNG; returns its path on the display host |
-| `list_frames()` | The window's frames and whether each is on screen, docked, or closed |
+| `list_frames()` | The window's frames and whether each is on screen or docked |
 | **Introspection** | |
 | `scene_inspect(scene_id)` | Element tree of a scene you own |
 | `scene_ls()` | Active scenes and frames |

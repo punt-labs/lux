@@ -882,7 +882,7 @@ class TestFrameCascadePartitions:
     def test_cascade_index_reuses_after_disposal(self):
         """Disposing a frame frees its index for reuse by the next frame.
 
-        A *closed* frame keeps its index, along with everything else about it —
+        A *docked* frame keeps its index, along with everything else about it —
         it is still there, waiting to be asked for.
         """
         server = _server()
@@ -985,7 +985,7 @@ class TestDisposeFramePartitions:
         server._scenes.dispose_frame("nonexistent")
         assert len(server._event_queue) == 0
 
-    def test_user_close_keeps_the_frame_and_everything_in_it(self):
+    def test_minimize_keeps_the_frame_and_everything_in_it(self):
         """The visibility half, beside the content one — the whole of the split."""
         server = _server()
         sock = _sock(fd=10)
@@ -995,21 +995,11 @@ class TestDisposeFramePartitions:
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
 
-        server._close_frame("f1")
+        server._scenes.minimize("f1")
 
-        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.frames["f1"].is_docked is True
         assert server._scenes.scene_to_frame["s1"] == "f1"
         assert server._scenes.widget_state_for("s1") is not None
-
-    def test_close_nonexistent_frame_is_noop(self):
-        """Closing a frame that isn't up is an answer, not an error."""
-        server = _server()
-        server._close_frame("nonexistent")
-        assert len(server._event_queue) == 0
-
-
-class TestDisconnectFrameCleanupPartitions:
-    """DisconnectClient: orphans scenes instead of removing them."""
 
     def test_disconnect_transfers_client_scenes(self):
         """Disconnecting a client transfers its scenes to remaining client."""
@@ -1095,7 +1085,7 @@ class TestDisconnectFrameCleanupPartitions:
         assert "s1" in frame.scenes
         assert server._scenes.scene_to_owner["s1"] == _ORPHAN_FD
 
-    def test_orphaned_frame_closeable_by_user(self):
+    def test_orphaned_frame_minimizable_by_user(self):
         """An orphaned frame can be put away by the user like any other."""
         server = _server()
         sock = _sock(fd=10)
@@ -1106,9 +1096,9 @@ class TestDisconnectFrameCleanupPartitions:
         server._socket_listener.remove_client(sock)
         assert "f1" in server._scenes.frames
 
-        server._close_frame("f1")
+        server._scenes.minimize("f1")
 
-        assert server._scenes.frames["f1"].is_closed is True
+        assert server._scenes.frames["f1"].is_docked is True
 
     def test_new_client_adopts_orphaned_frame(self):
         """After a frame is orphaned, a new client can adopt it."""
@@ -1193,10 +1183,10 @@ class TestFrameOwnershipPartitions:
 
 
 class TestFrameStaleEventDrainPartitions:
-    """Closing a frame drops this Display's queued interactions for its elements."""
+    """Ending a frame drops this Display's queued interactions for its scenes."""
 
-    def test_close_frame_drains_events(self):
-        """X6 — a button in a window the user just shut must not fire afterwards."""
+    def test_dropping_a_frames_interactions_drains_its_events(self):
+        """X6 — a button in content the user just ended must not fire afterwards."""
         server = _server()
         sock = _sock(fd=10)
         _register_hub(server, sock)
@@ -1211,13 +1201,13 @@ class TestFrameStaleEventDrainPartitions:
             )
         )
 
-        server._close_frame("f1")
+        server._drop_queued_interactions(["s1"])
 
         # b1 event drained
         remaining = [e for e in server._event_queue if e.element_id == "b1"]
         assert len(remaining) == 0
 
-    def test_close_frame_leaves_a_shared_id_alone_in_a_frame_still_up(self):
+    def test_dropping_leaves_a_shared_id_alone_in_a_frame_still_up(self):
         """The drain is scoped by scene, because element ids are not unique.
 
         Two frames can each hold a button called ``save``. Draining by element id
@@ -1241,12 +1231,12 @@ class TestFrameStaleEventDrainPartitions:
                 )
             )
 
-        server._close_frame("f1")
+        server._drop_queued_interactions(["s1"])
 
         surviving = [(e.element_id, e.scene_id) for e in server._event_queue]
         assert surviving == [("save", "s2")]
 
-    def test_close_frame_leaves_a_menu_click_alone(self):
+    def test_dropping_leaves_a_menu_click_alone(self):
         """A menu-bar click carries no scene, so it belongs to no frame."""
         server = _server()
         sock = _sock(fd=10)
@@ -1258,7 +1248,7 @@ class TestFrameStaleEventDrainPartitions:
             RemoteEventHandlerInvocation(element_id="leaf", action="menu", ts=1.0)
         )
 
-        server._close_frame("f1")
+        server._drop_queued_interactions(["s1"])
 
         assert [e.action for e in server._event_queue] == ["menu"]
 
@@ -1285,16 +1275,6 @@ class TestNoPushEverTakesFocus:
         assert server._scenes.frames["f1"].is_docked is True
         assert server._scenes.consume_focus("f1") is False
 
-    def test_a_new_scene_leaves_a_closed_frame_closed(self):
-        """N4 — a second board arriving does not reopen the window the user shut."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._close_frame("f1")
-        server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert server._scenes.frames["f1"].is_closed is True
-
     def test_repushed_scene_leaves_a_docked_frame_docked(self):
         """R2 — replacing a scene repaints in place: a frame put away stays away."""
         server = _server()
@@ -1304,37 +1284,6 @@ class TestNoPushEverTakesFocus:
         server._scenes.minimize("f1")
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert server._scenes.frames["f1"].is_docked is True
-
-    def test_repushed_scene_leaves_a_closed_frame_closed(self):
-        """R3 — bug B, through the socket path the user actually meets it on."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._close_frame("f1")
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._scenes.frames["f1"].is_closed is True
-
-    def test_close_frame_clears_focus(self):
-        """X7 — a frame that is not painted cannot take focus."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.request_focus("f1")
-        server._close_frame("f1")
-        assert server._scenes.consume_focus("f1") is False
-
-    def test_close_other_frame_preserves_focus(self):
-        """Closing a different frame leaves the focus request standing."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._handle_message(sock, _framed_scene("s2", "f2"))
-        server._scenes.request_focus("f2")
-        server._close_frame("f1")
-        assert server._scenes.consume_focus("f2") is True
 
 
 class TestFrameSizeAndFlagsPartitions:
@@ -1618,40 +1567,10 @@ class TestFrameVisibilityPartitions:
         assert server._scenes.frames["f1"].is_on_screen is True
         assert server._scenes.frames["f2"].is_on_screen is True
 
-    def test_fit_all_leaves_a_closed_frame_closed(self):
-        """V4 — fitting lays out what is on screen; it is not a way to reopen.
-
-        Expand All and the Windows menu's closed list are the gestures that mean
-        "bring it back"; a tiling command must not smuggle that in.
-        """
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._handle_message(sock, _framed_scene("s2", "f2"))
-        server._close_frame("f1")
-        server._scenes.minimize("f2")
-        server._fit_all_frames = True
-
-        assert server._apply_fit_all() is True
-        assert server._scenes.frames["f1"].is_closed is True
-        assert server._scenes.frames["f2"].is_on_screen is True
-
     def test_fit_all_noop_when_not_requested(self):
         """_apply_fit_all() returns False when no fit was requested."""
         server = _server()
         assert server._apply_fit_all() is False
-
-    def test_closing_a_docked_frame_closes_it_rather_than_removing_it(self):
-        """X2 — closed is reachable from the dock, and it is still a visibility."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register_hub(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._scenes.minimize("f1")
-        server._close_frame("f1")
-        assert server._scenes.frames["f1"].is_closed is True
-        assert server._scenes.docked_frames() == []
 
     def test_clear_all_disposes_every_frame_whatever_its_visibility(self):
         """D5 — Clear All means the content is gone, not that it was put away."""
@@ -1661,7 +1580,7 @@ class TestFrameVisibilityPartitions:
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
         server._handle_message(sock, _framed_scene("s3", "f3"))
-        server._close_frame("f1")
+        server._scenes.minimize("f1")
         server._scenes.minimize("f2")
 
         server._clear_all()

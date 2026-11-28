@@ -27,7 +27,7 @@ from punt_lux.display.menus.model import Submenu
 from punt_lux.display.menus.windows_menu import WindowsMenu
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from punt_lux.display.menus.window_preferences import (
         NamedTheme,
@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
+    from punt_lux.wire.model.identity import HubId
 
 __all__ = ["OwnMenus"]
 
@@ -66,16 +67,18 @@ class OwnMenus:
         *,
         settings: WindowPreferences,
         get_frames: Callable[[], Mapping[str, Frame]],
+        get_docked: Callable[[], Sequence[Frame]],
         addressing: AddressRendering,
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
-        on_raise_frame: Callable[[str], None],
+        on_raise_frame: Callable[[str, HubId], None],
         chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
         self._settings = settings
         self._windows = WindowsMenu(
             get_frames=get_frames,
+            get_docked=get_docked,
             addressing=addressing,
             on_clear_all=on_clear_all,
             on_fit_all=on_fit_all,

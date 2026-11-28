@@ -2,7 +2,7 @@
 
 Split out of :class:`~punt_lux.display.replica.frame_book.FrameBook`, where the
 "clear it if it is this frame's" step was written out at each of the three
-places a frame stops being able to take focus — closed, disposed, or cleared
+places a frame stops being able to take focus — disposed, or cleared
 away with the rest. One invariant repeated in three methods is an invariant with
 nowhere to live; here it has one.
 
@@ -44,9 +44,8 @@ class FocusRequest:
     def release(self, frame_id: str) -> None:
         """Withdraw the request if it is ``frame_id``'s; leave another's standing.
 
-        A frame that has stopped being painted cannot take focus, so closing,
-        disposing, or otherwise putting one away withdraws its claim — and only
-        its own.
+        A frame that has stopped being painted cannot take focus, so disposing or
+        otherwise putting one away withdraws its claim — and only its own.
         """
         if self._frame_id == frame_id:
             self._frame_id = None

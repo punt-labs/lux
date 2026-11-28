@@ -255,11 +255,11 @@ class TestBornOnScreen:
     def test_a_new_frame_leaves_another_frames_visibility_alone(self) -> None:
         book = FrameBook()
         book.ensure(_scene(), owner_fd=10)
-        book.close("f1")
+        book.minimize("f1")
 
         book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
 
-        assert book.frames["f1"].is_closed is True
+        assert book.frames["f1"].is_docked is True
 
     def test_ensure_leaves_an_existing_frames_visibility_alone(self) -> None:
         """The policy is for frames being *born*; an existing one keeps its place."""
@@ -272,63 +272,6 @@ class TestBornOnScreen:
         assert book.frames["f1"].is_docked is True
 
 
-class TestClose:
-    """Closing writes visibility and nothing else — the split's visibility half."""
-
-    def test_a_closed_frame_stays_in_the_book(self) -> None:
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-
-        book.close("f1")
-
-        assert "f1" in book.frames
-        assert book.frames["f1"].is_closed is True
-
-    def test_closing_a_docked_frame_takes_away_its_pill(self) -> None:
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        book.minimize("f1")
-
-        book.close("f1")
-
-        assert book.docked() == []
-        assert [f.frame_id for f in book.closed()] == ["f1"]
-
-    def test_closing_clears_a_focus_request_that_frame_held(self) -> None:
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        book.request_focus("f1")
-
-        book.close("f1")
-
-        assert book.consume_focus("f1") is False
-
-    def test_closing_leaves_another_frames_focus_request_standing(self) -> None:
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        book.ensure(_scene(scene_id="s2", frame_id="f2"), owner_fd=10)
-        book.request_focus("f2")
-
-        book.close("f1")
-
-        assert book.consume_focus("f2") is True
-
-    def test_closing_keeps_the_scene_placement_maps(self) -> None:
-        """The user shut a window; that says nothing about what it holds."""
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        book.set_frame(_key("s1"), "f1")
-        book.record_owner(_key("s1"), 10)
-
-        book.close("f1")
-
-        assert book.scene_to_frame["s1"] == "f1"
-        assert book.scene_to_owner["s1"] == 10
-
-    def test_closing_an_absent_frame_is_an_answer_not_an_error(self) -> None:
-        assert FrameBook().close("ghost") is None
-
-
 class TestRestore:
     """Restoring is one gesture, and it works from every visibility."""
 
@@ -336,16 +279,6 @@ class TestRestore:
         book = FrameBook()
         book.ensure(_scene(), owner_fd=10)
         book.minimize("f1")
-
-        assert book.restore("f1") is True
-        assert book.frames["f1"].is_on_screen is True
-        assert book.consume_focus("f1") is True
-
-    def test_restores_a_closed_frame_and_asks_for_focus(self) -> None:
-        """Bug A's partition: the close left something for the gesture to act on."""
-        book = FrameBook()
-        book.ensure(_scene(), owner_fd=10)
-        book.close("f1")
 
         assert book.restore("f1") is True
         assert book.frames["f1"].is_on_screen is True
@@ -365,18 +298,18 @@ class TestRestore:
 
     def test_a_scoped_restore_reopens_only_its_own_hubs_frame(self) -> None:
         # Two Hubs each hold a frame under the same
-        # id, both closed. A callback item names its owning Hub, so its raise
-        # must reopen that Hub's frame alone -- never the other's same-named one.
+        # id, both docked. A callback item names its owning Hub, so its raise
+        # must restore that Hub's frame alone -- never the other's same-named one.
         book = FrameBook()
         frame_a = book.ensure(_scene(frame_id="board"), owner_fd=10, hub=_HUB_A)
         frame_b = book.ensure(_scene(frame_id="board"), owner_fd=20, hub=_HUB_B)
-        frame_a.close()
-        frame_b.close()
+        frame_a.minimize()
+        frame_b.minimize()
 
         assert book.restore("board", _HUB_A) is True
 
-        assert frame_a.is_on_screen is True  # its own Hub's raise reopened it
-        assert frame_b.is_closed is True  # the other Hub's frame stayed closed
+        assert frame_a.is_on_screen is True  # its own Hub's raise restored it
+        assert frame_b.is_docked is True  # the other Hub's frame stayed docked
 
 
 class TestVisibilityQueries:
@@ -387,17 +320,15 @@ class TestVisibilityQueries:
         for fid, sid in (("f1", "s1"), ("f2", "s2"), ("f3", "s3")):
             book.ensure(_scene(scene_id=sid, frame_id=fid), owner_fd=10)
         book.minimize("f2")
-        book.close("f3")
+        book.minimize("f3")
 
         assert [f.frame_id for f in book.on_screen()] == ["f1"]
-        assert [f.frame_id for f in book.docked()] == ["f2"]
-        assert [f.frame_id for f in book.closed()] == ["f3"]
+        assert [f.frame_id for f in book.docked()] == ["f2", "f3"]
 
     def test_the_buckets_are_empty_on_an_empty_book(self) -> None:
         book = FrameBook()
         assert book.on_screen() == []
         assert book.docked() == []
-        assert book.closed() == []
 
 
 class TestReassignScenesOf:

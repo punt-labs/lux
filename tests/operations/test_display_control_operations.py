@@ -224,10 +224,10 @@ def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
 
 
 def test_list_frames_reports_where_each_frame_is_shown() -> None:
-    # The read that makes a closed frame observable from outside the display.
-    # Closing is a visibility, not an erasure, so the frame the user shut is
-    # listed like any other -- a caller can no longer tell it from a frame that
-    # never existed by its absence, and this is where it learns the difference.
+    # The read that makes a docked frame observable from outside the display.
+    # Docking is a visibility, not an erasure, so the frame the user minimized
+    # is listed like any other -- a caller can tell it from a frame that never
+    # existed by its presence, and this is where it learns the difference.
     port = _FakePort(
         query=DisplayReplied(
             {
@@ -239,7 +239,7 @@ def test_list_frames_reports_where_each_frame_is_shown() -> None:
                         "scene_count": 1,
                         "scene_ids": ["s1"],
                         "layout": "tab",
-                        "visibility": "closed",
+                        "visibility": "docked",
                     },
                     {
                         "frame_id": "f2",
@@ -258,11 +258,9 @@ def test_list_frames_reports_where_each_frame_is_shown() -> None:
 
     assert isinstance(result, FrameStates)
     assert [(f.frame_id, f.visibility) for f in result.frames] == [
-        ("f1", "closed"),
+        ("f1", "docked"),
         ("f2", "on_screen"),
     ]
-    assert result.frames[0].is_closed is True
-    assert result.frames[1].is_closed is False
     assert port.last_method == "list_scenes"
 
 

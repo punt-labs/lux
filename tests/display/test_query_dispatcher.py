@@ -140,24 +140,19 @@ class TestListScenesReportsVisibility:
     def test_each_visibility_is_reported_by_name(self) -> None:
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         qd = _make_dispatcher(scenes)
-        for fid, sid in (("f1", "s1"), ("f2", "s2"), ("f3", "s3")):
+        for fid, sid in (("f1", "s1"), ("f2", "s2")):
             scenes.handle_framed_scene(_scene(sid, fid), owner_fd=10)
         scenes.minimize("f2")
-        scenes.close("f3")
 
-        assert self._frames(qd) == {
-            "f1": "on_screen",
-            "f2": "docked",
-            "f3": "closed",
-        }
+        assert self._frames(qd) == {"f1": "on_screen", "f2": "docked"}
 
-    def test_a_closed_frame_still_reports_the_scenes_it_holds(self) -> None:
-        """Closed is not gone: the content behind the shut window is still listed."""
+    def test_a_docked_frame_still_reports_the_scenes_it_holds(self) -> None:
+        """Docked is not gone: the minimized window's content is still listed."""
         scenes = SceneReplica(on_scene_replaced=lambda _ids: None)
         qd = _make_dispatcher(scenes)
         scenes.handle_framed_scene(_scene("s1", "f1"), owner_fd=10)
 
-        scenes.close("f1")
+        scenes.minimize("f1")
 
         frames = qd.handle_query("list_scenes", None).result["frames"]
         assert frames == [
@@ -168,7 +163,7 @@ class TestListScenesReportsVisibility:
                 "scene_count": 1,
                 "scene_ids": ["s1"],
                 "layout": "tab",
-                "visibility": "closed",
+                "visibility": "docked",
             }
         ]
 

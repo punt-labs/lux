@@ -11,7 +11,7 @@ _VALID_FRAME = {
     "scene_count": 1,
     "scene_ids": ["s1"],
     "layout": "tab",
-    "visibility": "closed",
+    "visibility": "docked",
 }
 
 
@@ -20,7 +20,7 @@ def test_from_payload_narrows_a_well_formed_reply() -> None:
 
     assert isinstance(result, FrameStates)
     assert result.frames == [
-        FrameState(frame_id="f1", title="Music", visibility="closed", scene_ids=["s1"])
+        FrameState(frame_id="f1", title="Music", visibility="docked", scene_ids=["s1"])
     ]
 
 
@@ -55,13 +55,3 @@ def test_from_payload_refuses_a_malformed_frame_entry() -> None:
 
     assert isinstance(result, OpError)
     assert result.code == "fault"
-
-
-def test_frame_state_is_closed_reflects_visibility() -> None:
-    closed = FrameState(frame_id="f1", title="t", visibility="closed", scene_ids=[])
-    on_screen = FrameState(
-        frame_id="f2", title="t", visibility="on_screen", scene_ids=[]
-    )
-
-    assert closed.is_closed is True
-    assert on_screen.is_closed is False
