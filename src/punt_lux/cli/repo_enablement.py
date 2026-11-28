@@ -83,16 +83,12 @@ class RepoCommands:
             typer.echo(f"error: {error}", err=True)
             raise typer.Exit(1) from error
         if not flags.quiet:
-            typer.echo(
-                json.dumps(
-                    {
-                        "enabled": result.enabled,
-                        "deciding_file": str(result.deciding_file),
-                    }
-                )
-                if flags.json
-                else result.describe()
-            )
+            report = {
+                "enabled": result.enabled,
+                "deciding_file": str(result.deciding_file),
+                "refresh_notice": result.notice,
+            }
+            typer.echo(json.dumps(report) if flags.json else result.describe())
 
     @staticmethod
     def status_line() -> str:

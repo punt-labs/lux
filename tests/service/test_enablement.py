@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -223,6 +224,23 @@ def test_local_enable_with_skipped_refresh_clears_disabled_marker(
     assert not marker.exists()
     assert not (marker.parent / "CLAUDE.md").exists()
     assert not (marker.parent / ".vendored-manifest").exists()
+
+
+def test_skipped_local_refresh_is_reported_as_json(
+    checkout: Checkout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    Enablement(checkout, "project").apply("enable")
+    monkeypatch.chdir(checkout.root)
+    result = CliRunner().invoke(
+        app, ["enable", "--scope", "local", "--refresh", "--json"]
+    )
+    assert result.exit_code == 0
+    notice = "No active local Lux guide to refresh; guide files unchanged."
+    assert json.loads(result.output) == {
+        "enabled": True,
+        "deciding_file": str(checkout.root / SHARED / "enabled"),
+        "refresh_notice": notice,
+    }
 
 
 def test_opt_out_refusal_leaves_both_scopes_untouched(checkout: Checkout) -> None:
