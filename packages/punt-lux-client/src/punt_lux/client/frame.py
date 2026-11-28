@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.wire.ops import Ctx
 
 if TYPE_CHECKING:
-    from punt_lux.client.frame_deps import FrameAccessorDeps
+    from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.operations import Ok, OpError, Scope
     from punt_lux.wire.ops import FrameOps
 
@@ -21,11 +21,11 @@ class FrameAccessor:
     _scope: Scope
     __slots__ = ("_ctx", "_scope")
 
-    def __new__(cls, deps: FrameAccessorDeps) -> Self:
-        """Bind the frame accessor to its client dependencies."""
+    def __new__(cls, ops: FrameOps, identity: ClientIdentity, scope: Scope) -> Self:
+        """Bind the frame accessor to the ops surface, identity and write scope."""
         self = super().__new__(cls)
-        self._ctx = Ctx(ops=deps.ops, identity=deps.identity)
-        self._scope = deps.scope
+        self._ctx = Ctx(ops=ops, identity=identity)
+        self._scope = scope
         return self
 
     async def remove(self, frame_id: str) -> Ok | OpError:

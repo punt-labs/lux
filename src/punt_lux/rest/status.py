@@ -10,11 +10,13 @@ place instead of degrading silently at each call site.
 
 from __future__ import annotations
 
-from typing import ClassVar, Self, final
+from typing import TYPE_CHECKING, ClassVar, Self, final
 
-from fastapi import HTTPException
-
+from punt_lux.rest.op_error_response import OpErrorHandler, OpFailureError
 from punt_lux.wire.operations.common import OpError, OpErrorCode
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 __all__ = ["HttpErrorMap"]
 
@@ -43,6 +45,8 @@ class HttpErrorMap:
         "fault": 502,
         "display_unavailable": 503,
         "timeout": 504,
+        "provider_unavailable": 503,
+        "provider_lost": 502,
     }
 
     __slots__ = ()
@@ -53,6 +57,10 @@ class HttpErrorMap:
     def status_for(self, code: OpErrorCode) -> int:
         """Return the HTTP status a given ``OpError`` code maps to."""
         return self._STATUS[code]
+
+    def install(self, app: FastAPI) -> None:
+        """Register the handler that writes an error's exact code into its body."""
+        OpErrorHandler().install(app)
 
     def respond[T](self, result: T | OpError) -> T:
         """Return a success result, or raise the error's HTTP status.
@@ -67,7 +75,5 @@ class HttpErrorMap:
         reason string. Both are 422; the shapes differ by which layer rejected.
         """
         if isinstance(result, OpError):
-            raise HTTPException(
-                status_code=self._STATUS[result.code], detail=result.reason
-            )
+            raise OpFailureError(self._STATUS[result.code], result.code, result.reason)
         return result

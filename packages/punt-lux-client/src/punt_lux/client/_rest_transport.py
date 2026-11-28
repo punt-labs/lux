@@ -51,6 +51,7 @@ from punt_lux.wire.operations.identity import Identified
 
 if TYPE_CHECKING:
     from punt_lux.client.hub_client import CallbackHandler, ConnectHandler, EventHandler
+    from punt_lux.client.request_server import RequestHandler
     from punt_lux.wire.operations import (
         Cleared,
         DisplayInfo,
@@ -100,6 +101,16 @@ class _RestTransport:
         self._display = _DisplayRestOps(transport, self._headers)
         return self
 
+    @property
+    def http(self) -> HttpTransport:
+        """Return the HTTP transport every request goes through."""
+        return self._transport
+
+    @property
+    def headers(self) -> dict[str, str]:
+        """Return the identity headers stamped on every request."""
+        return self._headers
+
     @classmethod
     def connect(cls, *, timeout: float = 2.0) -> Self:
         """Build a CLI client with an identity derived from context.
@@ -130,6 +141,7 @@ class _RestTransport:
         on_callback: CallbackHandler,
         on_event: EventHandler,
         on_connect: ConnectHandler | None = None,
+        on_request: RequestHandler | None = None,
     ) -> LuxHubClient:
         """Build a persistent listen client sharing this client's identity.
 
@@ -144,6 +156,7 @@ class _RestTransport:
             on_callback=on_callback,
             on_event=on_event,
             on_connect=on_connect,
+            on_request=on_request,
         )
 
     def render(

@@ -145,9 +145,21 @@ punt-service = { workspace = true }
 stateless-values = "any"
 
 [tool.oo-ratchet.coupling.caps]
-"src/punt_lux/operations/facade.py" = { efferent_coupling = 20 }
+# The facade only delegates: each concern it composes adds a group of methods
+# that share no state with the others, so its cohesion metric counts concerns.
+"src/punt_lux/operations/facade.py" = { efferent_coupling = 20, max_lcom = 0.95, avg_lcom = 0.95 }
 "src/punt_lux/tools/subscribe_tools.py" = { efferent_coupling = 20 }
+# The package exposes every MCP tool by name, which the characterization corpus
+# and its every-tool-has-a-snapshot guard rely on, so its public names track the
+# tool count.
+"src/punt_lux/tools/__init__.py" = { public_names = 40 }
+# The client package re-exports one accessor per noun, plus the refusal error a
+# service provider raises, so its fan-out tracks the accessor count.
+"packages/punt-lux-client/src/punt_lux/client/__init__.py" = { efferent_coupling = 14 }
 "src/punt_lux/hub/hub_composition.py" = { efferent_coupling = 20 }
+# The registry is the one place every noun sub-app is wired onto the CLI, so its
+# fan-out is the number of sub-apps.
+"src/punt_lux/cli/registry.py" = { efferent_coupling = 20 }
 
 [tool.ruff]
 line-length = 88

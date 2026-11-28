@@ -26,9 +26,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from punt_lux.hub.call_outcomes import (
+    Lost,
+    ProviderBusyError,
+    Refused,
+    Replied,
+    TimedOut,
+)
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.callback_ports import CallbackListener
+from punt_lux.hub.client_calls import ClientCalls
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.departure_cascade import DepartureCascade
 from punt_lux.hub.departure_sinks import DepartureSink
@@ -47,6 +55,7 @@ from punt_lux.wire.model.elements.text import TextElement
 from punt_lux.wire.model.ids import SceneId, Topic
 from punt_lux.wire.model.menu_models import Menu, MenuAction
 from punt_lux.wire.model.messages.listen import CallbackFrame
+from punt_lux.wire.model.messages.relay_frames import ReplyFrame
 from punt_lux.wire.model.scope import Scope
 from punt_lux.wire.model.session_callback import CallbackInvocation, SessionCallback
 
@@ -118,9 +127,13 @@ class _Wiring:
     router: CallbackRouter
     menus: _MenuFlag
     lifecycle: ClientLifecycle
+    calls: ClientCalls
 
 
-def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
+def _wired(
+    clock: Callable[[], float] = time.monotonic,
+    call_clock: Callable[[], float] = time.monotonic,
+) -> _Wiring:
     hub = Hub()
     factory = HubStoreFactory(clock=clock, hub=hub)
     display = factory.display
@@ -130,8 +143,11 @@ def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     menus = _MenuFlag()
     lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    HubListenTransport(hub, lifecycle, router).mount(app)
-    return _Wiring(TestClient(app), hub, clients, display, router, menus, lifecycle)
+    calls = ClientCalls(boot="t", clock=call_clock)
+    HubListenTransport(hub, lifecycle, router, calls).mount(app)
+    return _Wiring(
+        TestClient(app), hub, clients, display, router, menus, lifecycle, calls
+    )
 
 
 def _eventually(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -308,6 +324,7 @@ def _session_over(send_error: Exception) -> HubListenSession:
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     )
 
 
@@ -357,6 +374,7 @@ def test_a_peer_that_dies_before_the_handshake_leaves_no_listener() -> None:
             hub,
             lifecycle,
             router,
+            ClientCalls(),
         )
         await session.run()
 
@@ -603,6 +621,7 @@ def _listen_session(
             hub,
             lifecycle,
             CallbackRouter(clients),
+            ClientCalls(),
         )
 
     return asyncio.run(_build())
@@ -621,6 +640,7 @@ def _agent_listen_session(
             hub,
             lifecycle,
             CallbackRouter(clients),
+            ClientCalls(),
         )
 
     return asyncio.run(_build())
@@ -714,6 +734,7 @@ def test_a_listen_attach_of_an_agent_marks_menus_and_its_lapse_withdraws_it() ->
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     ).mount(app)
     headers = {
         "X-Lux-Client-Kind": "mcp-session",
@@ -776,6 +797,7 @@ def _agent_rig() -> _AgentRig:
         hub,
         lifecycle,
         CallbackRouter(clients),
+        ClientCalls(),
     ).mount(app)
     return _AgentRig(TestClient(app), lifecycle, clients, clock, menus)
 
@@ -913,9 +935,9 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
     factory = HubStoreFactory(clock=clock, hub=hub)
     factory.lifecycle.present_as(marker, MarkMenusSink(marker))
     app = FastAPI()
-    HubListenTransport(hub, factory.lifecycle, CallbackRouter(factory.clients)).mount(
-        app
-    )
+    HubListenTransport(
+        hub, factory.lifecycle, CallbackRouter(factory.clients), ClientCalls()
+    ).mount(app)
     client = TestClient(app)
     with client.websocket_connect("/ws", headers=_AGENT_HEADERS) as ws:
         ws.receive_json()  # ready
@@ -929,3 +951,153 @@ def test_a_read_loop_frame_from_a_lapsed_survivor_marks_its_scenes() -> None:
         ws.send_json(_RENEW)
 
         _eventually(lambda: scene in marker.scenes)
+
+
+def _session_of(wired: _Wiring) -> HubListenSession:
+    """The live listen session holding the connection's slot."""
+    leg = _leg_of(wired.clients)
+    assert isinstance(leg, HubListenSession)
+    return leg
+
+
+def test_a_relayed_request_reaches_the_client_and_its_reply_resolves_the_call() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        call = _session_of(wired).relay("terminal", "ls", {"x": 1})
+
+        frame = ws.receive_json()
+        assert frame == {
+            "kind": "request",
+            "request_id": call.frame.request_id,
+            "service": "terminal",
+            "operation": "ls",
+            "payload": {"x": 1},
+        }
+        ws.send_text(
+            ReplyFrame(
+                request_id=call.frame.request_id, payload={"ok": 1}
+            ).model_dump_json()
+        )
+
+        assert call.wait() == Replied({"ok": 1})
+
+
+def test_a_disconnect_resolves_the_calls_pending_on_the_session_as_lost() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "new", {})
+        ws.receive_json()  # the request reached the client; it never answers
+
+    assert call.wait() == Lost()
+
+
+def test_a_frame_over_the_size_limit_closes_the_leg_as_too_big() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        ws.send_text("x" * (ClientCalls.MAX_FRAME_BYTES + 1))
+
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+
+    assert closed.value.code == 1009
+
+
+def test_a_reply_larger_than_the_cap_resolves_the_call_as_a_fault() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "ls", {})
+        ws.receive_json()
+        big = ReplyFrame(
+            request_id=call.frame.request_id,
+            payload={"blob": "x" * (ClientCalls.MAX_REPLY_BYTES + 1)},
+        )
+        ws.send_text(big.model_dump_json())
+
+        outcome = call.wait()
+
+    assert isinstance(outcome, Refused)
+    assert outcome.code == "fault"
+
+
+def test_the_ninth_relayed_request_on_a_session_is_refused_without_a_frame() -> None:
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        session = _session_of(wired)
+        for _ in range(ClientCalls.PER_SESSION_LIMIT):
+            session.relay("terminal", "ls", {})
+
+        with pytest.raises(ProviderBusyError):
+            session.relay("terminal", "ls", {})
+
+
+def test_a_reply_over_the_cap_in_bytes_is_refused_even_when_short_in_characters() -> (
+    None
+):
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()
+        call = _session_of(wired).relay("terminal", "ls", {})
+        ws.receive_json()
+        blob = "é" * (ClientCalls.MAX_REPLY_BYTES // 2 + 100)  # 2 bytes each
+        assert len(blob) < ClientCalls.MAX_REPLY_BYTES
+        ws.send_text(
+            ReplyFrame(
+                request_id=call.frame.request_id, payload={"blob": blob}
+            ).model_dump_json()
+        )
+
+        outcome = call.wait()
+
+    assert isinstance(outcome, Refused)
+    assert outcome.code == "fault"
+
+
+def test_a_session_whose_writer_has_ended_ends_and_its_calls_are_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def writer_fails_on_its_first_send(self: HubListenSession) -> None:
+        await self._outbound.get()  # taken off the queue, then the socket fails
+
+    monkeypatch.setattr(HubListenSession, "_write_loop", writer_fails_on_its_first_send)
+    wired = _wired()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        call = _session_of(wired).relay("terminal", "ls", {})
+
+        outcome = call.wait()
+
+    assert outcome == Lost()
+
+
+def test_a_request_whose_call_ended_while_it_was_queued_is_never_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    wired = _wired(call_clock=lambda: now[0])
+    release = threading.Event()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        session = _session_of(wired)
+        socket = session._ws  # the one place a test can hold the socket's writer
+        send = socket.send_text
+
+        async def held(text: str) -> None:
+            await asyncio.to_thread(release.wait)
+            await send(text)
+
+        monkeypatch.setattr(socket, "send_text", held)  # a backed-up socket
+        first = session.relay("terminal", "ls", {})
+        stale = session.relay("terminal", "ls", {})
+        now[0] += ClientCalls.DEADLINE_S + 1  # the second call's deadline passes
+        assert stale.wait() == TimedOut()
+        release.set()
+        third = session.relay("terminal", "ls", {})
+
+        sent = [ws.receive_json()["request_id"] for _ in range(2)]
+
+    assert sent == [first.frame.request_id, third.frame.request_id]

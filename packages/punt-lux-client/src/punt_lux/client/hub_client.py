@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Self, final
 
 import websockets
 
+from punt_lux.client.request_server import RequestHandler, RequestServer
 from punt_lux.client.rest_transport import HubUnavailableError
 from punt_lux.kernel.hub_paths import HubPaths
 from punt_lux.kernel.programmer_error import ProgrammerError
@@ -41,6 +42,7 @@ from punt_lux.wire.model.messages.listen import (
     ServerFrames,
     SubscribeFrame,
 )
+from punt_lux.wire.model.messages.relay_frames import RequestFrame
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
@@ -79,6 +81,7 @@ class LuxHubClient:
     _on_event: EventHandler
     # A receive-only client can rely on topic re-subscription.
     _on_connect: ConnectHandler | None
+    _requests: RequestServer
     _renew_interval: float
     _topics: set[str]
     _stopped: asyncio.Event
@@ -90,6 +93,7 @@ class LuxHubClient:
         "_on_connect",
         "_on_event",
         "_renew_interval",
+        "_requests",
         "_reresolve",
         "_stopped",
         "_topics",
@@ -104,6 +108,7 @@ class LuxHubClient:
         on_callback: CallbackHandler,
         on_event: EventHandler,
         on_connect: ConnectHandler | None = None,
+        on_request: RequestHandler | None = None,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
         reresolve: bool = False,
     ) -> Self:
@@ -119,6 +124,7 @@ class LuxHubClient:
         self._on_callback = on_callback
         self._on_event = on_event
         self._on_connect = on_connect
+        self._requests = RequestServer(on_request)
         self._renew_interval = renew_interval
         self._topics = set()
         self._stopped = asyncio.Event()
@@ -133,6 +139,7 @@ class LuxHubClient:
         on_callback: CallbackHandler,
         on_event: EventHandler,
         on_connect: ConnectHandler | None = None,
+        on_request: RequestHandler | None = None,
         renew_interval: float = _RENEW_INTERVAL_SECONDS,
     ) -> Self:
         """Build a client for ``identity``, resolving luxd's port, or raise if down.
@@ -153,6 +160,7 @@ class LuxHubClient:
             on_callback=on_callback,
             on_event=on_event,
             on_connect=on_connect,
+            on_request=on_request,
             renew_interval=renew_interval,
             reresolve=True,
         )
@@ -240,9 +248,11 @@ class LuxHubClient:
         await self._fire_on_connect()
         renew = asyncio.create_task(self._renew_loop(connection))
         try:
+            self._requests.bind(connection)
             async for raw in connection:
                 await self._dispatch(raw)
         finally:
+            self._requests.cancel_all()
             renew.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await renew
@@ -285,12 +295,14 @@ class LuxHubClient:
         return frame.connection_id
 
     async def _dispatch(self, raw: str | bytes) -> None:
-        """Route one server frame to its app handler; a stray ready frame is ignored."""
+        """Route one server frame to its handler; a stray ready frame is ignored."""
         frame = ServerFrames.validate_json(raw)
         if isinstance(frame, CallbackFrame):
             await self._await_maybe(self._on_callback(frame.callback_id))
         elif isinstance(frame, EventFrame):
             await self._await_maybe(self._on_event(frame.topic, frame.payload))
+        elif isinstance(frame, RequestFrame):
+            self._requests.start(frame)
 
     async def _renew_loop(self, connection: ClientConnection) -> None:
         """Send a keepalive each interval so a quiet app's lease never lapses."""

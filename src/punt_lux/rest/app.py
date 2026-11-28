@@ -16,14 +16,9 @@ from typing import TYPE_CHECKING, Literal, Self, final
 from pydantic import BaseModel, ConfigDict
 
 from punt_lux.hub.hub_composition import HubComposition
-from punt_lux.rest.config import DisplayModeRoutes
-from punt_lux.rest.display import DisplayRoutes
-from punt_lux.rest.display_link import DisplayLinkRoutes
-from punt_lux.rest.frame import FrameRoutes
 from punt_lux.rest.identity import RestCaller
-from punt_lux.rest.menus import MenuRoutes
 from punt_lux.rest.route_deps import RouteDeps
-from punt_lux.rest.scenes import SceneRoutes
+from punt_lux.rest.routers import RestRouters
 from punt_lux.rest.status import HttpErrorMap
 
 if TYPE_CHECKING:
@@ -53,20 +48,15 @@ class RestSurface:
 
     _routers: tuple[APIRouter, ...]
     _caller: RestCaller
-    __slots__ = ("_caller", "_routers")
+    _errors: HttpErrorMap
+    __slots__ = ("_caller", "_errors", "_routers")
 
     def __new__(cls, ops: Operations) -> Self:
         self = super().__new__(cls)
         deps = RouteDeps(ops, HttpErrorMap())
         self._caller = RestCaller(ops, deps.errors)
-        self._routers = (
-            SceneRoutes(ops, deps.errors).router,
-            MenuRoutes(ops, deps.errors).router,
-            DisplayRoutes(deps).router,
-            DisplayLinkRoutes(deps).router,
-            FrameRoutes(deps).router,
-            DisplayModeRoutes(ops, deps.errors).router,
-        )
+        self._errors = deps.errors
+        self._routers = RestRouters(ops, deps).all
         return self
 
     @classmethod
@@ -86,5 +76,6 @@ class RestSurface:
         Write routes read the caller off ``app.state`` via ``RestCaller.resolve_scope``.
         """
         app.state.rest_caller = self._caller
+        self._errors.install(app)
         for router in self._routers:
             app.include_router(router)

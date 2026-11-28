@@ -34,6 +34,7 @@ from fastapi.testclient import TestClient
 
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
+from punt_lux.hub.client_calls import ClientCalls
 from punt_lux.hub.client_lifecycle import ClientLifecycle
 from punt_lux.hub.hub import Hub
 from punt_lux.hub.hub_clients import HubClientRegistry
@@ -98,7 +99,7 @@ def _wired() -> tuple[
     clients = factory.clients
     router = CallbackRouter(clients)
     app = FastAPI()
-    HubListenTransport(hub, lifecycle, router).mount(app)
+    HubListenTransport(hub, lifecycle, router, ClientCalls()).mount(app)
     return TestClient(app), hub, clients, router, lifecycle
 
 

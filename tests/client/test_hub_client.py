@@ -24,6 +24,11 @@ from punt_lux.wire.model.messages.listen import (
     ReadyFrame,
     SubscribeFrame,
 )
+from punt_lux.wire.model.messages.relay_frames import (
+    RefusalFrame,
+    ReplyFrame,
+    RequestFrame,
+)
 
 
 def _identity() -> ClientIdentity:
@@ -304,3 +309,76 @@ def test_the_loop_backs_off_while_the_port_is_absent_then_connects(
     # was used for the one connect attempt.
     assert connected == ["ws://127.0.0.1:9100/ws"]
     assert reads["n"] == 3
+
+
+class _RequestingConnection:
+    """A websocket that delivers one request frame, then ends; it records sends."""
+
+    def __init__(self, frame: str) -> None:
+        self._frames = [frame]
+        self.sent: list[str] = []
+
+    async def recv(self) -> str:
+        return ReadyFrame(connection_id="c").model_dump_json()
+
+    async def send(self, text: str) -> None:
+        self.sent.append(text)
+
+    def __aiter__(self) -> _RequestingConnection:
+        return self
+
+    async def __anext__(self) -> str:
+        if self._frames:
+            return self._frames.pop(0)
+        # Keep the stream open until the request has been answered; a stream
+        # that ends first cancels the request in flight, as a real disconnect does.
+        for _ in range(100):
+            if self.sent:
+                break
+            await asyncio.sleep(0)
+        raise StopAsyncIteration
+
+
+def _requesting_client(on_request: object | None) -> LuxHubClient:
+    return LuxHubClient(
+        "ws://127.0.0.1:0/ws",
+        _identity(),
+        on_callback=_noop_callback,
+        on_event=_noop_event,
+        on_request=on_request,  # type: ignore[arg-type]  # handler protocol; test doubles satisfy it
+    )
+
+
+def _run_one_request(client: LuxHubClient) -> _RequestingConnection:
+    frame = RequestFrame(
+        request_id="c1.1", service="terminal", operation="ls", payload={}
+    ).model_dump_json()
+    connection = _RequestingConnection(frame)
+
+    async def scenario() -> None:
+        await client._run_session(connection)  # type: ignore[arg-type]  # structural fake
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+    return connection
+
+
+def test_a_request_frame_is_answered_by_the_on_request_handler() -> None:
+    def handler(
+        service: str, operation: str, _payload: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        return {"served": f"{service}.{operation}"}
+
+    connection = _run_one_request(_requesting_client(handler))
+
+    assert [ReplyFrame.model_validate_json(t) for t in connection.sent] == [
+        ReplyFrame(request_id="c1.1", payload={"served": "terminal.ls"})
+    ]
+
+
+def test_a_request_to_a_client_with_no_handler_is_refused_not_dropped() -> None:
+    connection = _run_one_request(_requesting_client(None))
+
+    assert [RefusalFrame.model_validate_json(t).code for t in connection.sent] == [
+        "not_found"
+    ]

@@ -5,7 +5,9 @@ frames over the WebSocket. They are pydantic models discriminated by a ``kind``
 tag, so a frame parses into exactly one shape and never a raw dict. The client
 sends :class:`SubscribeFrame` and :class:`RenewFrame`; the Hub sends
 :class:`ReadyFrame` on connect, :class:`EventFrame` for a subscribed topic's
-publish, and :class:`CallbackFrame` for a menu click routed to this session.
+publish, :class:`CallbackFrame` for a menu click routed to this session, and
+:class:`RequestFrame` for a typed request the client is asked to answer; the
+client answers with :class:`ReplyFrame` or :class:`RefusalFrame`.
 
 Both ends share this module, so the client's send is the server's read and back:
 :data:`ClientFrames` parses what the Hub receives, :data:`ServerFrames` parses
@@ -18,6 +20,12 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+
+from punt_lux.wire.model.messages.relay_frames import (
+    RefusalFrame,
+    ReplyFrame,
+    RequestFrame,
+)
 
 __all__ = [
     "CallbackFrame",
@@ -50,8 +58,13 @@ class RenewFrame(BaseModel):
 
 
 # What the Hub receives from a persistent client, parsed to one shape by ``kind``.
-ClientFrame = Annotated[SubscribeFrame | RenewFrame, Field(discriminator="kind")]
-ClientFrames: TypeAdapter[SubscribeFrame | RenewFrame] = TypeAdapter(ClientFrame)
+ClientFrame = Annotated[
+    SubscribeFrame | RenewFrame | ReplyFrame | RefusalFrame,
+    Field(discriminator="kind"),
+]
+ClientFrames: TypeAdapter[SubscribeFrame | RenewFrame | ReplyFrame | RefusalFrame] = (
+    TypeAdapter(ClientFrame)
+)
 
 
 class ReadyFrame(BaseModel):
@@ -91,8 +104,9 @@ class CallbackFrame(BaseModel):
 
 # What a persistent client receives from the Hub, parsed to one shape by ``kind``.
 ServerFrame = Annotated[
-    ReadyFrame | EventFrame | CallbackFrame, Field(discriminator="kind")
+    ReadyFrame | EventFrame | CallbackFrame | RequestFrame,
+    Field(discriminator="kind"),
 ]
-ServerFrames: TypeAdapter[ReadyFrame | EventFrame | CallbackFrame] = TypeAdapter(
-    ServerFrame
+ServerFrames: TypeAdapter[ReadyFrame | EventFrame | CallbackFrame | RequestFrame] = (
+    TypeAdapter(ServerFrame)
 )

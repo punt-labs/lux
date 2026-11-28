@@ -13,9 +13,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.hub.callback_ports import CallProvider
 from punt_lux.hub.menu_presence import MenuPresence
+from punt_lux.hub.service_directory import ServiceDirectory
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from contextlib import AbstractContextManager
 
     from punt_lux.hub.callback_ports import CallbackListener
@@ -30,6 +33,8 @@ if TYPE_CHECKING:
         ListenerDetachment,
     )
     from punt_lux.hub.replicator_ports import DirtyMarker
+    from punt_lux.hub.service_directory import ServiceRegistration
+    from punt_lux.hub.service_registry import ServiceKey
     from punt_lux.hub.session_write import SessionWrite
     from punt_lux.hub.store_lock import StoreLock
     from punt_lux.kernel.client_host import ClientHost
@@ -50,7 +55,15 @@ class ClientLifecycle:
     _cascade: DepartureCascade
     _lock: StoreLock
     _presence: MenuPresence
-    __slots__ = ("_cascade", "_lock", "_owners", "_presence", "_writes")
+    _services: ServiceDirectory
+    __slots__ = (
+        "_cascade",
+        "_lock",
+        "_owners",
+        "_presence",
+        "_services",
+        "_writes",
+    )
 
     def __new__(
         cls,
@@ -58,8 +71,10 @@ class ClientLifecycle:
         owners: OwnerTracker,
         cascade: DepartureCascade,
         lock: StoreLock,
+        clock: Callable[[], float],
     ) -> Self:
         self = super().__new__(cls)
+        self._services = ServiceDirectory(clients, clock)
         self._writes = clients.take_writes()
         self._owners = owners
         self._cascade = cascade
@@ -108,6 +123,9 @@ class ClientLifecycle:
         """Take the connection's listener slot, recording ``identity`` and ``host``."""
         with self._lock.write():
             attachment = self._writes.attach(connection_id, identity, listener, host)
+            if attachment.displaced is not None:
+                self._end_calls_of(attachment.displaced)
+                self._services.withdraw(connection_id)
             self._announce(connection_id, attachment.presence)
             self._resend_scenes(connection_id, owed=attachment.restated)
 
@@ -149,6 +167,35 @@ class ClientLifecycle:
             self._announce(connection_id, registration.presence)
             return registration.outcome
 
+    def register_service(
+        self, connection_id: ConnectionId, service: str, host: ClientHost
+    ) -> ServiceRegistration:
+        """Register ``service`` for the connection, keyed by the host it declared.
+
+        Contact first, as a callback registration does: the registration renews
+        the lease. The directory reads the leg and the identity under this same
+        store hold, so no teardown or reconnect lands between the check and the
+        write.
+        """
+        with self._lock.write():
+            self._renew(connection_id, host)
+            return self._services.register(connection_id, service)
+
+    def service_leg(self, key: ServiceKey) -> CallbackListener | None:
+        """Return the leg that registered ``key``, or ``None`` if nothing does."""
+        with self._lock.write():
+            return self._services.leg_serving(key)
+
+    def hosts_serving(self, service: str) -> tuple[str, ...]:
+        """Return the hosts that serve ``service``, in order."""
+        with self._lock.write():
+            return self._services.hosts_serving(service)
+
+    def services(self) -> tuple[tuple[ServiceKey, ConnectionId], ...]:
+        """Return every registration, ordered by key."""
+        with self._lock.write():
+            return self._services.listing()
+
     def detach(
         self, connection_id: ConnectionId, listener: CallbackListener
     ) -> ListenerDetachment:
@@ -160,6 +207,8 @@ class ClientLifecycle:
         """
         with self._lock.write():
             detachment = self._writes.detach(connection_id, listener)
+            if detachment.outcome != "kept":
+                self._services.withdraw(connection_id)
             self._announce(connection_id, detachment.presence)
             return detachment.outcome
 
@@ -179,10 +228,13 @@ class ClientLifecycle:
         The one step every departure trigger funnels through.
         """
         with self._lock.write():
-            relabelled = self._writes.discard(connection_id)
+            departure = self._writes.discard(connection_id)
+            self._services.withdraw(connection_id)
+            if departure.leg is not None:
+                self._end_calls_of(departure.leg)
             self._owners.release_all(connection_id)
             self._cascade.run(connection_id)
-            self._presence.retitle_scenes(self._owners.scenes_of(relabelled))
+            self._presence.retitle_scenes(self._owners.scenes_of(departure.relabelled))
 
     def depart_lapsed(
         self, exclude: frozenset[ConnectionId]
@@ -190,10 +242,20 @@ class ClientLifecycle:
         """Depart every lapsed connection except ``exclude``; return who left."""
         with self._lock.write():
             reaped = self._writes.reap_lapsed(exclude)
+            for connection_id in reaped.lapsed:
+                self._services.withdraw(connection_id)
+            for leg in reaped.legs:
+                self._end_calls_of(leg)
             self._owners.release_departed(reaped.lapsed)
             self._cascade.run_all(reaped.lapsed)
             self._presence.retitle_scenes(self._owners.scenes_of(reaped.relabelled))
             return reaped.lapsed
+
+    @staticmethod
+    def _end_calls_of(leg: CallbackListener) -> None:
+        """Resolve the calls pending on ``leg`` as lost, if it serves calls."""
+        if isinstance(leg, CallProvider):
+            leg.end_calls()
 
     def _announce(self, connection_id: ConnectionId, change: PresenceChange) -> None:
         """Pay a presence change's debt -- mark and sink -- in the same step."""

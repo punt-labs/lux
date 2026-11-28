@@ -49,6 +49,22 @@ class ErrorBody:
         reason = self._reason_in()
         return reason if reason.strip() else self._text
 
+    def code(self) -> str | None:
+        """Return the ``code`` an error body names, or ``None`` if it names none.
+
+        luxd writes the operation's exact code beside the reason, because a status
+        shared by several codes cannot name it. A body that is not a JSON object,
+        or has no string ``code``, names none.
+        """
+        try:
+            parsed: object = json.loads(self._text)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        code: object = cast("dict[str, object]", parsed).get("code")
+        return code if isinstance(code, str) else None
+
     def snippet(self, limit: int = _SNIPPET_LIMIT) -> str:
         """Format a printable one-line preview within the size limit.
 

@@ -918,7 +918,7 @@ class TestDepartureReportsWhoseNameMoved:
         _writes(reg).record(second, _lux("b"), UNOBSERVED)
         reg.named_sessions()  # the read that names them: lux, lux (2)
 
-        assert _writes(reg).discard(first) == frozenset({second})
+        assert _writes(reg).discard(first).relabelled == frozenset({second})
 
     def test_discard_of_a_junior_moves_nobody(self) -> None:
         reg = HubClientRegistry()
@@ -927,12 +927,13 @@ class TestDepartureReportsWhoseNameMoved:
         _writes(reg).record(second, _lux("b"), UNOBSERVED)
         reg.named_sessions()
 
-        assert _writes(reg).discard(second) == frozenset()
+        assert _writes(reg).discard(second).relabelled == frozenset()
 
     def test_discard_of_an_unknown_connection_moves_nobody(self) -> None:
-        assert (
-            _writes(HubClientRegistry()).discard(ConnectionId("ghost")) == frozenset()
-        )
+        departure = _writes(HubClientRegistry()).discard(ConnectionId("ghost"))
+
+        assert departure.relabelled == frozenset()
+        assert departure.leg is None
 
     def test_a_sweep_reports_both_who_lapsed_and_whose_name_moved(self) -> None:
         clock = _Clock()

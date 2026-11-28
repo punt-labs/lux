@@ -28,6 +28,7 @@ from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scene_deps import SceneOperationsDeps
 from punt_lux.operations.scenes import SceneOperations
+from punt_lux.operations.services import ServiceOperations
 from punt_lux.operations.timing import Timed
 from punt_lux.wire.operations.inspect_scope import HUB_ONLY, InspectScope
 
@@ -72,6 +73,11 @@ if TYPE_CHECKING:
     from punt_lux.wire.operations.query_events import RecentEvents
     from punt_lux.wire.operations.query_inspection import SceneInspection
     from punt_lux.wire.operations.query_scenes import SceneList
+    from punt_lux.wire.operations.service_requests import (
+        RegisterServiceRequest,
+        RelayRequest,
+    )
+    from punt_lux.wire.operations.service_results import RelayReply, ServiceList
     from punt_lux.wire.operations.theme import ThemeState
     from punt_lux.wire.operations.window import WindowSettings
 
@@ -93,6 +99,7 @@ class Operations:
     _callbacks: CallbackOperations
     _frame_remover: FrameRemover
     _link: DisplayLinkOperations
+    _services: ServiceOperations
     __slots__ = (
         "_callbacks",
         "_config",
@@ -105,6 +112,7 @@ class Operations:
         "_pubsub",
         "_queries",
         "_scenes",
+        "_services",
     )
 
     def __new__(cls, concerns: OperationsConcerns) -> Self:
@@ -120,6 +128,7 @@ class Operations:
         self._callbacks = concerns.callbacks
         self._frame_remover = concerns.frame_remover
         self._link = concerns.link
+        self._services = concerns.services
         return self
 
     @classmethod
@@ -164,6 +173,7 @@ class Operations:
                 callbacks=callbacks,
                 frame_remover=FrameRemover(display, replicator),
                 link=DisplayLinkOperations(ports.display_port, display, replicator),
+                services=ServiceOperations(lifecycle, clients),
             )
         )
 
@@ -304,6 +314,22 @@ class Operations:
     def pending_callbacks(self, *, scope: Scope) -> tuple[CallbackInvocation, ...]:
         """Return the caller's held callback invocations without clearing them."""
         return self._callbacks.pending_callbacks(scope=scope)
+
+    def register_service(
+        self, request: RegisterServiceRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Register the service the caller serves."""
+        return self._services.register_service(request, scope=scope)
+
+    def list_services(self, *, scope: Scope) -> ServiceList:
+        """List which hosts serve which services."""
+        return self._services.list_services(scope=scope)
+
+    def relay(
+        self, request: RelayRequest | OpError, *, scope: Scope
+    ) -> RelayReply | OpError:
+        """Relay a typed request to the client that serves its service."""
+        return self._services.relay(request, scope=scope)
 
     def identify(
         self, declaration: dict[str, object], *, scope: Scope

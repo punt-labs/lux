@@ -15,9 +15,9 @@ shared by reference, so these writes and the registry's reads are serialized tog
 from __future__ import annotations
 
 import threading
-from collections import deque
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.hub.departure import Departure
 from punt_lux.hub.leg_writes import Detachment, Registration
 from punt_lux.hub.reaped import Reaped
 from punt_lux.hub.session_write import SessionWrite
@@ -97,14 +97,16 @@ class PresenceWrites:
             self._sessions[connection_id] = write.after
             return write
 
-    def discard(self, connection_id: ConnectionId) -> frozenset[ConnectionId]:
+    def discard(self, connection_id: ConnectionId) -> Departure:
         """Drop the registration, its identity, and the menu name it held.
 
-        Returns the survivors whose name the release moved.
+        Returns the survivors whose name the release moved, and the leg the
+        connection held, so the departure can end the calls pending on it.
         """
         with self._lock:
-            self._sessions.pop(connection_id, None)
-            return self._roster.release((connection_id,))
+            removed = self._sessions.pop(connection_id, None)
+            leg = None if removed is None else removed.listener
+            return Departure(self._roster.release((connection_id,)), leg)
 
     def reap_lapsed(self, exclude: frozenset[ConnectionId] = frozenset()) -> Reaped:
         """Atomically find-and-remove every lapsed connection except ``exclude``.
@@ -121,8 +123,11 @@ class PresenceWrites:
                 )
                 - exclude
             )
-            deque(map(self._sessions.pop, lapsed), maxlen=0)
-            return Reaped(lapsed, self._roster.release(lapsed))
+            removed = [self._sessions.pop(cid) for cid in lapsed]
+            legs = tuple(
+                session.listener for session in removed if session.listener is not None
+            )
+            return Reaped(lapsed, self._roster.release(lapsed), legs)
 
     def attach(
         self,

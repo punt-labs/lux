@@ -229,6 +229,9 @@ Clients use the stateful MCP `initialize` handshake; clients that support automa
 | `menu_ls()` | List the menu bar and its items |
 | `callback_register(callback_id, label)` | Register a menu entry owned by the calling connection; only a connection that holds a persistent listener connection (an applet) can register one |
 | `callback_pending()` | Show your pending menu-entry clicks without consuming them |
+| **Services** | |
+| `service_register(service)` | Register the service the calling connection serves, so the Hub can relay typed requests to it; like a callback, only a connection that holds a persistent listener connection can register one, and the registration ends with that connection |
+| `service_ls()` | List which hosts serve which services |
 | **Display (read-only; the user controls the window's settings)** | |
 | `display_info()` | Backend, resolution, frame rate, PID, and uptime |
 | `display_theme_get()` | Active theme and the available themes |
@@ -275,7 +278,7 @@ records first-paint durations without scene identifiers, separately in
 by default. Set `LUX_TELEMETRY=off` or `PUNT_TELEMETRY=off` in the daemons'
 environments to disable capture.
 
-Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Scene, frame, menu, session, and callback writes accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Most data commands accept `--json`, `--verbose`, and `--quiet`; service and plugin commands have their own options. Use `lux <noun> <verb> --help` for each command's flags.
+Most commands take the form `lux <noun> <verb>` and use the same names as the MCP tools. Scene, frame, menu, session, callback, and service writes accept `--as`, `--kind`, `--name`, `--repo`, and `--agent` to set the caller's identity for that call. Most data commands accept `--json`, `--verbose`, and `--quiet`; service and plugin commands have their own options. Use `lux <noun> <verb> --help` for each command's flags.
 
 | Noun | Verbs |
 |---|---|
@@ -287,6 +290,7 @@ Most commands take the form `lux <noun> <verb>` and use the same names as the MC
 | `lux event` | `ls` |
 | `lux error` | `ls` |
 | `lux callback` | `register` |
+| `lux service` | `register`, `ls` |
 
 | Service command | What it does |
 |---|---|
@@ -359,7 +363,7 @@ but unloads the launchd registration.
 | `lux beads` | Show the repository's beads issue board, with no agent involved (`--all` includes closed issues) |
 | `lux-beads` | The Beads menu applet; the plugin's session-start hook runs it for each session |
 
-The topic tools and `callback_pending` are MCP-only and have no CLI command.
+The topic tools and `callback_pending` are MCP-only and have no CLI command. `lux service register` succeeds only from a long-lived client that holds a listener connection; a one-shot command is refused with `push_required`.
 
 ## Library (Python)
 

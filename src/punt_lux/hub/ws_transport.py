@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from starlette.websockets import WebSocket
 
 from punt_lux.hub import hub, hub_lifecycle
+from punt_lux.hub.client_calls_instance import hub_client_calls
 from punt_lux.hub.replicator_instance import hub_callback_router
 from punt_lux.hub.ws_listen import HubListenSession
 from punt_lux.kernel.connection_identity import ConnectionSeed
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from punt_lux.hub.callback_hold import CallbackRouter
+    from punt_lux.hub.client_calls import ClientCalls
     from punt_lux.hub.client_lifecycle import ClientLifecycle
     from punt_lux.hub.hub import Hub
 
@@ -50,22 +52,28 @@ class HubListenTransport:
     _hub: Hub
     _lifecycle: ClientLifecycle
     _router: CallbackRouter
-    __slots__ = ("_hub", "_lifecycle", "_router")
+    _calls: ClientCalls
+    __slots__ = ("_calls", "_hub", "_lifecycle", "_router")
 
     def __new__(
-        cls, hub: Hub, lifecycle: ClientLifecycle, router: CallbackRouter
+        cls,
+        hub: Hub,
+        lifecycle: ClientLifecycle,
+        router: CallbackRouter,
+        calls: ClientCalls,
     ) -> Self:
         """Bind a WebSocket transport to its session collaborators."""
         self = super().__new__(cls)
         self._hub = hub
         self._lifecycle = lifecycle
         self._router = router
+        self._calls = calls
         return self
 
     @classmethod
     def for_hub(cls) -> Self:
         """Wire the transport over the Hub's process singletons."""
-        return cls(hub, hub_lifecycle, hub_callback_router)
+        return cls(hub, hub_lifecycle, hub_callback_router, hub_client_calls)
 
     def mount(self, app: FastAPI) -> None:
         """Add the ``/ws`` WebSocket route to the parent app."""
@@ -93,6 +101,7 @@ class HubListenTransport:
             self._hub,
             self._lifecycle,
             self._router,
+            self._calls,
         )
         await session.run()
 

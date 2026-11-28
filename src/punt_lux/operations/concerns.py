@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.pubsub import PubSubOperations
     from punt_lux.operations.queries import QueryOperations
     from punt_lux.operations.scenes import SceneOperations
+    from punt_lux.operations.services import ServiceOperations
 
 __all__ = ["OperationsConcerns"]
 
@@ -23,7 +24,7 @@ __all__ = ["OperationsConcerns"]
 @final
 @dataclass(frozen=True, slots=True)
 class OperationsConcerns:
-    """The ten concerns, bundled so ``Operations.__new__`` takes one (PY-OO-3)."""
+    """The eleven concerns, bundled so ``Operations.__new__`` takes one (PY-OO-3)."""
 
     scenes: SceneOperations
     pubsub: PubSubOperations
@@ -35,3 +36,4 @@ class OperationsConcerns:
     callbacks: CallbackOperations
     frame_remover: FrameRemover
     link: DisplayLinkOperations
+    services: ServiceOperations

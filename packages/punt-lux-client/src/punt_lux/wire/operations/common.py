@@ -22,6 +22,8 @@ OpErrorCode = Literal[
     "fault",  # an engine-side failure: a malformed display reply, unreadable config
     "identification_required",  # the caller must identify before this operation
     "push_required",  # the caller must hold a listen leg before this operation
+    "provider_unavailable",  # no client serves the service on the addressed host
+    "provider_lost",  # the serving client's session ended before it answered
 ]
 
 

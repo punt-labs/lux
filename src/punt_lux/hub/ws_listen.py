@@ -47,9 +47,16 @@ from punt_lux.wire.model.messages.listen import (
     ServerFrame,
     SubscribeFrame,
 )
+from punt_lux.wire.model.messages.relay_frames import (
+    RefusalFrame,
+    ReplyFrame,
+    RequestFrame,
+)
 
 if TYPE_CHECKING:
+    from punt_lux.hub.call_entry import SessionTicket
     from punt_lux.hub.callback_hold import CallbackRouter
+    from punt_lux.hub.client_calls import ClientCalls, PendingCall
     from punt_lux.hub.client_lifecycle import ClientLifecycle
     from punt_lux.hub.hub import Hub
     from punt_lux.kernel.connection_id import ConnectionId
@@ -62,6 +69,8 @@ __all__ = ["HubListenSession"]
 # A client that sends a frame the wire does not define is closed as a protocol
 # violation (1002) rather than left to bubble into a 1011 server error.
 _PROTOCOL_ERROR = 1002
+# A frame larger than the leg accepts is closed as too big (1009), before it is parsed.
+_MESSAGE_TOO_BIG = 1009
 
 
 @final
@@ -81,9 +90,12 @@ class HubListenSession:
     _hub: Hub
     _lifecycle: ClientLifecycle
     _router: CallbackRouter
+    _calls: ClientCalls
+    _ticket: SessionTicket
     _outbound: asyncio.Queue[ServerFrame]
     _loop: asyncio.AbstractEventLoop
     __slots__ = (
+        "_calls",
         "_client_host",
         "_conn",
         "_hub",
@@ -92,6 +104,7 @@ class HubListenSession:
         "_loop",
         "_outbound",
         "_router",
+        "_ticket",
         "_ws",
     )
 
@@ -103,6 +116,7 @@ class HubListenSession:
         hub: Hub,
         lifecycle: ClientLifecycle,
         router: CallbackRouter,
+        calls: ClientCalls,
     ) -> Self:
         """Bind the listen session to its registry and connection state."""
         self = super().__new__(cls)
@@ -113,6 +127,8 @@ class HubListenSession:
         self._hub = hub
         self._lifecycle = lifecycle
         self._router = router
+        self._calls = calls
+        self._ticket = calls.open_session()
         self._outbound = asyncio.Queue()
         self._loop = asyncio.get_running_loop()
         return self
@@ -160,14 +176,22 @@ class HubListenSession:
             self._hub.register_writer(self._conn, self.deliver_event)
 
     async def _pump(self) -> None:
-        """Read until the peer goes away, with the writer draining alongside."""
+        """Run until the peer goes away or the writer can no longer send.
+
+        A writer that has ended leaves nothing to deliver requests, so the session
+        ends with it; otherwise a blocked reader would keep the session open and
+        every relayed call would wait out its deadline instead of ending lost.
+        """
         writer = asyncio.create_task(self._write_loop())
+        reader = asyncio.create_task(self._read_loop())
         try:
-            await self._read_loop()
+            await asyncio.wait({writer, reader}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            writer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await writer
+            for task in (writer, reader):
+                task.cancel()
+            for task in (writer, reader):
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
     def wake(self) -> None:
         """CallbackListener: a click was routed to this session — schedule a drain."""
@@ -185,6 +209,27 @@ class HubListenSession:
         self._loop.call_soon_threadsafe(self._outbound.put_nowait, frame)
         return True
 
+    def end_calls(self) -> None:
+        """CallProvider: resolve every call pending on this session as lost."""
+        self._calls.end_session(self._ticket)
+
+    def relay(
+        self, service: str, operation: str, payload: dict[str, object]
+    ) -> PendingCall:
+        """Send a typed request to this session's client and return the call to await.
+
+        Runs on the caller's thread, so the frame hops to the loop as
+        ``deliver_event`` does. The call is entered before the frame is queued, so
+        a reply cannot arrive for a call the table does not know.
+
+        Raises:
+            ProviderBusyError: If the session already has its limit of calls
+                pending; nothing is sent.
+        """
+        call = self._calls.enter(self._ticket, service, operation, payload)
+        self._loop.call_soon_threadsafe(self._outbound.put_nowait, call.frame)
+        return call
+
     async def _read_loop(self) -> None:
         """Apply inbound frames until the client disconnects; any frame renews.
 
@@ -198,22 +243,35 @@ class HubListenSession:
             except WebSocketDisconnect:
                 return
             self._lifecycle.identify(self._conn, self._identity, self._client_host)
+            size = len(raw.encode())
+            if size > self._calls.MAX_FRAME_BYTES:
+                logger.info("listen client sent an oversized frame; closing")
+                await self._ws.close(code=_MESSAGE_TOO_BIG)
+                return
             try:
                 frame = ClientFrames.validate_json(raw)
             except ValidationError:
                 logger.info("listen client sent a malformed frame; closing")
                 await self._ws.close(code=_PROTOCOL_ERROR)
                 return
-            self._apply(frame)
+            self._apply(frame, size)
 
-    def _apply(self, frame: SubscribeFrame | RenewFrame) -> None:
-        """Act on one parsed client frame — subscribe, or a bare renewal."""
+    def _apply(
+        self,
+        frame: SubscribeFrame | RenewFrame | ReplyFrame | RefusalFrame,
+        size: int,
+    ) -> None:
+        """Act on one parsed client frame — subscribe, renew, or answer a request."""
         match frame:
             case SubscribeFrame(topics=topics):
                 for topic in topics:
                     self._hub.subscribe(self._conn, Topic(topic))
             case RenewFrame():
                 pass  # the lease renewal already happened on receipt
+            case ReplyFrame():
+                self._calls.reply(self._ticket, frame, size)
+            case RefusalFrame():
+                self._calls.refuse(self._ticket, frame)
 
     async def _write_loop(self) -> None:
         """Drain the outbound queue to the socket until the peer or a cancel ends it.
@@ -225,6 +283,10 @@ class HubListenSession:
         """
         while True:
             frame = await self._outbound.get()
+            if isinstance(frame, RequestFrame) and not self._calls.is_pending(
+                frame.request_id
+            ):
+                continue  # its call ended while it waited; the provider must not run it
             try:
                 await self._ws.send_text(frame.model_dump_json())
             except (WebSocketDisconnect, RuntimeError):
@@ -282,3 +344,4 @@ class HubListenSession:
         """
         self._lifecycle.detach(self._conn, self)
         self._hub.release_writer(self._conn, self.deliver_event)
+        self._calls.end_session(self._ticket)

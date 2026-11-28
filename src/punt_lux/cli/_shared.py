@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING, Annotated, Self, cast, final
 import typer
 from pydantic import ValidationError
 
-from punt_lux.cli._connection import command_path, connect_client as connect_client
+from punt_lux.cli._connection import (
+    command_path,
+    connect_client as connect_client,
+    connect_service as connect_service,
+)
 from punt_lux.cli._identity_errors import describe_identity_error
 from punt_lux.client.cli_identity import CliIdentity
 from punt_lux.kernel.logging_config import configure_logging as configure_logging
@@ -45,6 +49,7 @@ __all__ = [
     "RepoFlag",
     "VerboseFlag",
     "connect_client",
+    "connect_service",
     "identity_from_flags",
     "read_json_payload",
     "run",
