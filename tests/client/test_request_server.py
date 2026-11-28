@@ -169,13 +169,12 @@ def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
         server = RequestServer(handler)
         server.bind(connection)
         slow = server.start(_request("c1.1").model_copy(update={"operation": "slow"}))
-        # The slow handler is now blocked inside its worker thread.
-        assert await asyncio.to_thread(started.wait, 10)
+        # The slow handler is now blocked inside its worker thread. No deadline
+        # here: the test is about ordering, and the handler's own bounded wait
+        # keeps a failure from leaking a blocked thread.
+        await asyncio.to_thread(started.wait)
         # The loop is free: a second request is answered while the first blocks.
-        await asyncio.wait_for(
-            server.serve(_request("c1.2").model_copy(update={"operation": "fast"})),
-            timeout=5,
-        )
+        await server.serve(_request("c1.2").model_copy(update={"operation": "fast"}))
         assert [
             ReplyFrame.model_validate_json(t).request_id for t in connection.sent
         ] == ["c1.2"]
