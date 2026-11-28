@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import time
+import threading
+from typing import Self
 
 from punt_lux.hub.call_entry import CallEntry, SessionTicket
 from punt_lux.hub.call_outcomes import Replied
@@ -25,24 +26,57 @@ def test_an_entry_knows_only_the_session_it_was_sent_to() -> None:
     assert not entry.was_sent_to(other)
 
 
-def test_waiting_ends_at_the_deadline_measured_from_construction() -> None:
-    entry = CallEntry(SessionTicket(1), 0.05)
-    time.sleep(0.1)
+class _FakeClock:
+    """A clock the test advances, so a deadline passes without waiting for it."""
 
-    started = time.monotonic()
-    entry.wait_until_deadline()
+    _now: float
+    __slots__ = ("_now",)
 
-    assert time.monotonic() - started < 0.04
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._now = 0.0
+        return self
+
+    def __call__(self) -> float:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+def _waited(entry: CallEntry) -> bool:
+    """Whether ``wait_until_deadline`` returns; a hang guard, not a duration."""
+    waiter = threading.Thread(target=entry.wait_until_deadline, daemon=True)
+    waiter.start()
+    waiter.join(timeout=10)
+    return not waiter.is_alive()
+
+
+def test_the_deadline_is_measured_from_construction() -> None:
+    clock = _FakeClock()
+    entry = CallEntry(SessionTicket(1), 5.0, clock)
+    assert not entry.expired
+
+    clock.advance(4.9)
+    assert not entry.expired
+
+    clock.advance(0.2)
+    assert entry.expired
+
+
+def test_waiting_after_the_deadline_returns_at_once() -> None:
+    clock = _FakeClock()
+    entry = CallEntry(SessionTicket(1), 3600.0, clock)
+    clock.advance(3601.0)
+
+    assert _waited(entry)
 
 
 def test_waking_releases_a_waiter_before_the_deadline() -> None:
-    entry = CallEntry(SessionTicket(1), 30.0)
+    entry = CallEntry(SessionTicket(1), 3600.0)
     entry.wake()
 
-    started = time.monotonic()
-    entry.wait_until_deadline()
-
-    assert time.monotonic() - started < 1.0
+    assert _waited(entry)
 
 
 def test_a_ticket_ends_once_and_stays_ended() -> None:

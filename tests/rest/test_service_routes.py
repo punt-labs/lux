@@ -6,7 +6,9 @@ there is no generic "call any service" route (DES-107).
 
 from __future__ import annotations
 
-from ._fakes import make_client
+from punt_lux.hub.hub_store_factory import HubStoreFactory
+
+from ._fakes import DEFAULT_CONNECTION, make_client
 
 
 def test_register_succeeds_for_an_identified_listening_caller() -> None:
@@ -64,3 +66,12 @@ def test_list_without_identity_is_challenged() -> None:
     client = make_client(identity={}, listening=True)
 
     assert client.get("/services").status_code == 401
+
+
+def test_listing_records_no_session_for_the_caller() -> None:
+    factory = HubStoreFactory()
+    client = make_client(factory=factory)
+
+    assert client.get("/services").status_code == 200
+
+    assert factory.clients.identity_of(DEFAULT_CONNECTION) is None

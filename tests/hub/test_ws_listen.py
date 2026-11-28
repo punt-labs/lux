@@ -1060,10 +1060,10 @@ def test_a_reply_over_the_cap_in_bytes_is_refused_even_when_short_in_characters(
 def test_a_session_whose_writer_has_ended_ends_and_its_calls_are_lost(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def writer_gone(_self: HubListenSession) -> None:
-        return None
+    async def writer_fails_on_its_first_send(self: HubListenSession) -> None:
+        await self._outbound.get()  # taken off the queue, then the socket fails
 
-    monkeypatch.setattr(HubListenSession, "_write_loop", writer_gone)
+    monkeypatch.setattr(HubListenSession, "_write_loop", writer_fails_on_its_first_send)
     wired = _wired()
     with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
         ws.receive_json()  # ready

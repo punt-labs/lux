@@ -248,7 +248,24 @@ def test_the_deadline_runs_from_the_send_not_from_the_wait() -> None:
     waiter.join(timeout=10)  # a hang guard: a deadline run from the wait takes an hour
 
     assert outcomes == [TimedOut()]
-    assert not calls.reply(ticket, ReplyFrame(request_id="b1.1", payload={}))
+    assert not calls.reply(
+        ticket, ReplyFrame(request_id=call.frame.request_id, payload={})
+    )
+
+
+def test_a_reply_that_arrives_after_the_deadline_does_not_win() -> None:
+    clock = _FakeClock()
+    calls = ClientCalls(boot="b1", deadline_s=15.0, clock=clock)
+    ticket = calls.open_session()
+    call = calls.enter(ticket, "terminal", "ls", {})
+    clock.advance(16.0)  # past the deadline, before anyone waited
+
+    accepted = calls.reply(
+        ticket, ReplyFrame(request_id=call.frame.request_id, payload={"a": 1})
+    )
+
+    assert not accepted
+    assert call.wait() == TimedOut()
 
 
 def test_a_request_for_a_session_that_already_ended_is_lost_at_once() -> None:

@@ -85,6 +85,11 @@ class CallEntry:
         """The recorded outcome, or ``None`` while the call is pending."""
         return self._outcome
 
+    @property
+    def expired(self) -> bool:
+        """Whether the deadline, measured from the send, has passed."""
+        return self._clock() >= self._deadline
+
     def wake(self) -> None:
         """Release the waiter; called after the table's lock is dropped."""
         self._event.set()

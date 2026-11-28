@@ -229,10 +229,12 @@ class ClientCalls:
                     request_id,
                 )
                 return False
+            if entry.expired:
+                outcome = TimedOut()
             entry.conclude(outcome)
             del self._pending[request_id]
         entry.wake()
-        return True
+        return not isinstance(outcome, TimedOut)
 
     def _count(self, ticket: SessionTicket) -> int:
         return sum(1 for entry in self._pending.values() if entry.was_sent_to(ticket))

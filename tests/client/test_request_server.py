@@ -8,6 +8,7 @@ own task so the receive loop keeps reading and renewing the lease meanwhile.
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
@@ -148,6 +149,37 @@ def test_a_slow_request_does_not_block_a_second_one() -> None:
         "c1.2",
         "c1.1",
     ]
+
+
+def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
+    release = threading.Event()
+
+    def handler(
+        _service: str, operation: str, _payload: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        if operation == "slow":
+            release.wait(timeout=10)  # blocking I/O in a plain function
+        return {"op": operation}
+
+    connection = _Connection()
+
+    async def scenario() -> None:
+        server = RequestServer(handler)
+        server.bind(connection)
+        slow = server.start(_request("c1.1").model_copy(update={"operation": "slow"}))
+        await asyncio.sleep(0.05)  # let the slow handler start
+        # The loop is free: a second request is answered while the first blocks.
+        await asyncio.wait_for(
+            server.serve(_request("c1.2").model_copy(update={"operation": "fast"})),
+            timeout=5,
+        )
+        assert [
+            ReplyFrame.model_validate_json(t).request_id for t in connection.sent
+        ] == ["c1.2"]
+        release.set()
+        await slow
+
+    asyncio.run(scenario())
 
 
 def test_serving_before_a_connection_is_bound_is_a_programmer_error() -> None:

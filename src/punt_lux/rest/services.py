@@ -17,8 +17,8 @@ from punt_lux.commands.service_ls import service_ls as service_ls_command
 from punt_lux.commands.service_register import (
     service_register as service_register_command,
 )
-from punt_lux.rest.identity import CallerIdentity, OwningScope
-from punt_lux.wire.operations import Ok
+from punt_lux.rest.identity import CallerIdentity, OwningScope, WritingIdentity
+from punt_lux.wire.operations import Ok, Scope
 from punt_lux.wire.operations.service_requests import RegisterServiceRequest
 from punt_lux.wire.operations.service_results import ServiceList
 
@@ -85,10 +85,14 @@ class ServiceRoutes:
             )
         )
 
-    def list_services(
-        self, scope: OwningScope, identity: CallerIdentity
-    ) -> ServiceList:
-        """Return every registration, ordered by service then host."""
+    def list_services(self, identity: WritingIdentity) -> ServiceList:
+        """Return every registration, ordered by service then host.
+
+        A read: the caller is validated and challenged like any other, but no
+        session is recorded for it, so an app that only lists services does not
+        outlive its process in the session list.
+        """
+        scope = Scope.client_side(identity.connection_id)
         return self._errors.respond(
             asyncio.run(service_ls_command.execute(self._ctx(identity), scope=scope))
         )

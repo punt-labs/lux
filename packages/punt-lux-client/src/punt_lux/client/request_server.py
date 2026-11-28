@@ -129,7 +129,11 @@ class RequestServer:
                 request_id=frame.request_id, code="not_found", reason=_NO_HANDLER_REASON
             ).model_dump_json()
         try:
-            result = self._handler(frame.service, frame.operation, frame.payload)
+            # A plain function may block on I/O, so it runs off the event loop; an
+            # async one only builds its coroutine there, which is awaited here.
+            result = await asyncio.to_thread(
+                self._handler, frame.service, frame.operation, frame.payload
+            )
             if inspect.isawaitable(result):
                 result = await result
         except RequestRefusedError as refusal:
