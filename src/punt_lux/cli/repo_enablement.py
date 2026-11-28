@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, TypedDict
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
@@ -13,16 +13,13 @@ from punt_lux.cli._shared import JsonFlag, OutputFlags, QuietFlag, VerboseFlag
 from punt_lux.service.enablement import Action, Enablement
 from punt_lux.service.repo_activation import Checkout
 
+if TYPE_CHECKING:
+    from punt_lux.cli.types import EnablementReport
+
 
 class EnablementScope(StrEnum):
     PROJECT = "project"
     LOCAL = "local"
-
-
-class _EnablementReport(TypedDict):
-    enabled: bool
-    deciding_file: str
-    refresh_notice: str | None
 
 
 class RepoCommands:
@@ -85,7 +82,7 @@ class RepoCommands:
             typer.echo(f"error: {error}", err=True)
             raise typer.Exit(1) from error
         if not flags.quiet:
-            report: _EnablementReport = {
+            report: EnablementReport = {
                 "enabled": result.enabled,
                 "deciding_file": str(result.deciding_file),
                 "refresh_notice": result.notice,
