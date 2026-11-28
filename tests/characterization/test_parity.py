@@ -117,7 +117,7 @@ def test_every_tool_has_a_snapshot() -> None:
     non_tool_exports = {"mcp"}
     registered = {
         name
-        for name in tools_pkg.__all__
+        for name in (*tools_pkg.__all__, *ToolExerciser.repository_tools())
         if name not in non_tool_exports and name not in STRUCTURED_TOOLS
     }
     covered = {Snapshot.from_file(p).tool for p in _snapshot_files()}

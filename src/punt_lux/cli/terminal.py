@@ -8,6 +8,8 @@ import typer
 
 from punt_lux.service.terminal_service import TerminalService
 
+terminal_app = typer.Typer(help="Manage this machine's Terminal launcher.")
+
 
 class TerminalCommands:
     @staticmethod
@@ -19,33 +21,27 @@ class TerminalCommands:
             raise typer.Exit(1) from error
 
     @staticmethod
+    @terminal_app.command("enable", hidden=True, deprecated=True)
+    @terminal_app.command()
     def install() -> None:
         """Enable on this machine: install/start the supervised owner and launcher."""
         TerminalCommands._action(TerminalService().enable)
 
     @staticmethod
+    @terminal_app.command("disable", hidden=True, deprecated=True)
+    @terminal_app.command()
     def uninstall() -> None:
         """Disable here: stops held programs and removes supervisor registration."""
         TerminalCommands._action(TerminalService().disable)
 
     @staticmethod
+    @terminal_app.command()
     def restart() -> None:
         """Explicitly restart the owner; this ends its held programs."""
         TerminalCommands._action(TerminalService().restart)
 
     @staticmethod
+    @terminal_app.command()
     def status() -> None:
         """Read this machine's supervisor state without starting anything."""
-        service = TerminalService()
-        typer.echo("luxd-pty running" if service.is_active else "luxd-pty not running")
-
-
-terminal_app = typer.Typer(help="Manage this machine's Terminal launcher.")
-terminal_app.command("install")(TerminalCommands.install)
-terminal_app.command("uninstall")(TerminalCommands.uninstall)
-terminal_app.command("enable", hidden=True, deprecated=True)(TerminalCommands.install)
-terminal_app.command("disable", hidden=True, deprecated=True)(
-    TerminalCommands.uninstall
-)
-terminal_app.command("restart")(TerminalCommands.restart)
-terminal_app.command("status")(TerminalCommands.status)
+        typer.echo(f"luxd-pty {'' if TerminalService().is_active else 'not '}running")

@@ -15,8 +15,8 @@ from typer.testing import CliRunner
 from punt_lux.cli.__main__ import app
 from punt_lux.service.activation_file import ActivationFile
 from punt_lux.service.claude_import import ClaudeImport
-from punt_lux.service.config import DEFAULT_CONFIG_PATH, LEGACY_CONFIG_PATH
 from punt_lux.service.display_mode_store import DisplayModeStore
+from punt_lux.service.display_preference import DEFAULT_CONFIG_PATH, LEGACY_CONFIG_PATH
 from punt_lux.service.enablement import Action, Enablement
 from punt_lux.service.repo_activation import PERSONAL, SHARED, Checkout, Scope
 from punt_lux.tools import mcp

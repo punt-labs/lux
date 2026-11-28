@@ -41,7 +41,9 @@ class RepoCommands:
     ) -> None:
         """Enable Lux integration in this checkout (or for the whole repo)."""
         flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-        apply("enable", scope, flags, refresh=refresh, clear_opt_out=clear_opt_out)
+        RepoCommands._apply(
+            "enable", scope, flags, refresh=refresh, clear_opt_out=clear_opt_out
+        )
 
     @staticmethod
     def disable(
@@ -56,42 +58,45 @@ class RepoCommands:
     ) -> None:
         """Disable Lux integration in this checkout (or for the whole repo)."""
         flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-        apply("disable", scope, flags, opt_out=opt_out)
+        RepoCommands._apply("disable", scope, flags, opt_out=opt_out)
 
-
-def apply(
-    action: Action,
-    scope: EnablementScope,
-    flags: OutputFlags,
-    *,
-    refresh: bool = False,
-    opt_out: bool = False,
-    clear_opt_out: bool = False,
-) -> None:
-    flags.apply_logging()
-    try:
-        update = Enablement(
-            Checkout.resolve(Path.cwd()),
-            "project" if scope is EnablementScope.PROJECT else "local",
-        )
-        result = update.apply(
-            action, refresh=refresh, opt_out=opt_out, clear_opt_out=clear_opt_out
-        )
-    except (OSError, ValueError) as error:
-        typer.echo(f"error: {error}", err=True)
-        raise typer.Exit(1) from error
-    if not flags.quiet:
-        typer.echo(
-            json.dumps(
-                {"enabled": result.enabled, "deciding_file": str(result.deciding_file)}
+    @staticmethod
+    def _apply(
+        action: Action,
+        scope: EnablementScope,
+        flags: OutputFlags,
+        *,
+        refresh: bool = False,
+        opt_out: bool = False,
+        clear_opt_out: bool = False,
+    ) -> None:
+        flags.apply_logging()
+        try:
+            update = Enablement(
+                Checkout.resolve(Path.cwd()),
+                "project" if scope is EnablementScope.PROJECT else "local",
             )
-            if flags.json
-            else result.describe()
-        )
+            result = update.apply(
+                action, refresh=refresh, opt_out=opt_out, clear_opt_out=clear_opt_out
+            )
+        except (OSError, ValueError) as error:
+            typer.echo(f"error: {error}", err=True)
+            raise typer.Exit(1) from error
+        if not flags.quiet:
+            typer.echo(
+                json.dumps(
+                    {
+                        "enabled": result.enabled,
+                        "deciding_file": str(result.deciding_file),
+                    }
+                )
+                if flags.json
+                else result.describe()
+            )
 
-
-def repo_status() -> str:
-    try:
-        return Checkout.resolve(Path.cwd()).state().describe()
-    except ValueError:
-        return "Lux repo integration: off (no git checkout)"
+    @staticmethod
+    def status_line() -> str:
+        try:
+            return Checkout.resolve(Path.cwd()).state().describe()
+        except ValueError:
+            return "Lux repo integration: off (no git checkout)"

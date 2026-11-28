@@ -49,8 +49,8 @@ class RepoGate(Middleware):
         self, context: MiddlewareContext[mt.CallToolRequestParams]
     ) -> Checkout | None:
         ctx = context.fastmcp_context
-        declared = (context.message.arguments or {}).get("repo")
-        if isinstance(declared, str) and (checkout := Checkout.find(Path(declared))):
+        checkout = self._declared_checkout(context.message.arguments or {})
+        if checkout is not None:
             if ctx is not None:
                 await ctx.set_state(_ROOT, str(checkout.root))
             return checkout
@@ -65,9 +65,27 @@ class RepoGate(Middleware):
         return await self._client_root(ctx)
 
     @staticmethod
-    async def _client_root(ctx: Context) -> Checkout | None:
+    def _declared_checkout(arguments: dict[str, object]) -> Checkout | None:
+        declared = arguments.get("repo")
+        return Checkout.find(Path(declared)) if isinstance(declared, str) else None
+
+    @staticmethod
+    def _local_root(uri: str) -> Checkout | None:
+        url = urlsplit(uri)
+        if url.scheme == "file" and url.netloc in {"", "localhost"}:
+            return Checkout.find(Path(unquote(url.path)))
+        return None
+
+    @staticmethod
+    async def _should_probe(ctx: Context) -> bool:
         caps = ctx.session.client_capabilities
-        if caps is None or caps.roots is None or await ctx.get_state(_RESOLVED_ROOTS):
+        return bool(
+            caps and caps.roots is not None and not await ctx.get_state(_RESOLVED_ROOTS)
+        )
+
+    @staticmethod
+    async def _client_root(ctx: Context) -> Checkout | None:
+        if not await RepoGate._should_probe(ctx):
             return None
         try:
             with anyio.move_on_after(1):
@@ -75,12 +93,10 @@ class RepoGate(Middleware):
                     mt.ListRootsRequest(), mt.ListRootsResult
                 )
                 for root in roots.roots:
-                    url = urlsplit(str(root.uri))
-                    if url.scheme == "file" and url.netloc in {"", "localhost"}:
-                        checkout = Checkout.find(Path(unquote(url.path)))
-                        if checkout is not None:
-                            await ctx.set_state(_ROOT, str(checkout.root))
-                            return checkout
+                    checkout = RepoGate._local_root(str(root.uri))
+                    if checkout is not None:
+                        await ctx.set_state(_ROOT, str(checkout.root))
+                        return checkout
         except MCPError:
             pass
         await ctx.set_state(_RESOLVED_ROOTS, value=True)

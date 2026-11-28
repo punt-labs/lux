@@ -10,7 +10,7 @@ introspection, ``identify``, pub/sub); luxd serves them over streamable-HTTP ``/
 
 from __future__ import annotations
 
-from punt_lux.tools.server import mcp
+from punt_lux.tools.repo_tools import mcp
 
 from punt_lux.tools.read_tools import (
     get_display_info,
@@ -41,13 +41,11 @@ from punt_lux.tools.subscribe_tools import (
     subscribe,
     unsubscribe,
 )
-from punt_lux.tools.repo_tools import enablement, status
 
 __all__ = [
     "clear",
     "clear_scene",
     "display_mode",
-    "enablement",
     "frame_remove",
     "get_display_info",
     "get_theme",
@@ -70,7 +68,6 @@ __all__ = [
     "show",
     "show_dashboard",
     "show_table",
-    "status",
     "subscribe",
     "unsubscribe",
     "update",

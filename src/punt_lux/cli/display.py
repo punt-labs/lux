@@ -6,7 +6,7 @@ Theme and window are user-only gestures at the Display itself (DES-088).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, cast
 
 import typer
 
@@ -20,8 +20,8 @@ from punt_lux.cli._shared import (
     run,
     scope_for,
 )
+from punt_lux.cli.display_preference import DisplayModeCommand
 from punt_lux.commands import (
-    CommandResult,
     Ctx,
     DisplayInfoOps,
     DisplayModeOps,
@@ -30,13 +30,10 @@ from punt_lux.commands import (
     WindowOps,
     display_get_theme,
     display_info,
-    display_mode_get,
     display_screenshot,
     display_window_get,
 )
 from punt_lux.commands.display_state_get import display_state_get
-from punt_lux.service.display_mode_store import DisplayModeStore
-from punt_lux.wire.operations.config import DisplayModeRequest
 
 if TYPE_CHECKING:
     from punt_lux.wire.ops.display_state import DisplayStateOps
@@ -48,10 +45,6 @@ display_app = typer.Typer(
 )
 
 __all__ = ["display_app"]
-
-_ModeValue = Annotated[
-    str | None, typer.Argument(help="'on' or 'off' to set the mode. Omit to read it.")
-]
 
 
 def _ambient_ctx[T](*, _protocol: type[T] | None = None) -> Ctx[T]:
@@ -103,40 +96,7 @@ def state(
     run(display_state_get(ctx, scope=scope_for(ctx.identity)), flags)
 
 
-async def _local_mode_result(value: str) -> CommandResult:
-    """Wrap a completed local write; same shape the deleted Hub round trip produced."""
-    return CommandResult(text=f"display:{value}", json_data={"mode": value})
-
-
-@display_app.command("mode")
-def mode(
-    value: _ModeValue = None,
-    repo: str = typer.Option(..., "--repo", help="Absolute path to the project."),
-    *,
-    json_out: JsonFlag = False,
-    verbose: VerboseFlag = False,
-    quiet: QuietFlag = False,
-) -> None:
-    """Get or set a project's display mode. --repo is always required."""
-    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    if value is None:
-        ctx: Ctx[DisplayModeOps] = _ambient_ctx()
-        run(display_mode_get(ctx, repo), flags)
-        return
-    _set_mode(value, repo, flags)
-
-
-def _set_mode(value: str, repo: str, flags: OutputFlags) -> None:
-    """Write only the personal display preference."""
-    if value not in ("on", "off"):
-        raise typer.BadParameter("mode must be 'on' or 'off'")
-    fault = DisplayModeRequest.check_repo(repo)
-    if fault is None:
-        fault = DisplayModeStore(repo).write("y" if value == "on" else "n")
-    if fault is not None:
-        typer.echo(f"error: {fault.reason}", err=True)
-        raise typer.Exit(code=1)
-    run(_local_mode_result(value), flags)
+DisplayModeCommand(lambda: _ambient_ctx(_protocol=DisplayModeOps)).register(display_app)
 
 
 @display_app.command("window")
