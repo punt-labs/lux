@@ -152,12 +152,14 @@ def test_a_slow_request_does_not_block_a_second_one() -> None:
 
 
 def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
+    started = threading.Event()
     release = threading.Event()
 
     def handler(
         _service: str, operation: str, _payload: Mapping[str, object]
     ) -> Mapping[str, object]:
         if operation == "slow":
+            started.set()
             release.wait(timeout=10)  # blocking I/O in a plain function
         return {"op": operation}
 
@@ -167,7 +169,8 @@ def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
         server = RequestServer(handler)
         server.bind(connection)
         slow = server.start(_request("c1.1").model_copy(update={"operation": "slow"}))
-        await asyncio.sleep(0.05)  # let the slow handler start
+        # The slow handler is now blocked inside its worker thread.
+        assert await asyncio.to_thread(started.wait, 10)
         # The loop is free: a second request is answered while the first blocks.
         await asyncio.wait_for(
             server.serve(_request("c1.2").model_copy(update={"operation": "fast"})),
@@ -180,6 +183,40 @@ def test_a_blocking_sync_handler_does_not_stall_the_event_loop() -> None:
         await slow
 
     asyncio.run(scenario())
+
+
+def test_an_async_handler_runs_on_the_event_loop_and_can_start_tasks() -> None:
+    async def handler(
+        _service: str, operation: str, _payload: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        async def answer() -> Mapping[str, object]:
+            return {"op": operation}
+
+        return await asyncio.get_running_loop().create_task(answer())
+
+    connection = _serve(RequestServer(handler), _request())
+
+    frame = ReplyFrame.model_validate_json(connection.sent[0])
+    assert frame.payload == {"op": "new"}
+
+
+def test_a_sync_handler_runs_in_a_worker_thread_not_on_the_loop() -> None:
+    seen: list[bool] = []
+
+    def handler(
+        _service: str, _operation: str, _payload: Mapping[str, object]
+    ) -> Mapping[str, object]:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            seen.append(False)  # no running loop: a worker thread
+        else:
+            seen.append(True)
+        return {}
+
+    _serve(RequestServer(handler), _request())
+
+    assert seen == [False]
 
 
 def test_serving_before_a_connection_is_bound_is_a_programmer_error() -> None:

@@ -34,7 +34,12 @@ type RequestHandler = Callable[
     [str, str, Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
-"""Answer one relayed request: ``(service, operation, payload)`` to a reply payload."""
+"""Answer one relayed request: ``(service, operation, payload)`` to a reply payload.
+
+An ``async def`` handler runs on the listener's event loop and may start tasks. A
+plain function runs in a worker thread, so blocking I/O does not stall event
+delivery or lease renewal; it has no running event loop.
+"""
 
 _FAULT_REASON = "the provider failed while serving the request"
 _NO_HANDLER_REASON = "this client serves no requests"
@@ -129,13 +134,7 @@ class RequestServer:
                 request_id=frame.request_id, code="not_found", reason=_NO_HANDLER_REASON
             ).model_dump_json()
         try:
-            # A plain function may block on I/O, so it runs off the event loop; an
-            # async one only builds its coroutine there, which is awaited here.
-            result = await asyncio.to_thread(
-                self._handler, frame.service, frame.operation, frame.payload
-            )
-            if inspect.isawaitable(result):
-                result = await result
+            result = await self._invoke(self._handler, frame)
         except RequestRefusedError as refusal:
             return RefusalFrame(
                 request_id=frame.request_id, code=refusal.code, reason=refusal.reason
@@ -162,6 +161,19 @@ class RequestServer:
                 frame.operation,
             )
             return self._fault(frame)
+
+    @staticmethod
+    async def _invoke(
+        handler: RequestHandler, frame: RequestFrame
+    ) -> Mapping[str, object]:
+        """Run ``handler`` where its kind belongs and return its reply payload."""
+        args = (frame.service, frame.operation, frame.payload)
+        if inspect.iscoroutinefunction(handler):
+            return cast("Mapping[str, object]", await handler(*args))
+        result = await asyncio.to_thread(handler, *args)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     @staticmethod
     def _fault(frame: RequestFrame) -> str:
