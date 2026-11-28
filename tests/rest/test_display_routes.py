@@ -76,10 +76,9 @@ def test_get_window_settings() -> None:
     assert resp.json()["opacity"] == 0.9
 
 
-def test_list_frames_reports_a_closed_frame_over_http() -> None:
-    # The whole point of the route: a frame the user closed is still listed, with
-    # its visibility, so the rule that it stays closed is verifiable from outside
-    # the display process.
+def test_list_frames_reports_a_docked_frame_over_http() -> None:
+    # The whole point of the route: a frame the user docked is still listed, with
+    # its visibility, so it is verifiable from outside the display process.
     reply = DisplayReplied(
         {
             "scenes": [],
@@ -90,7 +89,7 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
                     "scene_count": 1,
                     "scene_ids": ["s1"],
                     "layout": "tab",
-                    "visibility": "closed",
+                    "visibility": "docked",
                 }
             ],
         }
@@ -106,7 +105,7 @@ def test_list_frames_reports_a_closed_frame_over_http() -> None:
             {
                 "frame_id": "f1",
                 "title": "Music",
-                "visibility": "closed",
+                "visibility": "docked",
                 "scene_ids": ["s1"],
             }
         ],

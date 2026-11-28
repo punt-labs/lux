@@ -208,45 +208,13 @@ def test_nothing_is_painted_when_no_frame_is_docked() -> None:
     assert imgui.draw.texts == []
 
 
-def test_a_closed_frame_gets_no_pill() -> None:
-    """Closing is a stronger statement than docking, and the bar is the difference.
-
-    A pill is the dock's affordance. Giving one to a frame the user shut would
-    make close and collapse the same gesture with two buttons; the Windows menu
-    is where a closed frame is asked for by name (partition V3).
-    """
-    imgui = _FakeImGui()
-    scenes = _FakeScenes(
-        {"f1": _frame("f1", "Board", visibility=FrameVisibility.CLOSED)}
-    )
-    _bar(scenes, imgui).render(any_frame_hovered=False)
-
-    assert imgui.draw.rects == []
-    assert imgui.draw.texts == []
-
-
-def test_a_workspace_of_only_closed_frames_shows_no_bar() -> None:
-    """Nothing is docked, so the strip must not eat the bottom of the viewport."""
-    imgui = _FakeImGui()
-    scenes = _FakeScenes(
-        {
-            "f1": _frame("f1", "First", visibility=FrameVisibility.CLOSED),
-            "f2": _frame("f2", "Second", visibility=FrameVisibility.CLOSED),
-        }
-    )
-    _bar(scenes, imgui).render(any_frame_hovered=False)
-
-    assert imgui.draw.rects == []
-
-
-def test_the_bar_holds_the_docked_frames_and_leaves_the_closed_ones_out() -> None:
-    """A mixed workspace paints one pill: the docked frame, not the closed one."""
+def test_the_bar_holds_the_docked_frames_and_leaves_the_on_screen_ones_out() -> None:
+    """A mixed workspace paints one pill: the docked frame, not the ones up."""
     imgui = _FakeImGui()
     scenes = _FakeScenes(
         {
             "f1": _frame("f1", "Docked", visibility=FrameVisibility.DOCKED),
-            "f2": _frame("f2", "Closed", visibility=FrameVisibility.CLOSED),
-            "f3": _frame("f3", "Up", visibility=FrameVisibility.ON_SCREEN),
+            "f2": _frame("f2", "Up", visibility=FrameVisibility.ON_SCREEN),
         }
     )
     _bar(scenes, imgui).render(any_frame_hovered=False)

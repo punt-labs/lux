@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- A frame is on screen or docked; there is no closed state. The title-bar ✕ is
+  gone, because ending a frame's content is a separate gesture offered only to
+  frames whose owner registered an end handler. A frame the user minimizes keeps
+  its scenes, widget state and tab, and comes back unchanged from its dock pill
+  or from the Windows menu, which now lists the docked frames. `list_frames` and
+  `list_scenes` report `on_screen` or `docked` only: a caller that read
+  `"closed"` must drop that case. The frame lifecycle model
+  (`make check-models`) is re-verified with two states.
+
 ### Added
 
 - The listen leg carries typed requests: the Hub sends a request frame to the

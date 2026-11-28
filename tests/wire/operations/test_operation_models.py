@@ -352,7 +352,7 @@ def test_widget_snapshot_is_frozen() -> None:
 
 def test_frame_presentation_preserves_a_none_active_tab() -> None:
     frame = FramePresentation(
-        frame_id="f1", visibility="closed", active_tab=None, cascade_index=0
+        frame_id="f1", visibility="docked", active_tab=None, cascade_index=0
     )
     assert frame.active_tab is None
 

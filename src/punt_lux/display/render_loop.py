@@ -471,7 +471,7 @@ class RenderLoop:
     _cascaded_frame_size = staticmethod(FramePresentation.initial_size)
 
     def _apply_fit_all(self) -> bool:
-        """Undock and tile visible frames without restoring closed ones."""
+        """Undock every frame and tile them."""
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
@@ -482,7 +482,7 @@ class RenderLoop:
     def _render_single_frame(
         self, frame: Frame, imgui: Any, placement: FramePlacement
     ) -> tuple[str | None, bool]:
-        """Render a frame and return its close or minimize result and hover state."""
+        """Render a frame and return its minimize result and hover state."""
         # A fit-all pass tiles this frame if it has a computed rect; else cascade.
         tiled = placement.tile_layout.get(frame.frame_id) if placement.fitting else None
         if tiled is not None:
@@ -499,15 +499,12 @@ class RenderLoop:
             imgui.set_next_window_focus()
             logger.info("raise frame=%s applied", frame.frame_id)
         win_flags = self._resolve_frame_flags(frame, imgui)
-        still_open = True
         label = self._addressing.frame_window_label(frame)
-        expanded, still_open = imgui.begin(label, still_open, win_flags)
+        # No close button: a frame offers only the collapse gesture, which docks it.
+        expanded, _ = imgui.begin(label, None, win_flags)
         hovered = imgui.is_window_hovered(
             imgui.HoveredFlags_.root_and_child_windows.value
         )
-        if not still_open:
-            imgui.end()
-            return "closed", hovered
         if not expanded:
             # Collapse triangle clicked -- minimize to the dock bar, unless docked
             # (ImGui transiently reports expanded=False mid-docking transition; a
@@ -542,21 +539,16 @@ class RenderLoop:
             fitting=fitting, tile_layout=tile_layout, default_size=(frame_w, frame_h)
         )
 
-        closed_frames: list[str] = []
         minimized_frames: list[str] = []
         any_frame_hovered = False
         for frame in on_screen:
             result, hovered = self._render_single_frame(frame, imgui, placement)
             any_frame_hovered = any_frame_hovered or hovered
-            if result == "closed":
-                closed_frames.append(frame.frame_id)
-            elif result == "minimized":
+            if result == "minimized":
                 minimized_frames.append(frame.frame_id)
-        for fid in closed_frames:
-            self._close_frame(fid)
         for fid in minimized_frames:
             sm.minimize(fid)
-        # Dock bar for docked frames — a closed frame carries no pill.
+        # Dock bar for docked frames.
         DockBar(imgui, sm, self._addressing).render(any_frame_hovered=any_frame_hovered)
 
     def _render_frame_contents(self, frame: Frame, imgui: Any) -> None:
@@ -633,29 +625,12 @@ class RenderLoop:
         for elem in scene.elements:
             elem.render()
 
-    def _close_frame(self, frame_id: str) -> None:
-        """Put a frame away: the user clicked its ✕.
-
-        Closing is the Display's own decision about where a window is, and it
-        tells the owning clients nothing. The frame keeps its scenes, its widget
-        state and its tab, so raising it later brings back what the user shut
-        rather than a blank rebuilt from the next push.
-
-        The one thing it does beyond the visibility write is drop this Display's
-        queued interactions that originated in the frame's scenes, so a button in
-        a window the user just shut cannot fire afterwards. That drain reaches no
-        one outside this process, and it is scoped by scene rather than by
-        element id: ids are shareable across scenes, so draining by id would
-        cancel a click the user is still waiting on in a frame that is up.
-        """
-        self._drop_queued_interactions(self._scenes.close(frame_id))
-
     def _drop_queued_interactions(self, scene_ids: list[str]) -> None:
         """Drop queued and held interactions that came from ``scene_ids``.
 
         The scene-scoped counterpart to :meth:`_drain_stale_events`. That one
-        answers "these elements are gone"; this one answers "this frame is not
-        on screen any more", and the two need different scopings because an
+        answers "these elements are gone"; this one answers "this frame's content
+        has ended", and the two need different scopings because an
         element id can be held by more than one scene at once.
         """
         scenes = set(scene_ids)

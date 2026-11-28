@@ -273,7 +273,7 @@ class TestTheFrameIdRoundTrip:
     ) -> None:
         """The regression this whole change exists to prevent: the id a
         Display-local click raises must be byte-for-byte the connection-scoped
-        id a real ``FrameBook`` keys the frame under, or reopening a closed
+        id a real ``FrameBook`` keys the frame under, or restoring a docked
         board from its menu entry is a silent no-op (DES-089).
 
         Builds the Hub's real submenu-composition path (``ClientSubmenu`` via
@@ -312,11 +312,11 @@ class TestTheFrameIdRoundTrip:
         (raised_id,) = raised
 
         # The exact key a real scene push establishes for this connection's
-        # frame -- and the exact reopen-a-closed-board scenario.
+        # frame -- and the exact restore-a-docked-board scenario.
         real_key = ConnectionScopedId.compose(conn, "beads-lux")
         book = FrameBook()
         book.ensure(_scene(frame_id=real_key), owner_fd=1)
-        book.close(real_key)
+        book.minimize(real_key)
 
         assert raised_id == real_key
         assert book.restore(raised_id) is True
@@ -326,7 +326,7 @@ class TestTheFrameIdRoundTrip:
     ) -> None:
         """Details is the Hub's own command and registers no callback, so its
         frame must reach the Display on the menu itself: with no frame the
-        click is answered Hub-side into a closed frame that nothing reopens.
+        click is answered Hub-side into a docked frame that nothing restores.
         """
         conn = ConnectionId("lux")
         named = NamedSessions.over({conn: _bare_session()}, ClientRoster())
@@ -337,7 +337,7 @@ class TestTheFrameIdRoundTrip:
         real_key = ConnectionScopedId.compose(conn, f"lux.client-details.{conn}")
         book = FrameBook()
         book.ensure(_scene(frame_id=real_key), owner_fd=1)
-        book.close(real_key)
+        book.minimize(real_key)
         assert raised == [real_key]
         assert book.restore(raised[0]) is True
 

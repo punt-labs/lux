@@ -37,9 +37,8 @@ class DockBar:
     :class:`~punt_lux.display.dock_pill.DockPill`'s; what the strip holds and in
     what order is here.
 
-    A *closed* frame gets no pill. The pill is the dock's affordance, and leaving
-    closed out of it is what makes closing a stronger statement than docking:
-    the Windows menu is where a closed frame is asked for by name.
+    Every docked frame gets a pill, and only a docked frame does: the pill is the
+    dock's affordance for restoring what the user minimized.
     """
 
     _imgui: Any  # the caller's imgui module; imgui_bundle ships no type stubs

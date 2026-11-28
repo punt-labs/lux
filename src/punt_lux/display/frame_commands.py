@@ -9,13 +9,8 @@ put away to, and put it in front on the next render.
 Raising is deliberately not an error when the frame is unknown. A caller asking
 for a frame that is not up is not making a mistake — it is discovering that it
 has to push one — so the answer is ``raised: false`` rather than a fault it would
-have to catch. A frame the user *closed* is still held, so it answers
+have to catch. A frame the user *docked* is still held, so it answers
 ``raised: true`` and comes back with what it was holding.
-
-The two are not interchangeable, and that asymmetry is the point. ``raise_it``
-is the named user gesture, so it reaches a closed frame; ``set_state`` is a
-client adjusting a dock state, so it does not. Making a closed frame reachable
-by anything else would put the user's decision back where DES-088 took it from.
 """
 
 from __future__ import annotations
@@ -45,16 +40,9 @@ class FrameCommands:
 
         ``minimized`` and its older spelling ``collapsed`` are the wire's whole
         vocabulary here, and the state they toggle runs between *on screen* and
-        *docked*. A frame the user closed is in neither, and this command refuses
-        it in **both** directions: undocking one would put back a window the user
-        shut, and docking one would give it a pill they never asked for. Both are
-        the same invariant broken — a closed frame is reachable only by a named
-        user gesture, which is :meth:`raise_it` and nothing else.
-
-        The refusal is loud. A caller cannot see a frame's visibility from the
-        request it is making, so answering "nothing changed" would let it believe
-        it had collapsed something; that silence is exactly how a content-side
-        path came to undo the user's decision in the first place (DES-088).
+        *docked*. A frame this display does not hold is an error, because a caller
+        cannot see a frame's visibility from the request it is making and would
+        otherwise believe it had collapsed something.
         """
         frame = self._held(frame_id)
         docked = self._dock_request(kwargs)
@@ -77,18 +65,7 @@ class FrameCommands:
 
     @staticmethod
     def _dock(frame: Frame, *, docked: bool) -> None:
-        """Move a frame between on screen and the dock; a closed one refuses both.
-
-        This is the whole policy, in one place: the dock state runs between those
-        two values, and a frame the user closed is in neither. Only a named
-        gesture brings that one back.
-        """
-        if frame.is_closed:
-            msg = (
-                f"frame '{frame.frame_id}' is closed; dock state applies only to a "
-                "frame that is up. Use raise_frame to bring back a closed frame."
-            )
-            raise ValueError(msg)
+        """Move a frame between on screen and the dock."""
         if docked:
             frame.minimize()
         else:
@@ -99,9 +76,8 @@ class FrameCommands:
 
         Restoring and focusing are one gesture, not two: a frame that took focus
         while still in the dock would have answered the request without becoming
-        visible. It works identically on a frame that is on screen behind others,
-        one the user docked, and one the user closed — the last being why closing
-        is a visibility state and not the erasure of the frame. A frame this
+        visible. It works identically on a frame that is on screen behind others
+        and on one the user docked. A frame this
         display does not hold answers ``raised: false``, so the caller learns to
         push one rather than having to read an error.
         """

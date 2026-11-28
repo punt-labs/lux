@@ -1,8 +1,8 @@
 """FramePlacement -- a frame's visibility, active tab, and cascade slot.
 
 Grouped into one composed value because :meth:`Frame.presentation` already
-reports them as one unit, and all three change together under the same three
-gestures (minimize/close/restore) a frame's placement -- never its content --
+reports them as one unit, and all three change together under the same two
+gestures (minimize/restore) a frame's placement -- never its content --
 answers to.
 """
 
@@ -50,10 +50,6 @@ class FramePlacement:
         return self._visibility.is_docked
 
     @property
-    def is_closed(self) -> bool:
-        return self._visibility.is_closed
-
-    @property
     def active_tab(self) -> str | None:
         return self._active_tab
 
@@ -67,9 +63,6 @@ class FramePlacement:
 
     def minimize(self) -> None:
         self._visibility = FrameVisibility.DOCKED
-
-    def close(self) -> None:
-        self._visibility = FrameVisibility.CLOSED
 
     def restore(self) -> None:
         self._visibility = FrameVisibility.ON_SCREEN

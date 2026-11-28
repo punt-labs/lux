@@ -95,10 +95,6 @@ class FrameBook:
         """Return the frames the dock bar shows a pill for."""
         return [f for f in self._frames.values() if f.is_docked]
 
-    def closed(self) -> list[Frame]:
-        """Return the frames the user put away, which only a gesture brings back."""
-        return [f for f in self._frames.values() if f.is_closed]
-
     def ensure(self, msg: SceneMessage, owner_fd: int, hub: HubId = _NO_HUB) -> Frame:
         """Create or refresh the scene's frame under its owning Hub."""
         frame = self._frames.get(HubScopedKey(hub, msg.frame_id))
@@ -160,15 +156,6 @@ class FrameBook:
         frame = self._frames.flatten().get(frame_id)
         if frame is not None:
             frame.minimize()
-
-    def close(self, frame_id: str) -> Frame | None:
-        """Put the named frame away and return it, or ``None`` if gone."""
-        frame = self._frames.flatten().get(frame_id)
-        if frame is None:
-            return None
-        frame.close()
-        self._focus.release(frame_id)
-        return frame
 
     def restore(self, frame_id: str, hub: HubId = _NO_HUB) -> bool:
         """Bring an existing frame forward and request focus within the named Hub.

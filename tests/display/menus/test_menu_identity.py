@@ -28,7 +28,7 @@ from tests.menu_doubles import (
     wire_menu,
 )
 
-_CLOSED = FrameVisibility.CLOSED
+_DOCKED = FrameVisibility.DOCKED
 
 _HUB_A = HubId("pembroke", 100)
 _HUB_B = HubId("okinos", 200)
@@ -283,7 +283,7 @@ class TestSubmenuContainerIdentity:
 
 
 class TestWindowsMenuReopenIdentity:
-    """Closed frames sharing a title stay distinct in the Windows menu."""
+    """Docked frames sharing a title stay distinct in the Windows menu."""
 
     def _windows(self, frames: dict[str, Frame]) -> WindowsMenu:
         return WindowsMenu(
@@ -297,8 +297,8 @@ class TestWindowsMenuReopenIdentity:
 
     def test_two_same_titled_frames_render_without_conflict(self) -> None:
         frames = {
-            "f1": make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A),
-            "f2": make_frame("f2", visibility=_CLOSED, title="Vox", hub=_HUB_B),
+            "f1": make_frame("f1", visibility=_DOCKED, title="Vox", hub=_HUB_A),
+            "f2": make_frame("f2", visibility=_DOCKED, title="Vox", hub=_HUB_B),
         }
         imgui = FakeImGui(strict_ids=True)
 
@@ -311,7 +311,7 @@ class TestWindowsMenuReopenIdentity:
         assert len(set(reopen)) == 2
 
     def test_the_reopen_entry_reads_the_title_the_seam_gives(self) -> None:
-        frame = make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A)
+        frame = make_frame("f1", visibility=_DOCKED, title="Vox", hub=_HUB_A)
         frame.heading.relabel("lux (2)")
         windows = WindowsMenu(
             get_frames=lambda: {"f1": frame},
@@ -328,7 +328,7 @@ class TestWindowsMenuReopenIdentity:
         assert imgui.line("lux (2) :: Vox").label == "lux (2) :: Vox"
 
     def test_the_reopen_entry_reads_the_frame_title(self) -> None:
-        frame = make_frame("f1", visibility=_CLOSED, title="Vox", hub=_HUB_A)
+        frame = make_frame("f1", visibility=_DOCKED, title="Vox", hub=_HUB_A)
         imgui = FakeImGui()
 
         self._windows({"f1": frame}).section().render(imgui)

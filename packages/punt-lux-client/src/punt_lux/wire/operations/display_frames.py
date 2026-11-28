@@ -29,7 +29,7 @@ from punt_lux.wire.operations.common import OpError
 
 __all__ = ["FrameState", "FrameStates", "FrameVisibility"]
 
-type FrameVisibility = Literal["on_screen", "docked", "closed"]
+type FrameVisibility = Literal["on_screen", "docked"]
 
 
 class FrameState(BaseModel):
@@ -42,18 +42,12 @@ class FrameState(BaseModel):
     visibility: FrameVisibility
     scene_ids: list[str]
 
-    @property
-    def is_closed(self) -> bool:
-        """Whether the user has put this frame away."""
-        return self.visibility == "closed"
-
 
 class FrameStates(BaseModel):
     """Every frame the display holds, whatever visibility each one is in.
 
-    A *closed* frame is listed like any other. That is the point of the type:
-    closing is a visibility and not an erasure, so a caller can no longer tell a
-    frame the user shut from one that never existed by its absence here.
+    A *docked* frame is listed like any other, so a caller can tell a frame the
+    user minimized from one that never existed by its presence here.
     """
 
     model_config = ConfigDict(frozen=True)

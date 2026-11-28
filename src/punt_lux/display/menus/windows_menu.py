@@ -9,11 +9,9 @@ Every entry reads live state at the moment the menu is composed, so a command
 goes dim according to how the workspace is right now: Collapse All wants
 something on screen to send away, Expand All wants something away to bring back.
 
-The closed-frame entries at the bottom are the only way back for a frame whose
-client owns no menu of its own. A closed frame deliberately carries no dock
-pill — that is what makes closing a stronger statement than collapsing — so
-without these, an ordinary ``show()`` scene's close button would be a one-way
-door (DES-065 R8, finding F3).
+The docked-frame entries at the bottom are a way back, beside the dock pill, for
+a frame whose client owns no menu of its own: an ordinary ``show()`` scene's
+frame, minimized to the dock, is restored here unchanged (DES-103 decision 6).
 """
 
 from __future__ import annotations
@@ -73,13 +71,13 @@ class WindowsMenu:
         return self
 
     def section(self) -> Submenu:
-        """Build the menu: frame layout, the closed frames, then window chrome."""
+        """Build the menu: frame layout, the docked frames, then window chrome."""
         frames = list(self._get_frames().values())
         return Submenu(
             "Windows",
             [
                 *self._layout_items(frames),
-                *self._closed_entries(frames),
+                *self._docked_entries(frames),
                 MenuSeparator(),
                 MenuItem("Clear All", self._on_clear_all),
                 MenuItem("Reset Size", self._chrome.reset_size),
@@ -102,12 +100,12 @@ class WindowsMenu:
             MenuItem("Fit All", self._on_fit_all, enabled=bool(frames)),
         ]
 
-    def _closed_entries(self, frames: list[Frame]) -> list[MenuSeparator | MenuItem]:
-        """Return one entry per closed frame under a rule, or nothing if none are."""
-        closed = [frame for frame in frames if frame.is_closed]
-        if not closed:
+    def _docked_entries(self, frames: list[Frame]) -> list[MenuSeparator | MenuItem]:
+        """Return one entry per docked frame under a rule, or nothing if none are."""
+        docked = [frame for frame in frames if frame.is_docked]
+        if not docked:
             return []
-        return [MenuSeparator(), *(self._reopen_item(frame) for frame in closed)]
+        return [MenuSeparator(), *(self._reopen_item(frame) for frame in docked)]
 
     def _reopen_item(self, frame: Frame) -> MenuItem:
         """Build the reopen entry, ImGui-keyed on ``(frame.hub, frame_id)``."""
@@ -124,6 +122,6 @@ class WindowsMenu:
                 frame.minimize()
 
     def _expand_all(self) -> None:
-        """Bring every frame back on screen (docked and closed), taking no focus."""
+        """Bring every docked frame back on screen, taking no focus."""
         for frame in self._get_frames().values():
             frame.restore()

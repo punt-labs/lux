@@ -291,15 +291,6 @@ class TestFrameItems:
 
         assert all(frame.is_docked for frame in frames.values())
 
-    def test_collapse_all_leaves_a_closed_frame_closed(self) -> None:
-        """Collapsing sends what is on screen to the dock; a closed frame is neither."""
-        frames = {"a": make_frame("a", visibility=FrameVisibility.CLOSED)}
-        manager = _manager(get_frames=lambda: frames)
-
-        manager.render_bar(FakeImGui(("Collapse All",)))
-
-        assert frames["a"].is_closed is True
-
     def test_expand_all_restores_every_docked_frame(self) -> None:
         frames = {"a": make_frame("a", visibility=FrameVisibility.DOCKED)}
         manager = _manager(get_frames=lambda: frames)
@@ -307,18 +298,6 @@ class TestFrameItems:
         manager.render_bar(FakeImGui(("Expand All",)))
 
         assert frames["a"].is_on_screen is True
-
-    def test_expand_all_restores_closed_frames_too(self) -> None:
-        """A8 — without this, the close button is a one-way door for bulk restore."""
-        frames = {
-            "a": make_frame("a", visibility=FrameVisibility.DOCKED),
-            "b": make_frame("b", visibility=FrameVisibility.CLOSED),
-        }
-        manager = _manager(get_frames=lambda: frames)
-
-        manager.render_bar(FakeImGui(("Expand All",)))
-
-        assert all(frame.is_on_screen for frame in frames.values())
 
     def test_the_frame_items_are_dim_with_no_frames(self) -> None:
         imgui = FakeImGui()
@@ -337,10 +316,10 @@ class TestFrameItems:
         assert imgui.line("Collapse All").enabled is True
         assert imgui.line("Expand All").enabled is False
 
-    def test_expand_all_lights_up_for_a_closed_frame_alone(self) -> None:
-        """Closed counts as away: it is what Expand All exists to bring back."""
+    def test_expand_all_lights_up_for_a_docked_frame_alone(self) -> None:
+        """Docked counts as away: it is what Expand All exists to bring back."""
         imgui = FakeImGui()
-        frames = {"a": make_frame("a", visibility=FrameVisibility.CLOSED)}
+        frames = {"a": make_frame("a", visibility=FrameVisibility.DOCKED)}
 
         _manager(get_frames=lambda: frames).render_bar(imgui)
 
@@ -362,18 +341,18 @@ class TestFrameItems:
         )
 
 
-class TestTheClosedFrameList:
-    """F3 — the reopen affordance for a client that owns no menu of its own.
+class TestTheDockedFrameList:
+    """The restore affordance, beside the dock pill, for a client with no menu.
 
-    A closed frame carries no dock pill, deliberately. Without these entries an
-    ordinary ``show()`` scene's close button would become a one-way door the
-    moment the rest of this change lands, so the fix carries its own remedy.
+    A frame minimized to the dock is restored unchanged from its pill or from the
+    Windows menu, so an ordinary ``show()`` scene's frame never needs a menu of
+    its own to come back.
     """
 
-    def test_a_closed_frame_gets_an_entry_under_a_rule(self) -> None:
+    def test_a_docked_frame_gets_an_entry_under_a_rule(self) -> None:
         imgui = FakeImGui()
         frames = {
-            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music")
+            "a": make_frame("a", visibility=FrameVisibility.DOCKED, title="Music")
         }
 
         _manager(get_frames=lambda: frames).render_bar(imgui)
@@ -389,24 +368,21 @@ class TestTheClosedFrameList:
             "Reset Size",
         )
 
-    def test_each_closed_frame_gets_its_own_entry_by_title(self) -> None:
+    def test_each_docked_frame_gets_its_own_entry_by_title(self) -> None:
         imgui = FakeImGui()
         frames = {
-            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music"),
-            "b": make_frame("b", visibility=FrameVisibility.CLOSED, title="Beads"),
+            "a": make_frame("a", visibility=FrameVisibility.DOCKED, title="Music"),
+            "b": make_frame("b", visibility=FrameVisibility.DOCKED, title="Beads"),
         }
 
         _manager(get_frames=lambda: frames).render_bar(imgui)
 
         assert imgui.labels_under("Windows")[4:6] == ("Music", "Beads")
 
-    def test_the_list_is_absent_when_nothing_is_closed(self) -> None:
-        """No closed frames, no rule and no entries — the menu does not grow."""
+    def test_the_list_is_absent_when_nothing_is_docked(self) -> None:
+        """No docked frames, no rule and no entries — the menu does not grow."""
         imgui = FakeImGui()
-        frames = {
-            "a": make_frame("a"),
-            "b": make_frame("b", visibility=FrameVisibility.DOCKED),
-        }
+        frames = {"a": make_frame("a"), "b": make_frame("b")}
 
         _manager(get_frames=lambda: frames).render_bar(imgui)
 
@@ -423,8 +399,8 @@ class TestTheClosedFrameList:
         """A9 — through the raise, so the frame comes back *and* to the front."""
         raised: list[str] = []
         frames = {
-            "a": make_frame("a", visibility=FrameVisibility.CLOSED, title="Music"),
-            "b": make_frame("b", visibility=FrameVisibility.CLOSED, title="Beads"),
+            "a": make_frame("a", visibility=FrameVisibility.DOCKED, title="Music"),
+            "b": make_frame("b", visibility=FrameVisibility.DOCKED, title="Beads"),
         }
         manager = _manager(get_frames=lambda: frames, on_raise_frame=raised.append)
 

@@ -143,7 +143,7 @@ class TestHandleManifestDispatch:
 
 
 class TestAClosePassesNoWord:
-    """No close reaches a client: not the Hub's purge, and not the user's ✕."""
+    """No close reaches a client: not the Hub's purge, and no drain tells one."""
 
     def test_a_manifest_driven_purge_sends_no_frame_close_event(self) -> None:
         server = _make_server()
@@ -175,67 +175,14 @@ class TestAClosePassesNoWord:
         owner_sock.send.assert_not_called()
         assert "f1" not in server._scenes.frames
 
-    def test_a_user_initiated_close_tells_the_owner_nothing(self) -> None:
-        """X8 — closing is Display-owned, so the client hears about it not at all.
+    def test_dropping_a_frames_queued_interactions_removes_only_its_scenes(
+        self,
+    ) -> None:
+        """A button in content the user ended must not fire afterwards.
 
-        This is the send F4 retires. The Hub answered a ``frame_close`` by
-        removing the frame's scenes and marking them dirty; the replicator then
-        pushed them back empty, and an empty push is the dispose path. So even a
-        Display that kept its closed frame perfectly would have had it thrown out
-        one round trip later, by the Hub, on the user's own close.
+        The drain is Display-local: it reaches nothing outside this process, and
+        it is scoped by scene, so another frame's queued click stays.
         """
-        server = _make_server()
-        owner_sock = _mock_sock(10)
-        server._socket_listener.register_client_identity(
-            10, kind="hub", name="owner", connect_time=0.0
-        )
-        server._socket_listener.clients.append(owner_sock)
-        server._socket_listener.fd_to_client[10] = owner_sock
-        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
-        owner_sock.send.reset_mock()  # drop the scene-install ack, not under test
-
-        server._close_frame("f1")
-
-        owner_sock.send.assert_not_called()
-
-    def test_a_user_initiated_close_keeps_the_frame_and_its_scene(self) -> None:
-        """The user shut a window; the content behind it is untouched."""
-        server = _make_server()
-        owner_sock = _mock_sock(10)
-        server._socket_listener.register_client_identity(
-            10, kind="hub", name="owner", connect_time=0.0
-        )
-        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
-
-        server._close_frame("f1")
-
-        assert server._scenes.frames["f1"].is_closed is True
-        assert server._scenes.resolve_scene("s1") is not None
-
-    def test_a_close_drops_the_frames_queued_interactions(self) -> None:
-        """X6 — a button in a window the user just shut must not fire afterwards.
-
-        The drain is Display-local: it reaches nothing outside this process,
-        which is what makes it a visibility-side action rather than a content one.
-        """
-        server = _make_server()
-        owner_sock = _mock_sock(10)
-        server._socket_listener.register_client_identity(
-            10, kind="hub", name="owner", connect_time=0.0
-        )
-        server._handle_scene(owner_sock, _make_scene("s1", "f1"))
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(
-                element_id="s1-t", action="click", scene_id="s1"
-            )
-        )
-
-        server._close_frame("f1")
-
-        assert server._event_queue == []
-
-    def test_a_close_leaves_another_frames_queued_interactions_alone(self) -> None:
-        """The drain is for the frame that was shut, not for the workspace."""
         server = _make_server()
         owner_sock = _mock_sock(10)
         server._socket_listener.register_client_identity(
@@ -243,13 +190,14 @@ class TestAClosePassesNoWord:
         )
         server._handle_scene(owner_sock, _make_scene("s1", "f1"))
         server._handle_scene(owner_sock, _make_scene("s2", "f2"))
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(
-                element_id="s2-t", action="click", scene_id="s2"
+        for scene_id in ("s1", "s2"):
+            server._event_queue.append(
+                RemoteEventHandlerInvocation(
+                    element_id=f"{scene_id}-t", action="click", scene_id=scene_id
+                )
             )
-        )
 
-        server._close_frame("f1")
+        server._drop_queued_interactions(["s1"])
 
         assert [e.element_id for e in server._event_queue] == ["s2-t"]
 

@@ -228,7 +228,7 @@ def test_snapshot_preserves_none_active_tab_as_no_scenes_shown() -> None:
         "frames": [
             {
                 "frame_id": "f1",
-                "visibility": "closed",
+                "visibility": "docked",
                 "active_tab": None,
                 "cascade_index": 0,
             }

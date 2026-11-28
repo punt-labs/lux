@@ -240,7 +240,7 @@ Clients use the stateful MCP `initialize` handshake; clients that support automa
 | `display_state_get()` | Widget and frame state for the scenes you own |
 | `display_link_get()` | Whether a window is connected and, if not, how many scenes the Hub is holding, the current retry delay, and the Hub's host and PID |
 | `display_screenshot()` | Capture the next painted frame to a PNG; returns its path on the display host |
-| `list_frames()` | The window's frames and whether each is on screen, docked, or closed |
+| `list_frames()` | The window's frames and whether each is on screen or docked |
 | **Introspection** | |
 | `scene_inspect(scene_id)` | Element tree of a scene you own |
 | `scene_ls()` | Active scenes and frames |

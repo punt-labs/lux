@@ -92,7 +92,7 @@ def test_nested_terminal_is_found(replica: SceneReplica, held: Held) -> None:
 
 def test_hidden_frame_keeps_its_session(replica: SceneReplica, held: Held) -> None:
     replica.handle_framed_scene(_scene("s1", "t1"), 1)
-    replica.close("s1")
+    replica.minimize("s1")
     replica.handle_framed_scene(_scene("s2", "t2"), 1)
     assert held.names == frozenset({"t1", "t2"})
 
