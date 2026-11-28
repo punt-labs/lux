@@ -78,9 +78,10 @@ handoff-runtime: ## Install the verified HANDOFF_RUNTIME_ARCHIVE for Ethos
 	@bash scripts/install-handoff-runtime.sh "$$HANDOFF_RUNTIME_ARCHIVE"
 
 .PHONY: check-models
-check-models: ## Type-check and model-check readiness, registry lifecycle, terminal, client calls, retry tokens and fidelity mutants
+check-models: ## Type-check and model-check readiness, registry lifecycle, frame visibility, terminal, client calls, retry tokens and fidelity mutants
 	PROBCLI="$(PROBCLI)" bash scripts/verify_readiness_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_peripheral_registry_model.sh
+	PROBCLI="$(PROBCLI)" bash scripts/verify_frame_visibility_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_terminal_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_client_calls_model.sh
 	PROBCLI="$(PROBCLI)" bash scripts/verify_new_tokens_model.sh

@@ -2,14 +2,47 @@
 
 **Bead:** `lux-mxvy.8` (R8 of epic `lux-mxvy`)
 **Mission:** `m-2026-08-29-004` (design; worker `rmh`, evaluator `gvr`)
-**Status:** delivered (DES-088); `SceneReplica.close`, `FrameVisibility`, and
-`Frame.restore` implement the Display-owned closed state and reopening path.
+**Status:** delivered (DES-088); amended by DES-103 decision 6.
 **Model:** [`frame-visibility-lifecycle.tex`](frame-visibility-lifecycle.tex),
-fidelity control [`frame-visibility-lifecycle_buggy.tex`](frame-visibility-lifecycle_buggy.tex),
+verified by `scripts/verify_frame_visibility_model.sh` (`make check-models`),
 partition audit [`frame_visibility_lifecycle_coverage.md`](frame_visibility_lifecycle_coverage.md)
 
-Retained as the design record. The original implementation write-set is in §7;
-problem descriptions below refer to the pre-implementation code.
+## Current model
+
+Visibility has two values, `ON_SCREEN` and `DOCKED`. Every frame has –, which
+docks it with all state kept; a dock pill, the Windows menu or the frame's menu
+entry restores it unchanged. × appears only on a frame whose owner registered
+an end handler. After a confirm the Display routes × to that handler through
+remote dispatch (D21), and the owner ends the content; the frame goes with its
+last scene. The rule of section 1 stands: a content event never writes
+visibility, and a visibility event never writes content.
+
+The model has thirteen operations. Content events: `PushNewFrame`,
+`PushNewScene`, `PushRepeat`, `DisposeScene`, `DisposeFrame`,
+`RegisterEndHandler`, `OwnerEnd`. Visibility events: `Minimize`,
+`SetDockState`, `Raise`, `End`, `SelectTab`, `ConsumeFocus`. `End` writes only
+the record that a request is in flight (`endPending`); `OwnerEnd` is enabled
+only for a frame with a request in flight. `SetDockState` accepts either value
+on any frame.
+
+Four state invariants, each with a fidelity variant that reaches its negation
+and an intact model that does not:
+
+1. content never requests focus (`autoFocused = {}`);
+2. content never takes the active tab (`tabStolen = {}`);
+3. a frame the user docked is not on screen unless `Raise` or `SetDockState`
+   put it there;
+4. an end request exists only for a frame with an end handler
+   (`endPending ⊆ handler`).
+
+The fifth property, deadlock freedom, is the model check itself. The
+`push-arrival` variant reaches 1, 2 and 3 through the old `is_new` side effect;
+`end-no-handler` reaches 4; `end-writes-visibility` reaches 3 through an owner's
+end of another frame.
+
+Sections 2 to 10 below are the DES-088 design record for the three-valued
+visibility. They describe the `CLOSED` state, its Windows-menu section, the
+`set_frame_state` guard and the dock-bar exclusion that DES-103 removes.
 
 ---
 
