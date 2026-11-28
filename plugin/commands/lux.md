@@ -6,8 +6,8 @@ allowed-tools: ["Bash", "mcp__plugin_lux_lux__enablement", "mcp__plugin_lux_lux_
 
 # /lux command
 
-Configure Lux for the main checkout, including when the session started in a
-subdirectory or a linked git worktree.
+Configure Lux integration for the invoking checkout, including a linked Git
+worktree. Display preference is independent of the checkout's integration state.
 
 ## Usage
 
@@ -18,9 +18,9 @@ subdirectory or a linked git worktree.
 
 ## Implementation
 
-Parse `$ARGUMENTS`. Resolve `<repo>` from the first `worktree` record in
-`git worktree list --porcelain` (the main checkout; do not use the daemon's
-working directory). Always pass its absolute path, safely quoted in Bash.
+Parse `$ARGUMENTS`. Run `git rev-parse --show-toplevel` from the session's working
+directory to resolve `<repo>` to the invoking checkout. Do not use the daemon's
+working directory. Always pass its absolute path, safely quoted in Bash.
 
 For `enable` or `disable`, call the `enablement` MCP tool with `repo="<repo>"`,
 `action="enable"` or `action="disable"` and `scope="local"` unless the user

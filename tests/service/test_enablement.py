@@ -342,3 +342,26 @@ async def test_mcp_dormancy_and_shared_enablement_service(checkout: Checkout) ->
         )
         assert dormant_again.is_error
         assert "Run /lux enable" in str(dormant_again.content)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_mcp_activation_targets_the_invoking_worktree(
+    checkout: Checkout, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    linked = tmp_path_factory.mktemp("lux-mcp-worktree")
+    git(checkout.root, "worktree", "add", "--detach", str(linked))
+    nested = linked / "nested"
+    nested.mkdir()
+    args = {"repo": str(nested)}
+    async with Client(mcp) as client:
+        enabled = await client.call_tool("enablement", {**args, "action": "enable"})
+        assert str(linked / PERSONAL / "enabled") in str(enabled.data)
+        assert (linked / PERSONAL / "enabled").exists()
+        assert not checkout.state().enabled
+        status = await client.call_tool("status", args)
+        assert "integration: enabled" in str(status.data)
+        assert not (await client.call_tool("display_mode_get", args)).is_error
+        await client.call_tool("enablement", {**args, "action": "disable"})
+        assert not Checkout(linked).state().enabled
+        assert not checkout.state().enabled

@@ -58,7 +58,7 @@ class _RepoTools:
         if not path.is_absolute():
             msg = "repo must be an absolute path"
             raise ValueError(msg)
-        return Checkout.resolve(path, main=True)
+        return Checkout.resolve(path)
 
 
 enablement = mcp.tool(_RepoTools.enablement)
